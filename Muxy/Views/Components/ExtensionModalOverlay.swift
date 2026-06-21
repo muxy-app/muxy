@@ -25,6 +25,9 @@ struct ExtensionModalOverlay: View {
             },
             onSelect: onSelect,
             onDismiss: onDismiss,
+            onQueryChange: request.onQueryChange != nil ? { query in
+                ExtensionModalService.shared.queryChanged(query)
+            } : nil,
             row: { item, isHighlighted in
                 AnyView(ExtensionModalRow(item: item, isHighlighted: isHighlighted))
             }

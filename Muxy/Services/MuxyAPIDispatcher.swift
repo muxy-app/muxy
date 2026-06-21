@@ -133,7 +133,13 @@ enum MuxyAPIDispatcher {
             try await ExtensionDialogService.alert(request)
             return NSNull()
         case "modal.open":
-            let requestID = ExtensionModalService.shared.openSession(extensionID: context.extensionID, args: args)
+            let hasOnQueryChange = args["onQueryChange"] as? Bool == true
+            let onQueryChange: ((String) -> Void)? = hasOnQueryChange ? { _ in } : nil
+            let requestID = ExtensionModalService.shared.openSession(
+                extensionID: context.extensionID,
+                args: args,
+                onQueryChange: onQueryChange
+            )
             return ["requestID": requestID]
         case "modal.feed":
             ExtensionModalService.shared.feedSession(modalItems(args))

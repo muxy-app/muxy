@@ -60,10 +60,18 @@ final class ExtensionModalService {
         let emptyLabel: String
         let noMatchLabel: String
         let dataset: Dataset
+        let onQueryChange: ((String) -> Void)?
 
         static func == (lhs: Request, rhs: Request) -> Bool {
             lhs.id == rhs.id
         }
+    }
+
+    enum SessionState: Equatable {
+        case open
+        case feeding
+        case queryable
+        case finished
     }
 
     static let maxItems = 100_000
@@ -71,14 +79,16 @@ final class ExtensionModalService {
     static let pageSize = 100
 
     private(set) var active: Request?
+    private(set) var state: SessionState = .finished
     private var sequence = 0
     private var session: Dataset?
     private var onResolve: ((Item?) -> Void)?
     private var pendingRequestID: String?
     private var bufferedResults: [String: Item?] = [:]
+    private var onQueryChangeHandler: ((String) -> Void)?
 
     @discardableResult
-    func openSession(extensionID: String, args: [String: Any]) -> String {
+    func openSession(extensionID: String, args: [String: Any], onQueryChange: ((String) -> Void)? = nil) -> String {
         sequence += 1
         let dataset = Dataset()
         let request = Request(
@@ -87,22 +97,61 @@ final class ExtensionModalService {
             placeholder: text(args, "placeholder") ?? "Search...",
             emptyLabel: text(args, "emptyLabel") ?? "No items",
             noMatchLabel: text(args, "noMatchLabel") ?? "No matches",
-            dataset: dataset
+            dataset: dataset,
+            onQueryChange: onQueryChange
         )
         resolve(with: nil)
         bufferedResults.removeAll()
         session = dataset
         active = request
         pendingRequestID = request.id
+        state = onQueryChange != nil ? .queryable : .feeding
+        onQueryChangeHandler = onQueryChange
         return request.id
     }
 
+    private var lastFeedTimestamp: UInt64 = 0
+    static let minFeedIntervalMs: UInt64 = 16
+
     func feedSession(_ items: [Item]) {
+        let now = DispatchTime.now().uptimeNanoseconds / 1_000_000
+        if now - lastFeedTimestamp < Self.minFeedIntervalMs {
+            return
+        }
+        lastFeedTimestamp = now
         session?.append(items)
     }
 
     func finishSession() {
         session?.finish()
+        if state == .feeding {
+            state = .finished
+        }
+    }
+
+    static let maxQueryLength = 500
+    static let maxQueryChangeFrequencyMs: UInt64 = 50
+
+    private var lastQueryChangeTimestamp: UInt64 = 0
+
+    func queryChanged(_ query: String) {
+        guard state == .queryable else { return }
+        guard let active else { return }
+        let now = DispatchTime.now().uptimeNanoseconds / 1_000_000
+        guard now - lastQueryChangeTimestamp >= Self.maxQueryChangeFrequencyMs else { return }
+        lastQueryChangeTimestamp = now
+        let sanitized = String(query.prefix(Self.maxQueryLength))
+            .replacingOccurrences(of: "\u{0000}", with: "")
+        onQueryChangeHandler?(sanitized)
+        NotificationSocketServer.shared.pushModalQueryChange(
+            extensionID: active.extensionID,
+            requestID: active.id,
+            query: sanitized
+        )
+    }
+
+    func isQueryable(_ requestID: String) -> Bool {
+        active?.id == requestID && state == .queryable
     }
 
     func onResult(requestID: String, _ handler: @escaping (Item?) -> Void) {
@@ -132,7 +181,12 @@ final class ExtensionModalService {
     }
 
     func page(for request: Request, query: String, offset: Int, limit: Int) -> Page {
-        Self.window(request.dataset.items, query: query, offset: offset, limit: limit)
+        if request.onQueryChange != nil {
+            let items = request.dataset.items
+            let window = items.dropFirst(offset).prefix(limit)
+            return Page(items: Array(window), hasMore: offset + window.count < items.count)
+        }
+        return Self.window(request.dataset.items, query: query, offset: offset, limit: limit)
     }
 
     private static func window(_ items: [Item], query: String, offset: Int, limit: Int) -> Page {
@@ -175,6 +229,8 @@ final class ExtensionModalService {
         active = nil
         session = nil
         pendingRequestID = nil
+        onQueryChangeHandler = nil
+        state = .finished
         if let handler = onResolve {
             onResolve = nil
             handler(item)

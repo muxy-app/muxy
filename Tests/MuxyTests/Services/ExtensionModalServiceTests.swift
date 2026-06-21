@@ -144,6 +144,7 @@ struct ExtensionModalServiceTests {
         #expect(active.dataset.loading)
 
         service.feedSession([ExtensionModalService.Item(id: "x", title: "X", subtitle: nil)])
+        try await Task.sleep(for: .milliseconds(20))
         service.feedSession([ExtensionModalService.Item(id: "y", title: "Y", subtitle: nil)])
         service.finishSession()
         #expect(!active.dataset.loading)
@@ -231,14 +232,115 @@ struct ExtensionModalServiceTests {
         #expect(service.active == nil)
     }
 
-    @Test("modal result serialize/parse round-trips the payload")
-    func modalResultRoundTrips() throws {
-        let payload = Data("{\"id\":\"y\"}".utf8)
-        let line = try #require(ExtensionModalResult.serialize(requestID: "ext:1", payload: payload))
-        let parsed = try #require(ExtensionModalResult.parse(line))
+    @Test("onQueryChange provided sets session state to queryable")
+    func onQueryChangeSetsQueryableState() {
+        let service = ExtensionModalService()
+        var capturedQuery = ""
+        _ = service.openSession(
+            extensionID: "ext",
+            args: ["items": [["id": "a", "title": "Alpha"]]],
+            onQueryChange: { capturedQuery = $0 }
+        )
+        
+        #expect(service.state == .queryable)
+        #expect(service.active?.onQueryChange != nil)
+        
+        service.queryChanged("test query")
+        #expect(capturedQuery == "test query")
+        
+        service.finishSession()
+        #expect(service.state == .queryable)
+        
+        service.dismiss()
+        #expect(service.state == .finished)
+    }
+    
+    @Test("onQueryChange disabled native filtering in page")
+    func onQueryChangeDisablesNativeFiltering() throws {
+        let service = ExtensionModalService()
+        _ = service.openSession(
+            extensionID: "ext",
+            args: ["items": [["id": "a", "title": "Alpha"]]],
+            onQueryChange: { _ in }
+        )
+        
+        let active = try #require(service.active)
+        service.feedSession([
+            ExtensionModalService.Item(id: "1", title: "Login.swift", subtitle: "auth/Login.swift"),
+            ExtensionModalService.Item(id: "2", title: "Logout.swift", subtitle: "auth/Logout.swift"),
+        ])
+        service.finishSession()
+        
+        let page = service.page(for: active, query: "auth", offset: 0, limit: 100)
+        #expect(page.items.map(\.id) == ["1", "2"])
+        #expect(!page.hasMore)
+    }
+    
+    @Test("without onQueryChange session state is feeding then finished")
+    func withoutOnQueryChangeStateTransitions() {
+        let service = ExtensionModalService()
+        _ = service.openSession(extensionID: "ext", args: ["items": [["id": "a", "title": "Alpha"]]])
+        
+        #expect(service.state == .feeding)
+        
+        service.finishSession()
+        #expect(service.state == .finished)
+    }
+    
+    @Test("modal query change serialize/parse round-trips")
+    func modalQueryChangeRoundTrips() throws {
+        let line = "modal-query-change|ext:1|test query"
+        let parsed = try #require(ExtensionModalQueryChange.parse(line))
+        
         #expect(parsed.requestID == "ext:1")
-        #expect(parsed.payload == payload)
-        #expect(ExtensionModalResult.serialize(requestID: "bad|id", payload: payload) == nil)
+        #expect(parsed.query == "test query")
+        #expect(parsed.serialize() == line)
+        
+        #expect(ExtensionModalQueryChange.parse("invalid") == nil)
+        #expect(ExtensionModalQueryChange.parse("modal-query-change|id") == nil)
+    }
+    
+    @Test("modal query change escapes pipe characters")
+    func modalQueryChangeEscapesPipes() throws {
+        let change = ExtensionModalQueryChange(requestID: "ext:1", query: "a|b|c")
+        let serialized = change.serialize()
+        #expect(serialized == "modal-query-change|ext:1|a\\|b\\|c")
+        
+        let parsed = try #require(ExtensionModalQueryChange.parse(serialized))
+        #expect(parsed.query == "a|b|c")
+    }
+    
+    @Test("queryChanged sanitizes long queries and null bytes")
+    func queryChangedSanitizes() {
+        let service = ExtensionModalService()
+        var receivedQuery = ""
+        _ = service.openSession(
+            extensionID: "ext",
+            args: ["items": [["id": "a", "title": "Alpha"]]],
+            onQueryChange: { receivedQuery = $0 }
+        )
+        
+        let longQuery = String(repeating: "a", count: 1000)
+        service.queryChanged(longQuery + "\u{0000}")
+        
+        #expect(receivedQuery.count == ExtensionModalService.maxQueryLength)
+        #expect(!receivedQuery.contains("\u{0000}"))
+    }
+    
+    @Test("isQueryable returns true only for active queryable session")
+    func isQueryableChecks() {
+        let service = ExtensionModalService()
+        let requestID = service.openSession(
+            extensionID: "ext",
+            args: ["items": [["id": "a", "title": "Alpha"]]],
+            onQueryChange: { _ in }
+        )
+        
+        #expect(service.isQueryable(requestID))
+        #expect(!service.isQueryable("wrong-id"))
+        
+        service.dismiss()
+        #expect(!service.isQueryable(requestID))
     }
 
     private final class ResultBox {

@@ -254,6 +254,15 @@ final class HostBridge: @unchecked Sendable {
         }
     }
 
+    func handleModalQueryChangeLine(_ line: String) {
+        guard let parsed = ExtensionModalQueryChange.parse(line) else { return }
+        let box = ContextBox(context)
+        DispatchQueue.main.async {
+            let queryChange = box.context.objectForKeyedSubscript("__muxyModalQueryChange")
+            queryChange?.call(withArguments: [parsed.requestID, parsed.query])
+        }
+    }
+
     private func sendInvokeResult(callID: String, ok: Bool, payload: Data) {
         let status = ok ? "ok" : "err"
         let line = "invoke-result|\(callID)|\(status)|\(payload.base64EncodedString())"

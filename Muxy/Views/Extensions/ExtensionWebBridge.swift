@@ -224,10 +224,18 @@ enum ExtensionWebBridge {
                         } else {
                             await emit(o.items);
                         }
-                        await send('modal.finish', {});
+                        if (typeof o.onQueryChange !== 'function') {
+                            await send('modal.finish', {});
+                        }
                         const choice = await send('modal.await', { requestID });
                         if (typeof o.onSelect === 'function') o.onSelect(choice);
                         return choice;
+                    },
+                    async feed(items) {
+                        return await send('modal.feed', { items: normalizeModalItems(items) });
+                    },
+                    async finish() {
+                        return await send('modal.finish', {});
                     },
                 },
                 topbar: {

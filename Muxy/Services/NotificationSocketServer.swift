@@ -184,6 +184,16 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
     }
 
+    func pushModalQueryChange(extensionID: String, requestID: String, query: String) {
+        queue.async { [weak self] in
+            guard let self,
+                  let session = self.session(forExtension: extensionID)
+            else { return }
+            let line = "modal-query-change|\(requestID)|\(query)"
+            self.enqueueWrite(session: session, text: line + "\n")
+        }
+    }
+
     func pushModalResult(extensionID: String, requestID: String, payload: Data) {
         queue.async { [weak self] in
             guard let self,

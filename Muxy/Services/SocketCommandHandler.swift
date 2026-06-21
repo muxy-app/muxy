@@ -270,6 +270,10 @@ enum SocketCommandHandler {
                     projectGroupStore: projectGroupStore
                 )
             )
+        case "modal-query-change":
+            guard parts.count >= 3 else { return "error:usage modal-query-change|requestID|query" }
+            ExtensionModalService.shared.queryChanged(parts[2])
+            return "ok"
         case "topbar.set",
              "statusbar.set":
             guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }

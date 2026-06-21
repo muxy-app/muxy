@@ -25,6 +25,7 @@ public enum ExtensionBridgeJS {
                 if (o.placeholder != null) labels.placeholder = String(o.placeholder);
                 if (o.emptyLabel != null) labels.emptyLabel = String(o.emptyLabel);
                 if (o.noMatchLabel != null) labels.noMatchLabel = String(o.noMatchLabel);
+                if (typeof o.onQueryChange === 'function') labels.onQueryChange = true;
                 return labels;
             };
             const feedModalItems = (o) => {
@@ -35,7 +36,16 @@ public enum ExtensionBridgeJS {
                 } else {
                     emit(o.items);
                 }
-                dispatch('modal.finish', {});
+                if (typeof o.onQueryChange !== 'function') {
+                    dispatch('modal.finish', {});
+                }
+            };
+            const modalQueryChangeHandlers = {};
+            this.__muxyModalQueryChange = (requestID, query) => {
+                const handler = modalQueryChangeHandlers[requestID];
+                if (typeof handler === 'function') {
+                    try { handler(query); } catch (error) { console.error(error); }
+                }
             };
             const modalResultHandlers = {};
             this.__muxiDeliverModalResult = (requestID, item) => {
@@ -97,8 +107,15 @@ public enum ExtensionBridgeJS {
                         const opened = dispatch('modal.open', modalLabels(o));
                         const requestID = opened && opened.requestID;
                         if (typeof o.onSelect === 'function' && requestID != null) modalResultHandlers[requestID] = o.onSelect;
+                        if (typeof o.onQueryChange === 'function' && requestID != null) modalQueryChangeHandlers[requestID] = o.onQueryChange;
                         feedModalItems(o);
                         return requestID;
+                    },
+                    feed(items) {
+                        return dispatch('modal.feed', { items: normalizeModalItems(items) });
+                    },
+                    finish() {
+                        return dispatch('modal.finish', {});
                     },
                 },
                 topbar: {

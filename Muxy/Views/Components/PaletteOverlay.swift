@@ -18,6 +18,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     let page: (String, Int, Int) -> Page
     let onSelect: (Item) -> Void
     let onDismiss: () -> Void
+    let onQueryChange: ((String) -> Void)?
     let row: (Item, Bool) -> AnyView
 
     @State private var query = ""
@@ -27,6 +28,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var refilterTask: Task<Void, Never>?
+    @State private var queryChangeTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -51,6 +53,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         .onDisappear {
             searchTask?.cancel()
             refilterTask?.cancel()
+            queryChangeTask?.cancel()
         }
     }
 
@@ -68,7 +71,13 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                 onArrowUp: { moveHighlight(-1) },
                 onArrowDown: { moveHighlight(1) },
                 onPageUp: { moveHighlight(-PaletteSearchField.pageJump) },
-                onPageDown: { moveHighlight(PaletteSearchField.pageJump) }
+                onPageDown: { moveHighlight(PaletteSearchField.pageJump) },
+                onHome: { highlightedIndex = results.isEmpty ? nil : 0 },
+                onEnd: { highlightedIndex = results.isEmpty ? nil : results.count - 1 },
+                onQueryChange: { newQuery in
+                    guard onQueryChange != nil else { return }
+                    scheduleQueryChange(newQuery)
+                }
             )
             if isLoading || isSearching {
                 ProgressView()
@@ -128,6 +137,17 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             guard !Task.isCancelled else { return }
             apply(page(currentQuery, 0, pageSize), resetHighlight: true)
             isSearching = false
+        }
+    }
+
+    private func scheduleQueryChange(_ newQuery: String) {
+        guard onQueryChange != nil else { return }
+        queryChangeTask?.cancel()
+        let currentQuery = newQuery
+        queryChangeTask = Task {
+            try? await Task.sleep(for: Self.searchDebounce)
+            guard !Task.isCancelled else { return }
+            onQueryChange?(currentQuery)
         }
     }
 
@@ -194,6 +214,9 @@ struct PaletteSearchField: NSViewRepresentable {
     let onArrowDown: () -> Void
     var onPageUp: () -> Void = {}
     var onPageDown: () -> Void = {}
+    var onHome: () -> Void = {}
+    var onEnd: () -> Void = {}
+    var onQueryChange: ((String) -> Void)?
     var onTab: () -> Void = {}
     var onBackTab: () -> Void = {}
     var onEmptyBackspace: () -> Void = {}
@@ -273,6 +296,11 @@ struct PaletteSearchField: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
             syncText(from: field, skipsMarkedText: true)
+            
+            if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() {
+                return
+            }
+            parent.onQueryChange?(field.stringValue)
         }
 
         func control(
@@ -297,8 +325,12 @@ struct PaletteSearchField: NSViewRepresentable {
                 parent.onArrowDown()
                 return true
             }
-            if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                parent.onTab()
+            if commandSelector == #selector(NSResponder.moveToBeginningOfLine(_:)) {
+                parent.onHome()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.moveToEndOfLine(_:)) {
+                parent.onEnd()
                 return true
             }
             if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
