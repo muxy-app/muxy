@@ -168,6 +168,15 @@ enum ExtensionWebBridge {
                         return send('tabs.setIcon', { tabInstanceID: muxy.tabInstanceID, icon: icon ?? null });
                     },
                 },
+                browser: {
+                    open(url, opts) {
+                        return send('browser.open', { url: url == null ? null : String(url), split: Boolean((opts || {}).split) });
+                    },
+                    navigate(tabId, url) { return send('browser.navigate', { tabId: String(tabId), url: String(url) }); },
+                    list() { return send('browser.list', {}); },
+                    read(tabId) { return send('browser.read', { tabId: String(tabId) }); },
+                    close(tabId) { return send('browser.close', { tabId: String(tabId) }); },
+                },
                 panes: {
                     list() { return send('panes.list', {}); },
                     send(paneID, text) { return send('panes.send', { paneID, text: String(text) }); },
@@ -495,6 +504,7 @@ enum ExtensionWebBridge {
 
             Object.freeze(muxy.notifications);
             Object.freeze(muxy.tabs);
+            Object.freeze(muxy.browser);
             Object.freeze(muxy.panes);
             Object.freeze(muxy.projects);
             Object.freeze(muxy.panels);
