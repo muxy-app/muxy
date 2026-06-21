@@ -20,6 +20,7 @@
 #   muxy switch-tab <index|id|title>           Switch active tab
 #   muxy new-tab                               Create a terminal tab
 #   muxy next-tab|previous-tab                 Switch tabs
+#   muxy install-skills [skills args...]       Install Muxy agent skills into detected AI harnesses
 #
 # Run "muxy <command> --help" for the options of a single command.
 
@@ -48,6 +49,7 @@ usage_for() {
         new-tab)           echo "muxy new-tab" ;;
         next-tab)          echo "muxy next-tab" ;;
         previous-tab)      echo "muxy previous-tab" ;;
+        install-skills)    echo "muxy install-skills [skills args...]" ;;
     esac
 }
 
@@ -87,6 +89,7 @@ usage() {
     echo "  muxy new-tab                             Create a terminal tab"
     echo "  muxy next-tab                            Switch to next tab"
     echo "  muxy previous-tab                        Switch to previous tab"
+    echo "  muxy install-skills [skills args...]     Install Muxy agent skills into detected AI harnesses"
     echo ""
     echo "Run \"muxy <command> --help\" for the options of a single command."
 }
@@ -387,6 +390,19 @@ case "$COMMAND" in
         wants_help "$2" && print_command_help previous-tab
         send_command "previous-tab"
         ;;
+    install-skills)
+        shift
+        wants_help "$1" && print_command_help install-skills
+        if ! command -v npx >/dev/null 2>&1; then
+            echo "Error: npx not found. Install Node.js to run this command." >&2
+            exit 1
+        fi
+        SKILLS_REPO="github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills"
+        for skill in muxy-cli muxy-extension; do
+            npx --yes skills add "$SKILLS_REPO/$skill" --global --yes "$@" || exit 1
+        done
+        exit 0
+        ;;
     ""|--help|-h)
         usage
         [ -z "$COMMAND" ] && exit 1
@@ -403,7 +419,8 @@ if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "spli
     [ "$COMMAND" != "switch-worktree" ] && \
    [ "$COMMAND" != "refresh-worktrees" ] && [ "$COMMAND" != "list-tabs" ] && \
    [ "$COMMAND" != "switch-tab" ] && [ "$COMMAND" != "new-tab" ] && \
-   [ "$COMMAND" != "next-tab" ] && [ "$COMMAND" != "previous-tab" ]; then
+   [ "$COMMAND" != "next-tab" ] && [ "$COMMAND" != "previous-tab" ] && \
+   [ "$COMMAND" != "install-skills" ]; then
     TARGET_DIR="$COMMAND"
 
     case "$TARGET_DIR" in
