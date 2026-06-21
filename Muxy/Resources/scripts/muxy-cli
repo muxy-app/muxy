@@ -418,10 +418,14 @@ case "$COMMAND" in
             open)
                 URL=""
                 SPLIT=""
+                HAS_URL=""
                 while [[ $# -gt 0 ]]; do
                     case $1 in
                         --split) SPLIT="--split"; shift ;;
-                        *) URL="$1"; shift ;;
+                        *)
+                            [ -n "$HAS_URL" ] && die_usage browser
+                            URL="$1"; HAS_URL="1"; shift
+                            ;;
                     esac
                 done
                 send_command "browser.open|$URL|$SPLIT"

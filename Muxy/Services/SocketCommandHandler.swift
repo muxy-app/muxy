@@ -204,19 +204,25 @@ enum SocketCommandHandler {
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore
+                    projectGroupStore: projectGroupStore,
+                    browserProfileStore: browserProfileStore
                 )
             )
         case "browser.open":
-            let url = parts.count >= 2 && parts[1] != "--split" ? parts[1] : nil
             let split = parts.contains("--split")
+            let urlParts = parts.dropFirst().filter { $0 != "--split" }
+            let url = urlParts.isEmpty ? nil : urlParts.joined(separator: "|")
             return serialize(MuxyAPI.Browser.open(url: url, split: split, appState: appState)) { tabID in
                 tabID.uuidString
             }
         case "browser.navigate":
             guard parts.count >= 3 else { return "error:usage browser.navigate|<tab-id>|<url>" }
             return serialize(
-                MuxyAPI.Browser.navigate(tabIDString: parts[1], url: parts[2], appState: appState),
+                MuxyAPI.Browser.navigate(
+                    tabIDString: parts[1],
+                    url: parts.dropFirst(2).joined(separator: "|"),
+                    appState: appState
+                ),
                 ok: "ok"
             )
         case "browser.list":
@@ -293,7 +299,8 @@ enum SocketCommandHandler {
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore
+                    projectGroupStore: projectGroupStore,
+                    browserProfileStore: browserProfileStore
                 )
             )
         case "topbar.set",
@@ -311,7 +318,8 @@ enum SocketCommandHandler {
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore
+                    projectGroupStore: projectGroupStore,
+                    browserProfileStore: browserProfileStore
                 )
             )
         default:

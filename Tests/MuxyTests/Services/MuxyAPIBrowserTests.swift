@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WebKit
 
 @testable import Muxy
 
@@ -89,6 +90,55 @@ struct MuxyAPIBrowserTests {
         let listed = MuxyAPI.Browser.list(appState: appState, profileStore: nil)
         #expect(!listed.contains { $0.id == id })
     }
+
+    @Test("close fails when the browser is disabled")
+    func closeDisabledFails() throws {
+        let appState = makeAppState()
+        let id = try MuxyAPI.Browser.open(url: "https://example.com", appState: appState).get()
+        BrowserPreferences.isEnabled = false
+        defer { UserDefaults.standard.removeObject(forKey: BrowserPreferences.enabledKey) }
+        #expect(failureError(MuxyAPI.Browser.close(tabIDString: id.uuidString, appState: appState)) == .browserDisabled)
+    }
+
+    @Test("list resolves the profile name from the store")
+    func listResolvesProfileName() throws {
+        let appState = makeAppState()
+        let store = BrowserProfileStore(persistence: BrowserProfilePersistenceStub())
+        let profile = store.add(name: "Work")
+        let id = try MuxyAPI.Browser.open(
+            url: "https://example.com",
+            profileID: profile.id,
+            appState: appState
+        ).get()
+        let listed = MuxyAPI.Browser.list(appState: appState, profileStore: store)
+        #expect(listed.first { $0.id == id }?.profile == "Work")
+    }
+
+    @Test("list returns empty when the browser is disabled")
+    func listDisabledReturnsEmpty() throws {
+        let appState = makeAppState()
+        _ = try MuxyAPI.Browser.open(url: "https://example.com", appState: appState).get()
+        BrowserPreferences.isEnabled = false
+        defer { UserDefaults.standard.removeObject(forKey: BrowserPreferences.enabledKey) }
+        #expect(MuxyAPI.Browser.list(appState: appState, profileStore: nil).isEmpty)
+    }
+
+    @Test("registry resolves a registered web view then clears on unregister")
+    func registryRegistersAndUnregisters() {
+        let registry = BrowserWebViewRegistry.shared
+        let tabID = UUID()
+        let webView = WKWebView(frame: .zero)
+        registry.register(webView, for: tabID)
+        #expect(registry.webView(for: tabID) === webView)
+        registry.unregister(tabID)
+        #expect(registry.webView(for: tabID) == nil)
+    }
+}
+
+private final class BrowserProfilePersistenceStub: BrowserProfilePersisting {
+    private var stored: [BrowserProfile] = []
+    func loadProfiles() throws -> [BrowserProfile] { stored }
+    func saveProfiles(_ profiles: [BrowserProfile]) throws { stored = profiles }
 }
 
 private final class SelectionStoreStub: ActiveProjectSelectionStoring {

@@ -1,4 +1,5 @@
 import Foundation
+import WebKit
 
 enum APIError: Error, Equatable {
     case invalidArguments(String)
@@ -14,6 +15,8 @@ enum APIError: Error, Equatable {
     case worktreeNotFound(String)
     case tabNotFound(String)
     case browserTabNotFound(String)
+    case browserTabCreateFailed
+    case browserTabSurfaceNotReady(tabID: String, waitedSeconds: Double)
     case browserDisabled
     case unsupportedKey(String)
     case worktreePathExists
@@ -38,6 +41,9 @@ enum APIError: Error, Equatable {
         case let .worktreeNotFound(id): "worktree not found \(id)"
         case let .tabNotFound(id): "tab not found \(id)"
         case let .browserTabNotFound(id): "browser tab not found \(id)"
+        case .browserTabCreateFailed: "could not create browser tab"
+        case let .browserTabSurfaceNotReady(id, waited):
+            "browser tab surface not ready \(id) (waited \(String(format: "%.1f", waited))s)"
         case .browserDisabled: "the built-in browser is disabled"
         case let .unsupportedKey(key): "unsupported key \(key)"
         case .worktreePathExists: "worktree path already exists"
@@ -1218,12 +1224,13 @@ enum MuxyAPI {
                 profileID: resolvedProfileID
             ))
             guard let newID = collectTabs(appState: appState).subtracting(before).first else {
-                return .failure(.browserDisabled)
+                return .failure(.browserTabCreateFailed)
             }
             return .success(newID)
         }
 
         static func navigate(tabIDString: String, url: String, appState: AppState) -> Result<Void, APIError> {
+            guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
             guard let state = locate(tabIDString: tabIDString, appState: appState)?.state else {
                 return .failure(.browserTabNotFound(tabIDString))
             }
@@ -1235,6 +1242,7 @@ enum MuxyAPI {
         }
 
         static func list(appState: AppState, profileStore: BrowserProfileStore?) -> [BrowserTabInfo] {
+            guard BrowserPreferences.isEnabled else { return [] }
             var infos: [BrowserTabInfo] = []
             for (key, root) in appState.workspaceRoots {
                 let focusedAreaID = appState.focusedAreaID[key]
@@ -1256,14 +1264,20 @@ enum MuxyAPI {
             return infos
         }
 
+        private static let readTextLimit = 1_000_000
+        private static let readSurfaceTimeout: Duration = .seconds(3)
+
         static func read(tabIDString: String, appState: AppState) async -> Result<BrowserPageContent, APIError> {
+            guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
             guard let located = locate(tabIDString: tabIDString, appState: appState) else {
                 return .failure(.browserTabNotFound(tabIDString))
             }
-            guard let webView = BrowserWebViewRegistry.shared.webView(for: located.state.id) else {
-                return .failure(.browserTabNotFound(tabIDString))
+            let start = ContinuousClock.now
+            guard let webView = await waitForRegisteredWebView(tabID: located.state.id, start: start) else {
+                let waited = (ContinuousClock.now - start).secondsValue
+                return .failure(.browserTabSurfaceNotReady(tabID: tabIDString, waitedSeconds: waited))
             }
-            let script = "({ title: document.title, text: document.body ? document.body.innerText : '' })"
+            let script = "({ title: document.title, text: (document.body ? document.body.innerText : '').slice(0, \(readTextLimit)) })"
             do {
                 let result = try await webView.evaluateJavaScript(script)
                 let dict = result as? [String: Any]
@@ -1278,11 +1292,30 @@ enum MuxyAPI {
         }
 
         static func close(tabIDString: String, appState: AppState) -> Result<Void, APIError> {
+            guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
             guard let located = locate(tabIDString: tabIDString, appState: appState) else {
                 return .failure(.browserTabNotFound(tabIDString))
             }
             appState.closeTab(located.tabID, areaID: located.areaID, projectID: located.projectID)
             return .success(())
+        }
+
+        private static func waitForRegisteredWebView(
+            tabID: UUID,
+            start: ContinuousClock.Instant
+        ) async -> WKWebView? {
+            let deadline = start + readSurfaceTimeout
+            while ContinuousClock.now < deadline {
+                if let webView = BrowserWebViewRegistry.shared.webView(for: tabID) {
+                    return webView
+                }
+                do {
+                    try await Task.sleep(for: .milliseconds(50))
+                } catch {
+                    return nil
+                }
+            }
+            return BrowserWebViewRegistry.shared.webView(for: tabID)
         }
 
         private struct Located {

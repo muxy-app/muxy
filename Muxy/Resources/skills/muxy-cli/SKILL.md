@@ -121,7 +121,7 @@ muxy browser read "$TAB"                          # title, then URL, then visibl
 muxy browser close "$TAB"
 ```
 
-Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. `browser read` returns the rendered text, so wait briefly after navigating before reading. If the built-in browser is disabled in Settings, these commands return an error.
+Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. `browser read` returns the rendered text and waits briefly for the tab's view to load, so still pause after navigating before reading; only tabs in the active project are rendered, and its text is capped at ~1 MB. If the built-in browser is disabled in Settings, every `browser` command returns an error.
 
 ## Install the skills into your AI harnesses
 

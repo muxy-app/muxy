@@ -388,7 +388,8 @@ struct MainWindow: View {
                                 appState: appState,
                                 projectStore: projectStore,
                                 worktreeStore: worktreeStore,
-                                projectGroupStore: projectGroupStore
+                                projectGroupStore: projectGroupStore,
+                                browserProfileStore: browserProfileStore
                             )
                         )
                     }
