@@ -3,11 +3,12 @@ import Testing
 
 @testable import Muxy
 
-@Suite("BrowserProfileStore")
+@Suite("BrowserProfileStore", .serialized)
 @MainActor
 struct BrowserProfileStoreTests {
     private func makeStore(initial: [BrowserProfile] = []) -> BrowserProfileStore {
-        BrowserProfileStore(persistence: InMemoryBrowserProfilePersistence(initial: initial))
+        UserDefaults.standard.removeObject(forKey: BrowserPreferences.defaultProfileIDKey)
+        return BrowserProfileStore(persistence: InMemoryBrowserProfilePersistence(initial: initial))
     }
 
     @Test("seeds a default profile when empty")
@@ -53,5 +54,24 @@ struct BrowserProfileStoreTests {
         let store = makeStore()
         store.remove(id: BrowserProfile.defaultID)
         #expect(store.profiles.contains { $0.id == BrowserProfile.defaultID })
+    }
+
+    @Test("setDefault can be changed and reset back to Default")
+    func defaultCanBeReset() {
+        let store = makeStore()
+        let profile = store.add(name: "Work")
+        store.setDefault(id: profile.id)
+        #expect(store.defaultProfileID == profile.id)
+        store.setDefault(id: BrowserProfile.defaultID)
+        #expect(store.defaultProfileID == BrowserProfile.defaultID)
+    }
+
+    @Test("deleting the default-selected profile resets to Default")
+    func deletingDefaultSelectionResets() {
+        let store = makeStore()
+        let profile = store.add(name: "Work")
+        store.setDefault(id: profile.id)
+        store.remove(id: profile.id)
+        #expect(store.defaultProfileID == BrowserProfile.defaultID)
     }
 }

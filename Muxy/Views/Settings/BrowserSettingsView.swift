@@ -3,7 +3,6 @@ import SwiftUI
 struct BrowserSettingsView: View {
     @Environment(BrowserProfileStore.self) private var profileStore
     @AppStorage(BrowserPreferences.openLinksInBuiltInBrowserKey) private var openLinksInBuiltInBrowser = false
-    @AppStorage(BrowserPreferences.defaultProfileIDKey) private var defaultProfileIDRaw = BrowserProfile.defaultID.uuidString
 
     @State private var editorMode: BrowserProfileEditorMode?
     @State private var profilePendingDelete: BrowserProfile?
@@ -97,10 +96,7 @@ struct BrowserSettingsView: View {
     private var defaultProfileBinding: Binding<UUID> {
         Binding(
             get: { profileStore.defaultProfileID },
-            set: { newValue in
-                profileStore.setDefault(id: newValue)
-                defaultProfileIDRaw = newValue.uuidString
-            }
+            set: { profileStore.setDefault(id: $0) }
         )
     }
 
@@ -130,35 +126,19 @@ private struct BrowserProfileRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: "person.crop.circle")
                 .font(.system(size: SettingsMetrics.labelFontSize))
                 .foregroundStyle(SettingsStyle.mutedForeground)
+                .frame(width: 16)
             Text(profile.name)
                 .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.foreground)
             if profile.isDefault {
-                Text("Default")
-                    .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
-                    .foregroundStyle(SettingsStyle.mutedForeground)
+                defaultBadge
             }
             Spacer()
-            Button("Import from Chrome", action: onImport)
-                .buttonStyle(.plain)
-                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
-                .foregroundStyle(SettingsStyle.accent)
-            if !profile.isDefault {
-                Button("Rename", action: onRename)
-                    .buttonStyle(.plain)
-                    .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
-                    .foregroundStyle(SettingsStyle.accent)
-                Button(action: onDelete) {
-                    Image(systemName: "trash")
-                        .font(.system(size: SettingsMetrics.footnoteFontSize))
-                        .foregroundStyle(SettingsStyle.destructive)
-                }
-                .buttonStyle(.plain)
-            }
+            actionsMenu
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
@@ -167,6 +147,35 @@ private struct BrowserProfileRow: View {
             in: RoundedRectangle(cornerRadius: 6)
         )
         .onHover { isHovered = $0 }
+    }
+
+    private var defaultBadge: some View {
+        Text("Default")
+            .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+            .foregroundStyle(SettingsStyle.mutedForeground)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(SettingsStyle.hover, in: Capsule())
+    }
+
+    private var actionsMenu: some View {
+        Menu {
+            Button("Import from Chrome…", action: onImport)
+            if !profile.isDefault {
+                Button("Rename…", action: onRename)
+                Divider()
+                Button("Delete", role: .destructive, action: onDelete)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: SettingsMetrics.labelFontSize, weight: .semibold))
+                .foregroundStyle(SettingsStyle.mutedForeground)
+                .frame(width: 24, height: 20)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 }
 

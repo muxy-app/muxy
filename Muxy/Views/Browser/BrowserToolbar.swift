@@ -72,6 +72,7 @@ struct BrowserToolbar: View {
             }
             Divider()
             Button("Manage Profiles…") {
+                SettingsFocusCoordinator.shared.request(.browser)
                 NotificationCenter.default.post(name: .openSettingsModal, object: nil)
             }
         } label: {

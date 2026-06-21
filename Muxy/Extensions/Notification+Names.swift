@@ -16,6 +16,7 @@ extension Notification.Name {
     static let openExtensionDirectoryAsProject = Notification.Name("MuxyOpenExtensionDirectoryAsProject")
     static let focusProjectPickerDefaultLocation = Notification.Name("MuxyFocusProjectPickerDefaultLocation")
     static let focusRemoteDevicesSettings = Notification.Name("MuxyFocusRemoteDevicesSettings")
+    static let focusBrowserSettings = Notification.Name("MuxyFocusBrowserSettings")
     static let windowFullScreenDidChange = Notification.Name("MuxyWindowFullScreenDidChange")
     static let toggleSidebar = Notification.Name("MuxyToggleSidebar")
     static let toggleNotificationPanel = Notification.Name("MuxyToggleNotificationPanel")

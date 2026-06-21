@@ -11,49 +11,55 @@ struct BrowserImportSheet: View {
     private let source: BrowserImportSource = .chrome
 
     var body: some View {
-        VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing6) {
+            header
+            content
+            footer
+        }
+        .padding(UIMetrics.spacing8)
+        .frame(width: UIMetrics.scaled(440))
+        .task { load() }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
             Text("Import to “\(targetProfile.name)”")
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
-
-            Text("Choose a \(source.displayName) profile. macOS may ask for Keychain permission to read its cookies.")
+            Text("Choose a \(source.displayName) profile to copy cookies from. macOS may ask for Keychain permission.")
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .foregroundStyle(SettingsStyle.mutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
-
-            content
-
-            HStack(spacing: UIMetrics.spacing3) {
-                Spacer()
-                Button("Close", action: onDismiss)
-                    .keyboardShortcut(.cancelAction)
-            }
         }
-        .padding(UIMetrics.spacing8)
-        .frame(width: UIMetrics.scaled(420))
-        .task { load() }
     }
 
     @ViewBuilder
     private var content: some View {
         if let loadError {
-            Text(loadError)
-                .font(.system(size: SettingsMetrics.labelFontSize))
-                .foregroundStyle(SettingsStyle.mutedForeground)
+            messageBox(loadError)
         } else if profiles.isEmpty {
-            Text("No \(source.displayName) profiles with cookies were found.")
-                .font(.system(size: SettingsMetrics.labelFontSize))
-                .foregroundStyle(SettingsStyle.mutedForeground)
+            messageBox("No \(source.displayName) profiles with cookies were found.")
         } else {
-            VStack(spacing: 4) {
+            VStack(spacing: 0) {
                 ForEach(profiles) { profile in
                     importRow(profile)
+                    if profile.id != profiles.last?.id {
+                        Divider()
+                    }
                 }
             }
+            .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+            .overlay(
+                RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                    .stroke(SettingsStyle.border, lineWidth: 1)
+            )
         }
     }
 
     private func importRow(_ profile: ImportableProfile) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: UIMetrics.spacing3) {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: SettingsMetrics.labelFontSize))
+                .foregroundStyle(SettingsStyle.mutedForeground)
             Text(profile.name)
                 .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.foreground)
@@ -62,7 +68,27 @@ struct BrowserImportSheet: View {
                 .disabled(isImporting)
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
-        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+        .padding(.vertical, UIMetrics.spacing3)
+    }
+
+    private func messageBox(_ message: String) -> some View {
+        Text(message)
+            .font(.system(size: SettingsMetrics.labelFontSize))
+            .foregroundStyle(SettingsStyle.mutedForeground)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(SettingsMetrics.horizontalPadding)
+            .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+    }
+
+    private var footer: some View {
+        HStack {
+            if isImporting {
+                ProgressView().controlSize(.small)
+            }
+            Spacer()
+            Button("Close", action: onDismiss)
+                .keyboardShortcut(.cancelAction)
+        }
     }
 
     private func load() {

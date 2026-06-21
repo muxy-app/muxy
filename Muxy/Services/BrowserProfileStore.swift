@@ -10,6 +10,7 @@ final class BrowserProfileStore {
     private(set) static var shared: BrowserProfileStore?
 
     private(set) var profiles: [BrowserProfile] = []
+    private(set) var defaultProfileID: UUID = BrowserProfile.defaultID
     private let persistence: any BrowserProfilePersisting
 
     init(persistence: any BrowserProfilePersisting) {
@@ -20,11 +21,6 @@ final class BrowserProfileStore {
 
     static var defaultProfileIDOrFallback: UUID {
         shared?.defaultProfileID ?? BrowserProfile.defaultID
-    }
-
-    var defaultProfileID: UUID {
-        let id = BrowserPreferences.defaultProfileID
-        return profiles.contains(where: { $0.id == id }) ? id : BrowserProfile.defaultID
     }
 
     func profile(id: UUID?) -> BrowserProfile? {
@@ -51,14 +47,15 @@ final class BrowserProfileStore {
 
     func setDefault(id: UUID) {
         guard profiles.contains(where: { $0.id == id }) else { return }
+        defaultProfileID = id
         BrowserPreferences.defaultProfileID = id
     }
 
     func remove(id: UUID) {
         guard id != BrowserProfile.defaultID else { return }
         profiles.removeAll { $0.id == id }
-        if BrowserPreferences.defaultProfileID == id {
-            BrowserPreferences.defaultProfileID = BrowserProfile.defaultID
+        if defaultProfileID == id {
+            setDefault(id: BrowserProfile.defaultID)
         }
         save()
         purgeData(for: id)
@@ -95,5 +92,9 @@ final class BrowserProfileStore {
             profiles.insert(.default, at: 0)
             save()
         }
+        let storedDefault = BrowserPreferences.defaultProfileID
+        defaultProfileID = profiles.contains(where: { $0.id == storedDefault })
+            ? storedDefault
+            : BrowserProfile.defaultID
     }
 }
