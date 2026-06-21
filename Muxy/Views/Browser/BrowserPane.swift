@@ -5,12 +5,13 @@ struct BrowserPane: View {
     let focused: Bool
     let onFocus: () -> Void
 
+    @Environment(AppState.self) private var appState
     @FocusState private var addressFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             BrowserToolbar(state: state, addressFieldFocused: $addressFieldFocused)
-            BrowserWebView(state: state, focused: focused && !addressFieldFocused, onFocus: onFocus)
+            BrowserWebView(state: state, focused: focused && !addressFieldFocused, appState: appState)
                 .contentShape(Rectangle())
                 .onTapGesture { onFocus() }
         }

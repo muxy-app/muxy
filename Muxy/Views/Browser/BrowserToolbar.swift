@@ -45,6 +45,10 @@ struct BrowserToolbar: View {
             guard !addressFieldFocused else { return }
             addressText = newValue?.absoluteString ?? ""
         }
+        .onChange(of: addressFieldFocused) { _, focused in
+            guard !focused else { return }
+            addressText = state.url?.absoluteString ?? ""
+        }
         .onAppear {
             addressText = state.url?.absoluteString ?? ""
         }

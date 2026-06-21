@@ -47,6 +47,18 @@ struct BrowserURLTests {
     func emptyInput() {
         #expect(BrowserURL.resolve(from: "   ") == nil)
     }
+
+    @Test("dangerous schemes never resolve to a navigable url", arguments: [
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "file:///etc/passwd",
+        "vbscript:msgbox(1)",
+    ])
+    func dangerousSchemesBecomeSearch(input: String) {
+        let url = BrowserURL.resolve(from: input)
+        #expect(url?.host == "www.google.com")
+        #expect(url.map(BrowserURL.isAllowed) == true)
+    }
 }
 
 @Suite("BrowserPreferences", .serialized)

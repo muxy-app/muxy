@@ -4,10 +4,10 @@ import WebKit
 struct BrowserWebView: NSViewRepresentable {
     let state: BrowserTabState
     let focused: Bool
-    let onFocus: () -> Void
+    let appState: AppState
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(state: state, onFocus: onFocus)
+        Coordinator(state: state, appState: appState)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -41,13 +41,13 @@ struct BrowserWebView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         private let state: BrowserTabState
-        private let onFocus: () -> Void
+        private let appState: AppState
         private var observations: [NSKeyValueObservation] = []
         private var focused = false
 
-        init(state: BrowserTabState, onFocus: @escaping () -> Void) {
+        init(state: BrowserTabState, appState: AppState) {
             self.state = state
-            self.onFocus = onFocus
+            self.appState = appState
         }
 
         func attach(to webView: WKWebView) {
@@ -98,9 +98,12 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         func applyFocusIfChanged(_ focused: Bool, in webView: WKWebView) {
-            guard focused != self.focused else { return }
-            self.focused = focused
-            guard focused else { return }
+            guard focused else {
+                self.focused = false
+                return
+            }
+            guard !self.focused, webView.window != nil else { return }
+            self.focused = true
             DispatchQueue.main.async { [weak webView] in
                 guard let webView, let window = webView.window else { return }
                 window.makeFirstResponder(webView)
@@ -119,24 +122,29 @@ extension BrowserWebView.Coordinator: WKNavigationDelegate, WKUIDelegate {
             decisionHandler(.allow)
             return
         }
-        let scheme = url.scheme?.lowercased()
-        if scheme == "http" || scheme == "https" || scheme == "about" {
+        if BrowserURL.isAllowed(url) {
             decisionHandler(.allow)
             return
         }
-        NSWorkspace.shared.open(url)
         decisionHandler(.cancel)
+        guard navigationAction.navigationType == .linkActivated, isHandoffScheme(url) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     func webView(
-        _ webView: WKWebView,
+        _: WKWebView,
         createWebViewWith _: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures _: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url {
-            webView.load(URLRequest(url: url))
+        if let url = navigationAction.request.url, BrowserURL.isAllowed(url) {
+            appState.openInBuiltInBrowser(url)
         }
         return nil
+    }
+
+    private func isHandoffScheme(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return !["file", "javascript", "data"].contains(scheme)
     }
 }

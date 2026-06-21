@@ -2,18 +2,22 @@ import Foundation
 
 enum BrowserURL {
     static let defaultURLString = "https://www.google.com"
+    static let allowedSchemes: Set<String> = ["http", "https", "about"]
+
+    static func isAllowed(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return allowedSchemes.contains(scheme)
+    }
 
     static func resolve(from input: String) -> URL? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        if let scheme = URL(string: trimmed)?.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" || scheme == "about"
-        {
-            return URL(string: trimmed)
+        if let url = URL(string: trimmed), isAllowed(url) {
+            return url
         }
 
-        if looksLikeHost(trimmed), let url = URL(string: "https://\(trimmed)") {
+        if looksLikeHost(trimmed), let url = URL(string: "https://\(trimmed)"), isAllowed(url) {
             return url
         }
 
