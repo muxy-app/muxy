@@ -91,10 +91,6 @@ struct PaneTabStrip: View {
                     if let openInIDEProjectPath {
                         OpenInIDEControl(projectPath: openInIDEProjectPath)
                     }
-                    if let onOpenBrowser {
-                        IconButton(symbol: "globe", accessibilityLabel: "Open Browser Tab", action: onOpenBrowser)
-                            .help("Open Browser Tab")
-                    }
                     LayoutPickerMenu(projectID: projectID)
                     ExtensionTopbarItems()
                 }
@@ -112,6 +108,10 @@ struct PaneTabStrip: View {
                     .help(shortcutTooltip("Split Down", for: .splitDown))
                 IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
                     .help(shortcutTooltip("New Tab", for: .newTab))
+                if let onOpenBrowser {
+                    IconButton(symbol: "globe", accessibilityLabel: "Open Browser Tab", action: onOpenBrowser)
+                        .help("Open Browser Tab")
+                }
             }
             .padding(.leading, UIMetrics.spacing4)
             .padding(.trailing, UIMetrics.spacing2)
