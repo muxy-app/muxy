@@ -42,6 +42,14 @@ struct TabAreaView: View {
                     shortcutIndexOffset: shortcutIndexOffset,
                     onSelectTab: onSelectTab,
                     onCreateTab: onCreateTab,
+                    onOpenBrowser: {
+                        appState.dispatch(.createBrowserTab(
+                            projectID: projectID,
+                            areaID: area.id,
+                            url: BrowserURL.resolve(from: BrowserURL.defaultURLString),
+                            profileID: BrowserProfileStore.defaultProfileIDOrFallback
+                        ))
+                    },
                     onCloseTab: onCloseTab,
                     onCloseOtherTabs: { tabID in
                         closeTabs(area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id))
