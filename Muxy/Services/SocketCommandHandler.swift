@@ -8,6 +8,7 @@ enum SocketCommandHandler {
         projectStore: ProjectStore? = nil,
         worktreeStore: WorktreeStore? = nil,
         projectGroupStore: ProjectGroupStore? = nil,
+        browserProfileStore: BrowserProfileStore? = nil,
         clientContext: NotificationSocketServer.ClientContext = .init(extensionID: nil)
     ) async -> String {
         let parts = message.components(separatedBy: "|")
@@ -206,6 +207,31 @@ enum SocketCommandHandler {
                     projectGroupStore: projectGroupStore
                 )
             )
+        case "browser.open":
+            let url = parts.count >= 2 && parts[1] != "--split" ? parts[1] : nil
+            let split = parts.contains("--split")
+            return serialize(MuxyAPI.Browser.open(url: url, split: split, appState: appState)) { tabID in
+                tabID.uuidString
+            }
+        case "browser.navigate":
+            guard parts.count >= 3 else { return "error:usage browser.navigate|<tab-id>|<url>" }
+            return serialize(
+                MuxyAPI.Browser.navigate(tabIDString: parts[1], url: parts[2], appState: appState),
+                ok: "ok"
+            )
+        case "browser.list":
+            let browserTabs = MuxyAPI.Browser.list(appState: appState, profileStore: browserProfileStore)
+            return browserTabs.map { tab in
+                "\(tab.id.uuidString)\t\(tab.title)\t\(tab.url ?? "")\t\(tab.profile)\t\(tab.isActive)"
+            }.joined(separator: "\n")
+        case "browser.read":
+            guard parts.count >= 2 else { return "error:usage browser.read|<tab-id>" }
+            return await serialize(MuxyAPI.Browser.read(tabIDString: parts[1], appState: appState)) { content in
+                "\(content.title)\n\(content.url ?? "")\n\(content.text)"
+            }
+        case "browser.close":
+            guard parts.count >= 2 else { return "error:usage browser.close|<tab-id>" }
+            return serialize(MuxyAPI.Browser.close(tabIDString: parts[1], appState: appState), ok: "ok")
         case "extension.settings.get":
             guard parts.count >= 2 else { return "error:usage extension.settings.get|key" }
             return handleSettingsGet(key: parts[1], extensionID: clientContext.extensionID)

@@ -13,6 +13,8 @@ enum APIError: Error, Equatable {
     case projectNotFound(String)
     case worktreeNotFound(String)
     case tabNotFound(String)
+    case browserTabNotFound(String)
+    case browserDisabled
     case unsupportedKey(String)
     case worktreePathExists
     case splitFailed
@@ -35,6 +37,8 @@ enum APIError: Error, Equatable {
         case let .projectNotFound(id): "project not found\(id.isEmpty ? "" : " \(id)")"
         case let .worktreeNotFound(id): "worktree not found \(id)"
         case let .tabNotFound(id): "tab not found \(id)"
+        case let .browserTabNotFound(id): "browser tab not found \(id)"
+        case .browserDisabled: "the built-in browser is disabled"
         case let .unsupportedKey(key): "unsupported key \(key)"
         case .worktreePathExists: "worktree path already exists"
         case .splitFailed: "split succeeded but could not determine new pane ID"
@@ -81,6 +85,20 @@ struct TabInfo: Equatable {
     let kind: TerminalTab.Kind
     let title: String
     let isActive: Bool
+}
+
+struct BrowserTabInfo: Equatable {
+    let id: UUID
+    let title: String
+    let url: String?
+    let profile: String
+    let isActive: Bool
+}
+
+struct BrowserPageContent: Equatable {
+    let title: String
+    let url: String?
+    let text: String
 }
 
 struct CreatedWorktreeInfo: Equatable {
@@ -203,6 +221,11 @@ enum MuxyAPI {
             "topbar.set",
             "statusbar.set",
             "tabs.open",
+            "browser.open",
+            "browser.navigate",
+            "browser.list",
+            "browser.read",
+            "browser.close",
             "projects.delete",
             "lifecycle.ackBeforeClose",
             "lifecycle.resolveBeforeClose",
@@ -298,6 +321,11 @@ enum MuxyAPI {
             "tabs.open": .tabsWrite,
             "tabs.setTitle": .tabsWrite,
             "tabs.setIcon": .tabsWrite,
+            "browser.open": .browserWrite,
+            "browser.navigate": .browserWrite,
+            "browser.list": .browserRead,
+            "browser.read": .browserRead,
+            "browser.close": .browserWrite,
             "projects.list": .projectsRead,
             "projects.switch": .projectsWrite,
             "projects.delete": .projectsDelete,
@@ -1157,6 +1185,124 @@ enum MuxyAPI {
             }
             guard let area = root.allAreas().first else { return nil }
             return OpenTabTarget(key: key, areaID: area.id)
+        }
+    }
+
+    @MainActor
+    enum Browser {
+        static func open(
+            url: String?,
+            profileID: UUID? = nil,
+            split: Bool = false,
+            appState: AppState
+        ) -> Result<UUID, APIError> {
+            guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+            guard let projectID = appState.activeProjectID else { return .failure(.noActiveProject) }
+            let resolvedURL = url.flatMap(BrowserURL.resolve(from:)) ?? BrowserURL.resolve(from: BrowserURL.defaultURLString)
+            let resolvedProfileID = profileID ?? BrowserPreferences.defaultProfileID
+
+            if split, let areaID = appState.focusedAreaID(for: projectID) {
+                appState.dispatch(.splitArea(.init(
+                    projectID: projectID,
+                    areaID: areaID,
+                    direction: .horizontal,
+                    position: .second
+                )))
+            }
+
+            let before = collectTabs(appState: appState)
+            appState.dispatch(.createBrowserTab(
+                projectID: projectID,
+                areaID: appState.focusedAreaID(for: projectID),
+                url: resolvedURL,
+                profileID: resolvedProfileID
+            ))
+            guard let newID = collectTabs(appState: appState).subtracting(before).first else {
+                return .failure(.browserDisabled)
+            }
+            return .success(newID)
+        }
+
+        static func navigate(tabIDString: String, url: String, appState: AppState) -> Result<Void, APIError> {
+            guard let state = locate(tabIDString: tabIDString, appState: appState)?.state else {
+                return .failure(.browserTabNotFound(tabIDString))
+            }
+            guard let resolved = BrowserURL.resolve(from: url) else {
+                return .failure(.invalidArguments("invalid url"))
+            }
+            state.pendingURL = resolved
+            return .success(())
+        }
+
+        static func list(appState: AppState, profileStore: BrowserProfileStore?) -> [BrowserTabInfo] {
+            var infos: [BrowserTabInfo] = []
+            for (key, root) in appState.workspaceRoots {
+                let focusedAreaID = appState.focusedAreaID[key]
+                for area in root.allAreas() {
+                    for tab in area.tabs {
+                        guard let state = tab.content.browserState else { continue }
+                        let isActive = area.id == focusedAreaID && tab.id == area.activeTabID
+                        let profileName = profileStore?.profile(id: state.profileID)?.name ?? BrowserProfile.defaultName
+                        infos.append(BrowserTabInfo(
+                            id: tab.id,
+                            title: tab.title,
+                            url: state.url?.absoluteString,
+                            profile: profileName,
+                            isActive: isActive
+                        ))
+                    }
+                }
+            }
+            return infos
+        }
+
+        static func read(tabIDString: String, appState: AppState) async -> Result<BrowserPageContent, APIError> {
+            guard let located = locate(tabIDString: tabIDString, appState: appState) else {
+                return .failure(.browserTabNotFound(tabIDString))
+            }
+            guard let webView = BrowserWebViewRegistry.shared.webView(for: located.state.id) else {
+                return .failure(.browserTabNotFound(tabIDString))
+            }
+            let script = "({ title: document.title, text: document.body ? document.body.innerText : '' })"
+            do {
+                let result = try await webView.evaluateJavaScript(script)
+                let dict = result as? [String: Any]
+                return .success(BrowserPageContent(
+                    title: dict?["title"] as? String ?? located.state.pageTitle ?? "",
+                    url: located.state.url?.absoluteString,
+                    text: dict?["text"] as? String ?? ""
+                ))
+            } catch {
+                return .failure(.underlying(error.localizedDescription))
+            }
+        }
+
+        static func close(tabIDString: String, appState: AppState) -> Result<Void, APIError> {
+            guard let located = locate(tabIDString: tabIDString, appState: appState) else {
+                return .failure(.browserTabNotFound(tabIDString))
+            }
+            appState.closeTab(located.tabID, areaID: located.areaID, projectID: located.projectID)
+            return .success(())
+        }
+
+        private struct Located {
+            let state: BrowserTabState
+            let tabID: UUID
+            let areaID: UUID
+            let projectID: UUID
+        }
+
+        private static func locate(tabIDString: String, appState: AppState) -> Located? {
+            guard let id = UUID(uuidString: tabIDString) else { return nil }
+            for (key, root) in appState.workspaceRoots {
+                for area in root.allAreas() {
+                    for tab in area.tabs where tab.id == id {
+                        guard let state = tab.content.browserState else { return nil }
+                        return Located(state: state, tabID: tab.id, areaID: area.id, projectID: key.projectID)
+                    }
+                }
+            }
+            return nil
         }
     }
 }

@@ -184,6 +184,43 @@ enum MuxyAPIDispatcher {
                 callingExtensionID: context.extensionID
             ))
             return NSNull()
+        case "browser.open":
+            let url = args["url"] as? String
+            let split = boolArg(args, "split") ?? false
+            return try unwrap(MuxyAPI.Browser.open(
+                url: url,
+                split: split,
+                appState: context.appState
+            )).uuidString
+        case "browser.navigate":
+            try unwrap(MuxyAPI.Browser.navigate(
+                tabIDString: stringArg(args, "tabId"),
+                url: stringArg(args, "url"),
+                appState: context.appState
+            ))
+            return NSNull()
+        case "browser.list":
+            return MuxyAPI.Browser.list(
+                appState: context.appState,
+                profileStore: nil
+            ).map(browserTabDict)
+        case "browser.read":
+            let content = try await unwrap(MuxyAPI.Browser.read(
+                tabIDString: stringArg(args, "tabId"),
+                appState: context.appState
+            ))
+            let payload: [String: Any] = [
+                "title": content.title,
+                "url": content.url ?? NSNull(),
+                "text": content.text,
+            ]
+            return payload
+        case "browser.close":
+            try unwrap(MuxyAPI.Browser.close(
+                tabIDString: stringArg(args, "tabId"),
+                appState: context.appState
+            ))
+            return NSNull()
         case "agents.list":
             return MuxyAPI.Agents.list().map(agentDict)
         case "panes.list":
@@ -721,6 +758,16 @@ enum MuxyAPIDispatcher {
             "id": tab.id.uuidString,
             "kind": tab.kind.rawValue,
             "title": tab.title,
+            "isActive": tab.isActive,
+        ]
+    }
+
+    private static func browserTabDict(_ tab: BrowserTabInfo) -> [String: Any] {
+        [
+            "id": tab.id.uuidString,
+            "title": tab.title,
+            "url": tab.url ?? NSNull(),
+            "profile": tab.profile,
             "isActive": tab.isActive,
         ]
     }

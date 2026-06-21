@@ -107,7 +107,8 @@ struct MuxyApp: App {
                         appState,
                         projectStore,
                         worktreeStore,
-                        projectGroupStore
+                        projectGroupStore,
+                        browserProfileStore
                     ] message, context in
                         await SocketCommandHandler.handleRequest(
                             message,
@@ -115,6 +116,7 @@ struct MuxyApp: App {
                             projectStore: projectStore,
                             worktreeStore: worktreeStore,
                             projectGroupStore: projectGroupStore,
+                            browserProfileStore: browserProfileStore,
                             clientContext: context
                         )
                     }

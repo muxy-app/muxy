@@ -58,6 +58,8 @@ enum ExtensionPermission: String, Codable, CaseIterable {
     case panesWrite = "panes:write"
     case tabsRead = "tabs:read"
     case tabsWrite = "tabs:write"
+    case browserRead = "browser:read"
+    case browserWrite = "browser:write"
     case projectsRead = "projects:read"
     case projectsWrite = "projects:write"
     case projectsDelete = "projects:delete"
@@ -84,6 +86,7 @@ enum ExtensionPermission: String, Codable, CaseIterable {
         switch self {
         case .panesRead,
              .tabsRead,
+             .browserRead,
              .projectsRead,
              .worktreesRead,
              .agentsRead,
@@ -92,6 +95,7 @@ enum ExtensionPermission: String, Codable, CaseIterable {
             .read
         case .panesWrite,
              .tabsWrite,
+             .browserWrite,
              .projectsWrite,
              .projectsDelete,
              .worktreesWrite,

@@ -22,6 +22,7 @@ struct BrowserWebView: NSViewRepresentable {
         webView.allowsMagnification = true
 
         context.coordinator.attach(to: webView)
+        BrowserWebViewRegistry.shared.register(webView, for: state.id)
         if let url = state.pendingURL {
             state.pendingURL = nil
             webView.load(URLRequest(url: url))
@@ -36,6 +37,7 @@ struct BrowserWebView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        BrowserWebViewRegistry.shared.unregister(coordinator.tabID)
         coordinator.detach(from: webView)
     }
 
@@ -45,6 +47,8 @@ struct BrowserWebView: NSViewRepresentable {
         private let appState: AppState
         private var observations: [NSKeyValueObservation] = []
         private var focused = false
+
+        var tabID: UUID { state.id }
 
         init(state: BrowserTabState, appState: AppState) {
             self.state = state

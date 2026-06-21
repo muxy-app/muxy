@@ -108,6 +108,21 @@ muxy previous-tab            # cycle backward
 
 Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `next-tab`/`previous-tab` only for relative cycling. List first with `muxy list-tabs` when you need the index or ID.
 
+## Browser
+
+The built-in browser opens web pages in a tab. Drive it to preview a dev server or read a page back as text:
+
+```bash
+TAB=$(muxy browser open http://localhost:3000)   # returns the browser tab ID
+muxy browser open https://example.com --split    # open beside the current pane
+muxy browser navigate "$TAB" https://example.com/docs
+muxy browser list                                # <tab-id>  <title>  <url>  <profile>  <active>
+muxy browser read "$TAB"                          # title, then URL, then visible page text
+muxy browser close "$TAB"
+```
+
+Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. `browser read` returns the rendered text, so wait briefly after navigating before reading. If the built-in browser is disabled in Settings, these commands return an error.
+
 ## Install the skills into your AI harnesses
 
 `muxy install-skills` installs the Muxy agent skills (`muxy-cli` and `muxy-extension`) into every AI coding harness it detects on the machine — Claude Code, Codex, Cursor, Droid, OpenCode, and others — using each tool's own skill location. It wraps `npx skills add` with `--global` (all your projects) and `--yes` (non-interactive), and forwards any extra arguments, so you can scope it like `muxy install-skills -a codex`. Run it once so future sessions of those harnesses pick the skills up automatically; it needs `npx` (Node.js) on `PATH` and does not require Muxy to be running.
