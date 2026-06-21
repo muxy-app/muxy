@@ -6,6 +6,7 @@ struct BrowserSettingsView: View {
 
     @State private var editorMode: BrowserProfileEditorMode?
     @State private var profilePendingDelete: BrowserProfile?
+    @State private var profilePendingClear: BrowserProfile?
     @State private var importTarget: BrowserProfile?
 
     private static let profilesFooter = """
@@ -51,6 +52,7 @@ struct BrowserSettingsView: View {
                         profile: profile,
                         onRename: { editorMode = .edit(profile) },
                         onImport: { importTarget = profile },
+                        onClearData: { profilePendingClear = profile },
                         onDelete: { profilePendingDelete = profile }
                     )
                 }
@@ -87,6 +89,22 @@ struct BrowserSettingsView: View {
         } message: { _ in
             Text("This permanently deletes the profile's cookies and browsing data.")
         }
+        .alert(
+            "Clear data for “\(profilePendingClear?.name ?? "")”?",
+            isPresented: clearAlertBinding,
+            presenting: profilePendingClear
+        ) { profile in
+            Button("Clear Data", role: .destructive) {
+                let id = profile.id
+                Task { await profileStore.clearData(for: id) }
+                ToastState.shared.show("Cleared browsing data for “\(profile.name)”")
+                profilePendingClear = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) { profilePendingClear = nil }
+        } message: { _ in
+            Text("This signs out and removes all cookies, cache, and logins for this profile, including imported ones.")
+        }
     }
 
     private var addButton: some View {
@@ -121,6 +139,13 @@ struct BrowserSettingsView: View {
         )
     }
 
+    private var clearAlertBinding: Binding<Bool> {
+        Binding(
+            get: { profilePendingClear != nil },
+            set: { if !$0 { profilePendingClear = nil } }
+        )
+    }
+
     private func save(mode: BrowserProfileEditorMode, name: String) {
         switch mode {
         case .create:
@@ -135,6 +160,7 @@ private struct BrowserProfileRow: View {
     let profile: BrowserProfile
     let onRename: () -> Void
     let onImport: () -> Void
+    let onClearData: () -> Void
     let onDelete: () -> Void
 
     @State private var isHovered = false
@@ -177,7 +203,10 @@ private struct BrowserProfileRow: View {
             Button("Import from Chrome…", action: onImport)
             if !profile.isDefault {
                 Button("Rename…", action: onRename)
-                Divider()
+            }
+            Divider()
+            Button("Clear Data", role: .destructive, action: onClearData)
+            if !profile.isDefault {
                 Button("Delete", role: .destructive, action: onDelete)
             }
         } label: {

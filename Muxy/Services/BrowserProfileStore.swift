@@ -61,6 +61,12 @@ final class BrowserProfileStore {
         purgeData(for: id)
     }
 
+    func clearData(for id: UUID) async {
+        let dataStore = BrowserDataStoreCache.shared.store(for: id)
+        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        await dataStore.removeData(ofTypes: types, modifiedSince: .distantPast)
+    }
+
     private func purgeData(for id: UUID) {
         WKWebsiteDataStore.remove(forIdentifier: id) { error in
             if let error {
