@@ -10,6 +10,7 @@ private struct ShortcutMetadata {
 enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newTab
     case newHomeTab
+    case newBrowserTab
     case closeTab
     case renameTab
     case pinUnpinTab
@@ -69,6 +70,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     static let allCases: [Self] = [
         .newTab,
         .newHomeTab,
+        .newBrowserTab,
         .closeTab,
         .renameTab,
         .pinUnpinTab,
@@ -131,6 +133,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .newTab: ShortcutMetadata(displayName: "New Tab", category: "Tabs", scope: .mainWindow)
         case .newHomeTab: ShortcutMetadata(displayName: "New Home Tab", category: "Tabs", scope: .mainWindow)
+        case .newBrowserTab: ShortcutMetadata(displayName: "New Browser Tab", category: "Tabs", scope: .mainWindow)
         case .closeTab: ShortcutMetadata(displayName: "Close Tab", category: "Tabs", scope: .mainWindow)
         case .renameTab: ShortcutMetadata(displayName: "Rename Tab", category: "Tabs", scope: .mainWindow)
         case .pinUnpinTab: ShortcutMetadata(displayName: "Pin/Unpin Tab", category: "Tabs", scope: .mainWindow)
@@ -291,6 +294,7 @@ struct KeyBinding: Codable, Identifiable {
     static let defaults: [Self] = [
         Self(action: .newTab, combo: KeyCombo(key: "t", command: true)),
         Self(action: .newHomeTab, combo: KeyCombo(key: "n", command: true)),
+        Self(action: .newBrowserTab, combo: KeyCombo(key: "b", command: true, option: true)),
         Self(action: .closeTab, combo: KeyCombo(key: "w", command: true)),
         Self(action: .renameTab, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .pinUnpinTab, combo: KeyCombo(key: "", modifiers: 0)),

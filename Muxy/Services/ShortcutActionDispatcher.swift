@@ -64,6 +64,8 @@ struct ShortcutActionDispatcher {
                 worktreeStore: worktreeStore,
                 projectGroupStore: projectGroupStore
             )
+        case .newBrowserTab:
+            return appState.openInBuiltInBrowser(BrowserURL.resolve(from: BrowserURL.defaultURLString))
         case .closeTab:
             guard let projectID = appState.activeProjectID,
                   let area = appState.focusedArea(for: projectID),

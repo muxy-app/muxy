@@ -183,9 +183,9 @@ struct MuxyCommands: Commands {
 
             Button("New Browser Tab") {
                 guard isMainWindowFocused else { return }
-                appState.openInBuiltInBrowser(BrowserURL.resolve(from: BrowserURL.defaultURLString))
+                performShortcutAction(.newBrowserTab)
             }
-            .keyboardShortcut("b", modifiers: [.command, .option])
+            .shortcut(for: .newBrowserTab, store: keyBindings)
             .disabled(activeProject == nil)
 
             Menu("Custom Commands") {
