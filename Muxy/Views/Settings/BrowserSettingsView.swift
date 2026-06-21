@@ -22,27 +22,13 @@ struct BrowserSettingsView: View {
                     isOn: $openLinksInBuiltInBrowser
                 )
                 SettingsRow("Default Profile") {
-                    HStack(spacing: UIMetrics.spacing2) {
-                        if profileStore.defaultProfileID != BrowserProfile.defaultID {
-                            Button {
-                                profileStore.setDefault(id: BrowserProfile.defaultID)
-                            } label: {
-                                Image(systemName: "arrow.counterclockwise")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(SettingsStyle.mutedForeground)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Reset to Default")
-                            .accessibilityLabel("Reset Default Profile")
+                    Picker("", selection: defaultProfileBinding) {
+                        ForEach(profileStore.profiles) { profile in
+                            Text(profile.name).tag(profile.id)
                         }
-                        Picker("", selection: defaultProfileBinding) {
-                            ForEach(profileStore.profiles) { profile in
-                                Text(profile.name).tag(profile.id)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
                     }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
                 }
             }
 
