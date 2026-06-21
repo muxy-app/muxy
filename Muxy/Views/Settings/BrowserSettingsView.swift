@@ -82,9 +82,12 @@ struct BrowserSettingsView: View {
         ) { profile in
             Button("Clear Data", role: .destructive) {
                 let id = profile.id
-                Task { await profileStore.clearData(for: id) }
-                ToastState.shared.show("Cleared browsing data for “\(profile.name)”")
+                let name = profile.name
                 profilePendingClear = nil
+                Task {
+                    await profileStore.clearData(for: id)
+                    ToastState.shared.show("Cleared browsing data for “\(name)”")
+                }
             }
             .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { profilePendingClear = nil }

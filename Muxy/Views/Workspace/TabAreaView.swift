@@ -47,7 +47,7 @@ struct TabAreaView: View {
                             projectID: projectID,
                             areaID: area.id,
                             url: BrowserURL.resolve(from: BrowserURL.defaultURLString),
-                            profileID: BrowserProfileStore.defaultProfileIDOrFallback
+                            profileID: BrowserPreferences.defaultProfileID
                         ))
                     },
                     onCloseTab: onCloseTab,

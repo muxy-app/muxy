@@ -17,4 +17,8 @@ final class BrowserDataStoreCache {
         stores[profileID] = store
         return store
     }
+
+    func evict(_ profileID: UUID) {
+        stores[profileID] = nil
+    }
 }

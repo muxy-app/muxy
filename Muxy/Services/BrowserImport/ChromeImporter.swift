@@ -52,7 +52,7 @@ final class ChromeImporter: BrowserImporter, Sendable {
 
     private func cookie(from row: ChromeCookieRow, key: Data) -> HTTPCookie? {
         guard !row.encryptedValue.isEmpty,
-              let value = ChromeCookieDecryptor.decrypt(encryptedValue: row.encryptedValue, key: key)
+              let value = ChromeCookieDecryptor.decrypt(encryptedValue: row.encryptedValue, host: row.host, key: key)
         else { return nil }
 
         var properties: [HTTPCookiePropertyKey: Any] = [
@@ -62,6 +62,7 @@ final class ChromeImporter: BrowserImporter, Sendable {
             .path: row.path.isEmpty ? "/" : row.path,
         ]
         if row.isSecure { properties[.secure] = "TRUE" }
+        if row.isHTTPOnly { properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE" }
         if let expiry = expiryDate(from: row.expiresUTC) { properties[.expires] = expiry }
 
         return HTTPCookie(properties: properties)

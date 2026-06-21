@@ -34,7 +34,7 @@ enum ChromeCookieDecryptor {
         return status == kCCSuccess ? derived : nil
     }
 
-    static func decrypt(encryptedValue: Data, key: Data) -> String? {
+    static func decrypt(encryptedValue: Data, host: String, key: Data) -> String? {
         guard encryptedValue.count > 3 else { return nil }
         let prefix = encryptedValue.prefix(3)
         guard prefix == Data("v10".utf8) || prefix == Data("v11".utf8) else {
@@ -48,11 +48,26 @@ enum ChromeCookieDecryptor {
             return nil
         }
 
-        let payload = decrypted.count > domainHashLength ? decrypted.dropFirst(domainHashLength) : decrypted
-        if let value = String(data: payload, encoding: .utf8) {
-            return value
+        let payload = stripDomainHash(from: decrypted, host: host)
+        return String(data: payload, encoding: .utf8)
+    }
+
+    private static func stripDomainHash(from decrypted: Data, host: String) -> Data {
+        guard decrypted.count >= domainHashLength,
+              decrypted.prefix(domainHashLength) == sha256(host)
+        else { return decrypted }
+        return decrypted.dropFirst(domainHashLength)
+    }
+
+    private static func sha256(_ value: String) -> Data {
+        let bytes = Data(value.utf8)
+        var digest = Data(count: Int(CC_SHA256_DIGEST_LENGTH))
+        digest.withUnsafeMutableBytes { digestBytes in
+            bytes.withUnsafeBytes { valueBytes in
+                _ = CC_SHA256(valueBytes.baseAddress, CC_LONG(bytes.count), digestBytes.bindMemory(to: UInt8.self).baseAddress)
+            }
         }
-        return String(data: decrypted, encoding: .utf8)
+        return digest
     }
 
     private static func aesCBCDecrypt(ciphertext: Data, key: Data, iv: Data) -> Data? {

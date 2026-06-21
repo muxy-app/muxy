@@ -7,8 +7,6 @@ private let logger = Logger(subsystem: "app.muxy", category: "BrowserProfileStor
 @MainActor
 @Observable
 final class BrowserProfileStore {
-    private(set) static var shared: BrowserProfileStore?
-
     private(set) var profiles: [BrowserProfile] = []
     private(set) var defaultProfileID: UUID = BrowserProfile.defaultID
     private let persistence: any BrowserProfilePersisting
@@ -16,11 +14,6 @@ final class BrowserProfileStore {
     init(persistence: any BrowserProfilePersisting) {
         self.persistence = persistence
         load()
-        Self.shared = self
-    }
-
-    static var defaultProfileIDOrFallback: UUID {
-        shared?.defaultProfileID ?? BrowserProfile.defaultID
     }
 
     func profile(id: UUID?) -> BrowserProfile? {
@@ -68,6 +61,7 @@ final class BrowserProfileStore {
     }
 
     private func purgeData(for id: UUID) {
+        BrowserDataStoreCache.shared.evict(id)
         WKWebsiteDataStore.remove(forIdentifier: id) { error in
             if let error {
                 logger.error("Failed to purge browser profile data: \(error)")

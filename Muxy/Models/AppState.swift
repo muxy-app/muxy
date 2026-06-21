@@ -311,7 +311,7 @@ final class AppState {
     func openInBuiltInBrowser(_ url: URL?, profileID: UUID? = nil) -> Bool {
         guard let projectID = activeProjectID else { return false }
         let areaID = focusedArea(for: projectID)?.id
-        let resolvedProfileID = profileID ?? BrowserProfileStore.defaultProfileIDOrFallback
+        let resolvedProfileID = profileID ?? BrowserPreferences.defaultProfileID
         dispatch(.createBrowserTab(projectID: projectID, areaID: areaID, url: url, profileID: resolvedProfileID))
         return true
     }

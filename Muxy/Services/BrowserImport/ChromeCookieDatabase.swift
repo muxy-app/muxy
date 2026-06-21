@@ -12,8 +12,6 @@ struct ChromeCookieRow {
 }
 
 enum ChromeCookieDatabase {
-    private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
     static func readRows(at fileURL: URL) throws -> [ChromeCookieRow] {
         let copyURL = try copyToTemporary(fileURL)
         defer { try? FileManager.default.removeItem(at: copyURL) }
