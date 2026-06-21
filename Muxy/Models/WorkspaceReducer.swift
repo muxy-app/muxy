@@ -99,6 +99,14 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .createBrowserTab(projectID, areaID, url):
+            TabReducer.createBrowserTab(
+                projectID: projectID,
+                areaID: areaID,
+                url: url,
+                state: &state
+            )
+
         case let .closeTab(projectID, areaID, tabID):
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
             TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)

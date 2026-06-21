@@ -37,6 +37,7 @@ final class AppState {
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createCommandTab(CommandTabRequest)
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
+        case createBrowserTab(projectID: UUID, areaID: UUID?, url: URL?)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, index: Int)
@@ -304,6 +305,14 @@ final class AppState {
 
     func createTab(projectID: UUID) {
         dispatch(.createTab(projectID: projectID, areaID: nil))
+    }
+
+    @discardableResult
+    func openInBuiltInBrowser(_ url: URL?) -> Bool {
+        guard let projectID = activeProjectID else { return false }
+        let areaID = focusedArea(for: projectID)?.id
+        dispatch(.createBrowserTab(projectID: projectID, areaID: areaID, url: url))
+        return true
     }
 
     func createCommandTab(projectID: UUID, shortcut: CommandShortcut) {

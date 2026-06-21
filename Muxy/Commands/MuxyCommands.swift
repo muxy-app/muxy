@@ -181,6 +181,13 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .newHomeTab, store: keyBindings)
 
+            Button("New Browser Tab") {
+                guard isMainWindowFocused else { return }
+                appState.openInBuiltInBrowser(BrowserURL.resolve(from: BrowserURL.defaultURLString))
+            }
+            .keyboardShortcut("b", modifiers: [.command, .option])
+            .disabled(activeProject == nil)
+
             Menu("Custom Commands") {
                 if commandShortcuts.shortcuts.isEmpty {
                     Button("No Custom Commands") {}

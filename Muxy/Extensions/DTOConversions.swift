@@ -94,6 +94,7 @@ extension TerminalTab.Kind {
         switch self {
         case .terminal: .terminal
         case .extensionWebView: .extensionWebView
+        case .browser: .browser
         }
     }
 }

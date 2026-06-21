@@ -1014,6 +1014,8 @@ enum MuxyAPI {
                     )
                 ))
                 return .success(())
+            case .browser:
+                return .failure(.invalidArguments("browser tabs cannot be opened via this API yet"))
             }
         }
 

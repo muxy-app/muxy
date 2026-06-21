@@ -436,6 +436,13 @@ struct MainWindow: View {
                 onCreateTab: {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
                 },
+                onOpenBrowser: {
+                    appState.dispatch(.createBrowserTab(
+                        projectID: project.id,
+                        areaID: area.id,
+                        url: BrowserURL.resolve(from: BrowserURL.defaultURLString)
+                    ))
+                },
                 onCloseTab: { tabID in
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },

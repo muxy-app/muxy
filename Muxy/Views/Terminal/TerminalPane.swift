@@ -186,6 +186,7 @@ struct TerminalBridge: NSViewRepresentable {
     @Environment(\.overlayActive) private var overlayActive
     @Environment(\.activeWorktreeKey) private var worktreeKey
     @Environment(\.paneWorkspaceContext) private var workspaceContext
+    @Environment(AppState.self) private var appState
 
     final class Coordinator {
         var wasFocused = false
@@ -316,12 +317,13 @@ struct TerminalBridge: NSViewRepresentable {
 
     private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {
         let projectPath = state.projectPath
+        let appState = appState
         guard !workspaceContext.isRemote else {
             view.resolveCmdHoverFile = { _ in false }
             view.onCmdClickFile = { _ in }
             view.onOpenURL = { url in
                 guard Self.isExternalLink(url) else { return false }
-                return NSWorkspace.shared.open(url)
+                return Self.openExternalLink(url, appState: appState)
             }
             return
         }
@@ -345,8 +347,15 @@ struct TerminalBridge: NSViewRepresentable {
                 ToastState.shared.show("File not found")
                 return false
             }
-            return NSWorkspace.shared.open(url)
+            return Self.openExternalLink(url, appState: appState)
         }
+    }
+
+    private static func openExternalLink(_ url: URL, appState: AppState) -> Bool {
+        if BrowserPreferences.openLinksInBuiltInBrowser {
+            return appState.openInBuiltInBrowser(url)
+        }
+        return NSWorkspace.shared.open(url)
     }
 
     struct ResolvedFileLocation: Equatable {

@@ -198,6 +198,8 @@ private struct TabContentView: View {
             )
         case let .extensionWebView(extensionState):
             ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)
+        case let .browser(browserState):
+            BrowserPane(state: browserState, focused: focused, onFocus: onFocus)
         }
     }
 }
