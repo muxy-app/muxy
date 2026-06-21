@@ -12,6 +12,7 @@ struct BrowserPane: View {
         VStack(spacing: 0) {
             BrowserToolbar(state: state, addressFieldFocused: $addressFieldFocused)
             BrowserWebView(state: state, focused: focused && !addressFieldFocused, appState: appState)
+                .id(state.profileID)
                 .contentShape(Rectangle())
                 .onTapGesture { onFocus() }
         }

@@ -31,6 +31,7 @@ struct MainWindow: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(RemoteDeviceStore.self) private var remoteDeviceStore
+    @Environment(BrowserProfileStore.self) private var browserProfileStore
     @Environment(GhosttyService.self) private var ghostty
     @State private var dragCoordinator = TabDragCoordinator()
     private enum CloseConfirmationKind {
@@ -440,7 +441,8 @@ struct MainWindow: View {
                     appState.dispatch(.createBrowserTab(
                         projectID: project.id,
                         areaID: area.id,
-                        url: BrowserURL.resolve(from: BrowserURL.defaultURLString)
+                        url: BrowserURL.resolve(from: BrowserURL.defaultURLString),
+                        profileID: browserProfileStore.defaultProfileID
                     ))
                 },
                 onCloseTab: { tabID in

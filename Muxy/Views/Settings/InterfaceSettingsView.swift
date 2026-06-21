@@ -9,7 +9,6 @@ struct InterfaceSettingsView: View {
     @State private var currentDarkTheme: String?
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
-    @AppStorage(BrowserPreferences.openLinksInBuiltInBrowserKey) private var openLinksInBuiltInBrowser = false
 
     var body: some View {
         SettingsContainer {
@@ -30,7 +29,7 @@ struct InterfaceSettingsView: View {
                 }
             }
 
-            SettingsSection("Interface") {
+            SettingsSection("Interface", showsDivider: false) {
                 SettingsRow("Size") {
                     Picker("", selection: $uiScale.preset) {
                         ForEach(UIScale.Preset.allCases) { preset in
@@ -47,13 +46,6 @@ struct InterfaceSettingsView: View {
                 SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
 
                 SettingsToggleRow(label: "Show Resource Usage in Status Bar", isOn: $showResourceUsage)
-            }
-
-            SettingsSection("Browser", showsDivider: false) {
-                SettingsToggleRow(
-                    label: "Open terminal links in built-in browser",
-                    isOn: $openLinksInBuiltInBrowser
-                )
             }
         }
         .task {

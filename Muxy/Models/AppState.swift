@@ -37,7 +37,7 @@ final class AppState {
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createCommandTab(CommandTabRequest)
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
-        case createBrowserTab(projectID: UUID, areaID: UUID?, url: URL?)
+        case createBrowserTab(projectID: UUID, areaID: UUID?, url: URL?, profileID: UUID)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, index: Int)
@@ -308,10 +308,11 @@ final class AppState {
     }
 
     @discardableResult
-    func openInBuiltInBrowser(_ url: URL?) -> Bool {
+    func openInBuiltInBrowser(_ url: URL?, profileID: UUID? = nil) -> Bool {
         guard let projectID = activeProjectID else { return false }
         let areaID = focusedArea(for: projectID)?.id
-        dispatch(.createBrowserTab(projectID: projectID, areaID: areaID, url: url))
+        let resolvedProfileID = profileID ?? BrowserProfileStore.defaultProfileIDOrFallback
+        dispatch(.createBrowserTab(projectID: projectID, areaID: areaID, url: url, profileID: resolvedProfileID))
         return true
     }
 

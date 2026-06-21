@@ -39,7 +39,12 @@ struct BrowserTabReducerTests {
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
         let url = URL(string: "https://muxy.app")
 
-        let action = AppState.Action.createBrowserTab(projectID: projectID, areaID: nil, url: url)
+        let action = AppState.Action.createBrowserTab(
+            projectID: projectID,
+            areaID: nil,
+            url: url,
+            profileID: BrowserProfile.defaultID
+        )
         _ = WorkspaceReducer.reduce(action: action, state: &state)
 
         let area = focusedArea(in: state, projectID: projectID)
@@ -55,7 +60,12 @@ struct BrowserTabReducerTests {
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
 
-        let action = AppState.Action.createBrowserTab(projectID: projectID, areaID: nil, url: nil)
+        let action = AppState.Action.createBrowserTab(
+            projectID: projectID,
+            areaID: nil,
+            url: nil,
+            profileID: BrowserProfile.defaultID
+        )
         _ = WorkspaceReducer.reduce(action: action, state: &state)
 
         let tab = focusedArea(in: state, projectID: projectID)?.activeTab

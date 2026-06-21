@@ -115,8 +115,8 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(extensionState: state))
     }
 
-    func createBrowserTab(url: URL?) {
-        let state = BrowserTabState(projectPath: projectPath, url: url)
+    func createBrowserTab(url: URL?, profileID: UUID = BrowserProfile.defaultID) {
+        let state = BrowserTabState(projectPath: projectPath, url: url, profileID: profileID)
         insertTab(TerminalTab(browserState: state))
     }
 

@@ -127,6 +127,8 @@ struct SettingsView: View {
             SidebarSettingsView()
         case .terminal:
             TerminalSettingsView()
+        case .browser:
+            BrowserSettingsView()
         case .richInput:
             RichInputSettingsView()
         case .shortcuts:

@@ -4,6 +4,7 @@ struct BrowserToolbar: View {
     let state: BrowserTabState
     @FocusState.Binding var addressFieldFocused: Bool
 
+    @Environment(BrowserProfileStore.self) private var profileStore
     @State private var addressText: String = ""
 
     var body: some View {
@@ -29,6 +30,8 @@ struct BrowserToolbar: View {
                 }
 
                 addressField
+
+                profilePicker
             }
             .padding(.horizontal, UIMetrics.spacing3)
             .frame(height: UIMetrics.titleBarHeight)
@@ -51,6 +54,51 @@ struct BrowserToolbar: View {
         }
         .onAppear {
             addressText = state.url?.absoluteString ?? ""
+        }
+    }
+
+    private var profilePicker: some View {
+        Menu {
+            ForEach(profileStore.profiles) { profile in
+                Button {
+                    selectProfile(profile.id)
+                } label: {
+                    if profile.id == state.profileID {
+                        Label(profile.name, systemImage: "checkmark")
+                    } else {
+                        Text(profile.name)
+                    }
+                }
+            }
+            Divider()
+            Button("Manage Profiles…") {
+                NotificationCenter.default.post(name: .openSettingsModal, object: nil)
+            }
+        } label: {
+            HStack(spacing: UIMetrics.spacing1) {
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                Text(currentProfileName)
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Browser Profile")
+    }
+
+    private var currentProfileName: String {
+        profileStore.profile(id: state.profileID)?.name ?? BrowserProfile.defaultName
+    }
+
+    private func selectProfile(_ id: UUID) {
+        guard id != state.profileID else { return }
+        state.profileID = id
+        if let url = state.url {
+            state.pendingURL = url
         }
     }
 

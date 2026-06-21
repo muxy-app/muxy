@@ -13,6 +13,7 @@ struct BrowserWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
+        config.websiteDataStore = BrowserDataStoreCache.shared.store(for: state.profileID)
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
@@ -138,7 +139,7 @@ extension BrowserWebView.Coordinator: WKNavigationDelegate, WKUIDelegate {
         windowFeatures _: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url, BrowserURL.isAllowed(url) {
-            appState.openInBuiltInBrowser(url)
+            appState.openInBuiltInBrowser(url, profileID: state.profileID)
         }
         return nil
     }

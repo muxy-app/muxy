@@ -117,7 +117,8 @@ final class TerminalTab: Identifiable {
         case .browser:
             content = .browser(BrowserTabState(
                 projectPath: snapshot.projectPath,
-                url: snapshot.browserURL.flatMap(URL.init(string:))
+                url: snapshot.browserURL.flatMap(URL.init(string:)),
+                profileID: snapshot.browserProfileID.flatMap(UUID.init(uuidString:)) ?? BrowserProfile.defaultID
             ))
         }
     }
@@ -136,7 +137,8 @@ final class TerminalTab: Identifiable {
             extensionID: content.extensionState?.extensionID,
             extensionTabTypeID: content.extensionState?.tabTypeID,
             extensionTabData: content.extensionState?.data,
-            browserURL: content.browserState?.url?.absoluteString
+            browserURL: content.browserState?.url?.absoluteString,
+            browserProfileID: content.browserState?.profileID.uuidString
         )
     }
 

@@ -8,6 +8,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case appearance
     case sidebar
     case terminal
+    case browser
     case richInput
     case shortcuts
     case commands
@@ -27,6 +28,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: "Interface"
         case .sidebar: "Sidebar"
         case .terminal: "Terminal"
+        case .browser: "Browser"
         case .richInput: "Rich Input"
         case .shortcuts: "Shortcuts"
         case .commands: "Commands"
@@ -46,6 +48,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: "macwindow"
         case .sidebar: "sidebar.left"
         case .terminal: "terminal"
+        case .browser: "globe"
         case .richInput: "text.cursor"
         case .shortcuts: "keyboard"
         case .commands: "command"

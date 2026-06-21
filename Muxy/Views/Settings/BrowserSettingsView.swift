@@ -1,0 +1,231 @@
+import SwiftUI
+
+struct BrowserSettingsView: View {
+    @Environment(BrowserProfileStore.self) private var profileStore
+    @AppStorage(BrowserPreferences.openLinksInBuiltInBrowserKey) private var openLinksInBuiltInBrowser = false
+    @AppStorage(BrowserPreferences.defaultProfileIDKey) private var defaultProfileIDRaw = BrowserProfile.defaultID.uuidString
+
+    @State private var editorMode: BrowserProfileEditorMode?
+    @State private var profilePendingDelete: BrowserProfile?
+    @State private var importTarget: BrowserProfile?
+
+    private static let profilesFooter = """
+    Each profile keeps its own cookies, cache, and logins. Pick a profile per tab from the browser \
+    toolbar. Import brings an existing browser's cookies so tabs start signed in.
+    """
+
+    var body: some View {
+        SettingsContainer {
+            SettingsSection("General") {
+                SettingsToggleRow(
+                    label: "Open terminal links in built-in browser",
+                    isOn: $openLinksInBuiltInBrowser
+                )
+                SettingsRow("Default Profile") {
+                    Picker("", selection: defaultProfileBinding) {
+                        ForEach(profileStore.profiles) { profile in
+                            Text(profile.name).tag(profile.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth)
+                }
+            }
+
+            SettingsSection("Profiles", footer: Self.profilesFooter, showsDivider: false) {
+                ForEach(profileStore.profiles) { profile in
+                    BrowserProfileRow(
+                        profile: profile,
+                        onRename: { editorMode = .edit(profile) },
+                        onImport: { importTarget = profile },
+                        onDelete: { profilePendingDelete = profile }
+                    )
+                }
+                addButton
+            }
+        }
+        .sheet(item: $editorMode) { mode in
+            BrowserProfileEditorSheet(
+                mode: mode,
+                onSave: { name in
+                    save(mode: mode, name: name)
+                    editorMode = nil
+                },
+                onCancel: { editorMode = nil }
+            )
+        }
+        .sheet(item: $importTarget) { profile in
+            BrowserImportSheet(
+                targetProfile: profile,
+                onDismiss: { importTarget = nil }
+            )
+        }
+        .alert(
+            "Delete “\(profilePendingDelete?.name ?? "")”?",
+            isPresented: deleteAlertBinding,
+            presenting: profilePendingDelete
+        ) { profile in
+            Button("Delete", role: .destructive) {
+                profileStore.remove(id: profile.id)
+                profilePendingDelete = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) { profilePendingDelete = nil }
+        } message: { _ in
+            Text("This permanently deletes the profile's cookies and browsing data.")
+        }
+    }
+
+    private var addButton: some View {
+        Button {
+            editorMode = .create
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Add Profile")
+                    .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
+            }
+            .foregroundStyle(SettingsStyle.accent)
+            .padding(.horizontal, SettingsMetrics.horizontalPadding)
+            .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var defaultProfileBinding: Binding<UUID> {
+        Binding(
+            get: { profileStore.defaultProfileID },
+            set: { newValue in
+                profileStore.setDefault(id: newValue)
+                defaultProfileIDRaw = newValue.uuidString
+            }
+        )
+    }
+
+    private var deleteAlertBinding: Binding<Bool> {
+        Binding(
+            get: { profilePendingDelete != nil },
+            set: { if !$0 { profilePendingDelete = nil } }
+        )
+    }
+
+    private func save(mode: BrowserProfileEditorMode, name: String) {
+        switch mode {
+        case .create:
+            profileStore.add(name: name)
+        case let .edit(profile):
+            profileStore.rename(id: profile.id, to: name)
+        }
+    }
+}
+
+private struct BrowserProfileRow: View {
+    let profile: BrowserProfile
+    let onRename: () -> Void
+    let onImport: () -> Void
+    let onDelete: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: SettingsMetrics.labelFontSize))
+                .foregroundStyle(SettingsStyle.mutedForeground)
+            Text(profile.name)
+                .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
+                .foregroundStyle(SettingsStyle.foreground)
+            if profile.isDefault {
+                Text("Default")
+                    .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                    .foregroundStyle(SettingsStyle.mutedForeground)
+            }
+            Spacer()
+            Button("Import from Chrome", action: onImport)
+                .buttonStyle(.plain)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                .foregroundStyle(SettingsStyle.accent)
+            if !profile.isDefault {
+                Button("Rename", action: onRename)
+                    .buttonStyle(.plain)
+                    .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                    .foregroundStyle(SettingsStyle.accent)
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: SettingsMetrics.footnoteFontSize))
+                        .foregroundStyle(SettingsStyle.destructive)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+        .background(
+            isHovered ? SettingsStyle.hover : .clear,
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+        .onHover { isHovered = $0 }
+    }
+}
+
+enum BrowserProfileEditorMode: Identifiable {
+    case create
+    case edit(BrowserProfile)
+
+    var id: String {
+        switch self {
+        case .create: "profile-create"
+        case let .edit(profile): "profile-edit-\(profile.id.uuidString)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .create: "Add Profile"
+        case .edit: "Rename Profile"
+        }
+    }
+
+    var initialName: String {
+        switch self {
+        case .create: ""
+        case let .edit(profile): profile.name
+        }
+    }
+}
+
+private struct BrowserProfileEditorSheet: View {
+    let mode: BrowserProfileEditorMode
+    let onSave: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var name = ""
+
+    private var canSave: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
+            Text(mode.title)
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+
+            TextField("Profile name", text: $name)
+                .settingsTextInput(maxWidth: .infinity)
+
+            HStack(spacing: UIMetrics.spacing3) {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Save") { onSave(name) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canSave)
+            }
+        }
+        .padding(UIMetrics.spacing8)
+        .frame(width: UIMetrics.scaled(360))
+        .onAppear { name = mode.initialName }
+    }
+}

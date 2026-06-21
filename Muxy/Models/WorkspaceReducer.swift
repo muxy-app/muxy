@@ -99,11 +99,12 @@ enum WorkspaceReducer {
                 state: &state
             )
 
-        case let .createBrowserTab(projectID, areaID, url):
+        case let .createBrowserTab(projectID, areaID, url, profileID):
             TabReducer.createBrowserTab(
                 projectID: projectID,
                 areaID: areaID,
                 url: url,
+                profileID: profileID,
                 state: &state
             )
 

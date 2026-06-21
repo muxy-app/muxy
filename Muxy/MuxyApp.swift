@@ -14,6 +14,7 @@ struct MuxyApp: App {
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
     @State private var remoteDeviceStore: RemoteDeviceStore
+    @State private var browserProfileStore: BrowserProfileStore
     @State private var worktreeAutoRefresher: VCSWorktreeAutoRefresher?
     @State private var didStartDeferredServices = false
 
@@ -35,6 +36,9 @@ struct MuxyApp: App {
         let remoteDeviceStore = RemoteDeviceStore(
             persistence: environment.remoteDevicePersistence
         )
+        let browserProfileStore = BrowserProfileStore(
+            persistence: environment.browserProfilePersistence
+        )
         let projectGroupStore = ProjectGroupStore(
             persistence: environment.projectGroupPersistence,
             remoteDeviceStore: remoteDeviceStore
@@ -49,6 +53,7 @@ struct MuxyApp: App {
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
         _remoteDeviceStore = State(initialValue: remoteDeviceStore)
+        _browserProfileStore = State(initialValue: browserProfileStore)
     }
 
     var body: some Scene {
@@ -59,6 +64,7 @@ struct MuxyApp: App {
                 .environment(worktreeStore)
                 .environment(projectGroupStore)
                 .environment(remoteDeviceStore)
+                .environment(browserProfileStore)
                 .environment(SSHConnectionService.shared)
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
@@ -78,11 +84,12 @@ struct MuxyApp: App {
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
                     }
-                    appDelegate.settingsContent = { [projectGroupStore, remoteDeviceStore] in
+                    appDelegate.settingsContent = { [projectGroupStore, remoteDeviceStore, browserProfileStore] in
                         AnyView(
                             SettingsView()
                                 .environment(projectGroupStore)
                                 .environment(remoteDeviceStore)
+                                .environment(browserProfileStore)
                                 .environment(SSHConnectionService.shared)
                         )
                     }

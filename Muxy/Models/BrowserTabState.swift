@@ -12,6 +12,7 @@ final class BrowserTabState: Identifiable {
 
     let id = UUID()
     let projectPath: String
+    var profileID: UUID
 
     var url: URL?
     var pendingURL: URL?
@@ -30,9 +31,10 @@ final class BrowserTabState: Identifiable {
         return "New Tab"
     }
 
-    init(projectPath: String, url: URL? = nil) {
+    init(projectPath: String, url: URL? = nil, profileID: UUID = BrowserProfile.defaultID) {
         self.projectPath = projectPath
         self.url = url
+        self.profileID = profileID
         pendingURL = url
     }
 
