@@ -595,8 +595,7 @@ struct SidebarFooter: View {
     @State private var showThemePicker = false
     @State private var showNotifications = false
     @State private var extensionStore = ExtensionStore.shared
-
-    private var notificationStore: NotificationStore { NotificationStore.shared }
+    @State private var notificationStore = NotificationStore.shared
 
     var body: some View {
         VStack(spacing: 0) {

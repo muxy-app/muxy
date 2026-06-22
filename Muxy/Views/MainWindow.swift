@@ -91,6 +91,7 @@ struct MainWindow: View {
     @AppStorage(RecordingPreferences.autoSendKey) private var recordingAutoSend = RecordingPreferences.defaultAutoSend
     @AppStorage(RecordingPreferences.languageKey) private var recordingLanguage = RecordingPreferences.defaultLanguage
     @State private var voiceRecording = VoiceRecordingState.shared
+    @State private var toastState = ToastState.shared
     @MainActor private var trafficLightWidth: CGFloat { UIMetrics.scaled(75) }
 
     var body: some View {
@@ -114,7 +115,7 @@ struct MainWindow: View {
         }
         .animation(.easeInOut(duration: 0.2), value: voiceRecording.isPanelVisible)
         .overlay(alignment: toastAlignment) {
-            if let toast = ToastState.shared.content {
+            if let toast = toastState.content {
                 HStack(alignment: toast.body == nil ? .center : .top, spacing: UIMetrics.spacing3) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: UIMetrics.fontBody, weight: .semibold))
@@ -143,7 +144,7 @@ struct MainWindow: View {
                 .transition(.move(edge: toastTransitionEdge).combined(with: .opacity))
                 .allowsHitTesting(toast.isActionable)
                 .onTapGesture {
-                    ToastState.shared.performAction()
+                    toastState.performAction()
                 }
                 .accessibilityLabel(toast.accessibilityLabel)
                 .accessibilityAddTraits(toast.isActionable ? .isButton : .isStaticText)
@@ -159,7 +160,7 @@ struct MainWindow: View {
             showProjectPicker: showProjectPicker,
             onAnimatingOut: { overlayAnimatingOut = $0 }
         ))
-        .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
+        .animation(.easeInOut(duration: 0.2), value: toastState.message != nil)
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
         .background(MainWindowShortcutInterceptor(

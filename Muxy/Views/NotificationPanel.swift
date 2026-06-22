@@ -21,10 +21,11 @@ struct NotificationPanelItem: Identifiable {
 
 struct NotificationPanel: View {
     @Environment(AppState.self) private var appState
+    @State private var notificationStore = NotificationStore.shared
     let onDismiss: () -> Void
 
     private var items: [NotificationPanelItem] {
-        let store = NotificationStore.shared
+        let store = notificationStore
         _ = store.readStateVersion
         let registry = AIProviderRegistry.shared
         return store.notifications.map { n in
@@ -60,7 +61,7 @@ struct NotificationPanel: View {
                 .foregroundStyle(MuxyTheme.fg)
             Spacer()
             Button {
-                NotificationStore.shared.clear()
+                notificationStore.clear()
             } label: {
                 Text("Clear All")
                     .font(.system(size: UIMetrics.fontFootnote))
@@ -77,7 +78,7 @@ struct NotificationPanel: View {
             LazyVStack(spacing: 0) {
                 ForEach(currentItems) { item in
                     NotificationRow(item: item, isHighlighted: false, onRemove: {
-                        NotificationStore.shared.remove(item.id)
+                        notificationStore.remove(item.id)
                     })
                     .contentShape(Rectangle())
                     .onTapGesture { selectItem(item) }
@@ -128,7 +129,7 @@ struct NotificationPanel: View {
     }
 
     private func selectItem(_ item: NotificationPanelItem) {
-        let store = NotificationStore.shared
+        let store = notificationStore
         guard let notification = store.notifications.first(where: { $0.id == item.id }) else { return }
         NotificationNavigator.navigate(
             to: notification,
