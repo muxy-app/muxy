@@ -68,7 +68,13 @@ struct MuxyNotificationHooksTests {
 
     @Test("shell hooks terminate socket notification payloads with newline")
     func shellHooksTerminateNotificationPayloadsWithNewline() throws {
-        for scriptName in ["muxy-claude-hook.sh", "muxy-codex-hook.sh", "muxy-cursor-hook.sh", "muxy-droid-hook.sh"] {
+        for scriptName in [
+            "muxy-claude-hook.sh",
+            "muxy-codex-hook.sh",
+            "muxy-cursor-hook.sh",
+            "muxy-droid-hook.sh",
+            "muxy-grok-hook.sh",
+        ] {
             let contents = try String(
                 contentsOf: Self.repositoryRoot
                     .appendingPathComponent("Muxy/Resources/scripts/\(scriptName)"),
@@ -144,6 +150,7 @@ struct MuxyNotificationHooksTests {
         ShellHookSample(scriptName: "muxy-codex-hook.sh", event: "stop", input: "{}"),
         ShellHookSample(scriptName: "muxy-cursor-hook.sh", event: "Stop", input: "{}"),
         ShellHookSample(scriptName: "muxy-droid-hook.sh", event: "stop", input: "{}"),
+        ShellHookSample(scriptName: "muxy-grok-hook.sh", event: "stop", input: "{}"),
     ]
 
     private struct ShellHookSample {

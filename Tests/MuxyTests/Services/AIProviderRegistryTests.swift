@@ -21,6 +21,7 @@ struct AIProviderRegistryTests {
             "droid_hook": "droid",
             "opencode": "opencode",
             "pi": "pi",
+            "grok_hook": "grok",
         ]
         for (socketType, providerID) in expected {
             #expect(AIProviderRegistry.shared.notificationSource(for: socketType) == .aiProvider(providerID))
