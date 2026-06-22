@@ -677,7 +677,7 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
-        let parts = message.split(separator: "|", maxSplits: 3).map(String.init)
+        let parts = message.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 3 else {
             logger.warning("Invalid message on notification socket: expected type|paneID|title|body")
             return
@@ -740,6 +740,17 @@ final class NotificationSocketServer: @unchecked Sendable {
         let title = registry.displayName(forSocketType: type) ?? fallbackTitle
 
         if let paneIDString, let paneID = UUID(uuidString: paneIDString) {
+            NotificationStore.shared.add(
+                paneID: paneID,
+                source: source,
+                title: title,
+                body: body,
+                appState: appState
+            )
+            return
+        }
+
+        if let paneID = NotificationNavigator.activePaneID(appState: appState) {
             NotificationStore.shared.add(
                 paneID: paneID,
                 source: source,
