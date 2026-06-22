@@ -83,7 +83,12 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     func start() {
         queue.async { [weak self] in
-            self?.startListening()
+            guard let self else { return }
+            guard self.acceptSource == nil, self.serverFD < 0 else {
+                self.markListeningFinished()
+                return
+            }
+            self.startListening()
         }
     }
 
@@ -353,6 +358,7 @@ final class NotificationSocketServer: @unchecked Sendable {
             logger.error("Failed to bind socket: \(String(cString: strerror(errno)))")
             close(serverFD)
             serverFD = -1
+            unlink(path)
             return
         }
 
@@ -362,6 +368,7 @@ final class NotificationSocketServer: @unchecked Sendable {
             logger.error("Failed to listen on socket: \(String(cString: strerror(errno)))")
             close(serverFD)
             serverFD = -1
+            unlink(path)
             return
         }
 
@@ -845,8 +852,9 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     private func cleanup() {
-        acceptSource?.cancel()
+        let source = acceptSource
         acceptSource = nil
+        source?.cancel()
         for session in Array(subscribers.values) {
             disposeSession(session)
         }
