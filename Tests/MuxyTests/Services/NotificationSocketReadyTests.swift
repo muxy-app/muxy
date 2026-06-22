@@ -3,8 +3,14 @@ import Testing
 
 @testable import Muxy
 
-@Suite("NotificationSocketServer readiness gate")
+@Suite("NotificationSocketServer readiness gate", .serialized)
 struct NotificationSocketReadyTests {
+    @Test("test socket path does not use app support")
+    func testSocketPathDoesNotUseAppSupport() {
+        #expect(NotificationSocketServer.socketPath.contains(FileManager.default.temporaryDirectory.path))
+        #expect(!NotificationSocketServer.socketPath.contains("Library/Application Support/Muxy"))
+    }
+
     @Test("awaitReady resolves once the server finishes listening")
     func resolvesAfterStart() async throws {
         let server = NotificationSocketServer.shared

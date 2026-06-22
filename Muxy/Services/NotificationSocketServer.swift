@@ -61,9 +61,22 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     static var socketPath: String {
-        MuxyFileStorage.appSupportDirectory()
+        if isRunningTests {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("muxy-\(ProcessInfo.processInfo.processIdentifier).sock")
+                .path
+        }
+        return MuxyFileStorage.appSupportDirectory()
             .appendingPathComponent("muxy.sock")
             .path
+    }
+
+    private static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || ProcessInfo.processInfo.processName.contains("Tests")
+            || ProcessInfo.processInfo.processName.contains("Package")
+            || CommandLine.arguments.contains { $0.contains(".xctest") || $0.contains("PackageTests") }
+            || Bundle.allBundles.contains { $0.bundlePath.contains(".xctest") }
     }
 
     private init() {}
