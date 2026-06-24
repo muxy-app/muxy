@@ -114,14 +114,19 @@ private final class ExtensionConsentSheetWindow: NSPanel {
     ) {
         currentRequest = request
         self.onChoice = onChoice
-        let dialog = ExtensionConsentDialog(request: request, onChoice: onChoice)
+        let frame = visibleFrame ?? NSScreen.main?.visibleFrame
+        let dialog = ExtensionConsentDialog(
+            request: request,
+            payloadMaxHeight: ExtensionConsentSheetLayout.payloadMaxHeight(for: frame),
+            onChoice: onChoice
+        )
         let host = NSHostingView(rootView: dialog)
         host.translatesAutoresizingMaskIntoConstraints = true
         hostingView = host
 
         let size = ExtensionConsentSheetLayout.contentSize(
             for: host.fittingSize,
-            visibleFrame: visibleFrame ?? NSScreen.main?.visibleFrame
+            visibleFrame: frame
         )
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
@@ -142,10 +147,15 @@ private final class ExtensionConsentSheetWindow: NSPanel {
 
     func updateRequest(_ request: ExtensionConsentRequest) {
         currentRequest = request
-        hostingView.rootView = ExtensionConsentDialog(request: request, onChoice: onChoice)
+        let frame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        hostingView.rootView = ExtensionConsentDialog(
+            request: request,
+            payloadMaxHeight: ExtensionConsentSheetLayout.payloadMaxHeight(for: frame),
+            onChoice: onChoice
+        )
         let newSize = ExtensionConsentSheetLayout.contentSize(
             for: hostingView.fittingSize,
-            visibleFrame: screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+            visibleFrame: frame
         )
         setContentSize(newSize)
         hostingView.frame = NSRect(origin: .zero, size: newSize)
@@ -163,23 +173,32 @@ enum ExtensionConsentSheetLayout {
     static let width: CGFloat = 520
     static let minimumHeight: CGFloat = 220
     static let screenMargin: CGFloat = 80
+    static let payloadFallbackHeight: CGFloat = 260
+    static let payloadMinimumHeight: CGFloat = 80
+
+    static func availableHeight(for visibleFrame: NSRect?) -> CGFloat {
+        visibleFrame.map { max(minimumHeight, $0.height - screenMargin) } ?? .greatestFiniteMagnitude
+    }
 
     @MainActor
-    static var payloadMaxHeight: CGFloat { UIMetrics.scaled(260) }
-
-    @MainActor
-    static var rememberRulePreviewHeight: CGFloat { UIMetrics.scaled(14) }
+    static func payloadMaxHeight(for visibleFrame: NSRect?) -> CGFloat {
+        guard let visibleFrame else { return payloadFallbackHeight }
+        let available = availableHeight(for: visibleFrame) - chromeHeight
+        return max(payloadMinimumHeight, min(payloadFallbackHeight, available))
+    }
 
     static func contentSize(for fittingSize: NSSize, visibleFrame: NSRect?) -> NSSize {
-        let height = visibleFrame.map { frame in
-            min(fittingSize.height, max(minimumHeight, frame.height - screenMargin))
-        } ?? fittingSize.height
+        let height = min(fittingSize.height, availableHeight(for: visibleFrame))
         return NSSize(width: max(width, fittingSize.width), height: height)
     }
+
+    @MainActor
+    private static var chromeHeight: CGFloat { UIMetrics.scaled(200) }
 }
 
 struct ExtensionConsentDialog: View {
     let request: ExtensionConsentRequest
+    var payloadMaxHeight: CGFloat = ExtensionConsentSheetLayout.payloadFallbackHeight
     let onChoice: (ExtensionConsentChoice) -> Void
 
     @State private var blockKind = false
@@ -231,7 +250,7 @@ struct ExtensionConsentDialog: View {
             }
             .padding(12)
         }
-        .frame(maxHeight: ExtensionConsentSheetLayout.payloadMaxHeight)
+        .frame(maxHeight: payloadMaxHeight)
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
     }
 
@@ -256,13 +275,8 @@ struct ExtensionConsentDialog: View {
                         .foregroundStyle(MuxyTheme.fg)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: ExtensionConsentSheetLayout.rememberRulePreviewHeight,
-                            maxHeight: ExtensionConsentSheetLayout.rememberRulePreviewHeight,
-                            alignment: .leading
-                        )
-                        .clipped()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .help(rememberRuleDescription)
                 }
                 Spacer()
             }

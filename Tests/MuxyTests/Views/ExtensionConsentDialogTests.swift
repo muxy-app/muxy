@@ -7,6 +7,10 @@ import Testing
 @MainActor
 @Suite("ExtensionConsentDialog")
 struct ExtensionConsentDialogTests {
+    init() {
+        UIScale.shared.preset = .regular
+    }
+
     @Test("sheet height is capped to the visible screen")
     func sheetHeightIsCappedToVisibleScreen() {
         let fitting = NSSize(width: 520, height: 1_200)
@@ -18,20 +22,22 @@ struct ExtensionConsentDialogTests {
         #expect(size.height == 560)
     }
 
+    @Test("payload max height shrinks on short screens to keep buttons reachable")
+    func payloadMaxHeightShrinksOnShortScreens() {
+        let tall = NSRect(x: 0, y: 0, width: 1_200, height: 1_080)
+        let short = NSRect(x: 0, y: 0, width: 1_200, height: 480)
+
+        let fallback = ExtensionConsentSheetLayout.payloadFallbackHeight
+        #expect(ExtensionConsentSheetLayout.payloadMaxHeight(for: tall) == fallback)
+        #expect(ExtensionConsentSheetLayout.payloadMaxHeight(for: short) < fallback)
+        #expect(ExtensionConsentSheetLayout.payloadMaxHeight(for: short) >= ExtensionConsentSheetLayout.payloadMinimumHeight)
+    }
+
     @Test("long shell command keeps dialog fitting height bounded")
     func longShellCommandKeepsDialogFittingHeightBounded() {
         let command = String(repeating: "printf '%s' very-long-extension-command && ", count: 300)
-        let request = ExtensionConsentRequest(
-            extensionID: "demo-long-command",
-            extensionDisplayName: "Long Command Demo",
-            verb: .exec,
-            payload: .exec(argv: nil, shell: command),
-            payloadSummary: "sh -c …",
-            payloadDetails: ["shell: \(command)"],
-            suggestedMatch: .shellExact(command),
-            source: "test"
-        )
-        let view = ExtensionConsentDialog(request: request, onChoice: { _ in })
+        let request = makeRequest(payloadDetails: ["shell: \(command)"], match: .shellExact(command))
+        let view = ExtensionConsentDialog(request: request, payloadMaxHeight: 260, onChoice: { _ in })
         let hostingView = NSHostingView(rootView: view)
         hostingView.layoutSubtreeIfNeeded()
 
@@ -41,20 +47,24 @@ struct ExtensionConsentDialogTests {
     @Test("long remember rule keeps dialog fitting height bounded")
     func longRememberRuleKeepsDialogFittingHeightBounded() {
         let command = String(repeating: "remember-rule-segment-", count: 300)
-        let request = ExtensionConsentRequest(
-            extensionID: "demo-long-command",
-            extensionDisplayName: "Long Command Demo",
-            verb: .exec,
-            payload: .exec(argv: nil, shell: command),
-            payloadSummary: "sh -c …",
-            payloadDetails: ["shell: short"],
-            suggestedMatch: .shellExact(command),
-            source: "test"
-        )
-        let view = ExtensionConsentDialog(request: request, onChoice: { _ in })
+        let request = makeRequest(payloadDetails: ["shell: short"], match: .shellExact(command))
+        let view = ExtensionConsentDialog(request: request, payloadMaxHeight: 260, onChoice: { _ in })
         let hostingView = NSHostingView(rootView: view)
         hostingView.layoutSubtreeIfNeeded()
 
         #expect(hostingView.fittingSize.height <= 260)
+    }
+
+    private func makeRequest(payloadDetails: [String], match: ExtensionGrantMatch) -> ExtensionConsentRequest {
+        ExtensionConsentRequest(
+            extensionID: "demo-long-command",
+            extensionDisplayName: "Long Command Demo",
+            verb: .exec,
+            payload: .exec(argv: nil, shell: payloadDetails.first),
+            payloadSummary: "sh -c …",
+            payloadDetails: payloadDetails,
+            suggestedMatch: match,
+            source: "test"
+        )
     }
 }
