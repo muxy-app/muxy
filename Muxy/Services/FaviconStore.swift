@@ -23,7 +23,7 @@ final class FaviconStore {
         cache[Self.cacheKey(for: pageURL)]
     }
 
-    func load(for pageURL: URL, iconURL: URL, completion: @escaping (NSImage?) -> Void) {
+    func load(for pageURL: URL, iconURL: URL, completion: @escaping @MainActor (NSImage?) -> Void) {
         let key = Self.cacheKey(for: pageURL)
         if let cached = cache[key] {
             completion(cached)
@@ -31,15 +31,19 @@ final class FaviconStore {
         }
         guard !inFlight.contains(key) else { return }
         inFlight.insert(key)
-        session.dataTask(with: iconURL) { [weak self] data, _, _ in
-            let image = data.flatMap(NSImage.init(data:))
-            Task { @MainActor in
-                self?.finishLoad(key: key, image: image, completion: completion)
-            }
-        }.resume()
+        Task { [weak self] in
+            let image = await Self.fetchImage(from: iconURL, session: self?.session)
+            self?.finishLoad(key: key, image: image, completion: completion)
+        }
     }
 
-    private func finishLoad(key: String, image: NSImage?, completion: (NSImage?) -> Void) {
+    nonisolated private static func fetchImage(from iconURL: URL, session: URLSession?) async -> NSImage? {
+        guard let session else { return nil }
+        guard let data = try? await session.data(from: iconURL).0 else { return nil }
+        return NSImage(data: data)
+    }
+
+    private func finishLoad(key: String, image: NSImage?, completion: @MainActor (NSImage?) -> Void) {
         inFlight.remove(key)
         guard let image, image.isValid else {
             completion(nil)
