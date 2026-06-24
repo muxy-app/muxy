@@ -11,7 +11,7 @@ enum TerminalOpenURLParser {
     }
 }
 
-struct TerminalOSC8LinkState: Equatable, Sendable {
+struct TerminalOSC8LinkState: Equatable {
     var hasLinkUnderCursor: Bool = false
     var stickyURL: URL?
 
@@ -20,10 +20,13 @@ struct TerminalOSC8LinkState: Equatable, Sendable {
     }
 
     mutating func applyHover(urlString: String?, commandHeld: Bool) {
-        if let urlString, !urlString.isEmpty, let url = URL(string: urlString) {
-            stickyURL = url
-            hasLinkUnderCursor = true
-            return
+        if let urlString {
+            let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, let url = URL(string: trimmed) {
+                stickyURL = url
+                hasLinkUnderCursor = true
+                return
+            }
         }
 
         hasLinkUnderCursor = false

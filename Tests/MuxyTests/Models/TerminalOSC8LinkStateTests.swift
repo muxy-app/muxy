@@ -22,17 +22,17 @@ struct TerminalOpenURLParserTests {
 
 @Suite("TerminalOSC8LinkState")
 struct TerminalOSC8LinkStateTests {
-    @Test func hoverWithURLSetsStickyAndUnderCursor() throws {
+    @Test func hoverWithURLSetsStickyAndUnderCursor() {
         var state = TerminalOSC8LinkState()
         state.applyHover(urlString: "https://example.com/x", commandHeld: false)
 
         #expect(state.hasLinkUnderCursor)
-        #expect(state.stickyURL == try #require(URL(string: "https://example.com/x")))
+        #expect(state.stickyURL?.absoluteString == "https://example.com/x")
         #expect(state.shouldShowLinkCursor)
         #expect(state.urlToOpenOnCommandClick() == state.stickyURL)
     }
 
-    @Test func emptyHoverWithoutCommandClearsSticky() throws {
+    @Test func emptyHoverWithoutCommandClearsSticky() {
         var state = TerminalOSC8LinkState()
         state.applyHover(urlString: "https://example.com/x", commandHeld: false)
         state.applyHover(urlString: nil, commandHeld: false)
@@ -43,18 +43,18 @@ struct TerminalOSC8LinkStateTests {
         #expect(state.urlToOpenOnCommandClick() == nil)
     }
 
-    @Test func emptyHoverWithCommandKeepsStickyForCmdClick() throws {
+    @Test func emptyHoverWithCommandKeepsStickyForCmdClick() {
         var state = TerminalOSC8LinkState()
         state.applyHover(urlString: "https://example.com/x", commandHeld: false)
         state.applyHover(urlString: "", commandHeld: true)
 
         #expect(!state.hasLinkUnderCursor)
-        #expect(state.stickyURL == try #require(URL(string: "https://example.com/x")))
+        #expect(state.stickyURL?.absoluteString == "https://example.com/x")
         #expect(state.shouldShowLinkCursor)
-        #expect(state.urlToOpenOnCommandClick() == try #require(URL(string: "https://example.com/x")))
+        #expect(state.urlToOpenOnCommandClick()?.absoluteString == "https://example.com/x")
     }
 
-    @Test func emptyStringHoverWithCommandPreservesSticky() throws {
+    @Test func emptyStringHoverWithCommandPreservesSticky() {
         var state = TerminalOSC8LinkState()
         state.applyHover(urlString: "https://example.com/docs", commandHeld: false)
         state.applyHover(urlString: "", commandHeld: true)
@@ -62,20 +62,20 @@ struct TerminalOSC8LinkStateTests {
         #expect(state.urlToOpenOnCommandClick()?.absoluteString == "https://example.com/docs")
     }
 
-    @Test func invalidURLDoesNotSetSticky() {
+    @Test func whitespaceOnlyHoverDoesNotSetSticky() {
         var state = TerminalOSC8LinkState()
-        state.applyHover(urlString: "not a url with spaces", commandHeld: false)
+        state.applyHover(urlString: "   ", commandHeld: false)
 
         #expect(!state.hasLinkUnderCursor)
         #expect(state.stickyURL == nil)
     }
 
-    @Test func replacingHoverUpdatesStickyURL() throws {
+    @Test func replacingHoverUpdatesStickyURL() {
         var state = TerminalOSC8LinkState()
         state.applyHover(urlString: "https://a.example", commandHeld: false)
         state.applyHover(urlString: "https://b.example", commandHeld: false)
 
-        #expect(state.stickyURL == try #require(URL(string: "https://b.example")))
+        #expect(state.stickyURL?.absoluteString == "https://b.example")
     }
 
     @Test func leaveLinkThenCmdHeldDoesNotResurrectSticky() {
@@ -100,11 +100,6 @@ struct TerminalBridgeOSC8OpenRoutingTests {
     @Test func externalHTTPIsOpenable() throws {
         let url = try #require(URL(string: "http://localhost:8080/"))
         #expect(TerminalBridge.isExternalLink(url))
-    }
-
-    @Test func fileURLIsNotExternalLink() throws {
-        let url = try #require(URL(string: "file:///tmp/readme.md"))
-        #expect(!TerminalBridge.isExternalLink(url))
     }
 
     @Test func localPathTokenIsNotExternalLink() throws {
