@@ -65,6 +65,24 @@ struct BrowserInspectableWebViewTests {
         #expect(state.webView == nil)
         #expect(webView.closeCount == 1)
     }
+
+    @Test("cached web view is reused when the profile data store matches")
+    func cachedWebViewIsReusedWhenDataStoreMatches() {
+        let profileID = UUID()
+        defer { BrowserDataStoreCache.shared.evict(profileID) }
+        let dataStore = BrowserDataStoreCache.shared.store(for: profileID)
+        let state = BrowserTabState(projectPath: "/tmp/test", profileID: profileID)
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = dataStore
+        let webView = InspectorClosingWebViewStub(frame: .zero, configuration: configuration)
+        state.webView = webView
+
+        let reused = BrowserWebView.reusableWebView(for: state, dataStore: dataStore)
+
+        #expect(reused === webView)
+        #expect(state.webView === webView)
+        #expect(webView.closeCount == 0)
+    }
 }
 
 @MainActor

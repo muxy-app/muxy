@@ -55,7 +55,7 @@ struct BrowserWebView: NSViewRepresentable {
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         _ = (webView as? any BrowserElementInspecting)?.closeInspector()
-        BrowserWebViewRegistry.shared.unregister(coordinator.tabID)
+        BrowserWebViewRegistry.shared.unregister(coordinator.tabID, ifMatches: webView)
         coordinator.detach(from: webView)
     }
 
@@ -71,7 +71,7 @@ struct BrowserWebView: NSViewRepresentable {
     private static func retireCachedWebView(_ webView: WKWebView, state: BrowserTabState) {
         _ = (webView as? any BrowserElementInspecting)?.closeInspector()
         webView.stopLoading()
-        BrowserWebViewRegistry.shared.unregister(state.id)
+        BrowserWebViewRegistry.shared.unregister(state.id, ifMatches: webView)
         if state.webView === webView {
             state.webView = nil
         }
