@@ -46,66 +46,44 @@ enum CLIAccessor {
     }
 
     static func installCLI() {
-        guard let resourceURL = cliResourceURL()
-        else {
-            alert(title: "CLI Not Found", body: "The CLI script was not found in the app bundle.")
-            return
-        }
+        let appPath = Bundle.main.bundleURL.path
+        let wrapper = CLIWrapperScript.contents(installedAppPath: appPath)
 
         guard confirmInstall() else { return }
 
-        if copyScript(from: resourceURL, to: "/usr/local/bin", label: "/usr/local/bin/muxy") {
+        if writeWrapper(wrapper, to: "/usr/local/bin") {
             showInstalledAlert(label: "/usr/local/bin/muxy", pathNote: "")
             return
         }
 
         Task.detached(priority: .userInitiated) {
-            let success = runAdminInstall(resourceURL: resourceURL)
+            let success = runAdminInstall(wrapper: wrapper)
             await MainActor.run {
                 if success {
                     showInstalledAlert(label: "/usr/local/bin/muxy", pathNote: "")
                     return
                 }
-                if tryFallbackInstalls(resourceURL: resourceURL) { return }
+                if tryFallbackInstalls(wrapper: wrapper) { return }
                 alert(
                     title: "CLI Installation Failed",
                     body: """
                     Could not install muxy to /usr/local/bin or any fallback directory.
 
-                    Try manually:
-                      sudo cp "\(resourceURL.path)" /usr/local/bin/muxy
-                      sudo chmod +x /usr/local/bin/muxy
+                    Make sure /usr/local/bin exists and is writable, then try again.
                     """
                 )
             }
         }
     }
 
-    private static func cliResourceURL() -> URL? {
-        if let url = Bundle.appResources.resourceURL?
-            .appendingPathComponent("scripts/muxy-cli"),
-            FileManager.default.fileExists(atPath: url.path)
-        {
-            return url
-        }
-
-        return Bundle.appResources.url(
-            forResource: "muxy-cli",
-            withExtension: ""
-        )
-    }
-
-    private static func copyScript(from resourceURL: URL, to binPath: String, label: String) -> Bool {
+    private static func writeWrapper(_ wrapper: String, to binPath: String) -> Bool {
         let target = URL(fileURLWithPath: "\(binPath)/muxy")
         let dir = URL(fileURLWithPath: binPath)
         if !FileManager.default.fileExists(atPath: binPath) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
-        if FileManager.default.fileExists(atPath: target.path) {
-            try? FileManager.default.removeItem(at: target)
-        }
         do {
-            try FileManager.default.copyItem(at: resourceURL, to: target)
+            try wrapper.write(to: target, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes(
                 [.posixPermissions: FilePermissions.executable],
                 ofItemAtPath: target.path
@@ -116,9 +94,9 @@ enum CLIAccessor {
         }
     }
 
-    nonisolated private static func runAdminInstall(resourceURL: URL) -> Bool {
-        let quotedSource = ShellEscaper.escape(resourceURL.path)
-        let shellCommand = "mkdir -p /usr/local/bin && cp \(quotedSource) /usr/local/bin/muxy && chmod +x /usr/local/bin/muxy"
+    nonisolated private static func runAdminInstall(wrapper: String) -> Bool {
+        let quotedWrapper = ShellEscaper.escape(wrapper)
+        let shellCommand = "mkdir -p /usr/local/bin && printf '%s' \(quotedWrapper) > /usr/local/bin/muxy && chmod +x /usr/local/bin/muxy"
         let escapedForAppleScript = shellCommand
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -129,14 +107,14 @@ enum CLIAccessor {
         return error == nil
     }
 
-    private static func tryFallbackInstalls(resourceURL: URL) -> Bool {
+    private static func tryFallbackInstalls(wrapper: String) -> Bool {
         let home = NSHomeDirectory()
         let fallbacks = [
             (path: "\(home)/bin", label: "~/bin/muxy"),
             (path: "\(home)/.local/bin", label: "~/.local/bin/muxy"),
         ]
         for fallback in fallbacks {
-            guard copyScript(from: resourceURL, to: fallback.path, label: fallback.label) else {
+            guard writeWrapper(wrapper, to: fallback.path) else {
                 continue
             }
             let pathNote = "\n\nAdd to PATH:\n  export PATH=\"$PATH:\(fallback.path)\""
