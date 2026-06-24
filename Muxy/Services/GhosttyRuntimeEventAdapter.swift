@@ -156,18 +156,8 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             return false
         }
 
-        let openOnMain = {
-            let handled = view.onOpenURL?(url) ?? false
-            if handled { return }
-            if !NSWorkspace.shared.open(url) {
-                logger.error("OPEN_URL: NSWorkspace.open failed for \(url.absoluteString, privacy: .public)")
-            }
-        }
-
-        if Thread.isMainThread {
-            openOnMain()
-        } else {
-            DispatchQueue.main.async(execute: openOnMain)
+        Task { @MainActor in
+            Self.openURLOnMain(view: view, url: url)
         }
         return true
     }
@@ -180,13 +170,17 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
                 String(bytes: UnsafeBufferPointer(start: rawPtr, count: Int(link.len)), encoding: .utf8)
             }
         }()
-        let apply = {
+        Task { @MainActor in
             view.updateOSC8LinkHover(urlString: urlString)
         }
-        if Thread.isMainThread {
-            apply()
-        } else {
-            DispatchQueue.main.async(execute: apply)
+    }
+
+    @MainActor
+    private static func openURLOnMain(view: GhosttyTerminalNSView, url: URL) {
+        let handled = view.onOpenURL?(url) ?? false
+        if handled { return }
+        if !NSWorkspace.shared.open(url) {
+            logger.error("OPEN_URL: NSWorkspace.open failed for \(url.absoluteString, privacy: .public)")
         }
     }
 
