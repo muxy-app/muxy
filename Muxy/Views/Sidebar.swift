@@ -230,6 +230,10 @@ struct Sidebar: View {
         return lastPinned
     }
 
+    private var pinnedDividerOffset: CGFloat {
+        UIMetrics.spacing3 / 2
+    }
+
     @ViewBuilder private var listHeader: some View {
         if isWide {
             HStack(spacing: UIMetrics.spacing2) {
@@ -277,10 +281,12 @@ struct Sidebar: View {
                             }
                         }
                         .gesture(projectDragGesture(for: project))
-
-                    if offset == pinnedBoundaryIndex {
-                        PinnedProjectsDivider()
-                    }
+                        .overlay(alignment: .bottom) {
+                            PinnedProjectsDivider()
+                                .offset(y: pinnedDividerOffset)
+                                .opacity(offset == pinnedBoundaryIndex ? 1 : 0)
+                                .allowsHitTesting(false)
+                        }
                 }
 
                 addButton
