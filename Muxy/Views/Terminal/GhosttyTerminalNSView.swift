@@ -30,7 +30,15 @@ final class GhosttyTerminalNSView: NSView {
     private var isShowingHandCursor = false
     private var fileHoverUnderlineLayer: CAShapeLayer?
     private var lastMouseTopDownPoint: CGPoint?
-    var hasOSC8LinkUnderCursor: Bool = false
+    var hasOSC8LinkUnderCursor: Bool {
+        osc8LinkState.hasLinkUnderCursor
+    }
+
+    var lastOSC8LinkURL: URL? {
+        osc8LinkState.stickyURL
+    }
+
+    private var osc8LinkState = TerminalOSC8LinkState()
     var isFocused: Bool = false
     var overlayActive: Bool = false
 
@@ -786,12 +794,16 @@ final class GhosttyTerminalNSView: NSView {
             }
         }
         let pt = mousePoint(from: event)
-        ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
-        if event.modifierFlags.contains(.command), !hasOSC8LinkUnderCursor, let word = readWordUnderMouse() {
+        let mods = modsFromEvent(event)
+        ghostty_surface_mouse_pos(surface, pt.x, pt.y, mods)
+        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+        if !consumed,
+           event.modifierFlags.contains(.command),
+           !hasOSC8LinkUnderCursor,
+           let word = readWordUnderMouse()
+        {
             onCmdClickFile?(word)
-            return
         }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
 
     private func readWordUnderMouse() -> String? {
@@ -808,9 +820,28 @@ final class GhosttyTerminalNSView: NSView {
         if overlayActive { return }
         guard let surface else { return }
         let pt = mousePoint(from: event)
-        ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        let mods = modsFromEvent(event)
+        ghostty_surface_mouse_pos(surface, pt.x, pt.y, mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        if event.modifierFlags.contains(.command),
+           let url = osc8LinkState.urlToOpenOnCommandClick()
+        {
+            openOSC8Link(url)
+        }
         autoCopySelectionIfEnabled()
+    }
+
+    func openOSC8Link(_ url: URL) {
+        if onOpenURL?(url) == true { return }
+        _ = NSWorkspace.shared.open(url)
+    }
+
+    func updateOSC8LinkHover(urlString: String?) {
+        osc8LinkState.applyHover(
+            urlString: urlString,
+            commandHeld: NSEvent.modifierFlags.contains(.command)
+        )
+        refreshCmdHoverCursor()
     }
 
     private func autoCopySelectionIfEnabled() {
@@ -854,7 +885,7 @@ final class GhosttyTerminalNSView: NSView {
             hideFileHoverUnderline()
             return
         }
-        if hasOSC8LinkUnderCursor {
+        if osc8LinkState.shouldShowLinkCursor {
             setHandCursor(true)
             hideFileHoverUnderline()
             return

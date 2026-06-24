@@ -151,18 +151,42 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         let urlString = urlPtr.withMemoryRebound(to: UInt8.self, capacity: Int(openURL.len)) { rawPtr in
             String(bytes: UnsafeBufferPointer(start: rawPtr, count: Int(openURL.len)), encoding: .utf8)
         }
-        guard let urlString, let url = URL(string: urlString) else { return false }
-        return MainActor.assumeIsolated {
-            view.onOpenURL?(url) ?? false
+        guard let urlString, let url = TerminalOpenURLParser.url(from: urlString) else {
+            logger.error("OPEN_URL: failed to parse url")
+            return false
         }
+
+        let openOnMain = {
+            let handled = view.onOpenURL?(url) ?? false
+            if handled { return }
+            if !NSWorkspace.shared.open(url) {
+                logger.error("OPEN_URL: NSWorkspace.open failed for \(url.absoluteString, privacy: .public)")
+            }
+        }
+
+        if Thread.isMainThread {
+            openOnMain()
+        } else {
+            DispatchQueue.main.async(execute: openOnMain)
+        }
+        return true
     }
 
     private func handleMouseOverLink(target: ghostty_target_s, link: ghostty_action_mouse_over_link_s) {
         guard let view = surfaceView(from: target) else { return }
-        let hasLink = link.len > 0 && link.url != nil
-        DispatchQueue.main.async {
-            view.hasOSC8LinkUnderCursor = hasLink
-            view.refreshCmdHoverCursor()
+        let urlString: String? = {
+            guard link.len > 0, let urlPtr = link.url else { return nil }
+            return urlPtr.withMemoryRebound(to: UInt8.self, capacity: Int(link.len)) { rawPtr in
+                String(bytes: UnsafeBufferPointer(start: rawPtr, count: Int(link.len)), encoding: .utf8)
+            }
+        }()
+        let apply = {
+            view.updateOSC8LinkHover(urlString: urlString)
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
         }
     }
 
