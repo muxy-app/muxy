@@ -32,20 +32,14 @@ final class FaviconStore {
         guard !inFlight.contains(key) else { return }
         inFlight.insert(key)
         Task { [weak self] in
-            let image = await Self.fetchImage(from: iconURL, session: self?.session)
-            self?.finishLoad(key: key, image: image, completion: completion)
+            let data = try? await self?.session.data(from: iconURL).0
+            self?.finishLoad(key: key, data: data, completion: completion)
         }
     }
 
-    nonisolated private static func fetchImage(from iconURL: URL, session: URLSession?) async -> NSImage? {
-        guard let session else { return nil }
-        guard let data = try? await session.data(from: iconURL).0 else { return nil }
-        return NSImage(data: data)
-    }
-
-    private func finishLoad(key: String, image: NSImage?, completion: @MainActor (NSImage?) -> Void) {
+    private func finishLoad(key: String, data: Data?, completion: @MainActor (NSImage?) -> Void) {
         inFlight.remove(key)
-        guard let image, image.isValid else {
+        guard let data, let image = NSImage(data: data), image.isValid else {
             completion(nil)
             return
         }
