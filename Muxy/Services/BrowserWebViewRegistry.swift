@@ -4,6 +4,7 @@ import WebKit
 @MainActor
 protocol BrowserElementInspecting: AnyObject {
     func inspectElement() -> Bool
+    func closeInspector() -> Bool
 }
 
 @MainActor
