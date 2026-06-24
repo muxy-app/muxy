@@ -552,6 +552,34 @@ struct ProjectGroupStoreTests {
         #expect(store.activeGroupID == group.id)
     }
 
+    @Test("project selection preserves All Projects")
+    func projectSelectionPreservesAllProjects() {
+        let project = Project(name: "A", path: "/a")
+        let group = ProjectGroup(name: "Work", projectIDs: [project.id])
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = makeStore(persistence: persistence)
+
+        store.activateWorkspaceForProjectSelection(containing: project)
+
+        #expect(store.activeGroupID == nil)
+        #expect(persistence.storedActiveGroupID == nil)
+    }
+
+    @Test("project selection still switches between named workspaces")
+    func projectSelectionSwitchesBetweenNamedWorkspaces() {
+        let project = Project(name: "A", path: "/a")
+        let target = ProjectGroup(name: "Work", projectIDs: [project.id])
+        let source = ProjectGroup(name: "Personal")
+        let persistence = ProjectGroupPersistenceStub(initial: [target, source])
+        let store = makeStore(persistence: persistence)
+        store.selectGroup(id: source.id)
+
+        store.activateWorkspaceForProjectSelection(containing: project)
+
+        #expect(store.activeGroupID == target.id)
+        #expect(persistence.storedActiveGroupID == target.id)
+    }
+
     @Test("RemoteProject.asProject preserves the worktrees flag and workspace id")
     func remoteProjectAsProjectRoundTrip() {
         let workspaceID = UUID()

@@ -50,6 +50,11 @@ final class ProjectGroupStore {
         selectGroup(id: groupID)
     }
 
+    func activateWorkspaceForProjectSelection(containing project: Project) {
+        guard activeGroupID != nil else { return }
+        activateWorkspace(containing: project)
+    }
+
     func clearGroupSelection() {
         activeGroupID = nil
         persistence.saveActiveGroupID(nil)
