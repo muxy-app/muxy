@@ -8,6 +8,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case appearance
     case sidebar
     case terminal
+    case browser
     case richInput
     case shortcuts
     case commands
@@ -27,6 +28,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: "Interface"
         case .sidebar: "Sidebar"
         case .terminal: "Terminal"
+        case .browser: "Browser"
         case .richInput: "Rich Input"
         case .shortcuts: "Shortcuts"
         case .commands: "Commands"
@@ -46,6 +48,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: "macwindow"
         case .sidebar: "sidebar.left"
         case .terminal: "terminal"
+        case .browser: "globe"
         case .richInput: "text.cursor"
         case .shortcuts: "keyboard"
         case .commands: "command"
@@ -271,6 +274,24 @@ enum SettingsCatalog {
             defaultValue: ""
         ),
 
+        SettingsCatalogItem(
+            key: BrowserPreferences.searchEngineKey,
+            title: "Search Engine",
+            description: "Chooses the search engine used when you type a query in the browser address bar.",
+            category: .browser,
+            section: "Browsing",
+            defaultValue: BrowserPreferences.defaultSearchEngine.rawValue,
+            aliases: ["google", "duckduckgo", "bing", "brave", "startpage", "search"]
+        ),
+        SettingsCatalogItem(
+            key: BrowserPreferences.homePageURLKey,
+            title: "Home Page",
+            description: "Sets the page new browser tabs open to. Blank by default, or a website you choose.",
+            category: .browser,
+            section: "Browsing",
+            defaultValue: BrowserHomePage.blankURLString,
+            aliases: ["homepage", "new tab", "start page", "blank"]
+        ),
         SettingsCatalogItem(
             key: "muxy.ui.scale",
             title: "Interface Size",

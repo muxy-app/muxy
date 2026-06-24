@@ -292,7 +292,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         case .terminal,
              .vcs:
             appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .extensionWebView:
+        case .extensionWebView,
+             .browser:
             return nil
         }
 

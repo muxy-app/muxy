@@ -15,6 +15,8 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `panes:write` | `split-right`, `split-down`, `send`, `send-keys`, `close-pane`, `rename-pane`. Split requests with a startup command also require `commands:exec`. |
 | `tabs:read` | `list-tabs` |
 | `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab`. Opening a terminal tab with a startup `command` also prompts for runtime consent. |
+| `browser:read` | `browser.list`, `browser.read` — see [Browser](browser.md). |
+| `browser:write` | `browser.open`, `browser.navigate`, `browser.close` — see [Browser](browser.md). |
 | `projects:read` | `list-projects` |
 | `projects:write` | `switch-project` |
 | `projects:delete` | `projects.delete` |

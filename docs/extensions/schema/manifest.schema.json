@@ -137,6 +137,8 @@
         "panes:write",
         "tabs:read",
         "tabs:write",
+        "browser:read",
+        "browser:write",
         "projects:read",
         "projects:write",
         "projects:delete",

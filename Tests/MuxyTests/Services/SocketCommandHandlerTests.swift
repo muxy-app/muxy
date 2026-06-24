@@ -294,6 +294,39 @@ struct SocketCommandHandlerTests {
         #expect(appState.focusedArea(for: projectID)!.tabs.count == before + 1)
     }
 
+    @Test("browser open preserves url without trailing framing fields")
+    func browserOpenPreservesURL() async throws {
+        let appState = makeAppState()
+
+        let result = await SocketCommandHandler.handleRequest("browser.open|https://example.com", appState: appState)
+
+        let tabID = try #require(UUID(uuidString: result))
+        #expect(browserState(tabID: tabID, appState: appState)?.url?.absoluteString == "https://example.com")
+    }
+
+    @Test("browser open ignores legacy trailing empty framing field")
+    func browserOpenIgnoresTrailingEmptyField() async throws {
+        let appState = makeAppState()
+
+        let result = await SocketCommandHandler.handleRequest("browser.open|https://example.com|", appState: appState)
+
+        let tabID = try #require(UUID(uuidString: result))
+        #expect(browserState(tabID: tabID, appState: appState)?.url?.absoluteString == "https://example.com")
+    }
+
+    @Test("browser open without url uses home page")
+    func browserOpenWithoutURLUsesHomePage() async throws {
+        let appState = makeAppState()
+        let previous = BrowserPreferences.homePageURLString
+        BrowserPreferences.homePageURLString = BrowserHomePage.blankURLString
+        defer { BrowserPreferences.homePageURLString = previous }
+
+        let result = await SocketCommandHandler.handleRequest("browser.open", appState: appState)
+
+        let tabID = try #require(UUID(uuidString: result))
+        #expect(browserState(tabID: tabID, appState: appState)?.url?.absoluteString == BrowserHomePage.blankURLString)
+    }
+
     @Test("direct tabs.open requires an identified extension")
     func directTabsOpenRequiresIdentify() async {
         let appState = makeAppState()
@@ -374,6 +407,17 @@ struct SocketCommandHandlerTests {
             for area in root.allAreas() {
                 for tab in area.tabs where tab.content.pane?.id == paneID {
                     return tab.content.pane
+                }
+            }
+        }
+        return nil
+    }
+
+    private func browserState(tabID: UUID, appState: AppState) -> BrowserTabState? {
+        for root in appState.workspaceRoots.values {
+            for area in root.allAreas() {
+                for tab in area.tabs where tab.id == tabID {
+                    return tab.content.browserState
                 }
             }
         }

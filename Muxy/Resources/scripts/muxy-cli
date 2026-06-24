@@ -49,6 +49,7 @@ usage_for() {
         new-tab)           echo "muxy new-tab" ;;
         next-tab)          echo "muxy next-tab" ;;
         previous-tab)      echo "muxy previous-tab" ;;
+        browser)           echo "muxy browser <open|navigate|list|read|close> [args...]" ;;
         install-skills)    echo "muxy install-skills [skills args...]" ;;
     esac
 }
@@ -89,6 +90,11 @@ usage() {
     echo "  muxy new-tab                             Create a terminal tab"
     echo "  muxy next-tab                            Switch to next tab"
     echo "  muxy previous-tab                        Switch to previous tab"
+    echo "  muxy browser open <url> [--split]        Open a URL in a built-in browser tab (returns tab ID)"
+    echo "  muxy browser navigate <tab-id> <url>     Navigate a browser tab to a URL"
+    echo "  muxy browser list                        List built-in browser tabs"
+    echo "  muxy browser read <tab-id>               Read a browser tab's title and text"
+    echo "  muxy browser close <tab-id>              Close a browser tab"
     echo "  muxy install-skills [skills args...]     Install Muxy agent skills into detected AI harnesses"
     echo ""
     echo "Run \"muxy <command> --help\" for the options of a single command."
@@ -402,6 +408,57 @@ case "$COMMAND" in
             npx --yes skills add "$SKILLS_REPO/$skill" --global --yes "$@" || exit 1
         done
         exit 0
+        ;;
+    browser)
+        shift
+        wants_help "$1" && print_command_help browser
+        SUB="${1:-}"
+        shift || true
+        case "$SUB" in
+            open)
+                URL=""
+                SPLIT=""
+                HAS_URL=""
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        --split) SPLIT="--split"; shift ;;
+                        *)
+                            [ -n "$HAS_URL" ] && die_usage browser
+                            URL="$1"; HAS_URL="1"; shift
+                            ;;
+                    esac
+                done
+                if [ -n "$SPLIT" ]; then
+                    if [ -n "$HAS_URL" ]; then
+                        send_command "browser.open|$URL|$SPLIT"
+                    else
+                        send_command "browser.open|$SPLIT"
+                    fi
+                elif [ -n "$HAS_URL" ]; then
+                    send_command "browser.open|$URL"
+                else
+                    send_command "browser.open"
+                fi
+                ;;
+            navigate)
+                [ $# -lt 2 ] && die_usage browser
+                send_command "browser.navigate|$1|$2"
+                ;;
+            list)
+                send_command "browser.list"
+                ;;
+            read)
+                [ $# -lt 1 ] && die_usage browser
+                send_command "browser.read|$1"
+                ;;
+            close)
+                [ $# -lt 1 ] && die_usage browser
+                send_command "browser.close|$1"
+                ;;
+            *)
+                die_usage browser
+                ;;
+        esac
         ;;
     ""|--help|-h)
         usage

@@ -115,6 +115,11 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(extensionState: state))
     }
 
+    func createBrowserTab(url: URL?, profileID: UUID = BrowserProfile.defaultID) {
+        let state = BrowserTabState(projectPath: projectPath, url: url, profileID: profileID)
+        insertTab(TerminalTab(browserState: state))
+    }
+
     private static func commandTitle(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = trimmed.split(separator: " ").first else { return "Editor" }

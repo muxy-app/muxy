@@ -561,6 +561,7 @@ final class ExtensionStore {
         let projectStore: ProjectStore?
         let worktreeStore: WorktreeStore?
         let projectGroupStore: ProjectGroupStore?
+        let browserProfileStore: BrowserProfileStore?
 
         init(
             extensionID: String,
@@ -568,7 +569,8 @@ final class ExtensionStore {
             appState: AppState,
             projectStore: ProjectStore? = nil,
             worktreeStore: WorktreeStore? = nil,
-            projectGroupStore: ProjectGroupStore? = nil
+            projectGroupStore: ProjectGroupStore? = nil,
+            browserProfileStore: BrowserProfileStore? = nil
         ) {
             self.extensionID = extensionID
             self.commandID = commandID
@@ -576,6 +578,7 @@ final class ExtensionStore {
             self.projectStore = projectStore
             self.worktreeStore = worktreeStore
             self.projectGroupStore = projectGroupStore
+            self.browserProfileStore = browserProfileStore
         }
     }
 
@@ -653,7 +656,8 @@ final class ExtensionStore {
                     stores: ExtensionAPIStores(
                         projectStore: invocation.projectStore,
                         worktreeStore: invocation.worktreeStore,
-                        projectGroupStore: invocation.projectGroupStore
+                        projectGroupStore: invocation.projectGroupStore,
+                        browserProfileStore: invocation.browserProfileStore
                     )
                 )
             } catch {

@@ -4,15 +4,18 @@ struct ExtensionAPIStores {
     weak var projectStore: ProjectStore?
     weak var worktreeStore: WorktreeStore?
     weak var projectGroupStore: ProjectGroupStore?
+    weak var browserProfileStore: BrowserProfileStore?
 
     init(
         projectStore: ProjectStore? = nil,
         worktreeStore: WorktreeStore? = nil,
-        projectGroupStore: ProjectGroupStore? = nil
+        projectGroupStore: ProjectGroupStore? = nil,
+        browserProfileStore: BrowserProfileStore? = nil
     ) {
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
         self.projectGroupStore = projectGroupStore
+        self.browserProfileStore = browserProfileStore
     }
 }
 
@@ -24,19 +27,22 @@ enum MuxyAPIDispatcher {
         let projectStore: ProjectStore?
         let worktreeStore: WorktreeStore?
         var projectGroupStore: ProjectGroupStore?
+        let browserProfileStore: BrowserProfileStore?
 
         init(
             extensionID: String,
             appState: AppState,
             projectStore: ProjectStore?,
             worktreeStore: WorktreeStore?,
-            projectGroupStore: ProjectGroupStore?
+            projectGroupStore: ProjectGroupStore?,
+            browserProfileStore: BrowserProfileStore? = nil
         ) {
             self.extensionID = extensionID
             self.appState = appState
             self.projectStore = projectStore
             self.worktreeStore = worktreeStore
             self.projectGroupStore = projectGroupStore
+            self.browserProfileStore = browserProfileStore
         }
 
         init(extensionID: String, appState: AppState, stores: ExtensionAPIStores) {
@@ -45,7 +51,8 @@ enum MuxyAPIDispatcher {
                 appState: appState,
                 projectStore: stores.projectStore,
                 worktreeStore: stores.worktreeStore,
-                projectGroupStore: stores.projectGroupStore
+                projectGroupStore: stores.projectGroupStore,
+                browserProfileStore: stores.browserProfileStore
             )
         }
     }
@@ -182,6 +189,43 @@ enum MuxyAPIDispatcher {
                 icon: ExtensionIcon.parse(args["icon"]),
                 appState: context.appState,
                 callingExtensionID: context.extensionID
+            ))
+            return NSNull()
+        case "browser.open":
+            let url = args["url"] as? String
+            let split = boolArg(args, "split") ?? false
+            return try unwrap(MuxyAPI.Browser.open(
+                url: url,
+                split: split,
+                appState: context.appState
+            )).uuidString
+        case "browser.navigate":
+            try unwrap(MuxyAPI.Browser.navigate(
+                tabIDString: stringArg(args, "tabId"),
+                url: stringArg(args, "url"),
+                appState: context.appState
+            ))
+            return NSNull()
+        case "browser.list":
+            return MuxyAPI.Browser.list(
+                appState: context.appState,
+                profileStore: context.browserProfileStore
+            ).map(browserTabDict)
+        case "browser.read":
+            let content = try await unwrap(MuxyAPI.Browser.read(
+                tabIDString: stringArg(args, "tabId"),
+                appState: context.appState
+            ))
+            let payload: [String: Any] = [
+                "title": content.title,
+                "url": content.url ?? NSNull(),
+                "text": content.text,
+            ]
+            return payload
+        case "browser.close":
+            try unwrap(MuxyAPI.Browser.close(
+                tabIDString: stringArg(args, "tabId"),
+                appState: context.appState
             ))
             return NSNull()
         case "agents.list":
@@ -721,6 +765,16 @@ enum MuxyAPIDispatcher {
             "id": tab.id.uuidString,
             "kind": tab.kind.rawValue,
             "title": tab.title,
+            "isActive": tab.isActive,
+        ]
+    }
+
+    private static func browserTabDict(_ tab: BrowserTabInfo) -> [String: Any] {
+        [
+            "id": tab.id.uuidString,
+            "title": tab.title,
+            "url": tab.url ?? NSNull(),
+            "profile": tab.profile,
             "isActive": tab.isActive,
         ]
     }

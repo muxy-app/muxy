@@ -34,10 +34,12 @@ struct CodexProvider: AIProviderIntegration {
     }
 
     func isToolInstalled() -> Bool {
-        CodexExecutableLocator.isInstalled(
+        ProviderExecutableLocator.isInstalled(
             names: executableNames,
             homeDirectory: homeDirectory,
-            pathEnvironment: pathEnvironment()
+            pathEnvironment: pathEnvironment(),
+            includeSystemWide: homeDirectory == NSHomeDirectory(),
+            homeRelativeBins: [".local/bin", ".npm-global/bin"]
         )
     }
 
@@ -183,41 +185,5 @@ struct CodexProvider: AIProviderIntegration {
             [.posixPermissions: FilePermissions.privateFile],
             ofItemAtPath: hooksPath
         )
-    }
-}
-
-private enum CodexExecutableLocator {
-    static func isInstalled(
-        names: [String],
-        homeDirectory: String,
-        pathEnvironment: String
-    ) -> Bool {
-        let directories = candidateDirectories(
-            homeDirectory: homeDirectory,
-            pathEnvironment: pathEnvironment
-        )
-        return names.contains { name in
-            directories.contains { directory in
-                let path = URL(fileURLWithPath: directory).appendingPathComponent(name).path
-                return FileManager.default.isExecutableFile(atPath: path)
-            }
-        }
-    }
-
-    private static func candidateDirectories(
-        homeDirectory: String,
-        pathEnvironment: String
-    ) -> [String] {
-        let pathDirectories = pathEnvironment
-            .split(separator: ":", omittingEmptySubsequences: true)
-            .map(String.init)
-        let directories = [
-            "\(homeDirectory)/.local/bin",
-            "\(homeDirectory)/.npm-global/bin",
-            "/usr/local/bin",
-            "/opt/homebrew/bin",
-        ] + pathDirectories
-        var seen = Set<String>()
-        return directories.filter { seen.insert($0).inserted }
     }
 }

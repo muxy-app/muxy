@@ -25,6 +25,7 @@ Run `scripts/checks.sh --fix` after every task.
 - Clean Architecture
 - Best Practices
 - No Hacky Solutions
+- No guessing and No assumption! Work with certainity.
 
 ## Main Rules
 

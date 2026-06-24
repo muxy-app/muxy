@@ -298,6 +298,8 @@ struct ExtensionManifestTests {
         #expect(ExtensionPermission.panesWrite.rawValue == "panes:write")
         #expect(ExtensionPermission.tabsRead.rawValue == "tabs:read")
         #expect(ExtensionPermission.tabsWrite.rawValue == "tabs:write")
+        #expect(ExtensionPermission.browserRead.rawValue == "browser:read")
+        #expect(ExtensionPermission.browserWrite.rawValue == "browser:write")
         #expect(ExtensionPermission.projectsRead.rawValue == "projects:read")
         #expect(ExtensionPermission.projectsWrite.rawValue == "projects:write")
         #expect(ExtensionPermission.worktreesRead.rawValue == "worktrees:read")
@@ -1138,7 +1140,13 @@ struct ExtensionManifestTests {
 struct ExtensionPermissionKindTests {
     @Test("maps read permissions")
     func mapsReadPermissions() {
-        let readPermissions: [ExtensionPermission] = [.panesRead, .tabsRead, .projectsRead, .worktreesRead]
+        let readPermissions: [ExtensionPermission] = [
+            .panesRead,
+            .tabsRead,
+            .browserRead,
+            .projectsRead,
+            .worktreesRead,
+        ]
         for permission in readPermissions {
             #expect(permission.kind == .read)
         }
@@ -1149,6 +1157,7 @@ struct ExtensionPermissionKindTests {
         let writePermissions: [ExtensionPermission] = [
             .panesWrite,
             .tabsWrite,
+            .browserWrite,
             .projectsWrite,
             .worktreesWrite,
             .notificationsWrite,

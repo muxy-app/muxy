@@ -14,6 +14,8 @@ struct MuxyApp: App {
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
     @State private var remoteDeviceStore: RemoteDeviceStore
+    @State private var browserProfileStore: BrowserProfileStore
+    @State private var browserHistoryStore: BrowserHistoryStore
     @State private var worktreeAutoRefresher: VCSWorktreeAutoRefresher?
     @State private var didStartDeferredServices = false
 
@@ -35,6 +37,12 @@ struct MuxyApp: App {
         let remoteDeviceStore = RemoteDeviceStore(
             persistence: environment.remoteDevicePersistence
         )
+        let browserProfileStore = BrowserProfileStore(
+            persistence: environment.browserProfilePersistence
+        )
+        let browserHistoryStore = BrowserHistoryStore(
+            persistence: environment.browserHistoryPersistence
+        )
         let projectGroupStore = ProjectGroupStore(
             persistence: environment.projectGroupPersistence,
             remoteDeviceStore: remoteDeviceStore
@@ -49,6 +57,8 @@ struct MuxyApp: App {
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
         _remoteDeviceStore = State(initialValue: remoteDeviceStore)
+        _browserProfileStore = State(initialValue: browserProfileStore)
+        _browserHistoryStore = State(initialValue: browserHistoryStore)
     }
 
     var body: some Scene {
@@ -59,6 +69,8 @@ struct MuxyApp: App {
                 .environment(worktreeStore)
                 .environment(projectGroupStore)
                 .environment(remoteDeviceStore)
+                .environment(browserProfileStore)
+                .environment(browserHistoryStore)
                 .environment(SSHConnectionService.shared)
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
@@ -75,14 +87,18 @@ struct MuxyApp: App {
                     DesktopNotificationService.shared.start(appState: appState)
                     MemoryDiagnostics.shared.configure(appState: appState)
                     TerminalProgressStore.shared.appState = appState
-                    appDelegate.onTerminate = { [appState] in
+                    appDelegate.onTerminate = { [appState, browserHistoryStore] in
                         appState.saveWorkspaces()
+                        browserHistoryStore.saveImmediately()
                     }
-                    appDelegate.settingsContent = { [projectGroupStore, remoteDeviceStore] in
+                    appDelegate.settingsContent = {
+                        [projectGroupStore, remoteDeviceStore, browserProfileStore, browserHistoryStore] in
                         AnyView(
                             SettingsView()
                                 .environment(projectGroupStore)
                                 .environment(remoteDeviceStore)
+                                .environment(browserProfileStore)
+                                .environment(browserHistoryStore)
                                 .environment(SSHConnectionService.shared)
                         )
                     }
@@ -100,7 +116,8 @@ struct MuxyApp: App {
                         appState,
                         projectStore,
                         worktreeStore,
-                        projectGroupStore
+                        projectGroupStore,
+                        browserProfileStore
                     ] message, context in
                         await SocketCommandHandler.handleRequest(
                             message,
@@ -108,6 +125,7 @@ struct MuxyApp: App {
                             projectStore: projectStore,
                             worktreeStore: worktreeStore,
                             projectGroupStore: projectGroupStore,
+                            browserProfileStore: browserProfileStore,
                             clientContext: context
                         )
                     }

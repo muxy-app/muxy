@@ -37,6 +37,7 @@ final class AppState {
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createCommandTab(CommandTabRequest)
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
+        case createBrowserTab(projectID: UUID, areaID: UUID?, url: URL?, profileID: UUID)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, index: Int)
@@ -306,6 +307,17 @@ final class AppState {
         dispatch(.createTab(projectID: projectID, areaID: nil))
     }
 
+    @discardableResult
+    func openInBuiltInBrowser(_ url: URL?, profileID: UUID? = nil) -> Bool {
+        guard BrowserPreferences.isEnabled,
+              let projectID = activeProjectID
+        else { return false }
+        let areaID = focusedArea(for: projectID)?.id
+        let resolvedProfileID = profileID ?? BrowserPreferences.defaultProfileID
+        dispatch(.createBrowserTab(projectID: projectID, areaID: areaID, url: url, profileID: resolvedProfileID))
+        return true
+    }
+
     func createCommandTab(projectID: UUID, shortcut: CommandShortcut) {
         dispatch(.createCommandTab(
             CommandTabRequest(
@@ -553,6 +565,20 @@ final class AppState {
 
     func activeTab(for projectID: UUID) -> TerminalTab? {
         focusedArea(for: projectID)?.activeTab
+    }
+
+    @discardableResult
+    func inspectActiveBrowserElement() -> Bool {
+        guard let projectID = activeProjectID,
+              let tab = activeTab(for: projectID),
+              let browserState = tab.content.browserState
+        else { return false }
+        if BrowserWebViewRegistry.shared.inspectElement(for: browserState.id) {
+            browserState.pendingCommand = nil
+        } else {
+            browserState.pendingCommand = .inspectElement
+        }
+        return true
     }
 
     func togglePinActiveTab(projectID: UUID) {

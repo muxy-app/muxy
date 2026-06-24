@@ -5,6 +5,7 @@ import SwiftUI
 enum ShortcutScope: String, Codable, CaseIterable {
     case global
     case mainWindow
+    case browser
     case richInput
     case terminal
 }

@@ -133,7 +133,7 @@ public enum ExtensionBridgeJS {
         \(gitBlock)
         \(agentsBlock)
             \(surface == .inProcess ?
-            "Object.freeze(muxy.tabs); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees); Object.freeze(muxy.files);" :
+            "Object.freeze(muxy.tabs); Object.freeze(muxy.browser); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees); Object.freeze(muxy.files);" :
             "")
             \(surface == .background ? "Object.freeze(muxy.tabs);" : "")
             Object.freeze(muxy.git); Object.freeze(muxy.git.pr); Object.freeze(muxy.git.branch); Object.freeze(muxy.git.worktree);
@@ -188,6 +188,13 @@ public enum ExtensionBridgeJS {
                 next:     ()              => dispatch('tabs.next', {}),
                 previous: ()              => dispatch('tabs.previous', {}),
                 open:     (request)       => dispatch('tabs.open', request || {}),
+            };
+            muxy.browser = {
+                open:     (url, opts)     => dispatch('browser.open', { url: url == null ? null : String(url), split: Boolean((opts || {}).split) }),
+                navigate: (tabId, url)    => dispatch('browser.navigate', { tabId: String(tabId), url: String(url) }),
+                list:     ()              => dispatch('browser.list', {}),
+                read:     (tabId)         => dispatch('browser.read', { tabId: String(tabId) }),
+                close:    (tabId)         => dispatch('browser.close', { tabId: String(tabId) }),
             };
             muxy.panes = {
                 list:       ()                  => dispatch('panes.list', {}),
