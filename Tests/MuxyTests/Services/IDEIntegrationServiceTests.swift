@@ -66,6 +66,22 @@ struct IDEIntegrationServiceTests {
         #expect(IDEIntegrationService.parseFileOpenerSelectionIdentifier("com.microsoft.VSCode") == nil)
     }
 
+    @Test("file opener selection persists independently of the selected IDE")
+    func fileOpenerSelectionPersistsIndependentlyOfIDE() throws {
+        let defaults = try #require(UserDefaults(suiteName: "muxy.tests.\(UUID().uuidString)"))
+        defaults.set("com.microsoft.VSCode", forKey: IDEIntegrationService.selectedBundleIdentifierKey)
+        let service = IDEIntegrationService(defaults: defaults)
+
+        service.selectFileOpener(extensionID: "files", openerID: "editor")
+
+        #expect(service.selectedFileOpenerIdentifier == IDEIntegrationService.fileOpenerSelectionIdentifier(
+            extensionID: "files",
+            openerID: "editor"
+        ))
+        #expect(service.selectedBundleIdentifier == "com.microsoft.VSCode")
+        #expect(IDEIntegrationService(defaults: defaults).selectedFileOpenerIdentifier == service.selectedFileOpenerIdentifier)
+    }
+
     @Test("launchCommands uses vscode CLI goto strategy when available")
     func launchCommandsUsesVSCodeCLIGotoStrategyWhenAvailable() {
         let ide = IDEIntegrationService.IDEApplication(

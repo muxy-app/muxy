@@ -484,16 +484,15 @@ final class ExtensionStore {
     }
 
     func preferredFileOpener(for relativePath: String) -> FileOpenerBinding? {
-        if let selected = IDEIntegrationService.parseFileOpenerSelectionIdentifier(
-            IDEIntegrationService.shared.selectedBundleIdentifier
-        ) {
-            return fileOpener(
-                extensionID: selected.extensionID,
-                openerID: selected.openerID,
-                relativePath: relativePath
-            )
-        }
-        return nil
+        guard let selected = IDEIntegrationService.parseFileOpenerSelectionIdentifier(
+            IDEIntegrationService.shared.selectedFileOpenerIdentifier
+        )
+        else { return nil }
+        return fileOpener(
+            extensionID: selected.extensionID,
+            openerID: selected.openerID,
+            relativePath: relativePath
+        )
     }
 
     func statusBarItems(side: ExtensionStatusBarItem.Side) -> [StatusBarItemBinding] {

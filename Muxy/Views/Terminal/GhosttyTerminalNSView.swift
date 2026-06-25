@@ -882,6 +882,7 @@ final class GhosttyTerminalNSView: NSView {
     private struct CmdFileToken {
         let text: String
         let underlineSegments: [FileUnderlineSegment]
+        let cols: Int
     }
 
     private struct FileUnderlineSegment {
@@ -916,29 +917,24 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func resolvedCmdFileToken(for word: QuicklookWord) -> CmdFileToken? {
-        for candidate in cmdFileTokenCandidates(for: word) {
-            if resolveCmdHoverFile?(candidate.text) == true {
-                return candidate
-            }
+        if resolveCmdHoverFile?(word.text) == true {
+            return CmdFileToken(text: word.text, underlineSegments: [], cols: 0)
         }
-        return nil
+        return wrappedCmdFileTokenCandidates(for: word).first { resolveCmdHoverFile?($0.text) == true }
     }
 
-    private func cmdFileTokenCandidates(for word: QuicklookWord) -> [CmdFileToken] {
-        let base = CmdFileToken(text: word.text, underlineSegments: [])
-        var candidates = [base]
+    private func wrappedCmdFileTokenCandidates(for word: QuicklookWord) -> [CmdFileToken] {
         guard let snapshot = readScreenSnapshot(),
               let row = screenRow(for: word, lines: snapshot.lines)
         else {
-            return candidates
+            return []
         }
-
-        for candidate in Self.wrappedFileTokenCandidatesWithFragments(word: word.text, row: row, lines: snapshot.lines) {
-            if !candidates.contains(where: { $0.text == candidate.text }) {
-                candidates.append(candidate)
-            }
-        }
-        return candidates
+        return Self.wrappedFileTokenCandidatesWithFragments(
+            word: word.text,
+            row: row,
+            lines: snapshot.lines,
+            cols: snapshot.cols
+        )
     }
 
     private func readScreenSnapshot() -> ScreenSnapshot? {
@@ -980,10 +976,15 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     static func wrappedFileTokenCandidates(word: String, row: Int, lines: [String]) -> [String] {
-        wrappedFileTokenCandidatesWithFragments(word: word, row: row, lines: lines).map(\.text)
+        wrappedFileTokenCandidatesWithFragments(word: word, row: row, lines: lines, cols: 0).map(\.text)
     }
 
-    private static func wrappedFileTokenCandidatesWithFragments(word: String, row: Int, lines: [String]) -> [CmdFileToken] {
+    private static func wrappedFileTokenCandidatesWithFragments(
+        word: String,
+        row: Int,
+        lines: [String],
+        cols: Int
+    ) -> [CmdFileToken] {
         guard row >= 0, row < lines.count,
               let anchor = matchingPathFragment(word: word, line: lines[row])
         else { return [] }
@@ -1010,19 +1011,18 @@ final class GhosttyTerminalNSView: NSView {
 
         let text = joinedPathText(fragments)
         guard text != word else { return [] }
-        return [CmdFileToken(
-            text: text,
-            underlineSegments: fragments.map {
-                FileUnderlineSegment(
-                    row: $0.row,
-                    startColumn: $0.fragment.startColumn,
-                    endColumn: $0.fragment.endColumn
-                )
-            }
-        )]
+        let segments = fragments.map {
+            FileUnderlineSegment(
+                row: $0.row,
+                startColumn: $0.fragment.startColumn,
+                endColumn: $0.fragment.endColumn
+            )
+        }
+        return [CmdFileToken(text: text, underlineSegments: segments, cols: cols)]
     }
 
-    private static let wrappedPathScalars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/._-+@~:$%#=&")
+    private static let wrappedPathScalars =
+        CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/._-+@~:$%#=&")
     private static let maxWrappedFileTokenRows = 6
 
     private static func matchingPathFragment(word: String, line: String) -> PathFragment? {
@@ -1089,11 +1089,8 @@ final class GhosttyTerminalNSView: NSView {
         let thickness = max(font.underlineThickness, 1 / scale)
 
         let path = CGMutablePath()
-        if !token.underlineSegments.isEmpty,
-           let snapshot = readScreenSnapshot(),
-           snapshot.cols > 0
-        {
-            let cellWidth = bounds.width / CGFloat(snapshot.cols)
+        if !token.underlineSegments.isEmpty, token.cols > 0 {
+            let cellWidth = bounds.width / CGFloat(token.cols)
             for segment in token.underlineSegments {
                 let x = CGFloat(segment.startColumn) * cellWidth
                 let y = CGFloat(segment.row) * rowHeight + rowHeight - max(2, font.underlineThickness)

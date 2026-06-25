@@ -34,6 +34,39 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
 
 The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
 
+## File openers
+
+A tab type can register as a **file opener** so the user can pick it as their "Open in IDE" target. When selected, Muxy routes native file opens — terminal file links and the Open in IDE control — into a tab of that type instead of an external editor. Declare openers under the `fileOpeners` manifest array:
+
+```jsonc
+"fileOpeners": [
+  { "id": "editor", "tabType": "editor", "patterns": ["*"], "singleton": true }
+]
+```
+
+### Fields
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | string | yes | Stable per extension. |
+| `tabType` | string | yes | A `tabTypes` id this opener opens. |
+| `title` | string | no | Overrides the tab title; shown alongside the extension name in the menu. |
+| `patterns` | string[] | no | Glob patterns (`*`, `?`) matched against the project-relative path. Defaults to `["*"]`. A file opens through the opener only when one pattern matches. |
+| `singleton` | boolean | no | Reuse one tab per type instead of opening a new one. Defaults to `true`. |
+
+The opened tab receives `window.muxy.data` with the file location:
+
+```ts
+{
+  filePath: string,   // path relative to the project root
+  line?: number,      // 1-based, when the source had a line suffix
+  column?: number,    // 1-based, when the source had a column suffix
+  source: string,     // "terminal" or "open-control"
+}
+```
+
+Only files inside the active project are routed; anything else falls back to the native IDE. With `singleton: true`, reopening pushes the new location through [`muxy.onDataChange`](#opening-another-tab).
+
 ## Topbar (recommended)
 
 A tab fills its whole region with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**

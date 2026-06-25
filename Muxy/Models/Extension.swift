@@ -1144,7 +1144,7 @@ enum ExtensionManifestLoader {
                     tabType: opener.tabType
                 )
             }
-            if opener.patterns.contains(where: { $0.isEmpty }) {
+            if opener.patterns.contains(where: \.isEmpty) {
                 throw ExtensionLoadError.fileOpenerEmptyPattern(openerID: opener.id)
             }
         }
