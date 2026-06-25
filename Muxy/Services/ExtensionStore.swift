@@ -484,14 +484,10 @@ final class ExtensionStore {
     }
 
     func preferredFileOpener(for relativePath: String) -> FileOpenerBinding? {
-        guard let selected = IDEIntegrationService.parseFileOpenerSelectionIdentifier(
-            IDEIntegrationService.shared.selectedFileOpenerIdentifier
-        )
-        else { return nil }
-        return fileOpener(
-            extensionID: selected.extensionID,
-            openerID: selected.openerID,
-            relativePath: relativePath
+        FileOpenerSelection.resolvedBinding(
+            from: IDEIntegrationService.shared.selectedFileOpenerValue,
+            relativePath: relativePath,
+            store: self
         )
     }
 

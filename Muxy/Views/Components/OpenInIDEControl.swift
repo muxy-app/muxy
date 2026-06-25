@@ -10,6 +10,7 @@ struct OpenInIDEControl: View {
     @Environment(AppState.self) private var appState
     @ObservedObject private var ideService = IDEIntegrationService.shared
     @State private var extensionStore = ExtensionStore.shared
+    @AppStorage(FileOpenerSelection.storageKey) private var selectedFileOpenerValue = FileOpenerSelection.builtinValue
     @State private var hoveredPrimary = false
     @State private var hoveredMenu = false
     @State private var showingMenu = false
@@ -203,11 +204,7 @@ struct OpenInIDEControl: View {
     }
 
     private var defaultFileOpener: ExtensionStore.FileOpenerBinding? {
-        guard let selected = IDEIntegrationService.parseFileOpenerSelectionIdentifier(
-            ideService.selectedFileOpenerIdentifier
-        )
-        else { return nil }
-        return extensionStore.fileOpener(extensionID: selected.extensionID, openerID: selected.openerID)
+        FileOpenerSelection.resolvedBinding(from: selectedFileOpenerValue, store: extensionStore)
     }
 
     private var defaultTargetIDE: IDEIntegrationService.IDEApplication? {
@@ -348,11 +345,7 @@ struct OpenInIDEControl: View {
     }
 
     private func isSelected(_ binding: ExtensionStore.FileOpenerBinding) -> Bool {
-        guard let selected = IDEIntegrationService.parseFileOpenerSelectionIdentifier(
-            ideService.selectedFileOpenerIdentifier
-        )
-        else { return false }
-        return selected.extensionID == binding.muxyExtension.id && selected.openerID == binding.opener.id
+        selectedFileOpenerValue == binding.id
     }
 }
 

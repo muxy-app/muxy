@@ -56,8 +56,6 @@ final class IDEIntegrationService: ObservableObject {
     }
 
     static let selectedBundleIdentifierKey = "muxy.ide.selectedBundleIdentifier"
-    static let selectedFileOpenerIdentifierKey = "muxy.ide.selectedFileOpenerIdentifier"
-    static let extensionFileOpenerIdentifierPrefix = "muxy.extensionFileOpener:"
     static let finderBundleIdentifier = "com.apple.finder"
     static let finderAppURL = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
     static let finderApplication = IDEApplication(
@@ -71,7 +69,10 @@ final class IDEIntegrationService: ObservableObject {
 
     @Published private(set) var installedApps: [IDEApplication] = []
     @Published private(set) var selectedBundleIdentifier: String?
-    @Published private(set) var selectedFileOpenerIdentifier: String?
+
+    var selectedFileOpenerValue: String {
+        defaults.string(forKey: FileOpenerSelection.storageKey) ?? FileOpenerSelection.builtinValue
+    }
 
     private let workspace: NSWorkspace
     private let defaults: UserDefaults
@@ -86,7 +87,6 @@ final class IDEIntegrationService: ObservableObject {
         self.defaults = defaults
         self.fileManager = fileManager
         self.selectedBundleIdentifier = defaults.string(forKey: Self.selectedBundleIdentifierKey)
-        self.selectedFileOpenerIdentifier = defaults.string(forKey: Self.selectedFileOpenerIdentifierKey)
         refreshInstalledApps()
     }
 
@@ -95,35 +95,16 @@ final class IDEIntegrationService: ObservableObject {
         if selectedBundleIdentifier != identifier {
             selectedBundleIdentifier = identifier
         }
-        clearSelectedFileOpener()
+        setSelectedFileOpenerValue(FileOpenerSelection.builtinValue)
     }
 
     func selectFileOpener(extensionID: String, openerID: String) {
-        let identifier = Self.fileOpenerSelectionIdentifier(extensionID: extensionID, openerID: openerID)
-        defaults.set(identifier, forKey: Self.selectedFileOpenerIdentifierKey)
-        if selectedFileOpenerIdentifier != identifier {
-            selectedFileOpenerIdentifier = identifier
-        }
+        setSelectedFileOpenerValue(FileOpenerSelection.value(extensionID: extensionID, openerID: openerID))
     }
 
-    private func clearSelectedFileOpener() {
-        guard selectedFileOpenerIdentifier != nil else { return }
-        defaults.removeObject(forKey: Self.selectedFileOpenerIdentifierKey)
-        selectedFileOpenerIdentifier = nil
-    }
-
-    static func fileOpenerSelectionIdentifier(extensionID: String, openerID: String) -> String {
-        "\(extensionFileOpenerIdentifierPrefix)\(extensionID):\(openerID)"
-    }
-
-    static func parseFileOpenerSelectionIdentifier(_ identifier: String?) -> (extensionID: String, openerID: String)? {
-        guard let identifier,
-              identifier.hasPrefix(extensionFileOpenerIdentifierPrefix)
-        else { return nil }
-        let raw = String(identifier.dropFirst(extensionFileOpenerIdentifierPrefix.count))
-        let parts = raw.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
-        return (String(parts[0]), String(parts[1]))
+    func setSelectedFileOpenerValue(_ value: String) {
+        objectWillChange.send()
+        defaults.set(value, forKey: FileOpenerSelection.storageKey)
     }
 
     var defaultIDE: IDEApplication? {

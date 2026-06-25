@@ -53,33 +53,26 @@ struct IDEIntegrationServiceTests {
         #expect(resolved?.bundleIdentifier == zed.bundleIdentifier)
     }
 
-    @Test("file opener selection identifiers round trip")
-    func fileOpenerSelectionIdentifiersRoundTrip() throws {
-        let identifier = IDEIntegrationService.fileOpenerSelectionIdentifier(
-            extensionID: "files",
-            openerID: "editor"
-        )
-        let parsed = try #require(IDEIntegrationService.parseFileOpenerSelectionIdentifier(identifier))
+    @Test("file opener selection values round trip")
+    func fileOpenerSelectionValuesRoundTrip() throws {
+        let value = FileOpenerSelection.value(extensionID: "files", openerID: "editor")
+        let parsed = try #require(FileOpenerSelection.parse(value))
 
         #expect(parsed.extensionID == "files")
         #expect(parsed.openerID == "editor")
-        #expect(IDEIntegrationService.parseFileOpenerSelectionIdentifier("com.microsoft.VSCode") == nil)
+        #expect(FileOpenerSelection.parse(FileOpenerSelection.builtinValue) == nil)
+        #expect(FileOpenerSelection.parse("files") == nil)
     }
 
-    @Test("file opener selection persists independently of the selected IDE")
-    func fileOpenerSelectionPersistsIndependentlyOfIDE() throws {
+    @Test("file opener selection persists and survives relaunch")
+    func fileOpenerSelectionPersists() throws {
         let defaults = try #require(UserDefaults(suiteName: "muxy.tests.\(UUID().uuidString)"))
-        defaults.set("com.microsoft.VSCode", forKey: IDEIntegrationService.selectedBundleIdentifierKey)
         let service = IDEIntegrationService(defaults: defaults)
 
         service.selectFileOpener(extensionID: "files", openerID: "editor")
 
-        #expect(service.selectedFileOpenerIdentifier == IDEIntegrationService.fileOpenerSelectionIdentifier(
-            extensionID: "files",
-            openerID: "editor"
-        ))
-        #expect(service.selectedBundleIdentifier == "com.microsoft.VSCode")
-        #expect(IDEIntegrationService(defaults: defaults).selectedFileOpenerIdentifier == service.selectedFileOpenerIdentifier)
+        #expect(service.selectedFileOpenerValue == FileOpenerSelection.value(extensionID: "files", openerID: "editor"))
+        #expect(IDEIntegrationService(defaults: defaults).selectedFileOpenerValue == service.selectedFileOpenerValue)
     }
 
     @Test("launchCommands uses vscode CLI goto strategy when available")
