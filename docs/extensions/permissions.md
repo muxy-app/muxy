@@ -17,8 +17,8 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab`. Opening a terminal tab with a startup `command` also prompts for runtime consent. |
 | `browser:read` | `browser.list`, `browser.read` — see [Browser](browser.md). |
 | `browser:write` | `browser.open`, `browser.navigate`, `browser.close` — see [Browser](browser.md). |
-| `projects:read` | `list-projects` |
-| `projects:write` | `switch-project` |
+| `projects:read` | `list-projects`. Also required to subscribe to the `projects.changed` [event](events.md). |
+| `projects:write` | `switch-project`, `projects.add`, `projects.rename`, `projects.setColor`, `projects.setIcon`, `projects.setLogo`, `projects.reorder` |
 | `projects:delete` | `projects.delete` |
 | `worktrees:read` | `list-worktrees` |
 | `worktrees:write` | `create-worktree`, `switch-worktree`, `refresh-worktrees` |
@@ -78,7 +78,7 @@ Rules can be reviewed, refined, or removed in `Settings → Extensions → Permi
 
 ## What permissions don't gate
 
-- **Subscribing to workspace events** is gated separately by the manifest `events` array — see [Events](events.md). The caller's identity, not a `permissions` entry, decides what it can subscribe to.
+- **Subscribing to workspace events** is gated by the manifest `events` array, and some events also require their read permission — see [Events](events.md).
 - **Extension-local events.** `muxy.events.subscribe('extension.*', ...)` and `muxy.events.emit('extension.*', payload)` stay inside the same extension, need no permission, and are not listed in the manifest.
 - **Receiving palette command triggers.** Once an extension declares a command in `commands`, it can subscribe to its own `command.<id>` event without listing it under `events`.
 - **Native dialogs.** `muxy.dialog.confirm` / `muxy.dialog.alert` present a sheet the user must dismiss — see [Dialogs](dialogs.md). Being user-driven and UI-only, they need no permission.

@@ -590,6 +590,11 @@ final class AppState {
     }
 
     func dispatch(_ action: Action) {
+        _ = dispatchReturningEffects(action)
+    }
+
+    @discardableResult
+    func dispatchReturningEffects(_ action: Action) -> WorkspaceSideEffects {
         let extensionSnapshot = ExtensionEventEmitter.snapshot(from: self)
         defer {
             let after = ExtensionEventEmitter.snapshot(from: self)
@@ -604,7 +609,7 @@ final class AppState {
             if let key = activeWorktreeKey(for: projectID),
                maximizedAreaID[key] != nil
             {
-                return
+                return WorkspaceSideEffects()
             }
         default:
             break
@@ -614,7 +619,7 @@ final class AppState {
            let key = activeWorktreeKey(for: projectID),
            focusedAreaID[key] == areaID
         {
-            return
+            return WorkspaceSideEffects()
         }
 
         if case let .selectTab(projectID, areaID, tabID) = action,
@@ -624,7 +629,7 @@ final class AppState {
            area.activeTabID == tabID,
            focusedAreaID[key] == areaID
         {
-            return
+            return WorkspaceSideEffects()
         }
 
         let currentWorkspaceRootSignature = workspaceRootSignature(workspaceRoots)
@@ -689,6 +694,7 @@ final class AppState {
 
         saveWorkspaces()
         saveSelection()
+        return effects
     }
 
     func goBack() {

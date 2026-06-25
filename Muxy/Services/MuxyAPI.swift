@@ -14,6 +14,7 @@ enum APIError: Error, Equatable {
     case projectNotFound(String)
     case worktreeNotFound(String)
     case tabNotFound(String)
+    case tabCreateFailed
     case browserTabNotFound(String)
     case browserTabCreateFailed
     case browserTabSurfaceNotReady(tabID: String, waitedSeconds: Double)
@@ -40,6 +41,7 @@ enum APIError: Error, Equatable {
         case let .projectNotFound(id): "project not found\(id.isEmpty ? "" : " \(id)")"
         case let .worktreeNotFound(id): "worktree not found \(id)"
         case let .tabNotFound(id): "tab not found \(id)"
+        case .tabCreateFailed: "could not create tab"
         case let .browserTabNotFound(id): "browser tab not found \(id)"
         case .browserTabCreateFailed: "could not create browser tab"
         case let .browserTabSurfaceNotReady(id, waited):
@@ -67,6 +69,11 @@ struct ProjectInfo: Equatable {
     let name: String
     let path: String
     let isActive: Bool
+    let sortOrder: Int
+    let iconColor: String?
+    let icon: String?
+    let logo: String?
+    let worktreesEnabled: Bool
 }
 
 struct WorktreeInfo: Equatable {
@@ -233,6 +240,12 @@ enum MuxyAPI {
             "browser.read",
             "browser.close",
             "projects.delete",
+            "projects.add",
+            "projects.rename",
+            "projects.setColor",
+            "projects.setIcon",
+            "projects.setLogo",
+            "projects.reorder",
             "lifecycle.ackBeforeClose",
             "lifecycle.resolveBeforeClose",
             "lifecycle.closeSelf",
@@ -335,6 +348,12 @@ enum MuxyAPI {
             "projects.list": .projectsRead,
             "projects.switch": .projectsWrite,
             "projects.delete": .projectsDelete,
+            "projects.add": .projectsWrite,
+            "projects.rename": .projectsWrite,
+            "projects.setColor": .projectsWrite,
+            "projects.setIcon": .projectsWrite,
+            "projects.setLogo": .projectsWrite,
+            "projects.reorder": .projectsWrite,
             "worktrees.list": .worktreesRead,
             "worktrees.create": .worktreesWrite,
             "worktrees.switch": .worktreesWrite,
@@ -399,6 +418,7 @@ enum MuxyAPI {
         private static let eventPermissions: [String: ExtensionPermission] = [
             ExtensionEventName.agentStatus: .agentsRead,
             ExtensionEventName.fileChanged: .filesRead,
+            ExtensionEventName.projectsChanged: .projectsRead,
         ]
     }
 
@@ -476,9 +496,7 @@ enum MuxyAPI {
             let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines)
             let finalCommand = (trimmed?.isEmpty ?? true) ? nil : trimmed
 
-            let existing = collectAllPaneIDs(appState: appState)
-
-            appState.dispatch(.splitArea(.init(
+            let effects = appState.dispatchReturningEffects(.splitArea(.init(
                 projectID: projectID,
                 areaID: areaID,
                 direction: direction,
@@ -486,8 +504,7 @@ enum MuxyAPI {
                 command: finalCommand
             )))
 
-            let added = collectAllPaneIDs(appState: appState).subtracting(existing)
-            guard let newPaneID = added.first else {
+            guard let newPaneID = effects.createdPaneID else {
                 return .failure(.splitFailed)
             }
             return .success(newPaneID)
@@ -682,7 +699,12 @@ enum MuxyAPI {
                     id: project.id,
                     name: project.name,
                     path: project.path,
-                    isActive: project.id == appState.activeProjectID
+                    isActive: project.id == appState.activeProjectID,
+                    sortOrder: project.sortOrder,
+                    iconColor: project.iconColor,
+                    icon: project.icon,
+                    logo: project.logo,
+                    worktreesEnabled: project.worktreesEnabled
                 )
             }
         }
@@ -743,6 +765,94 @@ enum MuxyAPI {
             } catch {
                 return .failure(.underlying(error.localizedDescription))
             }
+        }
+
+        static func add(path: String, context: Context) -> Result<UUID, APIError> {
+            let before = Set(context.projectStore.projects.map(\.id))
+            let confirmed = ProjectOpenService.confirmProjectPath(
+                path,
+                appState: context.appState,
+                projectStore: context.projectStore,
+                worktreeStore: context.worktreeStore,
+                projectGroupStore: context.projectGroupStore,
+                createIfMissing: false
+            )
+            guard confirmed, let project = findProject(path, in: context.projectStore.projects) else {
+                return .failure(.invalidArguments("could not open project at path '\(path)'"))
+            }
+            if project.id != Project.homeID, !before.contains(project.id) {
+                context.projectStore.setWorktreesEnabled(id: project.id, to: true)
+            }
+            return .success(project.id)
+        }
+
+        static func rename(identifier: String, name: String, context: Context) -> Result<Void, APIError> {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return .failure(.invalidArguments("name cannot be empty"))
+            }
+            return resolveMutableProject(identifier, context: context).map {
+                context.projectStore.rename(id: $0.id, to: trimmed)
+            }
+        }
+
+        static func setColor(identifier: String, color: String?, context: Context) -> Result<Void, APIError> {
+            resolveMutableProject(identifier, context: context).map {
+                context.projectStore.setIconColor(id: $0.id, to: color)
+            }
+        }
+
+        static func setIcon(identifier: String, icon: String?, context: Context) -> Result<Void, APIError> {
+            resolveMutableProject(identifier, context: context).map {
+                context.projectStore.setIcon(id: $0.id, to: icon)
+            }
+        }
+
+        static func setLogo(identifier: String, logo: String?, context: Context) -> Result<Void, APIError> {
+            switch resolveMutableProject(identifier, context: context) {
+            case let .success(project):
+                if let logo, !ProjectLogoStorage.isStoredLogoFilename(logo, forProjectID: project.id) {
+                    return .failure(.invalidArguments("invalid project logo"))
+                }
+                context.projectStore.setLogo(id: project.id, to: logo)
+                return .success(())
+            case let .failure(error):
+                return .failure(error)
+            }
+        }
+
+        static func reorder(identifiers: [String], context: Context) -> Result<Void, APIError> {
+            var orderedIDs: [UUID] = []
+            for identifier in identifiers {
+                switch resolveMutableProject(identifier, context: context) {
+                case let .success(project): orderedIDs.append(project.id)
+                case let .failure(error): return .failure(error)
+                }
+            }
+            let reorderable = Set(context.projectStore.projects.lazy.filter { !$0.isHome && !$0.isRemote }.map(\.id))
+            guard orderedIDs.count == reorderable.count, Set(orderedIDs) == reorderable else {
+                return .failure(.invalidArguments("identifiers must list every project exactly once"))
+            }
+            context.projectStore.persistOrder(orderedIDs, scopedTo: reorderable)
+            return .success(())
+        }
+
+        private static func resolveMutableProject(_ identifier: String, context: Context) -> Result<Project, APIError> {
+            guard let project = context.projectGroupStore.resolveProject(
+                identifier: identifier,
+                localProjects: context.projectStore.projects,
+                activeProjectID: context.appState.activeProjectID
+            )
+            else {
+                return .failure(.projectNotFound(identifier))
+            }
+            guard project.id != Project.homeID else {
+                return .failure(.invalidArguments("the home project cannot be modified"))
+            }
+            guard !project.isRemote else {
+                return .failure(.invalidArguments("remote projects cannot be modified"))
+            }
+            return .success(project)
         }
     }
 
@@ -928,10 +1038,8 @@ enum MuxyAPI {
 
         static func new(appState: AppState) -> Result<UUID?, APIError> {
             guard let projectID = appState.activeProjectID else { return .failure(.noActiveProject) }
-            let before = collectTabs(appState: appState)
-            appState.dispatch(.createTab(projectID: projectID, areaID: nil))
-            let added = collectTabs(appState: appState).subtracting(before)
-            return .success(added.first)
+            let effects = appState.dispatchReturningEffects(.createTab(projectID: projectID, areaID: nil))
+            return .success(effects.createdTabID)
         }
 
         static func next(appState: AppState) -> Result<Void, APIError> {
@@ -996,7 +1104,7 @@ enum MuxyAPI {
             appState: AppState,
             callingExtensionID: String? = nil,
             consent: ExtensionConsentService = .shared
-        ) async -> Result<Void, APIError> {
+        ) async -> Result<UUID, APIError> {
             let target: OpenTabTarget
             switch resolveOpenTarget(appState: appState) {
             case let .success(resolved):
@@ -1036,7 +1144,7 @@ enum MuxyAPI {
                     }
                 }
                 activateOpenTarget(target, appState: appState)
-                appState.dispatch(.createExtensionTab(
+                let effects = appState.dispatchReturningEffects(.createExtensionTab(
                     projectID: target.key.projectID,
                     areaID: target.areaID,
                     request: AppState.CreateExtensionTabRequest(
@@ -1047,7 +1155,8 @@ enum MuxyAPI {
                         singleton: payload.singleton
                     )
                 ))
-                return .success(())
+                guard let tabID = effects.createdTabID else { return .failure(.tabCreateFailed) }
+                return .success(tabID)
             case .browser:
                 return .failure(.invalidArguments("browser tabs cannot be opened via this API yet"))
             }
@@ -1059,7 +1168,7 @@ enum MuxyAPI {
             appState: AppState,
             callingExtensionID: String?,
             consent: ExtensionConsentService
-        ) async -> Result<Void, APIError> {
+        ) async -> Result<UUID, APIError> {
             let workspaceContext = ActiveWorkspaceContext.shared.current
             var resolvedDirectory: String?
             if let directory = request.directory {
@@ -1075,16 +1184,19 @@ enum MuxyAPI {
             let trimmedCommand = request.command?.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let command = trimmedCommand, !command.isEmpty else {
                 activateOpenTarget(target, appState: appState)
-                if let directory = resolvedDirectory {
-                    appState.dispatch(.createTabInDirectory(
+                let effects: WorkspaceSideEffects = if let directory = resolvedDirectory {
+                    appState.dispatchReturningEffects(.createTabInDirectory(
                         projectID: target.key.projectID,
                         areaID: target.areaID,
                         directory: directory
                     ))
                 } else {
-                    appState.dispatch(.createTab(projectID: target.key.projectID, areaID: target.areaID))
+                    appState.dispatchReturningEffects(
+                        .createTab(projectID: target.key.projectID, areaID: target.areaID)
+                    )
                 }
-                return .success(())
+                guard let tabID = effects.createdTabID else { return .failure(.tabCreateFailed) }
+                return .success(tabID)
             }
 
             guard let callingExtensionID else {
@@ -1100,7 +1212,7 @@ enum MuxyAPI {
             }
 
             activateOpenTarget(target, appState: appState)
-            appState.dispatch(.createCommandTab(CommandTabRequest(
+            let effects = appState.dispatchReturningEffects(.createCommandTab(CommandTabRequest(
                 projectID: target.key.projectID,
                 areaID: target.areaID,
                 name: command,
@@ -1108,7 +1220,8 @@ enum MuxyAPI {
                 closesOnCommandExit: false,
                 directory: resolvedDirectory
             )))
-            return .success(())
+            guard let tabID = effects.createdTabID else { return .failure(.tabCreateFailed) }
+            return .success(tabID)
         }
 
         static func resolveTabDirectory(
@@ -1216,14 +1329,13 @@ enum MuxyAPI {
                 )))
             }
 
-            let before = collectTabs(appState: appState)
-            appState.dispatch(.createBrowserTab(
+            let effects = appState.dispatchReturningEffects(.createBrowserTab(
                 projectID: projectID,
                 areaID: appState.focusedAreaID(for: projectID),
                 url: resolvedURL,
                 profileID: resolvedProfileID
             ))
-            guard let newID = collectTabs(appState: appState).subtracting(before).first else {
+            guard let newID = effects.createdTabID else {
                 return .failure(.browserTabCreateFailed)
             }
             return .success(newID)
@@ -1404,34 +1516,6 @@ private func locateTab(paneID: UUID, appState: AppState) -> PaneLocation? {
         }
     }
     return nil
-}
-
-@MainActor
-private func collectAllPaneIDs(appState: AppState) -> Set<UUID> {
-    var ids = Set<UUID>()
-    for (_, root) in appState.workspaceRoots {
-        for area in root.allAreas() {
-            for tab in area.tabs {
-                if let pane = tab.content.pane {
-                    ids.insert(pane.id)
-                }
-            }
-        }
-    }
-    return ids
-}
-
-@MainActor
-private func collectTabs(appState: AppState) -> Set<UUID> {
-    var ids = Set<UUID>()
-    for root in appState.workspaceRoots.values {
-        for area in root.allAreas() {
-            for tab in area.tabs {
-                ids.insert(tab.id)
-            }
-        }
-    }
-    return ids
 }
 
 private extension Duration {

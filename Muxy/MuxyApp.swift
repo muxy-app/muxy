@@ -163,6 +163,12 @@ struct MuxyApp: App {
                     projectStore.onProjectRemoved = { [projectGroupStore] projectID in
                         projectGroupStore.removeProjectFromAllGroups(projectID: projectID)
                     }
+                    projectStore.onProjectsChanged = {
+                        NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
+                            name: ExtensionEventName.projectsChanged,
+                            payload: [:]
+                        ))
+                    }
                     appState.onProjectSelected = { [projectStore] projectID in
                         projectStore.markActive(id: projectID)
                     }

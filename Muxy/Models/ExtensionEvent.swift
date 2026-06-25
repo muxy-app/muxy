@@ -36,6 +36,7 @@ enum ExtensionEventName {
     static let popoverOpened = "popover.opened"
     static let popoverClosed = "popover.closed"
     static let projectSwitched = "project.switched"
+    static let projectsChanged = "projects.changed"
     static let worktreeSwitched = "worktree.switched"
     static let notificationPosted = "notification.posted"
     static let fileChanged = "file.changed"

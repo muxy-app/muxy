@@ -2,10 +2,11 @@ import Foundation
 
 @MainActor
 enum SplitReducer {
-    static func splitArea(_ request: AppState.SplitAreaRequest, state: inout WorkspaceState) {
+    @discardableResult
+    static func splitArea(_ request: AppState.SplitAreaRequest, state: inout WorkspaceState) -> UUID? {
         guard let key = WorkspaceReducerShared.activeKey(projectID: request.projectID, state: state),
               let root = state.workspaceRoots[key]
-        else { return }
+        else { return nil }
         let (newRoot, newAreaID) = root.splitting(
             areaID: request.areaID,
             direction: request.direction,
@@ -13,8 +14,9 @@ enum SplitReducer {
             command: request.command
         )
         state.workspaceRoots[key] = newRoot
-        guard let newAreaID else { return }
+        guard let newAreaID else { return nil }
         FocusReducer.focusArea(newAreaID, key: key, state: &state)
+        return newRoot.findArea(id: newAreaID)?.tabs.first?.content.pane?.id
     }
 
     static func closeArea(

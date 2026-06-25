@@ -4,6 +4,7 @@ import WebKit
 @MainActor
 protocol BrowserElementInspecting: AnyObject {
     func inspectElement() -> Bool
+    func closeInspector() -> Bool
 }
 
 @MainActor
@@ -23,7 +24,8 @@ final class BrowserWebViewRegistry {
         entries[tabID] = WeakBox(webView)
     }
 
-    func unregister(_ tabID: UUID) {
+    func unregister(_ tabID: UUID, ifMatches webView: WKWebView? = nil) {
+        if let webView, entries[tabID]?.webView !== webView { return }
         entries[tabID] = nil
     }
 

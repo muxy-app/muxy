@@ -196,20 +196,42 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
         case "lifecycle.closeSelf":
             handleCloseSelf(appState: appState)
             return NSNull()
+        case "modal.open":
+            let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: makeContext(appState: appState))
+            if let dict = result as? [String: Any], let requestID = dict["requestID"] as? String {
+                registerModalQueryPush(requestID: requestID)
+            }
+            return result
         default:
-            return try await MuxyAPIDispatcher.dispatch(
-                verb: verb,
-                args: args,
-                context: MuxyAPIDispatcher.Context(
-                    extensionID: extensionID,
-                    appState: appState,
-                    projectStore: projectStore,
-                    worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore,
-                    browserProfileStore: browserProfileStore
-                )
-            )
+            return try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: makeContext(appState: appState))
         }
+    }
+
+    private func makeContext(appState: AppState) -> MuxyAPIDispatcher.Context {
+        MuxyAPIDispatcher.Context(
+            extensionID: extensionID,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore,
+            browserProfileStore: browserProfileStore
+        )
+    }
+
+    private func registerModalQueryPush(requestID: String) {
+        ExtensionModalService.shared.onQueryRequest(requestID: requestID) { [weak self] queryID, query in
+            self?.deliverModalQuery(requestID: requestID, queryID: queryID, query: query)
+        }
+    }
+
+    private func deliverModalQuery(requestID: String, queryID: Int, query: String) {
+        guard let webView else { return }
+        let script = """
+        if (typeof window.__muxyDeliverModalQuery === 'function') {
+            window.__muxyDeliverModalQuery(\(jsLiteral(requestID)), \(queryID), \(jsLiteral(query)));
+        }
+        """
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     private func handleSubscribe(args: [String: Any]) throws -> Any {

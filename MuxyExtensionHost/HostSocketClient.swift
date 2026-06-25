@@ -20,6 +20,7 @@ final class HostSocketClient: @unchecked Sendable {
     private var extensionEventHandler: ((String) -> Void)?
     private var invokeHandler: ((String) -> Void)?
     private var modalResultHandler: ((String) -> Void)?
+    private var modalQueryHandler: ((String) -> Void)?
 
     static let maxConnectAttempts = 15
     static let connectRetryDelay: TimeInterval = 0.1
@@ -93,6 +94,10 @@ final class HostSocketClient: @unchecked Sendable {
 
     func onModalResult(_ handler: @escaping (String) -> Void) {
         modalResultHandler = handler
+    }
+
+    func onModalQuery(_ handler: @escaping (String) -> Void) {
+        modalQueryHandler = handler
     }
 
     func startReading() {
@@ -178,6 +183,10 @@ final class HostSocketClient: @unchecked Sendable {
         }
         if line.hasPrefix("\(ExtensionModalResult.messageHead)|") {
             modalResultHandler?(line)
+            return
+        }
+        if line.hasPrefix("\(ExtensionModalQuery.messageHead)|") {
+            modalQueryHandler?(line)
             return
         }
         replyLock.lock()

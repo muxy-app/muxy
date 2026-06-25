@@ -241,8 +241,110 @@ struct ExtensionModalServiceTests {
         #expect(ExtensionModalResult.serialize(requestID: "bad|id", payload: payload) == nil)
     }
 
+    @Test("modal query serialize/parse round-trips the query")
+    func modalQueryRoundTrips() throws {
+        let line = try #require(ExtensionModalQuery.serialize(requestID: "ext:1", queryID: 3, query: "a|b c"))
+        let parsed = try #require(ExtensionModalQuery.parse(line))
+        #expect(parsed.requestID == "ext:1")
+        #expect(parsed.queryID == 3)
+        #expect(parsed.query == "a|b c")
+        #expect(ExtensionModalQuery.serialize(requestID: "bad|id", queryID: 1, query: "x") == nil)
+        #expect(ExtensionModalQuery.parse("modal-query|ext:1|notanumber|eA==") == nil)
+    }
+
+    @Test("dynamic flag is read from open args")
+    func dynamicFlagPlumbed() {
+        let service = ExtensionModalService()
+        service.openSession(extensionID: "ext", args: [:])
+        #expect(service.active?.dynamic == false)
+        service.openSession(extensionID: "ext", args: ["dynamic": true])
+        #expect(service.active?.dynamic == true)
+    }
+
+    @Test("requestQuery resets the dataset and invokes the handler with a new queryID")
+    func requestQueryResetsAndInvokes() {
+        let service = ExtensionModalService()
+        let requestID = service.openSession(extensionID: "ext", args: ["dynamic": true])
+        let active = service.active!
+        service.feedSession([ExtensionModalService.Item(id: "stale", title: "Stale", subtitle: nil)])
+        service.finishSession()
+        #expect(active.dataset.items.map(\.id) == ["stale"])
+
+        let captured = QueryBox()
+        service.onQueryRequest(requestID: requestID) { captured.id = $0; captured.query = $1 }
+        service.requestQuery(query: "hello")
+
+        #expect(captured.id == 1)
+        #expect(captured.query == "hello")
+        #expect(active.dataset.items.isEmpty)
+        #expect(active.dataset.loading)
+
+        service.feedSession([ExtensionModalService.Item(id: "fresh", title: "Fresh", subtitle: nil)], queryID: captured.id)
+        service.finishSession(queryID: captured.id)
+        #expect(active.dataset.items.map(\.id) == ["fresh"])
+        #expect(!active.dataset.loading)
+    }
+
+    @Test("stale-queryID feed and finish are dropped")
+    func staleQueryFeedDropped() {
+        let service = ExtensionModalService()
+        service.openSession(extensionID: "ext", args: ["dynamic": true])
+        let active = service.active!
+        service.onQueryRequest(requestID: active.id) { _, _ in }
+
+        service.requestQuery(query: "first")
+        service.requestQuery(query: "second")
+
+        service.feedSession([ExtensionModalService.Item(id: "old", title: "Old", subtitle: nil)], queryID: 1)
+        #expect(active.dataset.items.isEmpty)
+
+        service.feedSession([ExtensionModalService.Item(id: "new", title: "New", subtitle: nil)], queryID: 2)
+        #expect(active.dataset.items.map(\.id) == ["new"])
+
+        service.finishSession(queryID: 1)
+        #expect(active.dataset.loading)
+        service.finishSession(queryID: 2)
+        #expect(!active.dataset.loading)
+    }
+
+    @Test("a late untagged initial feed is dropped once a dynamic query has started")
+    func untaggedInitialFeedDroppedAfterQuery() {
+        let service = ExtensionModalService()
+        service.openSession(extensionID: "ext", args: ["dynamic": true])
+        let active = service.active!
+        service.onQueryRequest(requestID: active.id) { _, _ in }
+
+        service.requestQuery(query: "typed")
+
+        service.feedSession([ExtensionModalService.Item(id: "initial", title: "Initial", subtitle: nil)])
+        service.finishSession()
+
+        #expect(active.dataset.items.isEmpty)
+        #expect(active.dataset.loading)
+    }
+
+    @Test("requestQuery is a no-op for a non-dynamic modal")
+    func requestQueryIgnoredWhenNotDynamic() {
+        let service = ExtensionModalService()
+        service.openSession(extensionID: "ext", args: [:])
+        let active = service.active!
+        service.feedSession([ExtensionModalService.Item(id: "a", title: "A", subtitle: nil)])
+
+        let captured = QueryBox()
+        service.onQueryRequest(requestID: active.id) { _, _ in captured.id = -1 }
+        service.requestQuery(query: "x")
+
+        #expect(captured.id == 0)
+        #expect(active.dataset.items.map(\.id) == ["a"])
+    }
+
     private final class ResultBox {
         var value = ""
+    }
+
+    private final class QueryBox {
+        var id = 0
+        var query = ""
     }
 
     private func makeStreamingRequest(_ service: ExtensionModalService) -> ExtensionModalService.Request {

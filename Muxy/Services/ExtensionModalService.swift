@@ -51,6 +51,13 @@ final class ExtensionModalService {
             loading = false
             revision += 1
         }
+
+        func reset() {
+            items = []
+            seenIDs = []
+            loading = true
+            revision += 1
+        }
     }
 
     struct Request: Identifiable, Equatable {
@@ -59,6 +66,7 @@ final class ExtensionModalService {
         let placeholder: String
         let emptyLabel: String
         let noMatchLabel: String
+        let dynamic: Bool
         let dataset: Dataset
 
         static func == (lhs: Request, rhs: Request) -> Bool {
@@ -74,6 +82,8 @@ final class ExtensionModalService {
     private var sequence = 0
     private var session: Dataset?
     private var onResolve: ((Item?) -> Void)?
+    private var onQuery: ((Int, String) -> Void)?
+    private var queryID = 0
     private var pendingRequestID: String?
     private var bufferedResults: [String: Item?] = [:]
 
@@ -87,22 +97,43 @@ final class ExtensionModalService {
             placeholder: text(args, "placeholder") ?? "Search...",
             emptyLabel: text(args, "emptyLabel") ?? "No items",
             noMatchLabel: text(args, "noMatchLabel") ?? "No matches",
+            dynamic: (args["dynamic"] as? Bool) ?? false,
             dataset: dataset
         )
         resolve(with: nil)
         bufferedResults.removeAll()
+        onQuery = nil
+        queryID = 0
         session = dataset
         active = request
         pendingRequestID = request.id
         return request.id
     }
 
-    func feedSession(_ items: [Item]) {
+    func feedSession(_ items: [Item], queryID: Int? = nil) {
+        guard isCurrentQuery(queryID) else { return }
         session?.append(items)
     }
 
-    func finishSession() {
+    func finishSession(queryID: Int? = nil) {
+        guard isCurrentQuery(queryID) else { return }
         session?.finish()
+    }
+
+    func onQueryRequest(requestID: String, _ handler: @escaping (Int, String) -> Void) {
+        guard active?.id == requestID else { return }
+        onQuery = handler
+    }
+
+    func requestQuery(query: String) {
+        guard let request = active, request.dynamic, let handler = onQuery else { return }
+        queryID += 1
+        request.dataset.reset()
+        handler(queryID, query)
+    }
+
+    private func isCurrentQuery(_ id: Int?) -> Bool {
+        (id ?? 0) == queryID
     }
 
     func onResult(requestID: String, _ handler: @escaping (Item?) -> Void) {
@@ -175,6 +206,7 @@ final class ExtensionModalService {
         active = nil
         session = nil
         pendingRequestID = nil
+        onQuery = nil
         if let handler = onResolve {
             onResolve = nil
             handler(item)

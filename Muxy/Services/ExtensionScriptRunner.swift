@@ -187,6 +187,7 @@ private final class ScriptBridge: @unchecked Sendable {
                 let raw = try await bridge.handle(verb: verb, args: argsBox.value)
                 if verb == "modal.open", let dict = raw as? [String: Any], let requestID = dict["requestID"] as? String {
                     bridge.registerModalDelivery(requestID: requestID)
+                    bridge.registerModalQueryDelivery(requestID: requestID)
                 }
                 return try BridgeValue(from: raw)
             }
@@ -238,6 +239,23 @@ private final class ScriptBridge: @unchecked Sendable {
         }
     }
 
+    @MainActor
+    private func registerModalQueryDelivery(requestID: String) {
+        ExtensionModalService.shared.onQueryRequest(requestID: requestID) { [weak self] queryID, query in
+            self?.deliverModalQuery(requestID: requestID, queryID: queryID, query: query)
+        }
+    }
+
+    @MainActor
+    private func deliverModalQuery(requestID: String, queryID: Int, query: String) {
+        guard let queue = deliveryQueue, let context else { return }
+        let delivery = ModalQueryDeliveryBox(context: context, requestID: requestID, queryID: queryID, query: query)
+        queue.async {
+            let deliver = delivery.context.objectForKeyedSubscript("__muxyDeliverModalQuery")
+            deliver?.call(withArguments: [delivery.requestID, delivery.queryID, delivery.query])
+        }
+    }
+
     var deliveryQueue: DispatchQueue?
     var modalPendingChanged: ((Int) -> Void)?
 
@@ -282,6 +300,13 @@ private struct ModalDeliveryBox: @unchecked Sendable {
     let context: JSContext
     let requestID: String
     let payload: Any
+}
+
+private struct ModalQueryDeliveryBox: @unchecked Sendable {
+    let context: JSContext
+    let requestID: String
+    let queryID: Int
+    let query: String
 }
 
 private final class ModalDeliveryCompletion: @unchecked Sendable {

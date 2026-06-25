@@ -2,12 +2,12 @@ import Foundation
 
 @MainActor
 enum TabReducer {
-    static func createTab(projectID: UUID, areaID: UUID?, state: inout WorkspaceState) {
+    static func createTab(projectID: UUID, areaID: UUID?, state: inout WorkspaceState) -> UUID? {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return }
+        else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createTab()
+        return area.createTab()
     }
 
     static func createTabInDirectory(
@@ -15,20 +15,20 @@ enum TabReducer {
         areaID: UUID?,
         directory: String,
         state: inout WorkspaceState
-    ) {
+    ) -> UUID? {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return }
+        else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createTab(inDirectory: directory)
+        return area.createTab(inDirectory: directory)
     }
 
-    static func createCommandTab(_ request: CommandTabRequest, state: inout WorkspaceState) {
+    static func createCommandTab(_ request: CommandTabRequest, state: inout WorkspaceState) -> UUID? {
         guard let key = WorkspaceReducerShared.activeKey(projectID: request.projectID, state: state),
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: request.areaID, state: state)
-        else { return }
+        else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createCommandTab(
+        return area.createCommandTab(
             name: request.name,
             command: request.command,
             closesOnCommandExit: request.closesOnCommandExit,
@@ -41,11 +41,11 @@ enum TabReducer {
         areaID: UUID?,
         request: AppState.CreateExtensionTabRequest,
         state: inout WorkspaceState
-    ) {
+    ) -> UUID? {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let root = state.workspaceRoots[key],
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return }
+        else { return nil }
         if request.singleton {
             for existingArea in root.allAreas() {
                 guard let existing = existingArea.findExtensionTab(
@@ -56,11 +56,11 @@ enum TabReducer {
                 existing.content.extensionState?.data = request.data
                 FocusReducer.focusArea(existingArea.id, key: key, state: &state)
                 existingArea.selectTab(existing.id)
-                return
+                return existing.content.extensionState?.id
             }
         }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createExtensionTab(
+        return area.createExtensionTab(
             extensionID: request.extensionID,
             tabTypeID: request.tabTypeID,
             title: request.title,
@@ -74,13 +74,13 @@ enum TabReducer {
         url: URL?,
         profileID: UUID,
         state: inout WorkspaceState
-    ) {
+    ) -> UUID? {
         guard BrowserPreferences.isEnabled,
               let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return }
+        else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createBrowserTab(url: url, profileID: profileID)
+        return area.createBrowserTab(url: url, profileID: profileID)
     }
 
     static func selectTab(projectID: UUID, areaID: UUID?, tabID: UUID, state: inout WorkspaceState) {

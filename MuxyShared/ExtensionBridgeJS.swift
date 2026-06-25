@@ -38,12 +38,24 @@ public enum ExtensionBridgeJS {
                 dispatch('modal.finish', {});
             };
             const modalResultHandlers = {};
+            const modalQueryHandlers = {};
             this.__muxiDeliverModalResult = (requestID, item) => {
                 const handler = modalResultHandlers[requestID];
                 delete modalResultHandlers[requestID];
+                delete modalQueryHandlers[requestID];
                 if (typeof handler === 'function') {
                     try { handler(item == null ? null : item); } catch (error) { console.error(error); }
                 }
+            };
+            this.__muxyDeliverModalQuery = (requestID, queryID, query) => {
+                const handler = modalQueryHandlers[requestID];
+                const emit = (batch) => dispatch('modal.feed', { items: normalizeModalItems(batch), queryID });
+                const finish = () => dispatch('modal.finish', { queryID });
+                if (typeof handler !== 'function') { finish(); return; }
+                let produced;
+                try { produced = handler(query, emit); } catch (error) { console.error(error); finish(); return; }
+                if (produced != null) emit(produced);
+                finish();
             };
             const muxy = {
                 extensionID: \(extLiteral),
@@ -94,9 +106,14 @@ public enum ExtensionBridgeJS {
                 modal: {
                     open(opts) {
                         const o = opts || {};
-                        const opened = dispatch('modal.open', modalLabels(o));
+                        const labels = modalLabels(o);
+                        if (typeof o.onQuery === 'function') labels.dynamic = true;
+                        const opened = dispatch('modal.open', labels);
                         const requestID = opened && opened.requestID;
-                        if (typeof o.onSelect === 'function' && requestID != null) modalResultHandlers[requestID] = o.onSelect;
+                        if (requestID != null) {
+                            if (typeof o.onSelect === 'function') modalResultHandlers[requestID] = o.onSelect;
+                            if (typeof o.onQuery === 'function') modalQueryHandlers[requestID] = o.onQuery;
+                        }
                         feedModalItems(o);
                         return requestID;
                     },
@@ -208,6 +225,12 @@ public enum ExtensionBridgeJS {
                 list:     ()           => dispatch('projects.list', {}),
                 switchTo: (identifier) => dispatch('projects.switch', { identifier: String(identifier) }),
                 delete:   (identifier) => dispatch('projects.delete', { identifier: String(identifier) }),
+                add:      (path)               => dispatch('projects.add', { path: String(path) }),
+                rename:   (identifier, name)   => dispatch('projects.rename', { identifier: String(identifier), name: String(name) }),
+                setColor: (identifier, color)  => dispatch('projects.setColor', { identifier: String(identifier), color: color == null ? null : String(color) }),
+                setIcon:  (identifier, icon)   => dispatch('projects.setIcon', { identifier: String(identifier), icon: icon == null ? null : String(icon) }),
+                setLogo:  (identifier, logo)   => dispatch('projects.setLogo', { identifier: String(identifier), logo: logo == null ? null : String(logo) }),
+                reorder:  (identifiers)        => dispatch('projects.reorder', { identifiers: (identifiers || []).map(String) }),
             };
             muxy.worktrees = {
                 list:     (project)             => dispatch('worktrees.list', { project: project == null ? null : String(project) }),

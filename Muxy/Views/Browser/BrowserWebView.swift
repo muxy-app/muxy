@@ -14,7 +14,8 @@ struct BrowserWebView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
-        if let webView = state.webView {
+        let dataStore = BrowserDataStoreCache.shared.store(for: state.profileID)
+        if let webView = Self.reusableWebView(for: state, dataStore: dataStore) {
             webView.navigationDelegate = context.coordinator
             webView.uiDelegate = context.coordinator
             context.coordinator.attach(to: webView)
@@ -25,7 +26,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
-        config.websiteDataStore = BrowserDataStoreCache.shared.store(for: state.profileID)
+        config.websiteDataStore = dataStore
         BrowserInspectableWebView.enableInspection(in: config)
 
         let webView = BrowserInspectableWebView(frame: .zero, configuration: config)
@@ -53,8 +54,27 @@ struct BrowserWebView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        BrowserWebViewRegistry.shared.unregister(coordinator.tabID)
+        _ = (webView as? any BrowserElementInspecting)?.closeInspector()
+        BrowserWebViewRegistry.shared.unregister(coordinator.tabID, ifMatches: webView)
         coordinator.detach(from: webView)
+    }
+
+    static func reusableWebView(for state: BrowserTabState, dataStore: WKWebsiteDataStore) -> WKWebView? {
+        guard let webView = state.webView else { return nil }
+        guard webView.configuration.websiteDataStore === dataStore else {
+            retireCachedWebView(webView, state: state)
+            return nil
+        }
+        return webView
+    }
+
+    private static func retireCachedWebView(_ webView: WKWebView, state: BrowserTabState) {
+        _ = (webView as? any BrowserElementInspecting)?.closeInspector()
+        webView.stopLoading()
+        BrowserWebViewRegistry.shared.unregister(state.id, ifMatches: webView)
+        if state.webView === webView {
+            state.webView = nil
+        }
     }
 
     @MainActor

@@ -894,9 +894,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func getProjectLogo(projectID: UUID) -> ProjectLogoDTO? {
         guard let project = projectStore.projects.first(where: { $0.id == projectID }),
-              let logo = project.logo
+              let logo = project.logo,
+              let path = ProjectLogoStorage.safeLogoPath(for: logo)
         else { return nil }
-        let path = ProjectLogoStorage.logoPath(for: logo)
         guard let data = FileManager.default.contents(atPath: path) else { return nil }
         return ProjectLogoDTO(projectID: projectID, pngData: data.base64EncodedString())
     }

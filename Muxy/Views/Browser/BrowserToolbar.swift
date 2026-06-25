@@ -146,11 +146,7 @@ struct BrowserToolbar: View {
     }
 
     private func selectProfile(_ id: UUID) {
-        guard id != state.profileID else { return }
-        state.profileID = id
-        if let url = state.url {
-            state.pendingURL = url
-        }
+        state.switchProfile(to: id)
     }
 
     private var addressField: some View {

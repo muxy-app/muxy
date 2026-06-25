@@ -27,7 +27,10 @@ struct ExtensionModalOverlay: View {
             onDismiss: onDismiss,
             row: { item, isHighlighted in
                 AnyView(ExtensionModalRow(item: item, isHighlighted: isHighlighted))
-            }
+            },
+            onQueryChanged: request.dynamic ? { query in
+                ExtensionModalService.shared.requestQuery(query: query)
+            } : nil
         )
         .id(request.id)
         .onDisappear {

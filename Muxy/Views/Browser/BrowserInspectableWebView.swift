@@ -58,6 +58,15 @@ final class BrowserInspectableWebView: WKWebView, BrowserElementInspecting {
         return true
     }
 
+    @discardableResult
+    func closeInspector() -> Bool {
+        guard let inspector,
+              inspector.responds(to: Self.hideInspectorSelector)
+        else { return false }
+        hideInspector(inspector)
+        return true
+    }
+
     func addInspectElementItem(to menu: NSMenu) {
         guard canOpenInspector else { return }
         guard Self.inspectorMenuItem(in: menu) == nil else { return }

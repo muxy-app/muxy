@@ -522,7 +522,7 @@ struct MainWindow: View {
                         }
                         if let project = activeProject {
                             if !project.isRemote {
-                                OpenInIDEControl(projectPath: activeWorktreePath(for: project))
+                                OpenInIDEControl(projectPath: activeWorktreePath(for: project), projectID: project.id)
                             }
                             LayoutPickerMenu(projectID: project.id)
                         }
@@ -766,7 +766,7 @@ struct MainWindow: View {
         guard let projectID = appState.activeProjectID, projectID != Project.homeID else { return }
         let candidates = projectStore.projects + projectGroupStore.remoteProjects
         guard let project = candidates.first(where: { $0.id == projectID }) else { return }
-        projectGroupStore.activateWorkspace(containing: project)
+        projectGroupStore.activateWorkspaceForProjectSelection(containing: project)
     }
 
     private func resolveOmniboxProject(_ projectID: UUID) -> Project? {

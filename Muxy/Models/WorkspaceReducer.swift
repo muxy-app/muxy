@@ -20,6 +20,8 @@ struct WorkspaceSideEffects {
     var paneIDsToRemove: [UUID] = []
     var projectIDsToRemove: [UUID] = []
     var deferredAreaCollapses: [DeferredAreaCollapse] = []
+    var createdTabID: UUID?
+    var createdPaneID: UUID?
 }
 
 @MainActor
@@ -78,10 +80,10 @@ enum WorkspaceReducer {
             )
 
         case let .createTab(projectID, areaID):
-            TabReducer.createTab(projectID: projectID, areaID: areaID, state: &state)
+            effects.createdTabID = TabReducer.createTab(projectID: projectID, areaID: areaID, state: &state)
 
         case let .createTabInDirectory(projectID, areaID, directory):
-            TabReducer.createTabInDirectory(
+            effects.createdTabID = TabReducer.createTabInDirectory(
                 projectID: projectID,
                 areaID: areaID,
                 directory: directory,
@@ -89,10 +91,10 @@ enum WorkspaceReducer {
             )
 
         case let .createCommandTab(request):
-            TabReducer.createCommandTab(request, state: &state)
+            effects.createdTabID = TabReducer.createCommandTab(request, state: &state)
 
         case let .createExtensionTab(projectID, areaID, request):
-            TabReducer.createExtensionTab(
+            effects.createdTabID = TabReducer.createExtensionTab(
                 projectID: projectID,
                 areaID: areaID,
                 request: request,
@@ -100,7 +102,7 @@ enum WorkspaceReducer {
             )
 
         case let .createBrowserTab(projectID, areaID, url, profileID):
-            TabReducer.createBrowserTab(
+            effects.createdTabID = TabReducer.createBrowserTab(
                 projectID: projectID,
                 areaID: areaID,
                 url: url,
@@ -125,7 +127,7 @@ enum WorkspaceReducer {
             TabReducer.selectPreviousTab(projectID: projectID, state: state)
 
         case let .splitArea(request):
-            SplitReducer.splitArea(request, state: &state)
+            effects.createdPaneID = SplitReducer.splitArea(request, state: &state)
 
         case let .closeArea(projectID, areaID):
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }

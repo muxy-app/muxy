@@ -111,6 +111,32 @@ struct BrowserProfileTabTests {
         #expect(restored.content.browserState?.profileID == BrowserProfile.defaultID)
     }
 
+    @Test("switching browser profile reloads the current page")
+    func switchProfileReloadsCurrentPage() throws {
+        let url = try #require(URL(string: "https://muxy.app"))
+        let profileID = UUID()
+        let state = BrowserTabState(projectPath: testPath, url: url)
+        _ = state.navigationURLForWebViewMount()
+
+        state.switchProfile(to: profileID)
+
+        #expect(state.profileID == profileID)
+        #expect(state.pendingURL == url)
+    }
+
+    @Test("switching to the same browser profile is a no-op")
+    func switchProfileSameProfileDoesNothing() throws {
+        let url = try #require(URL(string: "https://muxy.app"))
+        let profileID = UUID()
+        let state = BrowserTabState(projectPath: testPath, url: url, profileID: profileID)
+        _ = state.navigationURLForWebViewMount()
+
+        state.switchProfile(to: profileID)
+
+        #expect(state.profileID == profileID)
+        #expect(state.pendingURL == nil)
+    }
+
     @Test("active browser inspect request uses registered web view")
     func inspectActiveBrowserElementUsesRegisteredWebView() {
         let projectID = UUID()
@@ -189,9 +215,15 @@ private final class WorkspacePersistenceStub: WorkspacePersisting {
 @MainActor
 private final class InspectingWebViewStub: WKWebView, BrowserElementInspecting {
     var inspectCount = 0
+    var closeCount = 0
 
     func inspectElement() -> Bool {
         inspectCount += 1
+        return true
+    }
+
+    func closeInspector() -> Bool {
+        closeCount += 1
         return true
     }
 }

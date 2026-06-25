@@ -233,6 +233,15 @@ enum SettingsCatalog {
             defaultValue: false
         ),
         SettingsCatalogItem(
+            key: FileOpenerSelection.storageKey,
+            title: "Default Opener",
+            description: "Chooses the IDE or an extension opener for files opened from native surfaces.",
+            category: .projects,
+            section: "Open Files With",
+            defaultValue: FileOpenerSelection.builtinValue,
+            aliases: ["file opener", "open in ide", "editor", "extension opener"]
+        ),
+        SettingsCatalogItem(
             key: GeneralSettingsKeys.defaultWorktreeParentPath,
             title: "Default Worktree Path",
             description: "Sets the parent folder for new worktrees.",

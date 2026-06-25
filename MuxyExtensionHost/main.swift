@@ -60,6 +60,10 @@ client.onModalResult { [weak bridge] line in
     bridge?.handleModalResultLine(line)
 }
 
+client.onModalQuery { [weak bridge] line in
+    bridge?.handleModalQueryLine(line)
+}
+
 client.startReading()
 
 func identify() -> Never? {

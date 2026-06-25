@@ -68,6 +68,13 @@ final class BrowserTabState: Identifiable {
         pendingURL = resolved
     }
 
+    func switchProfile(to id: UUID) {
+        guard id != profileID else { return }
+        profileID = id
+        guard let url else { return }
+        pendingURL = url
+    }
+
     func navigationURLForWebViewMount() -> URL? {
         if let pendingURL {
             self.pendingURL = nil

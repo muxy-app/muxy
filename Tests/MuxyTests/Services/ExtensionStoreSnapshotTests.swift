@@ -30,6 +30,34 @@ struct ExtensionSnapshotTests {
         #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "command.run"))
         #expect(!NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "command.other"))
     }
+
+    @Test("canSubscribe rejects permission-gated events without their permission")
+    func canSubscribeRejectsMissingEventPermission() {
+        let entry = NotificationSocketServer.ExtensionSnapshotEntry(
+            allowedEvents: [ExtensionEventName.projectsChanged],
+            commandEvents: [],
+            permissions: [],
+            token: "test-token"
+        )
+
+        #expect(!NotificationSocketServer.canSubscribeForTesting(entry: entry, to: ExtensionEventName.projectsChanged))
+        #expect(NotificationSocketServer.subscriptionErrorForTesting(
+            entry: entry,
+            event: ExtensionEventName.projectsChanged
+        ) == "permission denied (projects:read)")
+    }
+
+    @Test("canSubscribe accepts permission-gated events with their permission")
+    func canSubscribeAcceptsEventPermission() {
+        let entry = NotificationSocketServer.ExtensionSnapshotEntry(
+            allowedEvents: [ExtensionEventName.projectsChanged],
+            commandEvents: [],
+            permissions: [.projectsRead],
+            token: "test-token"
+        )
+
+        #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: ExtensionEventName.projectsChanged))
+    }
 }
 
 @Suite("ExtensionStore snapshot")

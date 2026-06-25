@@ -9,6 +9,7 @@ final class ProjectStore {
     private(set) var storedProjects: [Project] = []
     private let persistence: any ProjectPersisting
     var onProjectRemoved: ((UUID) -> Void)?
+    var onProjectsChanged: (() -> Void)?
 
     init(persistence: any ProjectPersisting) {
         self.persistence = persistence
@@ -79,12 +80,25 @@ final class ProjectStore {
     func markActive(id: UUID) {
         guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
         storedProjects[index].lastActiveAt = Date()
-        save()
+        save(notify: false)
     }
 
     func persistOrder(_ orderedIDs: [UUID]) {
         let positions = Dictionary(uniqueKeysWithValues: orderedIDs.enumerated().map { ($1, $0) })
         storedProjects.sort { positions[$0.id, default: Int.max] < positions[$1.id, default: Int.max] }
+        for index in storedProjects.indices {
+            storedProjects[index].sortOrder = index
+        }
+        save()
+    }
+
+    func persistOrder(_ orderedIDs: [UUID], scopedTo scopedIDs: Set<UUID>) {
+        let projectsByID = Dictionary(uniqueKeysWithValues: storedProjects.map { ($0.id, $0) })
+        var scopedProjects = orderedIDs.compactMap { projectsByID[$0] }
+        storedProjects = storedProjects.map { project in
+            guard scopedIDs.contains(project.id), !scopedProjects.isEmpty else { return project }
+            return scopedProjects.removeFirst()
+        }
         for index in storedProjects.indices {
             storedProjects[index].sortOrder = index
         }
@@ -99,12 +113,13 @@ final class ProjectStore {
         save()
     }
 
-    func save() {
+    func save(notify: Bool = true) {
         do {
             try persistence.saveProjects(storedProjects)
         } catch {
             logger.error("Failed to save projects: \(error)")
         }
+        if notify { onProjectsChanged?() }
     }
 
     private func load() {

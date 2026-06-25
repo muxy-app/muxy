@@ -399,6 +399,16 @@ final class ExtensionStore {
         let command: ExtensionPaletteCommand
     }
 
+    struct FileOpenerBinding: Equatable, Identifiable {
+        let muxyExtension: MuxyExtension
+        let opener: ExtensionFileOpener
+        let tabType: ExtensionTabType
+
+        var id: String {
+            "\(muxyExtension.id):\(opener.id)"
+        }
+    }
+
     struct ItemOverride: Equatable {
         var icon: ExtensionIcon?
         var text: String?
@@ -443,6 +453,42 @@ final class ExtensionStore {
                     .filter { !$0.action.isAnchored }
                     .map { PaletteCommandBinding(muxyExtension: status.muxyExtension, command: $0) }
             }
+    }
+
+    func fileOpeners(for relativePath: String) -> [FileOpenerBinding] {
+        fileOpeners().filter { $0.opener.matches(relativePath: relativePath) }
+    }
+
+    func fileOpeners() -> [FileOpenerBinding] {
+        statuses
+            .filter(\.isEnabled)
+            .flatMap { status in
+                let ext = status.muxyExtension
+                return ext.manifest.fileOpeners.compactMap { opener -> FileOpenerBinding? in
+                    guard let tabType = ext.manifest.tabType(id: opener.tabType)
+                    else {
+                        return nil
+                    }
+                    return FileOpenerBinding(muxyExtension: ext, opener: opener, tabType: tabType)
+                }
+            }
+    }
+
+    func fileOpener(extensionID: String, openerID: String, relativePath: String? = nil) -> FileOpenerBinding? {
+        fileOpeners().first { binding in
+            let matchesPath = relativePath.map { binding.opener.matches(relativePath: $0) } ?? true
+            return binding.muxyExtension.id == extensionID &&
+                binding.opener.id == openerID &&
+                matchesPath
+        }
+    }
+
+    func preferredFileOpener(for relativePath: String) -> FileOpenerBinding? {
+        FileOpenerSelection.resolvedBinding(
+            from: IDEIntegrationService.shared.selectedFileOpenerValue,
+            relativePath: relativePath,
+            store: self
+        )
     }
 
     func statusBarItems(side: ExtensionStatusBarItem.Side) -> [StatusBarItemBinding] {
