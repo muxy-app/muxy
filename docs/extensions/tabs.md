@@ -101,7 +101,7 @@ window.muxy = {
   modal: { open(opts): Promise<Item | null> },            // searchable picker — see modal.md
 
   tabs: {
-    open(request): Promise<void>,       // see "Opening another tab"
+    open(request): Promise<string>,     // resolves the new tab's id — see "Opening another tab"
     list(): Promise<TabInfo[]>,
     switchTo(idOrIndex): Promise<void>,
     new(): Promise<string | null>,
@@ -120,7 +120,7 @@ window.muxy = {
     rename(paneID, title): Promise<void>,
   },
 
-  projects:  { list(), switchTo(identifier), add(path), rename(identifier, name), setColor(identifier, color), setIcon(identifier, icon), setLogo(identifier, logo), reorder(identifiers), delete(identifier) },  // list() → { id, name, path, isActive, sortOrder, worktreesEnabled, iconColor?, icon?, logo? }; add() also activates the project; reorder() takes all local non-home project ids; add/rename/set*/reorder need projects:write; delete() needs projects:delete + consent
+  projects:  { list(), switchTo(identifier), add(path), rename(identifier, name), setColor(identifier, color), setIcon(identifier, icon), setLogo(identifier, logo), reorder(identifiers), delete(identifier) },  // list() → { id, name, path, isActive, sortOrder, worktreesEnabled, iconColor?, icon?, logo? }; add() resolves the project id and also activates the project; reorder() takes all local non-home project ids; add/rename/set*/reorder need projects:write; delete() needs projects:delete + consent
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
   panels:    { open(id, data?), toggle(id, data?), close(id) },  // panels:write — see panels.md
   popover:   { close(), resize(width, height) },                // panels:write — see popovers.md
@@ -150,12 +150,14 @@ interface ExecResult {
 `tabs.open` accepts two kinds: `terminal` and `extensionWebView` (with a target `extension`). It is available from tabs, panels, popovers, `runScript` commands, and background scripts; non-webview callers open into the active workspace and reject when Muxy cannot identify one.
 
 ```js
-await muxy.tabs.open({ kind: 'terminal' });
-await muxy.tabs.open({
+const terminalTabID = await muxy.tabs.open({ kind: 'terminal' });
+const webviewTabID = await muxy.tabs.open({
   kind: 'extensionWebView',
   extension: { id: 'pr-tools', tabType: 'pr-viewer', data: { prNumber: 42 } },
 });
 ```
+
+`open` resolves the new tab's id. For a `terminal` tab that id is the tab id; for an `extensionWebView` tab it is the tab instance id you pass to [`tabs.setTitle`](#setting-the-tab-title-and-icon-at-runtime)/`tabs.setIcon` and that arrives on `tab.*` events. With `singleton: true`, if a matching tab already exists `open` focuses it and resolves that existing tab's id instead of creating a new one.
 
 `extensionWebView` requires the target extension to be loaded and the named tab type to exist.
 

@@ -151,7 +151,7 @@ await muxy.git.pr.close({ number: 42 });
 await muxy.git.pr.checkout({ number: 42 });                              // checks the PR out locally
 await muxy.git.pr.checkoutWorktree({ number: 42, path: "~/code/pr-42" }); // => { branch }
 
-await muxy.git.worktree.add({ path: "~/code/app-y", branch: "feature/y", createBranch: true, baseBranch: "main" });
+await muxy.git.worktree.add({ path: "~/code/app-y", branch: "feature/y", createBranch: true, baseBranch: "main" }); // => the resolved worktree path
 await muxy.git.worktree.remove({ path: "~/code/app-y", force: false });
 await muxy.git.worktree.switchTo({ identifier: "feature/y" }); // activate a worktree (id, name, branch, or path)
 ```

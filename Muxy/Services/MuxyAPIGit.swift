@@ -537,7 +537,7 @@ extension MuxyAPI {
         static func addWorktree(
             _ request: AddWorktreeRequest,
             context: Context
-        ) async -> Result<Void, APIError> {
+        ) async -> Result<String, APIError> {
             let trimmedPath = request.path.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedBranch = request.branch.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedPath.isEmpty, !trimmedBranch.isEmpty else {
@@ -555,6 +555,7 @@ extension MuxyAPI {
                     baseBranch: request.createBranch && base?.isEmpty == false ? base : nil,
                     context: workspaceContext
                 )
+                return worktreePath
             }
         }
 

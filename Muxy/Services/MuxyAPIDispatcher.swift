@@ -169,12 +169,11 @@ enum MuxyAPIDispatcher {
             try unwrap(MuxyAPI.Tabs.previous(appState: context.appState))
             return NSNull()
         case "tabs.open":
-            try await unwrap(MuxyAPI.Tabs.open(
+            return try await unwrap(MuxyAPI.Tabs.open(
                 decodeOpenTabRequest(args),
                 appState: context.appState,
                 callingExtensionID: context.extensionID
-            ))
-            return NSNull()
+            )).uuidString
         case "tabs.setTitle":
             try unwrap(MuxyAPI.Tabs.setTitle(
                 instanceID: stringArg(args, "tabInstanceID"),
@@ -290,11 +289,10 @@ enum MuxyAPIDispatcher {
             ))
             return NSNull()
         case "projects.add":
-            try unwrap(MuxyAPI.Projects.add(
+            return try unwrap(MuxyAPI.Projects.add(
                 path: stringArg(args, "path"),
                 context: projectsContext(context)
-            ))
-            return NSNull()
+            )).uuidString
         case "projects.rename":
             try unwrap(MuxyAPI.Projects.rename(
                 identifier: stringArg(args, "identifier"),
@@ -603,7 +601,7 @@ enum MuxyAPIDispatcher {
             ))
             return NSNull()
         case "git.worktree.add":
-            try await unwrap(MuxyAPI.Git.addWorktree(
+            return try await unwrap(MuxyAPI.Git.addWorktree(
                 MuxyAPI.Git.AddWorktreeRequest(
                     projectIdentifier: project,
                     path: stringArg(args, "path"),
@@ -613,7 +611,6 @@ enum MuxyAPIDispatcher {
                 ),
                 context: git
             ))
-            return NSNull()
         case "git.worktree.remove":
             try await unwrap(MuxyAPI.Git.removeWorktree(
                 projectIdentifier: project,

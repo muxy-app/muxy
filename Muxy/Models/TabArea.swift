@@ -69,22 +69,29 @@ final class TabArea: Identifiable {
         tabs.firstIndex(where: { !$0.isPinned }) ?? tabs.count
     }
 
-    func createTab() {
-        insertTab(TerminalTab(pane: TerminalPaneState(projectPath: projectPath)))
+    @discardableResult
+    func createTab() -> UUID {
+        let tab = TerminalTab(pane: TerminalPaneState(projectPath: projectPath))
+        insertTab(tab)
+        return tab.id
     }
 
-    func createTab(inDirectory directory: String) {
-        insertTab(TerminalTab(pane: TerminalPaneState(projectPath: directory)))
+    @discardableResult
+    func createTab(inDirectory directory: String) -> UUID {
+        let tab = TerminalTab(pane: TerminalPaneState(projectPath: directory))
+        insertTab(tab)
+        return tab.id
     }
 
+    @discardableResult
     func createCommandTab(
         name: String,
         command: String,
         closesOnCommandExit: Bool = true,
         directory: String? = nil
-    ) {
+    ) -> UUID? {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else { return }
+        guard !trimmedCommand.isEmpty else { return nil }
         let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let pane = TerminalPaneState(
             projectPath: directory ?? projectPath,
@@ -94,7 +101,9 @@ final class TabArea: Identifiable {
             startupCommandInteractive: true,
             closesOnStartupCommandExit: closesOnCommandExit
         )
-        insertTab(TerminalTab(pane: pane))
+        let tab = TerminalTab(pane: pane)
+        insertTab(tab)
+        return tab.id
     }
 
     func findExtensionTab(extensionID: String, tabTypeID: String) -> TerminalTab? {
@@ -104,7 +113,8 @@ final class TabArea: Identifiable {
         }
     }
 
-    func createExtensionTab(extensionID: String, tabTypeID: String, title: String, data: ExtensionJSON?) {
+    @discardableResult
+    func createExtensionTab(extensionID: String, tabTypeID: String, title: String, data: ExtensionJSON?) -> UUID {
         let state = ExtensionTabState(
             extensionID: extensionID,
             tabTypeID: tabTypeID,
@@ -113,11 +123,15 @@ final class TabArea: Identifiable {
             data: data
         )
         insertTab(TerminalTab(extensionState: state))
+        return state.id
     }
 
-    func createBrowserTab(url: URL?, profileID: UUID = BrowserProfile.defaultID) {
+    @discardableResult
+    func createBrowserTab(url: URL?, profileID: UUID = BrowserProfile.defaultID) -> UUID {
         let state = BrowserTabState(projectPath: projectPath, url: url, profileID: profileID)
-        insertTab(TerminalTab(browserState: state))
+        let tab = TerminalTab(browserState: state)
+        insertTab(tab)
+        return tab.id
     }
 
     private static func commandTitle(_ command: String) -> String {

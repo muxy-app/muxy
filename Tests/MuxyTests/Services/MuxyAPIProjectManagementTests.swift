@@ -304,12 +304,13 @@ struct MuxyAPIProjectManagementRoutingTests {
         let existing = Project(name: "Existing", path: dir.standardizedFileURL.path)
         let env = ProjectManagementEnvironment(projects: [existing])
 
-        #expect(isSuccess(MuxyAPI.Projects.add(path: dir.path, context: env.context)))
+        let result = MuxyAPI.Projects.add(path: dir.path, context: env.context)
+        #expect((try? result.get()) == existing.id)
 
         #expect(env.projectStore.storedProjects.first { $0.id == existing.id }?.worktreesEnabled == false)
     }
 
-    private func isSuccess(_ result: Result<Void, APIError>) -> Bool {
+    private func isSuccess(_ result: Result<some Any, APIError>) -> Bool {
         if case .success = result { return true }
         return false
     }

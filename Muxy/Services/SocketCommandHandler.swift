@@ -189,7 +189,9 @@ enum SocketCommandHandler {
                     request,
                     appState: appState,
                     callingExtensionID: clientContext.extensionID
-                ), ok: "ok")
+                )) { tabID in
+                    tabID.uuidString
+                }
             } catch {
                 return "error:invalid open-tab payload: \(error.localizedDescription)"
             }
