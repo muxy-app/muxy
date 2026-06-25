@@ -91,7 +91,7 @@ struct PaneTabStrip: View {
                 }
                 if isWindowTitleBar {
                     if let openInIDEProjectPath {
-                        OpenInIDEControl(projectPath: openInIDEProjectPath)
+                        OpenInIDEControl(projectPath: openInIDEProjectPath, projectID: projectID, areaID: areaID)
                     }
                     LayoutPickerMenu(projectID: projectID)
                     ExtensionTopbarItems()

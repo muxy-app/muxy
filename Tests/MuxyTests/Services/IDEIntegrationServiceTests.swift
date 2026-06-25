@@ -53,6 +53,19 @@ struct IDEIntegrationServiceTests {
         #expect(resolved?.bundleIdentifier == zed.bundleIdentifier)
     }
 
+    @Test("file opener selection identifiers round trip")
+    func fileOpenerSelectionIdentifiersRoundTrip() throws {
+        let identifier = IDEIntegrationService.fileOpenerSelectionIdentifier(
+            extensionID: "files",
+            openerID: "editor"
+        )
+        let parsed = try #require(IDEIntegrationService.parseFileOpenerSelectionIdentifier(identifier))
+
+        #expect(parsed.extensionID == "files")
+        #expect(parsed.openerID == "editor")
+        #expect(IDEIntegrationService.parseFileOpenerSelectionIdentifier("com.microsoft.VSCode") == nil)
+    }
+
     @Test("launchCommands uses vscode CLI goto strategy when available")
     func launchCommandsUsesVSCodeCLIGotoStrategyWhenAvailable() {
         let ide = IDEIntegrationService.IDEApplication(

@@ -321,6 +321,8 @@ struct TerminalBridge: NSViewRepresentable {
     private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {
         let projectPath = state.projectPath
         let appState = appState
+        let projectID = worktreeKey?.projectID
+        let areaID = areaID
         guard !workspaceContext.isRemote else {
             view.resolveCmdHoverFile = { _ in false }
             view.onCmdClickFile = { _ in }
@@ -331,14 +333,37 @@ struct TerminalBridge: NSViewRepresentable {
             return
         }
         view.resolveCmdHoverFile = { token in
-            Self.resolveFilePath(token, projectPath: projectPath) != nil
+            Self.resolveFileLocation(from: token, projectPath: projectPath) != nil
         }
         view.onCmdClickFile = { token in
-            guard let resolved = Self.resolveFilePath(token, projectPath: projectPath) else { return }
-            _ = IDEIntegrationService.shared.openProject(at: projectPath, highlightingFileAt: resolved)
+            guard let location = Self.resolveFileLocation(from: token, projectPath: projectPath) else { return }
+            if Self.openWithRegisteredFileOpener(
+                location,
+                projectPath: projectPath,
+                projectID: projectID,
+                areaID: areaID,
+                appState: appState
+            ) {
+                return
+            }
+            _ = IDEIntegrationService.shared.openProject(
+                at: projectPath,
+                highlightingFileAt: location.path,
+                line: location.line,
+                column: location.column
+            )
         }
         view.onOpenURL = { url in
             if let location = Self.resolveFileLocation(from: url, projectPath: projectPath) {
+                if Self.openWithRegisteredFileOpener(
+                    location,
+                    projectPath: projectPath,
+                    projectID: projectID,
+                    areaID: areaID,
+                    appState: appState
+                ) {
+                    return true
+                }
                 return IDEIntegrationService.shared.openProject(
                     at: projectPath,
                     highlightingFileAt: location.path,
@@ -352,6 +377,56 @@ struct TerminalBridge: NSViewRepresentable {
             }
             return Self.openExternalLink(url, appState: appState)
         }
+    }
+
+    @MainActor
+    private static func openWithRegisteredFileOpener(
+        _ location: ResolvedFileLocation,
+        projectPath: String,
+        projectID: UUID?,
+        areaID: UUID,
+        appState: AppState
+    ) -> Bool {
+        guard let projectID,
+              let relativePath = relativePath(location.path, inside: projectPath),
+              let binding = ExtensionStore.shared.preferredFileOpener(for: relativePath)
+        else {
+            return false
+        }
+
+        var data: [String: ExtensionJSON] = [
+            "filePath": .string(relativePath),
+            "source": .string("terminal"),
+        ]
+        if let line = location.line {
+            data["line"] = .number(Double(line))
+        }
+        if let column = location.column {
+            data["column"] = .number(Double(column))
+        }
+
+        appState.dispatch(.createExtensionTab(
+            projectID: projectID,
+            areaID: areaID,
+            request: AppState.CreateExtensionTabRequest(
+                extensionID: binding.muxyExtension.id,
+                tabTypeID: binding.opener.tabType,
+                title: binding.opener.title ?? binding.tabType.title,
+                data: .object(data),
+                singleton: binding.opener.singleton
+            )
+        ))
+        return true
+    }
+
+    static func relativePath(_ filePath: String, inside projectPath: String) -> String? {
+        let fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
+        let projectURL = URL(fileURLWithPath: projectPath).standardizedFileURL
+        let file = fileURL.path
+        let project = projectURL.path
+        guard file == project || file.hasPrefix(project + "/") else { return nil }
+        let relative = String(file.dropFirst(project.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return relative.isEmpty ? nil : relative
     }
 
     private static func openExternalLink(_ url: URL, appState: AppState) -> Bool {
@@ -406,6 +481,16 @@ struct TerminalBridge: NSViewRepresentable {
         guard isLocalPathCandidate(url) else { return nil }
         let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
         return resolveFilePath(raw, projectPath: projectPath)
+    }
+
+    static func resolveFileLocation(from token: String, projectPath: String) -> ResolvedFileLocation? {
+        if let path = resolveFilePath(token, projectPath: projectPath) {
+            return ResolvedFileLocation(path: path, line: nil, column: nil)
+        }
+        let cleaned = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"' \t\n\r()[]<>"))
+        guard let stripped = stripLineColumnSuffix(from: cleaned) else { return nil }
+        guard let path = resolveFilePath(stripped.path, projectPath: projectPath) else { return nil }
+        return ResolvedFileLocation(path: path, line: stripped.line, column: stripped.column)
     }
 
     static func resolveFileLocation(from url: URL, projectPath: String) -> ResolvedFileLocation? {

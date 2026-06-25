@@ -47,6 +47,50 @@ struct ExtensionManifestTests {
         #expect(manifest.permissions == [.panesRead, .tabsWrite, .notificationsWrite])
     }
 
+    @Test("decodes file openers with defaults")
+    func decodesFileOpeners() throws {
+        let json = #"""
+        {
+            "name": "demo",
+            "version": "2.1",
+            "tabTypes": [
+                { "id": "editor", "title": "Editor", "entry": "editor.html" }
+            ],
+            "fileOpeners": [
+                { "id": "default", "tabType": "editor" },
+                {
+                    "id": "swift",
+                    "title": "Swift Editor",
+                    "tabType": "editor",
+                    "patterns": ["*.swift"],
+                    "singleton": false
+                }
+            ]
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+
+        #expect(manifest.fileOpeners == [
+            ExtensionFileOpener(id: "default", tabType: "editor"),
+            ExtensionFileOpener(
+                id: "swift",
+                title: "Swift Editor",
+                tabType: "editor",
+                patterns: ["*.swift"],
+                singleton: false
+            ),
+        ])
+    }
+
+    @Test("file opener patterns support wildcards")
+    func fileOpenerPatternsSupportWildcards() {
+        let opener = ExtensionFileOpener(id: "swift", tabType: "editor", patterns: ["Sources/*.swift", "Package.*"])
+
+        #expect(opener.matches(relativePath: "Sources/main.swift"))
+        #expect(opener.matches(relativePath: "Package.swift"))
+        #expect(!opener.matches(relativePath: "README.md"))
+    }
+
     @Test("loads from directory and resolves background script")
     func loadsFromDirectory() throws {
         let directory = try makeTemporaryExtension(
@@ -67,6 +111,75 @@ struct ExtensionManifestTests {
         #expect(ext.id == "tmp-ext")
         #expect(ext.manifest.permissions == [.panesRead])
         #expect(ext.backgroundScriptURL != nil)
+    }
+
+    @Test("loads file openers that reference local tab types")
+    func loadsFileOpeners() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "openers",
+                "version": "1.0.0",
+                "tabTypes": [
+                    { "id": "editor", "title": "Editor", "entry": "editor.html" }
+                ],
+                "fileOpeners": [
+                    { "id": "default", "tabType": "editor", "patterns": ["*"] }
+                ]
+            }
+            """,
+            files: ["editor.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let ext = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ext.manifest.fileOpener(id: "default")?.tabType == "editor")
+    }
+
+    @Test("rejects file opener that references an unknown tab type")
+    func rejectsFileOpenerUnknownTabType() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "bad-openers",
+                "version": "1.0.0",
+                "fileOpeners": [
+                    { "id": "default", "tabType": "missing" }
+                ]
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.fileOpenerReferencesUnknownTabType(openerID: "default", tabType: "missing")) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects duplicate file opener ids")
+    func rejectsDuplicateFileOpeners() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "duplicate-openers",
+                "version": "1.0.0",
+                "tabTypes": [
+                    { "id": "editor", "title": "Editor", "entry": "editor.html" }
+                ],
+                "fileOpeners": [
+                    { "id": "default", "tabType": "editor" },
+                    { "id": "default", "tabType": "editor" }
+                ]
+            }
+            """,
+            files: ["editor.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.duplicateFileOpener("default")) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
     }
 
     @Test("loads from the dist build output when present")

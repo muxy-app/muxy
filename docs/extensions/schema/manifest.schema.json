@@ -62,6 +62,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/tabType" }
         },
+        "fileOpeners": {
+          "type": "array",
+          "description": "File openers this extension contributes. Muxy passes filePath plus optional line/column data to the referenced tabType when a native surface opens a project file.",
+          "items": { "$ref": "#/$defs/fileOpener" }
+        },
         "panels": {
           "type": "array",
           "items": { "$ref": "#/$defs/panel" }
@@ -181,6 +186,22 @@
         "title": { "type": "string" },
         "entry": { "type": "string", "minLength": 1 },
         "defaultData": {}
+      }
+    },
+    "fileOpener": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tabType"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "tabType": { "type": "string", "minLength": 1 },
+        "patterns": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": ["*"]
+        },
+        "singleton": { "type": "boolean", "default": true }
       }
     },
     "panel": {

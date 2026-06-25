@@ -179,6 +179,176 @@ struct TerminalBridgeResolveFilePathTests {
         #expect(location == .init(path: file, line: nil, column: nil))
     }
 
+    @Test func resolvesTokenFileLocationWithLineSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sub = dir.appendingPathComponent("Sources")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        let file = writeFile(sub, name: "main.swift")
+        let location = TerminalBridge.resolveFileLocation(from: "Sources/main.swift:42", projectPath: dir.path)
+        #expect(location == .init(path: file, line: 42, column: nil))
+    }
+
+    @Test func resolvesTokenFileLocationWithLineAndColumnSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sub = dir.appendingPathComponent("Sources")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        let file = writeFile(sub, name: "main.swift")
+        let location = TerminalBridge.resolveFileLocation(from: "Sources/main.swift:42:7", projectPath: dir.path)
+        #expect(location == .init(path: file, line: 42, column: 7))
+    }
+
+    @Test func resolvesTokenFileLocationPrefersRealFileWithColonInName() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "foo:12")
+        let location = TerminalBridge.resolveFileLocation(from: "foo:12", projectPath: dir.path)
+        #expect(location == .init(path: file, line: nil, column: nil))
+    }
+
+    @Test func resolvesWrappedTokenFileLocationFromPreviousLineSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let services = dir.appendingPathComponent("muxy/Tests/MuxyTests/Services")
+        try FileManager.default.createDirectory(at: services, withIntermediateDirectories: true)
+        let file = writeFile(services, name: "TerminalBridgeResolveFilePathTests.swift")
+        let lines = [
+            "test file: muxy/Tests/MuxyTests/Services/",
+            "  TerminalBridgeResolveFilePathTests.swift:179",
+        ]
+        let candidate = try #require(GhosttyTerminalNSView.wrappedFileTokenCandidates(
+            word: "TerminalBridgeResolveFilePathTests.swift:179",
+            row: 1,
+            lines: lines
+        ).first)
+        let location = TerminalBridge.resolveFileLocation(from: candidate, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 179, column: nil))
+    }
+
+    @Test func resolvesWrappedTokenFileLocationFromNextLinePrefix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let services = dir.appendingPathComponent("muxy/Tests/MuxyTests/Services")
+        try FileManager.default.createDirectory(at: services, withIntermediateDirectories: true)
+        let file = writeFile(services, name: "TerminalBridgeResolveFilePathTests.swift")
+        let lines = [
+            "test file: muxy/Tests/MuxyTests/Services/",
+            "  TerminalBridgeResolveFilePathTests.swift:179",
+        ]
+        let candidate = try #require(GhosttyTerminalNSView.wrappedFileTokenCandidates(
+            word: "muxy/Tests/MuxyTests/Services/",
+            row: 0,
+            lines: lines
+        ).first)
+        let location = TerminalBridge.resolveFileLocation(from: candidate, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 179, column: nil))
+    }
+
+    @Test func resolvesMultiLineWrappedTokenFileLocationFromFirstSegment() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let services = dir.appendingPathComponent("Tests/MuxyTests/Services")
+        try FileManager.default.createDirectory(at: services, withIntermediateDirectories: true)
+        let file = writeFile(services, name: "TerminalBridgeResolveFilePathTests.swift")
+        let lines = [
+            "test file: Tests/",
+            "    MuxyTests/Services/",
+            "    TerminalBridgeResolveFilePathTests.swift",
+            "    :210",
+        ]
+        let candidate = try #require(GhosttyTerminalNSView.wrappedFileTokenCandidates(
+            word: "Tests",
+            row: 0,
+            lines: lines
+        ).first)
+        let location = TerminalBridge.resolveFileLocation(from: candidate, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 210, column: nil))
+    }
+
+    @Test func resolvesMultiLineWrappedTokenFileLocationFromMiddleDirectoryWord() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let services = dir.appendingPathComponent("Tests/MuxyTests/Services")
+        try FileManager.default.createDirectory(at: services, withIntermediateDirectories: true)
+        let file = writeFile(services, name: "TerminalBridgeResolveFilePathTests.swift")
+        let lines = [
+            "test file: Tests/",
+            "    MuxyTests/Services/",
+            "    TerminalBridgeResolveFilePathTests.swift",
+            "    :210",
+        ]
+        let candidate = try #require(GhosttyTerminalNSView.wrappedFileTokenCandidates(
+            word: "Services",
+            row: 1,
+            lines: lines
+        ).first)
+        let location = TerminalBridge.resolveFileLocation(from: candidate, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 210, column: nil))
+    }
+
+    @Test func resolvesMultiLineWrappedTokenFileLocationFromFileNameSegment() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let services = dir.appendingPathComponent("Tests/MuxyTests/Services")
+        try FileManager.default.createDirectory(at: services, withIntermediateDirectories: true)
+        let file = writeFile(services, name: "TerminalBridgeResolveFilePathTests.swift")
+        let lines = [
+            "test file: Tests/",
+            "    MuxyTests/Services/",
+            "    TerminalBridgeResolveFilePathTests.swift",
+            "    :210",
+        ]
+        let candidate = try #require(GhosttyTerminalNSView.wrappedFileTokenCandidates(
+            word: "TerminalBridgeResolveFilePathTests.swift",
+            row: 2,
+            lines: lines
+        ).first)
+        let location = TerminalBridge.resolveFileLocation(from: candidate, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 210, column: nil))
+    }
+
+    @Test func resolvesMultiLineWrappedTokenFileLocationFromLineSuffixSegment() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let services = dir.appendingPathComponent("Tests/MuxyTests/Services")
+        try FileManager.default.createDirectory(at: services, withIntermediateDirectories: true)
+        let file = writeFile(services, name: "TerminalBridgeResolveFilePathTests.swift")
+        let lines = [
+            "test file: Tests/",
+            "    MuxyTests/Services/",
+            "    TerminalBridgeResolveFilePathTests.swift",
+            "    :210",
+        ]
+        let candidate = try #require(GhosttyTerminalNSView.wrappedFileTokenCandidates(
+            word: "210",
+            row: 3,
+            lines: lines
+        ).first)
+        let location = TerminalBridge.resolveFileLocation(from: candidate, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 210, column: nil))
+    }
+
+    @Test func resolvesWrappedAbsolutePathSplitInsideName() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let parent = dir.appendingPathComponent("dev/_references")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let file = writeFile(parent, name: "muxy-extensions.broken-20260625110716")
+        let lines = [
+            "moved to:",
+            "    \(parent.path)/muxy-",
+            "    extensions.broken-20260625110716",
+        ]
+        let candidate = try #require(GhosttyTerminalNSView.wrappedFileTokenCandidates(
+            word: "extensions.broken-20260625110716",
+            row: 2,
+            lines: lines
+        ).first)
+        let location = TerminalBridge.resolveFileLocation(from: candidate, projectPath: "/unused")
+        #expect(location == .init(path: file, line: nil, column: nil))
+    }
+
     @Test func resolvesFileLocationRejectsUnresolvableSchemeless() throws {
         let url = try #require(URL(string: "/tmp/does-not-exist-\(UUID().uuidString).md:12"))
         #expect(TerminalBridge.resolveFileLocation(from: url, projectPath: "/unused") == nil)
@@ -187,6 +357,26 @@ struct TerminalBridgeResolveFilePathTests {
     @Test func resolvesFileLocationRejectsHttpURL() throws {
         let url = try #require(URL(string: "https://example.com/readme.md:12"))
         #expect(TerminalBridge.resolveFileLocation(from: url, projectPath: "/tmp") == nil)
+    }
+
+    @Test func relativePathInsideProject() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sub = dir.appendingPathComponent("Sources")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        let file = writeFile(sub, name: "main.swift")
+
+        #expect(TerminalBridge.relativePath(file, inside: dir.path) == "Sources/main.swift")
+    }
+
+    @Test func relativePathRejectsProjectRootAndOutsideProject() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let outside = writeFile(URL(fileURLWithPath: NSTemporaryDirectory()), name: "outside-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(atPath: outside) }
+
+        #expect(TerminalBridge.relativePath(dir.path, inside: dir.path) == nil)
+        #expect(TerminalBridge.relativePath(outside, inside: dir.path) == nil)
     }
 
     @Test func stripsLineSuffixOnlyWhenTrailingNumeric() {

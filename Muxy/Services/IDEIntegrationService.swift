@@ -56,6 +56,7 @@ final class IDEIntegrationService: ObservableObject {
     }
 
     static let selectedBundleIdentifierKey = "muxy.ide.selectedBundleIdentifier"
+    static let extensionFileOpenerIdentifierPrefix = "muxy.extensionFileOpener:"
     static let finderBundleIdentifier = "com.apple.finder"
     static let finderAppURL = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
     static let finderApplication = IDEApplication(
@@ -91,6 +92,24 @@ final class IDEIntegrationService: ObservableObject {
         if selectedBundleIdentifier != identifier {
             selectedBundleIdentifier = identifier
         }
+    }
+
+    func selectFileOpener(extensionID: String, openerID: String) {
+        setSelectedBundleIdentifier(Self.fileOpenerSelectionIdentifier(extensionID: extensionID, openerID: openerID))
+    }
+
+    static func fileOpenerSelectionIdentifier(extensionID: String, openerID: String) -> String {
+        "\(extensionFileOpenerIdentifierPrefix)\(extensionID):\(openerID)"
+    }
+
+    static func parseFileOpenerSelectionIdentifier(_ identifier: String?) -> (extensionID: String, openerID: String)? {
+        guard let identifier,
+              identifier.hasPrefix(extensionFileOpenerIdentifierPrefix)
+        else { return nil }
+        let raw = String(identifier.dropFirst(extensionFileOpenerIdentifierPrefix.count))
+        let parts = raw.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+        return (String(parts[0]), String(parts[1]))
     }
 
     var defaultIDE: IDEApplication? {

@@ -522,7 +522,7 @@ struct MainWindow: View {
                         }
                         if let project = activeProject {
                             if !project.isRemote {
-                                OpenInIDEControl(projectPath: activeWorktreePath(for: project))
+                                OpenInIDEControl(projectPath: activeWorktreePath(for: project), projectID: project.id)
                             }
                             LayoutPickerMenu(projectID: project.id)
                         }
