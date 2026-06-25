@@ -264,17 +264,20 @@ enum ExtensionWebBridge {
                             modalQueryHandlers.set(String(requestID), o.onQuery);
                         }
                         const emit = (batch) => send('modal.feed', { items: normalizeModalItems(batch) });
-                        if (typeof o.items === 'function') {
-                            const produced = await o.items(emit);
-                            if (produced != null) await emit(produced);
-                        } else {
-                            await emit(o.items);
+                        try {
+                            if (typeof o.items === 'function') {
+                                const produced = await o.items(emit);
+                                if (produced != null) await emit(produced);
+                            } else {
+                                await emit(o.items);
+                            }
+                            await send('modal.finish', {});
+                            const choice = await send('modal.await', { requestID });
+                            if (typeof o.onSelect === 'function') o.onSelect(choice);
+                            return choice;
+                        } finally {
+                            if (requestID != null) modalQueryHandlers.delete(String(requestID));
                         }
-                        await send('modal.finish', {});
-                        const choice = await send('modal.await', { requestID });
-                        if (requestID != null) modalQueryHandlers.delete(String(requestID));
-                        if (typeof o.onSelect === 'function') o.onSelect(choice);
-                        return choice;
                     },
                 },
                 topbar: {

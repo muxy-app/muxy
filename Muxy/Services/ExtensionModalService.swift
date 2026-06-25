@@ -133,8 +133,7 @@ final class ExtensionModalService {
     }
 
     private func isCurrentQuery(_ id: Int?) -> Bool {
-        guard let id else { return true }
-        return id == queryID
+        (id ?? 0) == queryID
     }
 
     func onResult(requestID: String, _ handler: @escaping (Item?) -> Void) {

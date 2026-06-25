@@ -125,8 +125,9 @@ async onQuery(query) {
   for superseded queries, so a slow request that resolves late never overwrites a newer one.
 - The initial `items` (array or producer) still supplies the list shown before the user types; `onQuery`
   takes over once the query changes, including when it is cleared back to empty.
-- On webview pages and background scripts `onQuery` may be `async`; in `runScript` it runs synchronously
-  (call `muxy.exec`, `muxy.files.*`, etc. directly and return). The spinner shows while you fetch.
+- On webview pages `onQuery` may be `async` (do `await muxy.http.fetch(...)`); in `runScript` and
+  background scripts it runs synchronously — call `muxy.exec`, `muxy.files.*`, etc. directly and return.
+  The spinner shows while you fetch.
 - The same caps apply: 100,000 rows; `id`/`title`/`subtitle` 200 chars each.
 
 ## Opening from a shortcut

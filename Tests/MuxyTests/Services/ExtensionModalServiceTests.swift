@@ -307,6 +307,22 @@ struct ExtensionModalServiceTests {
         #expect(!active.dataset.loading)
     }
 
+    @Test("a late untagged initial feed is dropped once a dynamic query has started")
+    func untaggedInitialFeedDroppedAfterQuery() {
+        let service = ExtensionModalService()
+        service.openSession(extensionID: "ext", args: ["dynamic": true])
+        let active = service.active!
+        service.onQueryRequest(requestID: active.id) { _, _ in }
+
+        service.requestQuery(query: "typed")
+
+        service.feedSession([ExtensionModalService.Item(id: "initial", title: "Initial", subtitle: nil)])
+        service.finishSession()
+
+        #expect(active.dataset.items.isEmpty)
+        #expect(active.dataset.loading)
+    }
+
     @Test("requestQuery is a no-op for a non-dynamic modal")
     func requestQueryIgnoredWhenNotDynamic() {
         let service = ExtensionModalService()
