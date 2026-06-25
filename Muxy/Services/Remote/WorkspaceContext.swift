@@ -13,4 +13,13 @@ enum WorkspaceContext: Hashable {
         if case let .ssh(destination) = self { return destination }
         return nil
     }
+
+    var cacheKeyPrefix: String {
+        switch self {
+        case .local:
+            "local"
+        case let .ssh(destination):
+            "ssh:\(destination.target):\(destination.port ?? 22)"
+        }
+    }
 }

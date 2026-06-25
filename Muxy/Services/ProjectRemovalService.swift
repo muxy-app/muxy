@@ -9,6 +9,11 @@ enum ProjectRemovalService {
         worktreeStore: WorktreeStore,
         projectGroupStore: ProjectGroupStore
     ) async throws {
+        GitRepoStatusCache.shared.remove(
+            path: project.path,
+            context: projectGroupStore.workspaceContext(for: project)
+        )
+
         guard !project.isRemote else {
             if let workspaceID = project.remoteWorkspaceID {
                 projectGroupStore.removeRemoteProject(id: project.id, fromGroup: workspaceID)
