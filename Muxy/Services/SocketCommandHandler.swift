@@ -436,6 +436,7 @@ enum SocketCommandHandler {
             let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: context)
             if verb == "modal.open", let dict = result as? [String: Any], let requestID = dict["requestID"] as? String {
                 registerModalResultPush(requestID: requestID, extensionID: context.extensionID)
+                registerModalQueryPush(requestID: requestID, extensionID: context.extensionID)
             }
             return encodeJSONFragment(result)
         } catch {
@@ -451,6 +452,17 @@ enum SocketCommandHandler {
                 extensionID: extensionID,
                 requestID: requestID,
                 payload: data
+            )
+        }
+    }
+
+    private static func registerModalQueryPush(requestID: String, extensionID: String) {
+        ExtensionModalService.shared.onQueryRequest(requestID: requestID) { queryID, query in
+            NotificationSocketServer.shared.pushModalQuery(
+                extensionID: extensionID,
+                requestID: requestID,
+                queryID: queryID,
+                query: query
             )
         }
     }

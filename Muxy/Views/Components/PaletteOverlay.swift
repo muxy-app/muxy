@@ -19,6 +19,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     let onSelect: (Item) -> Void
     let onDismiss: () -> Void
     let row: (Item, Bool) -> AnyView
+    var onQueryChanged: ((String) -> Void)?
 
     @State private var query = ""
     @State private var results: [Item] = []
@@ -126,6 +127,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         searchTask = Task {
             try? await Task.sleep(for: Self.searchDebounce)
             guard !Task.isCancelled else { return }
+            onQueryChanged?(currentQuery)
             apply(page(currentQuery, 0, pageSize), resetHighlight: true)
             isSearching = false
         }

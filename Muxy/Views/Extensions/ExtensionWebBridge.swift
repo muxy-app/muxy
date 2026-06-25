@@ -104,6 +104,22 @@ enum ExtensionWebBridge {
                 }
             };
 
+            const modalQueryHandlers = new Map();
+            window.__muxyDeliverModalQuery = async (requestID, queryID, query) => {
+                const key = String(requestID);
+                const handler = modalQueryHandlers.get(key);
+                const emit = (batch) => send('modal.feed', { items: normalizeModalItems(batch), queryID });
+                try {
+                    if (typeof handler === 'function') {
+                        const produced = await handler(query, emit);
+                        if (produced != null) await emit(produced);
+                    }
+                } catch (error) {
+                    console.error(error);
+                }
+                await send('modal.finish', { queryID });
+            };
+
             let beforeCloseHandler = null;
             window.__muxyResolveBeforeClose = (callID, prevent) => {
                 send('lifecycle.resolveBeforeClose', { callID: String(callID), prevent: !!prevent }).catch(() => {});
@@ -240,8 +256,13 @@ enum ExtensionWebBridge {
                 modal: {
                     async open(opts) {
                         const o = opts || {};
-                        const opened = await send('modal.open', modalLabels(o));
+                        const labels = modalLabels(o);
+                        if (typeof o.onQuery === 'function') labels.dynamic = true;
+                        const opened = await send('modal.open', labels);
                         const requestID = opened && opened.requestID;
+                        if (requestID != null && typeof o.onQuery === 'function') {
+                            modalQueryHandlers.set(String(requestID), o.onQuery);
+                        }
                         const emit = (batch) => send('modal.feed', { items: normalizeModalItems(batch) });
                         if (typeof o.items === 'function') {
                             const produced = await o.items(emit);
@@ -251,6 +272,7 @@ enum ExtensionWebBridge {
                         }
                         await send('modal.finish', {});
                         const choice = await send('modal.await', { requestID });
+                        if (requestID != null) modalQueryHandlers.delete(String(requestID));
                         if (typeof o.onSelect === 'function') o.onSelect(choice);
                         return choice;
                     },

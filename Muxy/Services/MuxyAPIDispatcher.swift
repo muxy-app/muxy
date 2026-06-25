@@ -143,10 +143,10 @@ enum MuxyAPIDispatcher {
             let requestID = ExtensionModalService.shared.openSession(extensionID: context.extensionID, args: args)
             return ["requestID": requestID]
         case "modal.feed":
-            ExtensionModalService.shared.feedSession(modalItems(args))
+            ExtensionModalService.shared.feedSession(modalItems(args), queryID: args["queryID"] as? Int)
             return NSNull()
         case "modal.finish":
-            ExtensionModalService.shared.finishSession()
+            ExtensionModalService.shared.finishSession(queryID: args["queryID"] as? Int)
             return NSNull()
         case "modal.await":
             let requestID = (args["requestID"] as? String) ?? ""

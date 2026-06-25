@@ -38,12 +38,24 @@ public enum ExtensionBridgeJS {
                 dispatch('modal.finish', {});
             };
             const modalResultHandlers = {};
+            const modalQueryHandlers = {};
             this.__muxiDeliverModalResult = (requestID, item) => {
                 const handler = modalResultHandlers[requestID];
                 delete modalResultHandlers[requestID];
+                delete modalQueryHandlers[requestID];
                 if (typeof handler === 'function') {
                     try { handler(item == null ? null : item); } catch (error) { console.error(error); }
                 }
+            };
+            this.__muxyDeliverModalQuery = (requestID, queryID, query) => {
+                const handler = modalQueryHandlers[requestID];
+                const emit = (batch) => dispatch('modal.feed', { items: normalizeModalItems(batch), queryID });
+                const finish = () => dispatch('modal.finish', { queryID });
+                if (typeof handler !== 'function') { finish(); return; }
+                let produced;
+                try { produced = handler(query, emit); } catch (error) { console.error(error); finish(); return; }
+                if (produced != null) emit(produced);
+                finish();
             };
             const muxy = {
                 extensionID: \(extLiteral),
@@ -94,9 +106,14 @@ public enum ExtensionBridgeJS {
                 modal: {
                     open(opts) {
                         const o = opts || {};
-                        const opened = dispatch('modal.open', modalLabels(o));
+                        const labels = modalLabels(o);
+                        if (typeof o.onQuery === 'function') labels.dynamic = true;
+                        const opened = dispatch('modal.open', labels);
                         const requestID = opened && opened.requestID;
-                        if (typeof o.onSelect === 'function' && requestID != null) modalResultHandlers[requestID] = o.onSelect;
+                        if (requestID != null) {
+                            if (typeof o.onSelect === 'function') modalResultHandlers[requestID] = o.onSelect;
+                            if (typeof o.onQuery === 'function') modalQueryHandlers[requestID] = o.onQuery;
+                        }
                         feedModalItems(o);
                         return requestID;
                     },
