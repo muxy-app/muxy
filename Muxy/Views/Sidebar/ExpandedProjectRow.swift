@@ -86,7 +86,13 @@ struct ExpandedProjectRow: View {
                 isCheckingGitRepo = false
                 return
             }
-            isCheckingGitRepo = true
+            if let cached = GitRepoStatusCache.shared.cachedStatus(for: project.path) {
+                isGitRepo = cached
+                isCheckingGitRepo = false
+                if autoExpandWorktrees, isActive, hasWorktreeUI {
+                    worktreesExpanded = true
+                }
+            }
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
             isGitRepo = await GitWorktreeService.shared.isGitRepository(
@@ -94,6 +100,7 @@ struct ExpandedProjectRow: View {
                 context: projectGroupStore.workspaceContext(for: project)
             )
             isCheckingGitRepo = false
+            GitRepoStatusCache.shared.update(path: project.path, isGitRepo: isGitRepo)
             if autoExpandWorktrees, isActive, hasWorktreeUI {
                 worktreesExpanded = true
             }

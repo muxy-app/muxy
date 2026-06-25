@@ -52,6 +52,7 @@ struct MuxyApp: App {
             worktrees: worktreeStore.worktrees,
             skippingProjectIDs: projectGroupStore.activeRemoteProjectIDs
         )
+        ExtensionStore.shared.loadManifestsIfNeeded()
         _appState = State(initialValue: appState)
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)

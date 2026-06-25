@@ -117,8 +117,13 @@ final class ExtensionStore {
 
     var rootDirectory: URL { rootDirectoryURL }
 
-    func startAll() {
+    func loadManifestsIfNeeded() {
+        guard !hasLoadedFromDisk else { return }
         loadFromDisk()
+    }
+
+    func startAll() {
+        loadManifestsIfNeeded()
         for index in statuses.indices where statuses[index].isEnabled {
             startExtension(at: index)
         }
@@ -138,6 +143,7 @@ final class ExtensionStore {
             ExtensionPanelRegistry.shared.closeAll(extensionID: status.id)
             PopoverHost.shared.close(extensionID: status.id)
         }
+        hasLoadedFromDisk = false
         rebuildExtensionUICache()
         publishSnapshot()
     }
