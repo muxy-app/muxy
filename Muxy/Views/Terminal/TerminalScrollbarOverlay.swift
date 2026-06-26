@@ -75,8 +75,8 @@ final class TerminalScrollbarOverlay: NSView {
 
     func update(total: Int, offset: Int, len: Int, cellHeight: CGFloat) {
         self.total = total
-        self.offset = offset
         self.len = len
+        self.offset = min(max(offset, 0), max(total - len, 0))
         self.cellHeight = cellHeight
         synchronizeScrollView()
     }
@@ -88,7 +88,7 @@ final class TerminalScrollbarOverlay: NSView {
 
     func flashIfNearScroller(point: NSPoint) {
         guard hasScrollableContent else { return }
-        let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+        let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: scrollView.scrollerStyle)
         guard point.x >= bounds.maxX - scrollerWidth * 2 else { return }
         scrollView.flashScrollers()
     }
@@ -138,5 +138,9 @@ private final class TerminalScrollbarScrollView: NSScrollView {
         let scrollerPoint = scroller.convert(point, from: superview)
         guard scroller.bounds.contains(scrollerPoint) else { return nil }
         return super.hitTest(point)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        superview?.superview?.scrollWheel(with: event)
     }
 }
