@@ -448,6 +448,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @MainActor
     private func confirmQuitIfNeeded() -> NSApplication.TerminateReply {
+        ExtensionDialogService.cancelAll()
         guard QuitConfirmationPreferences.confirmQuit else { return .terminateNow }
 
         let alert = NSAlert()
@@ -497,6 +498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         MainActor.assumeIsolated {
             MobileServerService.shared.stopForTermination()
             ExtensionStore.shared.stopAll()
+            ExtensionScriptRunner.shared.evictAll()
         }
     }
 

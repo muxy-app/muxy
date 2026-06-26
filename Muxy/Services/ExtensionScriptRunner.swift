@@ -47,6 +47,14 @@ final class ExtensionScriptRunner {
             handle.cancelFlag.cancel()
         }
         ExtensionModalService.shared.dismiss(extensionID: extensionID)
+        ExtensionDialogService.cancel(extensionID: extensionID)
+    }
+
+    func evictAll() {
+        for extensionID in Array(contexts.keys) {
+            evict(extensionID: extensionID)
+        }
+        ExtensionDialogService.cancelAll()
     }
 
     func runScript(
@@ -110,6 +118,7 @@ final class ExtensionScriptRunner {
     }
 
     private func makeContextHandle(for extensionID: String) throws -> ContextHandle {
+        evict(extensionID: extensionID)
         let queue = DispatchQueue(label: "app.muxy.extension.\(extensionID)")
         guard let context = JSContext() else {
             throw RunError.evaluationFailed("Failed to create JSContext")
@@ -123,6 +132,7 @@ final class ExtensionScriptRunner {
 final class ScriptCancelFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var cancelled = false
+    private var waiters: [DispatchSemaphore] = []
 
     var isCancelled: Bool {
         lock.lock()
@@ -133,7 +143,26 @@ final class ScriptCancelFlag: @unchecked Sendable {
     func cancel() {
         lock.lock()
         cancelled = true
+        let pending = waiters
+        waiters.removeAll()
         lock.unlock()
+        for waiter in pending {
+            waiter.signal()
+        }
+    }
+
+    func register(_ waiter: DispatchSemaphore) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !cancelled else { return false }
+        waiters.append(waiter)
+        return true
+    }
+
+    func unregister(_ waiter: DispatchSemaphore) {
+        lock.lock()
+        defer { lock.unlock() }
+        waiters.removeAll { $0 === waiter }
     }
 }
 
@@ -183,7 +212,7 @@ private final class ScriptBridge: @unchecked Sendable {
         let bridge = self
         let argsBox = AnyBox(args)
         do {
-            let encoded = try syncAwait { @MainActor in
+            let encoded = try syncAwait(cancelFlag: cancelFlag) { @MainActor in
                 let raw = try await bridge.handle(verb: verb, args: argsBox.value)
                 if verb == "modal.open", let dict = raw as? [String: Any], let requestID = dict["requestID"] as? String {
                     bridge.registerModalDelivery(requestID: requestID)
@@ -279,7 +308,21 @@ private final class ScriptBridge: @unchecked Sendable {
 }
 
 private final class ResultBox<T>: @unchecked Sendable {
-    var value: Result<T, Error>?
+    private let lock = NSLock()
+    private var stored: Result<T, Error>?
+
+    var value: Result<T, Error>? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return stored
+        }
+        set {
+            lock.lock()
+            stored = newValue
+            lock.unlock()
+        }
+    }
 }
 
 private struct AnyBox<T>: @unchecked Sendable {
@@ -347,10 +390,13 @@ private struct BridgeValue: @unchecked Sendable {
     }
 }
 
-private func syncAwait<T: Sendable>(_ operation: @MainActor @Sendable @escaping () async throws -> T) throws -> T {
+private func syncAwait<T: Sendable>(
+    cancelFlag: ScriptCancelFlag,
+    _ operation: @MainActor @Sendable @escaping () async throws -> T
+) throws -> T {
     let semaphore = DispatchSemaphore(value: 0)
     let box = ResultBox<T>()
-    Task { @MainActor in
+    let task = Task { @MainActor in
         do {
             box.value = try await .success(operation())
         } catch {
@@ -358,9 +404,15 @@ private func syncAwait<T: Sendable>(_ operation: @MainActor @Sendable @escaping 
         }
         semaphore.signal()
     }
+    guard cancelFlag.register(semaphore) else {
+        task.cancel()
+        throw APIError.underlying("extension stopped")
+    }
     semaphore.wait()
+    cancelFlag.unregister(semaphore)
     guard let result = box.value else {
-        throw APIError.underlying("script bridge produced no result")
+        task.cancel()
+        throw APIError.underlying("extension stopped")
     }
     switch result {
     case let .success(value): return value
