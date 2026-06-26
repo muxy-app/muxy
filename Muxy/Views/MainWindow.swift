@@ -657,7 +657,9 @@ struct MainWindow: View {
                 commandID: item.command.id,
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
+                browserProfileStore: browserProfileStore
             ))
         }
     }
@@ -1041,7 +1043,9 @@ struct MainWindow: View {
             commandID: shortcut.commandID,
             appState: appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore,
+            browserProfileStore: browserProfileStore
         ))
         return true
     }
