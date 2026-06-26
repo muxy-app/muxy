@@ -80,6 +80,9 @@ struct MainWindow: View {
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
+    @AppStorage(OverviewSidebarPreferences.visibleKey) private var overviewSidebarVisible = false
+    @AppStorage(OverviewSidebarPreferences.widthKey) private var overviewSidebarCustomWidth: Double = .init(OverviewSidebarLayout
+        .defaultWidth)
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
@@ -101,9 +104,14 @@ struct MainWindow: View {
             if sidebarIsResizable {
                 sidebarResizeHandle
             }
+            if overviewSidebarVisible {
+                overviewSidebarColumn
+                overviewResizeHandle
+            }
             mainWorkspaceColumn
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
+        .animation(.easeInOut(duration: 0.2), value: overviewSidebarVisible)
         .overlay(alignment: .topLeading) {
             titleBarNavigationOverlay
         }
@@ -206,8 +214,14 @@ struct MainWindow: View {
             showTerminalOmnibox.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
+            guard !overviewSidebarVisible else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
                 sidebarExpanded.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleOverviewSidebar)) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                overviewSidebarVisible.toggle()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleExtensionConsole)) { _ in
@@ -260,7 +274,7 @@ struct MainWindow: View {
             }
 
             Sidebar(
-                expanded: sidebarExpanded,
+                expanded: effectiveSidebarExpanded,
                 expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
             )
         }
@@ -276,7 +290,35 @@ struct MainWindow: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
+        .animation(.easeInOut(duration: 0.2), value: effectiveSidebarExpanded)
+    }
+
+    private var overviewSidebarColumn: some View {
+        VStack(spacing: 0) {
+            if !isFullScreen {
+                Color.clear
+                    .frame(height: UIMetrics.titleBarHeight)
+                    .background(WindowDragRepresentable())
+
+                Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                    .accessibilityHidden(true)
+            }
+
+            OverviewSidebar()
+        }
+        .frame(width: overviewSidebarResolvedWidth, alignment: .leading)
+        .clipped()
+        .background(MuxyTheme.bg)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var overviewResizeHandle: some View {
+        panelResize(
+            axis: .horizontal,
+            edge: .trailing,
+            value: $overviewSidebarCustomWidth,
+            range: OverviewSidebarLayout.minWidth ... OverviewSidebarLayout.maxWidth
+        )
     }
 
     private var mainWorkspaceColumn: some View {
@@ -414,6 +456,13 @@ struct MainWindow: View {
                 label: "Forward (\(KeyBindingStore.shared.combo(for: .navigateForward).displayString))"
             ) {
                 appState.goForward()
+            }
+            NavigationArrowButton(
+                symbol: "sidebar.right",
+                isActive: overviewSidebarVisible,
+                label: overviewSidebarVisible ? "Hide Project Overview" : "Show Project Overview"
+            ) {
+                NotificationCenter.default.post(name: .toggleOverviewSidebar, object: nil)
             }
         }
         .padding(.trailing, UIMetrics.spacing2)
@@ -875,9 +924,13 @@ struct MainWindow: View {
         SidebarExpandedStyle(rawValue: sidebarExpandedStyleRaw) ?? .defaultValue
     }
 
+    private var effectiveSidebarExpanded: Bool {
+        sidebarExpanded && !overviewSidebarVisible
+    }
+
     private var sidebarResolvedWidth: CGFloat {
         SidebarLayout.resolvedWidth(
-            expanded: sidebarExpanded,
+            expanded: effectiveSidebarExpanded,
             collapsedStyle: sidebarCollapsedStyle,
             expandedStyle: sidebarExpandedStyle,
             expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
@@ -885,7 +938,11 @@ struct MainWindow: View {
     }
 
     private var sidebarIsResizable: Bool {
-        SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
+        SidebarLayout.isWide(expanded: effectiveSidebarExpanded, expandedStyle: sidebarExpandedStyle)
+    }
+
+    private var overviewSidebarResolvedWidth: CGFloat {
+        OverviewSidebarLayout.clampWidth(CGFloat(overviewSidebarCustomWidth))
     }
 
     private var leftNavigationWidth: CGFloat {
@@ -920,7 +977,7 @@ struct MainWindow: View {
         trafficLightWidth + navigationArrowsWidth
     }
 
-    private var navigationArrowsWidth: CGFloat { UIMetrics.scaled(52) }
+    private var navigationArrowsWidth: CGFloat { UIMetrics.scaled(78) }
 
     private var devModeBadge: some View {
         DebugButton()
@@ -1450,7 +1507,8 @@ private struct TabCloseConfirmationObserver: ViewModifier {
 
 private struct NavigationArrowButton: View {
     let symbol: String
-    let isEnabled: Bool
+    var isEnabled = true
+    var isActive = false
     let label: String
     let action: () -> Void
     @State private var hovered = false
@@ -1468,10 +1526,12 @@ private struct NavigationArrowButton: View {
         .onHover { hovered = $0 }
         .help(label)
         .accessibilityLabel(label)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     private var foregroundColor: Color {
         guard isEnabled else { return MuxyTheme.fgMuted.opacity(0.35) }
+        if isActive { return MuxyTheme.accent }
         return hovered ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 }

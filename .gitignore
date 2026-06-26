@@ -27,3 +27,8 @@ appcast*.xml
 .opencode/
 .pi/
 .context/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
