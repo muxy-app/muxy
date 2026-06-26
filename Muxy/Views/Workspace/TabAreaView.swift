@@ -69,7 +69,12 @@ struct TabAreaView: View {
                     isMaximized: isMaximized,
                     onToggleMaximize: onToggleMaximize,
                     onCreateTabAdjacent: { tabID, side in
-                        area.createTabAdjacent(to: tabID, side: side)
+                        appState.dispatch(.createTabAdjacent(
+                            projectID: projectID,
+                            areaID: area.id,
+                            tabID: tabID,
+                            side: side
+                        ))
                     },
                     onTogglePin: { tabID in
                         area.togglePin(tabID)

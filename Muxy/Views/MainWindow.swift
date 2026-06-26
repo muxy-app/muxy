@@ -477,7 +477,12 @@ struct MainWindow: View {
                     appState.dispatch(result.action(projectID: project.id))
                 },
                 onCreateTabAdjacent: { tabID, side in
-                    area.createTabAdjacent(to: tabID, side: side)
+                    appState.dispatch(.createTabAdjacent(
+                        projectID: project.id,
+                        areaID: area.id,
+                        tabID: tabID,
+                        side: side
+                    ))
                 },
                 onTogglePin: { tabID in
                     area.togglePin(tabID)

@@ -43,6 +43,28 @@ struct ExtensionEventEmitterTests {
         #expect(afterContext.cwd == "/tmp/project/sub")
     }
 
+    @Test("creating an adjacent tab focuses it in the snapshot diff")
+    func adjacentTabFocusedInSnapshotDiff() {
+        let appState = makeAppState()
+        let area = firstArea(in: appState)
+        let originalTabID = area.activeTabID!
+
+        let before = ExtensionEventEmitter.snapshot(from: appState)
+        appState.dispatch(.createTabAdjacent(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: originalTabID,
+            side: .right
+        ))
+        let after = ExtensionEventEmitter.snapshot(from: appState)
+
+        let newTabID = area.activeTabID!
+        #expect(newTabID != originalTabID)
+        #expect(before.activeTabIDPerArea[area.id] == originalTabID)
+        #expect(after.activeTabIDPerArea[area.id] == newTabID)
+        #expect(after.tabs.subtracting(before.tabs) == [newTabID])
+    }
+
     @Test("closed tab context resolves from the before snapshot")
     func closedTabContextFromBeforeSnapshot() {
         let appState = makeAppState()
