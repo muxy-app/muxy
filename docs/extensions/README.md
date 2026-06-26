@@ -79,6 +79,7 @@ flowchart TD
 | Page | What's in it |
 | --- | --- |
 | [Tabs](tabs.md) | Register webview tab types and the injected `window.muxy` JS API |
+| [Browser](browser.md) | Open, navigate, read, and close built-in browser tabs |
 | [Panels](panels.md) | Register dockable/floating webview panels and the placement rules |
 | [Popovers](popovers.md) | Anchor a transient webview popover to a topbar/status bar item |
 | [Sidebars](sidebars.md) | Replace the built-in left sidebar with a full-height webview |

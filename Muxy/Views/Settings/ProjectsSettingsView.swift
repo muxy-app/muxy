@@ -10,7 +10,10 @@ struct ProjectsSettingsView: View {
     private var projectPickerModeRaw = ProjectPickerMode.custom.rawValue
     @AppStorage(ProjectSortMode.storageKey)
     private var projectSortModeRaw = ProjectSortMode.defaultValue.rawValue
+    @AppStorage(FileOpenerSelection.storageKey)
+    private var defaultFileOpener = FileOpenerSelection.builtinValue
     @State private var projectPickerDefaultLocationSettings = ProjectPickerDefaultLocationSettingsModel()
+    @State private var extensionStore = ExtensionStore.shared
 
     var body: some View {
         SettingsContainer {
@@ -51,6 +54,29 @@ struct ProjectsSettingsView: View {
                 )
             }
 
+            if !fileOpeners.isEmpty {
+                SettingsSection(
+                    "Open Files With",
+                    footer: "Files opened from the terminal or the Open in IDE control go to this opener. "
+                        + "Falls back to the IDE when its patterns don't match."
+                ) {
+                    SettingsRow("Default Opener") {
+                        HStack {
+                            Spacer()
+                            Picker("", selection: $defaultFileOpener) {
+                                Text("Built-in (IDE)").tag(FileOpenerSelection.builtinValue)
+                                ForEach(fileOpeners) { binding in
+                                    Text(label(for: binding)).tag(binding.id)
+                                }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
+                        }
+                        .frame(width: SettingsMetrics.controlWidth)
+                    }
+                }
+            }
+
             SettingsSection(
                 "Worktrees",
                 footer: "Muxy creates a project-named subfolder inside this folder. "
@@ -60,6 +86,17 @@ struct ProjectsSettingsView: View {
                 worktreeLocationControl
             }
         }
+    }
+
+    private var fileOpeners: [ExtensionStore.FileOpenerBinding] {
+        FileOpenerSelection.availableOpeners(store: extensionStore)
+    }
+
+    private func label(for binding: ExtensionStore.FileOpenerBinding) -> String {
+        guard let title = binding.opener.title, !title.isEmpty else {
+            return binding.muxyExtension.displayName
+        }
+        return "\(binding.muxyExtension.displayName) (\(title))"
     }
 
     private var projectPickerMode: ProjectPickerMode {

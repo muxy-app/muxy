@@ -64,6 +64,8 @@ struct ShortcutActionDispatcher {
                 worktreeStore: worktreeStore,
                 projectGroupStore: projectGroupStore
             )
+        case .newBrowserTab:
+            return appState.openInBuiltInBrowser(BrowserURL.homeURL)
         case .closeTab:
             guard let projectID = appState.activeProjectID,
                   let area = appState.focusedArea(for: projectID),
@@ -187,6 +189,8 @@ struct ShortcutActionDispatcher {
         case .toggleExtensionConsole:
             notificationCenter.post(name: .toggleExtensionConsole, object: nil)
             return true
+        case .inspectElement:
+            return appState.inspectActiveBrowserElement()
         case .navigateBack:
             guard appState.navigation.canGoBack else { return false }
             appState.goBack()

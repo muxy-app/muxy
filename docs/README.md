@@ -66,6 +66,7 @@ flowchart TB
 | Page | What's in it |
 | --- | --- |
 | [Extension Tabs](extensions/tabs.md) | Render a full tab as a webview, `window.muxy` bridge |
+| [Browser](extensions/browser.md) | Drive built-in browser tabs from extensions |
 | [Extension Panels](extensions/panels.md) | Docked or floating webview beside the workspace |
 | [Extension Popovers](extensions/popovers.md) | Transient webview anchored to a topbar or status bar item |
 | [Topbar Items](extensions/topbar.md) | Add an icon to the tab-strip button cluster |

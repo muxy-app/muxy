@@ -4,15 +4,18 @@ struct ExtensionAPIStores {
     weak var projectStore: ProjectStore?
     weak var worktreeStore: WorktreeStore?
     weak var projectGroupStore: ProjectGroupStore?
+    weak var browserProfileStore: BrowserProfileStore?
 
     init(
         projectStore: ProjectStore? = nil,
         worktreeStore: WorktreeStore? = nil,
-        projectGroupStore: ProjectGroupStore? = nil
+        projectGroupStore: ProjectGroupStore? = nil,
+        browserProfileStore: BrowserProfileStore? = nil
     ) {
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
         self.projectGroupStore = projectGroupStore
+        self.browserProfileStore = browserProfileStore
     }
 }
 
@@ -24,19 +27,22 @@ enum MuxyAPIDispatcher {
         let projectStore: ProjectStore?
         let worktreeStore: WorktreeStore?
         var projectGroupStore: ProjectGroupStore?
+        let browserProfileStore: BrowserProfileStore?
 
         init(
             extensionID: String,
             appState: AppState,
             projectStore: ProjectStore?,
             worktreeStore: WorktreeStore?,
-            projectGroupStore: ProjectGroupStore?
+            projectGroupStore: ProjectGroupStore?,
+            browserProfileStore: BrowserProfileStore? = nil
         ) {
             self.extensionID = extensionID
             self.appState = appState
             self.projectStore = projectStore
             self.worktreeStore = worktreeStore
             self.projectGroupStore = projectGroupStore
+            self.browserProfileStore = browserProfileStore
         }
 
         init(extensionID: String, appState: AppState, stores: ExtensionAPIStores) {
@@ -45,7 +51,8 @@ enum MuxyAPIDispatcher {
                 appState: appState,
                 projectStore: stores.projectStore,
                 worktreeStore: stores.worktreeStore,
-                projectGroupStore: stores.projectGroupStore
+                projectGroupStore: stores.projectGroupStore,
+                browserProfileStore: stores.browserProfileStore
             )
         }
     }
@@ -132,20 +139,37 @@ enum MuxyAPIDispatcher {
             let request = try ExtensionDialogService.makeAlertRequest(extensionID: context.extensionID, args: args)
             try await ExtensionDialogService.alert(request)
             return NSNull()
-        case "modal.open":
-            let hasOnQueryChange = args["onQueryChange"] as? Bool == true
-            let onQueryChange: ((String) -> Void)? = hasOnQueryChange ? { _ in } : nil
-            let requestID = ExtensionModalService.shared.openSession(
+        case "dialog.prompt":
+            let request = try ExtensionDialogService.makePromptRequest(extensionID: context.extensionID, args: args)
+            return try await ExtensionDialogService.prompt(request) ?? NSNull()
+        case "dialog.pickFolder":
+            let request = try ExtensionDialogService.makePickFolderRequest(extensionID: context.extensionID, args: args)
+            return try await ExtensionDialogService.pickFolder(request) ?? NSNull()
+        case "storage.get":
+            return try ExtensionStorageService.get(extensionID: context.extensionID, key: stringArg(args, "key"))
+        case "storage.set":
+            guard args.keys.contains("value") else {
+                throw APIError.invalidArguments("storage.set requires a value")
+            }
+            try ExtensionStorageService.set(
                 extensionID: context.extensionID,
-                args: args,
-                onQueryChange: onQueryChange
+                key: stringArg(args, "key"),
+                value: args["value"] ?? NSNull()
             )
+            return NSNull()
+        case "storage.delete":
+            try ExtensionStorageService.delete(extensionID: context.extensionID, key: stringArg(args, "key"))
+            return NSNull()
+        case "storage.keys":
+            return try ExtensionStorageService.keys(extensionID: context.extensionID)
+        case "modal.open":
+            let requestID = ExtensionModalService.shared.openSession(extensionID: context.extensionID, args: args)
             return ["requestID": requestID]
         case "modal.feed":
-            ExtensionModalService.shared.feedSession(modalItems(args))
+            ExtensionModalService.shared.feedSession(modalItems(args), queryID: args["queryID"] as? Int)
             return NSNull()
         case "modal.finish":
-            ExtensionModalService.shared.finishSession()
+            ExtensionModalService.shared.finishSession(queryID: args["queryID"] as? Int)
             return NSNull()
         case "modal.await":
             let requestID = (args["requestID"] as? String) ?? ""
@@ -168,12 +192,11 @@ enum MuxyAPIDispatcher {
             try unwrap(MuxyAPI.Tabs.previous(appState: context.appState))
             return NSNull()
         case "tabs.open":
-            try await unwrap(MuxyAPI.Tabs.open(
+            return try await unwrap(MuxyAPI.Tabs.open(
                 decodeOpenTabRequest(args),
                 appState: context.appState,
                 callingExtensionID: context.extensionID
-            ))
-            return NSNull()
+            )).uuidString
         case "tabs.setTitle":
             try unwrap(MuxyAPI.Tabs.setTitle(
                 instanceID: stringArg(args, "tabInstanceID"),
@@ -188,6 +211,43 @@ enum MuxyAPIDispatcher {
                 icon: ExtensionIcon.parse(args["icon"]),
                 appState: context.appState,
                 callingExtensionID: context.extensionID
+            ))
+            return NSNull()
+        case "browser.open":
+            let url = args["url"] as? String
+            let split = boolArg(args, "split") ?? false
+            return try unwrap(MuxyAPI.Browser.open(
+                url: url,
+                split: split,
+                appState: context.appState
+            )).uuidString
+        case "browser.navigate":
+            try unwrap(MuxyAPI.Browser.navigate(
+                tabIDString: stringArg(args, "tabId"),
+                url: stringArg(args, "url"),
+                appState: context.appState
+            ))
+            return NSNull()
+        case "browser.list":
+            return MuxyAPI.Browser.list(
+                appState: context.appState,
+                profileStore: context.browserProfileStore
+            ).map(browserTabDict)
+        case "browser.read":
+            let content = try await unwrap(MuxyAPI.Browser.read(
+                tabIDString: stringArg(args, "tabId"),
+                appState: context.appState
+            ))
+            let payload: [String: Any] = [
+                "title": content.title,
+                "url": content.url ?? NSNull(),
+                "text": content.text,
+            ]
+            return payload
+        case "browser.close":
+            try unwrap(MuxyAPI.Browser.close(
+                tabIDString: stringArg(args, "tabId"),
+                appState: context.appState
             ))
             return NSNull()
         case "agents.list":
@@ -246,19 +306,48 @@ enum MuxyAPIDispatcher {
             ))
             return NSNull()
         case "projects.delete":
-            guard let projectStore = context.projectStore,
-                  let worktreeStore = context.worktreeStore,
-                  let projectGroupStore = context.projectGroupStore
-            else { throw APIError.projectStoreUnavailable }
             try await unwrap(MuxyAPI.Projects.delete(
                 identifier: stringArg(args, "identifier"),
-                context: MuxyAPI.Projects.Context(
-                    extensionID: context.extensionID,
-                    appState: context.appState,
-                    projectStore: projectStore,
-                    worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore
-                )
+                context: projectsContext(context)
+            ))
+            return NSNull()
+        case "projects.add":
+            return try unwrap(MuxyAPI.Projects.add(
+                path: stringArg(args, "path"),
+                context: projectsContext(context)
+            )).uuidString
+        case "projects.rename":
+            try unwrap(MuxyAPI.Projects.rename(
+                identifier: stringArg(args, "identifier"),
+                name: stringArg(args, "name"),
+                context: projectsContext(context)
+            ))
+            return NSNull()
+        case "projects.setColor":
+            try unwrap(MuxyAPI.Projects.setColor(
+                identifier: stringArg(args, "identifier"),
+                color: optionalStringArg(args, "color"),
+                context: projectsContext(context)
+            ))
+            return NSNull()
+        case "projects.setIcon":
+            try unwrap(MuxyAPI.Projects.setIcon(
+                identifier: stringArg(args, "identifier"),
+                icon: optionalStringArg(args, "icon"),
+                context: projectsContext(context)
+            ))
+            return NSNull()
+        case "projects.setLogo":
+            try unwrap(MuxyAPI.Projects.setLogo(
+                identifier: stringArg(args, "identifier"),
+                logo: optionalStringArg(args, "logo"),
+                context: projectsContext(context)
+            ))
+            return NSNull()
+        case "projects.reorder":
+            try unwrap(MuxyAPI.Projects.reorder(
+                identifiers: stringArrayArg(args, "identifiers"),
+                context: projectsContext(context)
             ))
             return NSNull()
         case "worktrees.list":
@@ -535,7 +624,7 @@ enum MuxyAPIDispatcher {
             ))
             return NSNull()
         case "git.worktree.add":
-            try await unwrap(MuxyAPI.Git.addWorktree(
+            return try await unwrap(MuxyAPI.Git.addWorktree(
                 MuxyAPI.Git.AddWorktreeRequest(
                     projectIdentifier: project,
                     path: stringArg(args, "path"),
@@ -545,7 +634,6 @@ enum MuxyAPIDispatcher {
                 ),
                 context: git
             ))
-            return NSNull()
         case "git.worktree.remove":
             try await unwrap(MuxyAPI.Git.removeWorktree(
                 projectIdentifier: project,
@@ -680,6 +768,24 @@ enum MuxyAPIDispatcher {
         throw APIError.invalidArguments("missing argument '\(key)'")
     }
 
+    private static func optionalStringArg(_ args: [String: Any], _ key: String) -> String? {
+        args[key] as? String
+    }
+
+    private static func projectsContext(_ context: Context) throws -> MuxyAPI.Projects.Context {
+        guard let projectStore = context.projectStore,
+              let worktreeStore = context.worktreeStore,
+              let projectGroupStore = context.projectGroupStore
+        else { throw APIError.projectStoreUnavailable }
+        return MuxyAPI.Projects.Context(
+            extensionID: context.extensionID,
+            appState: context.appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+    }
+
     private static func doubleArg(_ args: [String: Any], _ key: String) throws -> Double {
         if let value = args[key] as? Double { return value }
         if let value = args[key] as? Int { return Double(value) }
@@ -731,6 +837,16 @@ enum MuxyAPIDispatcher {
         ]
     }
 
+    private static func browserTabDict(_ tab: BrowserTabInfo) -> [String: Any] {
+        [
+            "id": tab.id.uuidString,
+            "title": tab.title,
+            "url": tab.url ?? NSNull(),
+            "profile": tab.profile,
+            "isActive": tab.isActive,
+        ]
+    }
+
     private static func agentDict(_ agent: AgentInfo) -> [String: String] {
         AgentStatusStore.eventPayload(
             worktreeID: agent.worktreeID,
@@ -756,6 +872,11 @@ enum MuxyAPIDispatcher {
             "name": project.name,
             "path": project.path,
             "isActive": project.isActive,
+            "sortOrder": project.sortOrder,
+            "iconColor": project.iconColor ?? NSNull(),
+            "icon": project.icon ?? NSNull(),
+            "logo": project.logo ?? NSNull(),
+            "worktreesEnabled": project.worktreesEnabled,
         ]
     }
 

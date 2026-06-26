@@ -51,6 +51,20 @@ struct KeyBindingStoreTests {
         #expect(store.action(for: event, scopes: [.mainWindow]) == .toggleExtensionConsole)
     }
 
+    @Test("action resolves inspect element only in browser scope")
+    func actionResolvesInspectElementOnlyInBrowserScope() throws {
+        let store = KeyBindingStore(persistence: StubKeyBindingPersistence(bindings: KeyBinding.defaults))
+        let event = try keyEvent(
+            characters: "i",
+            charactersIgnoringModifiers: "i",
+            keyCode: 34,
+            modifiers: [.command, .option]
+        )
+
+        #expect(store.action(for: event, scopes: [.global, .mainWindow]) == nil)
+        #expect(store.action(for: event, scopes: [.global, .mainWindow, .browser]) == .inspectElement)
+    }
+
     @Test("action can be assigned and reset")
     func actionCanBeAssignedAndReset() {
         let persistence = StubKeyBindingPersistence(bindings: KeyBinding.defaults)

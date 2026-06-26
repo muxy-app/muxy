@@ -31,7 +31,9 @@ struct MainWindow: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(RemoteDeviceStore.self) private var remoteDeviceStore
+    @Environment(BrowserProfileStore.self) private var browserProfileStore
     @Environment(GhosttyService.self) private var ghostty
+    @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
     @State private var dragCoordinator = TabDragCoordinator()
     private enum CloseConfirmationKind {
         case lastTab
@@ -164,6 +166,7 @@ struct MainWindow: View {
         .environment(dragCoordinator)
         .background(MainWindowShortcutInterceptor(
             isTerminalFocused: { isTerminalPaneFocused },
+            isBrowserFocused: { isBrowserPaneFocused },
             onShortcut: { action in handleShortcutAction(action) },
             onCommandShortcut: { shortcut in handleCommandShortcut(shortcut) },
             onExtensionShortcut: { shortcut in handleExtensionShortcut(shortcut) },
@@ -386,7 +389,8 @@ struct MainWindow: View {
                                 appState: appState,
                                 projectStore: projectStore,
                                 worktreeStore: worktreeStore,
-                                projectGroupStore: projectGroupStore
+                                projectGroupStore: projectGroupStore,
+                                browserProfileStore: browserProfileStore
                             )
                         )
                     }
@@ -436,6 +440,14 @@ struct MainWindow: View {
                 onCreateTab: {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
                 },
+                onOpenBrowser: browserEnabled ? {
+                    appState.dispatch(.createBrowserTab(
+                        projectID: project.id,
+                        areaID: area.id,
+                        url: BrowserURL.homeURL,
+                        profileID: browserProfileStore.defaultProfileID
+                    ))
+                } : nil,
                 onCloseTab: { tabID in
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },
@@ -510,7 +522,7 @@ struct MainWindow: View {
                         }
                         if let project = activeProject {
                             if !project.isRemote {
-                                OpenInIDEControl(projectPath: activeWorktreePath(for: project))
+                                OpenInIDEControl(projectPath: activeWorktreePath(for: project), projectID: project.id)
                             }
                             LayoutPickerMenu(projectID: project.id)
                         }
@@ -754,7 +766,7 @@ struct MainWindow: View {
         guard let projectID = appState.activeProjectID, projectID != Project.homeID else { return }
         let candidates = projectStore.projects + projectGroupStore.remoteProjects
         guard let project = candidates.first(where: { $0.id == projectID }) else { return }
-        projectGroupStore.activateWorkspace(containing: project)
+        projectGroupStore.activateWorkspaceForProjectSelection(containing: project)
     }
 
     private func resolveOmniboxProject(_ projectID: UUID) -> Project? {
@@ -982,6 +994,13 @@ struct MainWindow: View {
     private var isTerminalPaneFocused: Bool {
         guard let projectID = appState.activeProjectID else { return false }
         return appState.activeTab(for: projectID)?.content.pane != nil
+    }
+
+    private var isBrowserPaneFocused: Bool {
+        guard browserEnabled,
+              let projectID = appState.activeProjectID
+        else { return false }
+        return appState.activeTab(for: projectID)?.content.browserState != nil
     }
 
     private func handleShortcutAction(_ action: ShortcutAction) -> Bool {
@@ -1443,6 +1462,7 @@ private struct NavigationArrowButton: View {
 
 private struct MainWindowShortcutInterceptor: NSViewRepresentable {
     let isTerminalFocused: () -> Bool
+    let isBrowserFocused: () -> Bool
     let onShortcut: (ShortcutAction) -> Bool
     let onCommandShortcut: (CommandShortcut) -> Bool
     let onExtensionShortcut: (ExtensionShortcut) -> Bool
@@ -1452,6 +1472,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
     func makeNSView(context: Context) -> ShortcutInterceptingView {
         let view = ShortcutInterceptingView()
         view.isTerminalFocused = isTerminalFocused
+        view.isBrowserFocused = isBrowserFocused
         view.onShortcut = onShortcut
         view.onCommandShortcut = onCommandShortcut
         view.onExtensionShortcut = onExtensionShortcut
@@ -1462,6 +1483,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
 
     func updateNSView(_ nsView: ShortcutInterceptingView, context: Context) {
         nsView.isTerminalFocused = isTerminalFocused
+        nsView.isBrowserFocused = isBrowserFocused
         nsView.onShortcut = onShortcut
         nsView.onCommandShortcut = onCommandShortcut
         nsView.onExtensionShortcut = onExtensionShortcut
@@ -1472,6 +1494,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
 
 private final class ShortcutInterceptingView: NSView {
     var isTerminalFocused: (() -> Bool)?
+    var isBrowserFocused: (() -> Bool)?
     var onShortcut: ((ShortcutAction) -> Bool)?
     var onCommandShortcut: ((CommandShortcut) -> Bool)?
     var onExtensionShortcut: ((ExtensionShortcut) -> Bool)?
@@ -1492,7 +1515,11 @@ private final class ShortcutInterceptingView: NSView {
     }
 
     private func handleShortcutEvent(_ event: NSEvent) -> Bool {
-        let scopes = ShortcutContext.activeScopes(for: window, isTerminalFocused: isTerminalFocused?() ?? false)
+        let scopes = ShortcutContext.activeScopes(
+            for: window,
+            isTerminalFocused: isTerminalFocused?() ?? false,
+            isBrowserFocused: isBrowserFocused?() ?? false
+        )
         let layerWasActive = CommandShortcutStore.shared.isLayerActive
         guard layerWasActive
             || !event.modifierFlags.isDisjoint(with: [.command, .control, .option])

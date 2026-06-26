@@ -93,7 +93,7 @@ classDiagram
   }
   class Tab {
     id: uuid
-    kind: terminal | vcs | extensionWebView
+    kind: terminal | vcs | extensionWebView | browser
     title: string
     isPinned: bool
     paneID: uuid?
@@ -108,7 +108,7 @@ A `tabArea` node is encoded as `{ "type": "tabArea", "tabArea": { … } }`; a `s
 
 `ratio` is the first child's fraction of the split (0–1). `activeTabID` and `paneID` are optional. `paneID` is required for every terminal-related method, and is only present on panes that back a live surface.
 
-`kind` is one of `terminal`, `vcs`, `extensionWebView`. There is no `editor` or `diffViewer` kind.
+`kind` is one of `terminal`, `vcs`, `extensionWebView`, `browser`. There is no `editor` or `diffViewer` kind.
 
 ## Terminal cells
 

@@ -127,13 +127,15 @@ struct TerminalOmniboxOverlay: View {
                     ScrollView(.vertical, showsIndicators: true) {
                         LazyVStack(spacing: 0) {
                             ForEach(Array(displayList.enumerated()), id: \.element.id) { index, item in
-                                if shouldShowSectionHeader(at: index) {
-                                    TerminalOmniboxSectionHeader(title: item.sectionTitle)
+                                VStack(spacing: 0) {
+                                    if shouldShowSectionHeader(at: index) {
+                                        TerminalOmniboxSectionHeader(title: item.sectionTitle)
+                                    }
+                                    TerminalOmniboxRow(item: item, isHighlighted: index == highlightedIndex)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture { handleTap(item) }
                                 }
-                                TerminalOmniboxRow(item: item, isHighlighted: index == highlightedIndex)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { handleTap(item) }
-                                    .id(item.id)
+                                .id(item.id)
                             }
                         }
                     }

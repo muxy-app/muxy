@@ -87,7 +87,7 @@ muxy.topbar.{set, show, hide}        // requires panels:write
 muxy.statusbar.{set, show, hide}     // requires panels:write
 muxy.tabs.{list, switchTo, new, next, previous, open}
 muxy.panes.{list, send, sendKeys, readScreen, close, rename}
-muxy.projects.{list, switchTo}
+muxy.projects.{list, switchTo, add, rename, setColor, setIcon, setLogo, reorder, delete}
 muxy.worktrees.{list, switchTo, refresh}
 muxy.agents.list()                                              // requires agents:read
 muxy.files.{list, read, stat, write, mkdir, rename, move, delete}

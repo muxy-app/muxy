@@ -71,6 +71,10 @@ struct SettingsView: View {
             searchText = ""
             selectedRoute = .builtin(.remoteDevices)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .focusBrowserSettings)) { _ in
+            searchText = ""
+            selectedRoute = .builtin(.browser)
+        }
     }
 
     private var selectedBuiltinCategory: SettingsCategory? {
@@ -127,6 +131,8 @@ struct SettingsView: View {
             SidebarSettingsView()
         case .terminal:
             TerminalSettingsView()
+        case .browser:
+            BrowserSettingsView()
         case .richInput:
             RichInputSettingsView()
         case .shortcuts:

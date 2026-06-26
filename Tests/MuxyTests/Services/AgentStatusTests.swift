@@ -30,7 +30,7 @@ struct AgentStatusTests {
     @Test("parses messages from every provider socket type")
     func parsesEveryProviderSocketType() {
         let paneID = UUID()
-        for socketType in ["claude_hook", "cursor_hook", "codex_hook", "droid_hook", "opencode", "pi"] {
+        for socketType in ["claude_hook", "cursor_hook", "codex_hook", "droid_hook", "opencode", "pi", "grok_hook"] {
             let parsed = NotificationSocketServer.parseAgentStatusMessage(
                 "agent_status|\(socketType)|\(paneID.uuidString)|working"
             )

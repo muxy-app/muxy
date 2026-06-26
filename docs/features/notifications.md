@@ -1,6 +1,6 @@
 # Notification Setup
 
-Muxy ships built-in integrations for **Claude Code**, **Codex**, **Cursor**, **Droid**, and **OpenCode** — toggle them under **Settings → Notifications**. This page is for everything else: sending notifications into Muxy from any other tool (a custom CLI, a build script, a different AI agent, …).
+Muxy ships built-in integrations for **Claude Code**, **Codex**, **Cursor**, **Droid**, **Grok**, and **OpenCode** — toggle them under **Settings → Notifications**. This page is for everything else: sending notifications into Muxy from any other tool (a custom CLI, a build script, a different AI agent, …).
 
 ```mermaid
 flowchart TB
@@ -34,7 +34,7 @@ One message per connection: a single newline-terminated UTF-8 line with four pip
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `type` | yes | Source identifier. Unknown values are accepted and shown generically. Built-in: `claude_hook`, `codex_hook`, `cursor_hook`, `droid_hook`, `opencode`, `pi`. |
+| `type` | yes | Source identifier. Unknown values are accepted and shown generically. Built-in: `claude_hook`, `codex_hook`, `cursor_hook`, `droid_hook`, `grok_hook`, `opencode`, `pi`. |
 | `paneID` | yes | Pane the event belongs to. Use `$MUXY_PANE_ID` from inside a Muxy terminal. Leave empty to attach to the active pane. |
 | `title` | yes | Notification title. Empty falls back to `Task completed!`. |
 | `body` | no | Body. Must not contain `\|` or newlines — replace them first. |
@@ -107,6 +107,7 @@ def muxy_notify(title: str, body: str = "") -> None:
 The built-in integrations are good templates:
 
 - **Shell hook (Claude Code):** [`Muxy/Resources/scripts/muxy-claude-hook.sh`](../../Muxy/Resources/scripts/muxy-claude-hook.sh)
+- **Shell hook (Grok):** [`Muxy/Resources/scripts/muxy-grok-hook.sh`](../../Muxy/Resources/scripts/muxy-grok-hook.sh) (installs to `~/.grok/hooks/muxy-notify.json`)
 - **Node plugin (OpenCode):** [`Muxy/Resources/scripts/opencode-muxy-plugin.js`](../../Muxy/Resources/scripts/opencode-muxy-plugin.js)
 
 ## Tips

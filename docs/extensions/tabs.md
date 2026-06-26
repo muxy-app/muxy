@@ -34,6 +34,39 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
 
 The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
 
+## File openers
+
+A tab type can register as a **file opener** so the user can pick it as their "Open in IDE" target. When selected, Muxy routes native file opens — terminal file links and the Open in IDE control — into a tab of that type instead of an external editor. Declare openers under the `fileOpeners` manifest array:
+
+```jsonc
+"fileOpeners": [
+  { "id": "editor", "tabType": "editor", "patterns": ["*"], "singleton": true }
+]
+```
+
+### Fields
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | string | yes | Stable per extension. |
+| `tabType` | string | yes | A `tabTypes` id this opener opens. |
+| `title` | string | no | Overrides the tab title; shown alongside the extension name in the menu. |
+| `patterns` | string[] | no | Glob patterns (`*`, `?`) matched against the project-relative path. Defaults to `["*"]`. A file opens through the opener only when one pattern matches. |
+| `singleton` | boolean | no | Reuse one tab per type instead of opening a new one. Defaults to `true`. |
+
+The opened tab receives `window.muxy.data` with the file location:
+
+```ts
+{
+  filePath: string,   // path relative to the project root
+  line?: number,      // 1-based, when the source had a line suffix
+  column?: number,    // 1-based, when the source had a column suffix
+  source: string,     // "terminal" or "open-control"
+}
+```
+
+Only files inside the active project are routed; anything else falls back to the native IDE. With `singleton: true`, reopening pushes the new location through [`muxy.onDataChange`](#opening-another-tab).
+
 ## Topbar (recommended)
 
 A tab fills its whole region with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
@@ -101,7 +134,7 @@ window.muxy = {
   modal: { open(opts): Promise<Item | null> },            // searchable picker — see modal.md
 
   tabs: {
-    open(request): Promise<void>,       // see "Opening another tab"
+    open(request): Promise<string>,     // resolves the new tab's id — see "Opening another tab"
     list(): Promise<TabInfo[]>,
     switchTo(idOrIndex): Promise<void>,
     new(): Promise<string | null>,
@@ -120,7 +153,7 @@ window.muxy = {
     rename(paneID, title): Promise<void>,
   },
 
-  projects:  { list(), switchTo(identifier), delete(identifier) },  // delete() needs projects:delete + consent
+  projects:  { list(), switchTo(identifier), add(path), rename(identifier, name), setColor(identifier, color), setIcon(identifier, icon), setLogo(identifier, logo), reorder(identifiers), delete(identifier) },  // list() → { id, name, path, isActive, sortOrder, worktreesEnabled, iconColor?, icon?, logo? }; add() resolves the project id and also activates the project; reorder() takes all local non-home project ids; add/rename/set*/reorder need projects:write; delete() needs projects:delete + consent
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
   panels:    { open(id, data?), toggle(id, data?), close(id) },  // panels:write — see panels.md
   popover:   { close(), resize(width, height) },                // panels:write — see popovers.md
@@ -150,12 +183,14 @@ interface ExecResult {
 `tabs.open` accepts two kinds: `terminal` and `extensionWebView` (with a target `extension`). It is available from tabs, panels, popovers, `runScript` commands, and background scripts; non-webview callers open into the active workspace and reject when Muxy cannot identify one.
 
 ```js
-await muxy.tabs.open({ kind: 'terminal' });
-await muxy.tabs.open({
+const terminalTabID = await muxy.tabs.open({ kind: 'terminal' });
+const webviewTabID = await muxy.tabs.open({
   kind: 'extensionWebView',
   extension: { id: 'pr-tools', tabType: 'pr-viewer', data: { prNumber: 42 } },
 });
 ```
+
+`open` resolves the new tab's id. For a `terminal` tab that id is the tab id; for an `extensionWebView` tab it is the tab instance id you pass to [`tabs.setTitle`](#setting-the-tab-title-and-icon-at-runtime)/`tabs.setIcon` and that arrives on `tab.*` events. With `singleton: true`, if a matching tab already exists `open` focuses it and resolves that existing tab's id instead of creating a new one.
 
 `extensionWebView` requires the target extension to be loaded and the named tab type to exist.
 

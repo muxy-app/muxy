@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MuxyCommands: Commands {
     @ObservedObject private var ideService = IDEIntegrationService.shared
+    @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
 
     let appState: AppState
     let projectStore: ProjectStore
@@ -180,6 +181,13 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.newHomeTab)
             }
             .shortcut(for: .newHomeTab, store: keyBindings)
+
+            Button("New Browser Tab") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.newBrowserTab)
+            }
+            .shortcut(for: .newBrowserTab, store: keyBindings)
+            .disabled(activeProject == nil || !browserEnabled)
 
             Menu("Custom Commands") {
                 if commandShortcuts.shortcuts.isEmpty {

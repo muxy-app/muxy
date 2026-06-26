@@ -11,8 +11,66 @@ struct ExtensionDialogServiceTests {
         let verbs = MuxyAPI.Permissions.verbNames
         #expect(verbs.contains("dialog.confirm"))
         #expect(verbs.contains("dialog.alert"))
+        #expect(verbs.contains("dialog.prompt"))
+        #expect(verbs.contains("dialog.pickFolder"))
         #expect(MuxyAPI.Permissions.required(for: "dialog.confirm") == nil)
         #expect(MuxyAPI.Permissions.required(for: "dialog.alert") == nil)
+        #expect(MuxyAPI.Permissions.required(for: "dialog.prompt") == nil)
+        #expect(MuxyAPI.Permissions.required(for: "dialog.pickFolder") == nil)
+    }
+
+    @Test("prompt parses fields and defaults the buttons")
+    func promptParsesFields() throws {
+        let request = try ExtensionDialogService.makePromptRequest(extensionID: "ext", args: [
+            "title": "Rename worktree",
+            "message": "New name",
+            "default": "feature",
+            "placeholder": "branch name",
+        ])
+        #expect(request.title == "Rename worktree")
+        #expect(request.message == "New name")
+        #expect(request.defaultValue == "feature")
+        #expect(request.placeholder == "branch name")
+        #expect(request.confirmButton == "OK")
+        #expect(request.cancelButton == "Cancel")
+    }
+
+    @Test("prompt honors custom button labels and clamps text")
+    func promptCustomButtonsAndClamp() throws {
+        let long = String(repeating: "y", count: ExtensionDialogService.maxTextLength + 100)
+        let request = try ExtensionDialogService.makePromptRequest(extensionID: "ext", args: [
+            "title": "Q",
+            "confirm": "Save",
+            "cancel": "Discard",
+            "default": long,
+        ])
+        #expect(request.confirmButton == "Save")
+        #expect(request.cancelButton == "Discard")
+        #expect(request.defaultValue.count == ExtensionDialogService.maxTextLength)
+    }
+
+    @Test("prompt requires title or message")
+    func promptRequiresContent() {
+        #expect(throws: APIError.self) {
+            try ExtensionDialogService.makePromptRequest(extensionID: "ext", args: [:])
+        }
+    }
+
+    @Test("pickFolder expands a tilde default path")
+    func pickFolderExpandsTilde() throws {
+        let request = try ExtensionDialogService.makePickFolderRequest(extensionID: "ext", args: [
+            "title": "Choose project",
+            "default": "~/Projects",
+        ])
+        #expect(request.title == "Choose project")
+        #expect(request.defaultPath == ("~/Projects" as NSString).expandingTildeInPath)
+    }
+
+    @Test("pickFolder allows empty args")
+    func pickFolderAllowsEmpty() throws {
+        let request = try ExtensionDialogService.makePickFolderRequest(extensionID: "ext", args: [:])
+        #expect(request.title.isEmpty)
+        #expect(request.defaultPath == nil)
     }
 
     @Test("confirm parses fields and styles")

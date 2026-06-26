@@ -81,6 +81,7 @@ let package = Package(
                 .linkedFramework("Speech"),
                 .linkedFramework("UserNotifications"),
                 .linkedLibrary("c++"),
+                .linkedLibrary("sqlite3"),
             ]
         ),
         .testTarget(
@@ -111,6 +112,7 @@ let package = Package(
                 .linkedFramework("Speech"),
                 .linkedFramework("UserNotifications"),
                 .linkedLibrary("c++"),
+                .linkedLibrary("sqlite3"),
             ]
         ),
     ]

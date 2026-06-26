@@ -87,6 +87,7 @@ final class VCSWorktreeAutoRefresher {
 
     private func runRefresh(project: Project) {
         inFlight.insert(project.id)
+        let before = branchSnapshot(projectID: project.id)
         Task { [appState, worktreeStore, projectStore, projectGroupStore] in
             await WorktreeRefreshHelper.refresh(
                 project: project,
@@ -96,10 +97,51 @@ final class VCSWorktreeAutoRefresher {
                 isRefreshing: nil,
                 presentErrors: false
             )
+            broadcastHeadChanges(projectID: project.id, before: before)
             inFlight.remove(project.id)
             guard pending.remove(project.id) != nil else { return }
             guard let updated = projectStore.projects.first(where: { $0.id == project.id }) else { return }
             runRefresh(project: updated)
+        }
+    }
+
+    private func branchSnapshot(projectID: UUID) -> [UUID: String] {
+        var snapshot: [UUID: String] = [:]
+        for worktree in worktreeStore.worktrees[projectID] ?? [] {
+            guard let branch = worktree.branch else { continue }
+            snapshot[worktree.id] = branch
+        }
+        return snapshot
+    }
+
+    private func broadcastHeadChanges(projectID: UUID, before: [UUID: String]) {
+        let byID = Dictionary(
+            (worktreeStore.worktrees[projectID] ?? []).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        for change in Self.headChanges(before: before, after: branchSnapshot(projectID: projectID)) {
+            guard let worktree = byID[change.worktreeID] else { continue }
+            NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
+                name: ExtensionEventName.worktreeHeadChanged,
+                payload: [
+                    "projectID": projectID.uuidString,
+                    "worktreeID": change.worktreeID.uuidString,
+                    "branch": change.branch,
+                    "path": worktree.path,
+                ]
+            ))
+        }
+    }
+
+    struct HeadChange: Equatable {
+        let worktreeID: UUID
+        let branch: String
+    }
+
+    static func headChanges(before: [UUID: String], after: [UUID: String]) -> [HeadChange] {
+        after.compactMap { id, branch in
+            guard let previous = before[id], previous != branch else { return nil }
+            return HeadChange(worktreeID: id, branch: branch)
         }
     }
 }

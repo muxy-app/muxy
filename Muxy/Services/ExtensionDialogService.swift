@@ -19,6 +19,23 @@ enum ExtensionDialogService {
         let style: NSAlert.Style
     }
 
+    struct PromptRequest: Equatable {
+        let extensionID: String
+        let title: String
+        let message: String
+        let defaultValue: String
+        let placeholder: String
+        let confirmButton: String
+        let cancelButton: String
+    }
+
+    struct PickFolderRequest: Equatable {
+        let extensionID: String
+        let title: String
+        let message: String
+        let defaultPath: String?
+    }
+
     static let maxTextLength = 2000
     static let maxButtonCount = 3
 
@@ -50,6 +67,68 @@ enum ExtensionDialogService {
         let alert = makeAlert(title: request.title, message: request.message, style: request.style)
         alert.addButton(withTitle: "OK")
         _ = try await runModal(alert)
+    }
+
+    static func prompt(_ request: PromptRequest) async throws -> String? {
+        try claim(request.extensionID)
+        defer { release(request.extensionID) }
+        let alert = makeAlert(title: request.title, message: request.message, style: .informational)
+        let confirm = alert.addButton(withTitle: request.confirmButton)
+        let cancel = alert.addButton(withTitle: request.cancelButton)
+        confirm.keyEquivalent = "\r"
+        cancel.keyEquivalent = "\u{1B}"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = request.defaultValue
+        field.placeholderString = request.placeholder
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        let result = try await runModal(alert)
+        guard result == .alertFirstButtonReturn else { return nil }
+        return clamped(field.stringValue)
+    }
+
+    static func pickFolder(_ request: PickFolderRequest) async throws -> String? {
+        try claim(request.extensionID)
+        defer { release(request.extensionID) }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        if !request.title.isEmpty { panel.message = request.title }
+        if !request.message.isEmpty { panel.prompt = request.message }
+        if let defaultPath = request.defaultPath {
+            panel.directoryURL = URL(fileURLWithPath: defaultPath, isDirectory: true)
+        }
+        let response = try await runPanel(panel)
+        guard response == .OK else { return nil }
+        return panel.url?.path
+    }
+
+    static func makePromptRequest(extensionID: String, args: [String: Any]) throws -> PromptRequest {
+        let title = clamped(string(args, "title") ?? "")
+        let message = clamped(string(args, "message") ?? "")
+        guard !title.isEmpty || !message.isEmpty else {
+            throw APIError.invalidArguments("prompt requires title or message")
+        }
+        return PromptRequest(
+            extensionID: extensionID,
+            title: title,
+            message: message,
+            defaultValue: clamped(string(args, "default") ?? ""),
+            placeholder: clamped(string(args, "placeholder") ?? ""),
+            confirmButton: string(args, "confirm").map(clamped) ?? "OK",
+            cancelButton: string(args, "cancel").map(clamped) ?? "Cancel"
+        )
+    }
+
+    static func makePickFolderRequest(extensionID: String, args: [String: Any]) throws -> PickFolderRequest {
+        PickFolderRequest(
+            extensionID: extensionID,
+            title: clamped(string(args, "title") ?? ""),
+            message: clamped(string(args, "message") ?? ""),
+            defaultPath: string(args, "default").map { ($0 as NSString).expandingTildeInPath }
+        )
     }
 
     static func makeConfirmRequest(extensionID: String, args: [String: Any]) throws -> ConfirmRequest {
@@ -143,6 +222,17 @@ enum ExtensionDialogService {
         }
         return await withCheckedContinuation { continuation in
             alert.beginSheetModal(for: parent) { response in
+                continuation.resume(returning: response)
+            }
+        }
+    }
+
+    private static func runPanel(_ panel: NSOpenPanel) async throws -> NSApplication.ModalResponse {
+        guard let parent = parentWindow() else {
+            throw APIError.invalidArguments("no window available to present the dialog")
+        }
+        return await withCheckedContinuation { continuation in
+            panel.beginSheetModal(for: parent) { response in
                 continuation.resume(returning: response)
             }
         }

@@ -117,8 +117,13 @@ final class ExtensionStore {
 
     var rootDirectory: URL { rootDirectoryURL }
 
-    func startAll() {
+    func loadManifestsIfNeeded() {
+        guard !hasLoadedFromDisk else { return }
         loadFromDisk()
+    }
+
+    func startAll() {
+        loadManifestsIfNeeded()
         for index in statuses.indices where statuses[index].isEnabled {
             startExtension(at: index)
         }
@@ -138,6 +143,7 @@ final class ExtensionStore {
             ExtensionPanelRegistry.shared.closeAll(extensionID: status.id)
             PopoverHost.shared.close(extensionID: status.id)
         }
+        hasLoadedFromDisk = false
         rebuildExtensionUICache()
         publishSnapshot()
     }
@@ -399,6 +405,16 @@ final class ExtensionStore {
         let command: ExtensionPaletteCommand
     }
 
+    struct FileOpenerBinding: Equatable, Identifiable {
+        let muxyExtension: MuxyExtension
+        let opener: ExtensionFileOpener
+        let tabType: ExtensionTabType
+
+        var id: String {
+            "\(muxyExtension.id):\(opener.id)"
+        }
+    }
+
     struct ItemOverride: Equatable {
         var icon: ExtensionIcon?
         var text: String?
@@ -443,6 +459,42 @@ final class ExtensionStore {
                     .filter { !$0.action.isAnchored }
                     .map { PaletteCommandBinding(muxyExtension: status.muxyExtension, command: $0) }
             }
+    }
+
+    func fileOpeners(for relativePath: String) -> [FileOpenerBinding] {
+        fileOpeners().filter { $0.opener.matches(relativePath: relativePath) }
+    }
+
+    func fileOpeners() -> [FileOpenerBinding] {
+        statuses
+            .filter(\.isEnabled)
+            .flatMap { status in
+                let ext = status.muxyExtension
+                return ext.manifest.fileOpeners.compactMap { opener -> FileOpenerBinding? in
+                    guard let tabType = ext.manifest.tabType(id: opener.tabType)
+                    else {
+                        return nil
+                    }
+                    return FileOpenerBinding(muxyExtension: ext, opener: opener, tabType: tabType)
+                }
+            }
+    }
+
+    func fileOpener(extensionID: String, openerID: String, relativePath: String? = nil) -> FileOpenerBinding? {
+        fileOpeners().first { binding in
+            let matchesPath = relativePath.map { binding.opener.matches(relativePath: $0) } ?? true
+            return binding.muxyExtension.id == extensionID &&
+                binding.opener.id == openerID &&
+                matchesPath
+        }
+    }
+
+    func preferredFileOpener(for relativePath: String) -> FileOpenerBinding? {
+        FileOpenerSelection.resolvedBinding(
+            from: IDEIntegrationService.shared.selectedFileOpenerValue,
+            relativePath: relativePath,
+            store: self
+        )
     }
 
     func statusBarItems(side: ExtensionStatusBarItem.Side) -> [StatusBarItemBinding] {
@@ -561,6 +613,7 @@ final class ExtensionStore {
         let projectStore: ProjectStore?
         let worktreeStore: WorktreeStore?
         let projectGroupStore: ProjectGroupStore?
+        let browserProfileStore: BrowserProfileStore?
 
         init(
             extensionID: String,
@@ -568,7 +621,8 @@ final class ExtensionStore {
             appState: AppState,
             projectStore: ProjectStore? = nil,
             worktreeStore: WorktreeStore? = nil,
-            projectGroupStore: ProjectGroupStore? = nil
+            projectGroupStore: ProjectGroupStore? = nil,
+            browserProfileStore: BrowserProfileStore? = nil
         ) {
             self.extensionID = extensionID
             self.commandID = commandID
@@ -576,6 +630,7 @@ final class ExtensionStore {
             self.projectStore = projectStore
             self.worktreeStore = worktreeStore
             self.projectGroupStore = projectGroupStore
+            self.browserProfileStore = browserProfileStore
         }
     }
 
@@ -653,7 +708,8 @@ final class ExtensionStore {
                     stores: ExtensionAPIStores(
                         projectStore: invocation.projectStore,
                         worktreeStore: invocation.worktreeStore,
-                        projectGroupStore: invocation.projectGroupStore
+                        projectGroupStore: invocation.projectGroupStore,
+                        browserProfileStore: invocation.browserProfileStore
                     )
                 )
             } catch {

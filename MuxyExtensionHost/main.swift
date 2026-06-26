@@ -60,8 +60,8 @@ client.onModalResult { [weak bridge] line in
     bridge?.handleModalResultLine(line)
 }
 
-client.onModalQueryChange { [weak bridge] line in
-    bridge?.handleModalQueryChangeLine(line)
+client.onModalQuery { [weak bridge] line in
+    bridge?.handleModalQueryLine(line)
 }
 
 client.startReading()

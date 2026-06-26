@@ -25,7 +25,7 @@ public enum ExtensionBridgeJS {
                 if (o.placeholder != null) labels.placeholder = String(o.placeholder);
                 if (o.emptyLabel != null) labels.emptyLabel = String(o.emptyLabel);
                 if (o.noMatchLabel != null) labels.noMatchLabel = String(o.noMatchLabel);
-                if (typeof o.onQueryChange === 'function') labels.onQueryChange = true;
+                if (typeof o.onQuery === 'function' || typeof o.onQueryChange === 'function') labels.dynamic = true;
                 return labels;
             };
             const feedModalItems = (o) => {
@@ -36,24 +36,27 @@ public enum ExtensionBridgeJS {
                 } else {
                     emit(o.items);
                 }
-                if (typeof o.onQueryChange !== 'function') {
-                    dispatch('modal.finish', {});
-                }
-            };
-            const modalQueryChangeHandlers = {};
-            this.__muxyModalQueryChange = (requestID, query) => {
-                const handler = modalQueryChangeHandlers[requestID];
-                if (typeof handler === 'function') {
-                    try { handler(query); } catch (error) { console.error(error); }
-                }
+                dispatch('modal.finish', {});
             };
             const modalResultHandlers = {};
+            const modalQueryHandlers = {};
             this.__muxiDeliverModalResult = (requestID, item) => {
                 const handler = modalResultHandlers[requestID];
                 delete modalResultHandlers[requestID];
+                delete modalQueryHandlers[requestID];
                 if (typeof handler === 'function') {
                     try { handler(item == null ? null : item); } catch (error) { console.error(error); }
                 }
+            };
+            this.__muxyDeliverModalQuery = (requestID, queryID, query, options) => {
+                const handler = modalQueryHandlers[requestID];
+                const emit = (batch) => dispatch('modal.feed', { items: normalizeModalItems(batch), queryID });
+                const finish = () => dispatch('modal.finish', { queryID });
+                if (typeof handler !== 'function') { finish(); return; }
+                let produced;
+                try { produced = handler(query, emit, options || {}); } catch (error) { console.error(error); finish(); return; }
+                if (produced != null) emit(produced);
+                finish();
             };
             const muxy = {
                 extensionID: \(extLiteral),
@@ -100,14 +103,46 @@ public enum ExtensionBridgeJS {
                         if (o.style != null) payload.style = String(o.style);
                         return dispatch('dialog.alert', payload);
                     },
+                    prompt(opts) {
+                        const o = opts || {};
+                        const payload = {};
+                        if (o.title != null) payload.title = String(o.title);
+                        if (o.message != null) payload.message = String(o.message);
+                        if (o.default != null) payload.default = String(o.default);
+                        if (o.placeholder != null) payload.placeholder = String(o.placeholder);
+                        if (o.confirm != null) payload.confirm = String(o.confirm);
+                        if (o.cancel != null) payload.cancel = String(o.cancel);
+                        return dispatch('dialog.prompt', payload);
+                    },
+                    pickFolder(opts) {
+                        const o = opts || {};
+                        const payload = {};
+                        if (o.title != null) payload.title = String(o.title);
+                        if (o.message != null) payload.message = String(o.message);
+                        if (o.default != null) payload.default = String(o.default);
+                        return dispatch('dialog.pickFolder', payload);
+                    },
+                },
+                storage: {
+                    get(key) { return dispatch('storage.get', { key: String(key) }); },
+                    set(key, value) { return dispatch('storage.set', { key: String(key), value: value === undefined ? null : value }); },
+                    delete(key) { return dispatch('storage.delete', { key: String(key) }); },
+                    keys() { return dispatch('storage.keys', {}); },
                 },
                 modal: {
                     open(opts) {
                         const o = opts || {};
-                        const opened = dispatch('modal.open', modalLabels(o));
+                        const labels = modalLabels(o);
+                        const opened = dispatch('modal.open', labels);
                         const requestID = opened && opened.requestID;
-                        if (typeof o.onSelect === 'function' && requestID != null) modalResultHandlers[requestID] = o.onSelect;
-                        if (typeof o.onQueryChange === 'function' && requestID != null) modalQueryChangeHandlers[requestID] = o.onQueryChange;
+                        if (requestID != null) {
+                            if (typeof o.onSelect === 'function') modalResultHandlers[requestID] = o.onSelect;
+                            if (typeof o.onQuery === 'function') {
+                                modalQueryHandlers[requestID] = o.onQuery;
+                            } else if (typeof o.onQueryChange === 'function') {
+                                modalQueryHandlers[requestID] = (query, emit, options) => o.onQueryChange(query, options || {});
+                            }
+                        }
                         feedModalItems(o);
                         return requestID;
                     },
@@ -150,13 +185,14 @@ public enum ExtensionBridgeJS {
         \(gitBlock)
         \(agentsBlock)
             \(surface == .inProcess ?
-            "Object.freeze(muxy.tabs); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees); Object.freeze(muxy.files);" :
+            "Object.freeze(muxy.tabs); Object.freeze(muxy.browser); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees); Object.freeze(muxy.files);" :
             "")
             \(surface == .background ? "Object.freeze(muxy.tabs);" : "")
             Object.freeze(muxy.git); Object.freeze(muxy.git.pr); Object.freeze(muxy.git.branch); Object.freeze(muxy.git.worktree);
             Object.freeze(muxy.agents);
             Object.freeze(muxy.notifications);
             Object.freeze(muxy.dialog);
+            Object.freeze(muxy.storage);
             Object.freeze(muxy.modal);
             Object.freeze(muxy.topbar);
             Object.freeze(muxy.statusbar);
@@ -206,6 +242,13 @@ public enum ExtensionBridgeJS {
                 previous: ()              => dispatch('tabs.previous', {}),
                 open:     (request)       => dispatch('tabs.open', request || {}),
             };
+            muxy.browser = {
+                open:     (url, opts)     => dispatch('browser.open', { url: url == null ? null : String(url), split: Boolean((opts || {}).split) }),
+                navigate: (tabId, url)    => dispatch('browser.navigate', { tabId: String(tabId), url: String(url) }),
+                list:     ()              => dispatch('browser.list', {}),
+                read:     (tabId)         => dispatch('browser.read', { tabId: String(tabId) }),
+                close:    (tabId)         => dispatch('browser.close', { tabId: String(tabId) }),
+            };
             muxy.panes = {
                 list:       ()                  => dispatch('panes.list', {}),
                 send:       (paneID, text)      => dispatch('panes.send', { paneID, text: String(text) }),
@@ -218,6 +261,12 @@ public enum ExtensionBridgeJS {
                 list:     ()           => dispatch('projects.list', {}),
                 switchTo: (identifier) => dispatch('projects.switch', { identifier: String(identifier) }),
                 delete:   (identifier) => dispatch('projects.delete', { identifier: String(identifier) }),
+                add:      (path)               => dispatch('projects.add', { path: String(path) }),
+                rename:   (identifier, name)   => dispatch('projects.rename', { identifier: String(identifier), name: String(name) }),
+                setColor: (identifier, color)  => dispatch('projects.setColor', { identifier: String(identifier), color: color == null ? null : String(color) }),
+                setIcon:  (identifier, icon)   => dispatch('projects.setIcon', { identifier: String(identifier), icon: icon == null ? null : String(icon) }),
+                setLogo:  (identifier, logo)   => dispatch('projects.setLogo', { identifier: String(identifier), logo: logo == null ? null : String(logo) }),
+                reorder:  (identifiers)        => dispatch('projects.reorder', { identifiers: (identifiers || []).map(String) }),
             };
             muxy.worktrees = {
                 list:     (project)             => dispatch('worktrees.list', { project: project == null ? null : String(project) }),

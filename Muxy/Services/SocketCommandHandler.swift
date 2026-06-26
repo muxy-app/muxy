@@ -8,6 +8,7 @@ enum SocketCommandHandler {
         projectStore: ProjectStore? = nil,
         worktreeStore: WorktreeStore? = nil,
         projectGroupStore: ProjectGroupStore? = nil,
+        browserProfileStore: BrowserProfileStore? = nil,
         clientContext: NotificationSocketServer.ClientContext = .init(extensionID: nil)
     ) async -> String {
         let parts = message.components(separatedBy: "|")
@@ -188,7 +189,9 @@ enum SocketCommandHandler {
                     request,
                     appState: appState,
                     callingExtensionID: clientContext.extensionID
-                ), ok: "ok")
+                )) { tabID in
+                    tabID.uuidString
+                }
             } catch {
                 return "error:invalid open-tab payload: \(error.localizedDescription)"
             }
@@ -203,9 +206,40 @@ enum SocketCommandHandler {
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore
+                    projectGroupStore: projectGroupStore,
+                    browserProfileStore: browserProfileStore
                 )
             )
+        case "browser.open":
+            let split = parts.contains("--split")
+            let urlParts = trimTrailingEmptyFields(parts.dropFirst().filter { $0 != "--split" })
+            let url = urlParts.isEmpty ? nil : urlParts.joined(separator: "|")
+            return serialize(MuxyAPI.Browser.open(url: url, split: split, appState: appState)) { tabID in
+                tabID.uuidString
+            }
+        case "browser.navigate":
+            guard parts.count >= 3 else { return "error:usage browser.navigate|<tab-id>|<url>" }
+            return serialize(
+                MuxyAPI.Browser.navigate(
+                    tabIDString: parts[1],
+                    url: parts.dropFirst(2).joined(separator: "|"),
+                    appState: appState
+                ),
+                ok: "ok"
+            )
+        case "browser.list":
+            let browserTabs = MuxyAPI.Browser.list(appState: appState, profileStore: browserProfileStore)
+            return browserTabs.map { tab in
+                "\(tab.id.uuidString)\t\(tab.title)\t\(tab.url ?? "")\t\(tab.profile)\t\(tab.isActive)"
+            }.joined(separator: "\n")
+        case "browser.read":
+            guard parts.count >= 2 else { return "error:usage browser.read|<tab-id>" }
+            return await serialize(MuxyAPI.Browser.read(tabIDString: parts[1], appState: appState)) { content in
+                "\(content.title)\n\(content.url ?? "")\n\(content.text)"
+            }
+        case "browser.close":
+            guard parts.count >= 2 else { return "error:usage browser.close|<tab-id>" }
+            return serialize(MuxyAPI.Browser.close(tabIDString: parts[1], appState: appState), ok: "ok")
         case "extension.settings.get":
             guard parts.count >= 2 else { return "error:usage extension.settings.get|key" }
             return handleSettingsGet(key: parts[1], extensionID: clientContext.extensionID)
@@ -253,6 +287,26 @@ enum SocketCommandHandler {
         case "dialog.alert":
             guard parts.count >= 2 else { return "error:usage dialog.alert|<base64-json>" }
             return await handleDialogAlert(base64Payload: parts[1], extensionID: clientContext.extensionID)
+        case "dialog.prompt",
+             "dialog.pickFolder",
+             "storage.get",
+             "storage.set",
+             "storage.delete",
+             "storage.keys":
+            guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
+            guard let extensionID = clientContext.extensionID else { return "error:identify required" }
+            return await handleAPIVerb(
+                verb: cmd,
+                base64Payload: parts[1],
+                context: MuxyAPIDispatcher.Context(
+                    extensionID: extensionID,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore,
+                    browserProfileStore: browserProfileStore
+                )
+            )
         case "modal.open",
              "modal.feed",
              "modal.finish",
@@ -267,7 +321,8 @@ enum SocketCommandHandler {
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore
+                    projectGroupStore: projectGroupStore,
+                    browserProfileStore: browserProfileStore
                 )
             )
         case "modal-query-change":
@@ -289,7 +344,8 @@ enum SocketCommandHandler {
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore
+                    projectGroupStore: projectGroupStore,
+                    browserProfileStore: browserProfileStore
                 )
             )
         default:
@@ -404,6 +460,7 @@ enum SocketCommandHandler {
             let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: context)
             if verb == "modal.open", let dict = result as? [String: Any], let requestID = dict["requestID"] as? String {
                 registerModalResultPush(requestID: requestID, extensionID: context.extensionID)
+                registerModalQueryPush(requestID: requestID, extensionID: context.extensionID)
             }
             return encodeJSONFragment(result)
         } catch {
@@ -419,6 +476,18 @@ enum SocketCommandHandler {
                 extensionID: extensionID,
                 requestID: requestID,
                 payload: data
+            )
+        }
+    }
+
+    private static func registerModalQueryPush(requestID: String, extensionID: String) {
+        ExtensionModalService.shared.onQueryRequest(requestID: requestID) { queryID, query, options in
+            NotificationSocketServer.shared.pushModalQuery(
+                extensionID: extensionID,
+                requestID: requestID,
+                queryID: queryID,
+                query: query,
+                options: options
             )
         }
     }
@@ -616,6 +685,14 @@ enum SocketCommandHandler {
             return (fromPane, parts.dropFirst(1).dropLast().joined(separator: "|"))
         }
         return (nil, parts.dropFirst(1).joined(separator: "|"))
+    }
+
+    private static func trimTrailingEmptyFields(_ fields: [String]) -> [String] {
+        var trimmed = fields
+        while trimmed.last?.isEmpty == true {
+            trimmed.removeLast()
+        }
+        return trimmed
     }
 
     static func requiredPermissions(command: String, parts: [String]) -> [ExtensionPermission] {

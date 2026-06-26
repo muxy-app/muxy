@@ -787,21 +787,11 @@ final class GhosttyTerminalNSView: NSView {
         }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
-        if event.modifierFlags.contains(.command), !hasOSC8LinkUnderCursor, let word = readWordUnderMouse() {
-            onCmdClickFile?(word)
+        if event.modifierFlags.contains(.command), !hasOSC8LinkUnderCursor, let word = readQuicklookWordUnderMouse() {
+            onCmdClickFile?(resolvedCmdFileToken(for: word)?.text ?? word.text)
             return
         }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
-    }
-
-    private func readWordUnderMouse() -> String? {
-        guard let surface else { return nil }
-        var text = ghostty_text_s()
-        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
-        defer { ghostty_surface_free_text(surface, &text) }
-        guard let value = extractString(from: text) else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -859,12 +849,14 @@ final class GhosttyTerminalNSView: NSView {
             hideFileHoverUnderline()
             return
         }
-        guard let word = readQuicklookWordUnderMouse(), resolveCmdHoverFile?(word.text) == true else {
+        guard let word = readQuicklookWordUnderMouse(),
+              let token = resolvedCmdFileToken(for: word)
+        else {
             setHandCursor(false)
             hideFileHoverUnderline()
             return
         }
-        showFileHoverUnderline(for: word)
+        showFileHoverUnderline(for: word, token: token)
         setHandCursor(true)
     }
 
@@ -887,6 +879,29 @@ final class GhosttyTerminalNSView: NSView {
         let topLeftPoints: CGPoint
     }
 
+    private struct CmdFileToken {
+        let text: String
+        let underlineSegments: [FileUnderlineSegment]
+        let cols: Int
+    }
+
+    private struct FileUnderlineSegment {
+        let row: Int
+        let startColumn: Int
+        let endColumn: Int
+    }
+
+    private struct ScreenSnapshot {
+        let lines: [String]
+        let cols: Int
+    }
+
+    private struct PathFragment {
+        let text: String
+        let startColumn: Int
+        let endColumn: Int
+    }
+
     private func readQuicklookWordUnderMouse() -> QuicklookWord? {
         guard let surface else { return nil }
         var text = ghostty_text_s()
@@ -901,7 +916,163 @@ final class GhosttyTerminalNSView: NSView {
         )
     }
 
-    private func showFileHoverUnderline(for word: QuicklookWord) {
+    private func resolvedCmdFileToken(for word: QuicklookWord) -> CmdFileToken? {
+        if resolveCmdHoverFile?(word.text) == true {
+            return CmdFileToken(text: word.text, underlineSegments: [], cols: 0)
+        }
+        return wrappedCmdFileTokenCandidates(for: word).first { resolveCmdHoverFile?($0.text) == true }
+    }
+
+    private func wrappedCmdFileTokenCandidates(for word: QuicklookWord) -> [CmdFileToken] {
+        guard let snapshot = readScreenSnapshot(),
+              let row = screenRow(for: word, lines: snapshot.lines)
+        else {
+            return []
+        }
+        return Self.wrappedFileTokenCandidatesWithFragments(
+            word: word.text,
+            row: row,
+            lines: snapshot.lines,
+            cols: snapshot.cols
+        )
+    }
+
+    private func readScreenSnapshot() -> ScreenSnapshot? {
+        guard let surface else { return nil }
+        var out = ghostty_cells_s()
+        guard ghostty_surface_read_cells(surface, &out) else { return nil }
+        defer { ghostty_surface_free_cells(surface, &out) }
+
+        let cols = Int(out.cols)
+        let rows = Int(out.rows)
+        guard cols > 0, rows > 0, let cells = out.cells else { return nil }
+
+        var lines: [String] = []
+        lines.reserveCapacity(rows)
+        for row in 0 ..< rows {
+            var line = ""
+            for col in 0 ..< cols {
+                let cell = cells[row * cols + col]
+                let cp = cell.codepoint
+                if cp == 0 {
+                    line.append(" ")
+                } else if let scalar = Unicode.Scalar(cp) {
+                    line.append(Character(scalar))
+                } else {
+                    line.append(" ")
+                }
+            }
+            lines.append(line)
+        }
+        return ScreenSnapshot(lines: lines, cols: cols)
+    }
+
+    private func screenRow(for word: QuicklookWord, lines: [String]) -> Int? {
+        guard let rowHeight = terminalRowHeight(), rowHeight > 0 else { return nil }
+        let y = lastMouseTopDownPoint?.y ?? word.topLeftPoints.y
+        let row = Int(floor(y / rowHeight))
+        guard row >= 0, row < lines.count else { return nil }
+        return row
+    }
+
+    static func wrappedFileTokenCandidates(word: String, row: Int, lines: [String]) -> [String] {
+        wrappedFileTokenCandidatesWithFragments(word: word, row: row, lines: lines, cols: 0).map(\.text)
+    }
+
+    private static func wrappedFileTokenCandidatesWithFragments(
+        word: String,
+        row: Int,
+        lines: [String],
+        cols: Int
+    ) -> [CmdFileToken] {
+        guard row >= 0, row < lines.count,
+              let anchor = matchingPathFragment(word: word, line: lines[row])
+        else { return [] }
+
+        var fragments: [(row: Int, fragment: PathFragment)] = [(row, anchor)]
+
+        while fragments.count < maxWrappedFileTokenRows,
+              let first = fragments.first,
+              first.row > 0,
+              let previous = trailingPathFragment(from: lines[first.row - 1]),
+              shouldPrepend(previous.text, before: joinedPathText(fragments))
+        {
+            fragments.insert((first.row - 1, previous), at: 0)
+        }
+
+        while fragments.count < maxWrappedFileTokenRows,
+              let last = fragments.last,
+              last.row + 1 < lines.count,
+              let next = leadingPathFragment(from: lines[last.row + 1]),
+              shouldAppend(next.text, after: joinedPathText(fragments))
+        {
+            fragments.append((last.row + 1, next))
+        }
+
+        let text = joinedPathText(fragments)
+        guard text != word else { return [] }
+        let segments = fragments.map {
+            FileUnderlineSegment(
+                row: $0.row,
+                startColumn: $0.fragment.startColumn,
+                endColumn: $0.fragment.endColumn
+            )
+        }
+        return [CmdFileToken(text: text, underlineSegments: segments, cols: cols)]
+    }
+
+    private static let wrappedPathScalars =
+        CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/._-+@~:$%#=&")
+    private static let maxWrappedFileTokenRows = 6
+
+    private static func matchingPathFragment(word: String, line: String) -> PathFragment? {
+        [leadingPathFragment(from: line), trailingPathFragment(from: line)]
+            .compactMap(\.self)
+            .first { fragment in
+                fragment.text == word
+                    || fragment.text == ":\(word)"
+                    || ((fragment.text.contains("/") || fragment.text.hasPrefix(":")) && fragment.text.contains(word))
+            }
+    }
+
+    private static func joinedPathText(_ fragments: [(row: Int, fragment: PathFragment)]) -> String {
+        fragments.map(\.fragment.text).joined()
+    }
+
+    private static func shouldPrepend(_ previous: String, before current: String) -> Bool {
+        previous.contains("/") || previous.hasPrefix("~") || current.hasPrefix(":")
+    }
+
+    private static func shouldAppend(_ next: String, after current: String) -> Bool {
+        current.contains("/") || current.hasPrefix("~") || next.hasPrefix(":")
+    }
+
+    private static func leadingPathFragment(from line: String) -> PathFragment? {
+        let scalars = Array(line.unicodeScalars)
+        guard let start = scalars.firstIndex(where: { !CharacterSet.whitespaces.contains($0) }) else { return nil }
+        var end = start
+        while end < scalars.count, wrappedPathScalars.contains(scalars[end]) {
+            end += 1
+        }
+        guard end > start else { return nil }
+        let fragment = String(String.UnicodeScalarView(scalars[start ..< end]))
+        return PathFragment(text: fragment, startColumn: start, endColumn: end)
+    }
+
+    private static func trailingPathFragment(from line: String) -> PathFragment? {
+        let scalars = Array(line.unicodeScalars)
+        guard let last = scalars.lastIndex(where: { !CharacterSet.whitespaces.contains($0) }) else { return nil }
+        var start = last
+        while start > 0, wrappedPathScalars.contains(scalars[start - 1]) {
+            start -= 1
+        }
+        guard wrappedPathScalars.contains(scalars[last]) else { return nil }
+        let end = last + 1
+        let fragment = String(String.UnicodeScalarView(scalars[start ..< end]))
+        return PathFragment(text: fragment, startColumn: start, endColumn: end)
+    }
+
+    private func showFileHoverUnderline(for word: QuicklookWord, token: CmdFileToken) {
         guard let layer else { return }
         let underlineLayer = fileHoverUnderlineLayer ?? CAShapeLayer()
         if fileHoverUnderlineLayer == nil {
@@ -914,17 +1085,28 @@ final class GhosttyTerminalNSView: NSView {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         let font = quicklookFont()
         let textSize = (word.text as NSString).size(withAttributes: [.font: font])
-        let x = word.topLeftPoints.x
         let rowHeight = terminalRowHeight() ?? max(textSize.height, font.ascender - font.descender + font.leading)
-        let mouseY = lastMouseTopDownPoint?.y ?? word.topLeftPoints.y
-        let rowTopY = floor(mouseY / rowHeight) * rowHeight
-        let y = rowTopY + rowHeight - max(2, font.underlineThickness)
-        let width = max(textSize.width, 1)
         let thickness = max(font.underlineThickness, 1 / scale)
 
         let path = CGMutablePath()
-        path.move(to: CGPoint(x: x, y: y))
-        path.addLine(to: CGPoint(x: x + width, y: y))
+        if !token.underlineSegments.isEmpty, token.cols > 0 {
+            let cellWidth = bounds.width / CGFloat(token.cols)
+            for segment in token.underlineSegments {
+                let x = CGFloat(segment.startColumn) * cellWidth
+                let y = CGFloat(segment.row) * rowHeight + rowHeight - max(2, font.underlineThickness)
+                let width = max(CGFloat(segment.endColumn - segment.startColumn) * cellWidth, 1)
+                path.move(to: CGPoint(x: x, y: y))
+                path.addLine(to: CGPoint(x: x + width, y: y))
+            }
+        } else {
+            let x = word.topLeftPoints.x
+            let mouseY = lastMouseTopDownPoint?.y ?? word.topLeftPoints.y
+            let rowTopY = floor(mouseY / rowHeight) * rowHeight
+            let y = rowTopY + rowHeight - max(2, font.underlineThickness)
+            let width = max(textSize.width, 1)
+            path.move(to: CGPoint(x: x, y: y))
+            path.addLine(to: CGPoint(x: x + width, y: y))
+        }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)

@@ -49,6 +49,9 @@ npx skills add github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills/muxy-cli
 
 # Author Muxy extensions (manifest, window.muxy API, theming)
 npx skills add github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills/muxy-extension
+
+# Or install both into every detected AI harness at once (requires the Muxy CLI)
+muxy install-skills
 ```
 
 ## Requirements

@@ -58,6 +58,8 @@ enum ExtensionPermission: String, Codable, CaseIterable {
     case panesWrite = "panes:write"
     case tabsRead = "tabs:read"
     case tabsWrite = "tabs:write"
+    case browserRead = "browser:read"
+    case browserWrite = "browser:write"
     case projectsRead = "projects:read"
     case projectsWrite = "projects:write"
     case projectsDelete = "projects:delete"
@@ -68,6 +70,8 @@ enum ExtensionPermission: String, Codable, CaseIterable {
     case gitWrite = "git:write"
     case filesRead = "files:read"
     case filesWrite = "files:write"
+    case storageRead = "storage:read"
+    case storageWrite = "storage:write"
     case notificationsWrite = "notifications:write"
     case panelsWrite = "panels:write"
     case commandsRunScript = "commands:run-script"
@@ -84,19 +88,23 @@ enum ExtensionPermission: String, Codable, CaseIterable {
         switch self {
         case .panesRead,
              .tabsRead,
+             .browserRead,
              .projectsRead,
              .worktreesRead,
              .agentsRead,
              .gitRead,
-             .filesRead:
+             .filesRead,
+             .storageRead:
             .read
         case .panesWrite,
              .tabsWrite,
+             .browserWrite,
              .projectsWrite,
              .projectsDelete,
              .worktreesWrite,
              .gitWrite,
              .filesWrite,
+             .storageWrite,
              .notificationsWrite,
              .panelsWrite:
             .write
@@ -556,6 +564,58 @@ struct ExtensionRemoteMethod: Codable, Equatable, Identifiable {
     let description: String?
 }
 
+struct ExtensionFileOpener: Codable, Equatable, Identifiable {
+    let id: String
+    let title: String?
+    let tabType: String
+    let patterns: [String]
+    let singleton: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case tabType
+        case patterns
+        case singleton
+    }
+
+    init(
+        id: String,
+        title: String? = nil,
+        tabType: String,
+        patterns: [String] = ["*"],
+        singleton: Bool = true
+    ) {
+        self.id = id
+        self.title = title
+        self.tabType = tabType
+        self.patterns = patterns
+        self.singleton = singleton
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        tabType = try container.decode(String.self, forKey: .tabType)
+        patterns = try container.decodeIfPresent([String].self, forKey: .patterns) ?? ["*"]
+        singleton = try container.decodeIfPresent(Bool.self, forKey: .singleton) ?? true
+    }
+
+    func matches(relativePath: String) -> Bool {
+        let activePatterns = patterns.isEmpty ? ["*"] : patterns
+        return activePatterns.contains { Self.pattern($0, matches: relativePath) }
+    }
+
+    private static func pattern(_ pattern: String, matches relativePath: String) -> Bool {
+        let escaped = NSRegularExpression.escapedPattern(for: pattern)
+            .replacingOccurrences(of: "\\*", with: ".*")
+            .replacingOccurrences(of: "\\?", with: ".")
+        let regex = "^\(escaped)$"
+        return relativePath.range(of: regex, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+}
+
 struct ExtensionManifest: Codable, Equatable {
     let name: String
     let version: String
@@ -567,6 +627,7 @@ struct ExtensionManifest: Codable, Equatable {
     let panels: [ExtensionPanel]
     let popovers: [ExtensionPopover]
     let sidebar: ExtensionSidebar?
+    let fileOpeners: [ExtensionFileOpener]
     let permissions: [ExtensionPermission]
     let topbarItems: [ExtensionTopbarItem]
     let statusBarItems: [ExtensionStatusBarItem]
@@ -584,6 +645,7 @@ struct ExtensionManifest: Codable, Equatable {
         case panels
         case popovers
         case sidebar
+        case fileOpeners
         case permissions
         case topbarItems
         case statusBarItems
@@ -602,6 +664,7 @@ struct ExtensionManifest: Codable, Equatable {
         panels: [ExtensionPanel] = [],
         popovers: [ExtensionPopover] = [],
         sidebar: ExtensionSidebar? = nil,
+        fileOpeners: [ExtensionFileOpener] = [],
         permissions: [ExtensionPermission] = [],
         topbarItems: [ExtensionTopbarItem] = [],
         statusBarItems: [ExtensionStatusBarItem] = [],
@@ -618,6 +681,7 @@ struct ExtensionManifest: Codable, Equatable {
         self.panels = panels
         self.popovers = popovers
         self.sidebar = sidebar
+        self.fileOpeners = fileOpeners
         self.permissions = permissions
         self.topbarItems = topbarItems
         self.statusBarItems = statusBarItems
@@ -637,6 +701,7 @@ struct ExtensionManifest: Codable, Equatable {
         panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
         popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
         sidebar = try container.decodeIfPresent(ExtensionSidebar.self, forKey: .sidebar)
+        fileOpeners = try container.decodeIfPresent([ExtensionFileOpener].self, forKey: .fileOpeners) ?? []
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
         statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
@@ -656,6 +721,7 @@ struct ExtensionManifest: Codable, Equatable {
         panels = muxy.panels
         popovers = muxy.popovers
         sidebar = muxy.sidebar
+        fileOpeners = muxy.fileOpeners
         permissions = muxy.permissions
         topbarItems = muxy.topbarItems
         statusBarItems = muxy.statusBarItems
@@ -673,6 +739,10 @@ struct ExtensionManifest: Codable, Equatable {
 
     func popover(id: String) -> ExtensionPopover? {
         popovers.first { $0.id == id }
+    }
+
+    func fileOpener(id: String) -> ExtensionFileOpener? {
+        fileOpeners.first { $0.id == id }
     }
 
     func setting(key: String) -> ExtensionSettingEntry? {
@@ -713,6 +783,7 @@ struct MuxyManifestBody: Codable, Equatable {
     let panels: [ExtensionPanel]
     let popovers: [ExtensionPopover]
     let sidebar: ExtensionSidebar?
+    let fileOpeners: [ExtensionFileOpener]
     let permissions: [ExtensionPermission]
     let topbarItems: [ExtensionTopbarItem]
     let statusBarItems: [ExtensionStatusBarItem]
@@ -728,6 +799,7 @@ struct MuxyManifestBody: Codable, Equatable {
         case panels
         case popovers
         case sidebar
+        case fileOpeners
         case permissions
         case topbarItems
         case statusBarItems
@@ -745,6 +817,7 @@ struct MuxyManifestBody: Codable, Equatable {
         panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
         popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
         sidebar = try container.decodeIfPresent(ExtensionSidebar.self, forKey: .sidebar)
+        fileOpeners = try container.decodeIfPresent([ExtensionFileOpener].self, forKey: .fileOpeners) ?? []
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
         statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
@@ -800,6 +873,10 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case statusBarItemSVGOutsideDirectory(itemID: String, url: URL)
     case settingEmptyKey
     case duplicateSettingKey(String)
+    case fileOpenerEmptyID
+    case duplicateFileOpener(String)
+    case fileOpenerReferencesUnknownTabType(openerID: String, tabType: String)
+    case fileOpenerEmptyPattern(openerID: String)
     case remoteMethodEmptyID
     case remoteMethodInvalidID(String)
     case duplicateRemoteMethod(String)
@@ -898,6 +975,14 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Setting key must not be empty"
         case let .duplicateSettingKey(key):
             "Duplicate setting key '\(key)'"
+        case .fileOpenerEmptyID:
+            "File opener id must not be empty"
+        case let .duplicateFileOpener(id):
+            "Duplicate file opener '\(id)'"
+        case let .fileOpenerReferencesUnknownTabType(openerID, tabType):
+            "File opener '\(openerID)' references unknown tab type '\(tabType)'"
+        case let .fileOpenerEmptyPattern(openerID):
+            "File opener '\(openerID)' has an empty pattern"
         case .remoteMethodEmptyID:
             "Remote method id must not be empty"
         case let .remoteMethodInvalidID(id):
@@ -981,6 +1066,7 @@ enum ExtensionManifestLoader {
         }
 
         try validateTabTypes(manifest: manifest, in: muxyExtension)
+        try validateFileOpeners(manifest: manifest)
         try validatePanels(manifest: manifest, in: muxyExtension)
         try validatePopovers(manifest: manifest, in: muxyExtension)
         try validateSidebar(manifest: manifest, in: muxyExtension)
@@ -1044,6 +1130,26 @@ enum ExtensionManifestLoader {
             }
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw ExtensionLoadError.tabTypeEntryMissing(tabTypeID: tabType.id, url: url)
+            }
+        }
+    }
+
+    private static func validateFileOpeners(manifest: ExtensionManifest) throws {
+        let tabTypeIDs = Set(manifest.tabTypes.map(\.id))
+        var seen = Set<String>()
+        for opener in manifest.fileOpeners {
+            guard !opener.id.isEmpty else { throw ExtensionLoadError.fileOpenerEmptyID }
+            guard seen.insert(opener.id).inserted else {
+                throw ExtensionLoadError.duplicateFileOpener(opener.id)
+            }
+            guard tabTypeIDs.contains(opener.tabType) else {
+                throw ExtensionLoadError.fileOpenerReferencesUnknownTabType(
+                    openerID: opener.id,
+                    tabType: opener.tabType
+                )
+            }
+            if opener.patterns.contains(where: \.isEmpty) {
+                throw ExtensionLoadError.fileOpenerEmptyPattern(openerID: opener.id)
             }
         }
     }

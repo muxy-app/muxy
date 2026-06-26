@@ -70,6 +70,10 @@ final class IDEIntegrationService: ObservableObject {
     @Published private(set) var installedApps: [IDEApplication] = []
     @Published private(set) var selectedBundleIdentifier: String?
 
+    var selectedFileOpenerValue: String {
+        defaults.string(forKey: FileOpenerSelection.storageKey) ?? FileOpenerSelection.builtinValue
+    }
+
     private let workspace: NSWorkspace
     private let defaults: UserDefaults
     private let fileManager: FileManager
@@ -91,6 +95,16 @@ final class IDEIntegrationService: ObservableObject {
         if selectedBundleIdentifier != identifier {
             selectedBundleIdentifier = identifier
         }
+        setSelectedFileOpenerValue(FileOpenerSelection.builtinValue)
+    }
+
+    func selectFileOpener(extensionID: String, openerID: String) {
+        setSelectedFileOpenerValue(FileOpenerSelection.value(extensionID: extensionID, openerID: openerID))
+    }
+
+    func setSelectedFileOpenerValue(_ value: String) {
+        objectWillChange.send()
+        defaults.set(value, forKey: FileOpenerSelection.storageKey)
     }
 
     var defaultIDE: IDEApplication? {

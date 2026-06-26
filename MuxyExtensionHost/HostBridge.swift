@@ -254,12 +254,12 @@ final class HostBridge: @unchecked Sendable {
         }
     }
 
-    func handleModalQueryChangeLine(_ line: String) {
-        guard let parsed = ExtensionModalQueryChange.parse(line) else { return }
+    func handleModalQueryLine(_ line: String) {
+        guard let parsed = ExtensionModalQuery.parse(line) else { return }
         let box = ContextBox(context)
         DispatchQueue.main.async {
-            let queryChange = box.context.objectForKeyedSubscript("__muxyModalQueryChange")
-            queryChange?.call(withArguments: [parsed.requestID, parsed.query])
+            let deliver = box.context.objectForKeyedSubscript("__muxyDeliverModalQuery")
+            deliver?.call(withArguments: [parsed.requestID, parsed.queryID, parsed.query, parsed.options])
         }
     }
 

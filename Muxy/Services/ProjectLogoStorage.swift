@@ -47,6 +47,15 @@ enum ProjectLogoStorage {
             .path
     }
 
+    static func safeLogoPath(for filename: String) -> String? {
+        guard isSafeFilename(filename) else { return nil }
+        return logoPath(for: filename)
+    }
+
+    static func isStoredLogoFilename(_ filename: String, forProjectID projectID: UUID) -> Bool {
+        filename == "\(projectID.uuidString).png"
+    }
+
     static func remove(forProjectID projectID: UUID) {
         let dir = logosDirectory()
         guard let contents = try? FileManager.default.contentsOfDirectory(
@@ -59,5 +68,12 @@ enum ProjectLogoStorage {
         for file in contents where file.deletingPathExtension().lastPathComponent == prefix {
             try? FileManager.default.removeItem(at: file)
         }
+    }
+
+    private static func isSafeFilename(_ filename: String) -> Bool {
+        guard !filename.isEmpty else { return false }
+        guard filename != ".", filename != ".." else { return false }
+        guard filename.rangeOfCharacter(from: CharacterSet(charactersIn: "/\\")) == nil else { return false }
+        return filename == URL(fileURLWithPath: filename).lastPathComponent
     }
 }

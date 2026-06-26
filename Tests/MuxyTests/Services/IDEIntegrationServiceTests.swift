@@ -53,6 +53,28 @@ struct IDEIntegrationServiceTests {
         #expect(resolved?.bundleIdentifier == zed.bundleIdentifier)
     }
 
+    @Test("file opener selection values round trip")
+    func fileOpenerSelectionValuesRoundTrip() throws {
+        let value = FileOpenerSelection.value(extensionID: "files", openerID: "editor")
+        let parsed = try #require(FileOpenerSelection.parse(value))
+
+        #expect(parsed.extensionID == "files")
+        #expect(parsed.openerID == "editor")
+        #expect(FileOpenerSelection.parse(FileOpenerSelection.builtinValue) == nil)
+        #expect(FileOpenerSelection.parse("files") == nil)
+    }
+
+    @Test("file opener selection persists and survives relaunch")
+    func fileOpenerSelectionPersists() throws {
+        let defaults = try #require(UserDefaults(suiteName: "muxy.tests.\(UUID().uuidString)"))
+        let service = IDEIntegrationService(defaults: defaults)
+
+        service.selectFileOpener(extensionID: "files", openerID: "editor")
+
+        #expect(service.selectedFileOpenerValue == FileOpenerSelection.value(extensionID: "files", openerID: "editor"))
+        #expect(IDEIntegrationService(defaults: defaults).selectedFileOpenerValue == service.selectedFileOpenerValue)
+    }
+
     @Test("launchCommands uses vscode CLI goto strategy when available")
     func launchCommandsUsesVSCodeCLIGotoStrategyWhenAvailable() {
         let ide = IDEIntegrationService.IDEApplication(

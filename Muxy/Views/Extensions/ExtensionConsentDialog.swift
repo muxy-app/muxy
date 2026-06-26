@@ -80,7 +80,10 @@ private struct ExtensionConsentSheetHost: NSViewRepresentable {
 
         private func present(request: ExtensionConsentRequest) {
             guard let window = parentWindow() else { return }
-            let sheet = ExtensionConsentSheetWindow(request: request) { [weak self] choice in
+            let sheet = ExtensionConsentSheetWindow(
+                request: request,
+                visibleFrame: window.screen?.visibleFrame
+            ) { [weak self] choice in
                 guard let self else { return }
                 let request = self.sheet?.currentRequest ?? request
                 self.onChoice(request, choice)
@@ -106,20 +109,27 @@ private final class ExtensionConsentSheetWindow: NSPanel {
 
     init(
         request: ExtensionConsentRequest,
+        visibleFrame: NSRect?,
         onChoice: @escaping (ExtensionConsentChoice) -> Void
     ) {
         currentRequest = request
         self.onChoice = onChoice
-        let dialog = ExtensionConsentDialog(request: request, onChoice: onChoice)
+        let frame = visibleFrame ?? NSScreen.main?.visibleFrame
+        let dialog = ExtensionConsentDialog(
+            request: request,
+            payloadMaxHeight: ExtensionConsentSheetLayout.payloadMaxHeight(for: frame),
+            onChoice: onChoice
+        )
         let host = NSHostingView(rootView: dialog)
         host.translatesAutoresizingMaskIntoConstraints = true
         hostingView = host
 
-        let intrinsic = host.fittingSize
-        let width: CGFloat = max(520, intrinsic.width)
-        let height: CGFloat = intrinsic.height
+        let size = ExtensionConsentSheetLayout.contentSize(
+            for: host.fittingSize,
+            visibleFrame: frame
+        )
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
             styleMask: [.titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -132,15 +142,23 @@ private final class ExtensionConsentSheetWindow: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         contentView = host
-        host.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        host.frame = NSRect(origin: .zero, size: size)
     }
 
     func updateRequest(_ request: ExtensionConsentRequest) {
         currentRequest = request
-        hostingView.rootView = ExtensionConsentDialog(request: request, onChoice: onChoice)
-        let fitting = hostingView.fittingSize
-        let newSize = NSSize(width: max(520, fitting.width), height: fitting.height)
+        let frame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        hostingView.rootView = ExtensionConsentDialog(
+            request: request,
+            payloadMaxHeight: ExtensionConsentSheetLayout.payloadMaxHeight(for: frame),
+            onChoice: onChoice
+        )
+        let newSize = ExtensionConsentSheetLayout.contentSize(
+            for: hostingView.fittingSize,
+            visibleFrame: frame
+        )
         setContentSize(newSize)
+        hostingView.frame = NSRect(origin: .zero, size: newSize)
     }
 
     override var canBecomeKey: Bool { true }
@@ -151,8 +169,36 @@ private final class ExtensionConsentSheetWindow: NSPanel {
     }
 }
 
+enum ExtensionConsentSheetLayout {
+    static let width: CGFloat = 520
+    static let minimumHeight: CGFloat = 220
+    static let screenMargin: CGFloat = 80
+    static let payloadFallbackHeight: CGFloat = 260
+    static let payloadMinimumHeight: CGFloat = 80
+
+    static func availableHeight(for visibleFrame: NSRect?) -> CGFloat {
+        visibleFrame.map { max(minimumHeight, $0.height - screenMargin) } ?? .greatestFiniteMagnitude
+    }
+
+    @MainActor
+    static func payloadMaxHeight(for visibleFrame: NSRect?) -> CGFloat {
+        guard let visibleFrame else { return payloadFallbackHeight }
+        let available = availableHeight(for: visibleFrame) - chromeHeight
+        return max(payloadMinimumHeight, min(payloadFallbackHeight, available))
+    }
+
+    static func contentSize(for fittingSize: NSSize, visibleFrame: NSRect?) -> NSSize {
+        let height = min(fittingSize.height, availableHeight(for: visibleFrame))
+        return NSSize(width: max(width, fittingSize.width), height: height)
+    }
+
+    @MainActor
+    private static var chromeHeight: CGFloat { UIMetrics.scaled(200) }
+}
+
 struct ExtensionConsentDialog: View {
     let request: ExtensionConsentRequest
+    var payloadMaxHeight: CGFloat = ExtensionConsentSheetLayout.payloadFallbackHeight
     let onChoice: (ExtensionConsentChoice) -> Void
 
     @State private var blockKind = false
@@ -165,7 +211,7 @@ struct ExtensionConsentDialog: View {
             buttons
         }
         .padding(20)
-        .frame(maxWidth: 520, alignment: .leading)
+        .frame(width: ExtensionConsentSheetLayout.width, alignment: .leading)
         .background(MuxyTheme.bg)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
@@ -192,16 +238,19 @@ struct ExtensionConsentDialog: View {
     }
 
     private var payloadBox: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(request.payloadDetails.enumerated()), id: \.offset) { _, detail in
-                Text(detail)
-                    .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
-                    .foregroundStyle(MuxyTheme.fg)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(request.payloadDetails.enumerated()), id: \.offset) { _, detail in
+                    Text(detail)
+                        .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fg)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
+            .padding(12)
         }
-        .padding(12)
+        .frame(maxHeight: payloadMaxHeight)
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
     }
 
@@ -217,12 +266,18 @@ struct ExtensionConsentDialog: View {
                 Image(systemName: "info.circle")
                     .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.fgMuted)
-                Text("\"Remember\" saves rule: ")
-                    .font(.system(size: UIMetrics.fontCaption))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    + Text(rememberRuleDescription)
-                    .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
-                    .foregroundStyle(MuxyTheme.fg)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\"Remember\" saves rule")
+                        .font(.system(size: UIMetrics.fontCaption))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                    Text(rememberRuleDescription)
+                        .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fg)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .help(rememberRuleDescription)
+                }
                 Spacer()
             }
         }

@@ -1,6 +1,6 @@
 # Extension Dialogs
 
-Native macOS sheets an extension can present on the main window: a multi-button **confirm** dialog and a single-button **alert**. Both render as a real `NSAlert` sheet attached to the Muxy window — they look identical to the app's own prompts and block until the user responds.
+Native macOS sheets an extension can present on the main window: a multi-button **confirm** dialog, a single-button **alert**, a single-field **prompt**, and a folder picker (**pickFolder**). Each renders as a real `NSAlert`/`NSOpenPanel` sheet attached to the Muxy window — they look identical to the app's own prompts and block until the user responds.
 
 `dialog` is available on all three surfaces: webview pages (tabs, panels, popovers) via [`window.muxy`](tabs.md#windowmuxy), [`runScript`](scripts.md) palette-command scripts via `muxy`, and the [background script](manifest.md) `muxy` global. It needs **no permission** — the user has to dismiss every dialog themselves, so there is nothing to gate ([what permissions don't gate](permissions.md#what-permissions-dont-gate)).
 
@@ -51,6 +51,52 @@ await muxy.dialog.alert({
 | `title` | string | one of title/message | The bold heading line. |
 | `message` | string | one of title/message | The informative body text. |
 | `style` | string | no | `'info'`, `'warning'`, or `'critical'`. Defaults to `'info'`. |
+
+## prompt
+
+Shows a dialog with a single text field and resolves with the entered **string**, or `null` if the user cancelled (Esc or the cancel button).
+
+```js
+const name = await muxy.dialog.prompt({
+  title: 'Rename worktree',
+  message: 'Enter a new branch name.',
+  default: 'feature/login',   // pre-filled text
+  placeholder: 'branch name', // shown when empty
+  confirm: 'Rename',          // confirm button label (default 'OK')
+  cancel: 'Cancel',           // cancel button label (default 'Cancel')
+});
+
+if (name !== null) { /* … */ }
+```
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `title` | string | one of title/message | The bold heading line. |
+| `message` | string | one of title/message | The informative body text. |
+| `default` | string | no | Pre-filled field value. |
+| `placeholder` | string | no | Placeholder shown when the field is empty. |
+| `confirm` | string | no | Confirm (Return) button label. Defaults to `'OK'`. |
+| `cancel` | string | no | Cancel (Esc) button label. Defaults to `'Cancel'`. |
+
+## pickFolder
+
+Opens a native folder picker and resolves with the absolute **path** of the chosen directory, or `null` if cancelled.
+
+```js
+const folder = await muxy.dialog.pickFolder({
+  title: 'Choose a project folder',
+  message: 'Add',           // the panel's confirm button label
+  default: '~/Projects',    // initial directory (tilde expanded)
+});
+
+if (folder !== null) { /* … */ }
+```
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `title` | string | no | Message shown above the panel. |
+| `message` | string | no | Confirm button label of the panel. |
+| `default` | string | no | Initial directory; a leading `~` is expanded. |
 
 ## Notes
 

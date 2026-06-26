@@ -93,6 +93,7 @@ enum ExtensionWebBridge {
                 if (o.placeholder != null) labels.placeholder = String(o.placeholder);
                 if (o.emptyLabel != null) labels.emptyLabel = String(o.emptyLabel);
                 if (o.noMatchLabel != null) labels.noMatchLabel = String(o.noMatchLabel);
+                if (typeof o.onQuery === 'function' || typeof o.onQueryChange === 'function') labels.dynamic = true;
                 return labels;
             };
 
@@ -102,6 +103,22 @@ enum ExtensionWebBridge {
                 for (const callback of listeners) {
                     try { callback(payload || {}); } catch (_) {}
                 }
+            };
+
+            const modalQueryHandlers = new Map();
+            window.__muxyDeliverModalQuery = async (requestID, queryID, query, options) => {
+                const key = String(requestID);
+                const handler = modalQueryHandlers.get(key);
+                const emit = (batch) => send('modal.feed', { items: normalizeModalItems(batch), queryID });
+                try {
+                    if (typeof handler === 'function') {
+                        const produced = await handler(query, emit, options || {});
+                        if (produced != null) await emit(produced);
+                    }
+                } catch (error) {
+                    console.error(error);
+                }
+                await send('modal.finish', { queryID });
             };
 
             let beforeCloseHandler = null;
@@ -168,6 +185,15 @@ enum ExtensionWebBridge {
                         return send('tabs.setIcon', { tabInstanceID: muxy.tabInstanceID, icon: icon ?? null });
                     },
                 },
+                browser: {
+                    open(url, opts) {
+                        return send('browser.open', { url: url == null ? null : String(url), split: Boolean((opts || {}).split) });
+                    },
+                    navigate(tabId, url) { return send('browser.navigate', { tabId: String(tabId), url: String(url) }); },
+                    list() { return send('browser.list', {}); },
+                    read(tabId) { return send('browser.read', { tabId: String(tabId) }); },
+                    close(tabId) { return send('browser.close', { tabId: String(tabId) }); },
+                },
                 panes: {
                     list() { return send('panes.list', {}); },
                     send(paneID, text) { return send('panes.send', { paneID, text: String(text) }); },
@@ -181,6 +207,22 @@ enum ExtensionWebBridge {
                 projects: {
                     list() { return send('projects.list', {}); },
                     switchTo(identifier) { return send('projects.switch', { identifier: String(identifier) }); },
+                    delete(identifier) { return send('projects.delete', { identifier: String(identifier) }); },
+                    add(path) { return send('projects.add', { path: String(path) }); },
+                    rename(identifier, name) { return send('projects.rename', { identifier: String(identifier), name: String(name) }); },
+                    setColor(identifier, color) {
+                        const payload = { identifier: String(identifier), color: color == null ? null : String(color) };
+                        return send('projects.setColor', payload);
+                    },
+                    setIcon(identifier, icon) {
+                        const payload = { identifier: String(identifier), icon: icon == null ? null : String(icon) };
+                        return send('projects.setIcon', payload);
+                    },
+                    setLogo(identifier, logo) {
+                        const payload = { identifier: String(identifier), logo: logo == null ? null : String(logo) };
+                        return send('projects.setLogo', payload);
+                    },
+                    reorder(identifiers) { return send('projects.reorder', { identifiers: (identifiers || []).map(String) }); },
                 },
                 panels: {
                     open(panel, data) { return send('panel.open', { panel: String(panel), data: data ?? null }); },
@@ -211,25 +253,60 @@ enum ExtensionWebBridge {
                         if (o.style != null) payload.style = String(o.style);
                         return send('dialog.alert', payload);
                     },
+                    prompt(opts) {
+                        const o = opts || {};
+                        const payload = {};
+                        if (o.title != null) payload.title = String(o.title);
+                        if (o.message != null) payload.message = String(o.message);
+                        if (o.default != null) payload.default = String(o.default);
+                        if (o.placeholder != null) payload.placeholder = String(o.placeholder);
+                        if (o.confirm != null) payload.confirm = String(o.confirm);
+                        if (o.cancel != null) payload.cancel = String(o.cancel);
+                        return send('dialog.prompt', payload);
+                    },
+                    pickFolder(opts) {
+                        const o = opts || {};
+                        const payload = {};
+                        if (o.title != null) payload.title = String(o.title);
+                        if (o.message != null) payload.message = String(o.message);
+                        if (o.default != null) payload.default = String(o.default);
+                        return send('dialog.pickFolder', payload);
+                    },
+                },
+                storage: {
+                    get(key) { return send('storage.get', { key: String(key) }); },
+                    set(key, value) { return send('storage.set', { key: String(key), value: value === undefined ? null : value }); },
+                    delete(key) { return send('storage.delete', { key: String(key) }); },
+                    keys() { return send('storage.keys', {}); },
                 },
                 modal: {
                     async open(opts) {
                         const o = opts || {};
-                        const opened = await send('modal.open', modalLabels(o));
+                        const labels = modalLabels(o);
+                        const opened = await send('modal.open', labels);
                         const requestID = opened && opened.requestID;
+                        if (requestID != null) {
+                            if (typeof o.onQuery === 'function') {
+                                modalQueryHandlers.set(String(requestID), o.onQuery);
+                            } else if (typeof o.onQueryChange === 'function') {
+                                modalQueryHandlers.set(String(requestID), (query, emit, options) => o.onQueryChange(query, options || {}));
+                            }
+                        }
                         const emit = (batch) => send('modal.feed', { items: normalizeModalItems(batch) });
-                        if (typeof o.items === 'function') {
-                            const produced = await o.items(emit);
-                            if (produced != null) await emit(produced);
-                        } else {
-                            await emit(o.items);
-                        }
-                        if (typeof o.onQueryChange !== 'function') {
+                        try {
+                            if (typeof o.items === 'function') {
+                                const produced = await o.items(emit);
+                                if (produced != null) await emit(produced);
+                            } else {
+                                await emit(o.items);
+                            }
                             await send('modal.finish', {});
+                            const choice = await send('modal.await', { requestID });
+                            if (typeof o.onSelect === 'function') o.onSelect(choice);
+                            return choice;
+                        } finally {
+                            if (requestID != null) modalQueryHandlers.delete(String(requestID));
                         }
-                        const choice = await send('modal.await', { requestID });
-                        if (typeof o.onSelect === 'function') o.onSelect(choice);
-                        return choice;
                     },
                     async feed(items) {
                         return await send('modal.feed', { items: normalizeModalItems(items) });
@@ -503,11 +580,13 @@ enum ExtensionWebBridge {
 
             Object.freeze(muxy.notifications);
             Object.freeze(muxy.tabs);
+            Object.freeze(muxy.browser);
             Object.freeze(muxy.panes);
             Object.freeze(muxy.projects);
             Object.freeze(muxy.panels);
             Object.freeze(muxy.popover);
             Object.freeze(muxy.dialog);
+            Object.freeze(muxy.storage);
             Object.freeze(muxy.modal);
             Object.freeze(muxy.topbar);
             Object.freeze(muxy.statusbar);

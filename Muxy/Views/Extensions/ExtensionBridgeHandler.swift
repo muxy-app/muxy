@@ -12,6 +12,7 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
     private weak var projectStore: ProjectStore?
     private weak var worktreeStore: WorktreeStore?
     private weak var projectGroupStore: ProjectGroupStore?
+    private weak var browserProfileStore: BrowserProfileStore?
     private weak var webView: WKWebView?
     private var eventObservers: [String: UUID] = [:]
     private var extensionEventObservers: [String: UUID] = [:]
@@ -26,13 +27,15 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
         appState: AppState,
         projectStore: ProjectStore?,
         worktreeStore: WorktreeStore?,
-        projectGroupStore: ProjectGroupStore?
+        projectGroupStore: ProjectGroupStore?,
+        browserProfileStore: BrowserProfileStore? = nil
     ) {
         self.extensionID = extensionID
         self.appState = appState
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
         self.projectGroupStore = projectGroupStore
+        self.browserProfileStore = browserProfileStore
     }
 
     func attach(to webView: WKWebView) {
@@ -193,19 +196,48 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
         case "lifecycle.closeSelf":
             handleCloseSelf(appState: appState)
             return NSNull()
+        case "modal.open":
+            let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: makeContext(appState: appState))
+            if let dict = result as? [String: Any], let requestID = dict["requestID"] as? String {
+                registerModalQueryPush(requestID: requestID)
+            }
+            return result
         default:
-            return try await MuxyAPIDispatcher.dispatch(
-                verb: verb,
-                args: args,
-                context: MuxyAPIDispatcher.Context(
-                    extensionID: extensionID,
-                    appState: appState,
-                    projectStore: projectStore,
-                    worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore
-                )
-            )
+            return try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: makeContext(appState: appState))
         }
+    }
+
+    private func makeContext(appState: AppState) -> MuxyAPIDispatcher.Context {
+        MuxyAPIDispatcher.Context(
+            extensionID: extensionID,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore,
+            browserProfileStore: browserProfileStore
+        )
+    }
+
+    private func registerModalQueryPush(requestID: String) {
+        ExtensionModalService.shared.onQueryRequest(requestID: requestID) { [weak self] queryID, query, options in
+            self?.deliverModalQuery(requestID: requestID, queryID: queryID, query: query, options: options)
+        }
+    }
+
+    private func deliverModalQuery(
+        requestID: String,
+        queryID: Int,
+        query: String,
+        options: ExtensionModalSearchOptions
+    ) {
+        guard let webView else { return }
+        let optionsLiteral = jsLiteral(payloadJSON: options.payload)
+        let script = """
+        if (typeof window.__muxyDeliverModalQuery === 'function') {
+            window.__muxyDeliverModalQuery(\(jsLiteral(requestID)), \(queryID), \(jsLiteral(query)), \(optionsLiteral));
+        }
+        """
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     private func handleSubscribe(args: [String: Any]) throws -> Any {
@@ -319,6 +351,13 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
     }
 
     private func jsLiteral(payloadJSON: [String: String]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: payloadJSON),
+              let literal = String(data: data, encoding: .utf8)
+        else { return "{}" }
+        return literal
+    }
+
+    private func jsLiteral(payloadJSON: [String: Bool]) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: payloadJSON),
               let literal = String(data: data, encoding: .utf8)
         else { return "{}" }

@@ -30,10 +30,27 @@ struct TabAreaTests {
     func createTab() {
         let area = TabArea(projectPath: testPath)
         let originalTabID = area.activeTabID
-        area.createTab()
+        let newID = area.createTab()
         #expect(area.tabs.count == 2)
         #expect(area.activeTabID != originalTabID)
         #expect(area.activeTabID == area.tabs[1].id)
+        #expect(newID == area.tabs[1].id)
+    }
+
+    @Test("createExtensionTab returns the ExtensionTabState instance id")
+    func createExtensionTabReturnsInstanceID() {
+        let area = TabArea(projectPath: testPath)
+        let instanceID = area.createExtensionTab(extensionID: "demo", tabTypeID: "panel", title: "Demo", data: nil)
+        let created = area.tabs[1]
+        #expect(created.content.extensionState?.id == instanceID)
+        #expect(created.id != instanceID)
+    }
+
+    @Test("createCommandTab returns nil for an empty command")
+    func createCommandTabReturnsNilForEmptyCommand() {
+        let area = TabArea(projectPath: testPath)
+        #expect(area.createCommandTab(name: "Empty", command: " ") == nil)
+        #expect(area.createCommandTab(name: "Run", command: "ls") == area.tabs[1].id)
     }
 
     @Test("createCommandTab adds terminal tab with startup command")

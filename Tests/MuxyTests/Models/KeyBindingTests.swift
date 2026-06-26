@@ -121,6 +121,12 @@ struct KeyBindingTests {
         #expect(combos[.toggleExtensionConsole] == KeyCombo(key: "`", command: true))
     }
 
+    @Test("Inspect Element uses Cmd+Opt+I by default")
+    func defaultsIncludesInspectElementShortcut() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.inspectElement] == KeyCombo(key: "i", command: true, option: true))
+    }
+
     @Test("Refresh Worktrees uses Cmd+Opt+R by default")
     func refreshWorktreesUsesCommandOptionRByDefault() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })

@@ -10,6 +10,7 @@ private struct ShortcutMetadata {
 enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newTab
     case newHomeTab
+    case newBrowserTab
     case closeTab
     case renameTab
     case pinUnpinTab
@@ -65,10 +66,12 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case toggleVoiceRecording
     case toggleFullScreen
     case toggleExtensionConsole
+    case inspectElement
 
     static let allCases: [Self] = [
         .newTab,
         .newHomeTab,
+        .newBrowserTab,
         .closeTab,
         .renameTab,
         .pinUnpinTab,
@@ -123,6 +126,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .toggleVoiceRecording,
         .toggleFullScreen,
         .toggleExtensionConsole,
+        .inspectElement,
     ]
 
     var id: String { rawValue }
@@ -131,6 +135,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .newTab: ShortcutMetadata(displayName: "New Tab", category: "Tabs", scope: .mainWindow)
         case .newHomeTab: ShortcutMetadata(displayName: "New Home Tab", category: "Tabs", scope: .mainWindow)
+        case .newBrowserTab: ShortcutMetadata(displayName: "New Browser Tab", category: "Tabs", scope: .mainWindow)
         case .closeTab: ShortcutMetadata(displayName: "Close Tab", category: "Tabs", scope: .mainWindow)
         case .renameTab: ShortcutMetadata(displayName: "Rename Tab", category: "Tabs", scope: .mainWindow)
         case .pinUnpinTab: ShortcutMetadata(displayName: "Pin/Unpin Tab", category: "Tabs", scope: .mainWindow)
@@ -222,6 +227,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 category: "Extensions",
                 scope: .mainWindow
             )
+        case .inspectElement: ShortcutMetadata(displayName: "Inspect Element", category: "Browser", scope: .browser)
         }
     }
 
@@ -230,7 +236,18 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "App", "Extensions"]
+        [
+            "Tabs",
+            "Panes",
+            "Tab Navigation",
+            "Project Navigation",
+            "Navigation",
+            "Browser",
+            "Terminal",
+            "Rich Input",
+            "App",
+            "Extensions",
+        ]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -291,6 +308,7 @@ struct KeyBinding: Codable, Identifiable {
     static let defaults: [Self] = [
         Self(action: .newTab, combo: KeyCombo(key: "t", command: true)),
         Self(action: .newHomeTab, combo: KeyCombo(key: "n", command: true)),
+        Self(action: .newBrowserTab, combo: KeyCombo(key: "b", command: true, option: true)),
         Self(action: .closeTab, combo: KeyCombo(key: "w", command: true)),
         Self(action: .renameTab, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .pinUnpinTab, combo: KeyCombo(key: "", modifiers: 0)),
@@ -345,5 +363,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .toggleVoiceRecording, combo: KeyCombo(key: "i", command: true, shift: true)),
         Self(action: .toggleFullScreen, combo: KeyCombo(key: "f", command: true, control: true)),
         Self(action: .toggleExtensionConsole, combo: KeyCombo(key: "`", command: true)),
+        Self(action: .inspectElement, combo: KeyCombo(key: "i", command: true, option: true)),
     ]
 }

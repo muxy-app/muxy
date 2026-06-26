@@ -159,24 +159,26 @@ struct WorkspaceReducerTests {
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
 
         let action = AppState.Action.createTab(projectID: projectID, areaID: nil)
-        _ = WorkspaceReducer.reduce(action: action, state: &state)
+        let effects = WorkspaceReducer.reduce(action: action, state: &state)
 
         let area = focusedArea(in: state, projectID: projectID)
         #expect(area?.tabs.count == 2)
+        #expect(effects.createdTabID == area?.tabs[1].id)
     }
 
-    @Test("createExtensionTab adds extension tab")
+    @Test("createExtensionTab adds extension tab and reports the instance id")
     func createExtensionTab() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
 
         let action = extensionTabAction(projectID: projectID, data: .object(["pr": .number(1)]), singleton: false)
-        _ = WorkspaceReducer.reduce(action: action, state: &state)
+        let effects = WorkspaceReducer.reduce(action: action, state: &state)
 
         let area = focusedArea(in: state, projectID: projectID)
         #expect(area?.activeTab?.kind == .extensionWebView)
         #expect(area?.activeTab?.content.extensionState?.data == .object(["pr": .number(1)]))
+        #expect(effects.createdTabID == area?.activeTab?.content.extensionState?.id)
     }
 
     @Test("non-singleton extension tab opens a duplicate every time")
@@ -204,14 +206,17 @@ struct WorkspaceReducerTests {
         let area = focusedArea(in: state, projectID: projectID)
         let firstTabID = area?.activeTabID
 
+        let reusedInstanceID = area?.activeTab?.content.extensionState?.id
+
         area?.createTab()
 
         let second = extensionTabAction(projectID: projectID, data: .object(["pr": .number(2)]), singleton: true)
-        _ = WorkspaceReducer.reduce(action: second, state: &state)
+        let effects = WorkspaceReducer.reduce(action: second, state: &state)
 
         #expect(area?.tabs.filter { $0.kind == .extensionWebView }.count == 1)
         #expect(area?.activeTabID == firstTabID)
         #expect(area?.activeTab?.content.extensionState?.data == .object(["pr": .number(2)]))
+        #expect(effects.createdTabID == reusedInstanceID)
     }
 
     private func extensionTabAction(
@@ -397,7 +402,7 @@ struct WorkspaceReducerTests {
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         let originalAreaID = state.focusedAreaID[key]!
 
-        _ = WorkspaceReducer.reduce(
+        let effects = WorkspaceReducer.reduce(
             action: .splitArea(AppState.SplitAreaRequest(
                 projectID: projectID,
                 areaID: originalAreaID,
@@ -410,6 +415,8 @@ struct WorkspaceReducerTests {
         let root = state.workspaceRoots[key]!
         #expect(root.allAreas().count == 2)
         #expect(state.focusedAreaID[key] != originalAreaID)
+        let newArea = root.findArea(id: state.focusedAreaID[key]!)
+        #expect(effects.createdPaneID == newArea?.tabs.first?.content.pane?.id)
     }
 
     @Test("closeArea removes area and focuses from history")

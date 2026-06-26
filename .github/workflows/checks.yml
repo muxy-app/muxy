@@ -7,7 +7,7 @@ on:
 jobs:
   checks:
     name: Checks
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
