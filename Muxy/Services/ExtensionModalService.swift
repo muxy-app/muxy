@@ -276,17 +276,40 @@ final class ExtensionModalService {
         return Page(items: pageItems, hasMore: false)
     }
 
+    static let maxRegexPatternLength = 200
+    static let maxRegexScanDuration: TimeInterval = 0.1
+
     private static func matcher(for needle: String, options: ExtensionModalSearchOptions) -> ((Item) -> Bool)? {
         if options.regex {
+            guard needle.count <= maxRegexPatternLength else { return nil }
             let pattern = options.wholeWord ? "(?<![\\p{L}\\p{N}_])(?:\(needle))(?![\\p{L}\\p{N}_])" : needle
             let regexOptions: NSRegularExpression.Options = options.caseSensitive ? [] : [.caseInsensitive]
             guard let expression = try? NSRegularExpression(pattern: pattern, options: regexOptions) else { return nil }
-            return { item in
-                let range = NSRange(item.haystack.startIndex ..< item.haystack.endIndex, in: item.haystack)
-                return expression.firstMatch(in: item.haystack, range: range) != nil
-            }
+            let deadline = Date().addingTimeInterval(maxRegexScanDuration)
+            return { item in regexMatches(expression, in: item.haystack, deadline: deadline) }
         }
         return { item in literalMatches(item.haystack, needle: needle, options: options) }
+    }
+
+    private static func regexMatches(
+        _ expression: NSRegularExpression,
+        in haystack: String,
+        deadline: Date
+    ) -> Bool {
+        guard Date() < deadline else { return false }
+        let range = NSRange(haystack.startIndex ..< haystack.endIndex, in: haystack)
+        var matched = false
+        expression.enumerateMatches(in: haystack, options: .reportProgress, range: range) { result, _, stop in
+            if result != nil {
+                matched = true
+                stop.pointee = true
+                return
+            }
+            if Date() >= deadline {
+                stop.pointee = true
+            }
+        }
+        return matched
     }
 
     private static func literalMatches(

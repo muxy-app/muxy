@@ -121,6 +121,26 @@ struct ExtensionModalServiceTests {
         #expect(service.filter("[", in: items, options: .init(regex: true)).isEmpty)
     }
 
+    @Test("regex search rejects an over-length pattern")
+    func regexSearchRejectsOverLengthPattern() {
+        let service = ExtensionModalService()
+        let items = [ExtensionModalService.Item(id: "a", title: "Alpha", subtitle: nil)]
+        let pattern = String(repeating: "a", count: ExtensionModalService.maxRegexPatternLength + 1)
+        #expect(service.filter(pattern, in: items, options: .init(regex: true)).isEmpty)
+    }
+
+    @Test("catastrophic regex stays bounded instead of hanging the caller")
+    func catastrophicRegexStaysBounded() {
+        let service = ExtensionModalService()
+        let items = (0 ..< 200).map {
+            ExtensionModalService.Item(id: "\($0)", title: String(repeating: "a", count: 60) + "!", subtitle: nil)
+        }
+        let start = ContinuousClock.now
+        _ = service.filter("(a+)+$", in: items, options: .init(regex: true))
+        let elapsed = start.duration(to: .now)
+        #expect(elapsed < .seconds(1), "catastrophic regex scan took \(elapsed)")
+    }
+
     @Test("page windows the dataset and reports hasMore")
     func pageWindowsDataset() {
         let service = ExtensionModalService()
@@ -454,6 +474,29 @@ struct ExtensionModalServiceTests {
         #expect(parsed.query == "a|b c")
         #expect(ExtensionModalQuery.serialize(requestID: "bad|id", queryID: 1, query: "x") == nil)
         #expect(ExtensionModalQuery.parse("modal-query|ext:1|notanumber|eA==") == nil)
+    }
+
+    @Test("modal query serialization omits the options segment when options are empty")
+    func modalQueryWireFormatMatchesOptions() throws {
+        let withoutOptions = try #require(ExtensionModalQuery.serialize(requestID: "ext:1", queryID: 1, query: "x"))
+        #expect(withoutOptions.split(separator: "|", omittingEmptySubsequences: false).count == 4)
+
+        let withOptions = try #require(ExtensionModalQuery.serialize(
+            requestID: "ext:1",
+            queryID: 1,
+            query: "x",
+            options: ["regex": true]
+        ))
+        #expect(withOptions.split(separator: "|", omittingEmptySubsequences: false).count == 5)
+    }
+
+    @Test("modal query parse rejects a malformed options segment")
+    func modalQueryParseRejectsMalformedOptions() {
+        let payload = Data("x".utf8).base64EncodedString()
+        #expect(ExtensionModalQuery.parse("modal-query|ext:1|1|\(payload)|not-base64") == nil)
+
+        let nonBoolOptions = Data(#"{"caseSensitive":"yes"}"#.utf8).base64EncodedString()
+        #expect(ExtensionModalQuery.parse("modal-query|ext:1|1|\(payload)|\(nonBoolOptions)") == nil)
     }
 
     @Test("dynamic flag is read from open args")

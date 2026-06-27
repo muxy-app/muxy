@@ -35,6 +35,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     @State private var submittedOptions = ExtensionModalSearchOptions()
     @State private var isSearchFieldFocused = false
     @State private var keyMonitor: Any?
+    @State private var paletteWindow: NSWindow?
 
     var body: some View {
         ZStack {
@@ -91,7 +92,8 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                     guard onQueryChange != nil else { return }
                     scheduleQueryChange(newQuery)
                 },
-                onFocusChange: { isSearchFieldFocused = $0 }
+                onFocusChange: { isSearchFieldFocused = $0 },
+                onWindowChange: { paletteWindow = $0 }
             )
             if isLoading || isSearching {
                 ProgressView()
@@ -263,6 +265,11 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         queryChangeTask?.cancel()
         queryChangeTask = nil
         isSearching = false
+        guard onQueryChange != nil else {
+            performSearch()
+            return
+        }
+        scheduleQueryChange(query)
     }
 
     private func moveHighlight(_ delta: Int) {
@@ -325,6 +332,9 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     }
 
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        if let paletteWindow, event.window !== paletteWindow {
+            return false
+        }
         switch PaletteOverlayKeyboard.action(
             forKeyCode: event.keyCode,
             firstResponder: event.window?.firstResponder,
@@ -401,6 +411,7 @@ struct PaletteSearchField: NSViewRepresentable {
     var onEmptyBackspace: () -> Void = {}
     var onControlKey: (String) -> Bool = { _ in false }
     var onFocusChange: (Bool) -> Void = { _ in }
+    var onWindowChange: (NSWindow?) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -463,6 +474,7 @@ struct PaletteSearchField: NSViewRepresentable {
             field.onEscape = onEscape
             field.onControlKey = onControlKey
         }
+        onWindowChange(nsView.window)
     }
 
     @MainActor
@@ -487,8 +499,9 @@ struct PaletteSearchField: NSViewRepresentable {
             parent.onQueryChange?(field.stringValue)
         }
 
-        func controlTextDidBeginEditing(_: Notification) {
+        func controlTextDidBeginEditing(_ obj: Notification) {
             parent.onFocusChange(true)
+            parent.onWindowChange((obj.object as? NSControl)?.window)
         }
 
         func controlTextDidEndEditing(_: Notification) {

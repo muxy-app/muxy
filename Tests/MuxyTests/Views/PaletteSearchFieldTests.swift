@@ -281,6 +281,34 @@ struct PaletteSearchFieldTests {
         #expect(action == .confirmSelection)
     }
 
+    @Test("overlay key monitor does not confirm selection on return while search field is focused")
+    func overlayKeyMonitorDoesNotConfirmReturnWhileSearchFieldFocused() {
+        let action = PaletteOverlayKeyboard.action(
+            forKeyCode: 36,
+            firstResponder: nil,
+            isSearchFieldFocused: true
+        )
+
+        #expect(action == nil)
+    }
+
+    @Test("overlay key monitor maps page up and page down key codes")
+    func overlayKeyMonitorMapsPageNavigationKeyCodes() {
+        let pageUp = PaletteOverlayKeyboard.action(
+            forKeyCode: 116,
+            firstResponder: nil,
+            isSearchFieldFocused: true
+        )
+        let pageDown = PaletteOverlayKeyboard.action(
+            forKeyCode: 121,
+            firstResponder: nil,
+            isSearchFieldFocused: true
+        )
+
+        #expect(pageUp == .pageUp)
+        #expect(pageDown == .pageDown)
+    }
+
     private func waitForFocus(_ field: NSTextField) async throws {
         for _ in 0..<40 {
             if field.currentEditor() != nil {
