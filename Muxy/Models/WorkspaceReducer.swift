@@ -82,6 +82,15 @@ enum WorkspaceReducer {
         case let .createTab(projectID, areaID):
             effects.createdTabID = TabReducer.createTab(projectID: projectID, areaID: areaID, state: &state)
 
+        case let .createTabAdjacent(projectID, areaID, tabID, side):
+            TabReducer.createTabAdjacent(
+                projectID: projectID,
+                areaID: areaID,
+                tabID: tabID,
+                side: side,
+                state: &state
+            )
+
         case let .createTabInDirectory(projectID, areaID, directory):
             effects.createdTabID = TabReducer.createTabInDirectory(
                 projectID: projectID,

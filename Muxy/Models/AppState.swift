@@ -34,6 +34,7 @@ final class AppState {
             replacementWorktreePath: String?
         )
         case createTab(projectID: UUID, areaID: UUID?)
+        case createTabAdjacent(projectID: UUID, areaID: UUID, tabID: UUID, side: TabArea.InsertSide)
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createCommandTab(CommandTabRequest)
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)

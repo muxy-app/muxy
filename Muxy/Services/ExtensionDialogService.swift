@@ -39,7 +39,7 @@ enum ExtensionDialogService {
     static let maxTextLength = 2000
     static let maxButtonCount = 3
 
-    private static var busyExtensionIDs: Set<String> = []
+    private static var activeSheets: [String: () -> Void] = [:]
 
     static func confirm(_ request: ConfirmRequest) async throws -> String? {
         try claim(request.extensionID)
@@ -50,7 +50,7 @@ enum ExtensionDialogService {
         for (button, equivalent) in zip(buttons, equivalents) {
             button.keyEquivalent = equivalent
         }
-        let result = try await runModal(alert)
+        let result = try await runModal(alert, extensionID: request.extensionID)
         guard let index = buttonIndex(for: result, buttonCount: request.buttons.count) else {
             return nil
         }
@@ -66,7 +66,7 @@ enum ExtensionDialogService {
         defer { release(request.extensionID) }
         let alert = makeAlert(title: request.title, message: request.message, style: request.style)
         alert.addButton(withTitle: "OK")
-        _ = try await runModal(alert)
+        _ = try await runModal(alert, extensionID: request.extensionID)
     }
 
     static func prompt(_ request: PromptRequest) async throws -> String? {
@@ -82,7 +82,7 @@ enum ExtensionDialogService {
         field.placeholderString = request.placeholder
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
-        let result = try await runModal(alert)
+        let result = try await runModal(alert, extensionID: request.extensionID)
         guard result == .alertFirstButtonReturn else { return nil }
         return clamped(field.stringValue)
     }
@@ -100,9 +100,21 @@ enum ExtensionDialogService {
         if let defaultPath = request.defaultPath {
             panel.directoryURL = URL(fileURLWithPath: defaultPath, isDirectory: true)
         }
-        let response = try await runPanel(panel)
+        let response = try await runPanel(panel, extensionID: request.extensionID)
         guard response == .OK else { return nil }
         return panel.url?.path
+    }
+
+    static func cancel(extensionID: String) {
+        activeSheets.removeValue(forKey: extensionID)?()
+    }
+
+    static func cancelAll() {
+        let dismissals = activeSheets.values
+        activeSheets.removeAll()
+        for dismiss in dismissals {
+            dismiss()
+        }
     }
 
     static func makePromptRequest(extensionID: String, args: [String: Any]) throws -> PromptRequest {
@@ -186,14 +198,18 @@ enum ExtensionDialogService {
     }
 
     private static func claim(_ extensionID: String) throws {
-        guard !busyExtensionIDs.contains(extensionID) else {
+        guard activeSheets[extensionID] == nil else {
             throw APIError.invalidArguments("a dialog is already open for this extension")
         }
-        busyExtensionIDs.insert(extensionID)
+        activeSheets[extensionID] = {}
     }
 
     private static func release(_ extensionID: String) {
-        busyExtensionIDs.remove(extensionID)
+        activeSheets.removeValue(forKey: extensionID)
+    }
+
+    private static func isClaimed(_ extensionID: String) -> Bool {
+        activeSheets[extensionID] != nil
     }
 
     private static func clamped(_ value: String) -> String {
@@ -216,24 +232,50 @@ enum ExtensionDialogService {
         return index
     }
 
-    private static func runModal(_ alert: NSAlert) async throws -> NSApplication.ModalResponse {
+    private static func runModal(_ alert: NSAlert, extensionID: String) async throws -> NSApplication.ModalResponse {
         guard let parent = parentWindow() else {
             throw APIError.invalidArguments("no window available to present the dialog")
         }
         return await withCheckedContinuation { continuation in
+            let resolver = SheetResolver(continuation)
+            guard isClaimed(extensionID) else {
+                resolver.resolve(with: .cancel)
+                return
+            }
+            activeSheets[extensionID] = { [weak parent, weak alert] in
+                guard let parent, let alert else {
+                    resolver.resolve(with: .cancel)
+                    return
+                }
+                parent.endSheet(alert.window, returnCode: .cancel)
+            }
             alert.beginSheetModal(for: parent) { response in
-                continuation.resume(returning: response)
+                activeSheets.removeValue(forKey: extensionID)
+                resolver.resolve(with: response)
             }
         }
     }
 
-    private static func runPanel(_ panel: NSOpenPanel) async throws -> NSApplication.ModalResponse {
+    private static func runPanel(_ panel: NSOpenPanel, extensionID: String) async throws -> NSApplication.ModalResponse {
         guard let parent = parentWindow() else {
             throw APIError.invalidArguments("no window available to present the dialog")
         }
         return await withCheckedContinuation { continuation in
+            let resolver = SheetResolver(continuation)
+            guard isClaimed(extensionID) else {
+                resolver.resolve(with: .cancel)
+                return
+            }
+            activeSheets[extensionID] = { [weak panel] in
+                guard let panel else {
+                    resolver.resolve(with: .cancel)
+                    return
+                }
+                panel.cancel(nil)
+            }
             panel.beginSheetModal(for: parent) { response in
-                continuation.resume(returning: response)
+                activeSheets.removeValue(forKey: extensionID)
+                resolver.resolve(with: response)
             }
         }
     }
@@ -252,5 +294,20 @@ enum ExtensionDialogService {
 
     private static func string(_ args: [String: Any], _ key: String) -> String? {
         args[key] as? String
+    }
+}
+
+@MainActor
+private final class SheetResolver {
+    private var continuation: CheckedContinuation<NSApplication.ModalResponse, Never>?
+
+    init(_ continuation: CheckedContinuation<NSApplication.ModalResponse, Never>) {
+        self.continuation = continuation
+    }
+
+    func resolve(with response: NSApplication.ModalResponse) {
+        guard let continuation else { return }
+        self.continuation = nil
+        continuation.resume(returning: response)
     }
 }

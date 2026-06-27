@@ -36,6 +36,28 @@ rebind these under **Settings → Keyboard Shortcuts → App Shortcuts**, groupe
 extension name. Pressing the shortcut runs the command's `action`, exactly as
 picking it from the palette does.
 
+## Runtime shortcuts
+
+`defaultShortcut` is **static** — declared in the manifest and bound at load. To bind a shortcut **at runtime** (e.g. a combo configured in the extension's own settings), use `muxy.shortcuts`. A runtime shortcut fires the same `command.<id>` event, so you subscribe to it the same way; it needs no matching command in `commands` (the `id` is free-form). Best called from `background.js`, which re-registers on each launch — runtime shortcuts are not persisted.
+
+```js
+const { ok, conflict } = await muxy.shortcuts.register({ id: 'toggle', combo: 'cmd+b' });
+if (!ok) console.warn('shortcut not bound:', conflict);
+
+muxy.events.subscribe('command.toggle', () => { /* react */ });
+
+await muxy.shortcuts.unregister('toggle');
+const bound = await muxy.shortcuts.list(); // [{ id, combo, source: 'manifest' | 'runtime' }]
+```
+
+| Method | Returns | Notes |
+| --- | --- | --- |
+| `register({ id, combo })` | `{ ok, conflict? }` | `combo` is parsed like `defaultShortcut` (must include `cmd`/`ctrl`/`opt`). `ok` is `false` with a `conflict` message when the combo is already taken; re-registering an `id` updates its combo. |
+| `unregister(id)` | — | No-op if the id is not registered. |
+| `list()` | array of `{ id, combo, source }` | The calling extension's manifest and runtime shortcuts. |
+
+Registering/unregistering needs the `shortcuts:register` permission. An `id` that matches one of your manifest `commands` is rejected — bind those via `defaultShortcut`. Runtime shortcuts are cleared when the extension is disabled.
+
 ## Actions
 
 | Kind | Behavior | Extra fields |

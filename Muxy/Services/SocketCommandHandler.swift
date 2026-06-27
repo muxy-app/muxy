@@ -292,7 +292,10 @@ enum SocketCommandHandler {
              "storage.get",
              "storage.set",
              "storage.delete",
-             "storage.keys":
+             "storage.keys",
+             "shortcuts.register",
+             "shortcuts.unregister",
+             "shortcuts.list":
             guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
             guard let extensionID = clientContext.extensionID else { return "error:identify required" }
             return await handleAPIVerb(

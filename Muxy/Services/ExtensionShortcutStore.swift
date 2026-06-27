@@ -37,7 +37,10 @@ final class ExtensionShortcutStore {
     static let shared = ExtensionShortcutStore()
 
     private(set) var shortcuts: [ExtensionShortcut] = []
+    private(set) var runtimeShortcuts: [ExtensionShortcut] = []
     private let persistence: any ExtensionShortcutPersisting
+
+    private var allShortcuts: [ExtensionShortcut] { shortcuts + runtimeShortcuts }
 
     init(persistence: any ExtensionShortcutPersisting = FileExtensionShortcutPersistence()) {
         self.persistence = persistence
@@ -46,6 +49,40 @@ final class ExtensionShortcutStore {
 
     func shortcut(extensionID: String, commandID: String) -> ExtensionShortcut? {
         shortcuts.first { $0.extensionID == extensionID && $0.commandID == commandID }
+    }
+
+    func shortcuts(forExtension extensionID: String) -> [ExtensionShortcut] {
+        allShortcuts.filter { $0.extensionID == extensionID }
+    }
+
+    @discardableResult
+    func register(extensionID: String, commandID: String, combo comboString: String) throws -> String? {
+        guard !commandID.isEmpty else {
+            throw APIError.invalidArguments("shortcut id must not be empty")
+        }
+        guard let combo = KeyCombo(parsing: comboString) else {
+            throw APIError.invalidArguments("invalid shortcut '\(comboString)'")
+        }
+        if let conflict = conflictMessage(for: combo, extensionID: extensionID, commandID: commandID) {
+            return conflict
+        }
+        let shortcut = ExtensionShortcut(extensionID: extensionID, commandID: commandID, combo: combo, source: .runtime)
+        if let index = runtimeShortcuts.firstIndex(where: {
+            $0.extensionID == extensionID && $0.commandID == commandID
+        }) {
+            runtimeShortcuts[index] = shortcut
+        } else {
+            runtimeShortcuts.append(shortcut)
+        }
+        return nil
+    }
+
+    func unregister(extensionID: String, commandID: String) {
+        runtimeShortcuts.removeAll { $0.extensionID == extensionID && $0.commandID == commandID }
+    }
+
+    func clearRuntimeShortcuts(keepingExtensionIDs keep: Set<String>) {
+        runtimeShortcuts.removeAll { !keep.contains($0.extensionID) }
     }
 
     func updateCombo(extensionID: String, commandID: String, combo: KeyCombo) {
@@ -73,11 +110,12 @@ final class ExtensionShortcutStore {
             keyCode: event.keyCode
         )
         let flags = event.modifierFlags.intersection(KeyCombo.supportedModifierMask).rawValue
-        return shortcuts.first { shortcut in
+        let isMatch: (ExtensionShortcut) -> Bool = { shortcut in
             shortcut.combo.isAssigned
                 && shortcut.combo.key == normalizedKey
                 && shortcut.combo.modifiers == flags
         }
+        return shortcuts.first(where: isMatch) ?? runtimeShortcuts.first(where: isMatch)
     }
 
     func isRegisteredShortcut(event: NSEvent, scopes: Set<ShortcutScope>) -> Bool {
@@ -92,7 +130,7 @@ final class ExtensionShortcutStore {
         if CommandShortcutStore.shared.conflictingShortcut(for: combo, excluding: UUID()) != nil {
             return "Conflicts with a custom command"
         }
-        let conflictsWithOther = shortcuts.contains {
+        let conflictsWithOther = allShortcuts.contains {
             $0.combo == combo && !($0.extensionID == extensionID && $0.commandID == commandID)
         }
         return conflictsWithOther ? "Conflicts with another extension shortcut" : nil
@@ -150,7 +188,7 @@ final class ExtensionShortcutStore {
         guard CommandShortcutStore.shared.conflictingShortcut(for: combo, excluding: UUID()) == nil else {
             return false
         }
-        return !shortcuts.contains {
+        return !allShortcuts.contains {
             $0.combo == combo && !($0.extensionID == extensionID && $0.commandID == commandID)
         }
     }

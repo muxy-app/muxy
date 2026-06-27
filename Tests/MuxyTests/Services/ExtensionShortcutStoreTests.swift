@@ -77,6 +77,114 @@ struct ExtensionShortcutStoreTests {
         #expect(persistence.savedShortcuts?.first?.combo.isAssigned == false)
     }
 
+    @Test("shortcut verbs are recognized and register is gated")
+    func shortcutVerbsAreGated() {
+        let verbs = MuxyAPI.Permissions.verbNames
+        #expect(verbs.contains("shortcuts.register"))
+        #expect(verbs.contains("shortcuts.unregister"))
+        #expect(verbs.contains("shortcuts.list"))
+        #expect(MuxyAPI.Permissions.required(for: "shortcuts.register") == .shortcutsRegister)
+        #expect(MuxyAPI.Permissions.required(for: "shortcuts.unregister") == .shortcutsRegister)
+        #expect(MuxyAPI.Permissions.required(for: "shortcuts.list") == nil)
+    }
+
+    @Test("register adds a runtime shortcut that match finds")
+    func registerAddsRuntimeShortcut() throws {
+        let store = ExtensionShortcutStore(persistence: InMemoryExtensionShortcutPersistence())
+
+        let conflict = try store.register(extensionID: "alpha", commandID: "toggle", combo: "ctrl+opt+shift+b")
+
+        #expect(conflict == nil)
+        let runtime = store.runtimeShortcuts.first
+        #expect(runtime?.commandID == "toggle")
+        #expect(runtime?.source == .runtime)
+        #expect(runtime?.combo == KeyCombo(key: "b", shift: true, control: true, option: true))
+    }
+
+    @Test("a runtime shortcut's event name follows the command.<id> convention")
+    func runtimeShortcutEventName() throws {
+        let store = ExtensionShortcutStore(persistence: InMemoryExtensionShortcutPersistence())
+        _ = try store.register(extensionID: "alpha", commandID: "toggle", combo: "ctrl+opt+shift+b")
+        let shortcut = try #require(store.runtimeShortcuts.first)
+        #expect(shortcut.eventName == "command.toggle")
+    }
+
+    @Test("register rejects an invalid combo")
+    func registerRejectsInvalidCombo() {
+        let store = ExtensionShortcutStore(persistence: InMemoryExtensionShortcutPersistence())
+        #expect(throws: APIError.self) {
+            try store.register(extensionID: "alpha", commandID: "toggle", combo: "b")
+        }
+    }
+
+    @Test("register reports a conflict with another extension's combo")
+    func registerReportsConflict() throws {
+        let store = ExtensionShortcutStore(persistence: InMemoryExtensionShortcutPersistence())
+        _ = try store.register(extensionID: "alpha", commandID: "toggle", combo: "ctrl+opt+shift+b")
+
+        let conflict = try store.register(extensionID: "beta", commandID: "other", combo: "ctrl+opt+shift+b")
+
+        #expect(conflict != nil)
+        #expect(store.runtimeShortcuts.count == 1)
+    }
+
+    @Test("re-registering an id updates its combo")
+    func reRegisterUpdatesCombo() throws {
+        let store = ExtensionShortcutStore(persistence: InMemoryExtensionShortcutPersistence())
+        _ = try store.register(extensionID: "alpha", commandID: "toggle", combo: "ctrl+opt+shift+b")
+        _ = try store.register(extensionID: "alpha", commandID: "toggle", combo: "ctrl+opt+shift+j")
+
+        #expect(store.runtimeShortcuts.count == 1)
+        #expect(store.runtimeShortcuts.first?.combo == KeyCombo(key: "j", shift: true, control: true, option: true))
+    }
+
+    @Test("unregister removes a runtime shortcut")
+    func unregisterRemovesShortcut() throws {
+        let store = ExtensionShortcutStore(persistence: InMemoryExtensionShortcutPersistence())
+        _ = try store.register(extensionID: "alpha", commandID: "toggle", combo: "ctrl+opt+shift+b")
+
+        store.unregister(extensionID: "alpha", commandID: "toggle")
+
+        #expect(store.runtimeShortcuts.isEmpty)
+    }
+
+    @Test("clearRuntimeShortcuts drops shortcuts for disabled extensions")
+    func clearRuntimeDropsDisabled() throws {
+        let store = ExtensionShortcutStore(persistence: InMemoryExtensionShortcutPersistence())
+        _ = try store.register(extensionID: "alpha", commandID: "toggle", combo: "ctrl+opt+shift+b")
+        _ = try store.register(extensionID: "beta", commandID: "toggle", combo: "ctrl+opt+shift+j")
+
+        store.clearRuntimeShortcuts(keepingExtensionIDs: ["alpha"])
+
+        #expect(store.runtimeShortcuts.map(\.extensionID) == ["alpha"])
+    }
+
+    @Test("syncBindings does not touch runtime shortcuts")
+    func syncBindingsPreservesRuntime() throws {
+        let store = ExtensionShortcutStore(persistence: InMemoryExtensionShortcutPersistence())
+        _ = try store.register(extensionID: "alpha", commandID: "toggle", combo: "ctrl+opt+shift+b")
+
+        store.syncBindings(for: [])
+
+        #expect(store.runtimeShortcuts.count == 1)
+    }
+
+    @Test("list returns manifest and runtime shortcuts for the extension")
+    func listReturnsBoth() throws {
+        let stored = ExtensionShortcut(
+            extensionID: "alpha",
+            commandID: "open",
+            combo: KeyCombo(key: "9", command: true)
+        )
+        let store = ExtensionShortcutStore(persistence: InMemoryExtensionShortcutPersistence(shortcuts: [stored]))
+        _ = try store.register(extensionID: "alpha", commandID: "toggle", combo: "ctrl+opt+shift+b")
+        _ = try store.register(extensionID: "beta", commandID: "x", combo: "ctrl+opt+shift+j")
+
+        let listed = store.shortcuts(forExtension: "alpha")
+
+        #expect(Set(listed.map(\.commandID)) == ["open", "toggle"])
+    }
+
     private func makeExtension(id: String, commandID: String, shortcut: String) -> MuxyExtension {
         let command = ExtensionPaletteCommand(id: commandID, title: commandID, defaultShortcut: shortcut)
         let manifest = ExtensionManifest(name: id, version: "1.0.0", commands: [command])
@@ -105,6 +213,15 @@ struct KeyComboParsingTests {
         #expect(KeyCombo(parsing: "") == nil)
         #expect(KeyCombo(parsing: "cmd+bogus") == nil)
         #expect(KeyCombo(parsing: "cmd+") == nil)
+    }
+
+    @Test("tokenString round-trips through parsing")
+    func tokenStringRoundTrips() {
+        for combo in ["cmd+b", "cmd+shift+e", "ctrl+opt+k", "cmd+return", "cmd+left"] {
+            let parsed = KeyCombo(parsing: combo)
+            #expect(parsed != nil)
+            #expect(KeyCombo(parsing: parsed?.tokenString ?? "") == parsed)
+        }
     }
 }
 

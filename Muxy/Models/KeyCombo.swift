@@ -231,6 +231,27 @@ struct KeyCombo: Codable, Equatable, Hashable {
         return parts
     }
 
+    var tokenString: String {
+        guard isAssigned else { return "" }
+        var parts: [String] = []
+        let flags = nsModifierFlags
+        if flags.contains(.command) { parts.append("cmd") }
+        if flags.contains(.shift) { parts.append("shift") }
+        if flags.contains(.control) { parts.append("ctrl") }
+        if flags.contains(.option) { parts.append("opt") }
+        let keyToken: String = switch key {
+        case Self.leftArrowKey: "left"
+        case Self.rightArrowKey: "right"
+        case Self.upArrowKey: "up"
+        case Self.downArrowKey: "down"
+        case Self.tabKey: "tab"
+        case Self.returnKey: "return"
+        default: key
+        }
+        parts.append(keyToken)
+        return parts.joined(separator: "+")
+    }
+
     func matches(event: NSEvent) -> Bool {
         let eventFlags = event.modifierFlags.intersection(Self.supportedModifierMask).rawValue
         let eventKey = Self.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)

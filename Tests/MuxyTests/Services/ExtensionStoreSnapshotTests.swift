@@ -31,6 +31,18 @@ struct ExtensionSnapshotTests {
         #expect(!NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "command.other"))
     }
 
+    @Test("canSubscribe allows a runtime shortcut's command event wired into commandEvents")
+    func canSubscribeAllowsRuntimeCommandEvent() {
+        let entry = NotificationSocketServer.ExtensionSnapshotEntry(
+            allowedEvents: [],
+            commandEvents: [ExtensionShortcut.eventName(forCommandID: "toggle")],
+            permissions: [],
+            token: "test-token"
+        )
+        #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "command.toggle"))
+        #expect(!NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "command.unregistered"))
+    }
+
     @Test("canSubscribe rejects permission-gated events without their permission")
     func canSubscribeRejectsMissingEventPermission() {
         let entry = NotificationSocketServer.ExtensionSnapshotEntry(

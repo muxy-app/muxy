@@ -477,7 +477,12 @@ struct MainWindow: View {
                     appState.dispatch(result.action(projectID: project.id))
                 },
                 onCreateTabAdjacent: { tabID, side in
-                    area.createTabAdjacent(to: tabID, side: side)
+                    appState.dispatch(.createTabAdjacent(
+                        projectID: project.id,
+                        areaID: area.id,
+                        tabID: tabID,
+                        side: side
+                    ))
                 },
                 onTogglePin: { tabID in
                     area.togglePin(tabID)
@@ -657,7 +662,9 @@ struct MainWindow: View {
                 commandID: item.command.id,
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
+                browserProfileStore: browserProfileStore
             ))
         }
     }
@@ -1029,12 +1036,21 @@ struct MainWindow: View {
     }
 
     private func handleExtensionShortcut(_ shortcut: ExtensionShortcut) -> Bool {
+        if shortcut.source == .runtime {
+            ExtensionStore.shared.triggerRuntimeShortcut(
+                extensionID: shortcut.extensionID,
+                commandID: shortcut.commandID
+            )
+            return true
+        }
         ExtensionStore.shared.triggerCommand(.init(
             extensionID: shortcut.extensionID,
             commandID: shortcut.commandID,
             appState: appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore,
+            browserProfileStore: browserProfileStore
         ))
         return true
     }

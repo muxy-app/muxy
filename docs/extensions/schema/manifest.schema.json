@@ -160,6 +160,7 @@
         "panels:write",
         "commands:run-script",
         "commands:exec",
+        "shortcuts:register",
         "remote:serve"
       ]
     },

@@ -102,6 +102,40 @@ struct ExtensionScriptRunnerTests {
         ExtensionScriptRunner.shared.evict(extensionID: "test-ext-evict")
     }
 
+    @Test("cancel flag signals registered waiters so blocked threads wake")
+    func cancelFlagWakesRegisteredWaiters() async {
+        let flag = ScriptCancelFlag()
+        let semaphore = DispatchSemaphore(value: 0)
+        #expect(flag.register(semaphore))
+
+        let woke = SendableBox(false)
+        DispatchQueue.global().async {
+            semaphore.wait()
+            woke.value = true
+        }
+
+        flag.cancel()
+
+        for _ in 0..<50 where !woke.value {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(woke.value)
+        #expect(flag.isCancelled)
+    }
+
+    @Test("registering on an already cancelled flag is refused")
+    func cancelFlagRefusesRegistrationAfterCancel() {
+        let flag = ScriptCancelFlag()
+        flag.cancel()
+        #expect(!flag.register(DispatchSemaphore(value: 0)))
+    }
+
+    @Test("dialog cancel is a safe no-op without an active sheet")
+    func dialogCancelWithoutActiveSheetIsSafe() {
+        ExtensionDialogService.cancel(extensionID: "no-such-ext")
+        ExtensionDialogService.cancelAll()
+    }
+
     @Test("modal onSelect keeps the script bridge alive through delivery")
     func modalOnSelectKeepsBridgeAliveThroughDelivery() async throws {
         let extensionID = "test-ext-modal-\(UUID().uuidString)"
@@ -188,6 +222,28 @@ struct ExtensionScriptRunnerTests {
         appState.workspaceRoots[key] = .tabArea(area)
         appState.focusedAreaID[key] = area.id
         return appState
+    }
+}
+
+private final class SendableBox<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: T
+
+    init(_ value: T) {
+        stored = value
+    }
+
+    var value: T {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return stored
+        }
+        set {
+            lock.lock()
+            stored = newValue
+            lock.unlock()
+        }
     }
 }
 

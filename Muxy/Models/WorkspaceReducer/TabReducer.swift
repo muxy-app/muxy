@@ -10,6 +10,20 @@ enum TabReducer {
         return area.createTab()
     }
 
+    static func createTabAdjacent(
+        projectID: UUID,
+        areaID: UUID,
+        tabID: UUID,
+        side: TabArea.InsertSide,
+        state: inout WorkspaceState
+    ) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
+        else { return }
+        FocusReducer.focusArea(area.id, key: key, state: &state)
+        area.createTabAdjacent(to: tabID, side: side)
+    }
+
     static func createTabInDirectory(
         projectID: UUID,
         areaID: UUID?,

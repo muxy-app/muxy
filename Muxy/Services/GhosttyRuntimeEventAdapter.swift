@@ -59,6 +59,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         case GHOSTTY_ACTION_PROGRESS_REPORT:
             handleProgressReport(target: target, report: action.action.progress_report)
             return true
+        case GHOSTTY_ACTION_SCROLLBAR:
+            handleScrollbar(target: target, scrollbar: action.action.scrollbar)
+            return true
         default:
             return false
         }
@@ -199,6 +202,16 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         let value = total.total >= 0 ? Int(total.total) : nil
         DispatchQueue.main.async {
             view.onSearchTotal?(value)
+        }
+    }
+
+    private func handleScrollbar(target: ghostty_target_s, scrollbar: ghostty_action_scrollbar_s) {
+        guard let view = surfaceView(from: target) else { return }
+        let total = Int(scrollbar.total)
+        let offset = Int(scrollbar.offset)
+        let len = Int(scrollbar.len)
+        DispatchQueue.main.async {
+            view.updateScrollbar(total: total, offset: offset, len: len)
         }
     }
 

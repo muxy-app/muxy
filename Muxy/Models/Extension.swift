@@ -76,6 +76,7 @@ enum ExtensionPermission: String, Codable, CaseIterable {
     case panelsWrite = "panels:write"
     case commandsRunScript = "commands:run-script"
     case commandsExec = "commands:exec"
+    case shortcutsRegister = "shortcuts:register"
     case remoteServe = "remote:serve"
 
     enum Kind {
@@ -110,6 +111,7 @@ enum ExtensionPermission: String, Codable, CaseIterable {
             .write
         case .commandsRunScript,
              .commandsExec,
+             .shortcutsRegister,
              .remoteServe:
             .action
         }

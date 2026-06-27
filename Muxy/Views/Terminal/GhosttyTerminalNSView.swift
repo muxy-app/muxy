@@ -24,6 +24,7 @@ final class GhosttyTerminalNSView: NSView {
     var onSearchTotal: ((Int?) -> Void)?
     var onSearchSelected: ((Int?) -> Void)?
     var onProgressReport: ((TerminalProgress?) -> Void)?
+    private let scrollbarOverlay = TerminalScrollbarOverlay()
     var onCmdClickFile: ((String) -> Void)?
     var resolveCmdHoverFile: ((String) -> Bool)?
     var onOpenURL: ((URL) -> Bool)?
@@ -80,6 +81,7 @@ final class GhosttyTerminalNSView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
+        installScrollbarOverlay()
         registerForDraggedTypes([.fileURL, .string])
         setAccessibilityRole(.textArea)
         setAccessibilityRoleDescription("Terminal")
@@ -346,6 +348,11 @@ final class GhosttyTerminalNSView: NSView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         updateMetalLayerSize(deferred: true)
+    }
+
+    override func layout() {
+        super.layout()
+        scrollbarOverlay.frame = bounds
     }
 
     func setVisible(_ visible: Bool) {
@@ -830,6 +837,7 @@ final class GhosttyTerminalNSView: NSView {
         lastMouseTopDownPoint = pt
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
         updateCmdHoverCursor(modifierFlags: event.modifierFlags)
+        scrollbarOverlay.flashIfNearScroller(point: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -1219,6 +1227,31 @@ final class GhosttyTerminalNSView: NSView {
         var mods: ghostty_input_scroll_mods_t = 0
         if event.hasPreciseScrollingDeltas { mods |= 1 }
         ghostty_surface_mouse_scroll(surface, event.scrollingDeltaX, event.scrollingDeltaY, mods)
+        scrollbarOverlay.flash()
+    }
+
+    private func installScrollbarOverlay() {
+        scrollbarOverlay.onScrollToRow = { [weak self] row in
+            self?.scrollToRow(row)
+        }
+        addSubview(scrollbarOverlay, positioned: .above, relativeTo: nil)
+    }
+
+    func updateScrollbar(total: Int, offset: Int, len: Int) {
+        scrollbarOverlay.update(total: total, offset: offset, len: len, cellHeight: cellHeightPoints())
+    }
+
+    private func cellHeightPoints() -> CGFloat {
+        guard let surface else { return 0 }
+        let size = ghostty_surface_size(surface)
+        guard size.cell_height_px > 0, let window else { return 0 }
+        return CGFloat(size.cell_height_px) / window.backingScaleFactor
+    }
+
+    private func scrollToRow(_ row: Int) {
+        guard let surface else { return }
+        let action = "scroll_to_row:\(row)"
+        ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
     }
 
     private func buildKeyEvent(from event: NSEvent, action: ghostty_input_action_e) -> ghostty_input_key_s {

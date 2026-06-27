@@ -249,7 +249,10 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
             throw APIError.invalidArguments("extension \(extensionID) not loaded")
         }
         let allowedEvents = Set(muxyExtension.manifest.events)
-        let commandEvents = Set(muxyExtension.manifest.commands.map(\.eventName))
+        let runtimeCommandEvents = ExtensionShortcutStore.shared.runtimeShortcuts
+            .filter { $0.extensionID == extensionID }
+            .map(\.eventName)
+        let commandEvents = Set(muxyExtension.manifest.commands.map(\.eventName)).union(runtimeCommandEvents)
         guard allowedEvents.contains(event) || commandEvents.contains(event) else {
             throw APIError.invalidArguments("event \(event) not declared in manifest")
         }
