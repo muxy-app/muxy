@@ -435,31 +435,16 @@ final class AppState {
         pendingLastTabClose = nil
     }
 
-    func openTerminalTabItems(for projectID: UUID) -> [OpenTerminalTabItem] {
-        guard let key = activeWorktreeKey(for: projectID) else { return [] }
-        return allAreas(for: projectID).flatMap { area in
-            area.tabs.compactMap { tab in
-                guard let pane = tab.content.pane else { return nil }
-                let command = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
-                    ?? pane.startupCommand
-                return OpenTerminalTabItem(
-                    projectID: projectID,
-                    worktreeID: key.worktreeID,
-                    areaID: area.id,
-                    tabID: tab.id,
-                    title: tab.title,
-                    workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
-                    command: command
-                )
-            }
-        }
-    }
-
-    func allOpenTerminalTabItems(for projectID: UUID) -> [OpenTerminalTabItem] {
+    func allOpenTerminalTabItems(
+        for projectID: UUID,
+        projectName: String,
+        worktreeLabel: (UUID) -> (name: String?, branch: String?)
+    ) -> [OpenTerminalTabItem] {
         workspaceRoots
             .filter { $0.key.projectID == projectID }
             .flatMap { key, root in
-                root.allAreas().flatMap { area in
+                let label = worktreeLabel(key.worktreeID)
+                return root.allAreas().flatMap { area in
                     area.tabs.compactMap { tab -> OpenTerminalTabItem? in
                         guard let pane = tab.content.pane else { return nil }
                         let command = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
@@ -471,7 +456,10 @@ final class AppState {
                             tabID: tab.id,
                             title: tab.title,
                             workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
-                            command: command
+                            command: command,
+                            projectName: projectName,
+                            worktreeName: label.name,
+                            worktreeBranch: label.branch
                         )
                     }
                 }

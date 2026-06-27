@@ -16,11 +16,22 @@ struct OpenTerminalTabItem: Identifiable, Equatable {
     let title: String
     let workingDirectory: String?
     let command: String?
+    let projectName: String
+    let worktreeName: String?
+    let worktreeBranch: String?
 
     var id: String { "open-\(areaID.uuidString)-\(tabID.uuidString)" }
 
+    var sectionTitle: String {
+        let context = worktreeBranch ?? worktreeName
+        guard let context, !context.isEmpty else { return "Open Tabs — \(projectName)" }
+        return "Open Tabs — \(projectName) (\(context))"
+    }
+
     var searchKey: String {
-        [title, workingDirectory, command].compactMap(\.self).joined(separator: " ")
+        [title, workingDirectory, command, projectName, worktreeName, worktreeBranch]
+            .compactMap(\.self)
+            .joined(separator: " ")
     }
 }
 
@@ -144,8 +155,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             "Worktrees"
         case .workspace:
             "Workspaces"
-        case .openTab:
-            "Open Tabs"
+        case let .openTab(tab):
+            tab.sectionTitle
         case .commandShortcut:
             "Custom Commands"
         case .extensionCommand:
@@ -220,6 +231,10 @@ struct TerminalOmniboxItemContext {
         self.activeWorktreeID = activeWorktreeID
         self.commandProjectIDs = commandProjectIDs
     }
+
+    func isActiveWorktree(_ tab: OpenTerminalTabItem) -> Bool {
+        tab.projectID == activeProjectID && tab.worktreeID == activeWorktreeID
+    }
 }
 
 enum TerminalOmniboxItemResolver {
@@ -238,12 +253,15 @@ enum TerminalOmniboxItemResolver {
         case .workspaces:
             return context.workspaces.map(TerminalOmniboxItem.workspace)
         case .openTabs:
-            guard let activeProjectID = context.activeProjectID,
-                  let activeWorktreeID = context.activeWorktreeID
-            else { return [] }
             return context.openTabs
-                .filter { $0.projectID == activeProjectID && $0.worktreeID == activeWorktreeID }
-                .map(TerminalOmniboxItem.openTab)
+                .enumerated()
+                .sorted { lhs, rhs in
+                    let lhsActive = context.isActiveWorktree(lhs.element)
+                    let rhsActive = context.isActiveWorktree(rhs.element)
+                    if lhsActive != rhsActive { return lhsActive }
+                    return lhs.offset < rhs.offset
+                }
+                .map { TerminalOmniboxItem.openTab($0.element) }
         case .commandShortcuts:
             let extensionItems = context.extensionCommands.map(TerminalOmniboxItem.extensionCommand)
             guard context.activeProjectID.map(context.commandProjectIDs.contains) == true else {

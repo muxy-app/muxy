@@ -807,7 +807,14 @@ struct MainWindow: View {
     }
 
     private var terminalOmniboxOpenTabs: [OpenTerminalTabItem] {
-        omniboxProjects.flatMap { appState.allOpenTerminalTabItems(for: $0.id) }
+        omniboxProjects.flatMap { project in
+            appState.allOpenTerminalTabItems(for: project.id, projectName: project.name) { worktreeID in
+                guard let worktree = worktreeStore.worktree(projectID: project.id, worktreeID: worktreeID) else {
+                    return (nil, nil)
+                }
+                return (worktree.name, worktree.branch)
+            }
+        }
     }
 
     private var terminalOmniboxCommandProjectIDs: Set<UUID> {

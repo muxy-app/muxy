@@ -37,7 +37,10 @@ struct TerminalOmniboxItemResolverTests {
             tabID: tabID,
             title: "Server",
             workingDirectory: "/repo/muxy",
-            command: "npm run dev"
+            command: "npm run dev",
+            projectName: "Muxy",
+            worktreeName: "main",
+            worktreeBranch: "main"
         )
         let shortcut = CommandShortcut(
             id: shortcutID,
@@ -61,7 +64,7 @@ struct TerminalOmniboxItemResolverTests {
 
         #expect(TerminalOmniboxItem.openTab(openTab).id == "open-\(areaID.uuidString)-\(tabID.uuidString)")
         #expect(TerminalOmniboxItem.openTab(openTab).subtitle == "npm run dev")
-        #expect(TerminalOmniboxItem.openTab(openTab).sectionTitle == "Open Tabs")
+        #expect(TerminalOmniboxItem.openTab(openTab).sectionTitle == "Open Tabs — Muxy (main)")
         #expect(TerminalOmniboxItem.openTab(openTab).symbol == "terminal")
 
         let namedWorkspace = TerminalOmniboxWorkspaceItem(groupID: UUID(), name: "Backend", projectCount: 3)
@@ -154,7 +157,10 @@ struct TerminalOmniboxItemResolverTests {
             tabID: UUID(),
             title: "Active",
             workingDirectory: "/repo/muxy",
-            command: nil
+            command: nil,
+            projectName: "Muxy",
+            worktreeName: "main",
+            worktreeBranch: "main"
         )
         let otherOpenTab = OpenTerminalTabItem(
             projectID: activeProjectID,
@@ -163,7 +169,10 @@ struct TerminalOmniboxItemResolverTests {
             tabID: UUID(),
             title: "Other",
             workingDirectory: "/repo/muxy-other",
-            command: nil
+            command: nil,
+            projectName: "Muxy",
+            worktreeName: "other",
+            worktreeBranch: nil
         )
         let shortcut = CommandShortcut(name: "Build", command: "swift build")
         let emptyShortcut = CommandShortcut(name: "Empty", command: "   ")
@@ -189,7 +198,8 @@ struct TerminalOmniboxItemResolverTests {
 
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .projects) == [.project(project)])
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .worktrees) == [.worktree(activeWorktree)])
-        #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .openTabs) == [.openTab(activeOpenTab)])
+        #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .openTabs) ==
+            [.openTab(activeOpenTab), .openTab(otherOpenTab)])
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .commandShortcuts) == [.commandShortcut(shortcut)])
 
         let inactiveContext = TerminalOmniboxItemContext(
@@ -203,8 +213,51 @@ struct TerminalOmniboxItemResolverTests {
         )
 
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .worktrees).isEmpty)
-        #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .openTabs).isEmpty)
+        #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .openTabs) == [.openTab(activeOpenTab)])
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .commandShortcuts).isEmpty)
+    }
+
+    @Test("Open tabs scope includes every project and worktree with the active one first")
+    func openTabsScopeIncludesAllProjectsActiveFirst() {
+        let activeProjectID = UUID()
+        let otherProjectID = UUID()
+        let activeWorktreeID = UUID()
+        let otherWorktreeID = UUID()
+
+        func tab(project: UUID, worktree: UUID, name: String) -> OpenTerminalTabItem {
+            OpenTerminalTabItem(
+                projectID: project,
+                worktreeID: worktree,
+                areaID: UUID(),
+                tabID: UUID(),
+                title: name,
+                workingDirectory: nil,
+                command: nil,
+                projectName: name,
+                worktreeName: name,
+                worktreeBranch: name
+            )
+        }
+
+        let otherProjectTab = tab(project: otherProjectID, worktree: otherWorktreeID, name: "other")
+        let activeWorktreeTab = tab(project: activeProjectID, worktree: activeWorktreeID, name: "active")
+        let otherWorktreeTab = tab(project: activeProjectID, worktree: otherWorktreeID, name: "secondary")
+
+        let context = TerminalOmniboxItemContext(
+            projects: [],
+            worktrees: [],
+            openTabs: [otherProjectTab, otherWorktreeTab, activeWorktreeTab],
+            commandShortcuts: [],
+            activeProjectID: activeProjectID,
+            activeWorktreeID: activeWorktreeID,
+            commandProjectIDs: []
+        )
+
+        let items = TerminalOmniboxItemResolver.items(in: context, launchScope: .openTabs)
+        #expect(items.first == .openTab(activeWorktreeTab))
+        #expect(items.count == 3)
+        #expect(items.contains(.openTab(otherProjectTab)))
+        #expect(items.contains(.openTab(otherWorktreeTab)))
     }
 
     @Test("Workspaces scope returns every workspace item")

@@ -36,15 +36,34 @@ struct ShortcutActionDispatcher {
         return [Project.home] + filtered
     }
 
-    private func selectGlobalTab(index: Int) -> Bool {
-        let entries = TabFocusedTabOrder.entries(
+    private var tabFocusedEntries: [TabFocusedTabOrder.Entry] {
+        TabFocusedTabOrder.entries(
             appState: appState,
             projectStore: projectStore,
             projectGroupStore: projectGroupStore,
             worktreeStore: worktreeStore
         )
+    }
+
+    private func selectGlobalTab(index: Int) -> Bool {
+        let entries = tabFocusedEntries
         guard index >= 0, index < entries.count else { return false }
-        let entry = entries[index]
+        return selectGlobalTab(entries[index])
+    }
+
+    private func selectGlobalTabRelative(offset: Int) -> Bool {
+        let entries = tabFocusedEntries
+        guard entries.count > 1 else { return false }
+        guard let projectID = appState.activeProjectID,
+              let area = appState.focusedArea(for: projectID),
+              let activeTabID = area.activeTabID,
+              let current = entries.firstIndex(where: { $0.areaID == area.id && $0.tabID == activeTabID })
+        else { return false }
+        let next = (current + offset + entries.count) % entries.count
+        return selectGlobalTab(entries[next])
+    }
+
+    private func selectGlobalTab(_ entry: TabFocusedTabOrder.Entry) -> Bool {
         if appState.activeProjectID != entry.projectID,
            let project = navigableProjects.first(where: { $0.id == entry.projectID })
         {
@@ -149,10 +168,16 @@ struct ShortcutActionDispatcher {
             appState.cyclePreviousTabAcrossPanes(projectID: projectID)
             return true
         case .nextTab:
+            if AppLayoutStore.shared.layout == .tabFocused {
+                return selectGlobalTabRelative(offset: 1)
+            }
             guard let projectID = appState.activeProjectID else { return false }
             appState.selectNextTab(projectID: projectID)
             return true
         case .previousTab:
+            if AppLayoutStore.shared.layout == .tabFocused {
+                return selectGlobalTabRelative(offset: -1)
+            }
             guard let projectID = appState.activeProjectID else { return false }
             appState.selectPreviousTab(projectID: projectID)
             return true
