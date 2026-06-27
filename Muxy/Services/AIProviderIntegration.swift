@@ -176,9 +176,13 @@ final class AIProviderRegistry {
         case .osc:
             "terminal"
         case let .aiProvider(id):
-            providers.first(where: { $0.id == id })?.iconName ?? "sparkles"
+            iconName(forProviderID: id) ?? "sparkles"
         case .socket:
             "network"
         }
+    }
+
+    func iconName(forProviderID id: String) -> String? {
+        providers.first(where: { $0.id == id })?.iconName
     }
 }

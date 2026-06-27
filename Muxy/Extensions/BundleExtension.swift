@@ -18,4 +18,14 @@ extension Bundle {
 
         return Bundle.main
     }()
+
+    static var providerIconsURL: URL? {
+        guard let resourceURL = appResources.resourceURL else { return nil }
+        let candidate = resourceURL.appendingPathComponent("ProviderIcons")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else { return nil }
+        return candidate
+    }
 }

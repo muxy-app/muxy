@@ -22,7 +22,7 @@ struct GrokProviderTests {
         #expect(provider.id == "grok")
         #expect(provider.displayName == "Grok")
         #expect(provider.socketTypeKey == "grok_hook")
-        #expect(provider.iconName == "sparkles")
+        #expect(provider.iconName == "grok")
         #expect(provider.executableNames == ["grok"])
         #expect(provider.hookScriptName == "muxy-grok-hook")
         #expect(provider.hookScriptExtension == "sh")
@@ -281,7 +281,7 @@ struct GrokProviderTests {
     @MainActor
     func registryResolvesGrok() {
         #expect(AIProviderRegistry.shared.notificationSource(for: "grok_hook") == .aiProvider("grok"))
-        #expect(AIProviderRegistry.shared.iconName(for: .aiProvider("grok")) == "sparkles")
+        #expect(AIProviderRegistry.shared.iconName(for: .aiProvider("grok")) == "grok")
         #expect(AIProviderRegistry.shared.providers.contains(where: { $0.id == "grok" && $0.socketTypeKey == "grok_hook" }))
     }
 

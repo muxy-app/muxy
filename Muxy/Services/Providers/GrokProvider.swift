@@ -4,7 +4,7 @@ struct GrokProvider: AIProviderIntegration {
     let id = "grok"
     let displayName = "Grok"
     let socketTypeKey = "grok_hook"
-    let iconName = "sparkles"
+    let iconName = "grok"
     let executableNames = ["grok"]
     let hookScriptName = "muxy-grok-hook"
 

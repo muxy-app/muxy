@@ -668,6 +668,7 @@ final class AppState {
         for paneID in effects.paneIDsToRemove {
             terminalViews.removeView(for: paneID)
             TerminalProgressStore.shared.resetPane(paneID)
+            DetectedAgentStore.shared.resetPane(paneID)
         }
 
         if !effects.projectIDsToRemove.isEmpty {

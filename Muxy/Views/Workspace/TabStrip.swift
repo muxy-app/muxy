@@ -15,6 +15,7 @@ struct PaneTabStrip: View {
         let customIcon: ExtensionIcon?
         let isOffline: Bool
         let faviconImage: NSImage?
+        let detectedAgentIconName: String?
     }
 
     let areaID: UUID
@@ -60,7 +61,8 @@ struct PaneTabStrip: View {
                 extensionID: tab.content.extensionState?.extensionID,
                 customIcon: tab.content.extensionState?.customIcon,
                 isOffline: tab.content.pane?.isOffline ?? false,
-                faviconImage: tab.content.browserState?.faviconImage
+                faviconImage: tab.content.browserState?.faviconImage,
+                detectedAgentIconName: DetectedAgentStore.shared.iconName(forPane: tab.content.pane?.id)
             )
         }
     }
@@ -657,8 +659,12 @@ private struct TabCell: View {
         } else {
             switch tab.kind {
             case .terminal:
-                Image(systemName: "terminal")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                if let agentIconName = tab.detectedAgentIconName {
+                    ProviderIconView(iconName: agentIconName, size: UIMetrics.iconMD)
+                } else {
+                    Image(systemName: "terminal")
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                }
             case .extensionWebView:
                 extensionIconView
             case .browser:

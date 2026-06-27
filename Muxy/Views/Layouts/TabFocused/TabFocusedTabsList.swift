@@ -425,8 +425,12 @@ private struct TabFocusedTabRow: View {
     private var kindIcon: some View {
         switch tab.kind {
         case .terminal:
-            Image(systemName: "terminal")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+            if let agentIconName = DetectedAgentStore.shared.iconName(forPane: tab.content.pane?.id) {
+                ProviderIconView(iconName: agentIconName, size: UIMetrics.iconMD)
+            } else {
+                Image(systemName: "terminal")
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+            }
         case .browser:
             if let favicon = tab.content.browserState?.faviconImage {
                 Image(nsImage: favicon)

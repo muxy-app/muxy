@@ -38,6 +38,10 @@ final class GhosttyTerminalNSView: NSView {
     var processExitHandled = false
 
     var onOfflineChange: ((Bool) -> Void)?
+    var onDetectedAgentChange: ((String?) -> Void)?
+    nonisolated(unsafe) private var agentDetectionTimer: DispatchSourceTimer?
+    private var detectedAgentProviderID: String?
+    private var agentExecutables: [AIAgentExecutable] = []
     private var hasMaterializedOnce = false
     private var isOfflinedState = false
     private var offlineInvisibleAt: Date?
@@ -224,6 +228,7 @@ final class GhosttyTerminalNSView: NSView {
         }
 
         applyOcclusionState()
+        startAgentDetection()
     }
 
     func destroySurface() {
@@ -234,6 +239,7 @@ final class GhosttyTerminalNSView: NSView {
             ghostty_surface_free(surface)
             detachRendererLayer()
         }
+        stopAgentDetection()
         surface = nil
         surfaceFocused = nil
         cleanupSurfaceConfigPointers()
@@ -259,6 +265,8 @@ final class GhosttyTerminalNSView: NSView {
         onSearchTotal = nil
         onSearchSelected = nil
         onProgressReport = nil
+        onOfflineChange = nil
+        onDetectedAgentChange = nil
         if let observer = screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
@@ -277,6 +285,7 @@ final class GhosttyTerminalNSView: NSView {
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         occlusionObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         delayedResizeWorkItem?.cancel()
+        agentDetectionTimer?.cancel()
         if let surface {
             ghostty_surface_free(surface)
         }
@@ -1626,6 +1635,42 @@ final class GhosttyTerminalNSView: NSView {
         guard length > 0 else { return nil }
         let bytes = buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }
         return String(bytes: bytes, encoding: .utf8)
+    }
+
+    private static let agentDetectionInterval: TimeInterval = 2
+
+    private func startAgentDetection() {
+        guard agentDetectionTimer == nil else { return }
+        if agentExecutables.isEmpty {
+            agentExecutables = DetectedAgentStore.executablesSnapshot(from: AIProviderRegistry.shared)
+        }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: Self.agentDetectionInterval, leeway: .milliseconds(500))
+        timer.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                self?.pollDetectedAgent()
+            }
+        }
+        agentDetectionTimer = timer
+        timer.resume()
+    }
+
+    private func stopAgentDetection() {
+        agentDetectionTimer?.cancel()
+        agentDetectionTimer = nil
+        guard detectedAgentProviderID != nil else { return }
+        detectedAgentProviderID = nil
+        onDetectedAgentChange?(nil)
+    }
+
+    private func pollDetectedAgent() {
+        guard let surface else { return }
+        let foregroundPID = ghostty_surface_foreground_pid(surface)
+        let processName = Self.processName(pid: foregroundPID)
+        let providerID = AIAgentDetector.providerID(forProcessName: processName, executables: agentExecutables)
+        guard providerID != detectedAgentProviderID else { return }
+        detectedAgentProviderID = providerID
+        onDetectedAgentChange?(providerID)
     }
 
     private func recordSpecialKey(_ event: NSEvent) {

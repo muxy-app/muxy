@@ -57,6 +57,7 @@ let package = Package(
             exclude: ["Info.plist", "Muxy.entitlements"],
             resources: [
                 .process("Resources/Assets.xcassets"),
+                .copy("Resources/ProviderIcons"),
                 .copy("Resources/ghostty"),
                 .copy("Resources/scripts"),
                 .copy("Resources/skills"),
