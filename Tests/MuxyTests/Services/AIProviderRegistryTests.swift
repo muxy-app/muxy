@@ -92,6 +92,59 @@ struct AIProviderRegistryTests {
         #expect(provider.uninstallCount == 1)
         #expect(!gate.started)
     }
+
+    @Test("installAll refreshes only providers whose hook is already installed in dev")
+    func installAllRefreshesInstalledHooksInDev() async {
+        let installed = RefreshRecordingProvider()
+        let notInstalled = RefreshRecordingProvider()
+        defer {
+            installed.resetSettings()
+            notInstalled.resetSettings()
+        }
+        installed.isEnabled = true
+        installed.hookInstalled = true
+        notInstalled.isEnabled = true
+        notInstalled.hookInstalled = false
+
+        let registry = AIProviderRegistry(
+            providers: [installed, notInstalled],
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { false }
+        )
+
+        await registry.installAll()
+
+        #expect(installed.hookInstalledCheckCount >= 1)
+        #expect(!notInstalled.installAttempted)
+    }
+}
+
+private final class RefreshRecordingProvider: AIProviderIntegration {
+    let id = "refresh-recording-provider-\(UUID().uuidString)"
+    let displayName = "Refresh Recording Provider"
+    let socketTypeKey = "refresh_recording"
+    let iconName = "sparkles"
+    let executableNames = ["refresh-recording"]
+    var hookInstalled = false
+    var hookInstalledCheckCount = 0
+    var installAttempted = false
+
+    func isToolInstalled() -> Bool { false }
+
+    func isHookInstalled() -> Bool {
+        hookInstalledCheckCount += 1
+        return hookInstalled
+    }
+
+    func install(hookScriptPath _: String) throws {
+        installAttempted = true
+    }
+
+    func uninstall() throws {}
+
+    func resetSettings() {
+        UserDefaults.standard.removeObject(forKey: settingsKey)
+    }
 }
 
 private final class RecordingProvider: AIProviderIntegration {

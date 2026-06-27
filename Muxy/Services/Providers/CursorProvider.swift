@@ -22,6 +22,10 @@ struct CursorProvider: AIProviderIntegration {
         EventBinding(event: "beforeMCPExecution", argument: "PermissionRequest"),
     ]
 
+    func isHookInstalled() -> Bool {
+        ClaudeCodeProvider.fileContainsMuxyMarker(at: Self.hooksPath)
+    }
+
     func install(hookScriptPath: String) throws {
         var settings = try Self.readSettings()
         settings["version"] = settings["version"] ?? 1

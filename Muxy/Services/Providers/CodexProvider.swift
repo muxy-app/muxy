@@ -43,6 +43,10 @@ struct CodexProvider: AIProviderIntegration {
         )
     }
 
+    func isHookInstalled() -> Bool {
+        ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath)
+    }
+
     func install(hookScriptPath: String) throws {
         let settings = try readSettings()
         let hooks = settings["hooks"] as? [String: Any] ?? [:]

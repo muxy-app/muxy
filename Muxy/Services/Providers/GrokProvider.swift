@@ -48,6 +48,10 @@ struct GrokProvider: AIProviderIntegration {
         )
     }
 
+    func isHookInstalled() -> Bool {
+        ClaudeCodeProvider.fileContainsMuxyMarker(at: hookFilePath)
+    }
+
     func install(hookScriptPath: String) throws {
         let existing = try Self.readHooksFile(at: hookFilePath)
         let hooks = existing["hooks"] as? [String: Any] ?? [:]

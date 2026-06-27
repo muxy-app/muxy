@@ -42,6 +42,15 @@ struct ClaudeCodeProvider: AIProviderIntegration {
         try Self.writeSettings(updatedSettings)
     }
 
+    func isHookInstalled() -> Bool {
+        Self.fileContainsMuxyMarker(at: Self.settingsPath)
+    }
+
+    static func fileContainsMuxyMarker(at path: String) -> Bool {
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
+        return contents.contains(muxyMarker)
+    }
+
     func uninstall() throws {
         guard FileManager.default.fileExists(atPath: Self.settingsPath) else { return }
         var settings = try Self.readSettings()

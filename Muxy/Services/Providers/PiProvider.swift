@@ -62,6 +62,10 @@ struct PiProvider: AIProviderIntegration {
         return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    func isHookInstalled() -> Bool {
+        FileManager.default.fileExists(atPath: destinationPath)
+    }
+
     func install(hookScriptPath: String) throws {
         guard let sourceURL = resourceURL(Self.bundleResourceName, Self.bundleResourceExtension) else {
             throw PiProviderError.bundleResourceNotFound

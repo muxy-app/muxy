@@ -23,6 +23,10 @@ struct OpenCodeProvider: AIProviderIntegration {
         return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    func isHookInstalled() -> Bool {
+        FileManager.default.fileExists(atPath: Self.pluginPath)
+    }
+
     func install(hookScriptPath: String) throws {
         guard let sourcePlugin = Self.findPluginSource(near: hookScriptPath) else { return }
         let sourceData = try Data(contentsOf: URL(fileURLWithPath: sourcePlugin))

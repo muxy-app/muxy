@@ -29,6 +29,10 @@ struct DroidProvider: AIProviderIntegration {
         return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    func isHookInstalled() -> Bool {
+        ClaudeCodeProvider.fileContainsMuxyMarker(at: Self.settingsPath)
+    }
+
     func install(hookScriptPath: String) throws {
         let settings = try Self.readSettings()
         let hooks = settings["hooks"] as? [String: Any] ?? [:]
