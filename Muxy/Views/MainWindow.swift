@@ -100,13 +100,14 @@ struct MainWindow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            leftNavigationColumn
-            if sidebarIsResizable {
-                sidebarResizeHandle
-            }
             if overviewSidebarVisible {
                 overviewSidebarColumn
                 overviewResizeHandle
+            } else {
+                leftNavigationColumn
+                if sidebarIsResizable {
+                    sidebarResizeHandle
+                }
             }
             mainWorkspaceColumn
         }
@@ -274,7 +275,7 @@ struct MainWindow: View {
             }
 
             Sidebar(
-                expanded: effectiveSidebarExpanded,
+                expanded: sidebarExpanded,
                 expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
             )
         }
@@ -290,7 +291,7 @@ struct MainWindow: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .animation(.easeInOut(duration: 0.2), value: effectiveSidebarExpanded)
+        .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
 
     private var overviewSidebarColumn: some View {
@@ -345,6 +346,11 @@ struct MainWindow: View {
             }
 
             topBarContent
+                .overlay(alignment: .leading) {
+                    if overviewSidebarVisible {
+                        OverviewBreadcrumb()
+                    }
+                }
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
@@ -358,12 +364,13 @@ struct MainWindow: View {
                 .background(WindowDragRepresentable())
                 .background(MuxyTheme.bg)
                 .overlay(alignment: .trailing) {
-                    HStack(spacing: 0) {
-                        navigationArrows
-                        if titleBarNavigationOverflowsSidebar {
-                            Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                                .accessibilityHidden(true)
-                        }
+                    navigationArrows
+                        .padding(.trailing, UIMetrics.spacing4)
+                }
+                .overlay(alignment: .trailing) {
+                    if titleBarNavigationOverflowsSidebar, !overviewSidebarVisible {
+                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                            .accessibilityHidden(true)
                     }
                 }
                 .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
@@ -465,7 +472,6 @@ struct MainWindow: View {
                 NotificationCenter.default.post(name: .toggleOverviewSidebar, object: nil)
             }
         }
-        .padding(.trailing, UIMetrics.spacing2)
     }
 
     @ViewBuilder
@@ -476,7 +482,7 @@ struct MainWindow: View {
         {
             PaneTabStrip(
                 areaID: area.id,
-                tabs: PaneTabStrip.snapshots(from: area.tabs),
+                tabs: overviewSidebarVisible ? [] : PaneTabStrip.snapshots(from: area.tabs),
                 activeTabID: area.activeTabID,
                 isFocused: true,
                 isWindowTitleBar: true,
@@ -924,13 +930,9 @@ struct MainWindow: View {
         SidebarExpandedStyle(rawValue: sidebarExpandedStyleRaw) ?? .defaultValue
     }
 
-    private var effectiveSidebarExpanded: Bool {
-        sidebarExpanded && !overviewSidebarVisible
-    }
-
     private var sidebarResolvedWidth: CGFloat {
         SidebarLayout.resolvedWidth(
-            expanded: effectiveSidebarExpanded,
+            expanded: sidebarExpanded,
             collapsedStyle: sidebarCollapsedStyle,
             expandedStyle: sidebarExpandedStyle,
             expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
@@ -938,7 +940,7 @@ struct MainWindow: View {
     }
 
     private var sidebarIsResizable: Bool {
-        SidebarLayout.isWide(expanded: effectiveSidebarExpanded, expandedStyle: sidebarExpandedStyle)
+        SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
     }
 
     private var overviewSidebarResolvedWidth: CGFloat {
@@ -946,12 +948,18 @@ struct MainWindow: View {
     }
 
     private var leftNavigationWidth: CGFloat {
-        MainWindowLayout.leftNavigationWidth(sidebarWidth: sidebarResolvedWidth)
+        guard !overviewSidebarVisible else { return 0 }
+        return MainWindowLayout.leftNavigationWidth(sidebarWidth: sidebarResolvedWidth)
+    }
+
+    private var totalLeftColumnsWidth: CGFloat {
+        guard overviewSidebarVisible else { return leftNavigationWidth }
+        return overviewSidebarResolvedWidth
     }
 
     private var titleBarNavigationOverlayWidth: CGFloat {
         MainWindowLayout.titleBarNavigationOverlayWidth(
-            leftNavigationWidth: leftNavigationWidth,
+            leftNavigationWidth: totalLeftColumnsWidth,
             titleBarNavigationWidth: titleBarNavigationWidth,
             isFullScreen: isFullScreen
         )
@@ -959,14 +967,14 @@ struct MainWindow: View {
 
     private var mainTitleBarLeadingInset: CGFloat {
         MainWindowLayout.mainTitleBarLeadingInset(
-            leftNavigationWidth: leftNavigationWidth,
+            leftNavigationWidth: totalLeftColumnsWidth,
             titleBarNavigationOverlayWidth: titleBarNavigationOverlayWidth,
             isFullScreen: isFullScreen
         )
     }
 
     private var titleBarNavigationOverflowsSidebar: Bool {
-        titleBarNavigationOverlayWidth > leftNavigationWidth
+        titleBarNavigationOverlayWidth > totalLeftColumnsWidth
     }
 
     private var leftNavigationBorderTopPadding: CGFloat {

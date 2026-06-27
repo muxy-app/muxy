@@ -36,8 +36,38 @@ struct ShortcutActionDispatcher {
         return [Project.home] + filtered
     }
 
+    private func selectGlobalTab(index: Int) -> Bool {
+        let entries = OverviewTabOrder.entries(
+            appState: appState,
+            projectStore: projectStore,
+            projectGroupStore: projectGroupStore,
+            worktreeStore: worktreeStore
+        )
+        guard index >= 0, index < entries.count else { return false }
+        let entry = entries[index]
+        if appState.activeProjectID != entry.projectID,
+           let project = navigableProjects.first(where: { $0.id == entry.projectID })
+        {
+            worktreeStore.ensurePrimary(for: project)
+            if let worktree = worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id]) {
+                appState.selectProject(project, worktree: worktree)
+            }
+        }
+        if let worktreeID = entry.worktreeID,
+           appState.activeWorktreeID[entry.projectID] != worktreeID,
+           let worktree = worktreeStore.worktree(projectID: entry.projectID, worktreeID: worktreeID)
+        {
+            appState.selectWorktree(projectID: entry.projectID, worktree: worktree)
+        }
+        appState.dispatch(.selectTab(projectID: entry.projectID, areaID: entry.areaID, tabID: entry.tabID))
+        return true
+    }
+
     func perform(_ action: ShortcutAction, activeProject: Project?) -> Bool {
         if let index = action.tabSelectionIndex {
+            if OverviewSidebarPreferences.isVisible {
+                return selectGlobalTab(index: index)
+            }
             guard let projectID = appState.activeProjectID else { return false }
             appState.selectTabByIndex(index, projectID: projectID)
             return true

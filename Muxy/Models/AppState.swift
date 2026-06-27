@@ -226,6 +226,10 @@ final class AppState {
         return workspaceRoots[key]?.allAreas() ?? []
     }
 
+    func areas(for key: WorktreeKey) -> [TabArea] {
+        workspaceRoots[key]?.allAreas() ?? []
+    }
+
     func hasTabs(for projectID: UUID) -> Bool {
         allAreas(for: projectID).contains { !$0.tabs.isEmpty }
     }
