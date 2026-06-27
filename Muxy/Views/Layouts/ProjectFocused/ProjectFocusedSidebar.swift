@@ -107,7 +107,7 @@ struct ProjectFocusedSidebar: View {
                 .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .clipped()
 
-            SidebarFooter(isWide: isWide)
+            SidebarFooter(isWide: isWide, sidebarExpanded: expanded)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

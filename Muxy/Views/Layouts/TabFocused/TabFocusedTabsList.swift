@@ -43,10 +43,9 @@ struct TabFocusedTabActions: View {
 
 struct TabFocusedTabsList: View {
     let project: Project
+    let shortcutNumbers: [UUID: Int]
 
     @Environment(AppState.self) private var appState
-    @Environment(ProjectStore.self) private var projectStore
-    @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var expansionStore = TabFocusedSidebarState.shared
 
@@ -79,30 +78,14 @@ struct TabFocusedTabsList: View {
         return appState.activeTab(for: project.id)?.id
     }
 
-    private var shortcutNumbers: [UUID: Int] {
-        let entries = TabFocusedTabOrder.entries(
-            appState: appState,
-            projectStore: projectStore,
-            projectGroupStore: projectGroupStore,
-            worktreeStore: worktreeStore,
-            expansionStore: expansionStore
-        )
-        var map: [UUID: Int] = [:]
-        for (index, entry) in entries.prefix(9).enumerated() {
-            map[entry.tabID] = index + 1
-        }
-        return map
-    }
-
     var body: some View {
-        let numbers = shortcutNumbers
         VStack(spacing: 0) {
             if groupedByWorktree {
                 ForEach(worktreeStore.list(for: project.id)) { worktree in
-                    worktreeGroup(worktree, numbers: numbers)
+                    worktreeGroup(worktree, numbers: shortcutNumbers)
                 }
             } else {
-                tabRows(activeAreaTabs, numbers: numbers, emptyOnNoTabs: true)
+                tabRows(activeAreaTabs, numbers: shortcutNumbers, emptyOnNoTabs: true)
             }
         }
         .padding(.bottom, UIMetrics.spacing3)

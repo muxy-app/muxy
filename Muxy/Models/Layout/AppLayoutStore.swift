@@ -5,10 +5,12 @@ import Foundation
 final class AppLayoutStore {
     static let shared = AppLayoutStore()
 
+    private let defaults: UserDefaults
     private(set) var layout: AppLayout
 
-    init() {
-        let stored = UserDefaults.standard.string(forKey: AppLayout.storageKey)
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let stored = defaults.string(forKey: AppLayout.storageKey)
         layout = stored.flatMap(AppLayout.init(rawValue:)) ?? AppLayout.defaultValue
     }
 
@@ -17,7 +19,7 @@ final class AppLayoutStore {
     func set(_ layout: AppLayout) {
         guard self.layout != layout else { return }
         self.layout = layout
-        UserDefaults.standard.set(layout.rawValue, forKey: AppLayout.storageKey)
+        defaults.set(layout.rawValue, forKey: AppLayout.storageKey)
     }
 
     func toggle() {

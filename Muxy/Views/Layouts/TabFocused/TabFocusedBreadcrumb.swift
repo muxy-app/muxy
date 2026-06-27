@@ -6,6 +6,9 @@ struct TabFocusedBreadcrumb: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
 
+    private static let originKey = "muxy.breadcrumb.origin"
+    private static let originID = "tabFocusedBreadcrumb"
+
     @State private var currentBranch: String?
     @State private var branches: [String] = []
     @State private var showWorkspacePopover = false
@@ -34,15 +37,17 @@ struct TabFocusedBreadcrumb: View {
     }
 
     var body: some View {
-        HStack(spacing: UIMetrics.spacing2) {
+        let project = resolvedProject
+        let worktree = project.flatMap(activeWorktree)
+        return HStack(spacing: UIMetrics.spacing2) {
             workspaceSegment
 
             separator
-            projectSegment(project: resolvedProject)
+            projectSegment(project: project)
 
-            if let project = resolvedProject {
+            if let project {
                 separator
-                worktreeSegment(project: project, worktree: activeWorktree(for: project))
+                worktreeSegment(project: project, worktree: worktree)
 
                 if currentBranch != nil {
                     separator
@@ -52,14 +57,15 @@ struct TabFocusedBreadcrumb: View {
         }
         .fixedSize(horizontal: true, vertical: false)
         .padding(.leading, UIMetrics.spacing6)
-        .task(id: taskID(project: resolvedProject, worktree: resolvedProject.flatMap(activeWorktree))) {
-            await loadBranches(project: resolvedProject, worktree: resolvedProject.flatMap(activeWorktree))
+        .task(id: taskID(project: project, worktree: worktree)) {
+            await loadBranches(project: project, worktree: worktree)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .vcsDidRefresh)) { _ in
-            Task { await loadBranches(project: resolvedProject, worktree: resolvedProject.flatMap(activeWorktree)) }
+        .onReceive(NotificationCenter.default.publisher(for: .vcsDidRefresh)) { notification in
+            guard !isSelfOriginated(notification, project: project, worktree: worktree) else { return }
+            Task { await loadBranches(project: project, worktree: worktree) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .vcsRepoDidChange)) { _ in
-            Task { await loadBranches(project: resolvedProject, worktree: resolvedProject.flatMap(activeWorktree)) }
+            Task { await loadBranches(project: project, worktree: worktree) }
         }
     }
 
@@ -188,12 +194,18 @@ struct TabFocusedBreadcrumb: View {
                 NotificationCenter.default.post(
                     name: .vcsDidRefresh,
                     object: nil,
-                    userInfo: ["repoPath": path]
+                    userInfo: ["repoPath": path, Self.originKey: Self.originID]
                 )
             } catch {
                 ToastState.shared.show(title: "Failed to switch branch", body: error.localizedDescription)
             }
         }
+    }
+
+    private func isSelfOriginated(_ notification: Notification, project: Project?, worktree: Worktree?) -> Bool {
+        guard let project else { return false }
+        guard notification.userInfo?[Self.originKey] as? String == Self.originID else { return false }
+        return notification.userInfo?["repoPath"] as? String == repoPath(project: project, worktree: worktree)
     }
 
     private func handleCreateResult(project: Project, result: CreateWorktreeResult) {

@@ -26,12 +26,27 @@ struct TabFocusedSidebar: View {
         return [homeProject] + stored
     }
 
+    private var shortcutNumbers: [UUID: Int] {
+        let entries = TabFocusedTabOrder.entries(
+            appState: appState,
+            projectStore: projectStore,
+            projectGroupStore: projectGroupStore,
+            worktreeStore: worktreeStore
+        )
+        var map: [UUID: Int] = [:]
+        for (index, entry) in entries.prefix(9).enumerated() {
+            map[entry.tabID] = index + 1
+        }
+        return map
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
+        let numbers = shortcutNumbers
+        return VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(projects) { project in
-                        TabFocusedProjectRow(project: project)
+                        TabFocusedProjectRow(project: project, shortcutNumbers: numbers)
                     }
                     TabFocusedAddProjectRow(action: openProjectPicker)
                 }

@@ -4,6 +4,7 @@ import SwiftUI
 
 struct TabFocusedProjectRow: View {
     let project: Project
+    let shortcutNumbers: [UUID: Int]
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -37,7 +38,7 @@ struct TabFocusedProjectRow: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if isExpanded {
-                TabFocusedTabsList(project: project)
+                TabFocusedTabsList(project: project, shortcutNumbers: shortcutNumbers)
             }
         }
         .onAppear { applyDefaultExpansion() }
