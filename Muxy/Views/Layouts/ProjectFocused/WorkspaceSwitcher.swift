@@ -471,7 +471,7 @@ private struct WorkspaceRow: View {
     }
 }
 
-private struct RemoteWorkspaceEditorSheet: View {
+struct RemoteWorkspaceEditorSheet: View {
     let mode: RemoteWorkspaceEditorMode
     let onSubmit: (_ name: String, _ deviceID: UUID) -> Void
     let onCancel: () -> Void
@@ -593,7 +593,7 @@ private struct RemoteWorkspaceEditorSheet: View {
     }
 }
 
-private struct WorkspaceEditorSheet: View {
+struct WorkspaceEditorSheet: View {
     let mode: WorkspaceEditorMode
     let onSubmit: (String) -> Void
     let onCancel: () -> Void

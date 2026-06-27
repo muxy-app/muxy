@@ -5,6 +5,8 @@ struct TabFocusedBreadcrumb: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
+    @Environment(RemoteDeviceStore.self) private var deviceStore
+    @Environment(SSHConnectionService.self) private var sshConnections
 
     private static let originKey = "muxy.breadcrumb.origin"
     private static let originID = "tabFocusedBreadcrumb"
@@ -17,6 +19,8 @@ struct TabFocusedBreadcrumb: View {
     @State private var showWorktreePopover = false
     @State private var showCreateSheet = false
     @State private var isSwitching = false
+    @State private var workspaceEditorMode: WorkspaceEditorMode?
+    @State private var remoteWorkspaceEditor: RemoteWorkspaceEditorMode?
 
     private var activeProject: Project? {
         guard let id = appState.activeProjectID else { return nil }
@@ -84,7 +88,31 @@ struct TabFocusedBreadcrumb: View {
             action: { showWorkspacePopover = true }
         )
         .popover(isPresented: $showWorkspacePopover, arrowEdge: .bottom) {
-            TabFocusedWorkspacePopover(onDismiss: { showWorkspacePopover = false })
+            TabFocusedWorkspacePopover(
+                onDismiss: { showWorkspacePopover = false },
+                onCreateLocal: { workspaceEditorMode = .create },
+                onCreateRemote: { remoteWorkspaceEditor = .create }
+            )
+        }
+        .sheet(item: $workspaceEditorMode) { mode in
+            WorkspaceEditorSheet(
+                mode: mode,
+                onSubmit: { name in
+                    applyWorkspace(mode: mode, name: name)
+                    workspaceEditorMode = nil
+                },
+                onCancel: { workspaceEditorMode = nil }
+            )
+        }
+        .sheet(item: $remoteWorkspaceEditor) { mode in
+            RemoteWorkspaceEditorSheet(
+                mode: mode,
+                onSubmit: { name, deviceID in
+                    applyRemoteWorkspace(mode: mode, name: name, deviceID: deviceID)
+                    remoteWorkspaceEditor = nil
+                },
+                onCancel: { remoteWorkspaceEditor = nil }
+            )
         }
     }
 
@@ -226,6 +254,43 @@ struct TabFocusedBreadcrumb: View {
             ?? remaining.first
         appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
         worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+    }
+
+    private func applyWorkspace(mode: WorkspaceEditorMode, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, case .create = mode else { return }
+        projectGroupStore.addGroup(name: trimmed)
+    }
+
+    private func applyRemoteWorkspace(mode: RemoteWorkspaceEditorMode, name: String, deviceID: UUID) {
+        guard case .create = mode else { return }
+        let group = projectGroupStore.addRemoteWorkspace(name: name, deviceID: deviceID)
+        selectWorkspace(group)
+    }
+
+    private func selectWorkspace(_ group: ProjectGroup) {
+        guard group.type == .ssh, let destination = deviceStore.device(id: group.remoteDeviceID)?.destination else {
+            projectGroupStore.selectGroup(id: group.id)
+            selectFirstProject()
+            return
+        }
+        Task {
+            guard await sshConnections.connect(destination: destination) else {
+                ToastState.shared.show("Could not connect to \(group.name)")
+                return
+            }
+            projectGroupStore.selectGroup(id: group.id)
+            selectFirstProject()
+        }
+    }
+
+    private func selectFirstProject() {
+        WorkspaceSelectionService.selectFirstProject(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
     }
 }
 

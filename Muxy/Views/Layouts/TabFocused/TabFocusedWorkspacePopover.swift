@@ -2,6 +2,8 @@ import SwiftUI
 
 struct TabFocusedWorkspacePopover: View {
     let onDismiss: () -> Void
+    let onCreateLocal: () -> Void
+    let onCreateRemote: () -> Void
 
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(RemoteDeviceStore.self) private var deviceStore
@@ -31,11 +33,25 @@ struct TabFocusedWorkspacePopover: View {
             filterKey: { $0.name },
             searchPlaceholder: "Search workspaces…",
             emptyLabel: "No workspaces",
+            footerActions: footerActions,
             onSelect: { select($0) },
             row: { item, isHighlighted in
                 row(item, isHighlighted: isHighlighted)
             }
         )
+    }
+
+    private var footerActions: [PopoverFooterAction] {
+        [
+            PopoverFooterAction(title: "New Local Workspace", icon: "square.stack.3d.up") {
+                onDismiss()
+                onCreateLocal()
+            },
+            PopoverFooterAction(title: "New Remote Workspace", icon: "network") {
+                onDismiss()
+                onCreateRemote()
+            },
+        ]
     }
 
     private func row(_ item: Item, isHighlighted: Bool) -> some View {
