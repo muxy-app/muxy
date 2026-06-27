@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-enum OverviewTabOrder {
+enum TabFocusedTabOrder {
     struct Entry {
         let projectID: UUID
         let worktreeID: UUID?
@@ -27,7 +27,7 @@ enum OverviewTabOrder {
         projectStore: ProjectStore,
         projectGroupStore: ProjectGroupStore,
         worktreeStore: WorktreeStore,
-        expansionStore: OverviewExpansionStore = .shared
+        expansionStore: TabFocusedSidebarState = .shared
     ) -> [Entry] {
         orderedProjects(projectStore: projectStore, projectGroupStore: projectGroupStore)
             .filter { expansionStore.isExpandedPersisted($0.id) }

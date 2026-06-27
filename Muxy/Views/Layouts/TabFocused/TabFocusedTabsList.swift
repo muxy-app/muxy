@@ -1,7 +1,7 @@
 import MuxyShared
 import SwiftUI
 
-struct OverviewTabActions: View {
+struct TabFocusedTabActions: View {
     let project: Project
     let worktree: Worktree?
 
@@ -11,12 +11,12 @@ struct OverviewTabActions: View {
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
 
     var body: some View {
-        OverviewActionButton(symbol: "plus", label: "New Terminal Tab") {
+        SidebarActionButton(symbol: "plus", label: "New Terminal Tab") {
             activateTarget()
             appState.createTab(projectID: project.id)
         }
         if browserEnabled {
-            OverviewActionButton(symbol: "globe", label: "New Browser Tab") {
+            SidebarActionButton(symbol: "globe", label: "New Browser Tab") {
                 activateTarget()
                 appState.dispatch(.createBrowserTab(
                     projectID: project.id,
@@ -41,14 +41,14 @@ struct OverviewTabActions: View {
     }
 }
 
-struct OverviewTabsList: View {
+struct TabFocusedTabsList: View {
     let project: Project
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(WorktreeStore.self) private var worktreeStore
-    @State private var expansionStore = OverviewExpansionStore.shared
+    @State private var expansionStore = TabFocusedSidebarState.shared
 
     private struct AreaTab: Identifiable {
         let area: TabArea
@@ -80,7 +80,7 @@ struct OverviewTabsList: View {
     }
 
     private var shortcutNumbers: [UUID: Int] {
-        let entries = OverviewTabOrder.entries(
+        let entries = TabFocusedTabOrder.entries(
             appState: appState,
             projectStore: projectStore,
             projectGroupStore: projectGroupStore,
@@ -125,18 +125,18 @@ struct OverviewTabsList: View {
                 Text("No open tabs")
                     .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
-                    .padding(.horizontal, OverviewSidebarLayout.rowHorizontalInset)
+                    .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
                     .padding(.bottom, UIMetrics.spacing3)
             } else {
                 Text("No tabs")
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgDim)
-                    .padding(.horizontal, OverviewSidebarLayout.rowHorizontalInset + UIMetrics.spacing4)
+                    .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset + UIMetrics.spacing4)
                     .padding(.bottom, UIMetrics.spacing2)
             }
         } else {
             ForEach(tabs) { item in
-                OverviewTabRow(
+                TabFocusedTabRow(
                     project: project,
                     area: item.area,
                     tab: item.tab,
@@ -169,19 +169,19 @@ private struct WorktreeGroupHeader: View {
                 .foregroundStyle(MuxyTheme.fgDim)
             Spacer(minLength: UIMetrics.spacing2)
             HStack(spacing: 0) {
-                OverviewTabActions(project: project, worktree: worktree)
+                TabFocusedTabActions(project: project, worktree: worktree)
             }
             .opacity(hovered ? 1 : 0)
         }
-        .padding(.leading, OverviewSidebarLayout.rowHorizontalInset + UIMetrics.spacing4)
-        .padding(.trailing, OverviewSidebarLayout.rowHorizontalInset)
+        .padding(.leading, TabFocusedSidebarMetrics.rowHorizontalInset + UIMetrics.spacing4)
+        .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
         .padding(.vertical, UIMetrics.spacing4)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
     }
 }
 
-private struct OverviewTabRow: View {
+private struct TabFocusedTabRow: View {
     let project: Project
     let area: TabArea
     let tab: TerminalTab
@@ -310,7 +310,7 @@ private struct OverviewTabRow: View {
 
             trailingAccessory
         }
-        .padding(.horizontal, OverviewSidebarLayout.rowHorizontalInset)
+        .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
         .padding(.vertical, UIMetrics.spacing3)
         .background(rowBackground)
         .overlay {

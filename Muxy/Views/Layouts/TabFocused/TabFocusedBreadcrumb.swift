@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct OverviewBreadcrumb: View {
+struct TabFocusedBreadcrumb: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -28,38 +28,38 @@ struct OverviewBreadcrumb: View {
         worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id])
     }
 
-    var body: some View {
-        if let project = activeProject, !project.isHome {
-            content(for: project)
-        }
+    private var resolvedProject: Project? {
+        guard let project = activeProject, !project.isHome else { return nil }
+        return project
     }
 
-    private func content(for project: Project) -> some View {
-        let worktree = activeWorktree(for: project)
-        return HStack(spacing: UIMetrics.spacing2) {
+    var body: some View {
+        HStack(spacing: UIMetrics.spacing2) {
             workspaceSegment
 
             separator
-            projectSegment(project: project)
+            projectSegment(project: resolvedProject)
 
-            separator
-            worktreeSegment(project: project, worktree: worktree)
-
-            if currentBranch != nil {
+            if let project = resolvedProject {
                 separator
-                branchSegment(project: project)
+                worktreeSegment(project: project, worktree: activeWorktree(for: project))
+
+                if currentBranch != nil {
+                    separator
+                    branchSegment(project: project)
+                }
             }
         }
         .fixedSize(horizontal: true, vertical: false)
         .padding(.leading, UIMetrics.spacing6)
-        .task(id: taskID(project: project, worktree: worktree)) {
-            await loadBranches(project: project, worktree: worktree)
+        .task(id: taskID(project: resolvedProject, worktree: resolvedProject.flatMap(activeWorktree))) {
+            await loadBranches(project: resolvedProject, worktree: resolvedProject.flatMap(activeWorktree))
         }
         .onReceive(NotificationCenter.default.publisher(for: .vcsDidRefresh)) { _ in
-            Task { await loadBranches(project: project, worktree: worktree) }
+            Task { await loadBranches(project: resolvedProject, worktree: resolvedProject.flatMap(activeWorktree)) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .vcsRepoDidChange)) { _ in
-            Task { await loadBranches(project: project, worktree: worktree) }
+            Task { await loadBranches(project: resolvedProject, worktree: resolvedProject.flatMap(activeWorktree)) }
         }
     }
 
@@ -78,20 +78,20 @@ struct OverviewBreadcrumb: View {
             action: { showWorkspacePopover = true }
         )
         .popover(isPresented: $showWorkspacePopover, arrowEdge: .bottom) {
-            OverviewWorkspacePopover(onDismiss: { showWorkspacePopover = false })
+            TabFocusedWorkspacePopover(onDismiss: { showWorkspacePopover = false })
         }
     }
 
-    private func projectSegment(project: Project) -> some View {
+    private func projectSegment(project: Project?) -> some View {
         BreadcrumbSegment(
             symbol: "folder",
-            text: project.name,
+            text: project?.name ?? "Select Project",
             busy: false,
             isOpen: showProjectPopover,
             action: { showProjectPopover = true }
         )
         .popover(isPresented: $showProjectPopover, arrowEdge: .bottom) {
-            OverviewProjectPopover(onDismiss: { showProjectPopover = false })
+            TabFocusedProjectPopover(onDismiss: { showProjectPopover = false })
         }
     }
 
@@ -104,7 +104,7 @@ struct OverviewBreadcrumb: View {
             action: { showBranchPopover = true }
         )
         .popover(isPresented: $showBranchPopover, arrowEdge: .bottom) {
-            OverviewBranchPopover(
+            TabFocusedBranchPopover(
                 project: project,
                 currentBranch: currentBranch,
                 branches: branches,
@@ -148,15 +148,21 @@ struct OverviewBreadcrumb: View {
         return worktree.name
     }
 
-    private func taskID(project: Project, worktree: Worktree?) -> String {
-        "\(worktree?.path ?? project.path)|\(project.isRemote)"
+    private func taskID(project: Project?, worktree: Worktree?) -> String {
+        guard let project else { return "none" }
+        return "\(worktree?.path ?? project.path)|\(project.isRemote)"
     }
 
     private func repoPath(project: Project, worktree: Worktree?) -> String {
         worktree?.path ?? project.path
     }
 
-    private func loadBranches(project: Project, worktree: Worktree?) async {
+    private func loadBranches(project: Project?, worktree: Worktree?) async {
+        guard let project else {
+            currentBranch = nil
+            branches = []
+            return
+        }
         let context = projectGroupStore.workspaceContext(for: project)
         let service = GitRepositoryService(context: context)
         let path = repoPath(project: project, worktree: worktree)

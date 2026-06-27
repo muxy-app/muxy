@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct OverviewSidebar: View {
+struct TabFocusedSidebar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -31,18 +31,15 @@ struct OverviewSidebar: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(projects) { project in
-                        OverviewProjectRow(project: project)
+                        TabFocusedProjectRow(project: project)
                     }
-                    OverviewAddProjectRow(action: openProjectPicker)
+                    TabFocusedAddProjectRow(action: openProjectPicker)
                 }
                 .padding(.vertical, UIMetrics.spacing3)
             }
             .scrollIndicators(.never)
 
-            Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                .accessibilityHidden(true)
-
-            OverviewFooter()
+            SidebarFooter()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(MuxyTheme.bg)
@@ -58,7 +55,7 @@ struct OverviewSidebar: View {
     }
 }
 
-private struct OverviewAddProjectRow: View {
+private struct TabFocusedAddProjectRow: View {
     let action: () -> Void
     @State private var hovered = false
 
@@ -78,7 +75,7 @@ private struct OverviewAddProjectRow: View {
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, OverviewSidebarLayout.rowHorizontalInset)
+            .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
             .padding(.vertical, UIMetrics.spacing3)
             .background(hovered ? MuxyTheme.hover : Color.clear)
             .contentShape(Rectangle())
@@ -90,56 +87,5 @@ private struct OverviewAddProjectRow: View {
 
     private var shortcutTooltip: String {
         "Add Project (\(KeyBindingStore.shared.combo(for: .openProject).displayString))"
-    }
-}
-
-private struct OverviewFooter: View {
-    @State private var extensionStore = ExtensionStore.shared
-    @State private var notificationStore = NotificationStore.shared
-    @State private var showThemePicker = false
-    @State private var showNotifications = false
-
-    private var notificationBellIcon: String {
-        notificationStore.unreadCount > 0 ? "bell.badge" : "bell"
-    }
-
-    private var extensionsHelp: String {
-        guard extensionStore.hasUpdates else { return "Extensions" }
-        let count = extensionStore.updateCount
-        return count == 1 ? "Extensions (1 update available)" : "Extensions (\(count) updates available)"
-    }
-
-    var body: some View {
-        HStack(spacing: UIMetrics.spacing2) {
-            IconButton(symbol: "sidebar.left", accessibilityLabel: "Hide Project Overview") {
-                NotificationCenter.default.post(name: .toggleOverviewSidebar, object: nil)
-            }
-            .help("Hide Project Overview")
-
-            Spacer()
-
-            IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
-                .help("Notifications")
-                .popover(isPresented: $showNotifications) {
-                    NotificationPanel(onDismiss: { showNotifications = false })
-                }
-            IconButton(
-                symbol: "puzzlepiece.extension",
-                showsBadge: extensionStore.hasUpdates,
-                accessibilityLabel: extensionStore.hasUpdates ? "Extensions, updates available" : "Extensions"
-            ) { NotificationCenter.default.post(name: .openExtensionsModal, object: nil) }
-                .help(extensionsHelp)
-            IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
-                .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
-                .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
-        }
-        .padding(.horizontal, UIMetrics.spacing5)
-        .padding(.vertical, UIMetrics.spacing3)
-        .onReceive(NotificationCenter.default.publisher(for: .toggleThemePicker)) { _ in
-            showThemePicker.toggle()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleNotificationPanel)) { _ in
-            showNotifications.toggle()
-        }
     }
 }

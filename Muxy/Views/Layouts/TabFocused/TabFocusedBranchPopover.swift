@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct OverviewBranchPopover: View {
+struct TabFocusedBranchPopover: View {
     let project: Project
     let currentBranch: String?
     let branches: [String]

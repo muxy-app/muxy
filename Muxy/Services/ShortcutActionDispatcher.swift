@@ -37,7 +37,7 @@ struct ShortcutActionDispatcher {
     }
 
     private func selectGlobalTab(index: Int) -> Bool {
-        let entries = OverviewTabOrder.entries(
+        let entries = TabFocusedTabOrder.entries(
             appState: appState,
             projectStore: projectStore,
             projectGroupStore: projectGroupStore,
@@ -65,7 +65,7 @@ struct ShortcutActionDispatcher {
 
     func perform(_ action: ShortcutAction, activeProject: Project?) -> Bool {
         if let index = action.tabSelectionIndex {
-            if OverviewSidebarPreferences.isVisible {
+            if AppLayoutStore.shared.layout == .tabFocused {
                 return selectGlobalTab(index: index)
             }
             guard let projectID = appState.activeProjectID else { return false }

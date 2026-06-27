@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct OverviewWorkspacePopover: View {
+struct TabFocusedWorkspacePopover: View {
     let onDismiss: () -> Void
 
     @Environment(ProjectGroupStore.self) private var projectGroupStore

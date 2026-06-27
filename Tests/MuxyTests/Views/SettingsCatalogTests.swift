@@ -47,10 +47,10 @@ struct SettingsCatalogTests {
     @Test
     func worktreeListSettingsAreRegisteredAndSearchable() {
         #expect(SettingsCatalog.items.contains {
-            $0.key == WorktreeListPreferences.showUnreadIndicatorKey && $0.category == .sidebar
+            $0.key == WorktreeListPreferences.showUnreadIndicatorKey && $0.category == .appearance
         })
         #expect(SettingsCatalog.items.contains {
-            $0.key == WorktreeListPreferences.orderByMRUKey && $0.category == .sidebar
+            $0.key == WorktreeListPreferences.orderByMRUKey && $0.category == .appearance
         })
         #expect(SettingsCatalog.matchingItems(query: "mru").contains {
             $0.key == WorktreeListPreferences.orderByMRUKey

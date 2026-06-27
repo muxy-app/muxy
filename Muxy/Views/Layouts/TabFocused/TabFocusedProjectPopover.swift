@@ -2,7 +2,7 @@ import AppKit
 import MuxyShared
 import SwiftUI
 
-struct OverviewProjectPopover: View {
+struct TabFocusedProjectPopover: View {
     let onDismiss: () -> Void
 
     @Environment(AppState.self) private var appState

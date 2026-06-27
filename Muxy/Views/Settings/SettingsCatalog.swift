@@ -6,7 +6,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case projects
     case remoteDevices
     case appearance
-    case sidebar
     case terminal
     case browser
     case richInput
@@ -26,7 +25,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .projects: "Projects"
         case .remoteDevices: "Remote Devices"
         case .appearance: "Interface"
-        case .sidebar: "Sidebar"
         case .terminal: "Terminal"
         case .browser: "Browser"
         case .richInput: "Rich Input"
@@ -46,7 +44,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .projects: "folder"
         case .remoteDevices: "server.rack"
         case .appearance: "macwindow"
-        case .sidebar: "sidebar.left"
         case .terminal: "terminal"
         case .browser: "globe"
         case .richInput: "text.cursor"
@@ -160,7 +157,7 @@ enum SettingsCatalog {
             key: GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch,
             title: "Auto-expand Worktrees",
             description: "Automatically reveals worktrees when switching projects.",
-            category: .sidebar,
+            category: .appearance,
             section: "Sidebar",
             defaultValue: false
         ),
@@ -168,7 +165,7 @@ enum SettingsCatalog {
             key: HomeProjectPreferences.visibleKey,
             title: "Show Home",
             description: "Shows the permanent Home project at the top of the sidebar.",
-            category: .sidebar,
+            category: .appearance,
             section: "Sidebar",
             defaultValue: HomeProjectPreferences.defaultVisible
         ),
@@ -176,7 +173,7 @@ enum SettingsCatalog {
             key: SidebarSelection.storageKey,
             title: "Active Sidebar",
             description: "Chooses the built-in sidebar or one provided by an extension.",
-            category: .sidebar,
+            category: .appearance,
             section: "Sidebar",
             defaultValue: SidebarSelection.builtinValue,
             aliases: ["extension sidebar", "webview sidebar"]
@@ -185,7 +182,7 @@ enum SettingsCatalog {
             key: WorktreeListPreferences.showUnreadIndicatorKey,
             title: "Show Worktree Unread Indicator",
             description: "Shows a dot on worktrees with unread notifications in the worktree switcher.",
-            category: .sidebar,
+            category: .appearance,
             section: "Worktrees",
             defaultValue: WorktreeListPreferences.defaultShowUnreadIndicator,
             aliases: ["unread", "badge", "notification dot", "omnibox"]
@@ -194,7 +191,7 @@ enum SettingsCatalog {
             key: WorktreeListPreferences.orderByMRUKey,
             title: "Order Worktrees by Recent Use",
             description: "Sorts the worktree switcher with the active worktree first, then by most-recently-used.",
-            category: .sidebar,
+            category: .appearance,
             section: "Worktrees",
             defaultValue: WorktreeListPreferences.defaultOrderByMRU,
             aliases: ["mru", "recent", "sort", "order", "omnibox"]
@@ -355,7 +352,7 @@ enum SettingsCatalog {
             key: SidebarCollapsedStyle.storageKey,
             title: "Collapsed Sidebar Style",
             description: "Controls the sidebar appearance when collapsed.",
-            category: .sidebar,
+            category: .appearance,
             section: "Sidebar",
             defaultValue: SidebarCollapsedStyle.defaultValue.rawValue
         ),
@@ -363,7 +360,7 @@ enum SettingsCatalog {
             key: SidebarExpandedStyle.storageKey,
             title: "Expanded Sidebar Style",
             description: "Controls the sidebar appearance when expanded.",
-            category: .sidebar,
+            category: .appearance,
             section: "Sidebar",
             defaultValue: SidebarExpandedStyle.defaultValue.rawValue
         ),

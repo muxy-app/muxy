@@ -80,9 +80,7 @@ struct MainWindow: View {
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
-    @AppStorage(OverviewSidebarPreferences.visibleKey) private var overviewSidebarVisible = false
-    @AppStorage(OverviewSidebarPreferences.widthKey) private var overviewSidebarCustomWidth: Double = .init(OverviewSidebarLayout
-        .defaultWidth)
+    @State private var layoutStore = AppLayoutStore.shared
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
@@ -98,21 +96,19 @@ struct MainWindow: View {
     @State private var voiceRecording = VoiceRecordingState.shared
     @MainActor private var trafficLightWidth: CGFloat { UIMetrics.scaled(75) }
 
+    private var layout: any AppLayoutProviding { layoutStore.provider }
+    private var isTabFocused: Bool { layoutStore.layout == .tabFocused }
+
     var body: some View {
         HStack(spacing: 0) {
-            if overviewSidebarVisible {
-                overviewSidebarColumn
-                overviewResizeHandle
-            } else {
-                leftNavigationColumn
-                if sidebarIsResizable {
-                    sidebarResizeHandle
-                }
+            sidebarColumn
+            if sidebarIsResizable {
+                sidebarResizeHandle
             }
             mainWorkspaceColumn
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
-        .animation(.easeInOut(duration: 0.2), value: overviewSidebarVisible)
+        .animation(.easeInOut(duration: 0.2), value: layoutStore.layout)
         .overlay(alignment: .topLeading) {
             titleBarNavigationOverlay
         }
@@ -215,14 +211,13 @@ struct MainWindow: View {
             showTerminalOmnibox.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
-            guard !overviewSidebarVisible else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
                 sidebarExpanded.toggle()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleOverviewSidebar)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .toggleAppLayout)) { _ in
             withAnimation(.easeInOut(duration: 0.2)) {
-                overviewSidebarVisible.toggle()
+                layoutStore.toggle()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleExtensionConsole)) { _ in
@@ -263,7 +258,7 @@ struct MainWindow: View {
         .modifier(SentryConsentPrompter())
     }
 
-    private var leftNavigationColumn: some View {
+    private var sidebarColumn: some View {
         VStack(spacing: 0) {
             if !isFullScreen {
                 Color.clear
@@ -274,10 +269,7 @@ struct MainWindow: View {
                     .accessibilityHidden(true)
             }
 
-            Sidebar(
-                expanded: sidebarExpanded,
-                expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
-            )
+            sidebarContent
         }
         .frame(width: leftNavigationWidth, alignment: .leading)
         .clipped()
@@ -294,32 +286,23 @@ struct MainWindow: View {
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
 
-    private var overviewSidebarColumn: some View {
-        VStack(spacing: 0) {
-            if !isFullScreen {
-                Color.clear
-                    .frame(height: UIMetrics.titleBarHeight)
-                    .background(WindowDragRepresentable())
-
-                Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                    .accessibilityHidden(true)
-            }
-
-            OverviewSidebar()
+    private var sidebarContent: some View {
+        ForEach(layout.sidebars) { sidebar in
+            sidebarView(for: sidebar)
         }
-        .frame(width: overviewSidebarResolvedWidth, alignment: .leading)
-        .clipped()
-        .background(MuxyTheme.bg)
-        .fixedSize(horizontal: true, vertical: false)
     }
 
-    private var overviewResizeHandle: some View {
-        panelResize(
-            axis: .horizontal,
-            edge: .trailing,
-            value: $overviewSidebarCustomWidth,
-            range: OverviewSidebarLayout.minWidth ... OverviewSidebarLayout.maxWidth
-        )
+    @ViewBuilder
+    private func sidebarView(for sidebar: LayoutSidebar) -> some View {
+        switch sidebar {
+        case .tabList:
+            TabFocusedSidebar()
+        case .projectList:
+            ProjectFocusedSidebar(
+                expanded: sidebarExpanded,
+                expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
+            )
+        }
     }
 
     private var mainWorkspaceColumn: some View {
@@ -347,8 +330,8 @@ struct MainWindow: View {
 
             topBarContent
                 .overlay(alignment: .leading) {
-                    if overviewSidebarVisible {
-                        OverviewBreadcrumb()
+                    if layout.topbar == .breadcrumb {
+                        TabFocusedBreadcrumb()
                     }
                 }
         }
@@ -368,7 +351,7 @@ struct MainWindow: View {
                         .padding(.trailing, UIMetrics.spacing4)
                 }
                 .overlay(alignment: .trailing) {
-                    if titleBarNavigationOverflowsSidebar, !overviewSidebarVisible {
+                    if titleBarNavigationOverflowsSidebar, !isTabFocused {
                         Rectangle().fill(MuxyTheme.border).frame(width: 1)
                             .accessibilityHidden(true)
                     }
@@ -465,11 +448,11 @@ struct MainWindow: View {
                 appState.goForward()
             }
             NavigationArrowButton(
-                symbol: "sidebar.right",
-                isActive: overviewSidebarVisible,
-                label: overviewSidebarVisible ? "Hide Project Overview" : "Show Project Overview"
+                symbol: "rectangle.leadinghalf.inset.filled",
+                isActive: isTabFocused,
+                label: isTabFocused ? "Switch to Project Focused Layout" : "Switch to Tab Focused Layout"
             ) {
-                NotificationCenter.default.post(name: .toggleOverviewSidebar, object: nil)
+                NotificationCenter.default.post(name: .toggleAppLayout, object: nil)
             }
         }
     }
@@ -482,7 +465,7 @@ struct MainWindow: View {
         {
             PaneTabStrip(
                 areaID: area.id,
-                tabs: overviewSidebarVisible ? [] : PaneTabStrip.snapshots(from: area.tabs),
+                tabs: layout.topbar == .breadcrumb ? [] : PaneTabStrip.snapshots(from: area.tabs),
                 activeTabID: area.activeTabID,
                 isFocused: true,
                 isWindowTitleBar: true,
@@ -923,11 +906,13 @@ struct MainWindow: View {
     }
 
     private var sidebarCollapsedStyle: SidebarCollapsedStyle {
-        SidebarCollapsedStyle(rawValue: sidebarCollapsedStyleRaw) ?? .defaultValue
+        guard !isTabFocused else { return .hidden }
+        return SidebarCollapsedStyle(rawValue: sidebarCollapsedStyleRaw) ?? .defaultValue
     }
 
     private var sidebarExpandedStyle: SidebarExpandedStyle {
-        SidebarExpandedStyle(rawValue: sidebarExpandedStyleRaw) ?? .defaultValue
+        guard !isTabFocused else { return .wide }
+        return SidebarExpandedStyle(rawValue: sidebarExpandedStyleRaw) ?? .defaultValue
     }
 
     private var sidebarResolvedWidth: CGFloat {
@@ -943,23 +928,13 @@ struct MainWindow: View {
         SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
     }
 
-    private var overviewSidebarResolvedWidth: CGFloat {
-        OverviewSidebarLayout.clampWidth(CGFloat(overviewSidebarCustomWidth))
-    }
-
     private var leftNavigationWidth: CGFloat {
-        guard !overviewSidebarVisible else { return 0 }
-        return MainWindowLayout.leftNavigationWidth(sidebarWidth: sidebarResolvedWidth)
-    }
-
-    private var totalLeftColumnsWidth: CGFloat {
-        guard overviewSidebarVisible else { return leftNavigationWidth }
-        return overviewSidebarResolvedWidth
+        MainWindowLayout.leftNavigationWidth(sidebarWidth: sidebarResolvedWidth)
     }
 
     private var titleBarNavigationOverlayWidth: CGFloat {
         MainWindowLayout.titleBarNavigationOverlayWidth(
-            leftNavigationWidth: totalLeftColumnsWidth,
+            leftNavigationWidth: leftNavigationWidth,
             titleBarNavigationWidth: titleBarNavigationWidth,
             isFullScreen: isFullScreen
         )
@@ -967,14 +942,14 @@ struct MainWindow: View {
 
     private var mainTitleBarLeadingInset: CGFloat {
         MainWindowLayout.mainTitleBarLeadingInset(
-            leftNavigationWidth: totalLeftColumnsWidth,
+            leftNavigationWidth: leftNavigationWidth,
             titleBarNavigationOverlayWidth: titleBarNavigationOverlayWidth,
             isFullScreen: isFullScreen
         )
     }
 
     private var titleBarNavigationOverflowsSidebar: Bool {
-        titleBarNavigationOverlayWidth > totalLeftColumnsWidth
+        titleBarNavigationOverlayWidth > leftNavigationWidth
     }
 
     private var leftNavigationBorderTopPadding: CGFloat {
