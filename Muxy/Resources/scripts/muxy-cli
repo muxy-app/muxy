@@ -49,7 +49,7 @@ usage_for() {
         new-tab)           echo "muxy new-tab" ;;
         next-tab)          echo "muxy next-tab" ;;
         previous-tab)      echo "muxy previous-tab" ;;
-        browser)           echo "muxy browser <open|navigate|list|read|close> [args...]" ;;
+        browser)           echo "muxy browser <open|navigate|list|read|close|eval|click|type|wait-for|get-text|get-html|get-attribute|reload|back|forward|wait-for-navigation|screenshot|storage|cookies> [args...]" ;;
         install-skills)    echo "muxy install-skills [skills args...]" ;;
     esac
 }
@@ -95,6 +95,18 @@ usage() {
     echo "  muxy browser list                        List built-in browser tabs"
     echo "  muxy browser read <tab-id>               Read a browser tab's title and text"
     echo "  muxy browser close <tab-id>              Close a browser tab"
+    echo "  muxy browser eval <tab-id> <js>          Run JavaScript in the page and return its JSON result"
+    echo "  muxy browser click <tab-id> <selector>   Click the first element matching a CSS selector"
+    echo "  muxy browser type <tab-id> <sel> <text> [--submit]  Type text into an element"
+    echo "  muxy browser wait-for <tab-id> <sel> [ms] Wait until a selector appears"
+    echo "  muxy browser get-text <tab-id> <selector> Read an element's innerText"
+    echo "  muxy browser get-html <tab-id> [selector] Read an element's (or the page's) HTML"
+    echo "  muxy browser get-attribute <tab-id> <sel> <attr>  Read an element attribute"
+    echo "  muxy browser reload|back|forward <tab-id> Navigate browser history"
+    echo "  muxy browser wait-for-navigation <tab-id> [ms]  Wait for the page to finish loading"
+    echo "  muxy browser screenshot <tab-id>         Capture a PNG (base64) of the page"
+    echo "  muxy browser storage get|set|clear <tab-id> ...  Read/write local or session storage"
+    echo "  muxy browser cookies get|set|delete|clear <tab-id> ...  Manage cookies"
     echo "  muxy install-skills [skills args...]     Install Muxy agent skills into detected AI harnesses"
     echo ""
     echo "Run \"muxy <command> --help\" for the options of a single command."
@@ -132,6 +144,40 @@ send_command() {
             printf '%s\n' "$response"
             ;;
     esac
+}
+
+json_escape() {
+    local s="$1" out="" i c
+    for (( i=0; i<${#s}; i++ )); do
+        c="${s:$i:1}"
+        case "$c" in
+            '"') out+='\"' ;;
+            '\') out+='\\' ;;
+            $'\n') out+='\n' ;;
+            $'\r') out+='\r' ;;
+            $'\t') out+='\t' ;;
+            *) out+="$c" ;;
+        esac
+    done
+    printf '%s' "$out"
+}
+
+json_field() {
+    printf '"%s":"%s"' "$1" "$(json_escape "$2")"
+}
+
+send_api() {
+    local verb="$1"
+    local json="$2"
+    local payload
+    payload=$(printf '%s' "$json" | base64 | tr -d '\n')
+    local reply
+    reply=$(send_command "$verb|$payload") || exit 1
+    if [ -z "$reply" ]; then
+        printf '\n'
+        return 0
+    fi
+    printf '%s' "$reply" | base64 -D 2>/dev/null && printf '\n'
 }
 
 case "$COMMAND" in
@@ -454,6 +500,116 @@ case "$COMMAND" in
             close)
                 [ $# -lt 1 ] && die_usage browser
                 send_command "browser.close|$1"
+                ;;
+            eval)
+                [ $# -lt 2 ] && die_usage browser
+                send_api "browser.eval" "{$(json_field tabId "$1"),$(json_field script "$2")}"
+                ;;
+            click)
+                [ $# -lt 2 ] && die_usage browser
+                send_api "browser.click" "{$(json_field tabId "$1"),$(json_field selector "$2")}"
+                ;;
+            type)
+                [ $# -lt 3 ] && die_usage browser
+                SUBMIT="false"
+                [ "${4:-}" = "--submit" ] && SUBMIT="true"
+                send_api "browser.type" "{$(json_field tabId "$1"),$(json_field selector "$2"),$(json_field text "$3"),\"submit\":$SUBMIT}"
+                ;;
+            wait-for)
+                [ $# -lt 2 ] && die_usage browser
+                TIMEOUT="${3:-5000}"
+                send_api "browser.waitFor" "{$(json_field tabId "$1"),$(json_field selector "$2"),\"timeoutMs\":$TIMEOUT}"
+                ;;
+            get-text)
+                [ $# -lt 2 ] && die_usage browser
+                send_api "browser.getText" "{$(json_field tabId "$1"),$(json_field selector "$2")}"
+                ;;
+            get-html)
+                [ $# -lt 1 ] && die_usage browser
+                if [ $# -ge 2 ]; then
+                    send_api "browser.getHTML" "{$(json_field tabId "$1"),$(json_field selector "$2")}"
+                else
+                    send_api "browser.getHTML" "{$(json_field tabId "$1")}"
+                fi
+                ;;
+            get-attribute)
+                [ $# -lt 3 ] && die_usage browser
+                send_api "browser.getAttribute" "{$(json_field tabId "$1"),$(json_field selector "$2"),$(json_field attribute "$3")}"
+                ;;
+            reload)
+                [ $# -lt 1 ] && die_usage browser
+                send_api "browser.reload" "{$(json_field tabId "$1")}"
+                ;;
+            back)
+                [ $# -lt 1 ] && die_usage browser
+                send_api "browser.back" "{$(json_field tabId "$1")}"
+                ;;
+            forward)
+                [ $# -lt 1 ] && die_usage browser
+                send_api "browser.forward" "{$(json_field tabId "$1")}"
+                ;;
+            wait-for-navigation)
+                [ $# -lt 1 ] && die_usage browser
+                TIMEOUT="${2:-10000}"
+                send_api "browser.waitForNavigation" "{$(json_field tabId "$1"),\"timeoutMs\":$TIMEOUT}"
+                ;;
+            screenshot)
+                [ $# -lt 1 ] && die_usage browser
+                send_api "browser.screenshot" "{$(json_field tabId "$1")}"
+                ;;
+            storage)
+                STORAGE_OP="${1:-}"
+                shift || true
+                case "$STORAGE_OP" in
+                    get)
+                        [ $# -lt 2 ] && die_usage browser
+                        send_api "browser.storage.get" "{$(json_field tabId "$1"),$(json_field key "$2"),$(json_field kind "${3:-local}")}"
+                        ;;
+                    set)
+                        [ $# -lt 3 ] && die_usage browser
+                        send_api "browser.storage.set" "{$(json_field tabId "$1"),$(json_field key "$2"),$(json_field value "$3"),$(json_field kind "${4:-local}")}"
+                        ;;
+                    clear)
+                        [ $# -lt 1 ] && die_usage browser
+                        send_api "browser.storage.clear" "{$(json_field tabId "$1"),$(json_field kind "${2:-local}")}"
+                        ;;
+                    *)
+                        die_usage browser
+                        ;;
+                esac
+                ;;
+            cookies)
+                COOKIE_OP="${1:-}"
+                shift || true
+                case "$COOKIE_OP" in
+                    get)
+                        [ $# -lt 1 ] && die_usage browser
+                        if [ $# -ge 2 ]; then
+                            send_api "browser.cookies.get" "{$(json_field tabId "$1"),$(json_field url "$2")}"
+                        else
+                            send_api "browser.cookies.get" "{$(json_field tabId "$1")}"
+                        fi
+                        ;;
+                    set)
+                        [ $# -lt 4 ] && die_usage browser
+                        send_api "browser.cookies.set" "{$(json_field tabId "$1"),$(json_field name "$2"),$(json_field value "$3"),$(json_field domain "$4")}"
+                        ;;
+                    delete)
+                        [ $# -lt 2 ] && die_usage browser
+                        if [ $# -ge 3 ]; then
+                            send_api "browser.cookies.delete" "{$(json_field tabId "$1"),$(json_field name "$2"),$(json_field domain "$3")}"
+                        else
+                            send_api "browser.cookies.delete" "{$(json_field tabId "$1"),$(json_field name "$2")}"
+                        fi
+                        ;;
+                    clear)
+                        [ $# -lt 1 ] && die_usage browser
+                        send_api "browser.cookies.clear" "{$(json_field tabId "$1")}"
+                        ;;
+                    *)
+                        die_usage browser
+                        ;;
+                esac
                 ;;
             *)
                 die_usage browser

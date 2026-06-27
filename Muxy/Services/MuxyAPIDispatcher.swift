@@ -57,8 +57,14 @@ enum MuxyAPIDispatcher {
         }
     }
 
-    static func dispatch(verb: String, args: [String: Any], context: Context) async throws -> Any {
-        if let required = MuxyAPI.Permissions.required(for: verb),
+    static func dispatch(
+        verb: String,
+        args: [String: Any],
+        context: Context,
+        enforcePermissions: Bool = true
+    ) async throws -> Any {
+        if enforcePermissions,
+           let required = MuxyAPI.Permissions.required(for: verb),
            !ExtensionStore.shared.extensionHasPermission(id: context.extensionID, permission: required)
         {
             throw APIError.underlying("permission denied (\(required.rawValue))")
@@ -281,6 +287,26 @@ enum MuxyAPIDispatcher {
                 appState: context.appState
             ))
             return NSNull()
+        case "browser.eval",
+             "browser.click",
+             "browser.type",
+             "browser.waitFor",
+             "browser.getText",
+             "browser.getHTML",
+             "browser.getAttribute",
+             "browser.reload",
+             "browser.back",
+             "browser.forward",
+             "browser.waitForNavigation",
+             "browser.screenshot",
+             "browser.storage.get",
+             "browser.storage.set",
+             "browser.storage.clear",
+             "browser.cookies.get",
+             "browser.cookies.set",
+             "browser.cookies.delete",
+             "browser.cookies.clear":
+            return try await handleBrowserAutomation(verb: verb, args: args, context: context)
         case "agents.list":
             return MuxyAPI.Agents.list().map(agentDict)
         case "panes.list":
@@ -424,6 +450,168 @@ enum MuxyAPIDispatcher {
             }
             throw APIError.invalidArguments("unknown verb \(verb)")
         }
+    }
+
+    private static func handleBrowserAutomation(verb: String, args: [String: Any], context: Context) async throws -> Any {
+        let appState = context.appState
+        let tabID = try stringArg(args, "tabId")
+        switch verb {
+        case "browser.eval":
+            return try await unwrap(MuxyAPI.Browser.eval(
+                tabIDString: tabID,
+                script: stringArg(args, "script"),
+                appState: appState
+            ))
+        case "browser.click":
+            return try await unwrap(MuxyAPI.Browser.click(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                appState: appState
+            ))
+        case "browser.type":
+            return try await unwrap(MuxyAPI.Browser.type(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                text: stringArg(args, "text"),
+                submit: boolArg(args, "submit") ?? false,
+                appState: appState
+            ))
+        case "browser.waitFor":
+            return try await unwrap(MuxyAPI.Browser.waitFor(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                timeoutMs: intArg(args, "timeoutMs") ?? 5000,
+                appState: appState
+            ))
+        case "browser.getText":
+            return try await unwrap(MuxyAPI.Browser.getText(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                appState: appState
+            )) ?? NSNull()
+        case "browser.getHTML":
+            return try await unwrap(MuxyAPI.Browser.getHTML(
+                tabIDString: tabID,
+                selector: optionalStringArg(args, "selector"),
+                appState: appState
+            )) ?? NSNull()
+        case "browser.getAttribute":
+            return try await unwrap(MuxyAPI.Browser.getAttribute(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                attribute: stringArg(args, "attribute"),
+                appState: appState
+            )) ?? NSNull()
+        case "browser.reload",
+             "browser.back",
+             "browser.forward":
+            try await unwrap(MuxyAPI.Browser.navigation(
+                tabIDString: tabID,
+                command: navigationCommand(verb),
+                appState: appState
+            ))
+            return NSNull()
+        case "browser.waitForNavigation":
+            return try await unwrap(MuxyAPI.Browser.waitForNavigation(
+                tabIDString: tabID,
+                timeoutMs: intArg(args, "timeoutMs") ?? 10000,
+                appState: appState
+            )) ?? NSNull()
+        case "browser.screenshot":
+            return try await ["png": unwrap(MuxyAPI.Browser.screenshot(tabIDString: tabID, appState: appState))]
+        case "browser.storage.get":
+            return try await unwrap(MuxyAPI.Browser.storageGet(
+                tabIDString: tabID,
+                kind: storageKind(args),
+                key: stringArg(args, "key"),
+                appState: appState
+            )) ?? NSNull()
+        case "browser.storage.set":
+            try await unwrap(MuxyAPI.Browser.storageSet(
+                tabIDString: tabID,
+                kind: storageKind(args),
+                key: stringArg(args, "key"),
+                value: stringArg(args, "value"),
+                appState: appState
+            ))
+            return NSNull()
+        case "browser.storage.clear":
+            try await unwrap(MuxyAPI.Browser.storageClear(
+                tabIDString: tabID,
+                kind: storageKind(args),
+                appState: appState
+            ))
+            return NSNull()
+        case "browser.cookies.get":
+            return try await unwrap(MuxyAPI.Browser.cookiesGet(
+                tabIDString: tabID,
+                urlString: optionalStringArg(args, "url"),
+                appState: appState
+            )).map(cookieDict)
+        case "browser.cookies.set":
+            try await unwrap(MuxyAPI.Browser.cookiesSet(
+                tabIDString: tabID,
+                cookie: cookieFromArgs(args),
+                appState: appState
+            ))
+            return NSNull()
+        case "browser.cookies.delete":
+            try await unwrap(MuxyAPI.Browser.cookiesDelete(
+                tabIDString: tabID,
+                name: stringArg(args, "name"),
+                domain: optionalStringArg(args, "domain"),
+                appState: appState
+            ))
+            return NSNull()
+        case "browser.cookies.clear":
+            try await unwrap(MuxyAPI.Browser.cookiesClear(tabIDString: tabID, appState: appState))
+            return NSNull()
+        default:
+            throw APIError.invalidArguments("unknown verb \(verb)")
+        }
+    }
+
+    private static func navigationCommand(_ verb: String) -> BrowserTabState.NavigationCommand {
+        switch verb {
+        case "browser.back": .back
+        case "browser.forward": .forward
+        default: .reload
+        }
+    }
+
+    private static func storageKind(_ args: [String: Any]) -> MuxyAPI.Browser.StorageKind {
+        MuxyAPI.Browser.StorageKind(rawValue: (args["kind"] as? String) ?? "local") ?? .local
+    }
+
+    private static func cookieDict(_ cookie: BrowserCookieInfo) -> [String: Any] {
+        [
+            "name": cookie.name,
+            "value": cookie.value,
+            "domain": cookie.domain,
+            "path": cookie.path,
+            "secure": cookie.secure,
+            "httpOnly": cookie.httpOnly,
+            "expires": cookie.expires ?? NSNull(),
+        ]
+    }
+
+    private static func cookieFromArgs(_ args: [String: Any]) throws -> BrowserCookieInfo {
+        try BrowserCookieInfo(
+            name: stringArg(args, "name"),
+            value: stringArg(args, "value"),
+            domain: stringArg(args, "domain"),
+            path: optionalStringArg(args, "path") ?? "/",
+            secure: boolArg(args, "secure") ?? false,
+            httpOnly: boolArg(args, "httpOnly") ?? false,
+            expires: doubleArgOptional(args, "expires")
+        )
+    }
+
+    private static func doubleArgOptional(_ args: [String: Any], _ key: String) -> Double? {
+        if let value = args[key] as? Double { return value }
+        if let value = args[key] as? Int { return Double(value) }
+        if let value = args[key] as? NSNumber { return value.doubleValue }
+        return nil
     }
 
     private static func handleFiles(verb: String, args: [String: Any], context: Context) async throws -> Any {

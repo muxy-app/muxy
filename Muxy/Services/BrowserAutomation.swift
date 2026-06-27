@@ -1,0 +1,442 @@
+import Foundation
+import WebKit
+
+struct BrowserCookieInfo: Equatable {
+    let name: String
+    let value: String
+    let domain: String
+    let path: String
+    let secure: Bool
+    let httpOnly: Bool
+    let expires: Double?
+}
+
+extension MuxyAPI.Browser {
+    enum StorageKind: String {
+        case local
+        case session
+    }
+
+    static func eval(tabIDString: String, script: String, appState: AppState) async -> Result<String, APIError> {
+        let isStatementBody = script.contains(";") || script.contains("\n")
+        let body = isStatementBody ? script : "return (\(script));"
+        return await runScript(tabIDString: tabIDString, appState: appState, body: body)
+    }
+
+    static func click(tabIDString: String, selector: String, appState: AppState) async -> Result<Bool, APIError> {
+        await boolScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        if (!el) { return false; }
+        el.click();
+        return true;
+        """)
+    }
+
+    static func type(
+        tabIDString: String,
+        selector: String,
+        text: String,
+        submit: Bool,
+        appState: AppState
+    ) async -> Result<Bool, APIError> {
+        await boolScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        if (!el) { return false; }
+        el.focus();
+        const setter = Object.getOwnPropertyDescriptor(el.__proto__, 'value');
+        if (setter && setter.set) { setter.set.call(el, \(jsString(text))); }
+        else { el.value = \(jsString(text)); }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        if (\(submit ? "true" : "false")) {
+            const form = el.form;
+            if (form) { form.requestSubmit ? form.requestSubmit() : form.submit(); }
+            else { el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); }
+        }
+        return true;
+        """)
+    }
+
+    static func waitFor(
+        tabIDString: String,
+        selector: String,
+        timeoutMs: Int,
+        appState: AppState
+    ) async -> Result<Bool, APIError> {
+        let bounded = max(0, min(timeoutMs, maxWaitMilliseconds))
+        return await runAsyncResult(tabIDString: tabIDString, appState: appState, body: """
+        const start = Date.now();
+        const sel = \(jsString(selector));
+        while (Date.now() - start < \(bounded)) {
+            if (document.querySelector(sel)) { return true; }
+            await new Promise(r => setTimeout(r, 50));
+        }
+        return Boolean(document.querySelector(sel));
+        """) { ($0 as? Bool) ?? false }
+    }
+
+    static func getText(tabIDString: String, selector: String, appState: AppState) async -> Result<String?, APIError> {
+        await optionalStringScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        return el ? el.innerText : null;
+        """)
+    }
+
+    static func getHTML(tabIDString: String, selector: String?, appState: AppState) async -> Result<String?, APIError> {
+        let target = selector.map { "document.querySelector(\(jsString($0)))" } ?? "document.documentElement"
+        return await optionalStringScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = \(target);
+        if (!el) { return null; }
+        return (el.outerHTML || '').slice(0, \(maxStringLength));
+        """)
+    }
+
+    static func getAttribute(
+        tabIDString: String,
+        selector: String,
+        attribute: String,
+        appState: AppState
+    ) async -> Result<String?, APIError> {
+        await optionalStringScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        return el ? el.getAttribute(\(jsString(attribute))) : null;
+        """)
+    }
+
+    static func navigation(
+        tabIDString: String,
+        command: BrowserTabState.NavigationCommand,
+        appState: AppState
+    ) async -> Result<Void, APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        let start = ContinuousClock.now
+        guard let resolved = await resolve(tabIDString: tabIDString, appState: appState, start: start) else {
+            return surfaceFailure(tabIDString: tabIDString, start: start, appState: appState)
+        }
+        switch command {
+        case .back: resolved.webView.goBack()
+        case .forward: resolved.webView.goForward()
+        case .reload: resolved.webView.reload()
+        default: resolved.state.pendingCommand = command
+        }
+        return .success(())
+    }
+
+    static func waitForNavigation(
+        tabIDString: String,
+        timeoutMs: Int,
+        appState: AppState
+    ) async -> Result<String?, APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        guard let located = locateState(tabIDString: tabIDString, appState: appState) else {
+            return .failure(.browserTabNotFound(tabIDString))
+        }
+        let bounded = max(0, min(timeoutMs, maxWaitMilliseconds))
+        let deadline = ContinuousClock.now + .milliseconds(bounded)
+        while ContinuousClock.now < deadline {
+            if !located.isLoading { return .success(located.url?.absoluteString) }
+            do { try await Task.sleep(for: .milliseconds(50)) } catch { break }
+        }
+        return .success(located.url?.absoluteString)
+    }
+
+    static func screenshot(tabIDString: String, appState: AppState) async -> Result<String, APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        let start = ContinuousClock.now
+        guard let resolved = await resolve(tabIDString: tabIDString, appState: appState, start: start) else {
+            return surfaceFailure(tabIDString: tabIDString, start: start, appState: appState)
+        }
+        let config = WKSnapshotConfiguration()
+        config.afterScreenUpdates = true
+        do {
+            let image = try await resolved.webView.takeSnapshot(configuration: config)
+            guard let tiff = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiff),
+                  let png = bitmap.representation(using: .png, properties: [:])
+            else {
+                return .failure(.underlying("could not encode screenshot"))
+            }
+            return .success(png.base64EncodedString())
+        } catch {
+            return .failure(.underlying(error.localizedDescription))
+        }
+    }
+
+    static func storageGet(
+        tabIDString: String,
+        kind: StorageKind,
+        key: String,
+        appState: AppState
+    ) async -> Result<String?, APIError> {
+        await optionalStringScript(tabIDString: tabIDString, appState: appState, body: """
+        return window.\(kind.rawValue)Storage.getItem(\(jsString(key)));
+        """)
+    }
+
+    static func storageSet(
+        tabIDString: String,
+        kind: StorageKind,
+        key: String,
+        value: String,
+        appState: AppState
+    ) async -> Result<Void, APIError> {
+        let result = await runScript(tabIDString: tabIDString, appState: appState, body: """
+        window.\(kind.rawValue)Storage.setItem(\(jsString(key)), \(jsString(value)));
+        return null;
+        """)
+        return result.map { _ in () }
+    }
+
+    static func storageClear(
+        tabIDString: String,
+        kind: StorageKind,
+        appState: AppState
+    ) async -> Result<Void, APIError> {
+        let result = await runScript(tabIDString: tabIDString, appState: appState, body: """
+        window.\(kind.rawValue)Storage.clear();
+        return null;
+        """)
+        return result.map { _ in () }
+    }
+
+    static func cookiesGet(
+        tabIDString: String,
+        urlString: String?,
+        appState: AppState
+    ) async -> Result<[BrowserCookieInfo], APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        guard let store = cookieStore(tabIDString: tabIDString, appState: appState) else {
+            return .failure(.browserTabNotFound(tabIDString))
+        }
+        let host = urlString.flatMap(BrowserURL.resolve(from:))?.host
+        let cookies = await store.allCookies()
+        let filtered = cookies.filter { cookie in
+            guard let host else { return true }
+            return cookie.domainMatches(host: host)
+        }
+        return .success(filtered.map(BrowserCookieInfo.init(cookie:)))
+    }
+
+    static func cookiesSet(
+        tabIDString: String,
+        cookie: BrowserCookieInfo,
+        appState: AppState
+    ) async -> Result<Void, APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        guard let store = cookieStore(tabIDString: tabIDString, appState: appState) else {
+            return .failure(.browserTabNotFound(tabIDString))
+        }
+        guard let httpCookie = cookie.makeHTTPCookie() else {
+            return .failure(.invalidArguments("invalid cookie"))
+        }
+        await store.setCookie(httpCookie)
+        return .success(())
+    }
+
+    static func cookiesDelete(
+        tabIDString: String,
+        name: String,
+        domain: String?,
+        appState: AppState
+    ) async -> Result<Void, APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        guard let store = cookieStore(tabIDString: tabIDString, appState: appState) else {
+            return .failure(.browserTabNotFound(tabIDString))
+        }
+        let cookies = await store.allCookies()
+        for cookie in cookies where cookie.name == name && (domain == nil || cookie.domain == domain) {
+            await store.deleteCookie(cookie)
+        }
+        return .success(())
+    }
+
+    static func cookiesClear(tabIDString: String, appState: AppState) async -> Result<Void, APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        guard let store = cookieStore(tabIDString: tabIDString, appState: appState) else {
+            return .failure(.browserTabNotFound(tabIDString))
+        }
+        let cookies = await store.allCookies()
+        for cookie in cookies {
+            await store.deleteCookie(cookie)
+        }
+        return .success(())
+    }
+
+    private static let maxStringLength = 5_000_000
+    private static let maxWaitMilliseconds = 60000
+
+    private struct ResolvedWebView {
+        let state: BrowserTabState
+        let webView: WKWebView
+    }
+
+    private struct LocatedState {
+        let isLoading: Bool
+        let url: URL?
+    }
+
+    private static func locateState(tabIDString: String, appState: AppState) -> LocatedState? {
+        guard let id = UUID(uuidString: tabIDString) else { return nil }
+        for (_, root) in appState.workspaceRoots {
+            for area in root.allAreas() {
+                for tab in area.tabs where tab.id == id {
+                    guard let state = tab.content.browserState else { return nil }
+                    return LocatedState(isLoading: state.isLoading, url: state.url)
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func browserState(tabIDString: String, appState: AppState) -> BrowserTabState? {
+        guard let id = UUID(uuidString: tabIDString) else { return nil }
+        for (_, root) in appState.workspaceRoots {
+            for area in root.allAreas() {
+                for tab in area.tabs where tab.id == id {
+                    return tab.content.browserState
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func cookieStore(tabIDString: String, appState: AppState) -> WKHTTPCookieStore? {
+        guard let state = browserState(tabIDString: tabIDString, appState: appState) else { return nil }
+        return BrowserDataStoreCache.shared.store(for: state.profileID).httpCookieStore
+    }
+
+    private static func resolve(
+        tabIDString: String,
+        appState: AppState,
+        start: ContinuousClock.Instant
+    ) async -> ResolvedWebView? {
+        guard let state = browserState(tabIDString: tabIDString, appState: appState) else { return nil }
+        guard let webView = await waitForRegisteredWebView(tabID: state.id, start: start) else { return nil }
+        return ResolvedWebView(state: state, webView: webView)
+    }
+
+    private static func surfaceFailure<T>(
+        tabIDString: String,
+        start: ContinuousClock.Instant,
+        appState: AppState
+    ) -> Result<T, APIError> {
+        guard browserState(tabIDString: tabIDString, appState: appState) != nil else {
+            return .failure(.browserTabNotFound(tabIDString))
+        }
+        let waited = (ContinuousClock.now - start).secondsValue
+        return .failure(.browserTabSurfaceNotReady(tabID: tabIDString, waitedSeconds: waited))
+    }
+
+    private static func runScript(
+        tabIDString: String,
+        appState: AppState,
+        body: String
+    ) async -> Result<String, APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        let start = ContinuousClock.now
+        guard let resolved = await resolve(tabIDString: tabIDString, appState: appState, start: start) else {
+            return surfaceFailure(tabIDString: tabIDString, start: start, appState: appState)
+        }
+        let wrapped = "const __muxyResult = await (async () => { \(body) })(); return JSON.stringify(__muxyResult ?? null);"
+        do {
+            let result = try await resolved.webView.callAsyncJavaScript(
+                wrapped,
+                arguments: [:],
+                contentWorld: .page
+            )
+            return .success(stringify(result))
+        } catch {
+            return .failure(.underlying(error.localizedDescription))
+        }
+    }
+
+    private static func runAsyncResult<T>(
+        tabIDString: String,
+        appState: AppState,
+        body: String,
+        transform: @escaping (Any?) -> T
+    ) async -> Result<T, APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        let start = ContinuousClock.now
+        guard let resolved = await resolve(tabIDString: tabIDString, appState: appState, start: start) else {
+            return surfaceFailure(tabIDString: tabIDString, start: start, appState: appState)
+        }
+        do {
+            let result = try await resolved.webView.callAsyncJavaScript(
+                body,
+                arguments: [:],
+                contentWorld: .page
+            )
+            return .success(transform(result))
+        } catch {
+            return .failure(.underlying(error.localizedDescription))
+        }
+    }
+
+    private static func boolScript(
+        tabIDString: String,
+        appState: AppState,
+        body: String
+    ) async -> Result<Bool, APIError> {
+        await runAsyncResult(tabIDString: tabIDString, appState: appState, body: body) { ($0 as? Bool) ?? false }
+    }
+
+    private static func optionalStringScript(
+        tabIDString: String,
+        appState: AppState,
+        body: String
+    ) async -> Result<String?, APIError> {
+        await runAsyncResult(tabIDString: tabIDString, appState: appState, body: body) { $0 as? String }
+    }
+
+    private static func stringify(_ value: Any?) -> String {
+        guard let value, !(value is NSNull) else { return "null" }
+        if let string = value as? String { return string }
+        if let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
+           let json = String(data: data, encoding: .utf8)
+        {
+            return json
+        }
+        return String(describing: value)
+    }
+}
+
+func jsString(_ value: String) -> String {
+    guard let data = try? JSONSerialization.data(withJSONObject: [value], options: [.fragmentsAllowed]),
+          let json = String(data: data, encoding: .utf8)
+    else {
+        return "\"\""
+    }
+    return String(json.dropFirst().dropLast())
+}
+
+private extension BrowserCookieInfo {
+    init(cookie: HTTPCookie) {
+        name = cookie.name
+        value = cookie.value
+        domain = cookie.domain
+        path = cookie.path
+        secure = cookie.isSecure
+        httpOnly = cookie.isHTTPOnly
+        expires = cookie.expiresDate?.timeIntervalSince1970
+    }
+
+    func makeHTTPCookie() -> HTTPCookie? {
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .name: name,
+            .value: value,
+            .domain: domain,
+            .path: path.isEmpty ? "/" : path,
+        ]
+        if secure { properties[.secure] = "TRUE" }
+        if let expires { properties[.expires] = Date(timeIntervalSince1970: expires) }
+        return HTTPCookie(properties: properties)
+    }
+}
+
+private extension HTTPCookie {
+    func domainMatches(host: String) -> Bool {
+        let normalized = domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
+        return host == normalized || host.hasSuffix(".\(normalized)")
+    }
+}

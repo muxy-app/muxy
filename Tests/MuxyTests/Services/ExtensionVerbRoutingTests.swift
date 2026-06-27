@@ -41,6 +41,43 @@ struct ExtensionVerbRoutingTests {
         #expect(MuxyAPI.Permissions.required(forEvent: ExtensionEventName.paneFocused) == nil)
     }
 
+    @Test("every browser automation verb is registered and permissioned")
+    func browserAutomationVerbsAreRegistered() {
+        let verbs = [
+            "browser.eval", "browser.click", "browser.type", "browser.waitFor",
+            "browser.getText", "browser.getHTML", "browser.getAttribute",
+            "browser.reload", "browser.back", "browser.forward", "browser.waitForNavigation",
+            "browser.screenshot",
+            "browser.storage.get", "browser.storage.set", "browser.storage.clear",
+            "browser.cookies.get", "browser.cookies.set", "browser.cookies.delete", "browser.cookies.clear",
+        ]
+        for verb in verbs {
+            #expect(MuxyAPI.Permissions.verbNames.contains(verb), "verbNames missing \(verb)")
+            #expect(MuxyAPI.Permissions.required(for: verb) != nil, "no permission mapped for \(verb)")
+        }
+    }
+
+    @Test("browser write verbs require browser:write and read verbs require browser:read")
+    func browserAutomationPermissionsAreCorrect() {
+        let writeVerbs = [
+            "browser.eval", "browser.click", "browser.type", "browser.reload",
+            "browser.back", "browser.forward",
+            "browser.storage.set", "browser.storage.clear",
+            "browser.cookies.set", "browser.cookies.delete", "browser.cookies.clear",
+        ]
+        let readVerbs = [
+            "browser.waitFor", "browser.getText", "browser.getHTML", "browser.getAttribute",
+            "browser.waitForNavigation", "browser.screenshot",
+            "browser.storage.get", "browser.cookies.get",
+        ]
+        for verb in writeVerbs {
+            #expect(MuxyAPI.Permissions.required(for: verb) == .browserWrite, "\(verb) should be browser:write")
+        }
+        for verb in readVerbs {
+            #expect(MuxyAPI.Permissions.required(for: verb) == .browserRead, "\(verb) should be browser:read")
+        }
+    }
+
     @Test("MuxyAPI verbNames includes the legacy CLI verbs")
     func verbNamesIncludesLegacyVerbs() {
         let verbs = MuxyAPI.Permissions.verbNames

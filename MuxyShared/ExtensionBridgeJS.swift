@@ -15,6 +15,8 @@ public enum ExtensionBridgeJS {
                 if (reply && reply.ok) return reply.value;
                 throw new Error((reply && reply.error) || 'extension api error');
             };
+            const mapResult = (value, fn) => (value && typeof value.then === 'function') ? value.then(fn) : fn(value);
+            const parseJSON = (value) => { try { return JSON.parse(value); } catch (e) { return value; } };
             const normalizeModalItems = (raw) => (Array.isArray(raw) ? raw : (raw && raw.items) || [])
                 .map((it) => (it && it.id != null && it.title != null
                     ? { id: String(it.id), title: String(it.title), subtitle: it.subtitle == null ? null : String(it.subtitle) }
@@ -268,11 +270,34 @@ public enum ExtensionBridgeJS {
                 open:     (request)       => dispatch('tabs.open', request || {}),
             };
             muxy.browser = {
-                open:     (url, opts)     => dispatch('browser.open', { url: url == null ? null : String(url), split: Boolean((opts || {}).split) }),
-                navigate: (tabId, url)    => dispatch('browser.navigate', { tabId: String(tabId), url: String(url) }),
-                list:     ()              => dispatch('browser.list', {}),
-                read:     (tabId)         => dispatch('browser.read', { tabId: String(tabId) }),
-                close:    (tabId)         => dispatch('browser.close', { tabId: String(tabId) }),
+                open:      (url, opts)        => dispatch('browser.open', { url: url == null ? null : String(url), split: Boolean((opts || {}).split) }),
+                navigate:  (tabId, url)       => dispatch('browser.navigate', { tabId: String(tabId), url: String(url) }),
+                list:      ()                 => dispatch('browser.list', {}),
+                read:      (tabId)            => dispatch('browser.read', { tabId: String(tabId) }),
+                close:     (tabId)            => dispatch('browser.close', { tabId: String(tabId) }),
+                eval:      (tabId, script)    => mapResult(dispatch('browser.eval', { tabId: String(tabId), script: String(script) }), parseJSON),
+                click:     (tabId, selector)  => dispatch('browser.click', { tabId: String(tabId), selector: String(selector) }),
+                type:      (tabId, selector, text, opts) => dispatch('browser.type', { tabId: String(tabId), selector: String(selector), text: String(text), submit: Boolean((opts || {}).submit) }),
+                waitFor:   (tabId, selector, opts) => dispatch('browser.waitFor', { tabId: String(tabId), selector: String(selector), timeoutMs: Number((opts || {}).timeoutMs == null ? 5000 : (opts || {}).timeoutMs) }),
+                getText:   (tabId, selector)  => dispatch('browser.getText', { tabId: String(tabId), selector: String(selector) }),
+                getHTML:   (tabId, selector)  => dispatch('browser.getHTML', { tabId: String(tabId), selector: selector == null ? null : String(selector) }),
+                getAttribute: (tabId, selector, name) => dispatch('browser.getAttribute', { tabId: String(tabId), selector: String(selector), attribute: String(name) }),
+                reload:    (tabId)            => dispatch('browser.reload', { tabId: String(tabId) }),
+                back:      (tabId)            => dispatch('browser.back', { tabId: String(tabId) }),
+                forward:   (tabId)            => dispatch('browser.forward', { tabId: String(tabId) }),
+                waitForNavigation: (tabId, opts) => dispatch('browser.waitForNavigation', { tabId: String(tabId), timeoutMs: Number((opts || {}).timeoutMs == null ? 10000 : (opts || {}).timeoutMs) }),
+                screenshot: (tabId)           => mapResult(dispatch('browser.screenshot', { tabId: String(tabId) }), r => (r || {}).png),
+                storage: {
+                    get:   (tabId, key, kind) => dispatch('browser.storage.get', { tabId: String(tabId), key: String(key), kind: kind || 'local' }),
+                    set:   (tabId, key, value, kind) => dispatch('browser.storage.set', { tabId: String(tabId), key: String(key), value: String(value), kind: kind || 'local' }),
+                    clear: (tabId, kind)      => dispatch('browser.storage.clear', { tabId: String(tabId), kind: kind || 'local' }),
+                },
+                cookies: {
+                    get:    (tabId, url)      => dispatch('browser.cookies.get', { tabId: String(tabId), url: url == null ? null : String(url) }),
+                    set:    (tabId, cookie)   => dispatch('browser.cookies.set', Object.assign({ tabId: String(tabId) }, cookie || {})),
+                    delete: (tabId, name, domain) => dispatch('browser.cookies.delete', { tabId: String(tabId), name: String(name), domain: domain == null ? null : String(domain) }),
+                    clear:  (tabId)           => dispatch('browser.cookies.clear', { tabId: String(tabId) }),
+                },
             };
             muxy.panes = {
                 list:       ()                  => dispatch('panes.list', {}),

@@ -110,7 +110,7 @@ Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `
 
 ## Browser
 
-The built-in browser opens web pages in a tab. Drive it to preview a dev server or read a page back as text:
+The built-in browser opens web pages in a tab and can be fully automated for workflows — navigation, DOM interaction, JavaScript, cookies, storage, and screenshots:
 
 ```bash
 TAB=$(muxy browser open http://localhost:3000)   # returns the browser tab ID
@@ -121,7 +121,28 @@ muxy browser read "$TAB"                          # title, then URL, then visibl
 muxy browser close "$TAB"
 ```
 
-Run `browser open` with no URL to open the configured home page (blank by default). Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. `browser read` returns the rendered text and waits briefly for the tab's view to load, so still pause after navigating before reading; only tabs in the active project are rendered, and its text is capped at ~1 MB. If the built-in browser is disabled in Settings, every `browser` command returns an error.
+Automate the page once it is open:
+
+```bash
+muxy browser wait-for "$TAB" "input[name=q]"      # wait for an element (default 5000ms)
+muxy browser type "$TAB" "input[name=q]" "muxy" --submit
+muxy browser wait-for-navigation "$TAB"           # wait for the load to finish (default 10000ms)
+muxy browser click "$TAB" "a.result"
+muxy browser eval "$TAB" "document.title"         # run JS, returns the JSON result
+muxy browser get-text "$TAB" "h1"                 # element innerText
+muxy browser get-html "$TAB" "main"               # element HTML (omit selector for the whole page)
+muxy browser get-attribute "$TAB" "a" "href"
+muxy browser reload "$TAB"                         # also: back, forward
+muxy browser screenshot "$TAB" > page.b64         # base64 PNG of the page
+
+muxy browser storage set "$TAB" token abc          # local storage (add 'session' for sessionStorage)
+muxy browser storage get "$TAB" token
+muxy browser cookies get "$TAB"                    # JSON array of cookies for the tab's profile
+muxy browser cookies set "$TAB" session xyz example.com
+muxy browser cookies delete "$TAB" session
+```
+
+Run `browser open` with no URL to open the configured home page (blank by default). Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. Commands that run JavaScript (`eval`, `click`, `type`, `wait-for`, `get-*`, `screenshot`, `storage`) need the tab open and rendered in the active project — Muxy has no headless browser — so pause after navigating before reading. `navigate`, `cookies`, and `list` work without the tab being visible. Cookies are shared by all tabs on the same profile. If the built-in browser is disabled in Settings, every `browser` command returns an error.
 
 ## Install the skills into your AI harnesses
 

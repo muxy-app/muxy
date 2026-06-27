@@ -248,6 +248,25 @@ enum MuxyAPI {
             "browser.list",
             "browser.read",
             "browser.close",
+            "browser.eval",
+            "browser.click",
+            "browser.type",
+            "browser.waitFor",
+            "browser.getText",
+            "browser.getHTML",
+            "browser.getAttribute",
+            "browser.reload",
+            "browser.back",
+            "browser.forward",
+            "browser.waitForNavigation",
+            "browser.screenshot",
+            "browser.storage.get",
+            "browser.storage.set",
+            "browser.storage.clear",
+            "browser.cookies.get",
+            "browser.cookies.set",
+            "browser.cookies.delete",
+            "browser.cookies.clear",
             "projects.delete",
             "projects.add",
             "projects.rename",
@@ -354,6 +373,25 @@ enum MuxyAPI {
             "browser.list": .browserRead,
             "browser.read": .browserRead,
             "browser.close": .browserWrite,
+            "browser.eval": .browserWrite,
+            "browser.click": .browserWrite,
+            "browser.type": .browserWrite,
+            "browser.waitFor": .browserRead,
+            "browser.getText": .browserRead,
+            "browser.getHTML": .browserRead,
+            "browser.getAttribute": .browserRead,
+            "browser.reload": .browserWrite,
+            "browser.back": .browserWrite,
+            "browser.forward": .browserWrite,
+            "browser.waitForNavigation": .browserRead,
+            "browser.screenshot": .browserRead,
+            "browser.storage.get": .browserRead,
+            "browser.storage.set": .browserWrite,
+            "browser.storage.clear": .browserWrite,
+            "browser.cookies.get": .browserRead,
+            "browser.cookies.set": .browserWrite,
+            "browser.cookies.delete": .browserWrite,
+            "browser.cookies.clear": .browserWrite,
             "projects.list": .projectsRead,
             "projects.switch": .projectsWrite,
             "projects.delete": .projectsDelete,
@@ -1428,7 +1466,7 @@ enum MuxyAPI {
             return .success(())
         }
 
-        private static func waitForRegisteredWebView(
+        static func waitForRegisteredWebView(
             tabID: UUID,
             start: ContinuousClock.Instant
         ) async -> WKWebView? {
@@ -1534,7 +1572,7 @@ private func locateTab(paneID: UUID, appState: AppState) -> PaneLocation? {
     return nil
 }
 
-private extension Duration {
+extension Duration {
     var secondsValue: Double {
         Double(components.seconds) + Double(components.attoseconds) / 1e18
     }

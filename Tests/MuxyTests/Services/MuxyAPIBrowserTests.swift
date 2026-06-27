@@ -123,6 +123,66 @@ struct MuxyAPIBrowserTests {
         #expect(MuxyAPI.Browser.list(appState: appState, profileStore: nil).isEmpty)
     }
 
+    @Test("eval fails for an unknown tab id")
+    func evalUnknownTabFails() async {
+        let appState = makeAppState()
+        let unknownID = UUID().uuidString
+        let result = await MuxyAPI.Browser.eval(tabIDString: unknownID, script: "1+1", appState: appState)
+        #expect(failureErrorString(result) == .browserTabNotFound(unknownID))
+    }
+
+    @Test("eval reports surface not ready for an unrendered tab")
+    func evalUnrenderedTabNotReady() async throws {
+        let appState = makeAppState()
+        let id = try MuxyAPI.Browser.open(url: "https://example.com", appState: appState).get()
+        let result = await MuxyAPI.Browser.eval(tabIDString: id.uuidString, script: "1+1", appState: appState)
+        guard case let .failure(error) = result else {
+            Issue.record("expected failure")
+            return
+        }
+        guard case .browserTabSurfaceNotReady = error else {
+            Issue.record("expected surface-not-ready, got \(error)")
+            return
+        }
+    }
+
+    @Test("automation verbs fail when the browser is disabled")
+    func automationDisabledFails() async {
+        let appState = makeAppState()
+        BrowserPreferences.isEnabled = false
+        defer { UserDefaults.standard.removeObject(forKey: BrowserPreferences.enabledKey) }
+        let tabID = UUID().uuidString
+        let eval = await MuxyAPI.Browser.eval(tabIDString: tabID, script: "1", appState: appState)
+        let click = await MuxyAPI.Browser.click(tabIDString: tabID, selector: "a", appState: appState)
+        let cookies = await MuxyAPI.Browser.cookiesClear(tabIDString: tabID, appState: appState)
+        #expect(failureErrorString(eval) == .browserDisabled)
+        #expect(failureErrorBool(click) == .browserDisabled)
+        #expect(failureErrorVoid(cookies) == .browserDisabled)
+    }
+
+    @Test("jsString produces a quoted JS literal that escapes special characters")
+    func jsStringEscapes() {
+        #expect(jsString("a\"b") == "\"a\\\"b\"")
+        #expect(jsString("a\\b") == "\"a\\\\b\"")
+        #expect(jsString("a\nb") == "\"a\\nb\"")
+        #expect(jsString("plain") == "\"plain\"")
+    }
+
+    private func failureErrorString(_ result: Result<String, APIError>) -> APIError? {
+        if case let .failure(error) = result { return error }
+        return nil
+    }
+
+    private func failureErrorBool(_ result: Result<Bool, APIError>) -> APIError? {
+        if case let .failure(error) = result { return error }
+        return nil
+    }
+
+    private func failureErrorVoid(_ result: Result<Void, APIError>) -> APIError? {
+        if case let .failure(error) = result { return error }
+        return nil
+    }
+
     @Test("registry resolves a registered web view then clears on unregister")
     func registryRegistersAndUnregisters() {
         let registry = BrowserWebViewRegistry.shared

@@ -347,6 +347,21 @@ enum SocketCommandHandler {
                     browserProfileStore: browserProfileStore
                 )
             )
+        case let verb where verb.hasPrefix("browser."):
+            guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
+            return await handleAPIVerb(
+                verb: verb,
+                base64Payload: parts[1],
+                context: MuxyAPIDispatcher.Context(
+                    extensionID: clientContext.extensionID ?? "",
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore,
+                    browserProfileStore: browserProfileStore
+                ),
+                enforcePermissions: false
+            )
         default:
             return "error:unknown command \(cmd)"
         }
@@ -363,13 +378,19 @@ enum SocketCommandHandler {
     private static func handleAPIVerb(
         verb: String,
         base64Payload: String,
-        context: MuxyAPIDispatcher.Context
+        context: MuxyAPIDispatcher.Context,
+        enforcePermissions: Bool = true
     ) async -> String {
         guard let data = Data(base64Encoded: base64Payload),
               let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return "error:invalid \(verb) payload" }
         do {
-            let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: context)
+            let result = try await MuxyAPIDispatcher.dispatch(
+                verb: verb,
+                args: args,
+                context: context,
+                enforcePermissions: enforcePermissions
+            )
             guard let encoded = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed]) else {
                 return "error:\(verb) result encoding failed"
             }
