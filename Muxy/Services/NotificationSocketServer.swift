@@ -220,10 +220,10 @@ final class NotificationSocketServer: @unchecked Sendable {
             guard let self,
                   let session = self.session(forExtension: extensionID),
                   let line = ExtensionModalQuery.serialize(
-                    requestID: requestID,
-                    queryID: queryID,
-                    query: query,
-                    options: options.payload
+                      requestID: requestID,
+                      queryID: queryID,
+                      query: query,
+                      options: options.payload
                   )
             else { return }
             self.enqueueWrite(session: session, text: line + "\n")
