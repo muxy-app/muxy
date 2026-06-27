@@ -48,6 +48,7 @@ struct TabFocusedTabsList: View {
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var expansionStore = TabFocusedSidebarState.shared
+    @State private var dragState = TabFocusedDragState()
 
     private struct AreaTab: Identifiable {
         let area: TabArea
@@ -89,6 +90,11 @@ struct TabFocusedTabsList: View {
             }
         }
         .padding(.bottom, UIMetrics.spacing3)
+        .coordinateSpace(name: TabFocusedDragCoordinateSpace.list)
+        .onPreferenceChange(TabFocusedRowFramePreferenceKey.self) { frames in
+            guard dragState.draggedID != nil else { return }
+            dragState.frames = frames
+        }
     }
 
     @ViewBuilder
@@ -127,13 +133,92 @@ struct TabFocusedTabsList: View {
                     worktree: item.worktree,
                     shortcutNumber: numbers[item.tab.id]
                 )
+                .opacity(dragState.draggedID == item.tab.id ? 0.5 : 1)
+                .background {
+                    if dragState.draggedID != nil {
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: TabFocusedRowFramePreferenceKey.self,
+                                value: [item.tab.id: geo.frame(in: .named(TabFocusedDragCoordinateSpace.list))]
+                            )
+                        }
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 6, coordinateSpace: .named(TabFocusedDragCoordinateSpace.list))
+                        .onChanged { value in
+                            handleDragChanged(item: item, location: value.location)
+                        }
+                        .onEnded { _ in
+                            handleDragEnded()
+                        }
+                )
             }
+        }
+    }
+
+    private func handleDragChanged(item: AreaTab, location: CGPoint) {
+        if dragState.draggedID == nil {
+            dragState.draggedID = item.tab.id
+            dragState.lastReorderTargetID = nil
+        }
+        reorderIfNeeded(area: item.area, at: location)
+    }
+
+    private func handleDragEnded() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            dragState.draggedID = nil
+            dragState.frames = [:]
+            dragState.lastReorderTargetID = nil
+        }
+    }
+
+    private func reorderIfNeeded(area: TabArea, at location: CGPoint) {
+        guard let draggedID = dragState.draggedID else { return }
+        var hoveredTargetID: UUID?
+
+        for (id, frame) in dragState.frames where id != draggedID {
+            guard frame.contains(location) else { continue }
+            hoveredTargetID = id
+            guard dragState.lastReorderTargetID != id,
+                  let sourceIndex = area.tabs.firstIndex(where: { $0.id == draggedID }),
+                  let destIndex = area.tabs.firstIndex(where: { $0.id == id })
+            else { return }
+
+            dragState.lastReorderTargetID = id
+            let offset = destIndex > sourceIndex ? destIndex + 1 : destIndex
+            withAnimation(.easeInOut(duration: 0.15)) {
+                area.reorderTab(fromOffsets: IndexSet(integer: sourceIndex), toOffset: offset)
+            }
+            appState.saveWorkspaces()
+            return
+        }
+
+        if hoveredTargetID == nil {
+            dragState.lastReorderTargetID = nil
         }
     }
 
     private func worktreeName(_ worktree: Worktree) -> String {
         if worktree.isPrimary, worktree.name.isEmpty { return "main" }
         return worktree.name
+    }
+}
+
+private struct TabFocusedDragState {
+    var draggedID: UUID?
+    var frames: [UUID: CGRect] = [:]
+    var lastReorderTargetID: UUID?
+}
+
+private enum TabFocusedDragCoordinateSpace {
+    static let list = "TabFocusedTabsList"
+}
+
+private struct TabFocusedRowFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 
