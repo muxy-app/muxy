@@ -237,6 +237,11 @@ final class TabArea: Identifiable {
         tab.colorID = colorID
     }
 
+    func setCustomIcon(_ tabID: UUID, icon: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabID }) else { return }
+        tab.customIcon = icon
+    }
+
     func togglePin(_ tabID: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
         let tab = tabs[index]

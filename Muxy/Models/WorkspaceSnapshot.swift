@@ -102,6 +102,7 @@ struct TerminalTabSnapshot: Codable {
     let id: UUID
     let customTitle: String?
     let colorID: String?
+    let customIcon: String?
     let isPinned: Bool
     let projectPath: String
     let paneTitle: String
@@ -119,6 +120,7 @@ struct TerminalTabSnapshot: Codable {
         id: UUID = UUID(),
         customTitle: String?,
         colorID: String?,
+        customIcon: String? = nil,
         isPinned: Bool,
         projectPath: String,
         paneTitle: String?,
@@ -135,6 +137,7 @@ struct TerminalTabSnapshot: Codable {
         self.id = id
         self.customTitle = customTitle
         self.colorID = colorID
+        self.customIcon = customIcon
         self.isPinned = isPinned
         self.projectPath = projectPath
         self.paneTitle = paneTitle ?? "Terminal"
@@ -153,6 +156,7 @@ struct TerminalTabSnapshot: Codable {
         case id
         case customTitle
         case colorID
+        case customIcon
         case isPinned
         case projectPath
         case paneTitle
@@ -173,6 +177,7 @@ struct TerminalTabSnapshot: Codable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
         colorID = try container.decodeIfPresent(String.self, forKey: .colorID)
+        customIcon = try container.decodeIfPresent(String.self, forKey: .customIcon)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         projectPath = try container.decode(String.self, forKey: .projectPath)
         paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? "Terminal"

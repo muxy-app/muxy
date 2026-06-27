@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 import WebKit
 
 enum APIError: Error, Equatable {
@@ -369,6 +370,13 @@ enum MuxyAPI {
             "next-tab": "tabs.next",
             "previous-tab": "tabs.previous",
             "open-tab": "tabs.open",
+            "tab-rename": "tabs.rename",
+            "tab-set-color": "tabs.setColor",
+            "tab-set-icon": "tabs.setIcon",
+            "tab-pin": "tabs.setPin",
+            "tab-unpin": "tabs.setPin",
+            "tab-close": "tabs.close",
+            "tab-move": "tabs.move",
         ]
 
         private static let verbPermissions: [String: ExtensionPermission] = [
@@ -387,6 +395,11 @@ enum MuxyAPI {
             "tabs.open": .tabsWrite,
             "tabs.setTitle": .tabsWrite,
             "tabs.setIcon": .tabsWrite,
+            "tabs.rename": .tabsWrite,
+            "tabs.setColor": .tabsWrite,
+            "tabs.setPin": .tabsWrite,
+            "tabs.close": .tabsWrite,
+            "tabs.move": .tabsWrite,
             "browser.open": .browserWrite,
             "browser.navigate": .browserWrite,
             "browser.list": .browserRead,
@@ -1136,6 +1149,120 @@ enum MuxyAPI {
         static func previous(appState: AppState) -> Result<Void, APIError> {
             guard let projectID = appState.activeProjectID else { return .failure(.noActiveProject) }
             appState.selectPreviousTab(projectID: projectID)
+            return .success(())
+        }
+
+        struct LocatedTab {
+            let tab: TerminalTab
+            let area: TabArea
+            let projectID: UUID
+        }
+
+        static func locate(identifier: String, appState: AppState) -> LocatedTab? {
+            if let id = UUID(uuidString: identifier) {
+                for (key, root) in appState.workspaceRoots {
+                    for area in root.allAreas() where area.tabs.contains(where: { $0.id == id }) {
+                        guard let tab = area.tabs.first(where: { $0.id == id }) else { continue }
+                        return LocatedTab(tab: tab, area: area, projectID: key.projectID)
+                    }
+                }
+            }
+            guard let projectID = appState.activeProjectID,
+                  let key = appState.activeWorktreeKey(for: projectID),
+                  let root = appState.workspaceRoots[key]
+            else { return nil }
+            if let index = Int(identifier) {
+                var current = 0
+                for area in root.allAreas() {
+                    for tab in area.tabs {
+                        if current == index {
+                            return LocatedTab(tab: tab, area: area, projectID: projectID)
+                        }
+                        current += 1
+                    }
+                }
+                return nil
+            }
+            for area in root.allAreas() {
+                guard let tab = area.tabs.first(where: {
+                    $0.title.localizedCaseInsensitiveCompare(identifier) == .orderedSame
+                })
+                else { continue }
+                return LocatedTab(tab: tab, area: area, projectID: projectID)
+            }
+            return nil
+        }
+
+        static func rename(identifier: String, title: String?, appState: AppState) -> Result<Void, APIError> {
+            guard let located = locate(identifier: identifier, appState: appState) else {
+                return .failure(.tabNotFound(identifier))
+            }
+            let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            located.area.setCustomTitle(located.tab.id, title: (trimmed?.isEmpty ?? true) ? nil : trimmed)
+            appState.saveWorkspaces()
+            return .success(())
+        }
+
+        static func setColor(identifier: String, color: String?, appState: AppState) -> Result<Void, APIError> {
+            guard let located = locate(identifier: identifier, appState: appState) else {
+                return .failure(.tabNotFound(identifier))
+            }
+            let resolved: String?
+            if let color, !color.isEmpty {
+                guard let swatch = ProjectIconColor.swatch(for: color) else {
+                    return .failure(.invalidArguments("unknown color '\(color)'"))
+                }
+                resolved = swatch.id
+            } else {
+                resolved = nil
+            }
+            located.area.setColorID(located.tab.id, colorID: resolved)
+            appState.saveWorkspaces()
+            return .success(())
+        }
+
+        static func setIcon(identifier: String, icon: String?, appState: AppState) -> Result<Void, APIError> {
+            guard let located = locate(identifier: identifier, appState: appState) else {
+                return .failure(.tabNotFound(identifier))
+            }
+            let trimmed = icon?.trimmingCharacters(in: .whitespacesAndNewlines)
+            located.area.setCustomIcon(located.tab.id, icon: (trimmed?.isEmpty ?? true) ? nil : trimmed)
+            appState.saveWorkspaces()
+            return .success(())
+        }
+
+        static func setPinned(identifier: String, pinned: Bool, appState: AppState) -> Result<Void, APIError> {
+            guard let located = locate(identifier: identifier, appState: appState) else {
+                return .failure(.tabNotFound(identifier))
+            }
+            guard located.tab.isPinned != pinned else { return .success(()) }
+            located.area.togglePin(located.tab.id)
+            appState.saveWorkspaces()
+            return .success(())
+        }
+
+        static func close(identifier: String, appState: AppState) -> Result<Void, APIError> {
+            guard let located = locate(identifier: identifier, appState: appState) else {
+                return .failure(.tabNotFound(identifier))
+            }
+            appState.closeTab(located.tab.id, areaID: located.area.id, projectID: located.projectID)
+            return .success(())
+        }
+
+        static func move(identifier: String, toIndex: Int, appState: AppState) -> Result<Void, APIError> {
+            guard let located = locate(identifier: identifier, appState: appState) else {
+                return .failure(.tabNotFound(identifier))
+            }
+            let area = located.area
+            guard let from = area.tabs.firstIndex(where: { $0.id == located.tab.id }) else {
+                return .failure(.tabNotFound(identifier))
+            }
+            guard toIndex >= 0, toIndex < area.tabs.count else {
+                return .failure(.invalidArguments("index out of range"))
+            }
+            let destination = toIndex > from ? toIndex + 1 : toIndex
+            area.reorderTab(fromOffsets: IndexSet(integer: from), toOffset: destination)
+            appState.saveWorkspaces()
             return .success(())
         }
 

@@ -11,6 +11,7 @@ struct PaneTabStrip: View {
         let isPinned: Bool
         let hasCustomTitle: Bool
         let colorID: String?
+        let customIconSymbol: String?
         let extensionID: String?
         let customIcon: ExtensionIcon?
         let isOffline: Bool
@@ -59,6 +60,7 @@ struct PaneTabStrip: View {
                 isPinned: tab.isPinned,
                 hasCustomTitle: tab.customTitle != nil,
                 colorID: tab.colorID,
+                customIconSymbol: tab.customIcon,
                 extensionID: tab.content.extensionState?.extensionID,
                 customIcon: tab.content.extensionState?.customIcon,
                 isOffline: tab.content.pane?.isOffline ?? false,
@@ -673,6 +675,9 @@ private struct TabCell: View {
             Image(systemName: "moon.zzz")
                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .help("Idle — terminal freed to save memory. Reopens when selected.")
+        } else if let customIconSymbol = tab.customIconSymbol {
+            Image(systemName: customIconSymbol)
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
         } else {
             switch tab.kind {
             case .terminal:

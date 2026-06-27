@@ -20,6 +20,13 @@
 #   muxy switch-tab <index|id|title>           Switch active tab
 #   muxy new-tab                               Create a terminal tab
 #   muxy next-tab|previous-tab                 Switch tabs
+#   muxy tab rename <tab> [title]              Rename a tab (omit title to reset)
+#   muxy tab set-color <tab> [color]           Set a tab color (omit to reset)
+#       colors: red orange amber yellow lime green teal cyan blue indigo violet pink
+#   muxy tab set-icon <tab> [sf-symbol]        Set a tab icon (SF Symbol; omit to reset)
+#   muxy tab pin|unpin <tab>                   Pin or unpin a tab
+#   muxy tab close <tab>                       Close a tab
+#   muxy tab move <tab> <to-index>             Reorder a tab within its area
 #   muxy install-skills [skills args...]       Install Muxy agent skills into detected AI harnesses
 #
 # Run "muxy <command> --help" for the options of a single command.
@@ -49,6 +56,7 @@ usage_for() {
         new-tab)           echo "muxy new-tab" ;;
         next-tab)          echo "muxy next-tab" ;;
         previous-tab)      echo "muxy previous-tab" ;;
+        tab)               echo "muxy tab <rename|set-color|set-icon|pin|unpin|close|move> <index|id|title> [args...]" ;;
         browser)           echo "muxy browser <open|navigate|list|read|close|eval|click|type|fill|press|select|hover|check|uncheck|scroll-into-view|wait|wait-for|wait-for-navigation|get-text|get-html|get-value|get-attribute|get-count|is|find|snapshot|reload|back|forward|screenshot|storage|cookies> [args...]" ;;
         install-skills)    echo "muxy install-skills [skills args...]" ;;
     esac
@@ -90,6 +98,13 @@ usage() {
     echo "  muxy new-tab                             Create a terminal tab"
     echo "  muxy next-tab                            Switch to next tab"
     echo "  muxy previous-tab                        Switch to previous tab"
+    echo "  muxy tab rename <tab> [title]            Rename a tab (omit title to reset)"
+    echo "  muxy tab set-color <tab> [color]         Set a tab color (omit to reset); colors:"
+    echo "                                           red orange amber yellow lime green teal cyan blue indigo violet pink"
+    echo "  muxy tab set-icon <tab> [sf-symbol]      Set a tab icon (SF Symbol; omit to reset)"
+    echo "  muxy tab pin|unpin <tab>                 Pin or unpin a tab"
+    echo "  muxy tab close <tab>                     Close a tab"
+    echo "  muxy tab move <tab> <to-index>           Reorder a tab within its area"
     echo "  muxy browser open <url> [--split]        Open a URL in a built-in browser tab (returns tab ID)"
     echo "  muxy browser navigate <tab-id> <url>     Navigate a browser tab to a URL"
     echo "  muxy browser list                        List built-in browser tabs"
@@ -460,6 +475,58 @@ case "$COMMAND" in
         wants_help "$2" && print_command_help previous-tab
         send_command "previous-tab"
         ;;
+    tab)
+        shift
+        wants_help "$1" && print_command_help tab
+        SUB="${1:-}"
+        shift || true
+        case "$SUB" in
+            rename)
+                [ $# -lt 1 ] && die_usage tab
+                if [ $# -ge 2 ]; then
+                    send_command "tab-rename|$1|$2"
+                else
+                    send_command "tab-rename|$1"
+                fi
+                ;;
+            set-color)
+                [ $# -lt 1 ] && die_usage tab
+                if [ $# -ge 2 ]; then
+                    send_command "tab-set-color|$1|$2"
+                else
+                    send_command "tab-set-color|$1"
+                fi
+                ;;
+            set-icon)
+                [ $# -lt 1 ] && die_usage tab
+                if [ $# -ge 2 ]; then
+                    send_command "tab-set-icon|$1|$2"
+                else
+                    send_command "tab-set-icon|$1"
+                fi
+                ;;
+            pin)
+                [ $# -lt 1 ] && die_usage tab
+                send_command "tab-pin|$1"
+                ;;
+            unpin)
+                [ $# -lt 1 ] && die_usage tab
+                send_command "tab-unpin|$1"
+                ;;
+            close)
+                [ $# -lt 1 ] && die_usage tab
+                send_command "tab-close|$1"
+                ;;
+            move)
+                [ $# -lt 2 ] && die_usage tab
+                send_command "tab-move|$1|$2"
+                ;;
+            *)
+                die_usage tab
+                ;;
+        esac
+        exit 0
+        ;;
     install-skills)
         shift
         wants_help "$1" && print_command_help install-skills
@@ -736,6 +803,7 @@ if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "spli
    [ "$COMMAND" != "refresh-worktrees" ] && [ "$COMMAND" != "list-tabs" ] && \
    [ "$COMMAND" != "switch-tab" ] && [ "$COMMAND" != "new-tab" ] && \
    [ "$COMMAND" != "next-tab" ] && [ "$COMMAND" != "previous-tab" ] && \
+   [ "$COMMAND" != "tab" ] && \
    [ "$COMMAND" != "install-skills" ]; then
     TARGET_DIR="$COMMAND"
 

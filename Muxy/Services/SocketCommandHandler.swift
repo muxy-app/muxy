@@ -177,6 +177,50 @@ enum SocketCommandHandler {
             return serialize(MuxyAPI.Tabs.next(appState: appState), ok: "ok")
         case "previous-tab":
             return serialize(MuxyAPI.Tabs.previous(appState: appState), ok: "ok")
+        case "tab-rename":
+            guard parts.count >= 2 else { return "error:usage tab-rename|<index-or-id-or-title>[|title]" }
+            let title = parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil
+            return serialize(
+                MuxyAPI.Tabs.rename(identifier: parts[1], title: title, appState: appState),
+                ok: "ok"
+            )
+        case "tab-set-color":
+            guard parts.count >= 2 else { return "error:usage tab-set-color|<index-or-id-or-title>[|color]" }
+            let color = parts.count >= 3 ? parts[2] : nil
+            return serialize(
+                MuxyAPI.Tabs.setColor(identifier: parts[1], color: color, appState: appState),
+                ok: "ok"
+            )
+        case "tab-set-icon":
+            guard parts.count >= 2 else { return "error:usage tab-set-icon|<index-or-id-or-title>[|sf-symbol]" }
+            let icon = parts.count >= 3 ? parts[2] : nil
+            return serialize(
+                MuxyAPI.Tabs.setIcon(identifier: parts[1], icon: icon, appState: appState),
+                ok: "ok"
+            )
+        case "tab-pin":
+            guard parts.count >= 2 else { return "error:usage tab-pin|<index-or-id-or-title>" }
+            return serialize(
+                MuxyAPI.Tabs.setPinned(identifier: parts[1], pinned: true, appState: appState),
+                ok: "ok"
+            )
+        case "tab-unpin":
+            guard parts.count >= 2 else { return "error:usage tab-unpin|<index-or-id-or-title>" }
+            return serialize(
+                MuxyAPI.Tabs.setPinned(identifier: parts[1], pinned: false, appState: appState),
+                ok: "ok"
+            )
+        case "tab-close":
+            guard parts.count >= 2 else { return "error:usage tab-close|<index-or-id-or-title>" }
+            return serialize(MuxyAPI.Tabs.close(identifier: parts[1], appState: appState), ok: "ok")
+        case "tab-move":
+            guard parts.count >= 3, let index = Int(parts[2]) else {
+                return "error:usage tab-move|<index-or-id-or-title>|<to-index>"
+            }
+            return serialize(
+                MuxyAPI.Tabs.move(identifier: parts[1], toIndex: index, appState: appState),
+                ok: "ok"
+            )
         case "open-tab":
             guard parts.count >= 2 else { return "error:usage open-tab|<json>" }
             let payload = parts.dropFirst().joined(separator: "|")

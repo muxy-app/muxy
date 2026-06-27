@@ -108,6 +108,20 @@ muxy previous-tab            # cycle backward
 
 Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `next-tab`/`previous-tab` only for relative cycling. List first with `muxy list-tabs` when you need the index or ID.
 
+Customize and manage a tab with `muxy tab <op> <index|id|title>`. The target resolves the same way as `switch-tab` — by index or title within the active worktree, or by tab ID anywhere across open workspaces:
+
+```bash
+muxy tab rename 0 "Server"          # omit the title to reset to the default
+muxy tab set-color 0 blue           # palette name; omit to reset
+muxy tab set-icon 0 "flame.fill"    # any SF Symbol name; omit to reset
+muxy tab pin 0                       # pin / unpin (pinned tabs can't be closed)
+muxy tab unpin 0
+muxy tab move 0 2                    # reorder within the tab's area
+muxy tab close "Server"             # close by index/id/title
+```
+
+The color must be one of Muxy's palette names: `red`, `orange`, `amber`, `yellow`, `lime`, `green`, `teal`, `cyan`, `blue`, `indigo`, `violet`, `pink`. `set-icon` takes an SF Symbol name. Pin a tab to protect it from `tab close` / `close-pane`; `tab close` is a no-op on a pinned tab, so `unpin` first.
+
 ## Browser
 
 The built-in browser opens web pages in a tab and can be fully automated for workflows — navigation, DOM interaction, JavaScript, cookies, storage, and screenshots:
