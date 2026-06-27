@@ -168,15 +168,15 @@ struct ShortcutActionDispatcher {
             appState.cyclePreviousTabAcrossPanes(projectID: projectID)
             return true
         case .nextTab:
-            if AppLayoutStore.shared.layout == .tabFocused {
-                return selectGlobalTabRelative(offset: 1)
+            if AppLayoutStore.shared.layout == .tabFocused, selectGlobalTabRelative(offset: 1) {
+                return true
             }
             guard let projectID = appState.activeProjectID else { return false }
             appState.selectNextTab(projectID: projectID)
             return true
         case .previousTab:
-            if AppLayoutStore.shared.layout == .tabFocused {
-                return selectGlobalTabRelative(offset: -1)
+            if AppLayoutStore.shared.layout == .tabFocused, selectGlobalTabRelative(offset: -1) {
+                return true
             }
             guard let projectID = appState.activeProjectID else { return false }
             appState.selectPreviousTab(projectID: projectID)
