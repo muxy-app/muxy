@@ -168,6 +168,28 @@ struct MuxyAPIBrowserTests {
         #expect(jsString("plain") == "\"plain\"")
     }
 
+    @Test("BrowserAutomation never uses main-thread blocking primitives")
+    func automationHasNoBlockingPrimitives() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Muxy/Services/BrowserAutomation.swift")
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let banned = [
+            "DispatchSemaphore",
+            ".wait()",
+            "DispatchQueue.main.sync",
+            "RunLoop.current.run",
+            "RunLoop.main.run",
+            "Thread.sleep",
+        ]
+        for token in banned {
+            #expect(!source.contains(token), "BrowserAutomation.swift must not block the main thread with \(token)")
+        }
+    }
+
     private func failureErrorString(_ result: Result<String, APIError>) -> APIError? {
         if case let .failure(error) = result { return error }
         return nil

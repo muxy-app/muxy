@@ -25,15 +25,19 @@ const png = await muxy.browser.screenshot(tabId);
 
 `eval(tabId, script)` runs JavaScript in the page and returns the parsed result. A single-line expression (e.g. `document.title`) is returned directly; a multi-statement script (containing `;` or newlines) runs as a function body and must `return` its result. Scripts may `await`.
 
-`click(tabId, selector)` clicks the first matching element; returns `true` if found.
+`click(tabId, selector)` clicks the first matching element; returns `true` if found. `hover`, `scrollIntoView`, and `setChecked(tabId, selector, checked)` behave the same way.
 
-`type(tabId, selector, text, options?)` focuses an element, sets its value, fires `input`/`change`. Pass `{ submit: true }` to submit the form.
+`type(tabId, selector, text, options?)` focuses an element, sets its value, fires `input`/`change`. Pass `{ submit: true }` to submit the form. `fill(tabId, selector, text)` is `type` without submitting. `select(tabId, selector, value)` picks an `<option>`. `press(tabId, key, selector?)` dispatches a keyboard key (e.g. `"Enter"`) to an element or the active element.
 
-`waitFor(tabId, selector, options?)` polls until the selector exists or `options.timeoutMs` (default 5000) elapses; returns whether it appeared.
+`wait(tabId, options)` polls until a condition holds or `options.timeoutMs` (default 5000) elapses; returns whether it became true. Pass exactly one of `{ selector }`, `{ text }`, `{ urlContains }`, or `{ function }` (a JS expression evaluated in the page). `waitFor(tabId, selector, options?)` is the selector-only shorthand.
 
 `waitForNavigation(tabId, options?)` resolves when the page finishes loading or `options.timeoutMs` (default 10000) elapses; returns the settled URL.
 
-`getText(tabId, selector)`, `getHTML(tabId, selector?)`, `getAttribute(tabId, selector, name)` read the DOM. `getHTML` with no selector returns the full document.
+`getText`, `getHTML(tabId, selector?)`, `getValue`, `getAttribute(tabId, selector, name)`, and `getCount(tabId, selector)` read the DOM. `getHTML` with no selector returns the full document.
+
+`is(tabId, property, selector)` returns a boolean for `"visible"`, `"enabled"`, `"checked"`, `"disabled"`, or `"hidden"`.
+
+`find(tabId, kind, value)` returns matching elements (`{ tag, text, role, id, testid }`) by `"role"`, `"text"`, `"label"`, `"placeholder"`, or `"testid"`. `snapshot(tabId, selector?)` returns the visible interactive elements of the page — a compact structure for an agent to "see" the page without a screenshot.
 
 `screenshot(tabId)` returns a base64-encoded PNG of the rendered page.
 
@@ -54,10 +58,10 @@ await muxy.browser.cookies.delete(tabId, "session");
 
 ## Requirements
 
-Automation that runs JavaScript (`eval`, `click`, `type`, `waitFor`, `get*`, `screenshot`, `storage.*`) requires the tab to be open and rendered in the active project — Muxy has no headless browser. `navigate`, `cookies.*`, and `list` do not require the tab to be visible.
+Automation that runs JavaScript (`eval`, `click`, `type`, `fill`, `press`, `select`, `hover`, `scrollIntoView`, `setChecked`, `wait`, `waitFor`, `get*`, `is`, `find`, `snapshot`, `screenshot`, `storage.*`) requires the tab to be open and rendered in the active project — Muxy has no headless browser. `navigate`, `cookies.*`, and `list` do not require the tab to be visible.
 
 ## Permissions
 
-Declare `browser:read` for `list`, `read`, `waitFor`, `get*`, `screenshot`, `waitForNavigation`, `storage.get`, and `cookies.get`. Declare `browser:write` for `open`, `navigate`, `close`, `eval`, `click`, `type`, `reload`, `back`, `forward`, `storage.set/clear`, and `cookies.set/delete/clear`.
+Declare `browser:read` for the read-only calls (`list`, `read`, `wait`, `waitFor`, `waitForNavigation`, `get*`, `is`, `find`, `snapshot`, `screenshot`, `storage.get`, `cookies.get`). Declare `browser:write` for the mutating calls (`open`, `navigate`, `close`, `eval`, `click`, `type`, `fill`, `press`, `select`, `hover`, `scrollIntoView`, `setChecked`, `reload`, `back`, `forward`, `storage.set/clear`, `cookies.set/delete/clear`).
 
 All browser calls fail if the user disables the built-in browser in Settings. These APIs are available to extension webviews and background scripts.

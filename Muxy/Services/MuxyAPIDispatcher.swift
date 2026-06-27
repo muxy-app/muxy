@@ -287,26 +287,8 @@ enum MuxyAPIDispatcher {
                 appState: context.appState
             ))
             return NSNull()
-        case "browser.eval",
-             "browser.click",
-             "browser.type",
-             "browser.waitFor",
-             "browser.getText",
-             "browser.getHTML",
-             "browser.getAttribute",
-             "browser.reload",
-             "browser.back",
-             "browser.forward",
-             "browser.waitForNavigation",
-             "browser.screenshot",
-             "browser.storage.get",
-             "browser.storage.set",
-             "browser.storage.clear",
-             "browser.cookies.get",
-             "browser.cookies.set",
-             "browser.cookies.delete",
-             "browser.cookies.clear":
-            return try await handleBrowserAutomation(verb: verb, args: args, context: context)
+        case let browserVerb where browserVerb.hasPrefix("browser."):
+            return try await handleBrowserAutomation(verb: browserVerb, args: args, context: context)
         case "agents.list":
             return MuxyAPI.Agents.list().map(agentDict)
         case "panes.list":
@@ -566,6 +548,90 @@ enum MuxyAPIDispatcher {
         case "browser.cookies.clear":
             try await unwrap(MuxyAPI.Browser.cookiesClear(tabIDString: tabID, appState: appState))
             return NSNull()
+        case "browser.wait":
+            return try await unwrap(MuxyAPI.Browser.wait(
+                tabIDString: tabID,
+                condition: MuxyAPI.Browser.WaitCondition(
+                    selector: optionalStringArg(args, "selector"),
+                    text: optionalStringArg(args, "text"),
+                    urlContains: optionalStringArg(args, "urlContains"),
+                    function: optionalStringArg(args, "function")
+                ),
+                timeoutMs: intArg(args, "timeoutMs") ?? 5000,
+                appState: appState
+            ))
+        case "browser.fill":
+            return try await unwrap(MuxyAPI.Browser.fill(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                text: stringArg(args, "text"),
+                appState: appState
+            ))
+        case "browser.press":
+            return try await unwrap(MuxyAPI.Browser.press(
+                tabIDString: tabID,
+                selector: optionalStringArg(args, "selector"),
+                key: stringArg(args, "key"),
+                appState: appState
+            ))
+        case "browser.select":
+            return try await unwrap(MuxyAPI.Browser.selectOption(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                value: stringArg(args, "value"),
+                appState: appState
+            ))
+        case "browser.hover":
+            return try await unwrap(MuxyAPI.Browser.hover(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                appState: appState
+            ))
+        case "browser.scrollIntoView":
+            return try await unwrap(MuxyAPI.Browser.scrollIntoView(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                appState: appState
+            ))
+        case "browser.setChecked":
+            return try await unwrap(MuxyAPI.Browser.setChecked(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                checked: boolArg(args, "checked") ?? true,
+                appState: appState
+            ))
+        case "browser.is":
+            return try await unwrap(MuxyAPI.Browser.isState(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                property: stringArg(args, "property"),
+                appState: appState
+            ))
+        case "browser.getValue":
+            return try await unwrap(MuxyAPI.Browser.getValue(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                appState: appState
+            )) ?? NSNull()
+        case "browser.getCount":
+            return try await unwrap(MuxyAPI.Browser.getCount(
+                tabIDString: tabID,
+                selector: stringArg(args, "selector"),
+                appState: appState
+            ))
+        case "browser.find":
+            return try await unwrap(MuxyAPI.Browser.find(
+                tabIDString: tabID,
+                kind: stringArg(args, "kind"),
+                value: stringArg(args, "value"),
+                appState: appState
+            ))
+        case "browser.snapshot":
+            return try await unwrap(MuxyAPI.Browser.snapshot(
+                tabIDString: tabID,
+                selector: optionalStringArg(args, "selector"),
+                appState: appState
+            ))
         default:
             throw APIError.invalidArguments("unknown verb \(verb)")
         }

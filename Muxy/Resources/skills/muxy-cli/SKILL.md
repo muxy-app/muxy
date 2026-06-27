@@ -124,20 +124,26 @@ muxy browser close "$TAB"
 Automate the page once it is open:
 
 ```bash
-muxy browser wait-for "$TAB" "input[name=q]"      # wait for an element (default 5000ms)
-muxy browser type "$TAB" "input[name=q]" "muxy" --submit
-muxy browser wait-for-navigation "$TAB"           # wait for the load to finish (default 10000ms)
+muxy browser wait "$TAB" --selector "input[name=q]"   # also --text, --url-contains, --function, --timeout-ms
+muxy browser wait-for "$TAB" "input[name=q]"          # selector-only shorthand
+muxy browser fill "$TAB" "input[name=q]" "muxy"       # set an input's value
+muxy browser press "$TAB" Enter                       # dispatch a key
+muxy browser wait-for-navigation "$TAB"               # wait for the load to finish
 muxy browser click "$TAB" "a.result"
-muxy browser eval "$TAB" "document.title"         # run JS, returns the JSON result
-muxy browser get-text "$TAB" "h1"                 # element innerText
-muxy browser get-html "$TAB" "main"               # element HTML (omit selector for the whole page)
-muxy browser get-attribute "$TAB" "a" "href"
-muxy browser reload "$TAB"                         # also: back, forward
-muxy browser screenshot "$TAB" > page.b64         # base64 PNG of the page
+muxy browser select "$TAB" "#region" "us-east"
+muxy browser check "$TAB" "#terms"                    # also: uncheck, hover, scroll-into-view
 
-muxy browser storage set "$TAB" token abc          # local storage (add 'session' for sessionStorage)
+muxy browser eval "$TAB" "document.title"             # run JS, returns the JSON result
+muxy browser snapshot "$TAB"                          # visible interactive elements (great for agents)
+muxy browser find "$TAB" text "Sign in"               # find by role|text|label|placeholder|testid
+muxy browser get-text "$TAB" "h1"                     # also get-html, get-value, get-attribute, get-count
+muxy browser is "$TAB" visible "#checkout"            # visible|enabled|checked|disabled|hidden
+muxy browser screenshot "$TAB" > page.b64             # base64 PNG of the page
+muxy browser reload "$TAB"                            # also: back, forward
+
+muxy browser storage set "$TAB" token abc             # local storage (add 'session' for sessionStorage)
 muxy browser storage get "$TAB" token
-muxy browser cookies get "$TAB"                    # JSON array of cookies for the tab's profile
+muxy browser cookies get "$TAB"                       # JSON array of cookies for the tab's profile
 muxy browser cookies set "$TAB" session xyz example.com
 muxy browser cookies delete "$TAB" session
 ```

@@ -49,7 +49,7 @@ usage_for() {
         new-tab)           echo "muxy new-tab" ;;
         next-tab)          echo "muxy next-tab" ;;
         previous-tab)      echo "muxy previous-tab" ;;
-        browser)           echo "muxy browser <open|navigate|list|read|close|eval|click|type|wait-for|get-text|get-html|get-attribute|reload|back|forward|wait-for-navigation|screenshot|storage|cookies> [args...]" ;;
+        browser)           echo "muxy browser <open|navigate|list|read|close|eval|click|type|fill|press|select|hover|check|uncheck|scroll-into-view|wait|wait-for|wait-for-navigation|get-text|get-html|get-value|get-attribute|get-count|is|find|snapshot|reload|back|forward|screenshot|storage|cookies> [args...]" ;;
         install-skills)    echo "muxy install-skills [skills args...]" ;;
     esac
 }
@@ -99,9 +99,20 @@ usage() {
     echo "  muxy browser click <tab-id> <selector>   Click the first element matching a CSS selector"
     echo "  muxy browser type <tab-id> <sel> <text> [--submit]  Type text into an element"
     echo "  muxy browser wait-for <tab-id> <sel> [ms] Wait until a selector appears"
+    echo "  muxy browser fill <tab-id> <sel> <text>  Replace an input's value"
+    echo "  muxy browser press <tab-id> <key> [sel]  Dispatch a key (Enter, Tab, …)"
+    echo "  muxy browser select <tab-id> <sel> <val> Select an <option> by value"
+    echo "  muxy browser hover|scroll-into-view <tab-id> <sel>  Hover / scroll to an element"
+    echo "  muxy browser check|uncheck <tab-id> <sel> Toggle a checkbox"
+    echo "  muxy browser wait <tab-id> [--selector|--text|--url-contains|--function v] [--timeout-ms N]  Wait for a condition"
+    echo "  muxy browser is <tab-id> <visible|enabled|checked> <sel>  Assert element state"
     echo "  muxy browser get-text <tab-id> <selector> Read an element's innerText"
     echo "  muxy browser get-html <tab-id> [selector] Read an element's (or the page's) HTML"
+    echo "  muxy browser get-value <tab-id> <selector> Read an input's value"
     echo "  muxy browser get-attribute <tab-id> <sel> <attr>  Read an element attribute"
+    echo "  muxy browser get-count <tab-id> <selector> Count matching elements"
+    echo "  muxy browser find <tab-id> <role|text|label|placeholder|testid> <value>  Find elements semantically"
+    echo "  muxy browser snapshot <tab-id> [selector] List visible interactive elements (for agents)"
     echo "  muxy browser reload|back|forward <tab-id> Navigate browser history"
     echo "  muxy browser wait-for-navigation <tab-id> [ms]  Wait for the page to finish loading"
     echo "  muxy browser screenshot <tab-id>         Capture a PNG (base64) of the page"
@@ -610,6 +621,83 @@ case "$COMMAND" in
                         die_usage browser
                         ;;
                 esac
+                ;;
+            wait)
+                [ $# -lt 1 ] && die_usage browser
+                WTAB="$1"; shift
+                WSEL=""; WTEXT=""; WURL=""; WFUNC=""; WTIMEOUT="5000"
+                while [ $# -gt 0 ]; do
+                    case "$1" in
+                        --selector) WSEL="$2"; shift 2 ;;
+                        --text) WTEXT="$2"; shift 2 ;;
+                        --url-contains) WURL="$2"; shift 2 ;;
+                        --function) WFUNC="$2"; shift 2 ;;
+                        --timeout-ms) WTIMEOUT="$2"; shift 2 ;;
+                        *) die_usage browser ;;
+                    esac
+                done
+                FIELDS="$(json_field tabId "$WTAB"),\"timeoutMs\":$WTIMEOUT"
+                [ -n "$WSEL" ] && FIELDS="$FIELDS,$(json_field selector "$WSEL")"
+                [ -n "$WTEXT" ] && FIELDS="$FIELDS,$(json_field text "$WTEXT")"
+                [ -n "$WURL" ] && FIELDS="$FIELDS,$(json_field urlContains "$WURL")"
+                [ -n "$WFUNC" ] && FIELDS="$FIELDS,$(json_field function "$WFUNC")"
+                send_api "browser.wait" "{$FIELDS}"
+                ;;
+            fill)
+                [ $# -lt 3 ] && die_usage browser
+                send_api "browser.fill" "{$(json_field tabId "$1"),$(json_field selector "$2"),$(json_field text "$3")}"
+                ;;
+            press)
+                [ $# -lt 2 ] && die_usage browser
+                if [ $# -ge 3 ]; then
+                    send_api "browser.press" "{$(json_field tabId "$1"),$(json_field key "$2"),$(json_field selector "$3")}"
+                else
+                    send_api "browser.press" "{$(json_field tabId "$1"),$(json_field key "$2")}"
+                fi
+                ;;
+            select)
+                [ $# -lt 3 ] && die_usage browser
+                send_api "browser.select" "{$(json_field tabId "$1"),$(json_field selector "$2"),$(json_field value "$3")}"
+                ;;
+            hover)
+                [ $# -lt 2 ] && die_usage browser
+                send_api "browser.hover" "{$(json_field tabId "$1"),$(json_field selector "$2")}"
+                ;;
+            scroll-into-view)
+                [ $# -lt 2 ] && die_usage browser
+                send_api "browser.scrollIntoView" "{$(json_field tabId "$1"),$(json_field selector "$2")}"
+                ;;
+            check)
+                [ $# -lt 2 ] && die_usage browser
+                send_api "browser.setChecked" "{$(json_field tabId "$1"),$(json_field selector "$2"),\"checked\":true}"
+                ;;
+            uncheck)
+                [ $# -lt 2 ] && die_usage browser
+                send_api "browser.setChecked" "{$(json_field tabId "$1"),$(json_field selector "$2"),\"checked\":false}"
+                ;;
+            is)
+                [ $# -lt 3 ] && die_usage browser
+                send_api "browser.is" "{$(json_field tabId "$1"),$(json_field property "$2"),$(json_field selector "$3")}"
+                ;;
+            get-value)
+                [ $# -lt 2 ] && die_usage browser
+                send_api "browser.getValue" "{$(json_field tabId "$1"),$(json_field selector "$2")}"
+                ;;
+            get-count)
+                [ $# -lt 2 ] && die_usage browser
+                send_api "browser.getCount" "{$(json_field tabId "$1"),$(json_field selector "$2")}"
+                ;;
+            find)
+                [ $# -lt 3 ] && die_usage browser
+                send_api "browser.find" "{$(json_field tabId "$1"),$(json_field kind "$2"),$(json_field value "$3")}"
+                ;;
+            snapshot)
+                [ $# -lt 1 ] && die_usage browser
+                if [ $# -ge 2 ]; then
+                    send_api "browser.snapshot" "{$(json_field tabId "$1"),$(json_field selector "$2")}"
+                else
+                    send_api "browser.snapshot" "{$(json_field tabId "$1")}"
+                fi
                 ;;
             *)
                 die_usage browser

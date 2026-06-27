@@ -50,6 +50,9 @@ struct ExtensionVerbRoutingTests {
             "browser.screenshot",
             "browser.storage.get", "browser.storage.set", "browser.storage.clear",
             "browser.cookies.get", "browser.cookies.set", "browser.cookies.delete", "browser.cookies.clear",
+            "browser.wait", "browser.fill", "browser.press", "browser.select", "browser.hover",
+            "browser.scrollIntoView", "browser.setChecked", "browser.is",
+            "browser.getValue", "browser.getCount", "browser.find", "browser.snapshot",
         ]
         for verb in verbs {
             #expect(MuxyAPI.Permissions.verbNames.contains(verb), "verbNames missing \(verb)")
@@ -64,11 +67,15 @@ struct ExtensionVerbRoutingTests {
             "browser.back", "browser.forward",
             "browser.storage.set", "browser.storage.clear",
             "browser.cookies.set", "browser.cookies.delete", "browser.cookies.clear",
+            "browser.fill", "browser.press", "browser.select", "browser.hover",
+            "browser.scrollIntoView", "browser.setChecked",
         ]
         let readVerbs = [
             "browser.waitFor", "browser.getText", "browser.getHTML", "browser.getAttribute",
             "browser.waitForNavigation", "browser.screenshot",
             "browser.storage.get", "browser.cookies.get",
+            "browser.wait", "browser.is", "browser.getValue", "browser.getCount",
+            "browser.find", "browser.snapshot",
         ]
         for verb in writeVerbs {
             #expect(MuxyAPI.Permissions.required(for: verb) == .browserWrite, "\(verb) should be browser:write")

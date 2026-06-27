@@ -103,6 +103,200 @@ extension MuxyAPI.Browser {
         """)
     }
 
+    struct WaitCondition {
+        let selector: String?
+        let text: String?
+        let urlContains: String?
+        let function: String?
+    }
+
+    static func wait(
+        tabIDString: String,
+        condition: WaitCondition,
+        timeoutMs: Int,
+        appState: AppState
+    ) async -> Result<Bool, APIError> {
+        let bounded = max(0, min(timeoutMs, maxWaitMilliseconds))
+        let condition = waitConditionExpression(condition)
+        return await runAsyncResult(tabIDString: tabIDString, appState: appState, body: """
+        const start = Date.now();
+        const check = () => { try { return Boolean(\(condition)); } catch (e) { return false; } };
+        while (Date.now() - start < \(bounded)) {
+            if (check()) { return true; }
+            await new Promise(r => setTimeout(r, 50));
+        }
+        return check();
+        """) { ($0 as? Bool) ?? false }
+    }
+
+    static func fill(
+        tabIDString: String,
+        selector: String,
+        text: String,
+        appState: AppState
+    ) async -> Result<Bool, APIError> {
+        await boolScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        if (!el) { return false; }
+        el.focus();
+        const setter = Object.getOwnPropertyDescriptor(el.__proto__, 'value');
+        if (setter && setter.set) { setter.set.call(el, \(jsString(text))); }
+        else { el.value = \(jsString(text)); }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+        """)
+    }
+
+    static func press(
+        tabIDString: String,
+        selector: String?,
+        key: String,
+        appState: AppState
+    ) async -> Result<Bool, APIError> {
+        let target = selector.map { "document.querySelector(\(jsString($0)))" } ?? "(document.activeElement || document.body)"
+        return await boolScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = \(target);
+        if (!el) { return false; }
+        const key = \(jsString(key));
+        for (const type of ['keydown', 'keypress', 'keyup']) {
+            el.dispatchEvent(new KeyboardEvent(type, { key, bubbles: true }));
+        }
+        return true;
+        """)
+    }
+
+    static func selectOption(
+        tabIDString: String,
+        selector: String,
+        value: String,
+        appState: AppState
+    ) async -> Result<Bool, APIError> {
+        await boolScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        if (!el) { return false; }
+        el.value = \(jsString(value));
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+        """)
+    }
+
+    static func hover(tabIDString: String, selector: String, appState: AppState) async -> Result<Bool, APIError> {
+        await boolScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        if (!el) { return false; }
+        for (const type of ['mouseover', 'mouseenter', 'mousemove']) {
+            el.dispatchEvent(new MouseEvent(type, { bubbles: true }));
+        }
+        return true;
+        """)
+    }
+
+    static func scrollIntoView(
+        tabIDString: String,
+        selector: String,
+        appState: AppState
+    ) async -> Result<Bool, APIError> {
+        await boolScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        if (!el) { return false; }
+        el.scrollIntoView({ block: 'center', inline: 'center' });
+        return true;
+        """)
+    }
+
+    static func setChecked(
+        tabIDString: String,
+        selector: String,
+        checked: Bool,
+        appState: AppState
+    ) async -> Result<Bool, APIError> {
+        await boolScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        if (!el) { return false; }
+        if (el.checked !== \(checked ? "true" : "false")) {
+            el.click();
+        }
+        return true;
+        """)
+    }
+
+    static func isState(
+        tabIDString: String,
+        selector: String,
+        property: String,
+        appState: AppState
+    ) async -> Result<Bool, APIError> {
+        let expression = isExpression(property: property)
+        return await boolScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        if (!el) { return false; }
+        return Boolean(\(expression));
+        """)
+    }
+
+    static func getValue(tabIDString: String, selector: String, appState: AppState) async -> Result<String?, APIError> {
+        await optionalStringScript(tabIDString: tabIDString, appState: appState, body: """
+        const el = document.querySelector(\(jsString(selector)));
+        return el && el.value != null ? String(el.value) : null;
+        """)
+    }
+
+    static func getCount(tabIDString: String, selector: String, appState: AppState) async -> Result<Int, APIError> {
+        await runAsyncResult(tabIDString: tabIDString, appState: appState, body: """
+        return document.querySelectorAll(\(jsString(selector))).length;
+        """) { ($0 as? Int) ?? (($0 as? NSNumber)?.intValue ?? 0) }
+    }
+
+    static func find(
+        tabIDString: String,
+        kind: String,
+        value: String,
+        appState: AppState
+    ) async -> Result<String, APIError> {
+        let matcher = findMatcher(kind: kind, value: value)
+        return await runScript(tabIDString: tabIDString, appState: appState, body: """
+        const all = Array.from(document.querySelectorAll('*'));
+        const match = (el) => { try { return \(matcher); } catch (e) { return false; } };
+        const found = all.filter(match).slice(0, 20).map((el) => ({
+            tag: el.tagName.toLowerCase(),
+            text: (el.innerText || '').trim().slice(0, 120),
+            role: el.getAttribute('role'),
+            id: el.id || null,
+            testid: el.getAttribute('data-testid'),
+        }));
+        return found;
+        """)
+    }
+
+    static func snapshot(
+        tabIDString: String,
+        selector: String?,
+        appState: AppState
+    ) async -> Result<String, APIError> {
+        let root = selector.map { "document.querySelector(\(jsString($0)))" } ?? "document.body"
+        return await runScript(tabIDString: tabIDString, appState: appState, body: """
+        const root = \(root);
+        if (!root) { return []; }
+        const interactive = 'a, button, input, textarea, select, [role=button], [role=link], [role=tab], [onclick], [contenteditable=true]';
+        const nodes = Array.from(root.querySelectorAll(interactive));
+        return nodes.slice(0, 200).map((el) => {
+            const rect = el.getBoundingClientRect();
+            const visible = rect.width > 0 && rect.height > 0;
+            return {
+                tag: el.tagName.toLowerCase(),
+                role: el.getAttribute('role') || el.type || null,
+                name: (el.innerText || el.value || el.getAttribute('aria-label')
+                    || el.getAttribute('placeholder') || '').trim().slice(0, 120),
+                id: el.id || null,
+                testid: el.getAttribute('data-testid'),
+                visible,
+            };
+        }).filter((n) => n.visible);
+        """)
+    }
+
     static func navigation(
         tabIDString: String,
         command: BrowserTabState.NavigationCommand,
@@ -398,6 +592,41 @@ extension MuxyAPI.Browser {
             return json
         }
         return String(describing: value)
+    }
+
+    private static func waitConditionExpression(_ condition: WaitCondition) -> String {
+        if let function = condition.function, !function.isEmpty { return "(\(function))" }
+        if let selector = condition.selector, !selector.isEmpty {
+            return "document.querySelector(\(jsString(selector)))"
+        }
+        if let text = condition.text, !text.isEmpty {
+            return "document.body && document.body.innerText.includes(\(jsString(text)))"
+        }
+        if let urlContains = condition.urlContains, !urlContains.isEmpty {
+            return "location.href.includes(\(jsString(urlContains)))"
+        }
+        return "true"
+    }
+
+    private static func isExpression(property: String) -> String {
+        switch property {
+        case "checked": "el.checked"
+        case "enabled": "!el.disabled"
+        case "disabled": "el.disabled"
+        case "hidden": "el.offsetParent === null"
+        default: "el.offsetParent !== null"
+        }
+    }
+
+    private static func findMatcher(kind: String, value: String) -> String {
+        let needle = jsString(value)
+        switch kind {
+        case "role": return "el.getAttribute('role') === \(needle)"
+        case "testid": return "el.getAttribute('data-testid') === \(needle)"
+        case "label": return "(el.getAttribute('aria-label') || '') === \(needle)"
+        case "placeholder": return "el.getAttribute('placeholder') === \(needle)"
+        default: return "(el.innerText || '').trim().includes(\(needle))"
+        }
     }
 }
 
