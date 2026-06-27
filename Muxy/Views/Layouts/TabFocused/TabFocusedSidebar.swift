@@ -45,8 +45,12 @@ struct TabFocusedSidebar: View {
         return VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(projects) { project in
-                        TabFocusedProjectRow(project: project, shortcutNumbers: numbers)
+                    ForEach(Array(projects.enumerated()), id: \.element.id) { offset, project in
+                        TabFocusedProjectRow(
+                            project: project,
+                            shortcutNumbers: numbers,
+                            projectShortcutIndex: projectShortcutIndex(forRowAt: offset)
+                        )
                     }
                     TabFocusedAddProjectRow(action: openProjectPicker)
                 }
@@ -58,6 +62,11 @@ struct TabFocusedSidebar: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(MuxyTheme.bg)
+    }
+
+    private func projectShortcutIndex(forRowAt offset: Int) -> Int? {
+        let index = offset + 1
+        return index <= 9 ? index : nil
     }
 
     private func openProjectPicker() {

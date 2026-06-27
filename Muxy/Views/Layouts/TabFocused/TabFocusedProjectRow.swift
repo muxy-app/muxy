@@ -5,6 +5,7 @@ import SwiftUI
 struct TabFocusedProjectRow: View {
     let project: Project
     let shortcutNumbers: [UUID: Int]
+    var projectShortcutIndex: Int?
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -13,6 +14,7 @@ struct TabFocusedProjectRow: View {
     @State private var expansionStore = TabFocusedSidebarState.shared
     @State private var notificationStore = NotificationStore.shared
     @State private var progressStore = TerminalProgressStore.shared
+    @State private var modifierMonitor = ModifierKeyMonitor.shared
 
     @State private var hovered = false
     @State private var isGitRepo = false
@@ -32,6 +34,13 @@ struct TabFocusedProjectRow: View {
 
     private var isExpanded: Bool {
         expansionStore.isExpanded(project.id, default: false)
+    }
+
+    private var shortcutHint: KeyCombo? {
+        guard let projectShortcutIndex,
+              let action = ShortcutAction.projectAction(for: projectShortcutIndex)
+        else { return nil }
+        return modifierMonitor.hint(for: action)
     }
 
     var body: some View {
@@ -261,7 +270,16 @@ struct TabFocusedProjectRow: View {
         String(project.name.prefix(1)).uppercased()
     }
 
+    @ViewBuilder
     private var icon: some View {
+        if let projectShortcutIndex, let hint = shortcutHint {
+            ShortcutIconBadge(number: projectShortcutIndex, size: UIMetrics.iconXL, combo: hint)
+        } else {
+            projectIcon
+        }
+    }
+
+    private var projectIcon: some View {
         let logo = resolvedLogo
         return ZStack {
             RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous)
