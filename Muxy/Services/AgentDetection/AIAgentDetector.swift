@@ -7,21 +7,32 @@ struct AIAgentExecutable: Equatable {
 
 enum AIAgentDetector {
     static func providerID(
-        forProcessName processName: String?,
+        forCandidateNames candidateNames: [String],
         executables: [AIAgentExecutable]
     ) -> String? {
-        guard let normalized = normalize(processName) else { return nil }
+        let normalizedCandidates = candidateNames.compactMap(normalize)
+        guard !normalizedCandidates.isEmpty else { return nil }
         for executable in executables {
-            for name in executable.executableNames where name.lowercased() == normalized {
-                return executable.providerID
+            for name in executable.executableNames {
+                let normalizedName = name.lowercased()
+                if normalizedCandidates.contains(normalizedName) {
+                    return executable.providerID
+                }
             }
         }
         return nil
     }
 
-    private static func normalize(_ processName: String?) -> String? {
+    static func providerID(
+        forProcessName processName: String?,
+        executables: [AIAgentExecutable]
+    ) -> String? {
         guard let processName else { return nil }
-        let trimmed = processName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return providerID(forCandidateNames: [processName], executables: executables)
+    }
+
+    private static func normalize(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let firstToken = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init) ?? trimmed
         let basename = (firstToken as NSString).lastPathComponent

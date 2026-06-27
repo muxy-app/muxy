@@ -1666,8 +1666,8 @@ final class GhosttyTerminalNSView: NSView {
     private func pollDetectedAgent() {
         guard let surface else { return }
         let foregroundPID = ghostty_surface_foreground_pid(surface)
-        let processName = Self.processName(pid: foregroundPID)
-        let providerID = AIAgentDetector.providerID(forProcessName: processName, executables: agentExecutables)
+        let candidateNames = ForegroundProcessInspector.executableNameCandidates(pid: foregroundPID)
+        let providerID = AIAgentDetector.providerID(forCandidateNames: candidateNames, executables: agentExecutables)
         guard providerID != detectedAgentProviderID else { return }
         detectedAgentProviderID = providerID
         onDetectedAgentChange?(providerID)

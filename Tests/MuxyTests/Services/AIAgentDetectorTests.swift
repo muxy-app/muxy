@@ -54,4 +54,26 @@ struct AIAgentDetectorTests {
         #expect(AIAgentDetector.providerID(forProcessName: "", executables: executables) == nil)
         #expect(AIAgentDetector.providerID(forProcessName: "   ", executables: executables) == nil)
     }
+
+    @Test("matches when any candidate name is an agent")
+    func matchesAnyCandidate() {
+        #expect(
+            AIAgentDetector.providerID(
+                forCandidateNames: ["node", "codex"],
+                executables: executables
+            ) == "codex"
+        )
+        #expect(
+            AIAgentDetector.providerID(
+                forCandidateNames: ["/usr/bin/node", "/Users/me/.local/bin/pi"],
+                executables: [AIAgentExecutable(providerID: "pi", executableNames: ["pi"])]
+            ) == "pi"
+        )
+    }
+
+    @Test("returns nil when no candidate is an agent")
+    func returnsNilForNoCandidate() {
+        #expect(AIAgentDetector.providerID(forCandidateNames: ["node", "zsh"], executables: executables) == nil)
+        #expect(AIAgentDetector.providerID(forCandidateNames: [], executables: executables) == nil)
+    }
 }
