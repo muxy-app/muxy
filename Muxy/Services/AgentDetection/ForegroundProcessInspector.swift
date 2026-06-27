@@ -2,18 +2,46 @@ import Darwin
 import Foundation
 
 enum ForegroundProcessInspector {
+    private static let scriptInterpreters: Set<String> = [
+        "node",
+        "bun",
+        "deno",
+        "python",
+        "python3",
+        "ruby",
+        "perl",
+        "sh",
+        "bash",
+        "zsh",
+    ]
+
     static func executableNameCandidates(pid: UInt64) -> [String] {
         guard pid > 0, pid <= UInt64(Int32.max) else { return [] }
         guard let arguments = processArguments(pid: Int32(pid)) else { return [] }
 
         var candidates: [String] = []
-        if let execName = lastPathComponent(of: arguments.executablePath) {
-            candidates.append(execName)
+        let executableName = lastPathComponent(of: arguments.executablePath)
+        if let executableName {
+            candidates.append(executableName)
         }
-        if let firstArgument = arguments.argv.first, let argName = lastPathComponent(of: firstArgument) {
-            candidates.append(argName)
+
+        let argumentNames = arguments.argv.compactMap(lastPathComponent)
+        if let firstArgument = argumentNames.first {
+            candidates.append(firstArgument)
+        }
+
+        if isScriptInterpreter(executableName: executableName, firstArgument: argumentNames.first),
+           argumentNames.count > 1
+        {
+            candidates.append(argumentNames[1])
         }
         return candidates
+    }
+
+    private static func isScriptInterpreter(executableName: String?, firstArgument: String?) -> Bool {
+        if let executableName, scriptInterpreters.contains(executableName) { return true }
+        if let firstArgument, scriptInterpreters.contains(firstArgument) { return true }
+        return false
     }
 
     private static func lastPathComponent(of path: String) -> String? {

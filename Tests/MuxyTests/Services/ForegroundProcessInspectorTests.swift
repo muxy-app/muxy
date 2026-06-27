@@ -18,4 +18,13 @@ struct ForegroundProcessInspectorTests {
     func returnsEmptyForInvalidPID() {
         #expect(ForegroundProcessInspector.executableNameCandidates(pid: 0).isEmpty)
     }
+
+    @Test("detects an interpreter-launched agent via the script argument")
+    func detectsInterpreterLaunchedAgent() {
+        let executables = [AIAgentExecutable(providerID: "codex", executableNames: ["codex"])]
+        let nodeWrapperCandidates = ["node", "node", "codex"]
+        #expect(
+            AIAgentDetector.providerID(forCandidateNames: nodeWrapperCandidates, executables: executables) == "codex"
+        )
+    }
 }
