@@ -47,22 +47,12 @@ struct ProjectFocusedSidebar: View {
     @State private var dragState = ProjectDragState()
     @State private var isExternalDropTargeted = false
     @State private var projectPendingRemoval: Project?
-    @State private var extensionStore = ExtensionStore.shared
     let expanded: Bool
     let expandedCustomWidth: CGFloat
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
-    @AppStorage(SidebarSelection.storageKey) private var activeSidebarRaw = SidebarSelection.builtinValue
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
-
-    private var activeExtensionSidebarID: String? {
-        SidebarSelection.resolvedExtensionID(from: activeSidebarRaw, store: extensionStore)
-    }
-
-    private var awaitingExtensionSidebar: Bool {
-        activeSidebarRaw != SidebarSelection.builtinValue && !extensionStore.hasLoadedFromDisk
-    }
 
     private var collapsedStyle: SidebarCollapsedStyle {
         SidebarCollapsedStyle(rawValue: collapsedStyleRaw) ?? .defaultValue
@@ -111,20 +101,14 @@ struct ProjectFocusedSidebar: View {
             }
     }
 
-    @ViewBuilder private var sidebarContent: some View {
-        if let activeExtensionSidebarID {
-            ExtensionSidebarView(extensionID: activeExtensionSidebarID)
-        } else if awaitingExtensionSidebar {
-            Color.clear
-        } else {
-            VStack(spacing: 0) {
-                projectList
-                    .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
-                    .clipped()
+    private var sidebarContent: some View {
+        VStack(spacing: 0) {
+            projectList
+                .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+                .clipped()
 
-                SidebarFooter(isWide: isWide)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            SidebarFooter(isWide: isWide)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

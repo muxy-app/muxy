@@ -81,6 +81,8 @@ struct MainWindow: View {
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @State private var layoutStore = AppLayoutStore.shared
+    @State private var extensionStore = ExtensionStore.shared
+    @AppStorage(SidebarSelection.storageKey) private var activeSidebarRaw = SidebarSelection.builtinValue
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
@@ -97,7 +99,9 @@ struct MainWindow: View {
     @MainActor private var trafficLightWidth: CGFloat { UIMetrics.scaled(75) }
 
     private var layout: any AppLayoutProviding { layoutStore.provider }
-    private var isTabFocused: Bool { layoutStore.layout == .tabFocused }
+    private var isTabFocused: Bool { layoutStore.layout == .tabFocused && !isExtensionSidebarActive }
+
+    private var showsBreadcrumb: Bool { layout.topbar == .breadcrumb && !isExtensionSidebarActive }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -286,9 +290,28 @@ struct MainWindow: View {
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
 
+    private var activeExtensionSidebarID: String? {
+        SidebarSelection.resolvedExtensionID(from: activeSidebarRaw, store: extensionStore)
+    }
+
+    private var awaitingExtensionSidebar: Bool {
+        activeSidebarRaw != SidebarSelection.builtinValue && !extensionStore.hasLoadedFromDisk
+    }
+
+    private var isExtensionSidebarActive: Bool {
+        activeExtensionSidebarID != nil || awaitingExtensionSidebar
+    }
+
+    @ViewBuilder
     private var sidebarContent: some View {
-        ForEach(layout.sidebars) { sidebar in
-            sidebarView(for: sidebar)
+        if let activeExtensionSidebarID {
+            ExtensionSidebarView(extensionID: activeExtensionSidebarID)
+        } else if awaitingExtensionSidebar {
+            Color.clear
+        } else {
+            ForEach(layout.sidebars) { sidebar in
+                sidebarView(for: sidebar)
+            }
         }
     }
 
@@ -330,7 +353,7 @@ struct MainWindow: View {
 
             topBarContent
                 .overlay(alignment: .leading) {
-                    if layout.topbar == .breadcrumb {
+                    if showsBreadcrumb {
                         TabFocusedBreadcrumb()
                     }
                 }
@@ -447,12 +470,13 @@ struct MainWindow: View {
             ) {
                 appState.goForward()
             }
-            NavigationArrowButton(
-                symbol: "rectangle.leadinghalf.inset.filled",
-                isActive: isTabFocused,
-                label: isTabFocused ? "Switch to Project Focused Layout" : "Switch to Tab Focused Layout"
-            ) {
-                NotificationCenter.default.post(name: .toggleAppLayout, object: nil)
+            if !isExtensionSidebarActive {
+                NavigationArrowButton(
+                    symbol: isTabFocused ? "sidebar.squares.left" : "sidebar.left",
+                    label: isTabFocused ? "Switch to Project Focused Layout" : "Switch to Tab Focused Layout"
+                ) {
+                    NotificationCenter.default.post(name: .toggleAppLayout, object: nil)
+                }
             }
         }
     }
@@ -465,7 +489,7 @@ struct MainWindow: View {
         {
             PaneTabStrip(
                 areaID: area.id,
-                tabs: layout.topbar == .breadcrumb ? [] : PaneTabStrip.snapshots(from: area.tabs),
+                tabs: showsBreadcrumb ? [] : PaneTabStrip.snapshots(from: area.tabs),
                 activeTabID: area.activeTabID,
                 isFocused: true,
                 isWindowTitleBar: true,
@@ -1491,7 +1515,6 @@ private struct TabCloseConfirmationObserver: ViewModifier {
 private struct NavigationArrowButton: View {
     let symbol: String
     var isEnabled = true
-    var isActive = false
     let label: String
     let action: () -> Void
     @State private var hovered = false
@@ -1509,12 +1532,10 @@ private struct NavigationArrowButton: View {
         .onHover { hovered = $0 }
         .help(label)
         .accessibilityLabel(label)
-        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     private var foregroundColor: Color {
         guard isEnabled else { return MuxyTheme.fgMuted.opacity(0.35) }
-        if isActive { return MuxyTheme.accent }
         return hovered ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 }
