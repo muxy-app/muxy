@@ -203,6 +203,13 @@ enum MuxyAPI {
             verbPermissions[canonical(verb)]
         }
 
+        static func required(for verb: String, args: [String: Any]) -> ExtensionPermission? {
+            if verb == "browser.wait", let function = args["function"] as? String, !function.isEmpty {
+                return .browserWrite
+            }
+            return required(for: verb)
+        }
+
         static func required(forEvent event: String) -> ExtensionPermission? {
             eventPermissions[event]
         }

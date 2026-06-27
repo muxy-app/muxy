@@ -64,7 +64,7 @@ enum MuxyAPIDispatcher {
         enforcePermissions: Bool = true
     ) async throws -> Any {
         if enforcePermissions,
-           let required = MuxyAPI.Permissions.required(for: verb),
+           let required = MuxyAPI.Permissions.required(for: verb, args: args),
            !ExtensionStore.shared.extensionHasPermission(id: context.extensionID, permission: required)
         {
             throw APIError.underlying("permission denied (\(required.rawValue))")

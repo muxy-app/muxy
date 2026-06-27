@@ -85,6 +85,14 @@ struct ExtensionVerbRoutingTests {
         }
     }
 
+    @Test("browser.wait escalates to browser:write when given a function condition")
+    func browserWaitFunctionRequiresWrite() {
+        #expect(MuxyAPI.Permissions.required(for: "browser.wait", args: [:]) == .browserRead)
+        #expect(MuxyAPI.Permissions.required(for: "browser.wait", args: ["selector": "a"]) == .browserRead)
+        #expect(MuxyAPI.Permissions.required(for: "browser.wait", args: ["function": ""]) == .browserRead)
+        #expect(MuxyAPI.Permissions.required(for: "browser.wait", args: ["function": "1+1"]) == .browserWrite)
+    }
+
     @Test("MuxyAPI verbNames includes the legacy CLI verbs")
     func verbNamesIncludesLegacyVerbs() {
         let verbs = MuxyAPI.Permissions.verbNames

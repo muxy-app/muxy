@@ -716,6 +716,10 @@ enum SocketCommandHandler {
     }
 
     static func requiredPermissions(command: String, parts: [String]) -> [ExtensionPermission] {
+        if command.hasPrefix("browser."), parts.count >= 2 {
+            let args = decodeJSONObject(parts[1]) ?? [:]
+            return MuxyAPI.Permissions.required(for: command, args: args).map { [$0] } ?? []
+        }
         var permissions = MuxyAPI.Permissions.required(for: command).map { [$0] } ?? []
         guard command == "split-right" || command == "split-down" else { return permissions }
         let splitRequest = parseSplitRequest(parts: parts)

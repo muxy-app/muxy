@@ -29,7 +29,7 @@ const png = await muxy.browser.screenshot(tabId);
 
 `type(tabId, selector, text, options?)` focuses an element, sets its value, fires `input`/`change`. Pass `{ submit: true }` to submit the form. `fill(tabId, selector, text)` is `type` without submitting. `select(tabId, selector, value)` picks an `<option>`. `press(tabId, key, selector?)` dispatches a keyboard key (e.g. `"Enter"`) to an element or the active element.
 
-`wait(tabId, options)` polls until a condition holds or `options.timeoutMs` (default 5000) elapses; returns whether it became true. Pass exactly one of `{ selector }`, `{ text }`, `{ urlContains }`, or `{ function }` (a JS expression evaluated in the page). `waitFor(tabId, selector, options?)` is the selector-only shorthand.
+`wait(tabId, options)` polls until a condition holds or `options.timeoutMs` (default 5000) elapses; returns whether it became true. Pass exactly one of `{ selector }`, `{ text }`, `{ urlContains }`, or `{ function }` (a JS expression evaluated in the page). Because `{ function }` runs page JavaScript, that form requires `browser:write`; the other forms need only `browser:read`. `waitFor(tabId, selector, options?)` is the selector-only shorthand.
 
 `waitForNavigation(tabId, options?)` resolves when the page finishes loading or `options.timeoutMs` (default 10000) elapses; returns the settled URL.
 
@@ -62,6 +62,6 @@ Automation that runs JavaScript (`eval`, `click`, `type`, `fill`, `press`, `sele
 
 ## Permissions
 
-Declare `browser:read` for the read-only calls (`list`, `read`, `wait`, `waitFor`, `waitForNavigation`, `get*`, `is`, `find`, `snapshot`, `screenshot`, `storage.get`, `cookies.get`). Declare `browser:write` for the mutating calls (`open`, `navigate`, `close`, `eval`, `click`, `type`, `fill`, `press`, `select`, `hover`, `scrollIntoView`, `setChecked`, `reload`, `back`, `forward`, `storage.set/clear`, `cookies.set/delete/clear`).
+Declare `browser:read` for the read-only calls (`list`, `read`, `wait`, `waitFor`, `waitForNavigation`, `get*`, `is`, `find`, `snapshot`, `screenshot`, `storage.get`, `cookies.get`). Declare `browser:write` for the mutating calls (`open`, `navigate`, `close`, `eval`, `click`, `type`, `fill`, `press`, `select`, `hover`, `scrollIntoView`, `setChecked`, `reload`, `back`, `forward`, `storage.set/clear`, `cookies.set/delete/clear`) and for `wait` with a `{ function }` condition, which runs page JavaScript.
 
 All browser calls fail if the user disables the built-in browser in Settings. These APIs are available to extension webviews and background scripts.

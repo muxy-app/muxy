@@ -168,6 +168,14 @@ struct MuxyAPIBrowserTests {
         #expect(jsString("plain") == "\"plain\"")
     }
 
+    @Test("jsString escapes Unicode line and paragraph separators")
+    func jsStringEscapesLineSeparators() {
+        #expect(jsString("a\u{2028}b") == "\"a\\u2028b\"")
+        #expect(jsString("a\u{2029}b") == "\"a\\u2029b\"")
+        #expect(!jsString("a\u{2028}b").unicodeScalars.contains("\u{2028}"))
+        #expect(!jsString("a\u{2029}b").unicodeScalars.contains("\u{2029}"))
+    }
+
     @Test("BrowserAutomation never uses main-thread blocking primitives")
     func automationHasNoBlockingPrimitives() throws {
         let url = URL(fileURLWithPath: #filePath)
