@@ -703,6 +703,7 @@ case "$COMMAND" in
                 die_usage browser
                 ;;
         esac
+        exit 0
         ;;
     ""|--help|-h)
         usage
