@@ -89,6 +89,7 @@ muxy.tabs.{list, switchTo, new, next, previous, open}
 muxy.panes.{list, send, sendKeys, readScreen, close, rename}
 muxy.projects.{list, switchTo, add, rename, setColor, setIcon, setLogo, reorder, delete}
 muxy.worktrees.{list, switchTo, refresh}
+muxy.browser.{open, navigate, list, read, close, eval, click, type, waitFor, …}  // requires browser:read / browser:write
 muxy.agents.list()                                              // requires agents:read
 muxy.files.{list, read, stat, write, mkdir, rename, move, delete}
 muxy.git.{status, diff, log, branches, commit, push, pull, …}   // full git surface, incl. git.pr.*, git.branch.*, git.worktree.*, git.tag.*
