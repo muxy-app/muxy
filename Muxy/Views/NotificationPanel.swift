@@ -3,6 +3,7 @@ import SwiftUI
 struct NotificationPanelItem: Identifiable {
     let id: UUID
     let sourceIcon: String
+    let isProviderIcon: Bool
     let title: String
     let body: String
     let timestamp: Date
@@ -31,6 +32,7 @@ struct NotificationPanel: View {
             NotificationPanelItem(
                 id: n.id,
                 sourceIcon: registry.iconName(for: n.source),
+                isProviderIcon: n.source.isAIProvider,
                 title: n.title,
                 body: n.body,
                 timestamp: n.timestamp,
@@ -154,9 +156,13 @@ private struct NotificationRow: View {
 
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 HStack {
-                    Image(systemName: item.sourceIcon)
-                        .font(.system(size: UIMetrics.fontCaption))
-                        .foregroundStyle(MuxyTheme.fgMuted)
+                    if item.isProviderIcon {
+                        ProviderIconView(iconName: item.sourceIcon, size: UIMetrics.fontCaption, monochromeTint: MuxyTheme.fgMuted)
+                    } else {
+                        Image(systemName: item.sourceIcon)
+                            .font(.system(size: UIMetrics.fontCaption))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                    }
                     Text(item.title)
                         .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fg)

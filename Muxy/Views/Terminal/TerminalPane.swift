@@ -235,6 +235,9 @@ struct TerminalBridge: NSViewRepresentable {
         view.onDetectedAgentChange = { [weak state] providerID in
             guard let paneID = state?.id else { return }
             DetectedAgentStore.shared.setAgent(providerID, for: paneID)
+            if providerID == nil {
+                AgentStatusStore.shared.markIdleIfActive(paneID: paneID)
+            }
         }
         view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
@@ -283,6 +286,9 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onDetectedAgentChange = { [weak state] providerID in
             guard let paneID = state?.id else { return }
             DetectedAgentStore.shared.setAgent(providerID, for: paneID)
+            if providerID == nil {
+                AgentStatusStore.shared.markIdleIfActive(paneID: paneID)
+            }
         }
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)

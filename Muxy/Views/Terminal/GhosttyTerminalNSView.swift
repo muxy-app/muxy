@@ -39,7 +39,7 @@ final class GhosttyTerminalNSView: NSView {
 
     var onOfflineChange: ((Bool) -> Void)?
     var onDetectedAgentChange: ((String?) -> Void)?
-    nonisolated(unsafe) private var agentDetectionTimer: DispatchSourceTimer?
+    nonisolated(unsafe) private var agentDetectionCoalesced: DispatchWorkItem?
     private var detectedAgentProviderID: String?
     private var agentExecutables: [AIAgentExecutable] = []
     private var hasMaterializedOnce = false
@@ -285,7 +285,7 @@ final class GhosttyTerminalNSView: NSView {
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         occlusionObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         delayedResizeWorkItem?.cancel()
-        agentDetectionTimer?.cancel()
+        agentDetectionCoalesced?.cancel()
         if let surface {
             ghostty_surface_free(surface)
         }
@@ -1637,33 +1637,32 @@ final class GhosttyTerminalNSView: NSView {
         return String(bytes: bytes, encoding: .utf8)
     }
 
-    private static let agentDetectionInterval: TimeInterval = 2
-
     private func startAgentDetection() {
-        guard agentDetectionTimer == nil else { return }
         if agentExecutables.isEmpty {
             agentExecutables = DetectedAgentStore.executablesSnapshot(from: AIProviderRegistry.shared)
         }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: Self.agentDetectionInterval, leeway: .milliseconds(500))
-        timer.setEventHandler { [weak self] in
-            MainActor.assumeIsolated {
-                self?.pollDetectedAgent()
-            }
-        }
-        agentDetectionTimer = timer
-        timer.resume()
+        detectAgentNow()
     }
 
     private func stopAgentDetection() {
-        agentDetectionTimer?.cancel()
-        agentDetectionTimer = nil
+        agentDetectionCoalesced?.cancel()
+        agentDetectionCoalesced = nil
         guard detectedAgentProviderID != nil else { return }
         detectedAgentProviderID = nil
         onDetectedAgentChange?(nil)
     }
 
-    private func pollDetectedAgent() {
+    func requestAgentDetection() {
+        guard surface != nil, agentDetectionCoalesced == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.agentDetectionCoalesced = nil
+            self?.detectAgentNow()
+        }
+        agentDetectionCoalesced = work
+        DispatchQueue.main.async(execute: work)
+    }
+
+    private func detectAgentNow() {
         guard let surface else { return }
         let foregroundPID = ghostty_surface_foreground_pid(surface)
         let candidateNames = ForegroundProcessInspector.executableNameCandidates(pid: foregroundPID)

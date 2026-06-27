@@ -427,10 +427,6 @@ private struct TabFocusedTabRow: View {
             TerminalProgressCircle(progress: progress)
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                 .transition(.opacity)
-        } else if agentStatus == .working {
-            TerminalProgressCircle(progress: TerminalProgress(kind: .indeterminate, percent: nil))
-                .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
-                .transition(.opacity)
         } else if isIdle, !active {
             Image(systemName: "moon.zzz")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))

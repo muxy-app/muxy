@@ -76,6 +76,7 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
                 TerminalCommandTracker.shared.recordShellCommandCandidate(titleString, paneID: paneID)
             }
             view.onTitleChange?(titleString)
+            view.requestAgentDetection()
         }
     }
 

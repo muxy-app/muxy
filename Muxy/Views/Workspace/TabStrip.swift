@@ -666,10 +666,6 @@ private struct TabCell: View {
             TerminalProgressCircle(progress: progress)
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                 .transition(.opacity)
-        } else if tab.agentStatus == .working {
-            TerminalProgressCircle(progress: TerminalProgress(kind: .indeterminate, percent: nil))
-                .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
-                .transition(.opacity)
         } else if tab.isPinned {
             Image(systemName: "pin.fill")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))

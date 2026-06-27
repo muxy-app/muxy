@@ -14,6 +14,11 @@ final class MuxyNotification: Identifiable, @preconcurrency Codable {
             case .socket: "socket"
             }
         }
+
+        var isAIProvider: Bool {
+            if case .aiProvider = self { return true }
+            return false
+        }
     }
 
     let id: UUID
