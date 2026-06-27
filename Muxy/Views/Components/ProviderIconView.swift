@@ -5,30 +5,24 @@ import AppKit
 #endif
 
 struct ProviderIconView: View {
-    enum Style: Equatable {
-        case colored
-        case monochrome(Color)
-    }
-
     let iconName: String
     let size: CGFloat
-    var style: Style = .colored
+    var monochromeTint: Color = MuxyTheme.fg
 
     var body: some View {
         #if os(macOS)
         if let image = Self.loadProviderImage(named: iconName) {
-            switch style {
-            case .colored:
+            if Self.isColorful(named: iconName, image: image) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: size, height: size)
-            case let .monochrome(color):
+            } else {
                 Image(nsImage: Self.templateImage(from: image))
                     .renderingMode(.template)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .foregroundStyle(color)
+                    .foregroundStyle(monochromeTint)
                     .frame(width: size, height: size)
             }
         } else {
@@ -46,10 +40,57 @@ struct ProviderIconView: View {
     }
 
     #if os(macOS)
+    private static let colorfulCache = NSCache<NSString, NSNumber>()
+
     private static func templateImage(from image: NSImage) -> NSImage {
         let template = (image.copy() as? NSImage) ?? image
         template.isTemplate = true
         return template
+    }
+
+    private static func isColorful(named name: String, image: NSImage) -> Bool {
+        if let cached = colorfulCache.object(forKey: name as NSString) {
+            return cached.boolValue
+        }
+        let result = imageContainsColor(image)
+        colorfulCache.setObject(NSNumber(value: result), forKey: name as NSString)
+        return result
+    }
+
+    private static func imageContainsColor(_ image: NSImage) -> Bool {
+        let dimension = 24
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: dimension,
+            pixelsHigh: dimension,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )
+        else { return false }
+
+        let context = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        image.draw(in: NSRect(x: 0, y: 0, width: dimension, height: dimension))
+        NSGraphicsContext.restoreGraphicsState()
+
+        for x in 0 ..< dimension {
+            for y in 0 ..< dimension {
+                guard let color = rep.colorAt(x: x, y: y), color.alphaComponent > 0.1 else { continue }
+                let red = color.redComponent
+                let green = color.greenComponent
+                let blue = color.blueComponent
+                if abs(red - green) > 0.08 || abs(green - blue) > 0.08 || abs(red - blue) > 0.08 {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private static func loadProviderImage(named name: String) -> NSImage? {
