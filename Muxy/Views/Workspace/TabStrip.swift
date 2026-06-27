@@ -16,6 +16,7 @@ struct PaneTabStrip: View {
         let isOffline: Bool
         let faviconImage: NSImage?
         let detectedAgentIconName: String?
+        let agentStatus: AgentStatus?
     }
 
     let areaID: UUID
@@ -62,7 +63,8 @@ struct PaneTabStrip: View {
                 customIcon: tab.content.extensionState?.customIcon,
                 isOffline: tab.content.pane?.isOffline ?? false,
                 faviconImage: tab.content.browserState?.faviconImage,
-                detectedAgentIconName: DetectedAgentStore.shared.iconName(forPane: tab.content.pane?.id)
+                detectedAgentIconName: DetectedAgentStore.shared.iconName(forPane: tab.content.pane?.id),
+                agentStatus: AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
             )
         }
     }
@@ -397,6 +399,21 @@ private struct TabCell: View {
         return progressStore.isCompletionPending(for: paneID)
     }
 
+    private var statusDotColor: Color? {
+        if tab.agentStatus == .waiting {
+            return MuxyTheme.warning
+        }
+        if !active {
+            if hasUnread || hasCompletionPending {
+                return MuxyTheme.accent
+            }
+            if tab.agentStatus == .idle {
+                return MuxyTheme.diffAddFg
+            }
+        }
+        return nil
+    }
+
     private var shortcutHint: KeyCombo? {
         guard let shortcutIndex,
               let action = ShortcutAction.tabAction(for: shortcutIndex)
@@ -411,9 +428,9 @@ private struct TabCell: View {
                     .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .opacity(titleHidden && hovered && !tab.isPinned ? 0 : 1)
                     .overlay(alignment: .topTrailing) {
-                        if hasUnread || hasCompletionPending, !active, shortcutHint == nil {
+                        if let dotColor = statusDotColor, shortcutHint == nil {
                             Circle()
-                                .fill(MuxyTheme.accent)
+                                .fill(dotColor)
                                 .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
                                 .offset(x: UIMetrics.scaled(3), y: -UIMetrics.scaled(3))
                         }
@@ -647,6 +664,10 @@ private struct TabCell: View {
     private var tabIconView: some View {
         if let progress = paneProgress {
             TerminalProgressCircle(progress: progress)
+                .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+                .transition(.opacity)
+        } else if tab.agentStatus == .working {
+            TerminalProgressCircle(progress: TerminalProgress(kind: .indeterminate, percent: nil))
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                 .transition(.opacity)
         } else if tab.isPinned {

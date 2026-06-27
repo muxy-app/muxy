@@ -206,8 +206,23 @@ private struct TabFocusedTabRow: View {
         tab.content.pane?.isOffline ?? false
     }
 
-    private var showsAttentionDot: Bool {
-        (hasUnread || hasCompletionPending) && !active && shortcutHint == nil
+    private var agentStatus: AgentStatus? {
+        AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
+    }
+
+    private var statusDotColor: Color? {
+        if agentStatus == .waiting {
+            return MuxyTheme.warning
+        }
+        if !active {
+            if hasUnread || hasCompletionPending {
+                return MuxyTheme.accent
+            }
+            if agentStatus == .idle {
+                return MuxyTheme.diffAddFg
+            }
+        }
+        return nil
     }
 
     @State private var hovered = false
@@ -261,9 +276,9 @@ private struct TabFocusedTabRow: View {
                 .frame(width: UIMetrics.scaled(16))
                 .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                 .overlay(alignment: .topTrailing) {
-                    if showsAttentionDot {
+                    if let dotColor = statusDotColor, shortcutHint == nil {
                         Circle()
-                            .fill(MuxyTheme.accent)
+                            .fill(dotColor)
                             .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
                             .offset(x: UIMetrics.scaled(3), y: -UIMetrics.scaled(3))
                     }
@@ -410,6 +425,10 @@ private struct TabFocusedTabRow: View {
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         } else if let progress = paneProgress {
             TerminalProgressCircle(progress: progress)
+                .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+                .transition(.opacity)
+        } else if agentStatus == .working {
+            TerminalProgressCircle(progress: TerminalProgress(kind: .indeterminate, percent: nil))
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                 .transition(.opacity)
         } else if isIdle, !active {

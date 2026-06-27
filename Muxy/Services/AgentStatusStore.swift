@@ -62,6 +62,11 @@ final class AgentStatusStore {
         recompute(worktreeID: removed.worktreeID)
     }
 
+    func status(forPane paneID: UUID?) -> AgentStatus? {
+        guard let paneID else { return nil }
+        return panes[paneID]?.status
+    }
+
     nonisolated static func winningEntry(among candidates: [Entry]) -> Entry? {
         candidates.max { lhs, rhs in
             lhs.status.priority != rhs.status.priority
