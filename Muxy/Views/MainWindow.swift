@@ -106,9 +106,6 @@ struct MainWindow: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebarColumn
-            if sidebarIsResizable {
-                sidebarResizeHandle
-            }
             mainWorkspaceColumn
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
@@ -279,10 +276,13 @@ struct MainWindow: View {
         .clipped()
         .background(MuxyTheme.bg)
         .overlay(alignment: .trailing) {
-            if leftNavigationWidth > 0, !sidebarIsResizable {
+            if sidebarIsResizable {
+                sidebarResizeHandle
+            } else {
                 Rectangle().fill(MuxyTheme.border)
                     .frame(width: 1)
                     .padding(.top, leftNavigationBorderTopPadding)
+                    .opacity(sidebarBorderVisible ? 1 : 0)
                     .accessibilityHidden(true)
             }
         }
@@ -374,7 +374,7 @@ struct MainWindow: View {
                         .padding(.trailing, UIMetrics.spacing4)
                 }
                 .overlay(alignment: .trailing) {
-                    if titleBarNavigationOverflowsSidebar, !isTabFocused {
+                    if titleBarNavigationOverlayWidth > 0 {
                         Rectangle().fill(MuxyTheme.border).frame(width: 1)
                             .accessibilityHidden(true)
                     }
@@ -565,7 +565,7 @@ struct MainWindow: View {
             WindowDragRepresentable(alwaysEnabled: true)
                 .overlay {
                     HStack {
-                        if let project = activeProject {
+                        if let project = activeProject, !showsBreadcrumb {
                             Text(project.name)
                                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -950,6 +950,10 @@ struct MainWindow: View {
 
     private var sidebarIsResizable: Bool {
         SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
+    }
+
+    private var sidebarBorderVisible: Bool {
+        leftNavigationWidth > 0
     }
 
     private var leftNavigationWidth: CGFloat {
