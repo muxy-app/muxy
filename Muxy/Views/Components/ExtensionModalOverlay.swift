@@ -14,10 +14,12 @@ struct ExtensionModalOverlay: View {
             pageSize: ExtensionModalService.pageSize,
             revision: dataset.revision,
             isLoading: dataset.loading,
-            page: { query, offset, limit in
+            showsSearchToolbar: request.searchToolbar,
+            page: { query, options, offset, limit in
                 let page = ExtensionModalService.shared.page(
                     for: request,
                     query: query,
+                    options: options,
                     offset: offset,
                     limit: limit
                 )
@@ -25,15 +27,12 @@ struct ExtensionModalOverlay: View {
             },
             onSelect: onSelect,
             onDismiss: onDismiss,
-            onQueryChange: request.onQueryChange != nil ? { query in
-                ExtensionModalService.shared.queryChanged(query)
+            onQueryChange: request.dynamic ? { query, options in
+                ExtensionModalService.shared.requestQuery(query: query, options: options)
             } : nil,
             row: { item, isHighlighted in
                 AnyView(ExtensionModalRow(item: item, isHighlighted: isHighlighted))
-            },
-            onQueryChanged: request.dynamic ? { query in
-                ExtensionModalService.shared.requestQuery(query: query)
-            } : nil
+            }
         )
         .id(request.id)
         .onDisappear {

@@ -12,6 +12,7 @@ struct ExtensionRemoteBridgeJSTests {
         var rejectedMessage: String?
         var dispatchedVerb: String?
         var dispatchedArgs: [String: Any]?
+        var modalOpenArgs: [String: Any]?
         var subscriptions: [String] = []
     }
 
@@ -22,6 +23,10 @@ struct ExtensionRemoteBridgeJSTests {
         let dispatch: @convention(block) (String, [String: Any]) -> [String: Any] = { verb, args in
             capture.dispatchedVerb = verb
             capture.dispatchedArgs = args
+            if verb == "modal.open" {
+                capture.modalOpenArgs = args
+                return ["ok": true, "value": ["requestID": "modal-1"]]
+            }
             return ["ok": true, "value": NSNull()]
         }
         context.setObject(dispatch, forKeyedSubscript: "__muxyDispatch" as NSString)
@@ -102,6 +107,47 @@ struct ExtensionRemoteBridgeJSTests {
         #expect(capture.subscriptions == ["pane.created"])
     }
 
+    @Test("modal query change forwards search options")
+    func modalQueryChangeForwardsSearchOptions() {
+        let (context, _) = makeContext()
+        context.evaluateScript("""
+        globalThis.receivedQuery = null;
+        globalThis.receivedOptions = null;
+        muxy.modal.open({
+          items: [],
+          onQueryChange(query, options) {
+            globalThis.receivedQuery = query;
+            globalThis.receivedOptions = options;
+          }
+        });
+        """)
+
+        context.objectForKeyedSubscript("__muxyDeliverModalQuery")?.call(withArguments: [
+            "modal-1",
+            1,
+            "한글",
+            ["caseSensitive": true, "wholeWord": true, "regex": true],
+        ])
+
+        #expect(context.evaluateScript("globalThis.receivedQuery")?.toString() == "한글")
+        #expect(context.evaluateScript("globalThis.receivedOptions.caseSensitive")?.toBool() == true)
+        #expect(context.evaluateScript("globalThis.receivedOptions.wholeWord")?.toBool() == true)
+        #expect(context.evaluateScript("globalThis.receivedOptions.regex")?.toBool() == true)
+    }
+
+    @Test("modal open forwards search toolbar request")
+    func modalOpenForwardsSearchToolbarRequest() {
+        let (context, capture) = makeContext()
+        context.evaluateScript("""
+        muxy.modal.open({
+          items: [],
+          searchToolbar: true
+        });
+        """)
+
+        #expect(capture.modalOpenArgs?["searchToolbar"] as? Bool == true)
+    }
+
     @Test("events.emit dispatches extension-local JSON payloads")
     func eventsEmitDispatchesPayload() {
         let (context, capture) = makeContext()
@@ -127,4 +173,5 @@ struct ExtensionRemoteBridgeJSTests {
         #expect(payload?["id"] as? String == "demo")
         #expect(payload?["tabType"] as? String == "viewer")
     }
+
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-struct ExtensionModalSearchOptions: Equatable, Sendable {
+struct ExtensionModalSearchOptions: Equatable {
     var caseSensitive = false
     var wholeWord = false
     var regex = false
@@ -81,6 +81,7 @@ final class ExtensionModalService {
         let emptyLabel: String
         let noMatchLabel: String
         let dynamic: Bool
+        let searchToolbar: Bool
         let dataset: Dataset
 
         static func == (lhs: Request, rhs: Request) -> Bool {
@@ -106,8 +107,15 @@ final class ExtensionModalService {
     private var onResolve: ((Item?) -> Void)?
     private var onQuery: ((Int, String, ExtensionModalSearchOptions) -> Void)?
     private var queryID = 0
+    private var lastQueryPayload: QueryPayload?
+    private var callbackQueryID: Int?
     private var pendingRequestID: String?
     private var bufferedResults: [String: Item?] = [:]
+
+    private struct QueryPayload: Equatable {
+        let query: String
+        let options: ExtensionModalSearchOptions
+    }
 
     @discardableResult
     func openSession(
@@ -125,16 +133,17 @@ final class ExtensionModalService {
             emptyLabel: text(args, "emptyLabel") ?? "No items",
             noMatchLabel: text(args, "noMatchLabel") ?? "No matches",
             dynamic: isDynamic,
+            searchToolbar: (args["searchToolbar"] as? Bool) ?? false,
             dataset: dataset
         )
         resolve(with: nil)
         bufferedResults.removeAll()
         onQuery = nil
         queryID = 0
+        lastQueryPayload = nil
         session = dataset
         active = request
         pendingRequestID = request.id
-        lastQueryChangeTimestamp = 0
         state = isDynamic ? .queryable : .feeding
         if let onQueryChange {
             onQuery = { _, query, options in onQueryChange(query, options) }
@@ -143,12 +152,12 @@ final class ExtensionModalService {
     }
 
     func feedSession(_ items: [Item], queryID: Int? = nil) {
-        guard isCurrentQuery(queryID) else { return }
+        guard isCurrentQuery(queryID ?? callbackQueryID) else { return }
         session?.append(items)
     }
 
     func finishSession(queryID: Int? = nil) {
-        guard isCurrentQuery(queryID) else { return }
+        guard isCurrentQuery(queryID ?? callbackQueryID) else { return }
         session?.finish()
         if state == .feeding {
             state = .finished
@@ -156,9 +165,6 @@ final class ExtensionModalService {
     }
 
     static let maxQueryLength = 500
-    static let maxQueryChangeFrequencyMs: UInt64 = 50
-
-    private var lastQueryChangeTimestamp: UInt64 = 0
 
     func queryChanged(_ query: String, options: ExtensionModalSearchOptions = .init()) {
         requestQuery(query: query, options: options)
@@ -178,14 +184,17 @@ final class ExtensionModalService {
 
     func requestQuery(query: String, options: ExtensionModalSearchOptions = .init()) {
         guard let request = active, request.dynamic, let handler = onQuery else { return }
-        let now = DispatchTime.now().uptimeNanoseconds / 1_000_000
-        guard now - lastQueryChangeTimestamp >= Self.maxQueryChangeFrequencyMs else { return }
-        lastQueryChangeTimestamp = now
         let sanitized = String(query.prefix(Self.maxQueryLength))
             .replacingOccurrences(of: "\u{0000}", with: "")
+        let payload = QueryPayload(query: sanitized, options: options)
+        guard payload != lastQueryPayload else { return }
+        lastQueryPayload = payload
         queryID += 1
         request.dataset.reset()
-        handler(queryID, sanitized, options)
+        let currentQueryID = queryID
+        callbackQueryID = currentQueryID
+        handler(currentQueryID, sanitized, options)
+        callbackQueryID = nil
     }
 
     private func isCurrentQuery(_ id: Int?) -> Bool {
@@ -227,8 +236,10 @@ final class ExtensionModalService {
     ) -> Page {
         if request.dynamic {
             let items = request.dataset.items
-            let window = items.dropFirst(offset).prefix(limit)
-            return Page(items: Array(window), hasMore: offset + window.count < items.count)
+            let pageOffset = max(offset, 0)
+            let pageLimit = max(limit, 0)
+            let window = items.dropFirst(pageOffset).prefix(pageLimit)
+            return Page(items: Array(window), hasMore: pageOffset + window.count < items.count)
         }
         return Self.window(request.dataset.items, query: query, options: options, offset: offset, limit: limit)
     }
@@ -241,16 +252,41 @@ final class ExtensionModalService {
         limit: Int
     ) -> Page {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = trimmed.isEmpty ? items : items.filter { matches($0, trimmed, options: options) }
-        let window = filtered.dropFirst(offset).prefix(limit)
-        return Page(items: Array(window), hasMore: offset + window.count < filtered.count)
+        let pageOffset = max(offset, 0)
+        let pageLimit = max(limit, 0)
+        guard !trimmed.isEmpty else {
+            let window = items.dropFirst(pageOffset).prefix(pageLimit)
+            return Page(items: Array(window), hasMore: pageOffset + window.count < items.count)
+        }
+        guard let matcher = matcher(for: trimmed, options: options) else { return Page(items: [], hasMore: false) }
+
+        var skipped = 0
+        var pageItems: [Item] = []
+        pageItems.reserveCapacity(pageLimit)
+        for item in items where matcher(item) {
+            if skipped < pageOffset {
+                skipped += 1
+                continue
+            }
+            guard pageItems.count < pageLimit else {
+                return Page(items: pageItems, hasMore: true)
+            }
+            pageItems.append(item)
+        }
+        return Page(items: pageItems, hasMore: false)
     }
 
-    private static func matches(_ item: Item, _ needle: String, options: ExtensionModalSearchOptions) -> Bool {
+    private static func matcher(for needle: String, options: ExtensionModalSearchOptions) -> ((Item) -> Bool)? {
         if options.regex {
-            return regexMatches(item.haystack, needle: needle, options: options)
+            let pattern = options.wholeWord ? "(?<![\\p{L}\\p{N}_])(?:\(needle))(?![\\p{L}\\p{N}_])" : needle
+            let regexOptions: NSRegularExpression.Options = options.caseSensitive ? [] : [.caseInsensitive]
+            guard let expression = try? NSRegularExpression(pattern: pattern, options: regexOptions) else { return nil }
+            return { item in
+                let range = NSRange(item.haystack.startIndex ..< item.haystack.endIndex, in: item.haystack)
+                return expression.firstMatch(in: item.haystack, range: range) != nil
+            }
         }
-        return literalMatches(item.haystack, needle: needle, options: options)
+        return { item in literalMatches(item.haystack, needle: needle, options: options) }
     }
 
     private static func literalMatches(
@@ -271,18 +307,6 @@ final class ExtensionModalService {
             searchRange = range.upperBound ..< haystack.endIndex
         }
         return false
-    }
-
-    private static func regexMatches(
-        _ haystack: String,
-        needle: String,
-        options: ExtensionModalSearchOptions
-    ) -> Bool {
-        let pattern = options.wholeWord ? "(?<![\\p{L}\\p{N}_])(?:\(needle))(?![\\p{L}\\p{N}_])" : needle
-        let regexOptions: NSRegularExpression.Options = options.caseSensitive ? [] : [.caseInsensitive]
-        guard let expression = try? NSRegularExpression(pattern: pattern, options: regexOptions) else { return false }
-        let range = NSRange(haystack.startIndex ..< haystack.endIndex, in: haystack)
-        return expression.firstMatch(in: haystack, range: range) != nil
     }
 
     private static func isWholeWord(_ range: Range<String.Index>, in haystack: String) -> Bool {
@@ -324,7 +348,8 @@ final class ExtensionModalService {
     ) -> [Item] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return items }
-        return items.filter { Self.matches($0, trimmed, options: options) }
+        guard let matcher = Self.matcher(for: trimmed, options: options) else { return [] }
+        return items.filter(matcher)
     }
 
     private func resolve(with item: Item?) {
@@ -334,6 +359,8 @@ final class ExtensionModalService {
         pendingRequestID = nil
         state = .finished
         onQuery = nil
+        lastQueryPayload = nil
+        callbackQueryID = nil
         if let handler = onResolve {
             onResolve = nil
             handler(item)

@@ -15,14 +15,15 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     let pageSize: Int
     let revision: Int
     let isLoading: Bool
-    let page: (String, Int, Int) -> Page
+    let showsSearchToolbar: Bool
+    let page: (String, ExtensionModalSearchOptions, Int, Int) -> Page
     let onSelect: (Item) -> Void
     let onDismiss: () -> Void
-    let onQueryChange: ((String) -> Void)?
+    let onQueryChange: ((String, ExtensionModalSearchOptions) -> Void)?
     let row: (Item, Bool) -> AnyView
-    var onQueryChanged: ((String) -> Void)?
 
     @State private var query = ""
+    @State private var searchOptions = ExtensionModalSearchOptions()
     @State private var results: [Item] = []
     @State private var hasMore = false
     @State private var highlightedIndex: Int? = 0
@@ -30,6 +31,10 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var refilterTask: Task<Void, Never>?
     @State private var queryChangeTask: Task<Void, Never>?
+    @State private var submittedQuery = ""
+    @State private var submittedOptions = ExtensionModalSearchOptions()
+    @State private var isSearchFieldFocused = false
+    @State private var keyMonitor: Any?
 
     var body: some View {
         ZStack {
@@ -42,11 +47,16 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                     searchField
                     Divider().overlay(MuxyTheme.border)
                     resultsList
+                    if showsSearchToolbar {
+                        Divider().overlay(MuxyTheme.border)
+                        searchToolbar
+                    }
                 }
             }
         }
         .onAppear {
             refilter()
+            installKeyMonitor()
         }
         .onChange(of: revision) {
             scheduleRefilter()
@@ -55,6 +65,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             searchTask?.cancel()
             refilterTask?.cancel()
             queryChangeTask?.cancel()
+            removeKeyMonitor()
         }
     }
 
@@ -67,7 +78,8 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             PaletteSearchField(
                 text: $query,
                 placeholder: placeholder,
-                onSubmit: { confirmSelection() },
+                onSubmit: { submitSearchFieldQuery(query) },
+                onSubmitText: { submitSearchFieldQuery($0) },
                 onEscape: { onDismiss() },
                 onArrowUp: { moveHighlight(-1) },
                 onArrowDown: { moveHighlight(1) },
@@ -78,7 +90,8 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                 onQueryChange: { newQuery in
                     guard onQueryChange != nil else { return }
                     scheduleQueryChange(newQuery)
-                }
+                },
+                onFocusChange: { isSearchFieldFocused = $0 }
             )
             if isLoading || isSearching {
                 ProgressView()
@@ -89,8 +102,50 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         .padding(.horizontal, UIMetrics.spacing6)
         .padding(.vertical, UIMetrics.spacing5)
         .onChange(of: query) {
-            performSearch()
+            if onQueryChange == nil {
+                performSearch()
+            } else {
+                clearSubmittedResults()
+            }
         }
+    }
+
+    private var searchToolbar: some View {
+        HStack(spacing: UIMetrics.spacing3) {
+            searchOptionButton("Aa", isOn: searchOptions.caseSensitive, help: "Match case") {
+                searchOptions.caseSensitive.toggle()
+                searchOptionsChanged()
+            }
+            searchOptionButton("W", isOn: searchOptions.wholeWord, help: "Match whole word") {
+                searchOptions.wholeWord.toggle()
+                searchOptionsChanged()
+            }
+            searchOptionButton(".*", isOn: searchOptions.regex, help: "Use regular expression") {
+                searchOptions.regex.toggle()
+                searchOptionsChanged()
+            }
+            Spacer()
+        }
+        .padding(.horizontal, UIMetrics.spacing6)
+        .padding(.vertical, UIMetrics.spacing4)
+    }
+
+    private func searchOptionButton(
+        _ title: String,
+        isOn: Bool,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
+                .foregroundStyle(isOn ? MuxyTheme.accentForeground : MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.scaled(30), height: UIMetrics.scaled(22))
+                .background(isOn ? MuxyTheme.accent : MuxyTheme.hover)
+                .clipShape(RoundedRectangle(cornerRadius: UIMetrics.scaled(5)))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private var resultsList: some View {
@@ -131,13 +186,13 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     private func performSearch() {
         searchTask?.cancel()
         let currentQuery = query
+        let currentOptions = searchOptions
         isSearching = true
 
         searchTask = Task {
             try? await Task.sleep(for: Self.searchDebounce)
             guard !Task.isCancelled else { return }
-            onQueryChanged?(currentQuery)
-            apply(page(currentQuery, 0, pageSize), resetHighlight: true)
+            apply(page(currentQuery, currentOptions, 0, pageSize), resetHighlight: true)
             isSearching = false
         }
     }
@@ -146,10 +201,14 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         guard onQueryChange != nil else { return }
         queryChangeTask?.cancel()
         let currentQuery = newQuery
+        let currentOptions = searchOptions
         queryChangeTask = Task {
             try? await Task.sleep(for: Self.searchDebounce)
             guard !Task.isCancelled else { return }
-            onQueryChange?(currentQuery)
+            submittedQuery = currentQuery
+            submittedOptions = currentOptions
+            isSearching = true
+            onQueryChange?(currentQuery, currentOptions)
         }
     }
 
@@ -168,7 +227,17 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         searchTask = nil
         isSearching = false
         let limit = max(pageSize, results.count)
-        apply(page(query, 0, limit), resetHighlight: results.isEmpty)
+        apply(page(query, searchOptions, 0, limit), resetHighlight: results.isEmpty)
+    }
+
+    private func clearSubmittedResults() {
+        guard query != submittedQuery || searchOptions != submittedOptions else { return }
+        searchTask?.cancel()
+        searchTask = nil
+        results = []
+        hasMore = false
+        highlightedIndex = nil
+        isSearching = false
     }
 
     private func apply(_ result: Page, resetHighlight: Bool) {
@@ -183,9 +252,17 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
     private func loadMore() {
         guard hasMore, !isSearching else { return }
-        let next = page(query, results.count, pageSize)
+        let next = page(query, searchOptions, results.count, pageSize)
         results.append(contentsOf: next.items)
         hasMore = next.hasMore
+    }
+
+    private func searchOptionsChanged() {
+        searchTask?.cancel()
+        searchTask = nil
+        queryChangeTask?.cancel()
+        queryChangeTask = nil
+        isSearching = false
     }
 
     private func moveHighlight(_ delta: Int) {
@@ -201,6 +278,105 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         guard let index = highlightedIndex, index < results.count else { return }
         onSelect(results[index])
     }
+
+    private func submitSearchFieldQuery(_ submittedText: String) {
+        guard let onQueryChange else {
+            confirmSelection()
+            return
+        }
+        if canConfirmSubmittedResult(submittedText) {
+            confirmSelection()
+            return
+        }
+        submittedQuery = submittedText
+        submittedOptions = searchOptions
+        if query != submittedText {
+            query = submittedText
+        }
+        isSearching = true
+        onQueryChange(submittedText, searchOptions)
+    }
+
+    private func canConfirmSubmittedResult(_ submittedText: String) -> Bool {
+        guard submittedText == submittedQuery,
+              searchOptions == submittedOptions,
+              !isSearching,
+              !isLoading,
+              let index = highlightedIndex,
+              index < results.count
+        else { return false }
+        return true
+    }
+
+    private func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if handleKeyEvent(event) {
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func removeKeyMonitor() {
+        guard let keyMonitor else { return }
+        NSEvent.removeMonitor(keyMonitor)
+        self.keyMonitor = nil
+    }
+
+    private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        switch PaletteOverlayKeyboard.action(
+            forKeyCode: event.keyCode,
+            firstResponder: event.window?.firstResponder,
+            isSearchFieldFocused: isSearchFieldFocused
+        ) {
+        case .confirmSelection:
+            confirmSelection()
+            return true
+        case .pageUp:
+            moveHighlight(-PaletteSearchField.pageJump)
+            return true
+        case .pageDown:
+            moveHighlight(PaletteSearchField.pageJump)
+            return true
+        case nil:
+            return false
+        }
+    }
+}
+
+enum PaletteOverlayKeyAction: Equatable {
+    case confirmSelection
+    case pageUp
+    case pageDown
+}
+
+enum PaletteOverlayKeyboard {
+    static func action(
+        forKeyCode keyCode: UInt16,
+        firstResponder: NSResponder?,
+        isSearchFieldFocused: Bool
+    ) -> PaletteOverlayKeyAction? {
+        if isTextEditingResponder(firstResponder), keyCode == 36 || keyCode == 76 {
+            return nil
+        }
+
+        switch keyCode {
+        case 36 where !isSearchFieldFocused,
+             76 where !isSearchFieldFocused:
+            return .confirmSelection
+        case 116:
+            return .pageUp
+        case 121:
+            return .pageDown
+        default:
+            return nil
+        }
+    }
+
+    private static func isTextEditingResponder(_ responder: NSResponder?) -> Bool {
+        responder is NSTextView
+    }
 }
 
 struct PaletteSearchField: NSViewRepresentable {
@@ -211,6 +387,7 @@ struct PaletteSearchField: NSViewRepresentable {
     let placeholder: String
     var fontSize: CGFloat = UIMetrics.fontEmphasis
     let onSubmit: () -> Void
+    var onSubmitText: ((String) -> Void)?
     let onEscape: () -> Void
     let onArrowUp: () -> Void
     let onArrowDown: () -> Void
@@ -223,6 +400,7 @@ struct PaletteSearchField: NSViewRepresentable {
     var onBackTab: () -> Void = {}
     var onEmptyBackspace: () -> Void = {}
     var onControlKey: (String) -> Bool = { _ in false }
+    var onFocusChange: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -297,17 +475,29 @@ struct PaletteSearchField: NSViewRepresentable {
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
-            syncText(from: field, skipsMarkedText: true)
-            
+            let currentText = syncText(from: field, skipsMarkedText: true)
+
             if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() {
+                return
+            }
+            if let field = field as? PaletteNSTextField, field.consumeSubmitAfterMarkedTextCommit() {
+                submit(currentText)
                 return
             }
             parent.onQueryChange?(field.stringValue)
         }
 
+        func controlTextDidBeginEditing(_: Notification) {
+            parent.onFocusChange(true)
+        }
+
+        func controlTextDidEndEditing(_: Notification) {
+            parent.onFocusChange(false)
+        }
+
         func control(
             _ control: NSControl,
-            textView _: NSTextView,
+            textView: NSTextView,
             doCommandBy commandSelector: Selector
         ) -> Bool {
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
@@ -315,8 +505,15 @@ struct PaletteSearchField: NSViewRepresentable {
                 return true
             }
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                syncText(from: control, skipsMarkedText: false)
-                parent.onSubmit()
+                if textView.hasMarkedText() {
+                    (control as? PaletteNSTextField)?.deferSubmitAfterMarkedTextCommit()
+                    return false
+                }
+                let submittedText = syncText(from: control, skipsMarkedText: false)
+                if let field = control as? PaletteNSTextField {
+                    _ = field.consumeSubmitAfterMarkedTextCommit()
+                }
+                submit(submittedText)
                 return true
             }
             if commandSelector == #selector(NSResponder.moveUp(_:)) {
@@ -325,6 +522,20 @@ struct PaletteSearchField: NSViewRepresentable {
             }
             if commandSelector == #selector(NSResponder.moveDown(_:)) {
                 parent.onArrowDown()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.pageUp(_:))
+                || commandSelector == #selector(NSResponder.scrollPageUp(_:))
+                || commandSelector == Selector(("movePageUp:"))
+            {
+                parent.onPageUp()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.pageDown(_:))
+                || commandSelector == #selector(NSResponder.scrollPageDown(_:))
+                || commandSelector == Selector(("movePageDown:"))
+            {
+                parent.onPageDown()
                 return true
             }
             if commandSelector == #selector(NSResponder.moveToBeginningOfLine(_:)) {
@@ -347,22 +558,43 @@ struct PaletteSearchField: NSViewRepresentable {
             return false
         }
 
-        func syncText(from control: NSControl, skipsMarkedText: Bool) {
-            let editor = control.currentEditor() as? NSTextView
-            if skipsMarkedText, editor?.hasMarkedText() == true {
-                return
+        private func submit(_ submittedText: String) {
+            if let onSubmitText = parent.onSubmitText {
+                onSubmitText(submittedText)
+            } else {
+                parent.onSubmit()
             }
+        }
+
+        @discardableResult
+        func syncText(from control: NSControl, skipsMarkedText: Bool) -> String {
+            let editor = control.currentEditor() as? NSTextView
             let currentText = editor?.string ?? control.stringValue
+            if skipsMarkedText, editor?.hasMarkedText() == true {
+                return currentText
+            }
             if parent.text != currentText {
                 parent.text = currentText
             }
+            return currentText
         }
     }
 }
 
-private final class PaletteNSTextField: NSTextField {
+final class PaletteNSTextField: NSTextField {
     var onEscape: (() -> Void)?
     var onControlKey: ((String) -> Bool)?
+    private var submitAfterMarkedTextCommit = false
+
+    func deferSubmitAfterMarkedTextCommit() {
+        submitAfterMarkedTextCommit = true
+    }
+
+    func consumeSubmitAfterMarkedTextCommit() -> Bool {
+        let shouldSubmit = submitAfterMarkedTextCommit
+        submitAfterMarkedTextCommit = false
+        return shouldSubmit
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.keyCode == 53 {
@@ -377,7 +609,17 @@ private final class PaletteNSTextField: NSTextField {
 
     override func keyDown(with event: NSEvent) {
         if handleControlKey(event) { return }
+        if Self.isReturnKey(event),
+           let editor = currentEditor() as? NSTextView,
+           editor.hasMarkedText()
+        {
+            deferSubmitAfterMarkedTextCommit()
+        }
         super.keyDown(with: event)
+    }
+
+    private static func isReturnKey(_ event: NSEvent) -> Bool {
+        event.keyCode == 36 || event.keyCode == 76
     }
 
     private func handleControlKey(_ event: NSEvent) -> Bool {

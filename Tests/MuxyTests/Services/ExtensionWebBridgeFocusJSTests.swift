@@ -11,7 +11,12 @@ struct ExtensionWebBridgeFocusJSTests {
         context.evaluateScript("""
         var window = this;
         var document = { documentElement: { style: { setProperty: function () {} } }, addEventListener: function () {} };
-        window.webkit = { messageHandlers: { muxy: { postMessage: function () { return Promise.resolve({ ok: true, value: null }); } } } };
+        globalThis.messages = [];
+        window.webkit = { messageHandlers: { muxy: { postMessage: function (message) {
+            globalThis.messages.push(message);
+            const value = message.verb === "modal.open" ? { requestID: "modal-1" } : null;
+            return Promise.resolve({ ok: true, value });
+        } } } };
         """)
         context.evaluateScript(ExtensionWebBridge.script(
             extensionID: "demo",
@@ -56,4 +61,30 @@ struct ExtensionWebBridgeFocusJSTests {
         context.evaluateScript(ExtensionWebBridge.focusUpdateScript(focused: true))
         #expect(context.evaluateScript("globalThis.count")?.toInt32() == 0)
     }
+
+    @Test("modal open forwards dynamic flag for query handlers")
+    func modalOpenForwardsDynamicFlagForQueryHandlers() {
+        let context = makeContext()
+        context.evaluateScript("""
+        muxy.modal.open({
+          items: [],
+          onQueryChange() {}
+        });
+        """)
+        #expect(context.evaluateScript("globalThis.messages[0].args.dynamic")?.toBool() == true)
+    }
+
+    @Test("modal query delivery forwards search options")
+    func modalQueryDeliveryForwardsSearchOptions() {
+        let script = ExtensionWebBridge.script(
+            extensionID: "demo",
+            tabInstanceID: "instance-1",
+            data: nil,
+            theme: [:]
+        )
+
+        #expect(script.contains("window.__muxyDeliverModalQuery = async (requestID, queryID, query, options)"))
+        #expect(script.contains("o.onQueryChange(query, options || {})"))
+    }
+
 }

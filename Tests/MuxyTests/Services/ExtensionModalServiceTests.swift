@@ -105,6 +105,22 @@ struct ExtensionModalServiceTests {
         #expect(service.filter("  ", in: items).count == 2)
     }
 
+    @Test("filter applies modal search options")
+    func filterAppliesModalSearchOptions() {
+        let service = ExtensionModalService()
+        let items = [
+            ExtensionModalService.Item(id: "a", title: "Alpha", subtitle: "first word"),
+            ExtensionModalService.Item(id: "b", title: "alphabet", subtitle: nil),
+            ExtensionModalService.Item(id: "c", title: "ALPHA", subtitle: nil),
+        ]
+
+        #expect(service.filter("alpha", in: items, options: .init()).map(\.id) == ["a", "b", "c"])
+        #expect(service.filter("alpha", in: items, options: .init(caseSensitive: true)).map(\.id) == ["b"])
+        #expect(service.filter("alpha", in: items, options: .init(wholeWord: true)).map(\.id) == ["a", "c"])
+        #expect(service.filter("^ALPHA$", in: items, options: .init(caseSensitive: true, regex: true)).map(\.id) == ["c"])
+        #expect(service.filter("[", in: items, options: .init(regex: true)).isEmpty)
+    }
+
     @Test("page windows the dataset and reports hasMore")
     func pageWindowsDataset() {
         let service = ExtensionModalService()
@@ -135,7 +151,35 @@ struct ExtensionModalServiceTests {
         #expect(!page.hasMore)
     }
 
-    @Test("streaming session feeds the active dataset and resolves on select")
+    @Test("first page regex search is bounded when matches are at the front")
+    func firstPageRegexSearchIsBoundedWhenMatchesAreAtFront() {
+        let service = ExtensionModalService()
+        let request = makeStreamingRequest(service)
+        let matching = (0 ..< 150).map {
+            ExtensionModalService.Item(id: "match-\($0)", title: "Match \($0)", subtitle: nil)
+        }
+        let nonmatching = (0 ..< 99_850).map {
+            ExtensionModalService.Item(id: "miss-\($0)", title: "Unrelated \($0)", subtitle: nil)
+        }
+        request.dataset.append(matching + nonmatching)
+
+        let start = ContinuousClock.now
+        let page = service.page(
+            for: request,
+            query: "^Match [0-9]+$",
+            options: .init(caseSensitive: true, regex: true),
+            offset: 0,
+            limit: 100
+        )
+        let elapsed = start.duration(to: .now)
+
+        #expect(page.items.count == 100)
+        #expect(page.items.first?.id == "match-0")
+        #expect(page.hasMore)
+        #expect(elapsed < .milliseconds(150), "first page regex search took \(elapsed)")
+    }
+
+    @Test("streaming session keeps rapid feed batches and resolves on select")
     func streamingSessionFlow() async throws {
         let service = ExtensionModalService()
 
@@ -144,7 +188,6 @@ struct ExtensionModalServiceTests {
         #expect(active.dataset.loading)
 
         service.feedSession([ExtensionModalService.Item(id: "x", title: "X", subtitle: nil)])
-        try await Task.sleep(for: .milliseconds(20))
         service.feedSession([ExtensionModalService.Item(id: "y", title: "Y", subtitle: nil)])
         service.finishSession()
         #expect(!active.dataset.loading)
@@ -236,23 +279,39 @@ struct ExtensionModalServiceTests {
     func onQueryChangeSetsQueryableState() {
         let service = ExtensionModalService()
         var capturedQuery = ""
+        var capturedOptions = ExtensionModalSearchOptions()
         _ = service.openSession(
             extensionID: "ext",
             args: ["items": [["id": "a", "title": "Alpha"]]],
-            onQueryChange: { capturedQuery = $0 }
+            onQueryChange: { query, options in
+                capturedQuery = query
+                capturedOptions = options
+            }
         )
         
         #expect(service.state == .queryable)
-        #expect(service.active?.onQueryChange != nil)
+        #expect(service.active?.dynamic == true)
         
-        service.queryChanged("test query")
+        service.queryChanged("test query", options: .init(caseSensitive: true, wholeWord: true, regex: true))
         #expect(capturedQuery == "test query")
+        #expect(capturedOptions == .init(caseSensitive: true, wholeWord: true, regex: true))
         
         service.finishSession()
         #expect(service.state == .queryable)
         
         service.dismiss()
         #expect(service.state == .finished)
+    }
+
+    @Test("search toolbar is shown only when requested")
+    func searchToolbarRequiresExplicitRequest() throws {
+        let service = ExtensionModalService()
+
+        _ = service.openSession(extensionID: "ext", args: [:])
+        #expect(service.active?.searchToolbar == false)
+
+        _ = service.openSession(extensionID: "ext", args: ["searchToolbar": true])
+        #expect(service.active?.searchToolbar == true)
     }
     
     @Test("onQueryChange disabled native filtering in page")
@@ -261,7 +320,7 @@ struct ExtensionModalServiceTests {
         _ = service.openSession(
             extensionID: "ext",
             args: ["items": [["id": "a", "title": "Alpha"]]],
-            onQueryChange: { _ in }
+            onQueryChange: { _, _ in }
         )
         
         let active = try #require(service.active)
@@ -275,6 +334,54 @@ struct ExtensionModalServiceTests {
         #expect(page.items.map(\.id) == ["1", "2"])
         #expect(!page.hasMore)
     }
+
+    @Test("queryChanged resets queryable dataset before feeding new results")
+    func queryChangedResetsQueryableDataset() throws {
+        let service = ExtensionModalService()
+        _ = service.openSession(
+            extensionID: "ext",
+            args: ["items": []],
+            onQueryChange: { _, _ in
+                service.feedSession([
+                    ExtensionModalService.Item(id: "new", title: "New result", subtitle: nil),
+                ])
+                service.finishSession()
+            }
+        )
+
+        let active = try #require(service.active)
+        service.feedSession([
+            ExtensionModalService.Item(id: "old", title: "Old result", subtitle: nil),
+        ])
+        service.finishSession()
+
+        service.queryChanged("needle")
+
+        let page = service.page(for: active, query: "needle", offset: 0, limit: 100)
+        #expect(page.items.map(\.id) == ["new"])
+        #expect(!page.hasMore)
+    }
+
+    @Test("new queryable sessions accept the first query immediately")
+    func newQueryableSessionsAcceptFirstQueryImmediately() {
+        let service = ExtensionModalService()
+        var received: [String] = []
+        _ = service.openSession(
+            extensionID: "ext",
+            args: ["items": []],
+            onQueryChange: { query, _ in received.append("first:\(query)") }
+        )
+        service.queryChanged("검색")
+
+        _ = service.openSession(
+            extensionID: "ext",
+            args: ["items": []],
+            onQueryChange: { query, _ in received.append("second:\(query)") }
+        )
+        service.queryChanged("한")
+
+        #expect(received == ["first:검색", "second:한"])
+    }
     
     @Test("without onQueryChange session state is feeding then finished")
     func withoutOnQueryChangeStateTransitions() {
@@ -287,29 +394,24 @@ struct ExtensionModalServiceTests {
         #expect(service.state == .finished)
     }
     
-    @Test("modal query change serialize/parse round-trips")
-    func modalQueryChangeRoundTrips() throws {
-        let line = "modal-query-change|ext:1|test query"
-        let parsed = try #require(ExtensionModalQueryChange.parse(line))
-        
+    @Test("modal query serialize/parse round-trips search options")
+    func modalQueryRoundTripsSearchOptions() throws {
+        let line = try #require(ExtensionModalQuery.serialize(
+            requestID: "ext:1",
+            queryID: 3,
+            query: "한글|query",
+            options: ["caseSensitive": true, "wholeWord": true, "regex": false]
+        ))
+        let parsed = try #require(ExtensionModalQuery.parse(line))
+
         #expect(parsed.requestID == "ext:1")
-        #expect(parsed.query == "test query")
-        #expect(parsed.serialize() == line)
-        
-        #expect(ExtensionModalQueryChange.parse("invalid") == nil)
-        #expect(ExtensionModalQueryChange.parse("modal-query-change|id") == nil)
+        #expect(parsed.queryID == 3)
+        #expect(parsed.query == "한글|query")
+        #expect(parsed.options["caseSensitive"] == true)
+        #expect(parsed.options["wholeWord"] == true)
+        #expect(parsed.options["regex"] == false)
     }
-    
-    @Test("modal query change escapes pipe characters")
-    func modalQueryChangeEscapesPipes() throws {
-        let change = ExtensionModalQueryChange(requestID: "ext:1", query: "a|b|c")
-        let serialized = change.serialize()
-        #expect(serialized == "modal-query-change|ext:1|a\\|b\\|c")
-        
-        let parsed = try #require(ExtensionModalQueryChange.parse(serialized))
-        #expect(parsed.query == "a|b|c")
-    }
-    
+
     @Test("queryChanged sanitizes long queries and null bytes")
     func queryChangedSanitizes() {
         let service = ExtensionModalService()
@@ -317,7 +419,7 @@ struct ExtensionModalServiceTests {
         _ = service.openSession(
             extensionID: "ext",
             args: ["items": [["id": "a", "title": "Alpha"]]],
-            onQueryChange: { receivedQuery = $0 }
+            onQueryChange: { query, _ in receivedQuery = query }
         )
         
         let longQuery = String(repeating: "a", count: 1000)
@@ -333,7 +435,7 @@ struct ExtensionModalServiceTests {
         let requestID = service.openSession(
             extensionID: "ext",
             args: ["items": [["id": "a", "title": "Alpha"]]],
-            onQueryChange: { _ in }
+            onQueryChange: { _, _ in }
         )
         
         #expect(service.isQueryable(requestID))
@@ -373,7 +475,7 @@ struct ExtensionModalServiceTests {
         #expect(active.dataset.items.map(\.id) == ["stale"])
 
         let captured = QueryBox()
-        service.onQueryRequest(requestID: requestID) { captured.id = $0; captured.query = $1 }
+        service.onQueryRequest(requestID: requestID) { captured.id = $0; captured.query = $1; _ = $2 }
         service.requestQuery(query: "hello")
 
         #expect(captured.id == 1)
@@ -387,12 +489,28 @@ struct ExtensionModalServiceTests {
         #expect(!active.dataset.loading)
     }
 
+    @Test("requestQuery ignores duplicate query payloads")
+    func requestQueryIgnoresDuplicatePayloads() {
+        let service = ExtensionModalService()
+        service.openSession(extensionID: "ext", args: ["dynamic": true])
+        let active = service.active!
+        var receivedIDs: [Int] = []
+        service.onQueryRequest(requestID: active.id) { queryID, _, _ in receivedIDs.append(queryID) }
+
+        service.requestQuery(query: "hello", options: .init(caseSensitive: true))
+        let revision = active.dataset.revision
+        service.requestQuery(query: "hello", options: .init(caseSensitive: true))
+
+        #expect(receivedIDs == [1])
+        #expect(active.dataset.revision == revision)
+    }
+
     @Test("stale-queryID feed and finish are dropped")
     func staleQueryFeedDropped() {
         let service = ExtensionModalService()
         service.openSession(extensionID: "ext", args: ["dynamic": true])
         let active = service.active!
-        service.onQueryRequest(requestID: active.id) { _, _ in }
+        service.onQueryRequest(requestID: active.id) { _, _, _ in }
 
         service.requestQuery(query: "first")
         service.requestQuery(query: "second")
@@ -414,7 +532,7 @@ struct ExtensionModalServiceTests {
         let service = ExtensionModalService()
         service.openSession(extensionID: "ext", args: ["dynamic": true])
         let active = service.active!
-        service.onQueryRequest(requestID: active.id) { _, _ in }
+        service.onQueryRequest(requestID: active.id) { _, _, _ in }
 
         service.requestQuery(query: "typed")
 
@@ -433,7 +551,7 @@ struct ExtensionModalServiceTests {
         service.feedSession([ExtensionModalService.Item(id: "a", title: "A", subtitle: nil)])
 
         let captured = QueryBox()
-        service.onQueryRequest(requestID: active.id) { _, _ in captured.id = -1 }
+        service.onQueryRequest(requestID: active.id) { _, _, _ in captured.id = -1 }
         service.requestQuery(query: "x")
 
         #expect(captured.id == 0)

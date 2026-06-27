@@ -3,7 +3,7 @@ import Testing
 
 @testable import Muxy
 
-@Suite("ExtensionScriptRunner")
+@Suite("ExtensionScriptRunner", .serialized)
 @MainActor
 struct ExtensionScriptRunnerTests {
     private let testPath = "/tmp/test"
@@ -178,6 +178,50 @@ struct ExtensionScriptRunnerTests {
         #expect(!log.contains("modal-dispatch:bridge released"))
     }
 
+    @Test("modal onQueryChange reaches runScript handlers")
+    func modalOnQueryChangeReachesRunScriptHandlers() async throws {
+        let extensionID = "test-ext-query-\(UUID().uuidString)"
+        let logDirectory = try makeExtensionDirectory()
+        ExtensionLogStore.shared.register(extensionID: extensionID, directory: logDirectory)
+        defer {
+            ExtensionScriptRunner.shared.evict(extensionID: extensionID)
+            ExtensionModalService.shared.dismiss()
+            ExtensionLogStore.shared.unregister(extensionID: extensionID)
+            ExtensionLogStore.shared.flush()
+            try? FileManager.default.removeItem(at: logDirectory)
+        }
+
+        let appState = makeAppState()
+        let scriptURL = try writeScript("""
+        muxy.modal.open({
+          items: [],
+          onQueryChange(query, options) {
+            console.log('query-change:' + query + ':' + options.caseSensitive + ':' + options.wholeWord + ':' + options.regex);
+            muxy.modal.feed([{ id: 'hit', title: query }]);
+            muxy.modal.finish();
+          },
+        });
+        """)
+        defer { try? FileManager.default.removeItem(at: scriptURL.deletingLastPathComponent()) }
+
+        try await ExtensionScriptRunner.shared.runScript(
+            extensionID: extensionID,
+            scriptURL: scriptURL,
+            appState: appState,
+            stores: ExtensionAPIStores()
+        )
+
+        ExtensionModalService.shared.queryChanged(
+            "한글",
+            options: .init(caseSensitive: true, wholeWord: true, regex: true)
+        )
+
+        let log = try await waitForLog(extensionID: extensionID, directory: logDirectory, contains: "query-change:")
+        #expect(log.contains("query-change:한글:true:true:true"))
+        let page = try await waitForModalPage(query: "한글")
+        #expect(page.items.map(\.title) == ["한글"])
+    }
+
     private func writeScript(_ source: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("script-\(UUID().uuidString)")
@@ -204,6 +248,18 @@ struct ExtensionScriptRunnerTests {
         }
         ExtensionLogStore.shared.flush()
         return (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+    }
+
+    private func waitForModalPage(query: String) async throws -> ExtensionModalService.Page {
+        for _ in 0..<50 {
+            if let request = ExtensionModalService.shared.active {
+                let page = ExtensionModalService.shared.page(for: request, query: query, offset: 0, limit: 10)
+                if !page.items.isEmpty { return page }
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let request = try #require(ExtensionModalService.shared.active)
+        return ExtensionModalService.shared.page(for: request, query: query, offset: 0, limit: 10)
     }
 
     private func makeAppState(

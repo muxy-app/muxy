@@ -15,6 +15,7 @@ muxy.modal.open({
   placeholder: 'Pick a fruit...',   // search field placeholder
   emptyLabel: 'No items',           // shown when the list is empty
   noMatchLabel: 'No matches',       // shown when the query matches nothing
+  searchToolbar: true,              // optional Aa / W / .* search option toolbar
   items: [
     { id: 'apple', title: 'Apple', subtitle: 'Crisp and red' },
     { id: 'banana', title: 'Banana' },
@@ -29,10 +30,11 @@ muxy.modal.open({
 | --- | --- | --- | --- |
 | `items` | object[] or function | yes | The rows to show — an array, or an `items(emit)` producer (see [Streaming](#streaming-large-lists-items-producer)). |
 | `onSelect` | function | no* | `onSelect(choice)` fires with the chosen item or `null`. Required on `runScript`/background (which don't return the choice); optional on webview where you can `await` the result instead. |
-| `onQuery` | function | no | `onQuery(query, emit)` fires when the search text changes, letting you supply a fresh list per query (async/server-side search — see [Dynamic results](#dynamic-results-onquery)). |
+| `onQuery` | function | no | `onQuery(query, emit, options)` fires when the search text or search options change, letting you supply a fresh list per query (async/server-side search — see [Dynamic results](#dynamic-results-onquery)). |
 | `placeholder` | string | no | Search field placeholder. Defaults to `"Search..."`. |
 | `emptyLabel` | string | no | Message when there are no items. Defaults to `"No items"`. |
 | `noMatchLabel` | string | no | Message when the query matches nothing. Defaults to `"No matches"`. |
+| `searchToolbar` | boolean | no | Shows the footer search option toolbar (`Aa`, `W`, `.*`) when `true`. Defaults to `false`. |
 
 Each item:
 
@@ -87,8 +89,8 @@ muxy.modal.open({
 
 A static `items` list (or a producer that runs once) is filtered natively and never calls back. When
 the result set depends on the query itself — a server-side search, a remote API, a fuzzy index you own —
-pass an **`onQuery(query, emit)`** handler. Muxy debounces the search field and calls `onQuery` with the
-current text on every change; you return (or `emit`) the rows for that query, and Muxy swaps them in.
+pass an **`onQuery(query, emit, options)`** handler. Muxy debounces the search field and calls `onQuery` with the
+current text and search options on every change; you return (or `emit`) the rows for that query, and Muxy swaps them in.
 Native substring filtering still runs on top of whatever you supply, so partial matches within your
 result set keep working.
 
@@ -119,8 +121,12 @@ async onQuery(query) {
 }
 ```
 
-- `onQuery(query, emit)` receives the trimmed query string and an `emit(batch)` you can call to stream
-  rows (same shape as the producer's `emit`); returning an array is equivalent to emitting it once.
+- `onQuery(query, emit, options)` receives the trimmed query string, an `emit(batch)` you can call to stream
+  rows (same shape as the producer's `emit`), and `{ caseSensitive, wholeWord, regex }` search options.
+  The footer toolbar that lets users change those options is shown only when `searchToolbar: true`; returning an array is equivalent to emitting it once.
+- `onQueryChange(query, options)` is kept as a compatibility alias for older extensions. New code should
+  prefer `onQuery` because it also receives `emit` and uses the stale-query protection built into the
+  dynamic modal pipeline.
 - Each call replaces the list for that query. Muxy tags every call with a revision and drops responses
   for superseded queries, so a slow request that resolves late never overwrites a newer one.
 - The initial `items` (array or producer) still supplies the list shown before the user types; `onQuery`

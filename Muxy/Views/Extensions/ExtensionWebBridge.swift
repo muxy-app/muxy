@@ -104,15 +104,22 @@ enum ExtensionWebBridge {
                     try { callback(payload || {}); } catch (_) {}
                 }
             };
-
             const modalQueryHandlers = new Map();
+            let activeModalQueryID = null;
             window.__muxyDeliverModalQuery = async (requestID, queryID, query, options) => {
                 const key = String(requestID);
                 const handler = modalQueryHandlers.get(key);
                 const emit = (batch) => send('modal.feed', { items: normalizeModalItems(batch), queryID });
                 try {
                     if (typeof handler === 'function') {
-                        const produced = await handler(query, emit, options || {});
+                        const previousModalQueryID = activeModalQueryID;
+                        activeModalQueryID = queryID;
+                        let produced;
+                        try {
+                            produced = await handler(query, emit, options || {});
+                        } finally {
+                            activeModalQueryID = previousModalQueryID;
+                        }
                         if (produced != null) await emit(produced);
                     }
                 } catch (error) {
@@ -317,10 +324,14 @@ enum ExtensionWebBridge {
                         }
                     },
                     async feed(items) {
-                        return await send('modal.feed', { items: normalizeModalItems(items) });
+                        const payload = { items: normalizeModalItems(items) };
+                        if (activeModalQueryID != null) payload.queryID = activeModalQueryID;
+                        return await send('modal.feed', payload);
                     },
                     async finish() {
-                        return await send('modal.finish', {});
+                        const payload = {};
+                        if (activeModalQueryID != null) payload.queryID = activeModalQueryID;
+                        return await send('modal.finish', payload);
                     },
                 },
                 topbar: {

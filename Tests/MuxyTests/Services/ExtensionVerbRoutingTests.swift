@@ -123,6 +123,40 @@ struct ExtensionVerbRoutingTests {
         }
     }
 
+    @Test("dynamic modal routes query requests with options")
+    func dynamicModalRoutesQueryRequestsWithOptions() async throws {
+        ExtensionModalService.shared.dismiss()
+        defer { ExtensionModalService.shared.dismiss() }
+        let appState = makeAppState()
+        var receivedQueryID = 0
+        var receivedQuery = ""
+        var receivedOptions = ExtensionModalSearchOptions()
+        let result = try await MuxyAPIDispatcher.dispatch(
+            verb: "modal.open",
+            args: ["dynamic": true],
+            context: MuxyAPIDispatcher.Context(
+                extensionID: "demo",
+                appState: appState,
+                projectStore: nil,
+                worktreeStore: nil,
+                projectGroupStore: nil
+            )
+        ) as? [String: String]
+        let requestID = try #require(result?["requestID"])
+
+        ExtensionModalService.shared.onQueryRequest(requestID: requestID) { queryID, query, options in
+                    receivedQueryID = queryID
+                    receivedQuery = query
+                    receivedOptions = options
+        }
+
+        ExtensionModalService.shared.requestQuery(query: "abc", options: .init(caseSensitive: true, wholeWord: true))
+
+        #expect(receivedQueryID == 1)
+        #expect(receivedQuery == "abc")
+        #expect(receivedOptions == .init(caseSensitive: true, wholeWord: true))
+    }
+
     @Test("extension.statusbar.set with empty text is treated as clear")
     func statusBarSetEmptyClears() async {
         let appState = makeAppState()
