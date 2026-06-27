@@ -63,16 +63,12 @@ extension MuxyAPI.Browser {
         timeoutMs: Int,
         appState: AppState
     ) async -> Result<Bool, APIError> {
-        let bounded = max(0, min(timeoutMs, maxWaitMilliseconds))
-        return await runAsyncResult(tabIDString: tabIDString, appState: appState, body: """
-        const start = Date.now();
-        const sel = \(jsString(selector));
-        while (Date.now() - start < \(bounded)) {
-            if (document.querySelector(sel)) { return true; }
-            await new Promise(r => setTimeout(r, 50));
-        }
-        return Boolean(document.querySelector(sel));
-        """) { ($0 as? Bool) ?? false }
+        await pollCondition(
+            tabIDString: tabIDString,
+            timeoutMs: timeoutMs,
+            appState: appState,
+            expression: "document.querySelector(\(jsString(selector)))"
+        )
     }
 
     static func getText(tabIDString: String, selector: String, appState: AppState) async -> Result<String?, APIError> {
@@ -116,17 +112,12 @@ extension MuxyAPI.Browser {
         timeoutMs: Int,
         appState: AppState
     ) async -> Result<Bool, APIError> {
-        let bounded = max(0, min(timeoutMs, maxWaitMilliseconds))
-        let condition = waitConditionExpression(condition)
-        return await runAsyncResult(tabIDString: tabIDString, appState: appState, body: """
-        const start = Date.now();
-        const check = () => { try { return Boolean(\(condition)); } catch (e) { return false; } };
-        while (Date.now() - start < \(bounded)) {
-            if (check()) { return true; }
-            await new Promise(r => setTimeout(r, 50));
-        }
-        return check();
-        """) { ($0 as? Bool) ?? false }
+        await pollCondition(
+            tabIDString: tabIDString,
+            timeoutMs: timeoutMs,
+            appState: appState,
+            expression: waitConditionExpression(condition)
+        )
     }
 
     static func fill(
@@ -259,9 +250,11 @@ extension MuxyAPI.Browser {
         return await runScript(tabIDString: tabIDString, appState: appState, body: """
         const all = Array.from(document.querySelectorAll('*'));
         const match = (el) => { try { return \(matcher); } catch (e) { return false; } };
-        const found = all.filter(match).slice(0, 20).map((el) => ({
+        const matched = all.filter(match);
+        const leaves = matched.filter((el) => !matched.some((other) => other !== el && el.contains(other)));
+        const found = leaves.slice(0, 20).map((el) => ({
             tag: el.tagName.toLowerCase(),
-            text: (el.innerText || '').trim().slice(0, 120),
+            text: (el.innerText || el.value || '').trim().slice(0, 120),
             role: el.getAttribute('role'),
             id: el.id || null,
             testid: el.getAttribute('data-testid'),
@@ -322,16 +315,16 @@ extension MuxyAPI.Browser {
         appState: AppState
     ) async -> Result<String?, APIError> {
         guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
-        guard let located = locateState(tabIDString: tabIDString, appState: appState) else {
+        guard let state = browserState(tabIDString: tabIDString, appState: appState) else {
             return .failure(.browserTabNotFound(tabIDString))
         }
         let bounded = max(0, min(timeoutMs, maxWaitMilliseconds))
         let deadline = ContinuousClock.now + .milliseconds(bounded)
         while ContinuousClock.now < deadline {
-            if !located.isLoading { return .success(located.url?.absoluteString) }
-            do { try await Task.sleep(for: .milliseconds(50)) } catch { break }
+            if !state.isLoading { return .success(state.url?.absoluteString) }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { break }
         }
-        return .success(located.url?.absoluteString)
+        return .success(state.url?.absoluteString)
     }
 
     static func screenshot(tabIDString: String, appState: AppState) async -> Result<String, APIError> {
@@ -403,7 +396,7 @@ extension MuxyAPI.Browser {
             return .failure(.browserTabNotFound(tabIDString))
         }
         let host = urlString.flatMap(BrowserURL.resolve(from:))?.host
-        let cookies = await store.allCookies()
+        let cookies = await allCookies(in: store)
         let filtered = cookies.filter { cookie in
             guard let host else { return true }
             return cookie.domainMatches(host: host)
@@ -437,7 +430,7 @@ extension MuxyAPI.Browser {
         guard let store = cookieStore(tabIDString: tabIDString, appState: appState) else {
             return .failure(.browserTabNotFound(tabIDString))
         }
-        let cookies = await store.allCookies()
+        let cookies = await allCookies(in: store)
         for cookie in cookies where cookie.name == name && (domain == nil || cookie.domain == domain) {
             await store.deleteCookie(cookie)
         }
@@ -449,15 +442,37 @@ extension MuxyAPI.Browser {
         guard let store = cookieStore(tabIDString: tabIDString, appState: appState) else {
             return .failure(.browserTabNotFound(tabIDString))
         }
-        let cookies = await store.allCookies()
+        let cookies = await allCookies(in: store)
         for cookie in cookies {
             await store.deleteCookie(cookie)
         }
         return .success(())
     }
 
+    private static func allCookies(in store: WKHTTPCookieStore) async -> [HTTPCookie] {
+        for _ in 0 ..< cookieFetchAttempts {
+            if let cookies = await allCookiesAttempt(in: store) { return cookies }
+        }
+        return await allCookiesAttempt(in: store) ?? []
+    }
+
+    private static func allCookiesAttempt(in store: WKHTTPCookieStore) async -> [HTTPCookie]? {
+        let box = CookieResultBox()
+        store.getAllCookies { cookies in
+            Task { @MainActor in box.deliver(cookies) }
+        }
+        let deadline = ContinuousClock.now + .milliseconds(cookieAttemptTimeoutMs)
+        while ContinuousClock.now < deadline {
+            if let cookies = box.take() { return cookies }
+            do { try await Task.sleep(for: .milliseconds(20)) } catch { break }
+        }
+        return nil
+    }
+
     private static let maxStringLength = 5_000_000
     private static let maxWaitMilliseconds = 60000
+    private static let cookieFetchAttempts = 3
+    private static let cookieAttemptTimeoutMs = 800
 
     private struct ResolvedWebView {
         let state: BrowserTabState
@@ -496,6 +511,9 @@ extension MuxyAPI.Browser {
 
     private static func cookieStore(tabIDString: String, appState: AppState) -> WKHTTPCookieStore? {
         guard let state = browserState(tabIDString: tabIDString, appState: appState) else { return nil }
+        if let webView = BrowserWebViewRegistry.shared.webView(for: state.id) {
+            return webView.configuration.websiteDataStore.httpCookieStore
+        }
         return BrowserDataStoreCache.shared.store(for: state.profileID).httpCookieStore
     }
 
@@ -541,6 +559,44 @@ extension MuxyAPI.Browser {
             return .success(stringify(result))
         } catch {
             return .failure(.underlying(error.localizedDescription))
+        }
+    }
+
+    private static func pollCondition(
+        tabIDString: String,
+        timeoutMs: Int,
+        appState: AppState,
+        expression: String
+    ) async -> Result<Bool, APIError> {
+        guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
+        let start = ContinuousClock.now
+        guard browserState(tabIDString: tabIDString, appState: appState) != nil else {
+            return .failure(.browserTabNotFound(tabIDString))
+        }
+        let bounded = max(0, min(timeoutMs, maxWaitMilliseconds))
+        let deadline = start + .milliseconds(bounded)
+        let body = "try { return Boolean(\(expression)); } catch (e) { return false; }"
+        repeat {
+            if let webView = BrowserWebViewRegistry.shared.webView(for: stateID(tabIDString, appState)),
+               let value = await evaluateOnce(webView: webView, body: body),
+               (value as? Bool) == true
+            {
+                return .success(true)
+            }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { break }
+        } while ContinuousClock.now < deadline
+        return .success(false)
+    }
+
+    private static func stateID(_ tabIDString: String, _ appState: AppState) -> UUID {
+        browserState(tabIDString: tabIDString, appState: appState)?.id ?? UUID()
+    }
+
+    private static func evaluateOnce(webView: WKWebView, body: String) async -> Any? {
+        do {
+            return try await webView.callAsyncJavaScript(body, arguments: [:], contentWorld: .page)
+        } catch {
+            return nil
         }
     }
 
@@ -637,6 +693,22 @@ func jsString(_ value: String) -> String {
         return "\"\""
     }
     return String(json.dropFirst().dropLast())
+}
+
+@MainActor
+private final class CookieResultBox {
+    private var cookies: [HTTPCookie]?
+    private var delivered = false
+
+    func deliver(_ value: [HTTPCookie]) {
+        guard !delivered else { return }
+        delivered = true
+        cookies = value
+    }
+
+    func take() -> [HTTPCookie]? {
+        cookies
+    }
 }
 
 private extension BrowserCookieInfo {

@@ -26,7 +26,7 @@
 
 COMMAND="$1"
 SOCKET="${MUXY_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"
-NC_TIMEOUT=6
+NC_TIMEOUT="${MUXY_CLI_TIMEOUT:-10}"
 
 usage_for() {
     case "$1" in
@@ -125,6 +125,7 @@ usage() {
 
 send_command() {
     local message="$1"
+    local timeout="${2:-$NC_TIMEOUT}"
     if [ ! -e "$SOCKET" ]; then
         echo "Error: Muxy is not running" >&2
         exit 1
@@ -137,7 +138,7 @@ send_command() {
     }
     trap 'rm -f "$raw"' EXIT
 
-    printf '%s\n' "$message" | nc -w "$NC_TIMEOUT" -U "$SOCKET" > "$raw" 2>/dev/null
+    printf '%s\n' "$message" | nc -w "$timeout" -U "$SOCKET" > "$raw" 2>/dev/null
 
     if [ "$(tail -c1 "$raw" | od -An -tu1 | tr -d ' ')" != "0" ]; then
         echo "Error: no response from Muxy" >&2
@@ -180,15 +181,21 @@ json_field() {
 send_api() {
     local verb="$1"
     local json="$2"
+    local timeout="${3:-$NC_TIMEOUT}"
     local payload
     payload=$(printf '%s' "$json" | base64 | tr -d '\n')
     local reply
-    reply=$(send_command "$verb|$payload") || exit 1
+    reply=$(send_command "$verb|$payload" "$timeout") || exit 1
     if [ -z "$reply" ]; then
         printf '\n'
         return 0
     fi
     printf '%s' "$reply" | base64 -D 2>/dev/null && printf '\n'
+}
+
+api_timeout_for_ms() {
+    local ms="$1"
+    echo $(( ms / 1000 + NC_TIMEOUT ))
 }
 
 case "$COMMAND" in
@@ -529,7 +536,7 @@ case "$COMMAND" in
             wait-for)
                 [ $# -lt 2 ] && die_usage browser
                 TIMEOUT="${3:-5000}"
-                send_api "browser.waitFor" "{$(json_field tabId "$1"),$(json_field selector "$2"),\"timeoutMs\":$TIMEOUT}"
+                send_api "browser.waitFor" "{$(json_field tabId "$1"),$(json_field selector "$2"),\"timeoutMs\":$TIMEOUT}" "$(api_timeout_for_ms "$TIMEOUT")"
                 ;;
             get-text)
                 [ $# -lt 2 ] && die_usage browser
@@ -561,8 +568,15 @@ case "$COMMAND" in
                 ;;
             wait-for-navigation)
                 [ $# -lt 1 ] && die_usage browser
-                TIMEOUT="${2:-10000}"
-                send_api "browser.waitForNavigation" "{$(json_field tabId "$1"),\"timeoutMs\":$TIMEOUT}"
+                WNTAB="$1"; shift
+                TIMEOUT="10000"
+                while [ $# -gt 0 ]; do
+                    case "$1" in
+                        --timeout-ms) TIMEOUT="$2"; shift 2 ;;
+                        *) TIMEOUT="$1"; shift ;;
+                    esac
+                done
+                send_api "browser.waitForNavigation" "{$(json_field tabId "$WNTAB"),\"timeoutMs\":$TIMEOUT}" "$(api_timeout_for_ms "$TIMEOUT")"
                 ;;
             screenshot)
                 [ $# -lt 1 ] && die_usage browser
@@ -641,7 +655,7 @@ case "$COMMAND" in
                 [ -n "$WTEXT" ] && FIELDS="$FIELDS,$(json_field text "$WTEXT")"
                 [ -n "$WURL" ] && FIELDS="$FIELDS,$(json_field urlContains "$WURL")"
                 [ -n "$WFUNC" ] && FIELDS="$FIELDS,$(json_field function "$WFUNC")"
-                send_api "browser.wait" "{$FIELDS}"
+                send_api "browser.wait" "{$FIELDS}" "$(api_timeout_for_ms "$WTIMEOUT")"
                 ;;
             fill)
                 [ $# -lt 3 ] && die_usage browser
