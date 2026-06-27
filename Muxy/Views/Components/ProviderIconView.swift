@@ -18,7 +18,7 @@ struct ProviderIconView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(width: size, height: size)
             } else {
-                Image(nsImage: Self.templateImage(from: image))
+                Image(nsImage: Self.templateImage(named: iconName, image: image))
                     .renderingMode(.template)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
@@ -41,10 +41,16 @@ struct ProviderIconView: View {
 
     #if os(macOS)
     private static let colorfulCache = NSCache<NSString, NSNumber>()
+    private static let imageCache = NSCache<NSString, NSImage>()
+    private static let templateCache = NSCache<NSString, NSImage>()
 
-    private static func templateImage(from image: NSImage) -> NSImage {
+    private static func templateImage(named name: String, image: NSImage) -> NSImage {
+        if let cached = templateCache.object(forKey: name as NSString) {
+            return cached
+        }
         let template = (image.copy() as? NSImage) ?? image
         template.isTemplate = true
+        templateCache.setObject(template, forKey: name as NSString)
         return template
     }
 
@@ -94,6 +100,15 @@ struct ProviderIconView: View {
     }
 
     private static func loadProviderImage(named name: String) -> NSImage? {
+        if let cached = imageCache.object(forKey: name as NSString) {
+            return cached
+        }
+        guard let image = decodeProviderImage(named: name) else { return nil }
+        imageCache.setObject(image, forKey: name as NSString)
+        return image
+    }
+
+    private static func decodeProviderImage(named name: String) -> NSImage? {
         if let iconsURL = Bundle.providerIconsURL {
             let fileURL = iconsURL.appendingPathComponent("\(name).svg")
             if let image = NSImage(contentsOf: fileURL) {
