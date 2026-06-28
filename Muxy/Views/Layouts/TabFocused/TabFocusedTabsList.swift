@@ -89,7 +89,6 @@ struct TabFocusedTabsList: View {
                 tabRows(activeAreaTabs, numbers: shortcutNumbers, emptyOnNoTabs: true)
             }
         }
-        .padding(.bottom, UIMetrics.spacing3)
         .coordinateSpace(name: TabFocusedDragCoordinateSpace.list)
         .onPreferenceChange(TabFocusedRowFramePreferenceKey.self) { frames in
             guard dragState.draggedID != nil else { return }
@@ -114,14 +113,16 @@ struct TabFocusedTabsList: View {
                 Text("No open tabs")
                     .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
-                    .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
-                    .padding(.bottom, UIMetrics.spacing3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset + UIMetrics.spacing4)
+                    .padding(.vertical, UIMetrics.spacing3)
             } else {
                 Text("No tabs")
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgDim)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset + UIMetrics.spacing4)
-                    .padding(.bottom, UIMetrics.spacing2)
+                    .padding(.vertical, UIMetrics.spacing3)
             }
         } else {
             ForEach(tabs) { item in
@@ -243,7 +244,8 @@ private struct WorktreeGroupHeader: View {
         }
         .padding(.leading, TabFocusedSidebarMetrics.rowHorizontalInset + UIMetrics.spacing4)
         .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
-        .padding(.vertical, UIMetrics.spacing4)
+        .padding(.top, UIMetrics.spacing3)
+        .padding(.bottom, UIMetrics.spacing1)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
     }
@@ -407,7 +409,7 @@ private struct TabFocusedTabRow: View {
             if let tabColor {
                 Rectangle()
                     .fill(tabColor)
-                    .frame(width: UIMetrics.scaled(2))
+                    .frame(width: UIMetrics.scaled(3))
                     .accessibilityHidden(true)
             }
         }

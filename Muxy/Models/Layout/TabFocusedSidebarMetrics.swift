@@ -14,4 +14,6 @@ enum TabFocusedSidebarPreferences {
     static func groupByWorktreeKey(_ projectID: UUID) -> String {
         "muxy.tabFocused.groupByWorktree.\(projectID.uuidString)"
     }
+
+    static let focusModeKey = "muxy.tabFocused.focusMode"
 }

@@ -9,6 +9,7 @@ final class TabFocusedSidebarState {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        focusMode = defaults.bool(forKey: TabFocusedSidebarPreferences.focusModeKey)
     }
 
     private var expanded: [UUID: Bool] = [:]
@@ -31,6 +32,13 @@ final class TabFocusedSidebarState {
     func isExpandedPersisted(_ projectID: UUID) -> Bool {
         if let value = expanded[projectID] { return value }
         return defaults.bool(forKey: TabFocusedSidebarPreferences.projectExpandedKey(projectID))
+    }
+
+    var focusMode: Bool {
+        didSet {
+            guard focusMode != oldValue else { return }
+            defaults.set(focusMode, forKey: TabFocusedSidebarPreferences.focusModeKey)
+        }
     }
 
     private var groupByWorktree: [UUID: Bool] = [:]

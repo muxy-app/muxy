@@ -30,6 +30,12 @@ enum TabFocusedTabOrder {
         expansionStore: TabFocusedSidebarState = .shared
     ) -> [Entry] {
         orderedProjects(projectStore: projectStore, projectGroupStore: projectGroupStore)
+            .filter { project in
+                if expansionStore.focusMode, let activeID = appState.activeProjectID {
+                    return project.id == activeID
+                }
+                return true
+            }
             .filter { expansionStore.isExpandedPersisted($0.id) }
             .flatMap { project -> [Entry] in
                 guard expansionStore.isGroupedByWorktree(project.id) else {

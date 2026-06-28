@@ -5,6 +5,7 @@ struct TabFocusedSidebar: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
+    @State private var expansionStore = TabFocusedSidebarState.shared
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
 
@@ -22,8 +23,12 @@ struct TabFocusedSidebar: View {
 
     private var projects: [Project] {
         let stored = projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
-        guard let homeProject else { return stored }
-        return [homeProject] + stored
+        let all = homeProject.map { [$0] + stored } ?? stored
+        guard expansionStore.focusMode,
+              let activeID = appState.activeProjectID,
+              let focused = all.first(where: { $0.id == activeID })
+        else { return all }
+        return [focused]
     }
 
     private var shortcutNumbers: [UUID: Int] {
@@ -52,9 +57,11 @@ struct TabFocusedSidebar: View {
                             projectShortcutIndex: projectShortcutIndex(forRowAt: offset)
                         )
                     }
-                    TabFocusedAddProjectRow(action: openProjectPicker)
+                    if !expansionStore.focusMode {
+                        TabFocusedAddProjectRow(action: openProjectPicker)
+                    }
                 }
-                .padding(.vertical, UIMetrics.spacing3)
+                .padding(.bottom, UIMetrics.spacing3)
             }
             .scrollIndicators(.never)
 
