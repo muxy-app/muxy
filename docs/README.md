@@ -2,7 +2,7 @@
 
 > **Reading this as an LLM?** Start from <https://muxy.app/llms.txt> — an index of every page that links to its raw Markdown source. Append `/plain` to any docs URL (e.g. <https://muxy.app/docs/extensions/manifest/plain>) for that page's raw Markdown.
 
-Muxy is a native macOS terminal multiplexer organized around projects, worktrees, tabs, and split panes. It also ships a source-control UI and a WebSocket API for companion apps.
+Muxy is a native macOS terminal multiplexer organized around projects, worktrees, tabs, and split panes. It also exposes a WebSocket API for companion apps and a git core that extensions and the mobile remote build on.
 
 ```mermaid
 flowchart TB
@@ -11,7 +11,7 @@ flowchart TB
   Splits --> TabArea[Tab Area]
   TabArea --> Tab
   Tab --> Terminal
-  Tab --> VCS[Source Control]
+  Tab --> Extension
 ```
 
 ## User Guide
@@ -34,7 +34,6 @@ flowchart TB
 | [Terminal](features/terminal.md) | Ghostty config, find, copy/paste, custom commands |
 | [Rich Input](features/rich-input.md) | Multiline prompts, files, images, broadcast send |
 | [Voice Recording](features/voice-recording.md) | Dictate text into Muxy from the status bar |
-| [Source Control](features/source-control.md) | Git status, diff, branches, pull requests |
 | [Notification Setup](features/notifications.md) | OSC sequences, hooks, socket API |
 | [AI Assistant](features/ai-assistant.md) | Draft commit messages and PR text from diffs |
 | [Themes](features/themes.md) | Theme picker and Ghostty config |

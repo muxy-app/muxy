@@ -21,7 +21,6 @@ Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to f
 - **Show status bar** — shows or hides the bottom status bar.
 - **Theme** — paired light / dark terminal theme picker.
 - **Sidebar style** — controls collapsed and expanded sidebar layout.
-- **Source Control display mode** — tab, attached panel, or separate window.
 
 See [Themes](../features/themes.md).
 

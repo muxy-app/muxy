@@ -30,7 +30,7 @@ Run **Muxy → Install CLI** from the menu. This writes a wrapper to `/usr/local
 
 The path must exist and must be a directory (not a file). Relative paths are resolved against the shell's current directory. Quote paths with spaces.
 
-## Source Control: gh actions disabled
+## Source control: gh actions disabled
 
 Pull request features require the `gh` CLI to be installed and authenticated:
 

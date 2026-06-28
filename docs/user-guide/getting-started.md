@@ -9,7 +9,6 @@ flowchart TB
   Install --> Add
   Add --> Tabs[Open tabs / splits]
   Tabs --> Worktree[Switch worktree]
-  Tabs --> VCS[Source Control]
   Tabs --> Rich[Rich Input<br/>⌘I]
 ```
 
@@ -45,16 +44,12 @@ Projects persist in `~/Library/Application Support/Muxy/projects.json`.
 | Close pane / tab | `⌘⇧W` / `⌘W` |
 | Switch tabs | `⌘1…9`, `⌘]` / `⌘[` |
 
-Tabs can also hold a Source Control view. See [Tabs & Splits](../features/tabs-and-splits.md).
+Tabs can also hold a browser or an extension view. See [Tabs & Splits](../features/tabs-and-splits.md).
 
 ## Switching projects & worktrees
 
 - **Project navigation**: `⌃]` / `⌃[`, or `⌃1…9`.
 - **Switch worktree**: use the worktree picker on the project row (or the `switch-worktree` [CLI command](../features/muxy-cli.md)). Each worktree has its own tabs/splits.
-
-## Source Control
-
-Open the source-control view from the topbar or sidebar — staged/unstaged/untracked, commit box, branches, PRs. The display mode (tab, attached panel, or separate window) is configurable in Settings → Appearance. See [Source Control](../features/source-control.md).
 
 ## Configuring Ghostty
 

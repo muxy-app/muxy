@@ -18,7 +18,7 @@ Splits nest arbitrarily — the layout is a binary tree of horizontal and vertic
 | Kind | What it is |
 | --- | --- |
 | Terminal | A libghostty-powered terminal (the default) |
-| Source Control | The git status / diff / branches / PRs view |
+| Browser | A built-in browser tab |
 | Extension | A tab rendered by an installed extension |
 
 ## Creating tabs

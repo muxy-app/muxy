@@ -6,9 +6,11 @@ It runs locally installed tools. Muxy does not proxy prompts through its own ser
 
 ## Where it appears
 
+The Source Control extension surfaces these actions:
+
 | Place | Action |
 | --- | --- |
-| Source Control commit box | Generate commit message |
+| Commit box | Generate commit message |
 | Create PR sheet | Generate title and description |
 
 The generated text is editable before you commit or create a PR.
