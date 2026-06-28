@@ -10,7 +10,7 @@ The Mobile server is **disabled by default in release builds**. Development buil
 | Port | `4865` in release, `4866` in development | Stored in `UserDefaults`. Changing it stops the server; it restarts on the new port when re-enabled. A bind failure retires the listener and surfaces the error; the setting remains enabled until the user turns it off or fixes the port. |
 | Approved devices | empty | List of paired clients, each with a **Revoke** button. |
 
-The valid port range is `1024`–`65535`. Development builds default to `4866` (one above the release default) so a debug build can run alongside a release build. If the port is already in use, the settings panel shows a **Free Port** action that terminates the process currently listening on it.
+The valid port range is `1024`–`65535`. If the port is already in use, the settings panel shows a **Free Port** action that terminates the process currently listening on it.
 
 ## Endpoint
 

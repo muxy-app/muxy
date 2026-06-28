@@ -53,7 +53,7 @@ Tabs can also hold a browser or an extension view. See [Tabs & Splits](../featur
 
 ## Configuring Ghostty
 
-Muxy renders terminals through libghostty. Edit `~/Library/Application Support/Muxy/ghostty.conf` from **Muxy -> Open Configuration...** and reload with `⌘⇧R`. On first launch Muxy seeds this file from `~/.config/ghostty/config` when it exists.
+Muxy renders terminals through libghostty. Edit its Ghostty config from **Muxy -> Open Configuration...** and reload with `⌘⇧R`. See [Terminal](../features/terminal.md#configuration) for the config path and how Muxy seeds it on first launch.
 
 ## Next steps
 

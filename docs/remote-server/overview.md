@@ -26,7 +26,7 @@ flowchart TB
 
 - Endpoint: `ws://<host>:<port>` (default port `4865`; `4866` in development builds)
 - Format: JSON, UTF-8, ISO-8601 dates, UUID strings, RGB colors as `0xRRGGBB` integers
-- Disabled by default in release builds; development builds start enabled on port `4866`
+- Disabled by default; enable in **Settings -> Mobile** (see [Setup](setup.md))
 - All clients must authenticate before any other RPC is accepted
 - The server advertises over Bonjour as `_muxy._tcp`
 

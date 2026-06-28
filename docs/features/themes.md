@@ -21,7 +21,7 @@ The active variant follows macOS appearance automatically, so your dark choice a
 
 ## Ghostty colors
 
-Muxy's active Ghostty config is `~/Library/Application Support/Muxy/ghostty.conf`. On first launch Muxy seeds it from `~/.config/ghostty/config` when that file exists; after that, Muxy reads and writes its own copy. When you change theme in Muxy, the matching light/dark variant is applied automatically. To customise the palette directly, edit Muxy's config — see [Ghostty's theme docs](https://ghostty.org/docs/config/reference#theme).
+Terminal colors come from Muxy's [Ghostty config](terminal.md#configuration). When you change theme in Muxy, the matching light/dark variant is applied automatically. To customise the palette directly, edit the config — see [Ghostty's theme docs](https://ghostty.org/docs/config/reference#theme).
 
 ## Reload
 

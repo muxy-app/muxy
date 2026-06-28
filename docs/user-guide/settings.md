@@ -98,7 +98,7 @@ See [Remote Server](../remote-server/overview.md).
 ## Backup
 
 - Create, restore, and manage Muxy backups.
-- Backups include settings, projects, worktrees, workspaces, notifications, approved devices, Ghostty config, key bindings, commands, themes, and extension state.
+- Backups include settings, projects, worktrees, workspaces, remote devices, key bindings, command shortcuts, extension shortcuts, editor settings, and Ghostty config.
 
 ## JSON
 
