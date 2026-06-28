@@ -178,12 +178,8 @@ struct MuxyAPIBrowserTests {
 
     @Test("BrowserAutomation never uses main-thread blocking primitives")
     func automationHasNoBlockingPrimitives() throws {
-        let url = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Muxy/Services/BrowserAutomation.swift")
+        let url = RepositoryRoot.find()
+            .appendingPathComponent("Muxy/Services/Browser/BrowserAutomation.swift")
         let source = try String(contentsOf: url, encoding: .utf8)
         let banned = [
             "DispatchSemaphore",

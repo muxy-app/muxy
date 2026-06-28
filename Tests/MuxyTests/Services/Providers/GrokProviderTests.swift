@@ -294,11 +294,7 @@ struct GrokProviderTests {
     }
 
     private static func repositoryScriptPath() -> String? {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0 ..< 4 {
-            url.deleteLastPathComponent()
-        }
-        let candidate = url.appendingPathComponent("Muxy/Resources/scripts/muxy-grok-hook.sh")
+        let candidate = RepositoryRoot.find().appendingPathComponent("Muxy/Resources/scripts/muxy-grok-hook.sh")
         guard FileManager.default.fileExists(atPath: candidate.path) else { return nil }
         return candidate.path
     }

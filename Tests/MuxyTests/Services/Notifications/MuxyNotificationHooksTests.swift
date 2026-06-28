@@ -135,12 +135,7 @@ struct MuxyNotificationHooksTests {
     }
 
     private static var repositoryRoot: URL {
-        var url = URL(fileURLWithPath: #filePath)
-        url.deleteLastPathComponent()
-        url.deleteLastPathComponent()
-        url.deleteLastPathComponent()
-        url.deleteLastPathComponent()
-        return url
+        RepositoryRoot.find()
     }
 
     private static let paneID = UUID().uuidString
