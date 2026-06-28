@@ -1159,13 +1159,14 @@ enum MuxyAPI {
         }
 
         static func locate(identifier: String, appState: AppState) -> LocatedTab? {
-            if let id = UUID(uuidString: identifier) {
+            if UUID(uuidString: identifier) != nil {
                 for (key, root) in appState.workspaceRoots {
-                    for area in root.allAreas() where area.tabs.contains(where: { $0.id == id }) {
-                        guard let tab = area.tabs.first(where: { $0.id == id }) else { continue }
+                    for area in root.allAreas() {
+                        guard let tab = area.tabs.first(where: { tabMatches($0, identifier: identifier) }) else { continue }
                         return LocatedTab(tab: tab, area: area, projectID: key.projectID)
                     }
                 }
+                return nil
             }
             guard let projectID = appState.activeProjectID,
                   let key = appState.activeWorktreeKey(for: projectID),
@@ -1184,10 +1185,7 @@ enum MuxyAPI {
                 return nil
             }
             for area in root.allAreas() {
-                guard let tab = area.tabs.first(where: {
-                    $0.title.localizedCaseInsensitiveCompare(identifier) == .orderedSame
-                })
-                else { continue }
+                guard let tab = area.tabs.first(where: { tabMatches($0, identifier: identifier) }) else { continue }
                 return LocatedTab(tab: tab, area: area, projectID: projectID)
             }
             return nil
@@ -1257,7 +1255,10 @@ enum MuxyAPI {
             guard let from = area.tabs.firstIndex(where: { $0.id == located.tab.id }) else {
                 return .failure(.tabNotFound(identifier))
             }
-            guard toIndex >= 0, toIndex < area.tabs.count else {
+            let boundary = area.tabs.firstIndex(where: { !$0.isPinned }) ?? area.tabs.count
+            let lowerBound = located.tab.isPinned ? 0 : boundary
+            let upperBound = located.tab.isPinned ? boundary : area.tabs.count
+            guard toIndex >= lowerBound, toIndex < upperBound else {
                 return .failure(.invalidArguments("index out of range"))
             }
             let destination = toIndex > from ? toIndex + 1 : toIndex

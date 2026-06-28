@@ -101,6 +101,44 @@ struct MuxyAPITabsControlTests {
         #expect(area.tabs[0].title == "First")
     }
 
+    @Test("move keeps an unpinned tab out of the pinned region")
+    func moveRejectsCrossingPinnedBoundary() {
+        let (appState, area) = makeAppState(tabTitles: ["Pinned", "First", "Second"])
+        area.togglePin(area.tabs[0].id)
+        let unpinned = area.tabs[2]
+
+        let result = MuxyAPI.Tabs.move(identifier: unpinned.id.uuidString, toIndex: 0, appState: appState)
+        guard case let .failure(error) = result else { Issue.record("expected failure"); return }
+        #expect(error == .invalidArguments("index out of range"))
+        #expect(area.tabs[0].isPinned)
+        #expect(area.tabs.firstIndex(where: { !$0.isPinned }) == 1)
+    }
+
+    @Test("move reorders within the unpinned region while a pinned tab is present")
+    func moveReordersWithinUnpinnedRegion() {
+        let (appState, area) = makeAppState(tabTitles: ["Pinned", "First", "Second"])
+        area.togglePin(area.tabs[0].id)
+        let second = area.tabs[2]
+
+        let result = MuxyAPI.Tabs.move(identifier: second.id.uuidString, toIndex: 1, appState: appState)
+        guard case .success = result else { Issue.record("expected success"); return }
+        #expect(area.tabs[0].isPinned)
+        #expect(area.tabs[1].id == second.id)
+    }
+
+    @Test("a tab resolves by ID across a non-active workspace")
+    func resolvesTabAcrossWorkspaces() {
+        let (appState, _) = makeAppState(tabTitles: ["First"])
+        let otherProjectID = UUID()
+        let otherKey = WorktreeKey(projectID: otherProjectID, worktreeID: UUID())
+        let otherArea = TabArea(projectPath: testPath)
+        appState.workspaceRoots[otherKey] = .tabArea(otherArea)
+        let target = otherArea.tabs[0]
+
+        _ = MuxyAPI.Tabs.rename(identifier: target.id.uuidString, title: "Remote", appState: appState)
+        #expect(target.customTitle == "Remote")
+    }
+
     @Test("an unknown identifier fails with tabNotFound")
     func unknownIdentifierFails() {
         let (appState, _) = makeAppState(tabTitles: ["First"])
