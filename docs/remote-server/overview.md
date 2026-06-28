@@ -7,7 +7,7 @@ flowchart TB
   Client[Mobile / dashboard client]
   Client <-->|WebSocket / JSON| Muxy[Muxy.app]
   Muxy --> Settings[Settings → Mobile]
-  Muxy --> Approved[approved-devices.json]
+  Muxy --> Approved[remote-devices.json]
   Muxy -.->|Bonjour _muxy._tcp| Client
 ```
 

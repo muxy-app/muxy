@@ -14,7 +14,7 @@ flowchart TB
 
 ## Worktree picker
 
-Click the worktree button in the topbar (or `⌘⇧O`) to:
+Click the worktree button in the topbar to:
 
 - See all known worktrees and their branches.
 - Create a new git worktree.

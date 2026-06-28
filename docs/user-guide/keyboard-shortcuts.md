@@ -7,10 +7,11 @@ Every shortcut listed here can be remapped in **Settings → Keyboard Shortcuts*
 | Action | Shortcut |
 | --- | --- |
 | New Tab | `Cmd+T` |
-| Reopen Closed Terminal Tab | `Cmd+Shift+T` |
+| New Home Tab | `Cmd+N` |
+| New Browser Tab | `Cmd+Opt+B` |
 | Close Tab | `Cmd+W` |
-| Rename Tab | `Cmd+Opt+T` |
-| Pin / Unpin Tab | `Cmd+Shift+P` |
+| Rename Tab | _(unbound by default)_ |
+| Pin / Unpin Tab | _(unbound by default)_ |
 
 ## Panes
 
@@ -42,7 +43,7 @@ Every shortcut listed here can be remapped in **Settings → Keyboard Shortcuts*
 | Next Project | `Ctrl+]` |
 | Previous Project | `Ctrl+[` |
 | Project 1–9 | `Ctrl+1` … `Ctrl+9` |
-| Switch Worktree | `Cmd+Shift+O` |
+| Refresh Worktrees | `Cmd+Opt+R` |
 
 ## Navigation history
 
@@ -58,11 +59,20 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | Action | Shortcut |
 | --- | --- |
 | Open Project… | `Cmd+O` |
-| Source Control | `Cmd+K` |
 | Toggle Sidebar | `Cmd+B` |
 | Theme Picker | `Cmd+Shift+K` |
 | Reload Configuration | `Cmd+Shift+R` |
 | Toggle Full Screen | `Cmd+Ctrl+F` |
+
+## Omnibox
+
+| Action | Shortcut |
+| --- | --- |
+| Open Tabs | `Cmd+Opt+O` |
+| Projects | `Cmd+Opt+P` |
+| Worktrees | `Cmd+Opt+W` |
+| Workspaces | `Cmd+Opt+S` |
+| Custom Commands | `Cmd+Shift+P` |
 
 ## Rich Input
 
@@ -84,6 +94,7 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | Action | Shortcut |
 | --- | --- |
 | Toggle Extension Debug Bar | `Cmd+\`` |
+| Inspect Element (browser) | `Cmd+Opt+I` |
 
 ## Commands
 

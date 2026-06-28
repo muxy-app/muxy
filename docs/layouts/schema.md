@@ -72,7 +72,7 @@ tabs:
 
 ## JSON form
 
-The same schema works as JSON at `.muxy/layouts/<name>.json`:
+Layout files live in `.muxy/layouts/` and may use a `.yaml`, `.yml`, or `.json` extension — the same schema works in either format. As JSON at `.muxy/layouts/<name>.json`:
 
 ```json
 {

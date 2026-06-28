@@ -1,6 +1,6 @@
 # Source Control
 
-A full git UI for the active worktree. Open with `⌘K`, or **File → Source Control**.
+A full git UI for the active worktree. Open it from the Source Control button in the topbar or sidebar. The display mode — a tab, an attached panel, or a separate window — is set in Settings → Appearance.
 
 ```mermaid
 flowchart TB
