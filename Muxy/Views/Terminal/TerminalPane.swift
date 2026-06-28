@@ -360,6 +360,10 @@ struct TerminalBridge: NSViewRepresentable {
             ) {
                 return
             }
+            guard Self.terminalFileOpenBehavior().allowsExternalEditorFallback else {
+                ToastState.shared.show("No in-app opener is registered for this file")
+                return
+            }
             _ = IDEIntegrationService.shared.openProject(
                 at: projectPath,
                 highlightingFileAt: location.path,
@@ -378,6 +382,10 @@ struct TerminalBridge: NSViewRepresentable {
                 ) {
                     return true
                 }
+                guard Self.terminalFileOpenBehavior().allowsExternalEditorFallback else {
+                    ToastState.shared.show("No in-app opener is registered for this file")
+                    return false
+                }
                 return IDEIntegrationService.shared.openProject(
                     at: projectPath,
                     highlightingFileAt: location.path,
@@ -391,6 +399,12 @@ struct TerminalBridge: NSViewRepresentable {
             }
             return Self.openExternalLink(url, appState: appState)
         }
+    }
+
+    private static func terminalFileOpenBehavior() -> TerminalFileOpenBehavior {
+        TerminalFileOpenBehavior.resolve(
+            from: UserDefaults.standard.string(forKey: GeneralSettingsKeys.terminalFileOpenBehavior)
+        )
     }
 
     @MainActor

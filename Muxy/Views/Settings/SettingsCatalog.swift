@@ -256,6 +256,15 @@ enum SettingsCatalog {
             defaultValue: false
         ),
         SettingsCatalogItem(
+            key: GeneralSettingsKeys.terminalFileOpenBehavior,
+            title: "Terminal File Open Behavior",
+            description: "Chooses whether cmd-clicking a terminal file path uses an in-app opener or launches an external editor.",
+            category: .terminal,
+            section: "Files",
+            defaultValue: TerminalFileOpenBehavior.defaultBehavior.rawValue,
+            aliases: ["cmd click", "open file", "external editor", "in app opener"]
+        ),
+        SettingsCatalogItem(
             key: TabCloseConfirmationPreferences.confirmRunningProcessKey,
             title: "Confirm Running Process Tab Close",
             description: "Asks before closing a terminal tab with a running process.",

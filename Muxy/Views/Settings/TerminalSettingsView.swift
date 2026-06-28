@@ -3,6 +3,8 @@ import SwiftUI
 struct TerminalSettingsView: View {
     @AppStorage(GeneralSettingsKeys.autoCopyTerminalSelection)
     private var autoCopyTerminalSelection = false
+    @AppStorage(GeneralSettingsKeys.terminalFileOpenBehavior)
+    private var terminalFileOpenBehavior = TerminalFileOpenBehavior.defaultBehavior.rawValue
     @AppStorage(TabCloseConfirmationPreferences.confirmRunningProcessKey)
     private var confirmRunningProcess = true
     @AppStorage(TerminalOfflinePreferences.enabledKey)
@@ -30,6 +32,19 @@ struct TerminalSettingsView: View {
                 SettingsToggleRow(
                     label: "Auto-copy selected text",
                     isOn: $autoCopyTerminalSelection
+                )
+            }
+
+            SettingsSection(
+                "Files",
+                footer: "Choose what happens when you cmd-click a file path in the terminal. "
+                    + "In-app opener uses a registered extension opener and never launches an external editor; "
+                    + "if no opener is registered, Muxy shows a notice instead."
+            ) {
+                SettingsPickerRow<TerminalFileOpenBehavior>(
+                    label: "Cmd-click opens files with",
+                    selection: $terminalFileOpenBehavior,
+                    width: 160
                 )
             }
 
