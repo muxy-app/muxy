@@ -30,7 +30,7 @@ Run **Muxy -> Install CLI** from the menu. Muxy first tries `/usr/local/bin/muxy
 
 The path must exist and must be a directory (not a file). Relative paths are resolved against the shell's current directory. Quote paths with spaces.
 
-## Source control: gh actions disabled
+## Pull request actions disabled
 
 Pull request features require the `gh` CLI to be installed and authenticated:
 
@@ -39,7 +39,7 @@ brew install gh
 gh auth login
 ```
 
-After authenticating, restart Muxy or click **Refresh** in the PR list.
+After authenticating, restart Muxy so it picks up the new credentials.
 
 ## Mobile server won't start
 

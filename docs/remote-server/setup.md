@@ -7,7 +7,7 @@ The Mobile server is **disabled by default in release builds**. Development buil
 | Setting | Default | Notes |
 | --- | --- | --- |
 | Allow mobile device connections | off in release, on in development | Starts/stops the WebSocket listener. |
-| Port | `4865` in release, `4866` in development | Stored in `UserDefaults`. Changing it stops the server; it restarts on the new port when re-enabled. A bind failure retires the listener and surfaces the error; the setting remains enabled until the user turns it off or fixes the port. |
+| Port | `4865` in release, `4866` in development | Stored in `UserDefaults`. Changing it stops the server and turns the toggle off; re-enable it to start on the new port. A bind failure retires the listener and surfaces the error; the setting remains enabled until the user turns it off or fixes the port. |
 | Approved devices | empty | List of paired clients, each with a **Revoke** button. |
 
 The valid port range is `1024`–`65535`. If the port is already in use, the settings panel shows a **Free Port** action that terminates the process currently listening on it.
