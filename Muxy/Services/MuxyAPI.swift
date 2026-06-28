@@ -735,7 +735,7 @@ enum MuxyAPI {
             guard let loc = locateTab(paneID: paneID, appState: appState) else {
                 return .failure(.paneNotFound(paneIDString))
             }
-            appState.closeTab(loc.tabID, areaID: loc.areaID, projectID: loc.key.projectID)
+            appState.closeTab(loc.tabID, areaID: loc.areaID, key: loc.key)
             return .success(())
         }
 
@@ -1155,7 +1155,7 @@ enum MuxyAPI {
         struct LocatedTab {
             let tab: TerminalTab
             let area: TabArea
-            let projectID: UUID
+            let key: WorktreeKey
         }
 
         static func locate(identifier: String, appState: AppState) -> LocatedTab? {
@@ -1163,7 +1163,7 @@ enum MuxyAPI {
                 for (key, root) in appState.workspaceRoots {
                     for area in root.allAreas() {
                         guard let tab = area.tabs.first(where: { tabMatches($0, identifier: identifier) }) else { continue }
-                        return LocatedTab(tab: tab, area: area, projectID: key.projectID)
+                        return LocatedTab(tab: tab, area: area, key: key)
                     }
                 }
                 return nil
@@ -1177,7 +1177,7 @@ enum MuxyAPI {
                 for area in root.allAreas() {
                     for tab in area.tabs {
                         if current == index {
-                            return LocatedTab(tab: tab, area: area, projectID: projectID)
+                            return LocatedTab(tab: tab, area: area, key: key)
                         }
                         current += 1
                     }
@@ -1186,7 +1186,7 @@ enum MuxyAPI {
             }
             for area in root.allAreas() {
                 guard let tab = area.tabs.first(where: { tabMatches($0, identifier: identifier) }) else { continue }
-                return LocatedTab(tab: tab, area: area, projectID: projectID)
+                return LocatedTab(tab: tab, area: area, key: key)
             }
             return nil
         }
@@ -1243,7 +1243,7 @@ enum MuxyAPI {
             guard let located = locate(identifier: identifier, appState: appState) else {
                 return .failure(.tabNotFound(identifier))
             }
-            appState.closeTab(located.tab.id, areaID: located.area.id, projectID: located.projectID)
+            appState.closeTab(located.tab.id, areaID: located.area.id, key: located.key)
             return .success(())
         }
 
@@ -1621,7 +1621,7 @@ enum MuxyAPI {
             guard let located = locate(tabIDString: tabIDString, appState: appState) else {
                 return .failure(.browserTabNotFound(tabIDString))
             }
-            appState.closeTab(located.tabID, areaID: located.areaID, projectID: located.projectID)
+            appState.closeTab(located.tabID, areaID: located.areaID, key: located.key)
             return .success(())
         }
 
@@ -1647,7 +1647,7 @@ enum MuxyAPI {
             let state: BrowserTabState
             let tabID: UUID
             let areaID: UUID
-            let projectID: UUID
+            let key: WorktreeKey
         }
 
         private static func locate(tabIDString: String, appState: AppState) -> Located? {
@@ -1656,7 +1656,7 @@ enum MuxyAPI {
                 for area in root.allAreas() {
                     for tab in area.tabs where tab.id == id {
                         guard let state = tab.content.browserState else { return nil }
-                        return Located(state: state, tabID: tab.id, areaID: area.id, projectID: key.projectID)
+                        return Located(state: state, tabID: tab.id, areaID: area.id, key: key)
                     }
                 }
             }

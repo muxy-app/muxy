@@ -123,6 +123,10 @@ enum WorkspaceReducer {
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
             TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
 
+        case let .closeTabInWorktree(key, areaID, tabID):
+            guard state.workspaceRoots[key] != nil else { break }
+            TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
+
         case let .selectTab(projectID, areaID, tabID):
             TabReducer.selectTab(projectID: projectID, areaID: areaID, tabID: tabID, state: &state)
 

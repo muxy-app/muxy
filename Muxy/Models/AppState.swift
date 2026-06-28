@@ -40,6 +40,7 @@ final class AppState {
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
         case createBrowserTab(projectID: UUID, areaID: UUID?, url: URL?, profileID: UUID)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
+        case closeTabInWorktree(key: WorktreeKey, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, index: Int)
         case selectNextTab(projectID: UUID)
@@ -73,7 +74,7 @@ final class AppState {
     private(set) var worktreeMRU: [WorktreeKey] = []
 
     struct PendingTabClose: Equatable {
-        let projectID: UUID
+        let key: WorktreeKey
         let areaID: UUID
         let tabID: UUID
     }
@@ -348,19 +349,28 @@ final class AppState {
     }
 
     func closeTab(_ tabID: UUID, projectID: UUID) {
-        guard let area = focusedArea(for: projectID) else { return }
-        closeTab(tabID, areaID: area.id, projectID: projectID)
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
+              let areaID = focusedAreaID[key],
+              let area = root.findArea(id: areaID)
+        else { return }
+        closeTab(tabID, areaID: area.id, key: key)
     }
 
     func closeTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        guard let surfaceKey = lifecycleSurfaceKey(tabID: tabID, areaID: areaID, projectID: projectID) else {
-            proceedCloseAfterVeto(tabID, areaID: areaID, projectID: projectID)
+        guard let key = activeWorktreeKey(for: projectID) else { return }
+        closeTab(tabID, areaID: areaID, key: key)
+    }
+
+    func closeTab(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
+        guard let surfaceKey = lifecycleSurfaceKey(tabID: tabID, areaID: areaID, key: key) else {
+            proceedCloseAfterVeto(tabID, areaID: areaID, key: key)
             return
         }
         Task { @MainActor in
             let verdict = await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
             guard verdict == .allow else { return }
-            proceedCloseAfterVeto(tabID, areaID: areaID, projectID: projectID)
+            proceedCloseAfterVeto(tabID, areaID: areaID, key: key)
         }
     }
 
@@ -370,34 +380,38 @@ final class AppState {
         }
     }
 
-    private func proceedCloseAfterVeto(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        if needsProcessConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
-            pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
+    private func proceedCloseAfterVeto(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
+        if needsProcessConfirmation(tabID: tabID, areaID: areaID, key: key) {
+            pendingProcessTabClose = PendingTabClose(key: key, areaID: areaID, tabID: tabID)
             return
         }
-        closeTabWithLastCheck(tabID, areaID: areaID, projectID: projectID)
+        closeTabWithLastCheck(tabID, areaID: areaID, key: key)
     }
 
     func forceCloseTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        clearPendingProcessCloseIfMatching(tabID: tabID, areaID: areaID, projectID: projectID)
-        unpinTabIfNeeded(tabID, areaID: areaID, projectID: projectID)
-        dispatch(.closeTab(projectID: projectID, areaID: areaID, tabID: tabID))
+        guard let key = activeWorktreeKey(for: projectID) else { return }
+        forceCloseTab(tabID, areaID: areaID, key: key)
+    }
+
+    func forceCloseTab(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
+        clearPendingProcessCloseIfMatching(tabID: tabID, areaID: areaID, key: key)
+        unpinTabIfNeeded(tabID, areaID: areaID, key: key)
+        dispatch(.closeTabInWorktree(key: key, areaID: areaID, tabID: tabID))
     }
 
     func forceCloseTab(instanceID: String) {
         for (key, root) in workspaceRoots {
             for area in root.allAreas() {
                 for tab in area.tabs where tab.content.extensionState?.id.uuidString == instanceID {
-                    forceCloseTab(tab.id, areaID: area.id, projectID: key.projectID)
+                    forceCloseTab(tab.id, areaID: area.id, key: key)
                     return
                 }
             }
         }
     }
 
-    private func lifecycleSurfaceKey(tabID: UUID, areaID: UUID, projectID: UUID) -> LifecycleSurfaceKey? {
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key],
+    private func lifecycleSurfaceKey(tabID: UUID, areaID: UUID, key: WorktreeKey) -> LifecycleSurfaceKey? {
+        guard let root = workspaceRoots[key],
               let area = root.findArea(id: areaID),
               let tab = area.tabs.first(where: { $0.id == tabID }),
               let state = tab.content.extensionState
@@ -408,27 +422,27 @@ final class AppState {
     func confirmCloseRunningTab() {
         guard let pending = pendingProcessTabClose else { return }
         pendingProcessTabClose = nil
-        closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+        closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, key: pending.key)
     }
 
     func cancelCloseRunningTab() {
         pendingProcessTabClose = nil
     }
 
-    private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
+    private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
         if !ProjectLifecyclePreferences.keepOpenWhenNoTabs,
-           isLastTabInProject(tabID, areaID: areaID, projectID: projectID)
+           isLastTabInWorktree(tabID, areaID: areaID, key: key)
         {
-            pendingLastTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
+            pendingLastTabClose = PendingTabClose(key: key, areaID: areaID, tabID: tabID)
             return
         }
-        dispatch(.closeTab(projectID: projectID, areaID: areaID, tabID: tabID))
+        dispatch(.closeTabInWorktree(key: key, areaID: areaID, tabID: tabID))
     }
 
     func confirmCloseLastTab() {
         guard let pending = pendingLastTabClose else { return }
         pendingLastTabClose = nil
-        dispatch(.closeTab(projectID: pending.projectID, areaID: pending.areaID, tabID: pending.tabID))
+        dispatch(.closeTabInWorktree(key: pending.key, areaID: pending.areaID, tabID: pending.tabID))
     }
 
     func cancelCloseLastTab() {
@@ -505,9 +519,8 @@ final class AppState {
         return root.allAreas().first?.projectPath
     }
 
-    private func unpinTabIfNeeded(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key],
+    private func unpinTabIfNeeded(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
+        guard let root = workspaceRoots[key],
               let area = root.findArea(id: areaID),
               let tab = area.tabs.first(where: { $0.id == tabID }),
               tab.isPinned
@@ -515,19 +528,16 @@ final class AppState {
         area.togglePin(tabID)
     }
 
-    private func isLastTabInProject(_ tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key]
-        else { return false }
+    private func isLastTabInWorktree(_ tabID: UUID, areaID: UUID, key: WorktreeKey) -> Bool {
+        guard let root = workspaceRoots[key] else { return false }
         let allAreas = root.allAreas()
         let totalTabs = allAreas.reduce(0) { $0 + $1.tabs.count }
         return totalTabs <= 1
     }
 
-    private func needsProcessConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
+    private func needsProcessConfirmation(tabID: UUID, areaID: UUID, key: WorktreeKey) -> Bool {
         guard TabCloseConfirmationPreferences.confirmRunningProcess else { return false }
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key],
+        guard let root = workspaceRoots[key],
               let area = root.findArea(id: areaID),
               let tab = area.tabs.first(where: { $0.id == tabID }),
               let paneID = tab.content.pane?.id
@@ -772,9 +782,9 @@ final class AppState {
         roots.mapValues(\.id)
     }
 
-    private func clearPendingProcessCloseIfMatching(tabID: UUID, areaID: UUID, projectID: UUID) {
+    private func clearPendingProcessCloseIfMatching(tabID: UUID, areaID: UUID, key: WorktreeKey) {
         guard let pending = pendingProcessTabClose else { return }
-        guard pending.projectID == projectID,
+        guard pending.key == key,
               pending.areaID == areaID,
               pending.tabID == tabID
         else { return }
@@ -783,21 +793,20 @@ final class AppState {
 
     private func reconcilePendingClosures() {
         if let pending = pendingLastTabClose,
-           !tabExists(tabID: pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+           !tabExists(tabID: pending.tabID, areaID: pending.areaID, key: pending.key)
         {
             pendingLastTabClose = nil
         }
 
         if let pending = pendingProcessTabClose,
-           !tabExists(tabID: pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+           !tabExists(tabID: pending.tabID, areaID: pending.areaID, key: pending.key)
         {
             pendingProcessTabClose = nil
         }
     }
 
-    private func tabExists(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key],
+    private func tabExists(tabID: UUID, areaID: UUID, key: WorktreeKey) -> Bool {
+        guard let root = workspaceRoots[key],
               let area = root.findArea(id: areaID)
         else { return false }
         return area.tabs.contains(where: { $0.id == tabID })

@@ -139,6 +139,22 @@ struct MuxyAPITabsControlTests {
         #expect(target.customTitle == "Remote")
     }
 
+    @Test("close resolves a tab by ID in a non-active worktree")
+    func closeResolvesTabByIDInNonActiveWorktree() {
+        let (appState, _) = makeAppState(tabTitles: ["First"])
+        let projectID = appState.activeProjectID!
+        let otherKey = WorktreeKey(projectID: projectID, worktreeID: UUID())
+        let otherArea = TabArea(projectPath: testPath)
+        let secondTabID = otherArea.createTab()
+        appState.workspaceRoots[otherKey] = .tabArea(otherArea)
+        appState.focusedAreaID[otherKey] = otherArea.id
+
+        let result = MuxyAPI.Tabs.close(identifier: secondTabID.uuidString, appState: appState)
+
+        guard case .success = result else { Issue.record("expected success"); return }
+        #expect(!otherArea.tabs.contains { $0.id == secondTabID })
+    }
+
     @Test("an unknown identifier fails with tabNotFound")
     func unknownIdentifierFails() {
         let (appState, _) = makeAppState(tabTitles: ["First"])
