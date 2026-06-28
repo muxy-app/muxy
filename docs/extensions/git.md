@@ -90,6 +90,8 @@ const commits = await muxy.git.log({ maxCount: 50, skip: 0 });
 // [{ hash, shortHash, subject, authorName, authorDate, isMerge, parentHashes, refs: [{ name, kind }] }]
 ```
 
+`maxCount` defaults to `100` and `skip` to `0` when omitted.
+
 ### `muxy.git.branches(opts?)` · `muxy.git.remoteBranches(opts?)` · `muxy.git.currentBranch(opts?)` · `muxy.git.aheadBehind(opts?)`
 
 ```js
@@ -109,7 +111,7 @@ await muxy.git.pr.list({ filter: "open", limit: 50 });     // filter: open | clo
 await muxy.git.pr.list({ checks: false });                 // skip CI checks for a lighter, faster query
 ```
 
-`pr.number` is a cheap way to learn whether the current branch has a PR without fetching its full status. `pr.diff` fetches the PR head and returns the raw diff against its merge base. `pr.list` includes each PR's CI `checks` by default; pass `checks: false` to drop the `statusCheckRollup` field, which makes the underlying query much lighter and avoids GitHub timeouts (504) on large repositories. All require the GitHub CLI (`gh`) to be installed and authenticated.
+`pr.number` is a cheap way to learn whether the current branch has a PR without fetching its full status. `pr.diff` fetches the PR head and returns the raw diff against its merge base. `pr.list` defaults to `filter: "open"` and `limit: 100`, and includes each PR's CI `checks` by default; pass `checks: false` to drop the `statusCheckRollup` field, which makes the underlying query much lighter and avoids GitHub timeouts (504) on large repositories. All require the GitHub CLI (`gh`) to be installed and authenticated.
 
 ### `muxy.git.worktrees(opts?)`
 

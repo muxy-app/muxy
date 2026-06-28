@@ -148,7 +148,7 @@ window.muxy = {
     list(): Promise<PaneInfo[]>,
     send(paneID, text): Promise<void>,
     sendKeys(paneID, key): Promise<void>,
-    readScreen(paneID, lines?): Promise<string>,
+    readScreen(paneID, lines?): Promise<string>,   // lines defaults to 50, clamped to 1–500
     close(paneID): Promise<void>,
     rename(paneID, title): Promise<void>,
   },
@@ -175,6 +175,7 @@ interface ExecResult {
   stderr: string;
   exitCode: number;
   timedOut: boolean;
+  truncated: boolean;   // true when combined output exceeded the 10 MB cap
 }
 ```
 

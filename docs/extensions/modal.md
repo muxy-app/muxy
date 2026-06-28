@@ -34,7 +34,7 @@ muxy.modal.open({
 | `placeholder` | string | no | Search field placeholder. Defaults to `"Search..."`. |
 | `emptyLabel` | string | no | Message when there are no items. Defaults to `"No items"`. |
 | `noMatchLabel` | string | no | Message when the query matches nothing. Defaults to `"No matches"`. |
-| `searchToolbar` | boolean | no | Shows the footer search option toolbar (`Aa`, `W`, `.*`) when `true`. Defaults to `false`. |
+| `searchToolbar` | boolean | no | Shows the footer search option toolbar (`Aa`, `W`, `.*`) when `true`. Defaults to `false`. Honored on `runScript` and background surfaces; the webview-page bridge currently ignores it. |
 
 Each item:
 

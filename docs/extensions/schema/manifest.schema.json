@@ -229,6 +229,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/panelHeaderButton" }
         },
+        "hideTopbar": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the entire panel header (icon, title, controls, and header buttons). The webview fills the whole panel."
+        },
         "defaultData": {}
       }
     },

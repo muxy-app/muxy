@@ -21,8 +21,12 @@ drive the same verbs the `muxy` CLI exposes.
    ```bash
    cd my-extension
    npm install
-   npm run dev      # rebuilds on every change
+   npm run build    # produces dist/ — the folder Muxy loads
    ```
+
+   `npm run dev` starts Vite's dev server for fast iteration, but Muxy loads
+   the built `dist/` folder, so run `npm run build` (and **Reload**) to see
+   changes in the app.
 3. Click **Reload** in the Extensions modal, then press **⌘⇧H** (or use the
    topbar **sparkles** icon). The **Hello** panel toggles — that's your extension
    running.

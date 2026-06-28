@@ -15,8 +15,8 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `panes:write` | `split-right`, `split-down`, `send`, `send-keys`, `close-pane`, `rename-pane`. Split requests with a startup command also require `commands:exec`. |
 | `tabs:read` | `list-tabs` |
 | `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab`. Opening a terminal tab with a startup `command` also prompts for runtime consent. |
-| `browser:read` | `browser.list`, `browser.read` — see [Browser](browser.md). |
-| `browser:write` | `browser.open`, `browser.navigate`, `browser.close` — see [Browser](browser.md). |
+| `browser:read` | Read-only browser calls: `browser.list`, `browser.read`, `browser.waitFor`, `browser.waitForNavigation`, `browser.wait` (without `{ function }`), `browser.screenshot`, `browser.getText`, `browser.getHTML`, `browser.getValue`, `browser.getAttribute`, `browser.getCount`, `browser.is`, `browser.find`, `browser.snapshot`, `browser.storage.get`, `browser.cookies.get` — see [Browser](browser.md). |
+| `browser:write` | Mutating browser calls: `browser.open`, `browser.navigate`, `browser.close`, `browser.reload`, `browser.back`, `browser.forward`, `browser.eval`, `browser.click`, `browser.type`, `browser.fill`, `browser.press`, `browser.select`, `browser.hover`, `browser.scrollIntoView`, `browser.setChecked`, `browser.storage.set`, `browser.storage.clear`, `browser.cookies.set`, `browser.cookies.delete`, `browser.cookies.clear`, and `browser.wait` with a `{ function }` condition (runs page JS) — see [Browser](browser.md). |
 | `projects:read` | `list-projects`. Also required to subscribe to the `projects.changed` [event](events.md). |
 | `projects:write` | `switch-project`, `projects.add`, `projects.rename`, `projects.setColor`, `projects.setIcon`, `projects.setLogo`, `projects.reorder` |
 | `projects:delete` | `projects.delete` |
