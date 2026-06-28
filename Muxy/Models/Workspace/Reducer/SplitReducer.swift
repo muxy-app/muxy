@@ -4,9 +4,17 @@ import Foundation
 enum SplitReducer {
     @discardableResult
     static func splitArea(_ request: AppState.SplitAreaRequest, state: inout WorkspaceState) -> UUID? {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: request.projectID, state: state),
-              let root = state.workspaceRoots[key]
-        else { return nil }
+        guard let key = WorkspaceReducerShared.activeKey(projectID: request.projectID, state: state) else { return nil }
+        return splitArea(request, key: key, state: &state)
+    }
+
+    @discardableResult
+    static func splitArea(
+        _ request: AppState.SplitAreaRequest,
+        key: WorktreeKey,
+        state: inout WorkspaceState
+    ) -> UUID? {
+        guard let root = state.workspaceRoots[key] else { return nil }
         let (newRoot, newAreaID) = root.splitting(
             areaID: request.areaID,
             direction: request.direction,

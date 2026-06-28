@@ -108,6 +108,14 @@ muxy previous-tab            # cycle backward
 
 Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `next-tab`/`previous-tab` only for relative cycling. List first with `muxy list-tabs` when you need the index or ID.
 
+`new-tab`, `list-tabs`, `switch-tab`, `next-tab`, `previous-tab`, and `split-right`/`split-down` accept `--project <name|id|path>` and `--worktree <name|id|branch>` to target a specific worktree. Both are optional: with neither they act on the active worktree; `--worktree` alone resolves in the active project, then searches all projects for a unique match (ambiguous — pass `--project`); `--project` alone uses that project's active/preferred worktree; both are explicit. Targeting acts in the target worktree's background workspace — your visible view stays put. Use `switch-project`/`switch-worktree` to actually move focus.
+
+```bash
+muxy new-tab --worktree feature/login        # tab created in that worktree, your view stays put
+muxy list-tabs --project "My App" --worktree main
+muxy switch-tab 2 --worktree feature/login
+```
+
 Customize and manage a tab with `muxy tab <op> <index|id|title>`. The target resolves the same way as `switch-tab` — by index or title within the active worktree, or by tab ID anywhere across open workspaces:
 
 ```bash
@@ -164,6 +172,13 @@ muxy browser cookies delete "$TAB" session
 
 **Headless by default.** Every browser command — including `screenshot`, `eval`, DOM reads, clicks, and navigation — works on any open tab in the active project **without that tab being visible or focused**. You can drive a browser tab from a terminal tab and never leave your view; there is no need to `switch-tab` to it first. `screenshot` renders the page off-screen, so it captures real content even for a backgrounded tab.
 
+`browser open` and `browser list` accept `--project <name|id|path>` and `--worktree <name|id|branch>` to target a specific worktree (same resolution as Tabs; both optional). The tab opens in the target worktree's background workspace — your visible view stays put. Use `switch-project`/`switch-worktree` to actually move focus.
+
+```bash
+muxy browser open localhost:3000 --worktree feature/login
+muxy browser list --worktree feature/login
+```
+
 Run `browser open` with no URL to open the configured home page (blank by default). Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. After navigating, give the page a moment to load (`wait-for`, `wait-for-navigation`, or a `wait` condition) before reading. Cookies are shared by all tabs on the same profile. If the built-in browser is disabled in Settings, browser actions return an error and `browser list` returns no tabs.
 
 ## Install the skills into your AI harnesses
@@ -177,6 +192,7 @@ Run `browser open` with no URL to open the configured home page (blank by defaul
 - **The socket is local to your macOS user.** It grants no extra privileges, but any process running as your user can drive the workspace while Muxy is open. Don't pipe untrusted input into `muxy send`, and be mindful that `read-screen` can surface sensitive output. See the **Security model** section of the docs.
 - **Prefer switching to creating.** `switch-project` / `switch-worktree` select an existing entry; opening a path that is already open selects it rather than duplicating it. Reach for `create-worktree` / `new-tab` only when nothing suitable exists.
 - **Leave the user's focus where they expect it.** You share the visible workspace — name panes you create (`rename-pane`) so the user can tell what is yours, and close them (`close-pane`) when the work is done.
+- **Targeting a worktree (`--project`/`--worktree`) never moves the user's visible workspace** — the action runs in the target's background workspace; use `switch-*` to actually change focus.
 
 ## Checklist
 
@@ -185,3 +201,4 @@ Run `browser open` with no URL to open the configured home page (blank by defaul
 - [ ] Parsed list output by the first (ID) column, not by a possibly-duplicate title.
 - [ ] Used `send` for text and `send-keys` for one supported key; quoted commands with spaces/operators.
 - [ ] Named panes you create and closed them when finished, so the shared workspace stays legible.
+- [ ] Remembered that targeting a worktree (`--project`/`--worktree`) never moves the user's visible workspace; used `switch-*` to actually change focus.

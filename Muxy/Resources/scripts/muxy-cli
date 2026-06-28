@@ -29,6 +29,11 @@
 #   muxy tab move <tab> <to-index>             Reorder a tab within its area
 #   muxy install-skills [skills args...]       Install Muxy agent skills into detected AI harnesses
 #
+# Worktree targeting:
+#   new-tab, list-tabs, switch-tab, next-tab, previous-tab, split-right, split-down,
+#   browser open and browser list accept [--project <name|id|path>] and
+#   [--worktree <name|id|branch>] to act on a specific worktree without moving your view.
+#
 # Run "muxy <command> --help" for the options of a single command.
 
 COMMAND="$1"
@@ -37,8 +42,8 @@ NC_TIMEOUT="${MUXY_CLI_TIMEOUT:-10}"
 
 usage_for() {
     case "$1" in
-        split-right)       echo "muxy split-right [--from <id>] [cmd...]" ;;
-        split-down)        echo "muxy split-down [--from <id>] [cmd...]" ;;
+        split-right)       echo "muxy split-right [--from <id>] [--project <p>] [--worktree <w>] [cmd...]" ;;
+        split-down)        echo "muxy split-down [--from <id>] [--project <p>] [--worktree <w>] [cmd...]" ;;
         send)              echo "muxy send --pane <id> <text>" ;;
         send-keys)         echo "muxy send-keys --pane <id> <key>" ;;
         read-screen)       echo "muxy read-screen --pane <id> [--lines N]" ;;
@@ -51,11 +56,11 @@ usage_for() {
         create-worktree)   echo "muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" ;;
         switch-worktree)   echo "muxy switch-worktree <name|id|path> [--project <name|id|path>]" ;;
         refresh-worktrees) echo "muxy refresh-worktrees [project]" ;;
-        list-tabs)         echo "muxy list-tabs" ;;
-        switch-tab)        echo "muxy switch-tab <index|id|title>" ;;
-        new-tab)           echo "muxy new-tab" ;;
-        next-tab)          echo "muxy next-tab" ;;
-        previous-tab)      echo "muxy previous-tab" ;;
+        list-tabs)         echo "muxy list-tabs [--project <p>] [--worktree <w>]" ;;
+        switch-tab)        echo "muxy switch-tab <index|id|title> [--project <p>] [--worktree <w>]" ;;
+        new-tab)           echo "muxy new-tab [--project <p>] [--worktree <w>]" ;;
+        next-tab)          echo "muxy next-tab [--project <p>] [--worktree <w>]" ;;
+        previous-tab)      echo "muxy previous-tab [--project <p>] [--worktree <w>]" ;;
         tab)               echo "muxy tab <rename|set-color|set-icon|pin|unpin|close|move> <index|id|title> [args...]" ;;
         browser)           echo "muxy browser <open|navigate|list|read|close|eval|click|type|fill|press|select|hover|check|uncheck|scroll-into-view|wait|wait-for|wait-for-navigation|get-text|get-html|get-value|get-attribute|get-count|is|find|snapshot|reload|back|forward|screenshot|storage|cookies> [args...]" ;;
         install-skills)    echo "muxy install-skills [skills args...]" ;;
@@ -98,6 +103,8 @@ usage() {
     echo "  muxy new-tab                             Create a terminal tab"
     echo "  muxy next-tab                            Switch to next tab"
     echo "  muxy previous-tab                        Switch to previous tab"
+    echo "                                           tab/split/browser commands accept [--project <p>] [--worktree <w>]"
+    echo "                                           to target another worktree without moving your view"
     echo "  muxy tab rename <tab> [title]            Rename a tab (omit title to reset)"
     echo "  muxy tab set-color <tab> [color]         Set a tab color (omit to reset); colors:"
     echo "                                           red orange amber yellow lime green teal cyan blue indigo violet pink"
@@ -228,9 +235,43 @@ api_timeout_for_ms() {
     echo $(( ms / 1000 + NC_TIMEOUT ))
 }
 
+extract_target_flags() {
+    TARGET_PROJECT=""
+    TARGET_WORKTREE=""
+    TARGET_REST=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project)
+                [ $# -lt 2 ] && return 1
+                TARGET_PROJECT="$2"
+                shift 2
+                ;;
+            --worktree)
+                [ $# -lt 2 ] && return 1
+                TARGET_WORKTREE="$2"
+                shift 2
+                ;;
+            *)
+                TARGET_REST+=("$1")
+                shift
+                ;;
+        esac
+    done
+    return 0
+}
+
+target_suffix() {
+    local suffix=""
+    [ -n "$TARGET_PROJECT" ] && suffix="$suffix|--project|$TARGET_PROJECT"
+    [ -n "$TARGET_WORKTREE" ] && suffix="$suffix|--worktree|$TARGET_WORKTREE"
+    printf '%s' "$suffix"
+}
+
 case "$COMMAND" in
     split-right)
         shift
+        extract_target_flags "$@" || die_usage split-right
+        set -- "${TARGET_REST[@]}"
         FROM="${MUXY_PANE_ID:-}"
         CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
@@ -245,14 +286,16 @@ case "$COMMAND" in
             esac
         done
         CMD="${CMD_ARGS[*]}"
-        if [ -n "$CMD" ] || [ -n "$FROM" ]; then
-            send_command "split-right|$FROM|$CMD"
+        if [ -n "$CMD" ] || [ -n "$FROM" ] || [ -n "$(target_suffix)" ]; then
+            send_command "split-right|$FROM|$CMD$(target_suffix)"
         else
             send_command "split-right"
         fi
         ;;
     split-down)
         shift
+        extract_target_flags "$@" || die_usage split-down
+        set -- "${TARGET_REST[@]}"
         FROM="${MUXY_PANE_ID:-}"
         CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
@@ -267,8 +310,8 @@ case "$COMMAND" in
             esac
         done
         CMD="${CMD_ARGS[*]}"
-        if [ -n "$CMD" ] || [ -n "$FROM" ]; then
-            send_command "split-down|$FROM|$CMD"
+        if [ -n "$CMD" ] || [ -n "$FROM" ] || [ -n "$(target_suffix)" ]; then
+            send_command "split-down|$FROM|$CMD$(target_suffix)"
         else
             send_command "split-down"
         fi
@@ -467,28 +510,37 @@ case "$COMMAND" in
         fi
         ;;
     list-tabs)
-        wants_help "$2" && print_command_help list-tabs
-        send_command "list-tabs"
+        shift
+        wants_help "$1" && print_command_help list-tabs
+        extract_target_flags "$@" || die_usage list-tabs
+        send_command "list-tabs$(target_suffix)"
         ;;
     switch-tab)
         shift
         wants_help "$1" && print_command_help switch-tab
-        if [ $# -lt 1 ]; then
+        extract_target_flags "$@" || die_usage switch-tab
+        if [ ${#TARGET_REST[@]} -lt 1 ]; then
             die_usage switch-tab
         fi
-        send_command "switch-tab|$*"
+        send_command "switch-tab|${TARGET_REST[*]}$(target_suffix)"
         ;;
     new-tab)
-        wants_help "$2" && print_command_help new-tab
-        send_command "new-tab"
+        shift
+        wants_help "$1" && print_command_help new-tab
+        extract_target_flags "$@" || die_usage new-tab
+        send_command "new-tab$(target_suffix)"
         ;;
     next-tab)
-        wants_help "$2" && print_command_help next-tab
-        send_command "next-tab"
+        shift
+        wants_help "$1" && print_command_help next-tab
+        extract_target_flags "$@" || die_usage next-tab
+        send_command "next-tab$(target_suffix)"
         ;;
     previous-tab)
-        wants_help "$2" && print_command_help previous-tab
-        send_command "previous-tab"
+        shift
+        wants_help "$1" && print_command_help previous-tab
+        extract_target_flags "$@" || die_usage previous-tab
+        send_command "previous-tab$(target_suffix)"
         ;;
     tab)
         shift
@@ -562,6 +614,8 @@ case "$COMMAND" in
         shift || true
         case "$SUB" in
             open)
+                extract_target_flags "$@" || die_usage browser
+                set -- "${TARGET_REST[@]}"
                 URL=""
                 SPLIT=""
                 HAS_URL=""
@@ -576,14 +630,14 @@ case "$COMMAND" in
                 done
                 if [ -n "$SPLIT" ]; then
                     if [ -n "$HAS_URL" ]; then
-                        send_command "browser.open|$URL|$SPLIT"
+                        send_command "browser.open|$URL|$SPLIT$(target_suffix)"
                     else
-                        send_command "browser.open|$SPLIT"
+                        send_command "browser.open|$SPLIT$(target_suffix)"
                     fi
                 elif [ -n "$HAS_URL" ]; then
-                    send_command "browser.open|$URL"
+                    send_command "browser.open|$URL$(target_suffix)"
                 else
-                    send_command "browser.open"
+                    send_command "browser.open$(target_suffix)"
                 fi
                 ;;
             navigate)
@@ -591,7 +645,8 @@ case "$COMMAND" in
                 send_command "browser.navigate|$1|$2"
                 ;;
             list)
-                send_command "browser.list"
+                extract_target_flags "$@" || die_usage browser
+                send_command "browser.list$(target_suffix)"
                 ;;
             read)
                 [ $# -lt 1 ] && die_usage browser

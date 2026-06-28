@@ -39,13 +39,19 @@ final class AppState {
         case createCommandTab(CommandTabRequest)
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
         case createBrowserTab(projectID: UUID, areaID: UUID?, url: URL?, profileID: UUID)
+        case createTabInWorktree(key: WorktreeKey, areaID: UUID?)
+        case createBrowserTabInWorktree(key: WorktreeKey, areaID: UUID?, url: URL?, profileID: UUID)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case closeTabInWorktree(key: WorktreeKey, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
+        case selectTabInWorktree(key: WorktreeKey, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, index: Int)
         case selectNextTab(projectID: UUID)
         case selectPreviousTab(projectID: UUID)
+        case selectNextTabInWorktree(key: WorktreeKey)
+        case selectPreviousTabInWorktree(key: WorktreeKey)
         case splitArea(SplitAreaRequest)
+        case splitAreaInWorktree(key: WorktreeKey, request: SplitAreaRequest)
         case closeArea(projectID: UUID, areaID: UUID)
         case focusArea(projectID: UUID, areaID: UUID)
         case focusPaneLeft(projectID: UUID)
@@ -225,6 +231,17 @@ final class AppState {
     func allAreas(for projectID: UUID) -> [TabArea] {
         guard let key = activeWorktreeKey(for: projectID) else { return [] }
         return workspaceRoots[key]?.allAreas() ?? []
+    }
+
+    @discardableResult
+    func ensureWorkspace(projectID: UUID, worktreeID: UUID, worktreePath: String) -> WorktreeKey {
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        guard workspaceRoots[key] == nil else { return key }
+        let area = TabArea(projectPath: worktreePath)
+        workspaceRoots[key] = .tabArea(area)
+        focusedAreaID[key] = area.id
+        saveWorkspaces()
+        return key
     }
 
     func areas(for key: WorktreeKey) -> [TabArea] {

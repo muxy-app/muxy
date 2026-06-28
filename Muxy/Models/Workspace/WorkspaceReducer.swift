@@ -119,6 +119,20 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .createTabInWorktree(key, areaID):
+            guard state.workspaceRoots[key] != nil else { break }
+            effects.createdTabID = TabReducer.createTab(key: key, areaID: areaID, state: &state)
+
+        case let .createBrowserTabInWorktree(key, areaID, url, profileID):
+            guard state.workspaceRoots[key] != nil else { break }
+            effects.createdTabID = TabReducer.createBrowserTab(
+                key: key,
+                areaID: areaID,
+                url: url,
+                profileID: profileID,
+                state: &state
+            )
+
         case let .closeTab(projectID, areaID, tabID):
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
             TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
@@ -130,6 +144,10 @@ enum WorkspaceReducer {
         case let .selectTab(projectID, areaID, tabID):
             TabReducer.selectTab(projectID: projectID, areaID: areaID, tabID: tabID, state: &state)
 
+        case let .selectTabInWorktree(key, areaID, tabID):
+            guard state.workspaceRoots[key] != nil else { break }
+            TabReducer.selectTab(key: key, areaID: areaID, tabID: tabID, state: &state)
+
         case let .selectTabByIndex(projectID, index):
             TabReducer.selectTabByIndex(projectID: projectID, index: index, state: &state)
 
@@ -139,8 +157,20 @@ enum WorkspaceReducer {
         case let .selectPreviousTab(projectID):
             TabReducer.selectPreviousTab(projectID: projectID, state: state)
 
+        case let .selectNextTabInWorktree(key):
+            guard state.workspaceRoots[key] != nil else { break }
+            TabReducer.selectNextTab(key: key, state: state)
+
+        case let .selectPreviousTabInWorktree(key):
+            guard state.workspaceRoots[key] != nil else { break }
+            TabReducer.selectPreviousTab(key: key, state: state)
+
         case let .splitArea(request):
             effects.createdPaneID = SplitReducer.splitArea(request, state: &state)
+
+        case let .splitAreaInWorktree(key, request):
+            guard state.workspaceRoots[key] != nil else { break }
+            effects.createdPaneID = SplitReducer.splitArea(request, key: key, state: &state)
 
         case let .closeArea(projectID, areaID):
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }

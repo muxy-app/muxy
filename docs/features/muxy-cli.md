@@ -166,6 +166,8 @@ Split from a different pane with `--from`:
 muxy split-right --from "$PANE" "npm test"
 ```
 
+`split-right` and `split-down` also accept `--project` and `--worktree` to split a pane in another worktree's workspace without leaving your current view. See [Targeting a project or worktree](#targeting-a-project-or-worktree).
+
 ### List panes
 
 ```bash
@@ -255,6 +257,8 @@ Output is tab-separated:
 <index>  <tab-id>  <kind>  <title>  <active>
 ```
 
+Add `--project` or `--worktree` to list the tabs of another worktree. See [Targeting a project or worktree](#targeting-a-project-or-worktree).
+
 ### Switch and create tabs
 
 Switch tabs by index, ID, or title:
@@ -270,11 +274,36 @@ Create a new terminal tab:
 muxy new-tab
 ```
 
+`new-tab`, `switch-tab`, and the navigation commands take `--project` and `--worktree` to act on another worktree; `new-tab` returns the new tab's ID so you can address it later. See [Targeting a project or worktree](#targeting-a-project-or-worktree).
+
 Move through tabs:
 
 ```bash
 muxy next-tab
 muxy previous-tab
+```
+
+### Targeting a project or worktree
+
+`new-tab`, `list-tabs`, `switch-tab`, `next-tab`, `previous-tab`, `split-right`, `split-down`, `browser open`, and `browser list` accept two optional flags to choose where the action runs:
+
+- `--project <name|id|path>` — target a specific project
+- `--worktree <name|id|branch>` — target a specific worktree
+
+Resolution rules (both flags are optional):
+
+- Neither flag: acts on the active worktree, exactly as before.
+- `--worktree` only: resolves the worktree in the active project; if it is not there, Muxy searches all projects for a unique match by name, branch, or ID. If the match is ambiguous across projects, the command errors — pass `--project` to disambiguate.
+- `--project` only: targets that project's active worktree.
+- Both: targets the worktree in the given project explicitly.
+
+Targeting a worktree does not move or switch your visible workspace. The action runs in the target worktree's workspace in the background, even when it belongs to a different project than the one you are looking at, and the created tab or browser tab is addressable by its returned ID. To actually move your view, run `switch-project` or `switch-worktree`. This keeps your focus where you expect it.
+
+```bash
+muxy new-tab --worktree feature/login
+muxy list-tabs --project "My App" --worktree main
+muxy browser open localhost:3000 --worktree feature/login
+muxy split-right --worktree feature/login npm test
 ```
 
 ## Browser control
@@ -290,6 +319,8 @@ muxy browser read "$TAB"
 muxy browser navigate "$TAB" "https://muxy.app"
 muxy browser close "$TAB"
 ```
+
+`browser open` and `browser list` accept `--project` and `--worktree` to open or list browser tabs in another worktree's workspace. The opened tab's ID still comes back, so you can read or automate it without switching views. See [Targeting a project or worktree](#targeting-a-project-or-worktree).
 
 Automate the page:
 

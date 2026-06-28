@@ -3,9 +3,12 @@ import Foundation
 @MainActor
 enum TabReducer {
     static func createTab(projectID: UUID, areaID: UUID?, state: inout WorkspaceState) -> UUID? {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return nil }
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return nil }
+        return createTab(key: key, areaID: areaID, state: &state)
+    }
+
+    static func createTab(key: WorktreeKey, areaID: UUID?, state: inout WorkspaceState) -> UUID? {
+        guard let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state) else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
         return area.createTab()
     }
@@ -89,8 +92,18 @@ enum TabReducer {
         profileID: UUID,
         state: inout WorkspaceState
     ) -> UUID? {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return nil }
+        return createBrowserTab(key: key, areaID: areaID, url: url, profileID: profileID, state: &state)
+    }
+
+    static func createBrowserTab(
+        key: WorktreeKey,
+        areaID: UUID?,
+        url: URL?,
+        profileID: UUID,
+        state: inout WorkspaceState
+    ) -> UUID? {
         guard BrowserPreferences.isEnabled,
-              let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
         else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
@@ -98,9 +111,12 @@ enum TabReducer {
     }
 
     static func selectTab(projectID: UUID, areaID: UUID?, tabID: UUID, state: inout WorkspaceState) {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return }
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return }
+        selectTab(key: key, areaID: areaID, tabID: tabID, state: &state)
+    }
+
+    static func selectTab(key: WorktreeKey, areaID: UUID?, tabID: UUID, state: inout WorkspaceState) {
+        guard let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state) else { return }
         FocusReducer.focusArea(area.id, key: key, state: &state)
         area.selectTab(tabID)
     }
@@ -124,16 +140,22 @@ enum TabReducer {
     }
 
     static func selectNextTab(projectID: UUID, state: WorkspaceState) {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: nil, state: state)
-        else { return }
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return }
+        selectNextTab(key: key, state: state)
+    }
+
+    static func selectNextTab(key: WorktreeKey, state: WorkspaceState) {
+        guard let area = WorkspaceReducerShared.resolveArea(key: key, areaID: nil, state: state) else { return }
         area.selectNextTab()
     }
 
     static func selectPreviousTab(projectID: UUID, state: WorkspaceState) {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: nil, state: state)
-        else { return }
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return }
+        selectPreviousTab(key: key, state: state)
+    }
+
+    static func selectPreviousTab(key: WorktreeKey, state: WorkspaceState) {
+        guard let area = WorkspaceReducerShared.resolveArea(key: key, areaID: nil, state: state) else { return }
         area.selectPreviousTab()
     }
 
