@@ -335,6 +335,14 @@ struct SocketCommandHandlerTests {
         #expect(parsed.remaining == ["2"])
     }
 
+    @Test("parseTargetFlags only consumes trailing flags, preserving flag-like values")
+    func parseTargetFlagsPreservesFlagLikeValues() {
+        let parsed = SocketCommandHandler.parseTargetFlags(["https://x.com/--project/p", "--worktree", "feature"])
+        #expect(parsed.project == nil)
+        #expect(parsed.worktree == "feature")
+        #expect(parsed.remaining == ["https://x.com/--project/p"])
+    }
+
     @Test("new-tab --worktree creates tab in target without switching active worktree")
     func newTabTargetsWorktree() async {
         let project = Project(name: "Test Project", path: testPath)
@@ -427,6 +435,31 @@ struct SocketCommandHandlerTests {
         #expect(appState.activeWorktreeID[project.id] == primary.id)
         let featureKey = WorktreeKey(projectID: project.id, worktreeID: feature.id)
         #expect(appState.areas(for: featureKey).first?.tabs.contains { $0.id == tabID } == true)
+    }
+
+    @Test("browser open --split --worktree opens the tab in the focused area, not the new split pane")
+    func browserOpenSplitTargetsFocusedArea() async throws {
+        let project = Project(name: "Test Project", path: testPath)
+        let primary = Worktree(name: project.name, path: project.path, isPrimary: true)
+        let feature = Worktree(name: "Feature", path: "/tmp/feature", branch: "feature", isPrimary: false)
+        let appState = makeAppState(projectID: project.id, worktreeID: primary.id)
+        let stores = makeStores(projects: [project], worktrees: [project.id: [primary, feature]])
+
+        let result = await SocketCommandHandler.handleRequest(
+            "browser.open|https://example.com|--split|--worktree|feature",
+            appState: appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore
+        )
+
+        let tabID = try #require(UUID(uuidString: result))
+        let featureKey = WorktreeKey(projectID: project.id, worktreeID: feature.id)
+        let areas = appState.areas(for: featureKey)
+        #expect(areas.count == 2)
+        let hostingArea = try #require(areas.first { $0.tabs.contains { $0.id == tabID } })
+        #expect(hostingArea.tabs.contains { $0.content.pane != nil })
+        let splitArea = try #require(areas.first { $0.id != hostingArea.id })
+        #expect(splitArea.tabs.allSatisfy { $0.content.browserState == nil })
     }
 
     @Test("split-right --worktree splits the target worktree")

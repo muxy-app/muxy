@@ -1110,7 +1110,9 @@ enum MuxyAPI {
             } else {
                 return .failure(.noActiveProject)
             }
-            guard let root = appState.workspaceRoots[key] else { return .failure(.noActiveProject) }
+            guard let root = appState.workspaceRoots[key] else {
+                return .failure(target == nil ? .noActiveProject : .noActiveWorkspace)
+            }
 
             let focusedAreaID = appState.focusedAreaID[key]
             var index = 0
@@ -1627,9 +1629,8 @@ enum MuxyAPI {
             target: WorktreeTarget,
             appState: AppState
         ) -> Result<UUID, APIError> {
-            var areaID = target.areaID
             if split {
-                let paneID = appState.dispatchReturningEffects(.splitAreaInWorktree(
+                appState.dispatch(.splitAreaInWorktree(
                     key: target.key,
                     request: .init(
                         projectID: target.key.projectID,
@@ -1637,17 +1638,11 @@ enum MuxyAPI {
                         direction: .horizontal,
                         position: .second
                     )
-                )).createdPaneID
-                if let paneID,
-                   let newArea = appState.areas(for: target.key)
-                   .first(where: { $0.tabs.contains(where: { $0.content.pane?.id == paneID }) })
-                {
-                    areaID = newArea.id
-                }
+                ))
             }
             let effects = appState.dispatchReturningEffects(.createBrowserTabInWorktree(
                 key: target.key,
-                areaID: areaID,
+                areaID: target.areaID,
                 url: url,
                 profileID: profileID
             ))

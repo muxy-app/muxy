@@ -841,22 +841,19 @@ enum SocketCommandHandler {
     static func parseTargetFlags(_ parts: [String]) -> ParsedTarget {
         var project: String?
         var worktree: String?
-        var remaining: [String] = []
-        var index = 0
-        while index < parts.count {
-            switch parts[index] {
-            case "--project" where index + 1 < parts.count:
-                project = parts[index + 1]
-                index += 2
-            case "--worktree" where index + 1 < parts.count:
-                worktree = parts[index + 1]
-                index += 2
+        var end = parts.count
+        while end >= 2 {
+            switch parts[end - 2] {
+            case "--project":
+                project = parts[end - 1]
+            case "--worktree":
+                worktree = parts[end - 1]
             default:
-                remaining.append(parts[index])
-                index += 1
+                return ParsedTarget(project: project, worktree: worktree, remaining: Array(parts[0 ..< end]))
             }
+            end -= 2
         }
-        return ParsedTarget(project: project, worktree: worktree, remaining: remaining)
+        return ParsedTarget(project: project, worktree: worktree, remaining: Array(parts[0 ..< end]))
     }
 
     @MainActor
