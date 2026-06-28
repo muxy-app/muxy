@@ -1,3 +1,5 @@
+import AppKit
+import CoreGraphics
 import Foundation
 import WebKit
 
@@ -333,20 +335,89 @@ extension MuxyAPI.Browser {
         guard let resolved = await resolve(tabIDString: tabIDString, appState: appState, start: start) else {
             return surfaceFailure(tabIDString: tabIDString, start: start, appState: appState)
         }
-        let config = WKSnapshotConfiguration()
-        config.afterScreenUpdates = true
-        do {
-            let image = try await resolved.webView.takeSnapshot(configuration: config)
-            guard let tiff = image.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiff),
-                  let png = bitmap.representation(using: .png, properties: [:])
-            else {
-                return .failure(.underlying("could not encode screenshot"))
-            }
-            return .success(png.base64EncodedString())
-        } catch {
-            return .failure(.underlying(error.localizedDescription))
+        guard let png = await capturePNG(webView: resolved.webView) else {
+            return .failure(.browserTabSurfaceNotReady(
+                tabID: tabIDString,
+                waitedSeconds: (ContinuousClock.now - start).secondsValue
+            ))
         }
+        return .success(png.base64EncodedString())
+    }
+
+    private static let defaultSnapshotSize = CGSize(width: 1200, height: 800)
+    private static let captureTimeout: Duration = .seconds(8)
+
+    private static func capturePNG(webView: WKWebView) async -> Data? {
+        let rect = snapshotRect(for: webView)
+        guard let pdf = await createPDFWithTimeout(webView: webView, rect: rect) else {
+            return nil
+        }
+        return renderPDFToPNG(pdf, rect: rect)
+    }
+
+    private static func createPDFWithTimeout(webView: WKWebView, rect: CGRect) async -> Data? {
+        let config = WKPDFConfiguration()
+        config.rect = rect
+
+        let box = PDFResultBox()
+        let timeoutTask = Task { @MainActor in
+            try? await Task.sleep(for: captureTimeout)
+            box.resume(with: nil)
+        }
+        let data = await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            box.attach(continuation)
+            webView.createPDF(configuration: config) { result in
+                switch result {
+                case let .success(data): box.resume(with: data)
+                case .failure: box.resume(with: nil)
+                }
+            }
+        }
+        timeoutTask.cancel()
+        return data
+    }
+
+    private static func renderPDFToPNG(_ pdfData: Data, rect: CGRect) -> Data? {
+        guard let provider = CGDataProvider(data: pdfData as CFData),
+              let document = CGPDFDocument(provider),
+              let page = document.page(at: 1)
+        else { return nil }
+
+        let scale: CGFloat = 2
+        let pageRect = page.getBoxRect(.mediaBox)
+        let pixelWidth = Int(pageRect.width * scale)
+        let pixelHeight = Int(pageRect.height * scale)
+        guard pixelWidth > 0, pixelHeight > 0,
+              let context = CGContext(
+                  data: nil,
+                  width: pixelWidth,
+                  height: pixelHeight,
+                  bitsPerComponent: 8,
+                  bytesPerRow: 0,
+                  space: CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else { return nil }
+
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
+        context.scaleBy(x: scale, y: scale)
+        context.drawPDFPage(page)
+
+        guard let cgImage = context.makeImage() else { return nil }
+        let bitmap = NSBitmapImageRep(cgImage: cgImage)
+        return bitmap.representation(using: .png, properties: [:])
+    }
+
+    private static func snapshotRect(for webView: WKWebView) -> CGRect {
+        let bounds = webView.bounds
+        if bounds.width > 0, bounds.height > 0 {
+            return bounds
+        }
+        let fallback = webView.window?.contentView?.bounds.size
+            ?? AppDelegate.mainAppWindow()?.contentView?.bounds.size
+            ?? defaultSnapshotSize
+        return CGRect(origin: .zero, size: fallback)
     }
 
     static func storageGet(
@@ -710,6 +781,23 @@ private final class CookieResultBox {
 
     func take() -> [HTTPCookie]? {
         cookies
+    }
+}
+
+@MainActor
+private final class PDFResultBox {
+    private var continuation: CheckedContinuation<Data?, Never>?
+    private var resumed = false
+
+    func attach(_ continuation: CheckedContinuation<Data?, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(with data: Data?) {
+        guard !resumed else { return }
+        resumed = true
+        continuation?.resume(returning: data)
+        continuation = nil
     }
 }
 

@@ -24,13 +24,14 @@ final class NotificationSocketServer: @unchecked Sendable {
 
         var fd: Int32
         var pendingClose = false
+        var closeAfterFlush = false
         var commandInFlight = false
         var inFlightCommandCount = 0
         var extensionID: String?
         var subscriptions: Set<String> = []
         var writeBuffer = Data()
         var inputBuffer = Data()
-        var writeSource: DispatchSourceWrite?
+        var writeRetryScheduled = false
         var droppedNotificationCount = 0
 
         init(fd: Int32) {
@@ -62,11 +63,31 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     static var socketPath: String {
         MuxyFileStorage.appSupportDirectory()
-            .appendingPathComponent("muxy.sock")
+            .appendingPathComponent(socketFileName)
             .path
     }
 
-    private init() {}
+    private static var socketFileName: String {
+        #if DEBUG
+        "muxy-dev.sock"
+        #else
+        "muxy.sock"
+        #endif
+    }
+
+    private let socketPathOverride: String?
+
+    private var resolvedSocketPath: String {
+        socketPathOverride ?? Self.socketPath
+    }
+
+    private init() {
+        socketPathOverride = nil
+    }
+
+    init(socketPath: String) {
+        socketPathOverride = socketPath
+    }
 
     func start() {
         queue.async { [weak self] in
@@ -351,7 +372,7 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private func startListening() {
         defer { markListeningFinished() }
-        let path = Self.socketPath
+        let path = resolvedSocketPath
         unlink(path)
 
         serverFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -381,7 +402,10 @@ final class NotificationSocketServer: @unchecked Sendable {
 
         chmod(path, mode_t(FilePermissions.privateFile))
 
-        guard listen(serverFD, 5) == 0 else {
+        let serverFlags = fcntl(serverFD, F_GETFL, 0)
+        _ = fcntl(serverFD, F_SETFL, serverFlags | O_NONBLOCK)
+
+        guard listen(serverFD, SOMAXCONN) == 0 else {
             logger.error("Failed to listen on socket: \(String(cString: strerror(errno)))")
             close(serverFD)
             serverFD = -1
@@ -405,15 +429,26 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     private func acceptConnection() {
-        let clientFD = accept(serverFD, nil, nil)
-        guard clientFD >= 0 else { return }
+        while serverFD >= 0 {
+            let clientFD = accept(serverFD, nil, nil)
+            guard clientFD >= 0 else {
+                if errno == EINTR { continue }
+                return
+            }
 
-        let flags = fcntl(clientFD, F_GETFL, 0)
-        _ = fcntl(clientFD, F_SETFL, flags | O_NONBLOCK)
+            let flags = fcntl(clientFD, F_GETFL, 0)
+            _ = fcntl(clientFD, F_SETFL, flags | O_NONBLOCK)
 
-        let session = ClientSession(fd: clientFD)
-        queue.async { [weak self] in
-            self?.openSession(session)
+            var sendBufferSize = Int32(Self.maxMessageSize)
+            _ = setsockopt(
+                clientFD,
+                SOL_SOCKET,
+                SO_SNDBUF,
+                &sendBufferSize,
+                socklen_t(MemoryLayout<Int32>.size)
+            )
+
+            openSession(ClientSession(fd: clientFD))
         }
     }
 
@@ -614,6 +649,9 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     private func enqueueCommandReply(session: ClientSession, response: String, isExtensionSession: Bool) {
+        if !isExtensionSession {
+            session.closeAfterFlush = true
+        }
         enqueueData(session: session, data: Self.framedCommandReply(response: response, isExtensionSession: isExtensionSession))
     }
 
@@ -647,7 +685,7 @@ final class NotificationSocketServer: @unchecked Sendable {
                 continue
             }
             if written < 0, errno == EAGAIN || errno == EWOULDBLOCK {
-                scheduleWriteSource(session: session)
+                scheduleWriteRetry(session: session)
                 return
             }
             session.pendingClose = false
@@ -660,20 +698,21 @@ final class NotificationSocketServer: @unchecked Sendable {
                 session.fd = -1
             }
             session.pendingClose = false
+            return
+        }
+        if session.closeAfterFlush {
+            disposeSession(session)
         }
     }
 
-    private func scheduleWriteSource(session: ClientSession) {
-        guard session.writeSource == nil else { return }
-        let source = DispatchSource.makeWriteSource(fileDescriptor: session.fd, queue: queue)
-        source.setEventHandler { [weak self, weak session] in
-            guard let self, let session else { return }
-            session.writeSource?.cancel()
-            session.writeSource = nil
+    private func scheduleWriteRetry(session: ClientSession) {
+        guard !session.writeRetryScheduled, session.fd >= 0 else { return }
+        session.writeRetryScheduled = true
+        queue.asyncAfter(deadline: .now() + .milliseconds(2)) { [weak self, session] in
+            guard let self, session.fd >= 0 else { return }
+            session.writeRetryScheduled = false
             self.flushWrites(session: session)
         }
-        session.writeSource = source
-        source.resume()
     }
 
     private func processNotificationMessage(_ data: Data, session: ClientSession) {
@@ -828,8 +867,6 @@ final class NotificationSocketServer: @unchecked Sendable {
             liveSessionByExtension.removeValue(forKey: extensionID)
         }
         failPendingInvokes(for: session)
-        session.writeSource?.cancel()
-        session.writeSource = nil
         if session.fd >= 0, !session.pendingClose {
             close(session.fd)
         }

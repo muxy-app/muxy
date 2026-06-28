@@ -130,7 +130,8 @@ usage() {
     echo "  muxy browser snapshot <tab-id> [selector] List visible interactive elements (for agents)"
     echo "  muxy browser reload|back|forward <tab-id> Navigate browser history"
     echo "  muxy browser wait-for-navigation <tab-id> [ms]  Wait for the page to finish loading"
-    echo "  muxy browser screenshot <tab-id>         Capture a PNG (base64) of the page"
+    echo "  muxy browser screenshot <tab-id>         Capture a PNG of the page (base64; works on background tabs)"
+    echo "                                           e.g. muxy browser screenshot \"\$TAB\" | base64 -D > page.png"
     echo "  muxy browser storage get|set|clear <tab-id> ...  Read/write local or session storage"
     echo "  muxy browser cookies get|set|delete|clear <tab-id> ...  Manage cookies"
     echo "  muxy install-skills [skills args...]     Install Muxy agent skills into detected AI harnesses"
@@ -206,6 +207,20 @@ send_api() {
         return 0
     fi
     printf '%s' "$reply" | base64 -D 2>/dev/null && printf '\n'
+}
+
+send_api_string_field() {
+    local verb="$1"
+    local json="$2"
+    local field="$3"
+    local timeout="${4:-$NC_TIMEOUT}"
+    local payload
+    payload=$(printf '%s' "$json" | base64 | tr -d '\n')
+    local reply
+    reply=$(send_command "$verb|$payload" "$timeout") || exit 1
+    local decoded
+    decoded=$(printf '%s' "$reply" | base64 -D 2>/dev/null)
+    printf '%s' "$decoded" | sed -n "s/.*\"$field\":\"\([^\"]*\)\".*/\1/p" | sed 's/\\\//\//g'
 }
 
 api_timeout_for_ms() {
@@ -647,7 +662,7 @@ case "$COMMAND" in
                 ;;
             screenshot)
                 [ $# -lt 1 ] && die_usage browser
-                send_api "browser.screenshot" "{$(json_field tabId "$1")}"
+                send_api_string_field "browser.screenshot" "{$(json_field tabId "$1")}" "png"
                 ;;
             storage)
                 STORAGE_OP="${1:-}"

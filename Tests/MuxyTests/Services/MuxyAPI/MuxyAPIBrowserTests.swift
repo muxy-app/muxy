@@ -219,6 +219,30 @@ struct MuxyAPIBrowserTests {
         registry.unregister(tabID)
         #expect(registry.webView(for: tabID) == nil)
     }
+
+    @Test("screenshot reports surface not ready for an unrendered tab")
+    func screenshotUnrenderedTabNotReady() async throws {
+        let appState = makeAppState()
+        let id = try MuxyAPI.Browser.open(url: "https://example.com", appState: appState).get()
+
+        let result = await MuxyAPI.Browser.screenshot(tabIDString: id.uuidString, appState: appState)
+        guard case let .failure(error) = result else {
+            Issue.record("expected failure for an unrendered tab")
+            return
+        }
+        guard case .browserTabSurfaceNotReady = error else {
+            Issue.record("expected surface-not-ready, got \(error)")
+            return
+        }
+    }
+
+    @Test("screenshot fails for an unknown tab id")
+    func screenshotUnknownTabFails() async {
+        let appState = makeAppState()
+        let unknownID = UUID().uuidString
+        let result = await MuxyAPI.Browser.screenshot(tabIDString: unknownID, appState: appState)
+        #expect(failureErrorString(result) == .browserTabNotFound(unknownID))
+    }
 }
 
 private final class BrowserProfilePersistenceStub: BrowserProfilePersisting {

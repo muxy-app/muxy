@@ -152,7 +152,7 @@ muxy browser snapshot "$TAB"                          # visible interactive elem
 muxy browser find "$TAB" text "Sign in"               # find by role|text|label|placeholder|testid
 muxy browser get-text "$TAB" "h1"                     # also get-html, get-value, get-attribute, get-count
 muxy browser is "$TAB" visible "#checkout"            # visible|enabled|checked|disabled|hidden
-muxy browser screenshot "$TAB" > page.b64             # base64 PNG of the page
+muxy browser screenshot "$TAB" | base64 -D > page.png # PNG of the page (works on background tabs)
 muxy browser reload "$TAB"                            # also: back, forward
 
 muxy browser storage set "$TAB" token abc             # local storage (add 'session' for sessionStorage)
@@ -162,7 +162,9 @@ muxy browser cookies set "$TAB" session xyz example.com
 muxy browser cookies delete "$TAB" session
 ```
 
-Run `browser open` with no URL to open the configured home page (blank by default). Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. Commands that run JavaScript (`eval`, `click`, `type`, `wait-for`, `get-*`, `screenshot`, `storage`) need the tab open and rendered in the active project — Muxy has no headless browser — so pause after navigating before reading. `navigate`, `cookies`, and `list` work without the tab being visible. Cookies are shared by all tabs on the same profile. If the built-in browser is disabled in Settings, browser actions return an error and `browser list` returns no tabs.
+**Headless by default.** Every browser command — including `screenshot`, `eval`, DOM reads, clicks, and navigation — works on any open tab in the active project **without that tab being visible or focused**. You can drive a browser tab from a terminal tab and never leave your view; there is no need to `switch-tab` to it first. `screenshot` renders the page off-screen, so it captures real content even for a backgrounded tab.
+
+Run `browser open` with no URL to open the configured home page (blank by default). Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. After navigating, give the page a moment to load (`wait-for`, `wait-for-navigation`, or a `wait` condition) before reading. Cookies are shared by all tabs on the same profile. If the built-in browser is disabled in Settings, browser actions return an error and `browser list` returns no tabs.
 
 ## Install the skills into your AI harnesses
 

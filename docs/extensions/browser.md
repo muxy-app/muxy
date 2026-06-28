@@ -47,7 +47,7 @@ const png = muxy.browser.screenshot(tabId);
 
 `find(tabId, kind, value)` returns matching elements (`{ tag, text, role, id, testid }`) by `"role"`, `"text"`, `"label"`, `"placeholder"`, or `"testid"`. `snapshot(tabId, selector?)` returns the visible interactive elements of the page — a compact structure for an agent to "see" the page without a screenshot.
 
-`screenshot(tabId)` returns a base64-encoded PNG of the rendered page.
+`screenshot(tabId)` returns a base64-encoded PNG of the rendered page. It renders off-screen, so it works on any open tab in the active project — the tab does not need to be visible or focused.
 
 ## Storage & Cookies
 
@@ -68,7 +68,7 @@ muxy.browser.cookies.delete(tabId, "session");
 
 ## Requirements
 
-Automation that runs JavaScript (`eval`, `click`, `type`, `fill`, `press`, `select`, `hover`, `scrollIntoView`, `setChecked`, `wait`, `waitFor`, `get*`, `is`, `find`, `snapshot`, `screenshot`, `storage.*`) requires the tab to be open and rendered in the active project — Muxy has no headless browser. `navigate`, `cookies.*`, and `list` do not require the tab to be visible.
+All browser methods — `screenshot`, `eval`, DOM reads/interactions, `navigate`, `cookies.*`, `list` — work on any open tab in the active project **without that tab being visible or focused**. `screenshot` renders off-screen, so it captures real content for a backgrounded tab. After navigating, wait for the page to load (`waitFor`, `waitForNavigation`, or a `wait` condition) before reading.
 
 ## Permissions
 
