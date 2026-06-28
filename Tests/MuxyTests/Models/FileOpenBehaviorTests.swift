@@ -18,8 +18,8 @@ struct TerminalFileOpenBehaviorTests {
 
     @Test("resolve maps stored labels to behavior cases")
     func resolveMapsStoredLabels() {
-        #expect(TerminalFileOpenBehavior.resolve(from: "In-app opener") == .inAppOpener)
-        #expect(TerminalFileOpenBehavior.resolve(from: "External editor") == .externalEditor)
+        #expect(TerminalFileOpenBehavior.resolve(from: "Open with in-app opener only") == .inAppOpener)
+        #expect(TerminalFileOpenBehavior.resolve(from: "Open in external editor") == .externalEditor)
     }
 
     @Test("external editor fallback is only enabled for external editor behavior")
@@ -31,6 +31,6 @@ struct TerminalFileOpenBehaviorTests {
     @Test("all cases contains the expected picker values")
     func allCasesContainExpectedValues() {
         #expect(TerminalFileOpenBehavior.allCases == [.externalEditor, .inAppOpener])
-        #expect(TerminalFileOpenBehavior.allCases.map(\.rawValue) == ["External editor", "In-app opener"])
+        #expect(TerminalFileOpenBehavior.allCases.map(\.rawValue) == ["Open in external editor", "Open with in-app opener only"])
     }
 }

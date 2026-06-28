@@ -38,13 +38,14 @@ struct TerminalSettingsView: View {
             SettingsSection(
                 "Files",
                 footer: "Choose what happens when you cmd-click a file path in the terminal. "
-                    + "In-app opener uses a registered extension opener and never launches an external editor; "
-                    + "if no opener is registered, Muxy shows a notice instead."
+                    + "Open in external editor keeps the current behavior, trying a registered opener first "
+                    + "and then launching your external editor. Open with in-app opener only uses a registered "
+                    + "extension opener and shows a notice instead of launching an external editor when none is registered."
             ) {
                 SettingsPickerRow<TerminalFileOpenBehavior>(
-                    label: "Cmd-click opens files with",
+                    label: "Cmd-click a file path",
                     selection: $terminalFileOpenBehavior,
-                    width: 160
+                    width: 220
                 )
             }
 

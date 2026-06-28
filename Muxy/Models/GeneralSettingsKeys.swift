@@ -6,8 +6,8 @@ enum GeneralSettingsKeys {
 }
 
 enum TerminalFileOpenBehavior: String, CaseIterable, Identifiable {
-    case externalEditor = "External editor"
-    case inAppOpener = "In-app opener"
+    case externalEditor = "Open in external editor"
+    case inAppOpener = "Open with in-app opener only"
 
     static let defaultBehavior: TerminalFileOpenBehavior = .externalEditor
 
