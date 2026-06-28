@@ -73,19 +73,7 @@ struct TabFocusedProjectRow: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: UIMetrics.spacing2)
-            if hovered {
-                HStack(spacing: 0) {
-                    actions
-                    chevron
-                }
-            } else if isFocused {
-                HStack(spacing: 0) {
-                    statusIndicator
-                    focusModeButton
-                }
-            } else {
-                statusIndicator
-            }
+            trailingControls
             if project.isPinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: UIMetrics.fontXS, weight: .semibold))
@@ -244,6 +232,21 @@ struct TabFocusedProjectRow: View {
     }
 
     @ViewBuilder
+    private var trailingControls: some View {
+        HStack(spacing: 0) {
+            if hovered {
+                actions
+                chevron
+            } else if !isFocused {
+                statusIndicator
+            }
+            if isFocused {
+                focusModeButton
+            }
+        }
+    }
+
+    @ViewBuilder
     private var actions: some View {
         if !isGroupedByWorktree {
             TabFocusedTabActions(project: project, worktree: nil)
@@ -257,7 +260,7 @@ struct TabFocusedProjectRow: View {
                 expansionStore.setGroupedByWorktree(project.id, grouped: !isGroupedByWorktree)
             }
         }
-        if !project.isHome {
+        if !project.isHome, !isFocused {
             focusModeButton
         }
     }
