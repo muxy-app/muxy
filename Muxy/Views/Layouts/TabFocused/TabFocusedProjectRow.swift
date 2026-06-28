@@ -231,7 +231,6 @@ struct TabFocusedProjectRow: View {
         expansionStore.isGroupedByWorktree(project.id)
     }
 
-    @ViewBuilder
     private var trailingControls: some View {
         HStack(spacing: 0) {
             if hovered {
