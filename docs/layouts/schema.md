@@ -2,7 +2,7 @@
 
 A Muxy workspace is a tree of panes inside a single window. Each leaf pane is a stack of tabs (one tab visible at a time). Panes can be nested with horizontal or vertical splits.
 
-A node is either a **leaf** (`tabs:`) or a **branch** (`layout:` + `panes:`). Branches may be nested arbitrarily.
+A node is either a **leaf** (`tabs:`) or a **branch** (`panes:` plus optional `layout:`). Branches may be nested arbitrarily.
 
 ## Single pane with tabs
 
@@ -48,7 +48,7 @@ panes:
 | Field | Description |
 | --- | --- |
 | `layout` | `horizontal` (panes side-by-side) or `vertical` (panes stacked). Defaults to `horizontal`. |
-| `panes[]` | Child panes. Required when `layout` is set; mutually exclusive with `tabs`. |
+| `panes[]` | Child panes. When present, the node is a branch. Do not specify both `panes` and `tabs`; current builds treat `panes` as authoritative. |
 | `tabs[]` | Tabs in this pane. Required for leaves. |
 | `tabs[].name` | Optional. Tab title. Defaults to the first word of `command`, or `Terminal`. |
 | `tabs[].command` | Optional. String, or a list of strings joined with `&&`. |

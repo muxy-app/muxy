@@ -58,11 +58,11 @@ Install dependencies and start Vite from your extension folder:
 ```bash
 cd extensions/my-extension
 npm install
-npm run dev      # rebuilds dist/ on every change
+npm run dev      # starts Vite's dev server
 ```
 
-Muxy reads from the `dist/` build output, so keep `npm run dev` running (or run
-`npm run build` after edits). After a rebuild, click **Reload** in the Extensions
+Muxy reads from the `dist/` build output, so run `npm run build` after edits, or
+add your own build-watch workflow. After a rebuild, click **Reload** in the Extensions
 modal to pick up changes. Dev extensions show a **DEV** badge; **Remove from
 Muxy** on the detail page unloads one without touching your folder on disk.
 

@@ -45,6 +45,7 @@ Run `scripts/checks.sh --fix` after every task.
 - Low memory and CPU usage is one of the key factors
 - Simpler, flexible and scalable approaches are key factors
 - Never run the app. User will run and test visually
+- Documenting must be done accurate. At each round of tasks also review the related docs and fix/improve if needed.
 
 ## Extensions
 

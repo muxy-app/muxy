@@ -1,6 +1,6 @@
 # Projects
 
-A project is a directory plus a bit of metadata: name, logo, icon color, last-used IDE, tabs, splits, and worktrees.
+A project is a directory plus display metadata: name, logo, icon, color, and sidebar order. Worktrees and workspace snapshots are stored separately so each worktree can restore its own tabs and split tree.
 
 ## Adding a project
 
@@ -44,7 +44,7 @@ Right‑click a project in the sidebar:
 | Project 1–9 | `⌃1…9` |
 | Pick from sidebar | Click |
 
-Each project keeps its own tabs, splits, and active tab in memory while the app is running.
+Each project keeps its own active worktree and restores each worktree's tabs, splits, and active tab from workspace snapshots.
 
 ## Project workspaces
 
@@ -56,9 +56,9 @@ Muxy auto‑discovers IDE‑like apps installed on your Mac (VS Code, Zed, Subli
 
 ## Persistence
 
-Projects live at `~/Library/Application Support/Muxy/projects.json`. Workspace snapshots and terminal sessions are saved separately so Muxy can restore the last shape of a project.
+Projects live at `~/Library/Application Support/Muxy/projects.json`. Worktree records live under `~/Library/Application Support/Muxy/worktrees/`, and workspace snapshots live in `~/Library/Application Support/Muxy/workspaces.json`.
 
 ## Settings
 
-- **General → Keep projects open after closing all tabs** — keeps an empty project in the sidebar.
-- **General → Auto‑expand worktrees on project switch** — opens the worktree list when you switch projects.
+- **Projects -> Keep projects open** — keeps an empty project in the sidebar.
+- **Interface -> Auto-expand Worktrees** — opens the worktree list when you switch projects.

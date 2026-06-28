@@ -2,6 +2,8 @@
 
 Every object below is the exact wire shape produced by the desktop. All dates are ISO 8601, all IDs are UUID strings, and colors are unsigned 32-bit integers in `0xRRGGBB` form.
 
+The shared protocol still contains legacy/internal result variants such as `terminalContent` and `paneOwner`; current RPC methods do not return them.
+
 ## Project
 
 ```json

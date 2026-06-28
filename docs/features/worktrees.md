@@ -55,7 +55,9 @@ Each entry is either a plain command string or `{ "name", "command" }`.
 
 **Teardown** runs when you remove a worktree from Muxy. A sheet streams stdout/stderr live; the worktree directory is only deleted after every command exits `0`. If any command fails, removal is aborted, the error is surfaced, and the worktree stays on disk so you can investigate.
 
-Commands run in the worktree directory under your login shell, with these extra environment variables:
+Setup commands run in the worktree directory under your login shell.
+
+Teardown commands also run in the worktree directory under your login shell, with these extra environment variables:
 
 | Variable | Value |
 | --- | --- |
@@ -63,11 +65,11 @@ Commands run in the worktree directory under your login shell, with these extra 
 | `MUXY_WORKTREE_NAME` | Worktree name as shown in Muxy |
 | `MUXY_WORKTREE_BRANCH` | Checked-out branch (empty if detached) |
 
-Externally managed worktrees (added with `git worktree add` outside Muxy) skip teardown — Muxy will not run scripts against directories it didn't create.
+Externally managed worktrees (added with `git worktree add` outside Muxy) skip teardown during project cleanup, so Muxy will not run scripts against directories it did not create as part of bulk cleanup. Explicitly removing a discovered worktree from Muxy removes that git worktree through the app's normal removal flow.
 
 ## Persistence
 
-Per-project worktree records live at `~/Library/Application Support/Muxy/worktrees/<projectID>.json`. Removing a project also removes its worktree records. Externally discovered worktrees are never touched by Muxy's cleanup paths — only the user's repo can unregister them.
+Per-project worktree records live at `~/Library/Application Support/Muxy/worktrees/<projectID>.json`. Removing a project also removes its Muxy-owned worktree records and cleanup targets. Externally discovered worktrees are skipped by project cleanup.
 
 ## Notes
 

@@ -4,7 +4,7 @@ Muxy can apply named pane/tab layouts to a worktree on demand. Layouts live in-r
 
 ```mermaid
 flowchart TB
-  Files[".muxy/layouts/*.yaml"] --> Picker[Top-bar layout picker<br/>shown when ≥1 layout exists]
+  Files[".muxy/layouts/*.{yaml,yml,json}"] --> Picker[Top-bar layout picker<br/>shown when ≥1 layout exists]
   Picker --> Confirm{Confirm}
   Confirm -->|yes| Build[LayoutWorkspaceBuilder<br/>build SplitNode/TabArea tree]
   Build --> Replace[Close current tabs<br/>apply new tree]

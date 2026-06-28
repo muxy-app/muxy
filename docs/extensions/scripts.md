@@ -71,8 +71,8 @@ Note there is **no `await`** — see [API surface](#api-surface).
 
 ## Lifecycle
 
-- The `JSContext` is created on first run and **cached for the extension's lifetime**, so `var`/`function` defined in one run remain visible to the next.
-- It is **evicted** when the extension is disabled or reloaded (Settings → Extensions → Reload Extensions).
+- Each run gets a fresh `JSContext`. Globals from one run are not visible to the next.
+- A context may remain alive only while pending modal callbacks from that run need it, and it is evicted when the extension is disabled or reloaded (Settings -> Extensions -> Reload Extensions).
 - The script **source is re-read from disk on every run**, so edits apply on the next palette trigger with no restart.
 
 ## API surface
@@ -129,4 +129,4 @@ Each verb is gated by its own permission, as on every surface (see [Permissions]
 | --- | --- |
 | You act on workspace state and need no UI | You need to render anything |
 | The work is fire-and-forget | You want long-lived per-instance state |
-| You want module-like state shared across runs of *one* extension | You need DOM events, forms, charts, etc. |
+| You do not need state to survive the command run | You need DOM events, forms, charts, etc. |

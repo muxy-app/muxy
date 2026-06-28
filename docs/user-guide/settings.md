@@ -1,36 +1,65 @@
 # Settings
 
-Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to find any setting by name.
+Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to find settings by name.
 
-## General
+## App
 
-- **Update channel** — *Stable* (tagged releases) or *Beta* (auto‑built per commit). Switching channels updates Sparkle's appcast immediately.
-- **Auto‑expand worktrees on project switch** — automatically opens the worktree list when you switch to a project that has more than one.
-- **Project picker** — use Muxy's picker or the Finder picker.
-- **Project picker default path** — default folder for Muxy's picker.
-- **Default worktree path** — parent folder for new worktrees.
-- **Auto-copy terminal selection** — copies terminal selections when the mouse is released.
-- **Keep projects open after closing all tabs** — keeps a project visible in the sidebar even after its last tab is closed.
-- **Confirm before closing tab with running process** — prompts before killing a non‑idle terminal.
-- **Confirm before quitting Muxy** — confirmation dialog on `Cmd+Q`. Includes a "Don't ask again" toggle.
-- **Crash reports** — controls anonymous crash report consent when diagnostics are available.
+- **Update Channel** — stable releases or beta builds.
+- **Confirm Quit** — asks before quitting Muxy.
+- **Crash Reports** — controls anonymous crash report consent when diagnostics are available.
 
-## Appearance
+## Projects
 
-- **Interface size** — changes app density.
-- **Show status bar** — shows or hides the bottom status bar.
-- **Theme** — paired light / dark terminal theme picker.
-- **Sidebar style** — controls collapsed and expanded sidebar layout.
+- **Project Picker** — use Muxy's picker or the Finder picker.
+- **Project Picker Default Path** — default folder for Muxy's picker.
+- **Keep Projects Open** — keeps projects in the sidebar after closing the last tab.
+- **Default Opener** — chooses the IDE or extension opener for files opened from native surfaces.
+- **Default Worktree Path** — parent folder for new worktrees.
+
+## Remote Devices
+
+- Add and manage reusable SSH connections for remote workspaces.
+- Configure `KEY=value` environment variables exported before remote terminals, git, files, worktrees, and extension commands run. New SSH devices default to `TERM=xterm-256color`.
+
+## Interface
+
+- **Interface Size** — controls app density.
+- **Tab header width** — controls maximum tab header width.
+- **Show Status Bar** — shows or hides the bottom status bar.
+- **Show Resource Usage in Status Bar** — shows CPU and memory usage; disabling it stops sampling.
+- **Light Terminal Theme** and **Dark Terminal Theme** — paired terminal themes that follow macOS appearance.
+- **Auto-expand Worktrees** — reveals worktrees when switching projects.
+- **Show Home** — shows the permanent Home project at the top of the sidebar.
+- **Active Sidebar** — chooses the built-in sidebar or one provided by an extension.
+- **Collapsed Sidebar Style** and **Expanded Sidebar Style** — controls sidebar presentation.
+- **Worktree switcher options** — unread indicators and recent-use ordering.
 
 See [Themes](../features/themes.md).
 
+## Terminal
+
+- **Auto-copy Terminal Selection** — copies terminal selections when the mouse is released.
+- **Confirm Running Process Tab Close** — asks before closing a terminal tab with a running process.
+- Terminal config is stored in `~/Library/Application Support/Muxy/ghostty.conf` and can be opened from the Muxy menu.
+
+See [Terminal](../features/terminal.md).
+
+## Browser
+
+- Enable or disable the built-in browser.
+- Choose whether terminal links open in the built-in browser.
+- Choose search engine and home page.
+- Manage browser profiles, clear profile data, and import supported browser data.
+
 ## Rich Input
 
-- **Rich Input** — image submission mode, position, floating mode, font, and line height.
+- Configure image submission mode, position, floating mode, font, and line height.
 
-## Keyboard Shortcuts
+See [Rich Input](../features/rich-input.md).
 
-- All actions remappable via a key‑capture recorder.
+## Shortcuts
+
+- Remap app actions with the key-capture recorder.
 
 See [Keyboard Shortcuts](keyboard-shortcuts.md).
 
@@ -38,9 +67,9 @@ See [Keyboard Shortcuts](keyboard-shortcuts.md).
 
 - Define reusable shell command shortcuts that open a new terminal tab.
 
-See [Keyboard Shortcuts](keyboard-shortcuts.md#commands).
+See [Terminal](../features/terminal.md#custom-command-shortcuts).
 
-## Recording
+## Voice
 
 - **Press Return after inserting** — sends dictated text immediately.
 - **Language** — on-device speech recognition language.
@@ -51,34 +80,25 @@ See [Voice Recording](../features/voice-recording.md).
 
 - **Toast** — show an in-app toast on arrival.
 - **Desktop notifications** — show a macOS notification when Muxy is not frontmost.
-- **Toast position** — top or bottom of the window.
-- **Sound** — choose the notification sound.
-- **AI Providers** — enable or disable each provider hook integration.
-- **Per‑source delivery** — separate toggles for Claude Code, OpenCode, OSC sequences, and the socket API.
+- **Toast position** and **Sound** — delivery presentation.
+- **AI Providers** — enable or disable hook integrations for Claude Code, Codex, Cursor, Droid, Grok, OpenCode, and Pi.
+- **Per-source delivery** — separate toggles for provider hooks, OSC sequences, and the socket API.
 
 See [Notifications](../features/notifications.md).
 
 ## Mobile
 
-- **Allow Mobile Connections** — start / stop the WebSocket server.
-- **Port** — defaults to 4865.
+- **Allow Mobile Connections** — start or stop the WebSocket server.
+- **Port** — defaults to 4865 in release builds.
 - **Pair Mobile Device** — shows the pairing QR code.
 - **Approved devices** — list of paired clients with revoke buttons.
 
 See [Remote Server](../remote-server/overview.md).
 
-## Remote Devices
+## Backup
 
-- **Remote devices** — reusable SSH connections for remote workspaces.
-- **Environment** — `KEY=value` variables exported before remote terminals, git, files, worktrees, and extension commands run. New SSH devices default to `TERM=xterm-256color`.
-
-## AI Assistant
-
-- **AI Assistant Tool** — CLI used for commit and PR generation.
-- **Model overrides** — optional Claude, Codex, or OpenCode model names.
-- **Custom AI Command** — command used when the custom provider is selected.
-- **Commit Prompt** — prompt used to generate commit messages.
-- **Pull Request Prompt** — prompt used to generate PR drafts.
+- Create, restore, and manage Muxy backups.
+- Backups include settings, projects, worktrees, workspaces, notifications, approved devices, Ghostty config, key bindings, commands, themes, and extension state.
 
 ## JSON
 

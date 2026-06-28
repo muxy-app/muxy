@@ -7,7 +7,7 @@ flowchart TB
   Client[Mobile / dashboard client]
   Client <-->|WebSocket / JSON| Muxy[Muxy.app]
   Muxy --> Settings[Settings → Mobile]
-  Muxy --> Approved[remote-devices.json]
+  Muxy --> Approved[approved-devices.json]
   Muxy -.->|Bonjour _muxy._tcp| Client
 ```
 
@@ -26,7 +26,7 @@ flowchart TB
 
 - Endpoint: `ws://<host>:<port>` (default port `4865`; `4866` in development builds)
 - Format: JSON, UTF-8, ISO-8601 dates, UUID strings, RGB colors as `0xRRGGBB` integers
-- Disabled by default; enable in **Settings → Mobile**
+- Disabled by default in release builds; development builds start enabled on port `4866`
 - All clients must authenticate before any other RPC is accepted
 - The server advertises over Bonjour as `_muxy._tcp`
 

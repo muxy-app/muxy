@@ -13,7 +13,7 @@ Each method name doubles as the `params.type` discriminator. The **Result** colu
 | `listWorktrees` | `projectID` | `worktrees` |
 | `selectWorktree` | `projectID`, `worktreeID` | `ok` |
 | `getWorkspace` | `projectID` | `workspace` |
-| `createTab` | `projectID`, `areaID?`, `kind?` | `tab` |
+| `createTab` | `projectID`, `areaID?`, `kind` | `tab` |
 | `closeTab` | `projectID`, `areaID`, `tabID` | `ok` |
 | `selectTab` | `projectID`, `areaID`, `tabID` | `ok` |
 | `splitArea` | `projectID`, `areaID`, `direction`, `position` | `ok` |
@@ -22,7 +22,7 @@ Each method name doubles as the `params.type` discriminator. The **Result** colu
 
 Enums:
 
-- `kind`: `terminal`, `vcs` (default `terminal`). `extensionWebView` is rejected — only terminal and VCS tabs can be created remotely.
+- `kind`: `terminal` or `vcs`. `extensionWebView` is rejected — only terminal and VCS tabs can be created remotely.
 - `direction`: `horizontal`, `vertical`
 - `position`: `first`, `second`
 
@@ -66,9 +66,9 @@ Notes:
 
 | Method | Parameters | Result |
 | --- | --- | --- |
-| `extensionRequest` | `extension`, `action`, `payload?` | `extensionResult` |
+| `extensionRequest` | `extension`, `action`, `payload` | `extensionResult` |
 
-`extensionRequest` proxies a call to an installed extension that serves the named `action`. `payload` (default `null`) and `extensionResult.payload` are arbitrary JSON. The desktop resolves the handler, prompts the user for consent, runs it in the extension's background script, and returns its value.
+`extensionRequest` proxies a call to an installed extension that serves the named `action`. Send `payload: null` when there is no argument. `extensionResult.payload` is arbitrary JSON. The desktop resolves the handler, prompts the user for consent, runs it in the extension's background script, and returns its value.
 
 | Code | Meaning |
 | --- | --- |
@@ -86,13 +86,13 @@ See [extension remote methods](../extensions/remote-methods.md).
 | --- | --- | --- |
 | `getVCSStatus` | `projectID` | `vcsStatus` |
 | `vcsRefresh` | `projectID` | `vcsStatus` |
-| `vcsCommit` | `projectID`, `message`, `stageAll?` | `ok` |
+| `vcsCommit` | `projectID`, `message`, `stageAll` | `ok` |
 | `vcsPush` | `projectID` | `ok` |
 | `vcsPull` | `projectID` | `ok` |
 | `vcsStageFiles` | `projectID`, `paths` | `ok` |
 | `vcsUnstageFiles` | `projectID`, `paths` | `ok` |
 | `vcsDiscardFiles` | `projectID`, `paths`, `untrackedPaths` | `ok` |
-| `vcsGetDiff` | `projectID`, `filePath`, `forceFull?` | `vcsDiff` |
+| `vcsGetDiff` | `projectID`, `filePath`, `forceFull` | `vcsDiff` |
 | `vcsListBranches` | `projectID` | `vcsBranches` |
 | `vcsSwitchBranch` | `projectID`, `branch` | `ok` |
 | `vcsCreateBranch` | `projectID`, `name` | `ok` |
@@ -103,12 +103,12 @@ See [extension remote methods](../extensions/remote-methods.md).
 
 Enums & defaults:
 
-- `vcsCommit.stageAll` defaults `false`. `vcsGetDiff.forceFull` defaults `false` (a `false` value caps the diff at ~20k lines and sets `truncated`).
+- `vcsCommit.stageAll` and `vcsGetDiff.forceFull` are required booleans. Send `false` for the default behavior; `forceFull: false` caps the diff at ~20k lines and sets `truncated`.
 - `vcsCreatePR.baseBranch` is optional; when omitted the repo's default branch is used. The result `vcsPRCreated` is `{ "url": string, "number": int }`.
 - `vcsMergePullRequest.method` is `merge`, `squash`, or `rebase`; `number` is the PR number.
 - `vcsAddWorktree.baseBranch` is only honored when `createBranch` is `true`. The result `worktrees` is an array containing the single new worktree.
 
-`getVCSStatus` and `vcsListBranches` read the desktop's in-memory VCS cache instead of running git on every call. The cache is lazily populated on first access per worktree and kept fresh by the file-system watcher and post-mutation refreshes. Call `vcsRefresh` to force a full re-read from git; it awaits completion and returns the fresh `vcsStatus`. Any VCS method that fails returns `500` with the underlying git error message.
+`getVCSStatus` and `vcsListBranches` query git for the active worktree. Pull-request metadata may use cached provider data unless `vcsRefresh` forces a fresh refresh. Any VCS method that fails returns `500` with the underlying git error message.
 
 Result shapes: [`vcsStatus`](#vcsstatus-shape) and [`vcsBranches`](#vcsbranches-shape) below; [`vcsDiff`](#vcsdiff-shape) below.
 

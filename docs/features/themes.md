@@ -4,25 +4,25 @@ Muxy uses a paired light / dark theme model. The chrome (sidebar, tabs, panels) 
 
 ```mermaid
 flowchart TB
-  System[macOS appearance] -->|when set to Sync| Picker
-  Picker[Theme picker ⌘⇧K] --> Chrome[Sidebar / tabs / panels]
+  System[macOS appearance] --> Variant[Light or Dark variant]
+  Variant --> Picker[Theme picker ⌘⇧K]
+  Picker --> Chrome[Sidebar / tabs / panels]
   Picker --> Terminal[Ghostty palette]
 ```
 
 ## Theme picker
 
-Open with `⌘⇧K` (or click the theme button in the topbar). You can pick:
+Open with `⌘⇧K` (or click the theme button in the topbar). Muxy stores separate choices for:
 
-- A **Light** variant
-- A **Dark** variant
-- **Sync to system** (default) — switches automatically with macOS appearance.
+- **Light Terminal Theme**
+- **Dark Terminal Theme**
 
-Selection is saved per-appearance, so your dark choice and light choice are remembered independently.
+The active variant follows macOS appearance automatically, so your dark choice and light choice are remembered independently.
 
 ## Ghostty colors
 
-Terminal colors come from the Ghostty config (`~/.config/ghostty/config`). When you change theme in Muxy, the matching light/dark variant of your Ghostty colors is applied automatically. To customise the palette directly, edit Ghostty's config — see [Ghostty's theme docs](https://ghostty.org/docs/config/reference#theme).
+Muxy's active Ghostty config is `~/Library/Application Support/Muxy/ghostty.conf`. On first launch Muxy seeds it from `~/.config/ghostty/config` when that file exists; after that, Muxy reads and writes its own copy. When you change theme in Muxy, the matching light/dark variant is applied automatically. To customise the palette directly, edit Muxy's config — see [Ghostty's theme docs](https://ghostty.org/docs/config/reference#theme).
 
 ## Reload
 
-After editing Ghostty config, **Muxy → Reload Configuration** (`⌘⇧R`) re-reads it without restarting.
+After editing Muxy's Ghostty config, **Muxy -> Reload Configuration** (`⌘⇧R`) re-reads it without restarting.

@@ -20,7 +20,7 @@ flowchart TB
 
 1. Download the latest build from the releases page.
 2. Drag `Muxy.app` to `/Applications` and launch it.
-3. Optional: **Muxy → Install CLI** writes a `muxy` wrapper to `/usr/local/bin/muxy`.
+3. Optional: **Muxy -> Install CLI** writes a `muxy` wrapper to `/usr/local/bin/muxy`. If that location needs admin access and installation fails, Muxy falls back to `~/bin/muxy` or `~/.local/bin/muxy`.
 
 ## Add your first project
 
@@ -53,7 +53,7 @@ Tabs can also hold a browser or an extension view. See [Tabs & Splits](../featur
 
 ## Configuring Ghostty
 
-Muxy renders terminals through libghostty. Edit `~/.config/ghostty/config` from **Muxy → Open Configuration…** and reload with `⌘⇧R`.
+Muxy renders terminals through libghostty. Edit `~/Library/Application Support/Muxy/ghostty.conf` from **Muxy -> Open Configuration...** and reload with `⌘⇧R`. On first launch Muxy seeds this file from `~/.config/ghostty/config` when it exists.
 
 ## Next steps
 

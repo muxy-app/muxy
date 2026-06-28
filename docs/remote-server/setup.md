@@ -2,12 +2,12 @@
 
 ## Enabling the server
 
-The Mobile server is **disabled by default**. Toggle it from **Settings → Mobile** on macOS.
+The Mobile server is **disabled by default in release builds**. Development builds start enabled on port `4866` so a debug build can run alongside a release build. Toggle it from **Settings -> Mobile** on macOS.
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Allow mobile device connections | off | Starts/stops the WebSocket listener. |
-| Port | `4865` | Stored in `UserDefaults`. Changing it stops the server; it restarts on the new port when re-enabled. A bind failure rolls the toggle back off and surfaces the error. |
+| Allow mobile device connections | off in release, on in development | Starts/stops the WebSocket listener. |
+| Port | `4865` in release, `4866` in development | Stored in `UserDefaults`. Changing it stops the server; it restarts on the new port when re-enabled. A bind failure retires the listener and surfaces the error; the setting remains enabled until the user turns it off or fixes the port. |
 | Approved devices | empty | List of paired clients, each with a **Revoke** button. |
 
 The valid port range is `1024`–`65535`. Development builds default to `4866` (one above the release default) so a debug build can run alongside a release build. If the port is already in use, the settings panel shows a **Free Port** action that terminates the process currently listening on it.
@@ -49,7 +49,7 @@ For production integrations, treat the connection as local-network only unless y
 | `401` | unauthorized | Authentication required, or unknown device |
 | `403` | pairingDenied / forbidden | Pairing denied, wrong token, or consent denied |
 | `404` | notFound | Resource not found |
-| `408` | pairingTimeout | Pairing request timed out |
+| `408` | pairingTimeout | Reserved; current builds do not emit a pairing timeout |
 | `500` | internalError | Internal error or operation failure |
 | `502` | — | Extension handler threw or is unregistered |
 | `503` | extensionUnavailable | Extension not running |

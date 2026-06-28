@@ -19,12 +19,12 @@ log show --predicate 'subsystem == "app.muxy"' --last 10m --info --debug
 ## Terminal is blank or unresponsive
 
 - Try **Muxy → Reload Configuration** (`Cmd+Shift+R`).
-- Check `~/.config/ghostty/config` parses by opening it in **Open Configuration…**.
+- Check `~/Library/Application Support/Muxy/ghostty.conf` parses by opening it in **Open Configuration...**.
 - If the issue is reproducible, check `log stream` while reproducing.
 
 ## "muxy" CLI not found
 
-Run **Muxy → Install CLI** from the menu. This writes a wrapper to `/usr/local/bin/muxy`. Make sure `/usr/local/bin` is on your `$PATH`.
+Run **Muxy -> Install CLI** from the menu. Muxy first tries `/usr/local/bin/muxy`, then falls back to `~/bin/muxy` or `~/.local/bin/muxy` if needed. Make sure the installed directory is on your `$PATH`.
 
 ## Project won't open via `muxy <path>`
 
@@ -60,7 +60,7 @@ If you want to start fresh, quit Muxy and remove:
 ~/Library/Application Support/Muxy/
 ```
 
-This wipes projects, worktrees, notifications, and approved mobile devices. Ghostty config at `~/.config/ghostty/config` is left alone.
+This wipes projects, worktrees, notifications, approved mobile devices, and Muxy's Ghostty config at `~/Library/Application Support/Muxy/ghostty.conf`. Your system Ghostty config at `~/.config/ghostty/config` is left alone.
 
 ## Reporting a bug
 

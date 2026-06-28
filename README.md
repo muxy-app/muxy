@@ -38,7 +38,7 @@ Lightweight terminal that has a rich API for extensions
 - Voice input
 - Notifications (in-app & native macOS)
 - 490+ themes
-- 60+ customizable shortcuts
+- 50+ customizable shortcuts
 - Workspace & session persistence
 
 ## Agent Skills

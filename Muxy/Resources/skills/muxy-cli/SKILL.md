@@ -148,7 +148,7 @@ muxy browser cookies set "$TAB" session xyz example.com
 muxy browser cookies delete "$TAB" session
 ```
 
-Run `browser open` with no URL to open the configured home page (blank by default). Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. Commands that run JavaScript (`eval`, `click`, `type`, `wait-for`, `get-*`, `screenshot`, `storage`) need the tab open and rendered in the active project — Muxy has no headless browser — so pause after navigating before reading. `navigate`, `cookies`, and `list` work without the tab being visible. Cookies are shared by all tabs on the same profile. If the built-in browser is disabled in Settings, every `browser` command returns an error.
+Run `browser open` with no URL to open the configured home page (blank by default). Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. Commands that run JavaScript (`eval`, `click`, `type`, `wait-for`, `get-*`, `screenshot`, `storage`) need the tab open and rendered in the active project — Muxy has no headless browser — so pause after navigating before reading. `navigate`, `cookies`, and `list` work without the tab being visible. Cookies are shared by all tabs on the same profile. If the built-in browser is disabled in Settings, browser actions return an error and `browser list` returns no tabs.
 
 ## Install the skills into your AI harnesses
 

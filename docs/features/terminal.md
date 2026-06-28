@@ -4,7 +4,7 @@ Muxy's terminals are powered by [libghostty](https://github.com/ghostty-org/ghos
 
 ## Configuration
 
-Ghostty is configured at `~/.config/ghostty/config`. Open it with **Muxy → Open Configuration…**, reload after editing with `⌘⇧R`.
+Muxy's active Ghostty config is `~/Library/Application Support/Muxy/ghostty.conf`. On first launch Muxy seeds it from `~/.config/ghostty/config` when that file exists; after that, Muxy reads and writes its own copy. Open it with **Muxy -> Open Configuration...**, reload after editing with `⌘⇧R`.
 
 Most Ghostty options work — fonts, colors, padding, keybinds, shell integration. Muxy applies the active light/dark variant automatically when the system appearance changes.
 
@@ -21,7 +21,7 @@ Most Ghostty options work — fonts, colors, padding, keybinds, shell integratio
 | Paste | `⌘V` or right-click → Paste |
 | X11 selection paste | Middle-click |
 
-Enable **Settings -> General -> Auto-copy terminal selection** to copy selected terminal text on mouse release.
+Enable **Settings -> Terminal -> Auto-copy terminal selection** to copy selected terminal text on mouse release.
 
 ## Working directory
 

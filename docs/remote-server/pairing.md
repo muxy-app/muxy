@@ -6,7 +6,7 @@ Each client should generate and persist:
 - `deviceName` — a user-friendly label
 - `token` — a random secret persisted securely on the client
 
-The desktop stores approved devices in `remote-devices.json`, keeping only a SHA-256 hash of each token (never the token itself) plus the device name and last-seen time.
+The desktop stores approved mobile clients in `approved-devices.json`, keeping only a SHA-256 hash of each token (never the token itself) plus the device name and last-seen time.
 
 ## Connection flow
 
@@ -111,4 +111,4 @@ A token mismatch on a **known** device returns `403 Pairing denied`, not `401`, 
 
 ## Revocation
 
-The Mac's **Settings → Mobile** lists approved devices. Revoking removes the device from `remote-devices.json` and immediately disconnects any active connection for that `deviceID`.
+The Mac's **Settings -> Mobile** lists approved devices. Revoking removes the device from `approved-devices.json` and immediately disconnects any active connection for that `deviceID`.

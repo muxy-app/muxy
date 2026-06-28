@@ -1,6 +1,6 @@
 # Notification Setup
 
-Muxy ships built-in integrations for **Claude Code**, **Codex**, **Cursor**, **Droid**, **Grok**, and **OpenCode** — toggle them under **Settings → Notifications**. This page is for everything else: sending notifications into Muxy from any other tool (a custom CLI, a build script, a different AI agent, …).
+Muxy ships built-in integrations for **Claude Code**, **Codex**, **Cursor**, **Droid**, **Grok**, **OpenCode**, and **Pi** — toggle them under **Settings -> Notifications**. This page is for everything else: sending notifications into Muxy from any other tool (a custom CLI, a build script, a different AI agent, ...).
 
 ```mermaid
 flowchart TB
@@ -35,13 +35,13 @@ One message per connection: a single newline-terminated UTF-8 line with four pip
 | Field | Required | Description |
 | --- | --- | --- |
 | `type` | yes | Source identifier. Unknown values are accepted and shown generically. Built-in: `claude_hook`, `codex_hook`, `cursor_hook`, `droid_hook`, `grok_hook`, `opencode`, `pi`. |
-| `paneID` | yes | Pane the event belongs to. Use `$MUXY_PANE_ID` from inside a Muxy terminal. Leave empty to attach to the active pane. |
+| `paneID` | yes | Pane the event belongs to. Use `$MUXY_PANE_ID` from inside a Muxy terminal. Leave empty to attach to the first terminal pane in the active worktree. |
 | `title` | yes | Notification title. Empty falls back to `Task completed!`. |
-| `body` | no | Body. Must not contain `\|` or newlines — replace them first. |
+| `body` | no | Body. It may contain pipe characters; newlines terminate the message. |
 
 Limits:
 
-- Max message size: **64 KB**.
+- Max message size: **128 KB**.
 - Newlines terminate a message; you can send multiple by separating them with `\n`.
 
 ## Examples
@@ -60,7 +60,7 @@ Reusable function:
 muxy_notify() {
   [ -z "${MUXY_SOCKET_PATH:-}" ] && return 0
   local title="${1:-Done}" body="${2:-}" safe_body
-  safe_body=$(printf '%s' "$body" | tr '|\n\r' '   ' | head -c 500)
+  safe_body=$(printf '%s' "$body" | tr '\n\r' '  ' | head -c 500)
   printf '%s|%s|%s|%s\n' "custom" "${MUXY_PANE_ID:-}" "$title" "$safe_body" \
     | nc -U "$MUXY_SOCKET_PATH" 2>/dev/null || true
 }
@@ -77,7 +77,7 @@ function muxyNotify(title, body = "") {
   const socketPath = process.env.MUXY_SOCKET_PATH
   const paneID = process.env.MUXY_PANE_ID || ""
   if (!socketPath) return
-  const safeBody = String(body).replace(/[\n\r|]+/g, " ").slice(0, 500)
+  const safeBody = String(body).replace(/[\n\r]+/g, " ").slice(0, 500)
   const payload = `custom|${paneID}|${title}|${safeBody}\n`
   const conn = createConnection({ path: socketPath })
   conn.on("error", () => {})
@@ -95,7 +95,7 @@ def muxy_notify(title: str, body: str = "") -> None:
     pane = os.environ.get("MUXY_PANE_ID", "")
     if not path:
         return
-    safe_body = body.replace("|", " ").replace("\n", " ")[:500]
+    safe_body = body.replace("\n", " ")[:500]
     payload = f"custom|{pane}|{title}|{safe_body}\n".encode("utf-8")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.connect(path)
@@ -114,8 +114,8 @@ The built-in integrations are good templates:
 
 - **Fire and forget.** If Muxy isn't running or the socket doesn't exist, the connection will fail — swallow the error rather than crashing.
 - **Don't block.** Open, write, close. Muxy doesn't send a response.
-- **Sanitize.** Strip `|`, `\n`, `\r` from user/model-generated content; cap body length (200–500 chars is plenty).
-- **Pane routing.** From outside a Muxy pane (e.g. cron), omit `paneID`; Muxy routes to the active pane.
+- **Sanitize.** Strip `\n` and `\r` from user/model-generated content; cap body length (200-500 chars is plenty).
+- **Pane routing.** From outside a Muxy pane (e.g. cron), omit `paneID`; Muxy routes to the first terminal pane in the active worktree.
 
 ## Delivery settings
 

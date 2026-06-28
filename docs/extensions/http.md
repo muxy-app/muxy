@@ -44,7 +44,7 @@ Requests to private and loopback addresses are **rejected before any prompt**, t
 - `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`
 - IPv6 `::1`, `fc00::/7`, `fe80::/10`
 
-Hostnames are resolved before the check, so an alias that points at a private address is blocked too. The validated address is then pinned for the connection (TLS still verifies the original hostname), so a host that resolves public during the check but private at connect time cannot be reached. A host that fails to resolve is blocked. Redirects are re-validated and re-pinned against the same policy.
+Hostnames are resolved before the check, so an alias that points at a private address is blocked too. A host that fails to resolve is blocked. Redirects are re-validated against the same policy.
 
 ## Errors
 

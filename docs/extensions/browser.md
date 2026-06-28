@@ -1,27 +1,35 @@
 # Browser
 
-`muxy.browser` lets extensions open and fully automate Muxy's built-in browser tabs — navigation, DOM interaction, JavaScript, cookies, storage, and screenshots.
+`muxy.browser` lets extensions open and control Muxy's built-in browser tabs. Extension webview pages can open, navigate, list, read, and close browser tabs. Full browser automation — DOM interaction, JavaScript, cookies, storage, and screenshots — is available from [`runScript`](scripts.md) commands.
 
 ```js
 const tabId = await muxy.browser.open("https://example.com", { split: true });
-await muxy.browser.waitFor(tabId, "input[name=q]");
-await muxy.browser.type(tabId, "input[name=q]", "muxy", { submit: true });
-await muxy.browser.waitForNavigation(tabId);
-const title = await muxy.browser.eval(tabId, "document.title");
-const png = await muxy.browser.screenshot(tabId);
+const page = await muxy.browser.read(tabId);
+await muxy.browser.navigate(tabId, "https://muxy.app");
 ```
 
 ## Tabs
 
 `open(url?, options?)` returns the new browser tab ID. Omit `url` for the configured home page. Pass `{ split: true }` to open beside the current pane.
 
-`navigate(tabId, url)` loads a new URL. `reload(tabId)`, `back(tabId)`, `forward(tabId)` drive history.
+`navigate(tabId, url)` loads a new URL.
 
 `list()` returns `{ id, title, url, profile, isActive }` for browser tabs. `close(tabId)` closes a tab.
 
 `read(tabId)` returns `{ title, url, text }` from the rendered page (text capped near 1 MB).
 
 ## Automation
+
+The methods in this section are available only from `runScript` commands. They are synchronous there, so omit `await`:
+
+```js
+const tabId = muxy.browser.open("https://example.com", { split: true });
+muxy.browser.waitFor(tabId, "input[name=q]");
+muxy.browser.type(tabId, "input[name=q]", "muxy", { submit: true });
+muxy.browser.waitForNavigation(tabId);
+const title = muxy.browser.eval(tabId, "document.title");
+const png = muxy.browser.screenshot(tabId);
+```
 
 `eval(tabId, script)` runs JavaScript in the page and returns the parsed result. A single-line expression (e.g. `document.title`) is returned directly; a multi-statement script (containing `;` or newlines) runs as a function body and must `return` its result. Scripts may `await`.
 
@@ -43,13 +51,15 @@ const png = await muxy.browser.screenshot(tabId);
 
 ## Storage & Cookies
 
-```js
-await muxy.browser.storage.set(tabId, "token", "abc", "local");
-const token = await muxy.browser.storage.get(tabId, "token", "local");
+Storage and cookie methods are available only from `runScript` commands.
 
-const cookies = await muxy.browser.cookies.get(tabId);
-await muxy.browser.cookies.set(tabId, { name: "session", value: "x", domain: "example.com" });
-await muxy.browser.cookies.delete(tabId, "session");
+```js
+muxy.browser.storage.set(tabId, "token", "abc", "local");
+const token = muxy.browser.storage.get(tabId, "token", "local");
+
+const cookies = muxy.browser.cookies.get(tabId);
+muxy.browser.cookies.set(tabId, { name: "session", value: "x", domain: "example.com" });
+muxy.browser.cookies.delete(tabId, "session");
 ```
 
 `storage.get/set/clear(tabId, ...)` access `localStorage` (default) or `sessionStorage` (pass `"session"`).
@@ -64,4 +74,4 @@ Automation that runs JavaScript (`eval`, `click`, `type`, `fill`, `press`, `sele
 
 Declare `browser:read` for the read-only calls (`list`, `read`, `wait`, `waitFor`, `waitForNavigation`, `get*`, `is`, `find`, `snapshot`, `screenshot`, `storage.get`, `cookies.get`). Declare `browser:write` for the mutating calls (`open`, `navigate`, `close`, `eval`, `click`, `type`, `fill`, `press`, `select`, `hover`, `scrollIntoView`, `setChecked`, `reload`, `back`, `forward`, `storage.set/clear`, `cookies.set/delete/clear`) and for `wait` with a `{ function }` condition, which runs page JavaScript.
 
-All browser calls fail if the user disables the built-in browser in Settings. These APIs are available to extension webviews and background scripts.
+If the user disables the built-in browser in Settings, browser actions fail; `list()` returns no tabs. Background scripts do not expose `muxy.browser`.

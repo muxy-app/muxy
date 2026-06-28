@@ -2,7 +2,7 @@
 
 The `muxy` command lets you open projects and control Muxy workspaces from a terminal or automation script.
 
-Use it for quick project launching, switching projects or worktrees, scripted split layouts, tab navigation, sending input to panes, reading visible terminal output, and closing or renaming panes without switching back to the UI.
+Use it for quick project launching, switching projects or worktrees, scripted split layouts, tab navigation, browser automation, sending input to panes, reading visible terminal output, and closing or renaming panes without switching back to the UI.
 
 ## Install
 
@@ -118,7 +118,7 @@ muxy create-worktree hotfix --existing --branch release/1.2
 muxy create-worktree review --project "My App" --path ~/worktrees/review
 ```
 
-On success it prints the worktree ID, name, path, and branch (tab-separated).
+On success it prints `ok`, the worktree ID, name, path, and branch (tab-separated).
 
 Refresh worktrees from Git:
 
@@ -277,6 +277,39 @@ muxy next-tab
 muxy previous-tab
 ```
 
+## Browser control
+
+Browser commands talk to built-in browser tabs in the running Muxy app. Browser automation that evaluates JavaScript or interacts with the DOM requires the target tab to be open and rendered.
+
+Open, list, read, navigate, and close browser tabs:
+
+```bash
+TAB=$(muxy browser open "https://example.com" --split)
+muxy browser list
+muxy browser read "$TAB"
+muxy browser navigate "$TAB" "https://muxy.app"
+muxy browser close "$TAB"
+```
+
+Automate the page:
+
+```bash
+muxy browser wait-for "$TAB" "input[name=q]" 5000
+muxy browser type "$TAB" "input[name=q]" "muxy" --submit
+muxy browser wait-for-navigation "$TAB" 10000
+muxy browser eval "$TAB" "document.title"
+```
+
+Supported browser subcommands are:
+
+```text
+open, navigate, list, read, close, eval, click, type, fill, press, select,
+hover, check, uncheck, scroll-into-view, wait, wait-for,
+wait-for-navigation, get-text, get-html, get-value, get-attribute,
+get-count, is, find, snapshot, reload, back, forward, screenshot,
+storage, cookies
+```
+
 ## Example workflow
 
 Create a small development layout:
@@ -313,6 +346,8 @@ The socket is private to your user. It does not grant extra privileges, but any 
 - list and switch projects
 - list, switch, create, or refresh worktrees
 - list, switch, or create tabs
+- open, navigate, read, automate, screenshot, and close built-in browser tabs
+- read and write browser local/session storage and cookies
 - list panes
 - read visible terminal text
 - send text or supported control keys
@@ -320,6 +355,16 @@ The socket is private to your user. It does not grant extra privileges, but any 
 - create new splits
 
 Avoid exposing sensitive terminal output if you are running untrusted local software.
+
+## Install skills
+
+Install both Muxy agent skills into every detected AI harness:
+
+```bash
+muxy install-skills
+```
+
+Additional arguments are forwarded to `skills add`.
 
 ## Troubleshooting
 
