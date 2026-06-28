@@ -384,7 +384,7 @@ struct TerminalBridge: NSViewRepresentable {
                 }
                 guard Self.terminalFileOpenBehavior().allowsExternalEditorFallback else {
                     ToastState.shared.show("No in-app opener is registered for this file")
-                    return false
+                    return true
                 }
                 return IDEIntegrationService.shared.openProject(
                     at: projectPath,

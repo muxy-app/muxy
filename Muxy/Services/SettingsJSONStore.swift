@@ -209,6 +209,7 @@ enum SettingsJSONStore {
             "editor.richInputImageStrategy": Set(RichInputImageStrategy.allCases.map(\.rawValue)),
             NotificationSettings.Key.sound: Set(NotificationSound.allCases.map(\.rawValue)),
             NotificationSettings.Key.toastPosition: Set(ToastPosition.allCases.map(\.rawValue)),
+            GeneralSettingsKeys.terminalFileOpenBehavior: Set(TerminalFileOpenBehavior.allCases.map(\.rawValue)),
         ]
         guard let allowed = allowedValues[key] else { return }
         guard allowed.contains(value) else { throw SettingsJSONError.invalidValue(key) }
