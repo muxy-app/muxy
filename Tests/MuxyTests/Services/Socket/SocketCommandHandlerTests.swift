@@ -62,10 +62,15 @@ struct SocketCommandHandlerTests {
             command: "split-down",
             parts: ["split-down", "", "   "]
         )
+        let targetedSplit = SocketCommandHandler.requiredPermissions(
+            command: "split-right",
+            parts: ["split-right", "", "", "--worktree", "feature"]
+        )
 
         #expect(plainSplit == [.panesWrite])
         #expect(commandSplit == [.panesWrite, .commandsExec])
         #expect(whitespaceCommandSplit == [.panesWrite])
+        #expect(targetedSplit == [.panesWrite])
     }
 
     @Test("split fails without active project")
@@ -437,8 +442,8 @@ struct SocketCommandHandlerTests {
         #expect(appState.areas(for: featureKey).first?.tabs.contains { $0.id == tabID } == true)
     }
 
-    @Test("browser open --split --worktree opens the tab in the focused area, not the new split pane")
-    func browserOpenSplitTargetsFocusedArea() async throws {
+    @Test("browser open --split --worktree opens the tab in the new split area")
+    func browserOpenSplitTargetsNewArea() async throws {
         let project = Project(name: "Test Project", path: testPath)
         let primary = Worktree(name: project.name, path: project.path, isPrimary: true)
         let feature = Worktree(name: "Feature", path: "/tmp/feature", branch: "feature", isPrimary: false)
@@ -457,21 +462,22 @@ struct SocketCommandHandlerTests {
         let areas = appState.areas(for: featureKey)
         #expect(areas.count == 2)
         let hostingArea = try #require(areas.first { $0.tabs.contains { $0.id == tabID } })
+        #expect(hostingArea.id == appState.focusedAreaID[featureKey])
         #expect(hostingArea.tabs.contains { $0.content.pane != nil })
-        let splitArea = try #require(areas.first { $0.id != hostingArea.id })
-        #expect(splitArea.tabs.allSatisfy { $0.content.browserState == nil })
     }
 
     @Test("split-right --worktree splits the target worktree")
-    func splitTargetsWorktree() async {
+    func splitTargetsWorktreeInsteadOfCallingPane() async throws {
         let project = Project(name: "Test Project", path: testPath)
         let primary = Worktree(name: project.name, path: project.path, isPrimary: true)
         let feature = Worktree(name: "Feature", path: "/tmp/feature", branch: "feature", isPrimary: false)
         let appState = makeAppState(projectID: project.id, worktreeID: primary.id)
         let stores = makeStores(projects: [project], worktrees: [project.id: [primary, feature]])
+        let primaryKey = WorktreeKey(projectID: project.id, worktreeID: primary.id)
+        let primaryPaneID = try #require(appState.areas(for: primaryKey).first?.tabs.first?.content.pane?.id)
 
         let result = await SocketCommandHandler.handleRequest(
-            "split-right|||--worktree|feature",
+            "split-right|\(primaryPaneID.uuidString)||--worktree|feature",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore
@@ -480,6 +486,7 @@ struct SocketCommandHandlerTests {
         #expect(UUID(uuidString: result) != nil)
         #expect(appState.activeWorktreeID[project.id] == primary.id)
         let featureKey = WorktreeKey(projectID: project.id, worktreeID: feature.id)
+        #expect(appState.areas(for: primaryKey).count == 1)
         #expect(appState.areas(for: featureKey).count == 2)
     }
 

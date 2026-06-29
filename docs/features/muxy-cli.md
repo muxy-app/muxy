@@ -303,7 +303,7 @@ Targeting a worktree does not move or switch your visible workspace. The action 
 muxy new-tab --worktree feature/login
 muxy list-tabs --project "My App" --worktree main
 muxy browser open localhost:3000 --worktree feature/login
-muxy split-right --worktree feature/login npm test
+muxy split-right npm test --worktree feature/login
 ```
 
 ## Browser control

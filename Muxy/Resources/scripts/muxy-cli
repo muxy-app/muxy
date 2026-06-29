@@ -42,8 +42,8 @@ NC_TIMEOUT="${MUXY_CLI_TIMEOUT:-10}"
 
 usage_for() {
     case "$1" in
-        split-right)       echo "muxy split-right [--from <id>] [--project <p>] [--worktree <w>] [cmd...]" ;;
-        split-down)        echo "muxy split-down [--from <id>] [--project <p>] [--worktree <w>] [cmd...]" ;;
+        split-right)       echo "muxy split-right [--from <id>] [cmd...] [--project <p>] [--worktree <w>]" ;;
+        split-down)        echo "muxy split-down [--from <id>] [cmd...] [--project <p>] [--worktree <w>]" ;;
         send)              echo "muxy send --pane <id> <text>" ;;
         send-keys)         echo "muxy send-keys --pane <id> <key>" ;;
         read-screen)       echo "muxy read-screen --pane <id> [--lines N]" ;;
@@ -238,22 +238,22 @@ api_timeout_for_ms() {
 extract_target_flags() {
     TARGET_PROJECT=""
     TARGET_WORKTREE=""
-    TARGET_REST=()
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
+    TARGET_REST=("$@")
+    while [[ ${#TARGET_REST[@]} -ge 2 ]]; do
+        local count=${#TARGET_REST[@]}
+        local flag="${TARGET_REST[$((count - 2))]}"
+        local value="${TARGET_REST[$((count - 1))]}"
+        case "$flag" in
             --project)
-                [ $# -lt 2 ] && return 1
-                TARGET_PROJECT="$2"
-                shift 2
+                TARGET_PROJECT="$value"
+                TARGET_REST=("${TARGET_REST[@]:0:$((count - 2))}")
                 ;;
             --worktree)
-                [ $# -lt 2 ] && return 1
-                TARGET_WORKTREE="$2"
-                shift 2
+                TARGET_WORKTREE="$value"
+                TARGET_REST=("${TARGET_REST[@]:0:$((count - 2))}")
                 ;;
             *)
-                TARGET_REST+=("$1")
-                shift
+                break
                 ;;
         esac
     done
@@ -272,7 +272,8 @@ case "$COMMAND" in
         shift
         extract_target_flags "$@" || die_usage split-right
         set -- "${TARGET_REST[@]}"
-        FROM="${MUXY_PANE_ID:-}"
+        FROM=""
+        [ -z "$(target_suffix)" ] && FROM="${MUXY_PANE_ID:-}"
         CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in
@@ -296,7 +297,8 @@ case "$COMMAND" in
         shift
         extract_target_flags "$@" || die_usage split-down
         set -- "${TARGET_REST[@]}"
-        FROM="${MUXY_PANE_ID:-}"
+        FROM=""
+        [ -z "$(target_suffix)" ] && FROM="${MUXY_PANE_ID:-}"
         CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in

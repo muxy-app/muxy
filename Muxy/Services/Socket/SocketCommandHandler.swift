@@ -884,7 +884,8 @@ enum SocketCommandHandler {
         }
         var permissions = MuxyAPI.Permissions.required(for: command).map { [$0] } ?? []
         guard command == "split-right" || command == "split-down" else { return permissions }
-        let splitRequest = parseSplitRequest(parts: parts)
+        let parsed = parseTargetFlags(Array(parts.dropFirst()))
+        let splitRequest = parseSplitRequest(parts: [command] + parsed.remaining)
         let trimmedCommand = splitRequest.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedCommand?.isEmpty == false else { return permissions }
         permissions.append(.commandsExec)

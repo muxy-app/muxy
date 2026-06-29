@@ -576,14 +576,22 @@ enum MuxyAPI {
             let key: WorktreeKey
             let areaID: UUID
 
-            if let fromPane, let paneID = UUID(uuidString: fromPane),
-               let loc = locateTab(paneID: paneID, appState: appState)
+            if let target {
+                key = target.key
+                if let fromPane,
+                   let paneID = UUID(uuidString: fromPane),
+                   let loc = locateTab(paneID: paneID, appState: appState),
+                   loc.key == target.key
+                {
+                    areaID = loc.areaID
+                } else {
+                    areaID = target.areaID
+                }
+            } else if let fromPane, let paneID = UUID(uuidString: fromPane),
+                      let loc = locateTab(paneID: paneID, appState: appState)
             {
                 key = loc.key
                 areaID = loc.areaID
-            } else if let target {
-                key = target.key
-                areaID = target.areaID
             } else {
                 guard let activeID = appState.activeProjectID else {
                     return .failure(.noActiveProject)
@@ -1629,6 +1637,7 @@ enum MuxyAPI {
             target: WorktreeTarget,
             appState: AppState
         ) -> Result<UUID, APIError> {
+            var areaID = target.areaID
             if split {
                 appState.dispatch(.splitAreaInWorktree(
                     key: target.key,
@@ -1639,10 +1648,11 @@ enum MuxyAPI {
                         position: .second
                     )
                 ))
+                areaID = appState.focusedAreaID[target.key] ?? target.areaID
             }
             let effects = appState.dispatchReturningEffects(.createBrowserTabInWorktree(
                 key: target.key,
-                areaID: target.areaID,
+                areaID: areaID,
                 url: url,
                 profileID: profileID
             ))

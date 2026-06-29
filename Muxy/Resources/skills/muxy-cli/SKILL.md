@@ -114,6 +114,7 @@ Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `
 muxy new-tab --worktree feature/login        # tab created in that worktree, your view stays put
 muxy list-tabs --project "My App" --worktree main
 muxy switch-tab 2 --worktree feature/login
+muxy split-right npm test --worktree feature/login
 ```
 
 Customize and manage a tab with `muxy tab <op> <index|id|title>`. The target resolves the same way as `switch-tab` — by index or title within the active worktree, or by tab ID anywhere across open workspaces:
