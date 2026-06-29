@@ -57,8 +57,8 @@ jobs:
           restore-keys: |
             spm-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Build
-        run: swift build
+      - name: Build tests
+        run: swift build --build-tests --quiet
 
       - name: Test
-        run: swift test
+        run: swift test --skip-build --quiet

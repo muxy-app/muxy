@@ -42,7 +42,7 @@ swift run Muxy
 3. Run checks before committing:
 
 ```bash
-scripts/checks.sh --fix   # auto-fix formatting and linting, then build
+scripts/checks.sh --fix   # auto-fix formatting and linting, then build and test
 ```
 
 4. Push your branch and open a pull request
@@ -60,7 +60,7 @@ scripts/checks.sh --fix   # auto-fix formatting and linting, then build
 All PRs must pass the full check suite. Run it with a single command:
 
 ```bash
-scripts/checks.sh          # formatting → linting → build → test
+scripts/checks.sh          # formatting → linting → build tests → test
 scripts/checks.sh --fix    # auto-fix formatting and linting, then build and test
 ```
 
@@ -68,8 +68,8 @@ The script runs the following steps in order, stopping on the first failure:
 
 1. **Formatting** — `swiftformat --lint .` (or `swiftformat .` with `--fix`)
 2. **Linting** — `swiftlint lint --strict --quiet` (or `--fix` first with `--fix`)
-3. **Build** — `swift build`
-4. **Test** — `swift test`
+3. **Build tests** — `swift build --build-tests --quiet`
+4. **Test** — `swift test --skip-build --quiet`
 
 Tool versions are pinned in `.tool-versions` and the script validates them on startup. If your local versions don't match, it will tell you exactly what's expected.
 
