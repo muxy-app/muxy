@@ -318,6 +318,12 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .toggleSidebar, store: keyBindings)
 
+            Button("Toggle App Layout") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.toggleAppLayout)
+            }
+            .shortcut(for: .toggleAppLayout, store: keyBindings)
+
             Button("Toggle Rich Input") {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.toggleRichInput)

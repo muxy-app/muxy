@@ -133,6 +133,12 @@ struct KeyBindingTests {
         #expect(combos[.refreshWorktrees] == KeyCombo(key: "r", command: true, option: true))
     }
 
+    @Test("Toggle App Layout uses Cmd+Shift+L by default")
+    func defaultsIncludesToggleAppLayoutShortcut() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.toggleAppLayout] == KeyCombo(key: "l", command: true, shift: true))
+    }
+
     @Test("KeyBinding Codable round-trip")
     func codableRoundTrip() throws {
         let binding = KeyBinding(

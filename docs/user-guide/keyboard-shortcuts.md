@@ -60,6 +60,7 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | --- | --- |
 | Open Project… | `Cmd+O` |
 | Toggle Sidebar | `Cmd+B` |
+| Toggle App Layout | `Cmd+Shift+L` |
 | Theme Picker | `Cmd+Shift+K` |
 | Reload Configuration | `Cmd+Shift+R` |
 | Toggle Full Screen | `Cmd+Ctrl+F` |

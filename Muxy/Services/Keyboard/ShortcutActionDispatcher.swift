@@ -241,6 +241,9 @@ struct ShortcutActionDispatcher {
         case .toggleSidebar:
             notificationCenter.post(name: .toggleSidebar, object: nil)
             return true
+        case .toggleAppLayout:
+            AppLayoutStore.shared.toggle()
+            return true
         case .toggleExtensionConsole:
             notificationCenter.post(name: .toggleExtensionConsole, object: nil)
             return true

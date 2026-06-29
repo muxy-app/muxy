@@ -60,6 +60,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case terminalOmniboxWorkspaces
     case terminalOmniboxCommands
     case toggleSidebar
+    case toggleAppLayout
     case navigateBack
     case navigateForward
     case toggleMaximizePane
@@ -120,6 +121,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .terminalOmniboxWorkspaces,
         .terminalOmniboxCommands,
         .toggleSidebar,
+        .toggleAppLayout,
         .navigateBack,
         .navigateForward,
         .toggleMaximizePane,
@@ -208,6 +210,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 scope: .mainWindow
             )
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
+        case .toggleAppLayout: ShortcutMetadata(displayName: "Toggle App Layout", category: "App", scope: .mainWindow)
         case .navigateBack: ShortcutMetadata(displayName: "Navigate Back", category: "Navigation", scope: .mainWindow)
         case .navigateForward: ShortcutMetadata(displayName: "Navigate Forward", category: "Navigation", scope: .mainWindow)
         case .toggleVoiceRecording: ShortcutMetadata(
@@ -357,6 +360,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .terminalOmniboxWorkspaces, combo: KeyCombo(key: "s", command: true, option: true)),
         Self(action: .terminalOmniboxCommands, combo: KeyCombo(key: "p", command: true, shift: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
+        Self(action: .toggleAppLayout, combo: KeyCombo(key: "l", command: true, shift: true)),
         Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, control: true)),
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
         Self(action: .toggleMaximizePane, combo: KeyCombo(key: KeyCombo.returnKey, command: true, option: true)),
