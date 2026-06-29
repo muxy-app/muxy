@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     name: Checks
@@ -42,17 +46,31 @@ jobs:
       - name: Linting
         run: swiftlint lint --strict --quiet
 
+      - name: Resolve GhosttyKit version
+        run: echo "GHOSTTY_TAG=$(gh release list --repo muxy-app/ghostty --limit 1 --json tagName -q '.[0].tagName')" >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Cache GhosttyKit
+        uses: actions/cache@v4
+        with:
+          path: |
+            GhosttyKit.xcframework
+            GhosttyKit/ghostty.h
+            Muxy/Resources/ghostty
+            Muxy/Resources/terminfo
+          key: ghosttykit-${{ env.GHOSTTY_TAG }}
+
       - name: Setup GhosttyKit
         run: scripts/setup.sh
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Cache SPM
-        uses: actions/cache@v4
+      - name: Restore SPM cache
+        id: spm-cache
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            .build
-            ~/Library/Caches/org.swift.swiftpm
+          path: ~/Library/Caches/org.swift.swiftpm
           key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved') }}
           restore-keys: |
             spm-${{ runner.os }}-${{ runner.arch }}-
@@ -62,3 +80,10 @@ jobs:
 
       - name: Test
         run: swift test --quiet
+
+      - name: Save SPM cache
+        if: always() && steps.spm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ steps.spm-cache.outputs.cache-primary-key }}
