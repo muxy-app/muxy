@@ -301,13 +301,8 @@ private struct TabFocusedTabRow: View {
         if agentStatus == .waiting {
             return MuxyTheme.warning
         }
-        if !active {
-            if hasUnread || hasCompletionPending {
-                return MuxyTheme.accent
-            }
-            if agentStatus == .idle {
-                return MuxyTheme.diffAddFg
-            }
+        if !active, hasUnread || hasCompletionPending {
+            return MuxyTheme.accent
         }
         return nil
     }

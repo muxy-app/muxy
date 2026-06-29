@@ -405,13 +405,8 @@ private struct TabCell: View {
         if tab.agentStatus == .waiting {
             return MuxyTheme.warning
         }
-        if !active {
-            if hasUnread || hasCompletionPending {
-                return MuxyTheme.accent
-            }
-            if tab.agentStatus == .idle {
-                return MuxyTheme.diffAddFg
-            }
+        if !active, hasUnread || hasCompletionPending {
+            return MuxyTheme.accent
         }
         return nil
     }

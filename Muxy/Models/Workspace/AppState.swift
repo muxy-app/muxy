@@ -629,6 +629,7 @@ final class AppState {
             if let key = activeWorktreeKey(for: projectID),
                maximizedAreaID[key] != nil
             {
+                clearActivePaneIndicators()
                 return WorkspaceSideEffects()
             }
         default:
@@ -639,6 +640,7 @@ final class AppState {
            let key = activeWorktreeKey(for: projectID),
            focusedAreaID[key] == areaID
         {
+            clearActivePaneIndicators()
             return WorkspaceSideEffects()
         }
 
@@ -649,6 +651,7 @@ final class AppState {
            area.activeTabID == tabID,
            focusedAreaID[key] == areaID
         {
+            clearActivePaneIndicators()
             return WorkspaceSideEffects()
         }
 
@@ -705,6 +708,14 @@ final class AppState {
         recordCurrentNavigationEntry()
         recordActiveWorktreeUsage()
 
+        clearActivePaneIndicators()
+
+        saveWorkspaces()
+        saveSelection()
+        return effects
+    }
+
+    private func clearActivePaneIndicators() {
         if let activeTabID = NotificationNavigator.activeTabID(appState: self) {
             NotificationStore.shared.markAsRead(tabID: activeTabID)
         }
@@ -712,10 +723,6 @@ final class AppState {
         if let activePaneID = NotificationNavigator.activePaneID(appState: self) {
             TerminalProgressStore.shared.clearCompletion(for: activePaneID)
         }
-
-        saveWorkspaces()
-        saveSelection()
-        return effects
     }
 
     func goBack() {
