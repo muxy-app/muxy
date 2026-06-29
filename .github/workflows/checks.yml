@@ -61,4 +61,4 @@ jobs:
         run: swift build --build-tests --quiet
 
       - name: Test
-        run: swift test --skip-build --quiet
+        run: swift test --quiet
