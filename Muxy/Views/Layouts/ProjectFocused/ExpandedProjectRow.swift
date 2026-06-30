@@ -34,7 +34,6 @@ struct ExpandedProjectRow: View {
     @State private var showColorPicker = false
     @State private var showSymbolPicker = false
     @State private var pendingWorktreeRemoval: WorktreeRemovalConfirmation?
-    @State private var removalRequest: WorktreeRemovalRequest?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -146,7 +145,6 @@ struct ExpandedProjectRow: View {
                 onCancel: { cancelRename() }
             )
         }
-        .worktreeRemovalSheet($removalRequest)
         .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
             ProjectIconColorPicker(selectedID: project.iconColor) { id in
                 onSetIconColor(id)
@@ -351,6 +349,7 @@ struct ExpandedProjectRow: View {
                     worktree: worktree,
                     selected: worktree.id == activeWorktreeID,
                     projectActive: isActive,
+                    isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id),
                     onSelect: {
                         appState.selectWorktree(projectID: project.id, worktree: worktree)
                     },
@@ -528,7 +527,7 @@ struct ExpandedProjectRow: View {
         let replacement = remaining.first(where: { $0.id == activeWorktreeID })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
-        removalRequest = WorktreeRemovalRequest(
+        worktreeStore.beginRemoval(
             worktree: worktree,
             repoPath: project.path,
             context: projectGroupStore.workspaceContext(for: project),
@@ -576,6 +575,7 @@ private struct ExpandedWorktreeRow: View {
     let worktree: Worktree
     let selected: Bool
     let projectActive: Bool
+    let isRemoving: Bool
     let onSelect: () -> Void
     let onRename: (String) -> Void
     let onRemove: (() -> Void)?
@@ -617,14 +617,21 @@ private struct ExpandedWorktreeRow: View {
             }
 
             Spacer(minLength: UIMetrics.spacing1)
+
+            if isRemoving {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.7)
+            }
         }
         .padding(.horizontal, UIMetrics.spacing4)
         .padding(.vertical, UIMetrics.scaled(7))
         .background(rowBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .opacity(isRemoving ? 0.5 : 1)
         .onHover { hovered = $0 }
         .onTapGesture {
-            guard !isRenaming else { return }
+            guard !isRenaming, !isRemoving else { return }
             onSelect()
         }
         .contextMenu {
@@ -634,6 +641,7 @@ private struct ExpandedWorktreeRow: View {
                 Button("Rename") { startRename() }
                 Divider()
                 Button("Remove", role: .destructive, action: onRemove)
+                    .disabled(isRemoving)
             } else {
                 Button("Rename") { startRename() }
                 Divider()

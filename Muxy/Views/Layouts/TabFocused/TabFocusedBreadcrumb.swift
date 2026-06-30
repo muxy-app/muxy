@@ -165,7 +165,10 @@ struct TabFocusedBreadcrumb: View {
                     showWorktreePopover = false
                     showCreateSheet = true
                 },
-                onRequestRemove: { worktree in removeWorktree(project: project, worktree: worktree) }
+                onRequestRemove: { worktree in
+                    showWorktreePopover = false
+                    beginRemove(project: project, worktree: worktree)
+                }
             )
         }
         .sheet(isPresented: $showCreateSheet) {
@@ -247,13 +250,20 @@ struct TabFocusedBreadcrumb: View {
         }
     }
 
-    private func removeWorktree(project: Project, worktree: Worktree) {
+    private func beginRemove(project: Project, worktree: Worktree) {
         let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.id == appState.activeWorktreeID[project.id] })
             ?? remaining.first(where: \.isPrimary)
             ?? remaining.first
-        appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
-        worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+        worktreeStore.beginRemoval(
+            worktree: worktree,
+            repoPath: project.path,
+            context: projectGroupStore.workspaceContext(for: project),
+            onSuccess: {
+                appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
+                worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            }
+        )
     }
 
     private func applyWorkspace(mode: WorkspaceEditorMode, name: String) {

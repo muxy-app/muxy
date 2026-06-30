@@ -15,6 +15,7 @@ struct WorktreeCreationRequest {
 @Observable
 final class WorktreeStore {
     private(set) var worktrees: [UUID: [Worktree]] = [:]
+    private(set) var removingWorktreeIDs: Set<UUID> = []
     private var projectIDByPath: [String: UUID] = [:]
     private let persistence: any WorktreePersisting
     private let listGitWorktrees: @Sendable (String) async throws -> [GitWorktreeRecord]
@@ -163,6 +164,36 @@ final class WorktreeStore {
         list.removeAll { $0.id == worktreeID && $0.canBeRemoved }
         setWorktrees(list, for: projectID)
         save(projectID: projectID)
+    }
+
+    func isRemoving(worktreeID: UUID) -> Bool {
+        removingWorktreeIDs.contains(worktreeID)
+    }
+
+    func beginRemoval(
+        worktree: Worktree,
+        repoPath: String,
+        context: WorkspaceContext,
+        onSuccess: @escaping @MainActor () -> Void
+    ) {
+        guard worktree.canBeRemoved, removingWorktreeIDs.insert(worktree.id).inserted else { return }
+        Task { [weak self] in
+            do {
+                try await WorktreeStore.cleanupOnDisk(
+                    worktree: worktree,
+                    repoPath: repoPath,
+                    context: context
+                )
+                self?.removingWorktreeIDs.remove(worktree.id)
+                onSuccess()
+            } catch {
+                self?.removingWorktreeIDs.remove(worktree.id)
+                ToastState.shared.show(
+                    title: "Could not remove worktree \"\(worktree.name)\"",
+                    body: error.localizedDescription
+                )
+            }
+        }
     }
 
     func refreshFromGit(project: Project, context: WorkspaceContext = .local) async throws -> [Worktree] {

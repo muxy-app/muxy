@@ -30,7 +30,6 @@ struct ProjectRow: View {
     @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
     @State private var showSymbolPicker = false
-    @State private var removalRequest: WorktreeRemovalRequest?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -122,7 +121,6 @@ struct ProjectRow: View {
                 .environment(appState)
                 .environment(worktreeStore)
             }
-            .worktreeRemovalSheet($removalRequest)
             .sheet(isPresented: $showCreateWorktreeSheet) {
                 CreateWorktreeSheet(project: project) { result in
                     showCreateWorktreeSheet = false
@@ -380,7 +378,7 @@ struct ProjectRow: View {
         let replacement = remaining.first(where: { $0.id == activeWorktreeID })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
-        removalRequest = WorktreeRemovalRequest(
+        worktreeStore.beginRemoval(
             worktree: worktree,
             repoPath: project.path,
             context: projectGroupStore.workspaceContext(for: project),

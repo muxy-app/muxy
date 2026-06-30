@@ -40,6 +40,7 @@ struct WorktreePopover: View {
                     worktree: worktree,
                     selected: worktree.id == activeWorktreeID,
                     isHighlighted: isHighlighted,
+                    isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id),
                     onSelect: {
                         appState.selectWorktree(projectID: project.id, worktree: worktree)
                         onDismiss()
@@ -117,6 +118,7 @@ private struct WorktreePopoverRow: View {
     let worktree: Worktree
     let selected: Bool
     let isHighlighted: Bool
+    let isRemoving: Bool
     let onSelect: () -> Void
     let onRename: (String) -> Void
     let onRemove: (() -> Void)?
@@ -163,14 +165,21 @@ private struct WorktreePopoverRow: View {
                 }
             }
             Spacer(minLength: 4)
+
+            if isRemoving {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.7)
+            }
         }
         .padding(.horizontal, UIMetrics.spacing5)
         .padding(.vertical, UIMetrics.scaled(7))
         .background(rowBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .opacity(isRemoving ? 0.5 : 1)
         .onHover { hovered = $0 }
         .onTapGesture {
-            guard !isRenaming else { return }
+            guard !isRenaming, !isRemoving else { return }
             onSelect()
         }
         .contextMenu {
@@ -180,6 +189,7 @@ private struct WorktreePopoverRow: View {
                 Button("Rename") { startRename() }
                 Divider()
                 Button("Remove", role: .destructive, action: onRemove)
+                    .disabled(isRemoving)
             } else {
                 Button("Rename") { startRename() }
             }
