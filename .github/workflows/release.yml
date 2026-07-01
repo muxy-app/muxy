@@ -342,3 +342,11 @@ jobs:
             -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"; then
             echo "Discord notification failed; release succeeded regardless"
           fi
+
+  update-homebrew-tap:
+    needs: [validate, release]
+    if: ${{ !inputs.draft }}
+    uses: ./.github/workflows/update-homebrew-tap.yml
+    with:
+      tag: v${{ needs.validate.outputs.version }}
+    secrets: inherit

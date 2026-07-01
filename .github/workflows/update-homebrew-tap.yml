@@ -1,8 +1,12 @@
 name: Update Homebrew Tap
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      tag:
+        description: "Stable release tag to publish to the tap (e.g. v1.0.0)"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -18,7 +22,7 @@ jobs:
         id: resolve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          TAG: ${{ inputs.tag }}
         run: |
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Tag $TAG is not a stable vX.Y.Z release, skipping"
