@@ -75,6 +75,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/popover" }
         },
+        "sidebar": { "$ref": "#/$defs/sidebar" },
         "commands": {
           "type": "array",
           "items": { "$ref": "#/$defs/command" }
@@ -258,6 +259,19 @@
         "entry": { "type": "string", "minLength": 1 },
         "width": { "type": "number", "exclusiveMinimum": 0 },
         "height": { "type": "number", "exclusiveMinimum": 0 },
+        "defaultData": {}
+      }
+    },
+    "sidebar": {
+      "description": "A single full-height webview that replaces Muxy's built-in left sidebar when the user selects it in Settings → Sidebar. At most one per extension.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "entry"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "icon": { "$ref": "#/$defs/icon" },
+        "entry": { "type": "string", "minLength": 1 },
         "defaultData": {}
       }
     },
