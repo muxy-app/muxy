@@ -15,7 +15,10 @@ final class JSExecutor: @unchecked Sendable {
     init(label: String) {
         let box = ThreadStartBox()
         thread = Thread {
-            guard let runLoop = CFRunLoopGetCurrent() else { return }
+            guard let runLoop = CFRunLoopGetCurrent() else {
+                box.abandon()
+                return
+            }
             box.publish(runLoop)
             var sourceContext = CFRunLoopSourceContext()
             let source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &sourceContext)
@@ -31,7 +34,7 @@ final class JSExecutor: @unchecked Sendable {
         ready.wait()
     }
 
-    fileprivate func markReady(_ loop: CFRunLoop) {
+    fileprivate func markReady(_ loop: CFRunLoop?) {
         lock.lock()
         runLoop = loop
         lock.unlock()
@@ -50,18 +53,21 @@ final class JSExecutor: @unchecked Sendable {
         let loop = runLoop
         lock.unlock()
         if let loop {
+            CFRunLoopStop(loop)
             CFRunLoopWakeUp(loop)
         }
     }
 
-    func async(_ work: @escaping @Sendable () -> Void) {
+    @discardableResult
+    func async(_ work: @escaping @Sendable () -> Void) -> Bool {
         lock.lock()
         let loop = runLoop
         let alreadyStopped = stopped
         lock.unlock()
-        guard let loop, !alreadyStopped else { return }
+        guard let loop, !alreadyStopped else { return false }
         CFRunLoopPerformBlock(loop, CFRunLoopMode.defaultMode.rawValue, work)
         CFRunLoopWakeUp(loop)
+        return true
     }
 }
 
@@ -72,10 +78,12 @@ private final class ThreadStartBox: @unchecked Sendable {
         self.executor = executor
     }
 
-    func onStart() {}
-
     func publish(_ loop: CFRunLoop) {
         executor?.markReady(loop)
+    }
+
+    func abandon() {
+        executor?.markReady(nil)
     }
 
     func shouldStop() -> Bool {
@@ -362,9 +370,12 @@ private final class ScriptBridge: @unchecked Sendable {
             payload = NSNull()
         }
         let delivery = ModalDeliveryBox(context: context, requestID: requestID, payload: payload)
-        executor.async {
+        let enqueued = executor.async {
             let deliver = delivery.context.objectForKeyedSubscript("__muxiDeliverModalResult")
             deliver?.call(withArguments: [delivery.requestID, delivery.payload])
+            completion.finish()
+        }
+        if !enqueued {
             completion.finish()
         }
     }
