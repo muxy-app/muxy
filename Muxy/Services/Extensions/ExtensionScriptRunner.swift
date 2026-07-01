@@ -5,6 +5,84 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "ExtensionScriptRunner")
 
+final class JSExecutor: @unchecked Sendable {
+    private let thread: Thread
+    private let ready = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var runLoop: CFRunLoop?
+    private var stopped = false
+
+    init(label: String) {
+        let box = ThreadStartBox()
+        thread = Thread {
+            guard let runLoop = CFRunLoopGetCurrent() else { return }
+            box.publish(runLoop)
+            var sourceContext = CFRunLoopSourceContext()
+            let source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &sourceContext)
+            CFRunLoopAddSource(runLoop, source, .commonModes)
+            while !box.shouldStop() {
+                CFRunLoopRunInMode(.defaultMode, 1_000_000_000, false)
+            }
+        }
+        thread.name = label
+        thread.stackSize = 4 << 20
+        box.configure(executor: self)
+        thread.start()
+        ready.wait()
+    }
+
+    fileprivate func markReady(_ loop: CFRunLoop) {
+        lock.lock()
+        runLoop = loop
+        lock.unlock()
+        ready.signal()
+    }
+
+    fileprivate func isStopped() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
+    }
+
+    func stop() {
+        lock.lock()
+        stopped = true
+        let loop = runLoop
+        lock.unlock()
+        if let loop {
+            CFRunLoopWakeUp(loop)
+        }
+    }
+
+    func async(_ work: @escaping @Sendable () -> Void) {
+        lock.lock()
+        let loop = runLoop
+        let alreadyStopped = stopped
+        lock.unlock()
+        guard let loop, !alreadyStopped else { return }
+        CFRunLoopPerformBlock(loop, CFRunLoopMode.defaultMode.rawValue, work)
+        CFRunLoopWakeUp(loop)
+    }
+}
+
+private final class ThreadStartBox: @unchecked Sendable {
+    private weak var executor: JSExecutor?
+
+    func configure(executor: JSExecutor) {
+        self.executor = executor
+    }
+
+    func onStart() {}
+
+    func publish(_ loop: CFRunLoop) {
+        executor?.markReady(loop)
+    }
+
+    func shouldStop() -> Bool {
+        executor?.isStopped() ?? true
+    }
+}
+
 @MainActor
 final class ExtensionScriptRunner {
     static let shared = ExtensionScriptRunner()
@@ -23,15 +101,15 @@ final class ExtensionScriptRunner {
 
     private final class ContextHandle {
         let context: JSContext
-        let queue: DispatchQueue
+        let executor: JSExecutor
         let cancelFlag: ScriptCancelFlag
         var bridge: AnyObject?
         var pendingModals = 0
         var scriptFinished = false
 
-        init(context: JSContext, queue: DispatchQueue, cancelFlag: ScriptCancelFlag) {
+        init(context: JSContext, executor: JSExecutor, cancelFlag: ScriptCancelFlag) {
             self.context = context
-            self.queue = queue
+            self.executor = executor
             self.cancelFlag = cancelFlag
         }
 
@@ -45,6 +123,7 @@ final class ExtensionScriptRunner {
     func evict(extensionID: String) {
         if let handle = contexts.removeValue(forKey: extensionID) {
             handle.cancelFlag.cancel()
+            handle.executor.stop()
         }
         ExtensionModalService.shared.dismiss(extensionID: extensionID)
         ExtensionDialogService.cancel(extensionID: extensionID)
@@ -75,13 +154,12 @@ final class ExtensionScriptRunner {
             cancelFlag: handle.cancelFlag
         )
         handle.bridge = bridge
-        bridge.deliveryQueue = handle.queue
+        bridge.executor = handle.executor
         bridge.modalPendingChanged = { [weak self, weak handle] delta in
             guard let self, let handle else { return }
             handle.pendingModals += delta
             self.evictIfIdle(extensionID: extensionID, handle: handle)
         }
-        bridge.install(into: handle.context)
 
         defer {
             handle.scriptFinished = true
@@ -89,15 +167,20 @@ final class ExtensionScriptRunner {
         }
 
         let contextBox = JSContextBox(handle.context)
+        let bridgeBox = ScriptBridgeBox(bridge)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            handle.queue.async {
+            handle.executor.async {
                 let context = contextBox.context
+                bridgeBox.bridge.install(into: context)
                 let capture = ExceptionCapture()
                 context.exceptionHandler = { _, exception in
                     capture.message = exception?.toString() ?? "unknown error"
                 }
                 _ = context.evaluateScript(source, withSourceURL: scriptURL)
-                context.exceptionHandler = nil
+                context.exceptionHandler = { _, exception in
+                    let message = exception?.toString() ?? "unknown error"
+                    ExtensionLogStore.shared.append(extensionID: extensionID, line: "[err] \(message)")
+                }
                 if let message = capture.message {
                     logger.error("Extension \(extensionID) script error: \(message)")
                     continuation.resume(throwing: RunError.evaluationFailed(message))
@@ -119,13 +202,32 @@ final class ExtensionScriptRunner {
 
     private func makeContextHandle(for extensionID: String) throws -> ContextHandle {
         evict(extensionID: extensionID)
-        let queue = DispatchQueue(label: "app.muxy.extension.\(extensionID)")
-        guard let context = JSContext() else {
+        let executor = JSExecutor(label: "app.muxy.extension.\(extensionID)")
+        let contextBox = MakeContextBox()
+        let ready = DispatchSemaphore(value: 0)
+        executor.async {
+            contextBox.context = JSContext()
+            ready.signal()
+        }
+        ready.wait()
+        guard let context = contextBox.context else {
+            executor.stop()
             throw RunError.evaluationFailed("Failed to create JSContext")
         }
-        let handle = ContextHandle(context: context, queue: queue, cancelFlag: ScriptCancelFlag())
+        let handle = ContextHandle(context: context, executor: executor, cancelFlag: ScriptCancelFlag())
         contexts[extensionID] = handle
         return handle
+    }
+}
+
+private final class MakeContextBox: @unchecked Sendable {
+    var context: JSContext?
+}
+
+private struct ScriptBridgeBox: @unchecked Sendable {
+    let bridge: ScriptBridge
+    init(_ bridge: ScriptBridge) {
+        self.bridge = bridge
     }
 }
 
@@ -187,7 +289,6 @@ private final class ScriptBridge: @unchecked Sendable {
 
     private weak var context: JSContext?
 
-    @MainActor
     func install(into context: JSContext) {
         self.context = context
         let dispatcher: @convention(block) (String, JSValue?) -> Any = { [weak self] verb, args in
@@ -248,7 +349,7 @@ private final class ScriptBridge: @unchecked Sendable {
         item: ExtensionModalService.Item?,
         completion: ModalDeliveryCompletion
     ) {
-        guard let queue = deliveryQueue, let context else {
+        guard let executor, let context else {
             completion.finish()
             return
         }
@@ -261,7 +362,7 @@ private final class ScriptBridge: @unchecked Sendable {
             payload = NSNull()
         }
         let delivery = ModalDeliveryBox(context: context, requestID: requestID, payload: payload)
-        queue.async {
+        executor.async {
             let deliver = delivery.context.objectForKeyedSubscript("__muxiDeliverModalResult")
             deliver?.call(withArguments: [delivery.requestID, delivery.payload])
             completion.finish()
@@ -282,7 +383,9 @@ private final class ScriptBridge: @unchecked Sendable {
         query: String,
         options: ExtensionModalSearchOptions
     ) {
-        guard let queue = deliveryQueue, let context else { return }
+        guard let executor, let context else { return }
+        modalQueryStamp.advance(requestID: requestID, queryID: queryID)
+        let stamp = modalQueryStamp
         let delivery = ModalQueryDeliveryBox(
             context: context,
             requestID: requestID,
@@ -290,14 +393,16 @@ private final class ScriptBridge: @unchecked Sendable {
             query: query,
             options: options.payload
         )
-        queue.async {
+        executor.async {
+            guard stamp.isCurrent(requestID: delivery.requestID, queryID: delivery.queryID) else { return }
             let deliver = delivery.context.objectForKeyedSubscript("__muxyDeliverModalQuery")
             deliver?.call(withArguments: [delivery.requestID, delivery.queryID, delivery.query, delivery.options])
         }
     }
 
-    var deliveryQueue: DispatchQueue?
+    var executor: JSExecutor?
     var modalPendingChanged: ((Int) -> Void)?
+    private let modalQueryStamp = ModalQueryStamp()
 
     private static func errorObject(_ message: String) -> [String: Any] {
         ["ok": false, "error": message]
@@ -315,6 +420,25 @@ private final class ScriptBridge: @unchecked Sendable {
                 stores: stores
             )
         )
+    }
+}
+
+private final class ModalQueryStamp: @unchecked Sendable {
+    private let lock = NSLock()
+    private var requestID: String?
+    private var queryID = 0
+
+    func advance(requestID: String, queryID: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.requestID = requestID
+        self.queryID = queryID
+    }
+
+    func isCurrent(requestID: String, queryID: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestID == self.requestID && queryID == self.queryID
     }
 }
 

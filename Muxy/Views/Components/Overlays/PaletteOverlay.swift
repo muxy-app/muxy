@@ -36,6 +36,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     @State private var isSearchFieldFocused = false
     @State private var keyMonitor: Any?
     @State private var paletteWindow: NSWindow?
+    @State private var loadMoreGate = LoadMoreGate()
 
     var body: some View {
         ZStack {
@@ -170,7 +171,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                                     .onTapGesture { onSelect(item) }
                                     .id(item.id)
                                     .onAppear {
-                                        if index >= results.count - 1 { loadMore() }
+                                        if index >= results.count - 1 { scheduleLoadMore() }
                                     }
                             }
                         }
@@ -249,6 +250,15 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             highlightedIndex = result.items.isEmpty ? nil : 0
         } else if let index = highlightedIndex {
             highlightedIndex = min(index, max(0, result.items.count - 1))
+        }
+    }
+
+    private func scheduleLoadMore() {
+        guard hasMore, !isSearching, !loadMoreGate.isScheduled else { return }
+        loadMoreGate.isScheduled = true
+        Task { @MainActor in
+            loadMoreGate.isScheduled = false
+            loadMore()
         }
     }
 
@@ -353,6 +363,10 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             return false
         }
     }
+}
+
+private final class LoadMoreGate {
+    var isScheduled = false
 }
 
 enum PaletteOverlayKeyAction: Equatable {
@@ -474,15 +488,25 @@ struct PaletteSearchField: NSViewRepresentable {
             field.onEscape = onEscape
             field.onControlKey = onControlKey
         }
-        onWindowChange(nsView.window)
+        context.coordinator.notifyWindowChange(nsView.window)
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: PaletteSearchField
+        private weak var lastNotifiedWindow: NSWindow?
 
         init(parent: PaletteSearchField) {
             self.parent = parent
+        }
+
+        func notifyWindowChange(_ window: NSWindow?) {
+            guard window !== lastNotifiedWindow else { return }
+            lastNotifiedWindow = window
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.parent.onWindowChange(window)
+            }
         }
 
         func controlTextDidChange(_ obj: Notification) {
@@ -501,7 +525,7 @@ struct PaletteSearchField: NSViewRepresentable {
 
         func controlTextDidBeginEditing(_ obj: Notification) {
             parent.onFocusChange(true)
-            parent.onWindowChange((obj.object as? NSControl)?.window)
+            notifyWindowChange((obj.object as? NSControl)?.window)
         }
 
         func controlTextDidEndEditing(_: Notification) {

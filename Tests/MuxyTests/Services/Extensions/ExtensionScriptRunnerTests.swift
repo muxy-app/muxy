@@ -222,6 +222,173 @@ struct ExtensionScriptRunnerTests {
         #expect(page.items.map(\.title) == ["한글"])
     }
 
+    @Test("sync muxy API called from onQuery under rapid queries does not deadlock the main thread")
+    func syncApiFromModalQueryDoesNotDeadlock() async throws {
+        let extensionID = "test-ext-lockstorm"
+        let logDirectory = try makeExtensionDirectory()
+        ExtensionLogStore.shared.register(extensionID: extensionID, directory: logDirectory)
+        defer {
+            ExtensionScriptRunner.shared.evict(extensionID: extensionID)
+            ExtensionModalService.shared.dismiss()
+            ExtensionLogStore.shared.unregister(extensionID: extensionID)
+            ExtensionLogStore.shared.flush()
+            try? FileManager.default.removeItem(at: logDirectory)
+        }
+
+        let appState = makeAppState()
+        let scriptURL = try writeScript("""
+        muxy.modal.open({
+          items: [],
+          onQuery(query, emit) {
+            try { muxy.storage.set('last', query); } catch (e) {}
+            emit([{ id: query || 'empty', title: query || 'empty' }]);
+            return [{ id: query || 'empty', title: query || 'empty' }];
+          },
+        });
+        """)
+        defer { try? FileManager.default.removeItem(at: scriptURL.deletingLastPathComponent()) }
+
+        try await ExtensionScriptRunner.shared.runScript(
+            extensionID: extensionID,
+            scriptURL: scriptURL,
+            appState: appState,
+            stores: ExtensionAPIStores()
+        )
+
+        for round in 0 ..< 40 {
+            ExtensionModalService.shared.queryChanged("q-\(round)")
+            ExtensionModalService.shared.queryChanged("")
+        }
+
+        ExtensionModalService.shared.queryChanged("done")
+        let page = try await waitForModalPage(query: "done")
+        #expect(page.items.map(\.title).contains("done"))
+    }
+
+    @Test("rapid modal queries, clears, feeds, and reruns do not crash or deadlock")
+    func rapidModalStormDoesNotCrashOrDeadlock() async throws {
+        let extensionID = "test-ext-storm"
+        let logDirectory = try makeExtensionDirectory()
+        ExtensionLogStore.shared.register(extensionID: extensionID, directory: logDirectory)
+        defer {
+            ExtensionScriptRunner.shared.evict(extensionID: extensionID)
+            ExtensionModalService.shared.dismiss()
+            ExtensionLogStore.shared.unregister(extensionID: extensionID)
+            ExtensionLogStore.shared.flush()
+            try? FileManager.default.removeItem(at: logDirectory)
+        }
+
+        let appState = makeAppState()
+        let scriptURL = try writeScript("""
+        const rows = [];
+        for (let i = 0; i < 1000; i++) {
+          rows.push({ id: 'row-' + i, title: 'title '.repeat(20) + i, subtitle: 'sub '.repeat(40) + i });
+        }
+        muxy.modal.open({
+          placeholder: 'storm',
+          items(emit) {
+            for (let b = 0; b < 5; b++) emit(rows.slice(b * 200, (b + 1) * 200));
+          },
+          onQuery(query, emit) {
+            const until = Date.now() + 20;
+            while (Date.now() < until) {}
+            for (let b = 0; b < 5; b++) emit(rows.slice(b * 200, (b + 1) * 200));
+            return rows.slice(0, 200);
+          },
+          onSelect(choice) {
+            console.log('storm-select:' + (choice ? choice.id : 'null'));
+          },
+        });
+        """)
+        defer { try? FileManager.default.removeItem(at: scriptURL.deletingLastPathComponent()) }
+
+        let stores = ExtensionAPIStores()
+        try await ExtensionScriptRunner.shared.runScript(
+            extensionID: extensionID,
+            scriptURL: scriptURL,
+            appState: appState,
+            stores: stores
+        )
+
+        for round in 0 ..< 30 {
+            ExtensionModalService.shared.queryChanged("query-\(round)")
+            try await Task.sleep(for: .milliseconds(8))
+            ExtensionModalService.shared.queryChanged("")
+            try await Task.sleep(for: .milliseconds(8))
+
+            if round % 5 == 4 {
+                try await ExtensionScriptRunner.shared.runScript(
+                    extensionID: extensionID,
+                    scriptURL: scriptURL,
+                    appState: appState,
+                    stores: stores
+                )
+            }
+            if round % 7 == 6 {
+                ExtensionModalService.shared.select(
+                    ExtensionModalService.Item(id: "row-1", title: "t", subtitle: nil)
+                )
+                try await ExtensionScriptRunner.shared.runScript(
+                    extensionID: extensionID,
+                    scriptURL: scriptURL,
+                    appState: appState,
+                    stores: stores
+                )
+            }
+        }
+
+        ExtensionModalService.shared.queryChanged("final")
+        let page = try await waitForModalPage(query: "final")
+        #expect(!page.items.isEmpty)
+    }
+
+    @Test("superseded modal queries are skipped before invoking the handler")
+    func supersededModalQueriesAreSkipped() async throws {
+        let extensionID = "test-ext-stale-\(UUID().uuidString)"
+        let logDirectory = try makeExtensionDirectory()
+        ExtensionLogStore.shared.register(extensionID: extensionID, directory: logDirectory)
+        defer {
+            ExtensionScriptRunner.shared.evict(extensionID: extensionID)
+            ExtensionModalService.shared.dismiss()
+            ExtensionLogStore.shared.unregister(extensionID: extensionID)
+            ExtensionLogStore.shared.flush()
+            try? FileManager.default.removeItem(at: logDirectory)
+        }
+
+        let appState = makeAppState()
+        let scriptURL = try writeScript("""
+        muxy.modal.open({
+          items: [],
+          onQuery(query) {
+            console.log('query-start:' + query);
+            const until = Date.now() + 300;
+            while (Date.now() < until) {}
+            console.log('query-end:' + query);
+            return [{ id: query, title: query }];
+          },
+        });
+        """)
+        defer { try? FileManager.default.removeItem(at: scriptURL.deletingLastPathComponent()) }
+
+        try await ExtensionScriptRunner.shared.runScript(
+            extensionID: extensionID,
+            scriptURL: scriptURL,
+            appState: appState,
+            stores: ExtensionAPIStores()
+        )
+
+        ExtensionModalService.shared.queryChanged("warm")
+        _ = try await waitForLog(extensionID: extensionID, directory: logDirectory, contains: "query-start:warm")
+        ExtensionModalService.shared.queryChanged("q1")
+        ExtensionModalService.shared.queryChanged("q2")
+        ExtensionModalService.shared.queryChanged("q3")
+
+        let log = try await waitForLog(extensionID: extensionID, directory: logDirectory, contains: "query-end:q3")
+        #expect(log.contains("query-end:q3"))
+        #expect(!log.contains("query-start:q1"))
+        #expect(!log.contains("query-start:q2"))
+    }
+
     private func writeScript(_ source: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("script-\(UUID().uuidString)")

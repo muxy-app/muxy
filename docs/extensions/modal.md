@@ -128,7 +128,9 @@ async onQuery(query) {
   prefer `onQuery` because it also receives `emit` and uses the stale-query protection built into the
   dynamic modal pipeline.
 - Each call replaces the list for that query. Muxy tags every call with a revision and drops responses
-  for superseded queries, so a slow request that resolves late never overwrites a newer one.
+  for superseded queries, so a slow request that resolves late never overwrites a newer one. On
+  `runScript` scripts, queued queries that are already superseded are skipped before your handler runs,
+  so a slow synchronous search (e.g. `muxy.exec` over a large repo) never piles up once per keystroke.
 - The initial `items` (array or producer) still supplies the list shown before the user types; `onQuery`
   takes over once the query changes, including when it is cleared back to empty.
 - On webview pages `onQuery` may be `async` (do `await muxy.http.fetch(...)`); in `runScript` and

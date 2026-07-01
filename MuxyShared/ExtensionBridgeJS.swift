@@ -53,24 +53,28 @@ public enum ExtensionBridgeJS {
                 }
             };
             this.__muxyDeliverModalQuery = (requestID, queryID, query, options) => {
-                const handler = modalQueryHandlers[requestID];
-                const emit = (batch) => dispatch('modal.feed', { items: normalizeModalItems(batch), queryID });
-                const finish = () => dispatch('modal.finish', { queryID });
-                if (typeof handler !== 'function') { finish(); return; }
-                let produced;
-                const previousModalQueryID = activeModalQueryID;
-                activeModalQueryID = queryID;
                 try {
-                    produced = handler(query, emit, options || {});
-                } catch (error) {
-                    console.error(error);
+                    const handler = modalQueryHandlers[requestID];
+                    const emit = (batch) => dispatch('modal.feed', { items: normalizeModalItems(batch), queryID });
+                    const finish = () => dispatch('modal.finish', { queryID });
+                    if (typeof handler !== 'function') { finish(); return; }
+                    let produced;
+                    const previousModalQueryID = activeModalQueryID;
+                    activeModalQueryID = queryID;
+                    try {
+                        produced = handler(query, emit, options || {});
+                    } catch (error) {
+                        console.error(error);
+                        finish();
+                        return;
+                    } finally {
+                        activeModalQueryID = previousModalQueryID;
+                    }
+                    if (produced != null) emit(produced);
                     finish();
-                    return;
-                } finally {
-                    activeModalQueryID = previousModalQueryID;
+                } catch (error) {
+                    try { console.error(error); } catch (ignored) {}
                 }
-                if (produced != null) emit(produced);
-                finish();
             };
             const muxy = {
                 extensionID: \(extLiteral),
