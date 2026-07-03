@@ -7,7 +7,14 @@ struct ResizeHandle: View {
         case vertical
     }
 
+    enum HitAreaBias {
+        case centered
+        case leading
+        case trailing
+    }
+
     let axis: Axis
+    var hitAreaBias: HitAreaBias = .centered
     var onEnd: (() -> Void)?
     let onDrag: (DragGesture.Value) -> Void
     @State private var hovering = false
@@ -19,7 +26,7 @@ struct ResizeHandle: View {
         Rectangle()
             .fill(active ? MuxyTheme.accent : MuxyTheme.border)
             .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
-            .overlay {
+            .overlay(alignment: overlayAlignment) {
                 Color.clear
                     .frame(
                         width: axis == .horizontal ? UIMetrics.resizeHandleHitArea : nil,
@@ -53,6 +60,17 @@ struct ResizeHandle: View {
             .zIndex(1)
     }
 
+    private var overlayAlignment: Alignment {
+        switch hitAreaBias {
+        case .centered:
+            .center
+        case .leading:
+            axis == .horizontal ? .leading : .top
+        case .trailing:
+            axis == .horizontal ? .trailing : .bottom
+        }
+    }
+
     private var cursor: NSCursor {
         axis == .horizontal ? .resizeLeftRight : .resizeUpDown
     }
@@ -60,6 +78,7 @@ struct ResizeHandle: View {
 
 struct AnchoredResizeHandle<Anchor>: View {
     let axis: ResizeHandle.Axis
+    var hitAreaBias: ResizeHandle.HitAreaBias = .centered
     let captureAnchor: () -> Anchor
     let onTranslate: (Anchor, CGFloat) -> Void
     @State private var anchor: Anchor?
@@ -67,6 +86,7 @@ struct AnchoredResizeHandle<Anchor>: View {
     var body: some View {
         ResizeHandle(
             axis: axis,
+            hitAreaBias: hitAreaBias,
             onEnd: { anchor = nil },
             onDrag: { value in
                 let current = anchor ?? captureAnchor()
@@ -94,6 +114,7 @@ struct PanelResizeHandle: View {
     var body: some View {
         AnchoredResizeHandle(
             axis: axis,
+            hitAreaBias: hitAreaBias,
             captureAnchor: current,
             onTranslate: { start, delta in
                 let signed = (edge == .leading || edge == .top) ? -delta : delta
@@ -101,5 +122,16 @@ struct PanelResizeHandle: View {
             }
         )
         .accessibilityHidden(true)
+    }
+
+    private var hitAreaBias: ResizeHandle.HitAreaBias {
+        switch edge {
+        case .leading,
+             .top:
+            .leading
+        case .trailing,
+             .bottom:
+            .trailing
+        }
     }
 }
