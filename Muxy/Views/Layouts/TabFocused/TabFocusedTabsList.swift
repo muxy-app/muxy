@@ -280,6 +280,10 @@ private struct TabFocusedTabRow: View {
         return progressStore.progress(for: paneID)
     }
 
+    private var tabProgress: TerminalProgress? {
+        TerminalProgress.tabIndicator(progress: paneProgress, agentStatus: agentStatus)
+    }
+
     private var hasCompletionPending: Bool {
         guard let paneID = tab.content.pane?.id else { return false }
         return progressStore.isCompletionPending(for: paneID)
@@ -505,7 +509,7 @@ private struct TabFocusedTabRow: View {
         if let shortcutNumber, let combo = shortcutHint {
             ShortcutIconBadge(number: shortcutNumber, size: UIMetrics.iconMD, combo: combo)
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
-        } else if let progress = paneProgress {
+        } else if let progress = tabProgress {
             TerminalProgressCircle(progress: progress)
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                 .transition(.opacity)

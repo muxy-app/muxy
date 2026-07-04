@@ -15,4 +15,10 @@ struct TerminalProgress: Equatable {
         let normalized = percent.map { max(0, min(100, $0)) }
         return TerminalProgress(kind: kind, percent: normalized)
     }
+
+    static func tabIndicator(progress: TerminalProgress?, agentStatus: AgentStatus?) -> TerminalProgress? {
+        if let progress { return progress }
+        guard agentStatus == .working else { return nil }
+        return TerminalProgress(kind: .indeterminate, percent: nil)
+    }
 }

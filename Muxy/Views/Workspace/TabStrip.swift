@@ -396,6 +396,10 @@ private struct TabCell: View {
         return progressStore.progress(for: paneID)
     }
 
+    private var tabProgress: TerminalProgress? {
+        TerminalProgress.tabIndicator(progress: paneProgress, agentStatus: tab.agentStatus)
+    }
+
     private var hasCompletionPending: Bool {
         guard let paneID = tab.paneID else { return false }
         return progressStore.isCompletionPending(for: paneID)
@@ -659,7 +663,7 @@ private struct TabCell: View {
 
     @ViewBuilder
     private var tabIconView: some View {
-        if let progress = paneProgress {
+        if let progress = tabProgress {
             TerminalProgressCircle(progress: progress)
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                 .transition(.opacity)

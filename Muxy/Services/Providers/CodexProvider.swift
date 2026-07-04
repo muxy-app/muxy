@@ -9,8 +9,13 @@ struct CodexProvider: AIProviderIntegration {
     let hookScriptName = "muxy-codex-hook"
 
     private static let muxyMarker = "muxy-notification-hook"
-    private static let installedEvents = ["Stop"]
-    private static let removableEvents = installedEvents + ["Notification"]
+    private static let installedEvents: [(settingsKey: String, event: String)] = [
+        ("UserPromptSubmit", "user-prompt-submit"),
+        ("PreToolUse", "pre-tool-use"),
+        ("PermissionRequest", "permission-request"),
+        ("Stop", "stop"),
+    ]
+    private static let removableEvents = installedEvents.map(\.settingsKey) + ["Notification"]
     private let homeDirectory: String
     private let pathEnvironment: () -> String
     private let hooksPath: String
@@ -54,7 +59,8 @@ struct CodexProvider: AIProviderIntegration {
         var updatedHooks = hooks
         var changed = false
 
-        for event in Self.removableEvents where !Self.installedEvents.contains(event) {
+        let installedKeys = Set(Self.installedEvents.map(\.settingsKey))
+        for event in Self.removableEvents where !installedKeys.contains(event) {
             guard let entries = updatedHooks[event] as? [[String: Any]] else { continue }
             let result = Self.removingMuxyHooks(from: entries)
             guard result.changed else { continue }
@@ -67,12 +73,12 @@ struct CodexProvider: AIProviderIntegration {
         }
 
         for event in Self.installedEvents {
-            let command = Self.hookCommand(hookScript: hookScriptPath, event: event.lowercased())
+            let command = Self.hookCommand(hookScript: hookScriptPath, event: event.event)
             let entry = Self.buildHookEntry(command: command)
-            let existing = updatedHooks[event] as? [[String: Any]]
+            let existing = updatedHooks[event.settingsKey] as? [[String: Any]]
             guard !Self.muxyHookMatches(entries: existing, expectedCommand: command) || Self.muxyHookEntryCount(existing) != 1
             else { continue }
-            updatedHooks[event] = Self.mergeHookArray(existing: existing, muxyHook: entry)
+            updatedHooks[event.settingsKey] = Self.mergeHookArray(existing: existing, muxyHook: entry)
             changed = true
         }
 

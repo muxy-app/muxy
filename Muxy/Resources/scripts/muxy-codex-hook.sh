@@ -33,11 +33,14 @@ extract_last_message() {
 }
 
 case "$event" in
-    notification)
+    user-prompt-submit | pre-tool-use | UserPromptSubmit | PreToolUse)
+        send_status "working"
+        ;;
+    permission-request | PermissionRequest)
         send_status "waiting"
         send_notification "codex_hook" "Codex" "Needs attention"
         ;;
-    stop)
+    stop | Stop)
         send_status "idle"
         body=$(extract_last_message)
         send_notification "codex_hook" "Codex" "$body"

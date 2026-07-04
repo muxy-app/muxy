@@ -118,6 +118,48 @@ struct MuxyNotificationHooksTests {
         }
     }
 
+    @Test("Codex hook reports working waiting and idle statuses")
+    func codexHookReportsStatuses() throws {
+        let workingPrompt = try Self.runShellHook(.init(
+            scriptName: "muxy-codex-hook.sh",
+            event: "user-prompt-submit",
+            input: "{}"
+        ))
+        let workingTool = try Self.runShellHook(.init(
+            scriptName: "muxy-codex-hook.sh",
+            event: "pre-tool-use",
+            input: "{}"
+        ))
+        let waiting = try Self.runShellHook(.init(
+            scriptName: "muxy-codex-hook.sh",
+            event: "permission-request",
+            input: "{}"
+        ))
+        let idle = try Self.runShellHook(.init(
+            scriptName: "muxy-codex-hook.sh",
+            event: "stop",
+            input: "{}"
+        ))
+
+        #expect(workingPrompt.contains("agent_status|codex_hook|\(Self.paneID)|working\n"))
+        #expect(workingTool.contains("agent_status|codex_hook|\(Self.paneID)|working\n"))
+        #expect(waiting.contains("agent_status|codex_hook|\(Self.paneID)|waiting\n"))
+        #expect(waiting.contains("codex_hook|\(Self.paneID)|Codex|Needs attention\n"))
+        #expect(idle.contains("agent_status|codex_hook|\(Self.paneID)|idle\n"))
+        #expect(idle.contains("codex_hook|\(Self.paneID)|Codex|Session completed\n"))
+    }
+
+    @Test("Codex session start hook event does not report working")
+    func codexSessionStartDoesNotReportWorking() throws {
+        let sessionStart = try Self.runShellHook(.init(
+            scriptName: "muxy-codex-hook.sh",
+            event: "session-start",
+            input: "{}"
+        ))
+
+        #expect(sessionStart.isEmpty)
+    }
+
     private func temporaryBundle() throws -> URL {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-test-bundle-\(UUID().uuidString)")
