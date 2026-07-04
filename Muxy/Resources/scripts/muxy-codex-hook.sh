@@ -34,13 +34,12 @@ extract_last_message() {
 
 case "$event" in
     user-prompt-submit | pre-tool-use | UserPromptSubmit | PreToolUse)
-        send_status "working"
         cat >/dev/null
+        send_status "working"
         ;;
     permission-request | PermissionRequest)
-        send_status "waiting"
-        send_notification "codex_hook" "Codex" "Needs attention"
         cat >/dev/null
+        send_notification "codex_hook" "Codex" "Needs attention"
         ;;
     stop | Stop)
         input=$(cat)

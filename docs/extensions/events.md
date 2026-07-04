@@ -90,7 +90,7 @@ Which states a provider reports depends on the hooks its CLI exposes:
 | OpenCode (`opencode`) | ✓ | ✓ | ✓ |
 | Pi (`pi`) | ✓ | — | ✓ |
 | Cursor (`cursor`) | — | ✓ | ✓ |
-| Codex (`codex`) | ✓ | ✓ | ✓ |
+| Codex (`codex`) | ✓ | — | ✓ |
 
 A `—` means the CLI's hooks have no event for that transition, so the provider never emits that state.
 
