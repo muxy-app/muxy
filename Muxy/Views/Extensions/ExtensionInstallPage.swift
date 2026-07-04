@@ -185,6 +185,8 @@ struct ExtensionInstallPage: View {
                     }
                     Text(installButtonTitle)
                         .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(1)
+                        .fixedSize()
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 16)

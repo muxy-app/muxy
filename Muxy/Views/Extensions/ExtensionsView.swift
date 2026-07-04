@@ -143,6 +143,8 @@ struct ExtensionsView: View {
                             }
                             Text(isUpdatingAll ? "Updating…" : "Update All (\(store.updateCount))")
                                 .font(.system(size: 12, weight: .semibold))
+                                .lineLimit(1)
+                                .fixedSize()
                         }
                         .foregroundStyle(.white)
                         .padding(.horizontal, 10)
@@ -477,6 +479,8 @@ private struct ExtensionUpdateButton: View {
                 }
                 Text(isUpdating ? "Updating…" : "Update v\(version)")
                     .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
