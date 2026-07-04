@@ -9,6 +9,7 @@ struct CodexProvider: AIProviderIntegration {
     let hookScriptName = "muxy-codex-hook"
 
     private static let muxyMarker = "muxy-notification-hook"
+    private static let hookTimeoutSeconds = 10
     private static let installedEvents: [(settingsKey: String, event: String)] = [
         ("UserPromptSubmit", "user-prompt-submit"),
         ("PreToolUse", "pre-tool-use"),
@@ -116,6 +117,7 @@ struct CodexProvider: AIProviderIntegration {
                 [
                     "type": "command",
                     "command": command,
+                    "timeout": hookTimeoutSeconds,
                 ] as [String: Any],
             ],
         ]
