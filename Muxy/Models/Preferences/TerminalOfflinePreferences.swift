@@ -4,7 +4,7 @@ enum TerminalOfflinePreferences {
     static let enabledKey = "muxy.terminalOffline.enabled"
     static let idleThresholdKey = "muxy.terminalOffline.idleThresholdSeconds"
 
-    static let defaultIsEnabled = true
+    static let defaultIsEnabled = false
     static let defaultIdleThreshold: TimeInterval = 300
 
     static var isEnabled: Bool {
