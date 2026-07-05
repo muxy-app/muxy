@@ -41,6 +41,34 @@ public enum ExtensionBridgeJS {
                 }
                 dispatch('modal.finish', {});
             };
+            const buildExecPayload = (argvOrOptions, maybeOptions) => {
+                let payload;
+                if (Array.isArray(argvOrOptions)) {
+                    const opts = maybeOptions || {};
+                    payload = { argv: argvOrOptions.map(String) };
+                    if (opts.cwd != null) payload.cwd = String(opts.cwd);
+                    if (opts.env) payload.env = opts.env;
+                    if (opts.stdin != null) payload.stdin = String(opts.stdin);
+                    if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
+                } else {
+                    const opts = argvOrOptions || {};
+                    payload = {};
+                    if (opts.shell != null) payload.shell = String(opts.shell);
+                    if (opts.argv) payload.argv = opts.argv.map(String);
+                    if (opts.cwd != null) payload.cwd = String(opts.cwd);
+                    if (opts.env) payload.env = opts.env;
+                    if (opts.stdin != null) payload.stdin = String(opts.stdin);
+                    if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
+                }
+                return payload;
+            };
+            const makeExecError = (raw) => {
+                const message = String((raw && raw.message) || raw || 'exec failed');
+                const error = new Error(message);
+                error.code = String((raw && raw.code) || 'error');
+                error.cancelled = !!(raw && raw.cancelled);
+                return error;
+            };
             const modalResultHandlers = {};
             const modalQueryHandlers = {};
             let activeModalQueryID = null;
@@ -57,6 +85,10 @@ public enum ExtensionBridgeJS {
                     const handler = modalQueryHandlers[requestID];
                     const emit = (batch) => dispatch('modal.feed', { items: normalizeModalItems(batch), queryID });
                     const finish = () => dispatch('modal.finish', { queryID });
+                    const finishProduced = (produced) => {
+                        if (produced != null) emit(produced);
+                        finish();
+                    };
                     if (typeof handler !== 'function') { finish(); return; }
                     let produced;
                     const previousModalQueryID = activeModalQueryID;
@@ -70,8 +102,16 @@ public enum ExtensionBridgeJS {
                     } finally {
                         activeModalQueryID = previousModalQueryID;
                     }
-                    if (produced != null) emit(produced);
-                    finish();
+                    if (produced && typeof produced.then === 'function') {
+                        produced.then(
+                            (value) => {
+                                try { finishProduced(value); } catch (error) { console.error(error); finish(); }
+                            },
+                            (error) => { console.error(error); finish(); }
+                        );
+                        return;
+                    }
+                    finishProduced(produced);
                 } catch (error) {
                     try { console.error(error); } catch (ignored) {}
                 }
@@ -81,25 +121,36 @@ public enum ExtensionBridgeJS {
                 \(surface == .inProcess ? "toast: (opts) => dispatch('toast', opts || {})," : "")
                 notifications: { notify: (opts) => dispatch('notifications.notify', opts || {}) },
                 exec(argvOrOptions, maybeOptions) {
-                    let payload;
-                    if (Array.isArray(argvOrOptions)) {
-                        const opts = maybeOptions || {};
-                        payload = { argv: argvOrOptions.map(String) };
-                        if (opts.cwd != null) payload.cwd = String(opts.cwd);
-                        if (opts.env) payload.env = opts.env;
-                        if (opts.stdin != null) payload.stdin = String(opts.stdin);
-                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
-                    } else {
-                        const opts = argvOrOptions || {};
-                        payload = {};
-                        if (opts.shell != null) payload.shell = String(opts.shell);
-                        if (opts.argv) payload.argv = opts.argv.map(String);
-                        if (opts.cwd != null) payload.cwd = String(opts.cwd);
-                        if (opts.env) payload.env = opts.env;
-                        if (opts.stdin != null) payload.stdin = String(opts.stdin);
-                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
+                    return dispatch('exec', buildExecPayload(argvOrOptions, maybeOptions));
+                },
+                execAsync(argvOrOptions, maybeOptions) {
+                    if (typeof __muxyStartExecAsync !== 'function' || typeof __muxyCancelExec !== 'function') {
+                        throw new Error('muxy.execAsync is not available on this surface');
                     }
-                    return dispatch('exec', payload);
+                    const payload = buildExecPayload(argvOrOptions, maybeOptions);
+                    let jobID = '';
+                    let settled = false;
+                    const result = new Promise((resolve, reject) => {
+                        jobID = __muxyStartExecAsync(
+                            payload,
+                            (value) => {
+                                settled = true;
+                                resolve(value);
+                            },
+                            (error) => {
+                                settled = true;
+                                reject(makeExecError(error));
+                            }
+                        );
+                    });
+                    return Object.freeze({
+                        id: jobID,
+                        result,
+                        cancel() {
+                            if (settled) return false;
+                            return __muxyCancelExec(jobID);
+                        },
+                    });
                 },
                 dialog: {
                     confirm(opts) {

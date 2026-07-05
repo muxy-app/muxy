@@ -94,6 +94,7 @@ muxy.agents.list()                                              // requires agen
 muxy.files.{list, read, stat, write, mkdir, rename, move, delete}
 muxy.git.{status, diff, log, branches, commit, push, pull, …}   // full git surface, incl. git.pr.*, git.branch.*, git.worktree.*, git.tag.*
 muxy.exec(argv, options?) / muxy.exec({ shell, ... })           // requires commands:exec
+muxy.execAsync(argv, options?) / muxy.execAsync({ shell, ... }) // cancellable job; requires commands:exec
 ```
 
 ```js
@@ -101,9 +102,39 @@ const status = muxy.exec(['git', 'status', '--short']);
 console.log(status.stdout);
 ```
 
+For long-running commands in dynamic UI callbacks, use `execAsync` so the JavaScript queue stays free and superseded work can be cancelled:
+
+```js
+let activeSearch = null;
+
+muxy.modal.open({
+  placeholder: 'Find in files',
+  items: [],
+  onQuery(query, emit) {
+    activeSearch?.cancel();
+    if (!query.trim()) return [];
+
+    const job = muxy.execAsync(['rg', '--json', query]);
+    activeSearch = job;
+
+    return job.result.then(
+      (result) => {
+        if (activeSearch !== job) return [];
+        return parseRipgrepRows(result.stdout);
+      },
+      (error) => {
+        if (error.cancelled) return [];
+        throw error;
+      }
+    );
+  },
+});
+```
+
 Differences from the webview API:
 
 - All calls are **synchronous** — they return values directly, not Promises. Muxy blocks the script's own dispatch queue while the work runs on the main actor, so the UI stays responsive.
+- `muxy.execAsync` is the exception: it returns `{ id, result, cancel() }`, where `result` is a Promise resolving to the same shape as `muxy.exec` (`stdout`, `stderr`, `exitCode`, `timedOut`, `truncated`). Cancellation rejects with `error.code === "cancelled"` and `error.cancelled === true`.
 - No rendering/tab surface: no `muxy.data`, `muxy.theme`, `muxy.onDataChange`, `muxy.onThemeChange`, `muxy.focused`, `muxy.onFocus`, or `muxy.tabInstanceID`.
 - No page-only APIs: no `muxy.panels`, `muxy.popover`, `muxy.http`, or `muxy.tabs.setTitle`/`setIcon` (those need a tab instance).
 - No `muxy.events` and no `muxy.remote` — those are background-script APIs ([events](events.md), [remote methods](remote-methods.md)).

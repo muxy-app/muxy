@@ -131,6 +131,7 @@ final class ExtensionScriptRunner {
     func evict(extensionID: String) {
         if let handle = contexts.removeValue(forKey: extensionID) {
             handle.cancelFlag.cancel()
+            (handle.bridge as? ScriptBridge)?.cancelTimers()
             handle.executor.stop()
         }
         ExtensionModalService.shared.dismiss(extensionID: extensionID)
@@ -202,6 +203,7 @@ final class ExtensionScriptRunner {
     private func evictIfIdle(extensionID: String, handle: ContextHandle) {
         guard handle.canEvict, contexts[extensionID] === handle else { return }
         contexts.removeValue(forKey: extensionID)
+        (handle.bridge as? ScriptBridge)?.cancelTimers()
     }
 
     private final class ExceptionCapture {
@@ -281,6 +283,9 @@ private final class ScriptBridge: @unchecked Sendable {
     private weak var appState: AppState?
     private let stores: ExtensionAPIStores
     private let cancelFlag: ScriptCancelFlag
+    private let timerLock = NSLock()
+    private var timers: [Int: DispatchSourceTimer] = [:]
+    private var nextTimerID = 1
 
     @MainActor
     init(
@@ -299,6 +304,8 @@ private final class ScriptBridge: @unchecked Sendable {
 
     func install(into context: JSContext) {
         self.context = context
+        installTimers(into: context)
+        installExecAsync(into: context)
         let dispatcher: @convention(block) (String, JSValue?) -> Any = { [weak self] verb, args in
             guard let self else { return Self.errorObject("bridge released") }
             let dict = (args?.toDictionary() as? [String: Any]) ?? [:]
@@ -312,6 +319,133 @@ private final class ScriptBridge: @unchecked Sendable {
         }
         context.setObject(consoleBridge, forKeyedSubscript: "__muxyConsole" as NSString)
         context.evaluateScript(ExtensionBridgeJS.script(extensionID: extensionID, surface: .inProcess))
+    }
+
+    private func installTimers(into context: JSContext) {
+        let setTimer: @convention(block) (JSValue, Double, Bool) -> Int = { [weak self] callback, delayMs, repeats in
+            self?.scheduleTimer(callback: callback, delayMs: delayMs, repeats: repeats) ?? 0
+        }
+        context.setObject(setTimer, forKeyedSubscript: "__muxySetTimer" as NSString)
+
+        let clearTimer: @convention(block) (Int) -> Void = { [weak self] id in
+            self?.cancelTimer(id: id)
+        }
+        context.setObject(clearTimer, forKeyedSubscript: "__muxyClearTimer" as NSString)
+
+        context.evaluateScript("""
+        globalThis.setTimeout = (fn, delay) => __muxySetTimer(fn, Number(delay) || 0, false);
+        globalThis.setInterval = (fn, delay) => __muxySetTimer(fn, Number(delay) || 0, true);
+        globalThis.clearTimeout = (id) => __muxyClearTimer(Number(id) || 0);
+        globalThis.clearInterval = (id) => __muxyClearTimer(Number(id) || 0);
+        """)
+    }
+
+    private func installExecAsync(into context: JSContext) {
+        let start: @convention(block) (JSValue, JSValue, JSValue) -> String = { [weak self] payload, resolve, reject in
+            guard let self else { return "" }
+            return self.startExecAsync(payload: payload, resolve: resolve, reject: reject)
+        }
+        context.setObject(start, forKeyedSubscript: "__muxyStartExecAsync" as NSString)
+
+        let cancel: @convention(block) (String) -> Bool = { jobID in
+            ExtensionCommandExecutor.cancelExec(jobID: jobID)
+        }
+        context.setObject(cancel, forKeyedSubscript: "__muxyCancelExec" as NSString)
+    }
+
+    private func scheduleTimer(callback: JSValue, delayMs: Double, repeats: Bool) -> Int {
+        timerLock.lock()
+        let id = nextTimerID
+        nextTimerID += 1
+        timerLock.unlock()
+        let callbackBox = JSValueBox(callback)
+
+        let interval = max(0, delayMs) / 1000
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
+        if repeats {
+            timer.schedule(deadline: .now() + interval, repeating: interval)
+        } else {
+            timer.schedule(deadline: .now() + interval)
+        }
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let enqueued = executor?.async {
+                callbackBox.value.call(withArguments: [])
+                if !repeats { self.cancelTimer(id: id) }
+            } ?? false
+            if !enqueued {
+                self.cancelTimer(id: id)
+            }
+        }
+
+        timerLock.lock()
+        timers[id] = timer
+        timerLock.unlock()
+
+        timer.resume()
+        return id
+    }
+
+    private func cancelTimer(id: Int) {
+        timerLock.lock()
+        let timer = timers.removeValue(forKey: id)
+        timerLock.unlock()
+        timer?.cancel()
+    }
+
+    func cancelTimers() {
+        timerLock.lock()
+        let activeTimers = Array(timers.values)
+        timers.removeAll()
+        timerLock.unlock()
+        for timer in activeTimers {
+            timer.cancel()
+        }
+    }
+
+    private func startExecAsync(payload: JSValue, resolve: JSValue, reject: JSValue) -> String {
+        let jobID = UUID().uuidString
+        guard !cancelFlag.isCancelled else {
+            rejectExecAsync(reject, message: "extension stopped", cancelled: true)
+            return jobID
+        }
+        let dict = (payload.toDictionary() as? [String: Any]) ?? [:]
+        let preparation: ExecAsyncPreparation
+        do {
+            let argsBox = AnyBox(dict)
+            preparation = try syncAwait(cancelFlag: cancelFlag) { @MainActor in
+                let request = try ExtensionBridgeShared.decodeExecRequest(argsBox.value)
+                let defaultCwd = ExtensionBridgeShared.activeWorktreePath(
+                    appState: self.appState,
+                    worktreeStore: self.stores.worktreeStore
+                )
+                return ExecAsyncPreparation(request: request, defaultCwd: defaultCwd)
+            }
+        } catch {
+            rejectExecAsync(reject, message: error.localizedDescription, cancelled: false)
+            return jobID
+        }
+        let completion = ModalDeliveryCompletion(modalPendingChanged)
+        modalPendingChanged?(1)
+        let callback = ExecAsyncCallbackBox(executor: executor, resolve: resolve, reject: reject, completion: completion)
+        _ = ExtensionCommandExecutor.startCancelableExec(
+            jobID: jobID,
+            request: preparation.request,
+            extensionID: extensionID,
+            defaultCwd: preparation.defaultCwd
+        ) { result in
+            callback.complete(result)
+        }
+        return jobID
+    }
+
+    private func rejectExecAsync(_ reject: JSValue, message: String, cancelled: Bool) {
+        let payload: [String: Any] = [
+            "message": message,
+            "code": cancelled ? "cancelled" : "error",
+            "cancelled": cancelled,
+        ]
+        reject.call(withArguments: [payload])
     }
 
     private func dispatch(verb: String, args: [String: Any]) -> Any {
@@ -475,6 +609,71 @@ private struct AnyBox<T>: @unchecked Sendable {
     let value: T
     init(_ value: T) {
         self.value = value
+    }
+}
+
+private struct JSValueBox: @unchecked Sendable {
+    let value: JSValue
+    init(_ value: JSValue) {
+        self.value = value
+    }
+}
+
+private struct ExecAsyncPreparation {
+    let request: ExecRequest
+    let defaultCwd: String?
+}
+
+private final class ExecAsyncCallbackBox: @unchecked Sendable {
+    private weak var executor: JSExecutor?
+    private let resolve: JSValue
+    private let reject: JSValue
+    private let completion: ModalDeliveryCompletion
+
+    init(executor: JSExecutor?, resolve: JSValue, reject: JSValue, completion: ModalDeliveryCompletion) {
+        self.executor = executor
+        self.resolve = resolve
+        self.reject = reject
+        self.completion = completion
+    }
+
+    func complete(_ result: Result<ExecResult, Error>) {
+        guard executor?.async({ [self] in
+            switch result {
+            case let .success(value):
+                resolve.call(withArguments: [Self.encode(value)])
+            case let .failure(error):
+                reject.call(withArguments: [Self.encode(error)])
+            }
+            completion.finish()
+        }) == true
+        else {
+            completion.finish()
+            return
+        }
+    }
+
+    private static func encode(_ result: ExecResult) -> [String: Any] {
+        [
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "exitCode": Int(result.exitCode),
+            "timedOut": result.timedOut,
+            "truncated": result.truncated,
+        ]
+    }
+
+    private static func encode(_ error: Error) -> [String: Any] {
+        let cancelled = if case ExecError.cancelled = error {
+            true
+        } else {
+            false
+        }
+        return [
+            "message": error.localizedDescription,
+            "code": cancelled ? "cancelled" : "error",
+            "cancelled": cancelled,
+        ]
     }
 }
 
