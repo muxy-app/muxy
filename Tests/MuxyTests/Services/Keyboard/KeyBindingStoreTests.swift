@@ -110,6 +110,29 @@ struct KeyBindingStoreTests {
         #expect(store.combo(for: .refreshWorktrees) == KeyCombo(key: "r", command: true, option: true))
     }
 
+    @Test("new default shortcuts do not shadow saved custom bindings")
+    func newDefaultShortcutsDoNotShadowSavedCustomBindings() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("keybindings-\(UUID().uuidString).json")
+        let savedCombo = KeyCombo(key: "n", command: true, option: true)
+        let savedBinding = KeyBinding(action: .terminalOmniboxCommands, combo: savedCombo)
+        let data = try JSONEncoder().encode([savedBinding])
+        try data.write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = KeyBindingStore(persistence: FileKeyBindingPersistence(fileURL: url))
+        let keyCode = try #require(KeyCombo.keyCode(for: "n"))
+        let event = try keyEvent(
+            characters: "n",
+            charactersIgnoringModifiers: "n",
+            keyCode: keyCode,
+            modifiers: [.command, .option]
+        )
+
+        #expect(store.combo(for: .terminalOmniboxCommands) == savedCombo)
+        #expect(store.combo(for: .createWorktree).isAssigned == false)
+        #expect(store.action(for: event, scopes: [.mainWindow]) == .terminalOmniboxCommands)
+    }
+
     private func keyEvent(
         characters: String,
         charactersIgnoringModifiers: String,

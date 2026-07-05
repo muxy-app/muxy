@@ -1050,15 +1050,20 @@ struct MainWindow: View {
         worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id])
     }
 
-    private var canCreateWorktreeForActiveProject: Bool {
-        guard let project = activeProject, !project.isHome, project.worktreesEnabled else { return false }
-        let context = projectGroupStore.workspaceContext(for: project)
-        let isGitRepo = GitRepoStatusCache.shared.cachedStatus(for: project.path, context: context) ?? false
-        return isGitRepo || worktreeStore.list(for: project.id).count > 1
+    private func beginCreateWorktree() {
+        guard let project = activeProject else { return }
+        Task { await beginCreateWorktree(project: project) }
     }
 
-    private func beginCreateWorktree() {
-        guard canCreateWorktreeForActiveProject, let project = activeProject else { return }
+    @MainActor
+    private func beginCreateWorktree(project: Project) async {
+        guard await WorktreeActionEligibility.canCreateWorktreeResolvingGitStatus(
+            project: project,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+        else { return }
+        guard activeProject?.id == project.id else { return }
         worktreeCreationProject = project
     }
 
@@ -1076,8 +1081,11 @@ struct MainWindow: View {
 
     private func requestRemoveCurrentWorktree() {
         guard let project = activeProject,
-              let worktree = resolvedActiveWorktree(for: project),
-              worktree.canBeRemoved
+              let worktree = WorktreeActionEligibility.removableCurrentWorktree(
+                  project: project,
+                  appState: appState,
+                  worktreeStore: worktreeStore
+              )
         else { return }
         Task { await requestRemoveWorktree(worktree, in: project) }
     }

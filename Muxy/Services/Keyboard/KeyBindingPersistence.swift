@@ -31,9 +31,21 @@ final class FileKeyBindingPersistence: KeyBindingPersisting {
     }
 
     private static func mergeWithDefaults(_ saved: [KeyBinding]) -> [KeyBinding] {
-        let savedByAction = Dictionary(uniqueKeysWithValues: saved.map { ($0.action, $0) })
+        var savedByAction: [ShortcutAction: KeyBinding] = [:]
+        var claimedCombos = Set(saved.map(\.combo).filter(\.isAssigned))
+        for binding in saved {
+            savedByAction[binding.action] = binding
+        }
         return KeyBinding.defaults.map { defaultBinding in
-            savedByAction[defaultBinding.action] ?? defaultBinding
+            if let savedBinding = savedByAction[defaultBinding.action] {
+                return savedBinding
+            }
+            guard defaultBinding.combo.isAssigned else { return defaultBinding }
+            guard !claimedCombos.contains(defaultBinding.combo) else {
+                return KeyBinding(action: defaultBinding.action, combo: KeyCombo(key: "", modifiers: 0))
+            }
+            claimedCombos.insert(defaultBinding.combo)
+            return defaultBinding
         }
     }
 

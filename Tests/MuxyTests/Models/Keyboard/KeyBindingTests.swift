@@ -133,6 +133,13 @@ struct KeyBindingTests {
         #expect(combos[.refreshWorktrees] == KeyCombo(key: "r", command: true, option: true))
     }
 
+    @Test("Worktree actions use expected default shortcuts")
+    func defaultsIncludeWorktreeActionShortcuts() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.createWorktree] == KeyCombo(key: "n", command: true, option: true))
+        #expect(combos[.removeCurrentWorktree]?.isAssigned == false)
+    }
+
     @Test("Toggle App Layout uses Cmd+Shift+L by default")
     func defaultsIncludesToggleAppLayoutShortcut() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
