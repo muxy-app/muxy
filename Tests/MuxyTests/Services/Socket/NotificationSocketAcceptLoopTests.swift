@@ -50,9 +50,30 @@ struct NotificationSocketAcceptLoopTests {
         defer { close(fd) }
         try writeLine(command, to: fd)
         shutdown(fd, SHUT_WR)
-        let payload = try readUntilEOF(fd)
-        #expect(payload.last == NotificationSocketServer.commandReplyTerminator)
-        return String(decoding: payload.dropLast(), as: UTF8.self)
+        let payload = try readCommandReply(fd)
+        return String(decoding: payload, as: UTF8.self)
+    }
+
+    private static func readCommandReply(_ fd: Int32, deadline: TimeInterval = 5) throws -> Data {
+        var collected = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        let end = Date().addingTimeInterval(deadline)
+        while Date() < end {
+            try waitForRead(fd, timeout: end.timeIntervalSinceNow)
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 {
+                if let terminator = buffer[0 ..< count].firstIndex(of: NotificationSocketServer.commandReplyTerminator) {
+                    collected.append(contentsOf: buffer[0 ..< terminator])
+                    return collected
+                }
+                collected.append(contentsOf: buffer[0 ..< count])
+                continue
+            }
+            if count == 0 { throw SocketError.missingReplyTerminator }
+            if errno == EINTR { continue }
+            throw SocketError.readFailed(errno)
+        }
+        throw SocketError.timedOut
     }
 
     private static func connect(to path: String) throws -> Int32 {
@@ -94,13 +115,14 @@ struct NotificationSocketAcceptLoopTests {
         var buffer = [UInt8](repeating: 0, count: 4096)
         let end = Date().addingTimeInterval(deadline)
         while Date() < end {
+            try waitForRead(fd, timeout: end.timeIntervalSinceNow)
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count > 0 {
                 collected.append(contentsOf: buffer[0 ..< count])
                 continue
             }
             if count == 0 { return collected }
-            if errno == EAGAIN || errno == EWOULDBLOCK {
+            if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
                 usleep(2000)
                 continue
             }
@@ -109,10 +131,23 @@ struct NotificationSocketAcceptLoopTests {
         throw SocketError.timedOut
     }
 
+    private static func waitForRead(_ fd: Int32, timeout: TimeInterval) throws {
+        var event = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        let milliseconds = max(1, Int32(min(timeout * 1000, Double(Int32.max))))
+        while true {
+            let ready = poll(&event, 1, milliseconds)
+            if ready > 0 { return }
+            if ready == 0 { throw SocketError.timedOut }
+            if errno == EINTR { continue }
+            throw SocketError.readFailed(errno)
+        }
+    }
+
     private enum SocketError: Error {
         case connectFailed(Int32)
         case writeFailed(Int32)
         case readFailed(Int32)
+        case missingReplyTerminator
         case timedOut
     }
 }
