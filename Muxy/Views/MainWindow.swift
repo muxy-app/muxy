@@ -172,6 +172,7 @@ struct MainWindow: View {
         .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
         .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
         .animation(.easeInOut(duration: 0.15), value: ExtensionModalService.shared.active)
+        .animation(.easeInOut(duration: 0.15), value: ExtensionWebviewModalService.shared.active)
         .modifier(OverlayExitTracker(
             showTerminalOmnibox: showTerminalOmnibox,
             showProjectPicker: showProjectPicker,
@@ -614,6 +615,7 @@ struct MainWindow: View {
         showTerminalOmnibox
             || showProjectPicker
             || ExtensionModalService.shared.active != nil
+            || ExtensionWebviewModalService.shared.active != nil
             || overlayAnimatingOut
     }
 
@@ -622,6 +624,19 @@ struct MainWindow: View {
         terminalOmniboxOverlay
         projectPickerOverlay
         extensionModalOverlay
+        extensionWebviewModalOverlay
+    }
+
+    @ViewBuilder
+    private var extensionWebviewModalOverlay: some View {
+        if let request = ExtensionWebviewModalService.shared.active {
+            ExtensionWebviewModalOverlay(
+                request: request,
+                onDismiss: { ExtensionWebviewModalService.shared.dismiss(requestID: request.id) }
+            )
+            .id(request.id)
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        }
     }
 
     @ViewBuilder

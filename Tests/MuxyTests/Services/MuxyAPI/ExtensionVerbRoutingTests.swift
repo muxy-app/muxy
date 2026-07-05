@@ -93,6 +93,15 @@ struct ExtensionVerbRoutingTests {
         #expect(MuxyAPI.Permissions.required(for: "browser.wait", args: ["function": "1+1"]) == .browserWrite)
     }
 
+    @Test("webview modal verbs are registered and require panels:write")
+    func webviewModalVerbsRequirePanelsWrite() {
+        let verbs = ["modal.openWebview", "modal.submitWebview", "modal.closeWebview"]
+        for verb in verbs {
+            #expect(MuxyAPI.Permissions.verbNames.contains(verb), "verbNames missing \(verb)")
+            #expect(MuxyAPI.Permissions.required(for: verb) == .panelsWrite, "\(verb) should be panels:write")
+        }
+    }
+
     @Test("MuxyAPI verbNames includes the legacy CLI verbs")
     func verbNamesIncludesLegacyVerbs() {
         let verbs = MuxyAPI.Permissions.verbNames

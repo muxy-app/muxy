@@ -177,3 +177,52 @@ muxy.events.subscribe('command.pick', () => {
 - Only one modal is shown at a time. Opening a new one while another is showing closes the existing modal — its `onSelect` fires with `null` — and presents the new picker.
 - `placeholder` and the labels are capped at 200 characters; `id`, `title`, and `subtitle` per item at 200. The dataset (array or streamed via the producer) is capped at 100,000 rows; items missing `id` or `title` are dropped.
 - The modal presents on the main Muxy window.
+
+## Webview modal (`openWebview`)
+
+When a picker is not enough — you want a **form**, a rich layout, your own inputs — open a **webview modal**: a centered, omnibox-style overlay that renders your own HTML in a fresh page. You get full control of the content; Muxy owns the scrim, the frame, Escape/outside-click dismissal, and the result round-trip.
+
+`openWebview` is available on **webview pages only** (tabs, panels, popovers, sidebars) via `window.muxy` — not `runScript` or background, which have no page to host a nested webview. It needs the `panels:write` permission.
+
+```js
+// on any extension page (e.g. a panel), often from a shortcut's command event
+const result = await muxy.modal.openWebview({
+  entry: 'modal/form.html',        // required — an HTML asset in your extension
+  width: 460,
+  height: 300,
+  dismissOnOutsideClick: true,     // default true; false keeps it open on outside clicks
+  data: { greeting: 'Fill in the form' },   // exposed as muxy.data inside the modal page
+});
+// result is whatever the modal submitted, or null if it was dismissed
+```
+
+The modal page is a normal extension page: it gets the full `window.muxy`, the theme variables, and `muxy.data`. **Auto-focus a field with the standard `autofocus` attribute or `.focus()`** — the modal page owns its own keyboard focus.
+
+Inside the modal page:
+
+```js
+// submit + close, resolving the opener's promise with this value
+muxy.modal.submitWebview({ name: nameField.value, email: emailField.value });
+
+// cancel + close, resolving the opener's promise with null
+muxy.lifecycle.close();
+```
+
+From the opener you can also close it programmatically:
+
+```js
+muxy.modal.closeWebview();   // opener-side close; the promise resolves with null
+```
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `entry` | string | yes | HTML asset path inside your extension (must resolve inside the extension directory). |
+| `width` | number | no | Card width. Defaults to 480, clamped to 120–900. |
+| `height` | number | no | Card height. Defaults to 320, clamped to 120–760. |
+| `dismissOnOutsideClick` | boolean | no | When `true` (default), clicking the scrim closes with `null`. When `false`, only Escape / `submitWebview` / `closeWebview` / `lifecycle.close()` close it. |
+| `data` | any | no | JSON exposed as `muxy.data` inside the modal page. |
+
+- The result flows back only via `submitWebview(value)` — `lifecycle.close()` and outside-click / Escape resolve with `null`. The result payload is capped at 256 KB.
+- Only one webview modal is shown at a time; opening a new one resolves the previous opener with `null`.
+- `muxy.lifecycle.onBeforeClose(({ surface }) => ...)` runs before close (`surface` is `"modalWebview"`), so the modal page can guard against losing unsaved input.
+- The overlay presents on the main Muxy window, styled like the omnibox.

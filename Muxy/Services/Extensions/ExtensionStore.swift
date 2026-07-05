@@ -142,6 +142,7 @@ final class ExtensionStore {
         for status in statuses {
             ExtensionPanelRegistry.shared.closeAll(extensionID: status.id)
             PopoverHost.shared.close(extensionID: status.id)
+            ExtensionWebviewModalService.shared.dismiss(extensionID: status.id)
         }
         hasLoadedFromDisk = false
         rebuildExtensionUICache()
@@ -345,6 +346,7 @@ final class ExtensionStore {
             ExtensionIconAssetCache.shared.invalidate(extensionID: extensionID)
             ExtensionPanelRegistry.shared.closeAll(extensionID: extensionID)
             PopoverHost.shared.close(extensionID: extensionID)
+            ExtensionWebviewModalService.shared.dismiss(extensionID: extensionID)
         }
         rebuildExtensionUICache()
         syncExtensionShortcuts()
@@ -985,6 +987,7 @@ final class ExtensionStore {
         guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }
         statuses[index].isRunning = false
         PopoverHost.shared.close(extensionID: extensionID)
+        ExtensionWebviewModalService.shared.dismiss(extensionID: extensionID)
         let outcome = Self.classifyTermination(
             wasIntentional: wasIntentional,
             terminationStatus: process.terminationStatus
