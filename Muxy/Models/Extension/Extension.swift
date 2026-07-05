@@ -429,11 +429,20 @@ struct ExtensionSettingEntry: Codable, Equatable, Identifiable {
     var id: String { key }
 }
 
+struct ExtensionModalAction: Equatable {
+    let entry: String
+    let width: Double?
+    let height: Double?
+    let dismissOnOutsideClick: Bool
+    let data: ExtensionJSON?
+}
+
 enum ExtensionCommandAction: Codable, Equatable {
     case event
     case openTab(tabType: String, data: ExtensionJSON?)
     case togglePanel(panel: String)
     case openPopover(popover: String)
+    case openModal(ExtensionModalAction)
     case runScript(script: String)
 
     var isAnchored: Bool {
@@ -448,7 +457,8 @@ enum ExtensionCommandAction: Codable, Equatable {
         case .openTab:
             .tabsWrite
         case .togglePanel,
-             .openPopover:
+             .openPopover,
+             .openModal:
             .panelsWrite
         case .runScript:
             .commandsRunScript
@@ -462,6 +472,10 @@ enum ExtensionCommandAction: Codable, Equatable {
         case popover
         case data
         case script
+        case entry
+        case width
+        case height
+        case dismissOnOutsideClick
     }
 
     private enum Kind: String, Codable {
@@ -469,6 +483,7 @@ enum ExtensionCommandAction: Codable, Equatable {
         case openTab
         case togglePanel
         case openPopover
+        case openModal
         case runScript
     }
 
@@ -488,6 +503,14 @@ enum ExtensionCommandAction: Codable, Equatable {
         case .openPopover:
             let popover = try container.decode(String.self, forKey: .popover)
             self = .openPopover(popover: popover)
+        case .openModal:
+            self = try .openModal(ExtensionModalAction(
+                entry: container.decode(String.self, forKey: .entry),
+                width: container.decodeIfPresent(Double.self, forKey: .width),
+                height: container.decodeIfPresent(Double.self, forKey: .height),
+                dismissOnOutsideClick: container.decodeIfPresent(Bool.self, forKey: .dismissOnOutsideClick) ?? true,
+                data: container.decodeIfPresent(ExtensionJSON.self, forKey: .data)
+            ))
         case .runScript:
             let script = try container.decode(String.self, forKey: .script)
             self = .runScript(script: script)
@@ -509,6 +532,13 @@ enum ExtensionCommandAction: Codable, Equatable {
         case let .openPopover(popover):
             try container.encode(Kind.openPopover, forKey: .kind)
             try container.encode(popover, forKey: .popover)
+        case let .openModal(modal):
+            try container.encode(Kind.openModal, forKey: .kind)
+            try container.encode(modal.entry, forKey: .entry)
+            try container.encodeIfPresent(modal.width, forKey: .width)
+            try container.encodeIfPresent(modal.height, forKey: .height)
+            try container.encode(modal.dismissOnOutsideClick, forKey: .dismissOnOutsideClick)
+            try container.encodeIfPresent(modal.data, forKey: .data)
         case let .runScript(script):
             try container.encode(Kind.runScript, forKey: .kind)
             try container.encode(script, forKey: .script)
@@ -861,6 +891,8 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case commandReferencesUnknownTabType(commandID: String, tabType: String)
     case commandReferencesUnknownPanel(commandID: String, panel: String)
     case commandReferencesUnknownPopover(commandID: String, popover: String)
+    case commandModalEntryMissing(commandID: String, url: URL)
+    case commandModalEntryOutsideDirectory(commandID: String, url: URL)
     case scriptMissing(commandID: String, url: URL)
     case scriptOutsideDirectory(commandID: String, url: URL)
     case topbarItemEmptyID
@@ -949,6 +981,10 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Command '\(commandID)' references unknown panel '\(panel)'"
         case let .commandReferencesUnknownPopover(commandID, popover):
             "Command '\(commandID)' references unknown popover '\(popover)'"
+        case let .commandModalEntryMissing(commandID, url):
+            "Command '\(commandID)' modal entry not found at \(url.path)"
+        case let .commandModalEntryOutsideDirectory(commandID, url):
+            "Command '\(commandID)' modal entry at \(url.path) escapes the extension directory"
         case let .scriptMissing(commandID, url):
             "Command '\(commandID)' script not found at \(url.path)"
         case let .scriptOutsideDirectory(commandID, url):
@@ -1276,6 +1312,16 @@ enum ExtensionManifestLoader {
                         commandID: command.id,
                         popover: popover
                     )
+                }
+            case let .openModal(modal):
+                guard let url = muxyExtension.resolveResource(modal.entry) else {
+                    throw ExtensionLoadError.commandModalEntryOutsideDirectory(
+                        commandID: command.id,
+                        url: muxyExtension.directory.appendingPathComponent(modal.entry)
+                    )
+                }
+                guard FileManager.default.fileExists(atPath: url.path) else {
+                    throw ExtensionLoadError.commandModalEntryMissing(commandID: command.id, url: url)
                 }
             case let .runScript(script):
                 guard let url = muxyExtension.resolveResource(script) else {

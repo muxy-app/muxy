@@ -224,6 +224,9 @@ enum MuxyAPIDispatcher {
                     data: panelData(args)
                 )
             )
+            return ["requestID": requestID]
+        case "modal.awaitWebview":
+            let requestID = (args["requestID"] as? String) ?? ""
             let result = await ExtensionWebviewModalService.shared.awaitClose(requestID: requestID)
             return foundationValue(result)
         case "modal.submitWebview":

@@ -66,6 +66,7 @@ Registering/unregistering needs the `shortcuts:register` permission. An `id` tha
 | `openTab` | Opens an extension webview tab of the named type. | `tabType` (required, must reference a declared [tab type](tabs.md)); `data` (optional JSON merged into `window.muxy.data`). |
 | `togglePanel` | Toggles an extension [panel](panels.md) open/closed. | `panel` (required, must reference a declared panel id). |
 | `openPopover` | Toggles an extension [popover](popovers.md) anchored to its topbar/status-bar item. | `popover` (required, must reference a declared popover id). |
+| `openModal` | Opens a self-contained [webview modal](modal.md#opening-from-a-shortcut-openmodal) rendering your HTML — a form, info, a list, or anything. The modal does its own work and closes itself; no result is returned here (use `background.js` + `muxy.modal.openWebview` when you need the result or dynamic data). Requires `panels:write`. | `entry` (required, HTML asset inside the extension); `width`, `height`, `dismissOnOutsideClick`, `data` (all optional). |
 | `runScript` | Runs a script in an in-process JavaScriptCore context (no DOM). It exposes a **synchronous** `muxy.*` API: `tabs`, `panes`, `projects`, `worktrees`, `browser`, `agents`, `files`, `git`, `exec`, `dialog`, `modal`, `topbar`, `statusbar`, `notifications`/`toast`. It has no `events`, `remote`, `http`, `panels`, or `popover`. See [Scripts](scripts.md). Requires `commands:run-script`. | `script` (required, relative path within the extension directory). |
 
 ## How it surfaces

@@ -682,6 +682,17 @@ final class ExtensionStore {
             )
         case .openPopover:
             break
+        case let .openModal(modal):
+            ExtensionWebviewModalService.shared.open(
+                ExtensionWebviewModalService.OpenRequest(
+                    extensionID: invocation.extensionID,
+                    entry: modal.entry,
+                    width: modal.width,
+                    height: modal.height,
+                    dismissOnOutsideClick: modal.dismissOnOutsideClick,
+                    data: modal.data
+                )
+            )
         case let .runScript(script):
             runExtensionScript(script: script, in: muxyExtension, invocation: invocation)
         }

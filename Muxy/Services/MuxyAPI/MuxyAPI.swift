@@ -241,6 +241,7 @@ enum MuxyAPI {
             "modal.finish",
             "modal.await",
             "modal.openWebview",
+            "modal.awaitWebview",
             "modal.submitWebview",
             "modal.closeWebview",
             "extension.settings.get",

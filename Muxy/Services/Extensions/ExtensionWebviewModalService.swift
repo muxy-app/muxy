@@ -41,6 +41,7 @@ final class ExtensionWebviewModalService {
     private var pendingRequestID: String?
     private var bufferedResults: [String: ExtensionJSON?] = [:]
 
+    @discardableResult
     func open(_ open: OpenRequest) -> String {
         sequence += 1
         let request = Request(
@@ -64,6 +65,10 @@ final class ExtensionWebviewModalService {
         await withCheckedContinuation { continuation in
             onResult(requestID: requestID) { continuation.resume(returning: $0) }
         }
+    }
+
+    func onClose(requestID: String, _ handler: @escaping (ExtensionJSON?) -> Void) {
+        onResult(requestID: requestID, handler)
     }
 
     func submit(requestID: String, result: ExtensionJSON?) {

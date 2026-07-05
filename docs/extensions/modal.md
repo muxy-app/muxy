@@ -180,33 +180,36 @@ muxy.events.subscribe('command.pick', () => {
 
 ## Webview modal (`openWebview`)
 
-When a picker is not enough — you want a **form**, a rich layout, your own inputs — open a **webview modal**: a centered, omnibox-style overlay that renders your own HTML in a fresh page. You get full control of the content; Muxy owns the scrim, the frame, Escape/outside-click dismissal, and the result round-trip.
+When a picker is not enough, open a **webview modal**: a centered, omnibox-style overlay that renders **your own HTML** in a fresh page. The content is entirely yours — a form, an informational panel, a list, a confirmation, or any mix. Muxy owns the scrim, the frame, and Escape/outside-click dismissal; you own everything inside.
 
-`openWebview` is available on **webview pages only** (tabs, panels, popovers, sidebars) via `window.muxy` — not `runScript` or background, which have no page to host a nested webview. It needs the `panels:write` permission.
+`openWebview` is available on **webview pages** (tabs, panels, popovers, sidebars) and in **`background.js`** via `window.muxy`. It needs the `panels:write` permission. To open it from a shortcut with nothing else on screen, prefer `background.js` (always running) or the declarative [`openModal` command action](#opening-from-a-shortcut-openmodal).
 
 ```js
-// on any extension page (e.g. a panel), often from a shortcut's command event
+// from background.js (recommended for shortcut-driven modals) or any page
 const result = await muxy.modal.openWebview({
-  entry: 'modal/form.html',        // required — an HTML asset in your extension
+  entry: 'modal/index.html',       // required — an HTML asset in your extension
   width: 460,
   height: 300,
   dismissOnOutsideClick: true,     // default true; false keeps it open on outside clicks
-  data: { greeting: 'Fill in the form' },   // exposed as muxy.data inside the modal page
+  data: { greeting: 'Hello' },     // exposed as muxy.data inside the modal page
 });
-// result is whatever the modal submitted, or null if it was dismissed
+// result is whatever the modal chose to submit, or null if it was dismissed
 ```
 
-The modal page is a normal extension page: it gets the full `window.muxy`, the theme variables, and `muxy.data`. **Auto-focus a field with the standard `autofocus` attribute or `.focus()`** — the modal page owns its own keyboard focus.
+The modal page is a normal extension page: it gets the full `window.muxy`, the theme variables, and `muxy.data`. If it has an input, **auto-focus it with the standard `autofocus` attribute or `.focus()`** — the modal page owns its own keyboard focus.
 
 Inside the modal page:
 
 ```js
-// submit + close, resolving the opener's promise with this value
-muxy.modal.submitWebview({ name: nameField.value, email: emailField.value });
+// OPTIONAL: hand a value back to the opener and close. Only for modals that return
+// something — an informational modal or self-contained page never needs this.
+muxy.modal.submitWebview({ name: nameField.value });
 
-// cancel + close, resolving the opener's promise with null
+// close without a result (opener's promise resolves null)
 muxy.lifecycle.close();
 ```
+
+A modal does not have to return anything. An informational or self-contained modal (one that does its own `muxy.storage`/`muxy.http`/etc. work) just calls `muxy.lifecycle.close()`, or lets the user dismiss it — the opener's promise resolves `null`. Use `submitWebview(value)` only when the opener actually wants a value back.
 
 From the opener you can also close it programmatically:
 
@@ -221,6 +224,34 @@ muxy.modal.closeWebview();   // opener-side close; the promise resolves with nul
 | `height` | number | no | Card height. Defaults to 320, clamped to 120–760. |
 | `dismissOnOutsideClick` | boolean | no | When `true` (default), clicking the scrim closes with `null`. When `false`, only Escape / `submitWebview` / `closeWebview` / `lifecycle.close()` close it. |
 | `data` | any | no | JSON exposed as `muxy.data` inside the modal page. |
+
+### Opening from a shortcut (`openModal`)
+
+To open a webview modal directly from a keyboard shortcut with no page or `background.js` running, declare an `openModal` [command action](palette-commands.md). Muxy opens the modal natively; the modal page is **self-contained** — it does its own work and closes itself (there is no opener awaiting a result here).
+
+```json
+{
+  "muxy": {
+    "permissions": ["panels:write"],
+    "commands": [
+      {
+        "id": "quick-note",
+        "title": "Quick Note",
+        "defaultShortcut": "cmd+ctrl+m",
+        "action": {
+          "kind": "openModal",
+          "entry": "modal/index.html",
+          "width": 460,
+          "height": 300,
+          "dismissOnOutsideClick": true
+        }
+      }
+    ]
+  }
+}
+```
+
+The `openModal` action carries the modal fields inline (`entry` required; `width`, `height`, `dismissOnOutsideClick`, `data` optional) and needs `panels:write`. When you want the result back or dynamic `data`, subscribe to the command event in `background.js` and call `muxy.modal.openWebview(...)` there instead.
 
 - The result flows back only via `submitWebview(value)` — `lifecycle.close()` and outside-click / Escape resolve with `null`. The result payload is capped at 256 KB.
 - Only one webview modal is shown at a time; opening a new one resolves the previous opener with `null`.
