@@ -21,6 +21,8 @@ extension Notification.Name {
     static let toggleSidebar = Notification.Name("MuxyToggleSidebar")
     static let toggleAppLayout = Notification.Name("MuxyToggleAppLayout")
     static let toggleNotificationPanel = Notification.Name("MuxyToggleNotificationPanel")
+    static let createWorktreeRequested = Notification.Name("MuxyCreateWorktreeRequested")
+    static let removeCurrentWorktreeRequested = Notification.Name("MuxyRemoveCurrentWorktreeRequested")
     static let vcsRepoDidChange = Notification.Name("MuxyVCSRepoDidChange")
     static let vcsDidRefresh = Notification.Name("MuxyVCSDidRefresh")
     static let externalDragHoverChanged = Notification.Name("MuxyExternalDragHoverChanged")

@@ -44,6 +44,8 @@ Every shortcut listed here can be remapped in **Settings → Keyboard Shortcuts*
 | Previous Project | `Ctrl+[` |
 | Project 1–9 | `Ctrl+1` … `Ctrl+9` |
 | Refresh Worktrees | `Cmd+Opt+R` |
+| New Worktree | `Cmd+Opt+N` |
+| Remove Current Worktree | _Unassigned_ |
 
 ## Navigation history
 

@@ -208,6 +208,14 @@ struct ShortcutActionDispatcher {
                 )
             }
             return true
+        case .createWorktree:
+            guard activeProject != nil else { return false }
+            notificationCenter.post(name: .createWorktreeRequested, object: nil)
+            return true
+        case .removeCurrentWorktree:
+            guard activeProject != nil else { return false }
+            notificationCenter.post(name: .removeCurrentWorktreeRequested, object: nil)
+            return true
         case .nextProject:
             appState.selectNextProject(projects: navigableProjects, worktrees: worktreeStore.worktrees)
             return true

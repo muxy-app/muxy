@@ -97,6 +97,24 @@ struct MuxyCommands: Commands {
             .shortcut(for: .refreshWorktrees, store: keyBindings)
             .disabled(activeProject == nil)
 
+            Button {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.createWorktree)
+            } label: {
+                Label("New Worktree", systemImage: "plus")
+            }
+            .shortcut(for: .createWorktree, store: keyBindings)
+            .disabled(activeProject == nil)
+
+            Button {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.removeCurrentWorktree)
+            } label: {
+                Label("Remove Current Worktree", systemImage: "trash")
+            }
+            .shortcut(for: .removeCurrentWorktree, store: keyBindings)
+            .disabled(activeProject == nil)
+
             Divider()
 
             Button {

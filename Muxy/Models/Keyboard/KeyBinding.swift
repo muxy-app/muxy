@@ -30,6 +30,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case openProject
     case reloadConfig
     case refreshWorktrees
+    case createWorktree
+    case removeCurrentWorktree
     case selectTab1
     case selectTab2
     case selectTab3
@@ -91,6 +93,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .openProject,
         .reloadConfig,
         .refreshWorktrees,
+        .createWorktree,
+        .removeCurrentWorktree,
         .selectTab1,
         .selectTab2,
         .selectTab3,
@@ -223,6 +227,12 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
         case .refreshWorktrees: ShortcutMetadata(displayName: "Refresh Worktrees", category: "App", scope: .mainWindow)
+        case .createWorktree: ShortcutMetadata(displayName: "New Worktree", category: "App", scope: .mainWindow)
+        case .removeCurrentWorktree: ShortcutMetadata(
+                displayName: "Remove Current Worktree",
+                category: "App",
+                scope: .mainWindow
+            )
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
         case .toggleFullScreen: ShortcutMetadata(displayName: "Toggle Full Screen", category: "App", scope: .mainWindow)
         case .toggleExtensionConsole: ShortcutMetadata(
@@ -328,6 +338,8 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
         Self(action: .refreshWorktrees, combo: KeyCombo(key: "r", command: true, option: true)),
+        Self(action: .createWorktree, combo: KeyCombo(key: "n", command: true, option: true)),
+        Self(action: .removeCurrentWorktree, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .nextTab, combo: KeyCombo(key: "]", command: true)),
         Self(action: .previousTab, combo: KeyCombo(key: "[", command: true)),
         Self(action: .selectTab1, combo: KeyCombo(key: "1", command: true)),

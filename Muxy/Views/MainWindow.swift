@@ -75,6 +75,8 @@ struct MainWindow: View {
     private var orderWorktreesByMRU = WorktreeListPreferences.defaultOrderByMRU
     @State private var showTerminalOmnibox = false
     @State private var terminalOmniboxLaunchScope = TerminalOmniboxLaunchScope.openTabs
+    @State private var worktreeCreationProject: Project?
+    @State private var pendingWorktreeRemoval: PendingWorktreeRemoval?
     @State private var showProjectPicker = false
     @State private var remoteProjectDevice: RemoteDevice?
     @State private var overlayAnimatingOut = false
@@ -159,6 +161,14 @@ struct MainWindow: View {
         }
         .overlay { modalOverlayLayer }
         .overlay { ExtensionConsentOverlay() }
+        .modifier(WorktreeActionsModifier(
+            creationProject: $worktreeCreationProject,
+            pendingRemoval: $pendingWorktreeRemoval,
+            onCreateRequested: beginCreateWorktree,
+            onRemoveCurrentRequested: requestRemoveCurrentWorktree,
+            onCreateResult: handleCreateWorktreeResult,
+            onPerformRemove: performRemoveWorktree
+        ))
         .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
         .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
         .animation(.easeInOut(duration: 0.15), value: ExtensionModalService.shared.active)
@@ -1040,6 +1050,68 @@ struct MainWindow: View {
         worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id])
     }
 
+    private var canCreateWorktreeForActiveProject: Bool {
+        guard let project = activeProject, !project.isHome, project.worktreesEnabled else { return false }
+        let context = projectGroupStore.workspaceContext(for: project)
+        let isGitRepo = GitRepoStatusCache.shared.cachedStatus(for: project.path, context: context) ?? false
+        return isGitRepo || worktreeStore.list(for: project.id).count > 1
+    }
+
+    private func beginCreateWorktree() {
+        guard canCreateWorktreeForActiveProject, let project = activeProject else { return }
+        worktreeCreationProject = project
+    }
+
+    private func handleCreateWorktreeResult(_ result: CreateWorktreeResult, project: Project) {
+        worktreeCreationProject = nil
+        guard case let .created(worktree, runSetup) = result else { return }
+        appState.selectWorktree(projectID: project.id, worktree: worktree)
+        guard runSetup,
+              let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
+        else { return }
+        Task {
+            await WorktreeSetupRunner.run(sourceProjectPath: project.path, paneID: paneID)
+        }
+    }
+
+    private func requestRemoveCurrentWorktree() {
+        guard let project = activeProject,
+              let worktree = resolvedActiveWorktree(for: project),
+              worktree.canBeRemoved
+        else { return }
+        Task { await requestRemoveWorktree(worktree, in: project) }
+    }
+
+    @MainActor
+    private func requestRemoveWorktree(_ worktree: Worktree, in project: Project) async {
+        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
+            worktreePath: worktree.path,
+            context: projectGroupStore.workspaceContext(for: project)
+        )
+        pendingWorktreeRemoval = PendingWorktreeRemoval(
+            project: project,
+            confirmation: WorktreeRemovalConfirmation(worktree: worktree, hasUncommittedChanges: hasChanges)
+        )
+    }
+
+    private func performRemoveWorktree(_ pending: PendingWorktreeRemoval) {
+        let project = pending.project
+        let worktree = pending.confirmation.worktree
+        let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
+        let replacement = remaining.first(where: { $0.id == appState.activeWorktreeID[project.id] })
+            ?? remaining.first(where: { $0.isPrimary })
+            ?? remaining.first
+        worktreeStore.beginRemoval(
+            worktree: worktree,
+            repoPath: project.path,
+            context: projectGroupStore.workspaceContext(for: project),
+            onSuccess: {
+                appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
+                worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            }
+        )
+    }
+
     private var shortcutDispatcher: ShortcutActionDispatcher {
         ShortcutActionDispatcher(
             appState: appState,
@@ -1827,5 +1899,60 @@ private struct OverlayExitTracker: ViewModifier {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             onAnimatingOut(false)
         }
+    }
+}
+
+struct PendingWorktreeRemoval {
+    let project: Project
+    let confirmation: WorktreeRemovalConfirmation
+}
+
+private struct WorktreeActionsModifier: ViewModifier {
+    @Binding var creationProject: Project?
+    @Binding var pendingRemoval: PendingWorktreeRemoval?
+    let onCreateRequested: () -> Void
+    let onRemoveCurrentRequested: () -> Void
+    let onCreateResult: (CreateWorktreeResult, Project) -> Void
+    let onPerformRemove: (PendingWorktreeRemoval) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .createWorktreeRequested)) { _ in
+                onCreateRequested()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .removeCurrentWorktreeRequested)) { _ in
+                onRemoveCurrentRequested()
+            }
+            .sheet(item: $creationProject) { project in
+                CreateWorktreeSheet(project: project) { result in
+                    onCreateResult(result, project)
+                }
+            }
+            .alert(
+                pendingRemoval?.confirmation.title ?? "",
+                isPresented: alertBinding,
+                presenting: pendingRemoval
+            ) { pending in
+                Button("Remove", role: .destructive) {
+                    onPerformRemove(pending)
+                    pendingRemoval = nil
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Cancel", role: .cancel) {
+                    pendingRemoval = nil
+                }
+                .keyboardShortcut(.cancelAction)
+            } message: { pending in
+                Text(pending.confirmation.message)
+            }
+    }
+
+    private var alertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingRemoval != nil },
+            set: { newValue in
+                if !newValue { pendingRemoval = nil }
+            }
+        )
     }
 }
