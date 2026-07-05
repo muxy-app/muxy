@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 
 @MainActor
 @Observable
@@ -11,6 +12,7 @@ final class ExtensionWebviewModalService {
     static let maxWidth: Double = 900
     static let maxHeight: Double = 760
     static let maxResultBytes = 256 * 1024
+    static let requestIDPrefix = ExtensionBridgeJS.webviewModalRequestIDPrefix
 
     struct OpenRequest {
         let extensionID: String
@@ -45,7 +47,7 @@ final class ExtensionWebviewModalService {
     func open(_ open: OpenRequest) -> String {
         sequence += 1
         let request = Request(
-            id: "\(open.extensionID):\(sequence)",
+            id: "\(Self.requestIDPrefix):\(open.extensionID):\(sequence)",
             extensionID: open.extensionID,
             entry: open.entry,
             width: clampWidth(open.width),

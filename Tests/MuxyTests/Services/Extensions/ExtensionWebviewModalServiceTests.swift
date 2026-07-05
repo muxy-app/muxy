@@ -105,4 +105,12 @@ struct ExtensionWebviewModalServiceTests {
         #expect(result == nil)
         #expect(service.active == nil)
     }
+
+    @Test("request id is namespaced so it cannot collide with picker modal ids")
+    func requestIDIsNamespaced() {
+        let service = ExtensionWebviewModalService()
+        let requestID = service.open(request(extensionID: "ext"))
+        #expect(requestID.hasPrefix("\(ExtensionWebviewModalService.requestIDPrefix):"))
+        #expect(requestID != "ext:1")
+    }
 }

@@ -6,8 +6,11 @@ public enum ExtensionBridgeJS {
         case background
     }
 
+    public static let webviewModalRequestIDPrefix = "webview"
+
     public static func script(extensionID: String, surface: Surface) -> String {
         let extLiteral = jsLiteral(extensionID)
+        let webviewPrefixLiteral = jsLiteral("\(webviewModalRequestIDPrefix):")
         return """
         (() => {
             const dispatch = (verb, args) => {
@@ -45,11 +48,14 @@ public enum ExtensionBridgeJS {
             const modalWebviewResultHandlers = {};
             const modalQueryHandlers = {};
             let activeModalQueryID = null;
+            const webviewModalPrefix = \(webviewPrefixLiteral);
             this.__muxiDeliverModalResult = (requestID, item) => {
-                const webviewHandler = modalWebviewResultHandlers[requestID];
-                if (typeof webviewHandler === 'function') {
+                if (String(requestID).indexOf(webviewModalPrefix) === 0) {
+                    const webviewHandler = modalWebviewResultHandlers[requestID];
                     delete modalWebviewResultHandlers[requestID];
-                    try { webviewHandler(item == null ? null : item); } catch (error) { console.error(error); }
+                    if (typeof webviewHandler === 'function') {
+                        try { webviewHandler(item == null ? null : item); } catch (error) { console.error(error); }
+                    }
                     return;
                 }
                 const handler = modalResultHandlers[requestID];

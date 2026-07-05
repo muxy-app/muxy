@@ -174,4 +174,35 @@ struct ExtensionRemoteBridgeJSTests {
         #expect(payload?["tabType"] as? String == "viewer")
     }
 
+    @Test("picker and webview modal results route to their own handlers")
+    func modalResultRoutingIsNamespaced() {
+        let context = JSContext()!
+        let pickerID = "demo:1"
+        let webviewID = "\(ExtensionBridgeJS.webviewModalRequestIDPrefix):demo:1"
+        let dispatch: @convention(block) (String, [String: Any]) -> [String: Any] = { verb, _ in
+            switch verb {
+            case "modal.open": ["ok": true, "value": ["requestID": pickerID]]
+            case "modal.openWebview": ["ok": true, "value": ["requestID": webviewID]]
+            default: ["ok": true, "value": NSNull()]
+            }
+        }
+        context.setObject(dispatch, forKeyedSubscript: "__muxyDispatch" as NSString)
+        context.evaluateScript(ExtensionBridgeJS.script(extensionID: "demo", surface: .background))
+
+        context.evaluateScript("""
+        globalThis.pickerResult = 'unset';
+        globalThis.webviewResult = 'unset';
+        muxy.modal.open({ items: [], onSelect: (item) => { globalThis.pickerResult = item; } });
+        muxy.modal.openWebview({ entry: 'm.html' }).then((value) => { globalThis.webviewResult = value; });
+        """)
+
+        let deliver = context.objectForKeyedSubscript("__muxiDeliverModalResult")
+        deliver?.call(withArguments: [pickerID, ["id": "chosen", "title": "Chosen"]])
+
+        #expect(context.evaluateScript("globalThis.pickerResult && globalThis.pickerResult.id")?.toString() == "chosen")
+        #expect(context.evaluateScript("globalThis.webviewResult")?.toString() == "unset")
+
+        deliver?.call(withArguments: [webviewID, ["value": "typed"]])
+        #expect(context.evaluateScript("globalThis.webviewResult && globalThis.webviewResult.value")?.toString() == "typed")
+    }
 }
