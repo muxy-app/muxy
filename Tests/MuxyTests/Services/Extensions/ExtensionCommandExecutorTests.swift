@@ -110,13 +110,16 @@ struct ExtensionCommandExecutorTests {
     @Test("cancelExec terminates long-running process")
     func cancelExecTerminatesLongRunningProcess() async throws {
         let box = ExecCompletionBox()
+        let marker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-exec-started-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: marker) }
         let request = ExecRequest(
-            argv: ["/bin/sleep", "10"],
-            shell: nil,
+            argv: nil,
+            shell: "printf started > \(marker.path); while true; do sleep 1; done",
             cwd: nil,
             env: nil,
             stdin: nil,
-            timeoutMs: 5000
+            timeoutMs: 0
         )
         let jobID = ExtensionCommandExecutor.startCancelableUnchecked(
             request: request,
@@ -126,7 +129,7 @@ struct ExtensionCommandExecutorTests {
             box.complete(result)
         }
 
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitForFile(at: marker)
         #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID))
 
         do {
@@ -169,11 +172,11 @@ struct ExtensionCommandExecutorTests {
         defer { try? FileManager.default.removeItem(at: marker) }
         let request = ExecRequest(
             argv: nil,
-            shell: "printf started > \(marker.path); sleep 10",
+            shell: "printf started > \(marker.path); while true; do sleep 1; done",
             cwd: nil,
             env: nil,
             stdin: nil,
-            timeoutMs: 1000
+            timeoutMs: 5000
         )
         let jobID = ExtensionCommandExecutor.startCancelableUnchecked(
             request: request,
@@ -186,7 +189,7 @@ struct ExtensionCommandExecutorTests {
         try await waitForFile(at: marker)
         #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID))
         _ = await box.wait()
-        try await Task.sleep(for: .milliseconds(1200))
+        try await Task.sleep(for: .milliseconds(5200))
         #expect(box.count == 1)
     }
 
