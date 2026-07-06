@@ -82,7 +82,7 @@ struct ModelCoverageTests {
         #expect(UIMetrics.controlSmall == 20)
         #expect(UIMetrics.controlMedium == 24)
         #expect(UIMetrics.controlLarge == 32)
-        #expect(UIMetrics.resizeHandleHitArea == 18)
+        #expect(UIMetrics.resizeHandleHitArea == 10)
         #expect(UIMetrics.radiusSM == 4)
         #expect(UIMetrics.radiusMD == 6)
         #expect(UIMetrics.radiusLG == 8)
