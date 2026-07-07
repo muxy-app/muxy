@@ -2,10 +2,57 @@ import Foundation
 import Testing
 
 @testable import Muxy
+@testable import MuxyShared
 
 @Suite("ProjectStore")
 @MainActor
 struct ProjectStoreTests {
+    @Test("add assigns a random icon color not used by other projects")
+    func addAssignsUnusedIconColor() {
+        var existing = Project(name: "Repo", path: "/tmp/repo")
+        existing.iconColor = "blue"
+        let persistence = ProjectPersistenceStub(initial: [existing])
+        let store = ProjectStore(persistence: persistence)
+
+        let project = Project(name: "New", path: "/tmp/new")
+        store.add(project)
+
+        let stored = store.storedProjects.first { $0.id == project.id }
+        #expect(stored?.iconColor != nil)
+        #expect(stored?.iconColor != "blue")
+        #expect(ProjectIconColor.swatch(for: stored?.iconColor) != nil)
+        #expect(persistence.projects.first { $0.id == project.id }?.iconColor == stored?.iconColor)
+    }
+
+    @Test("add keeps an explicitly set icon color")
+    func addKeepsExplicitIconColor() {
+        let persistence = ProjectPersistenceStub(initial: [])
+        let store = ProjectStore(persistence: persistence)
+
+        var project = Project(name: "New", path: "/tmp/new")
+        project.iconColor = "red"
+        store.add(project)
+
+        #expect(store.storedProjects.first { $0.id == project.id }?.iconColor == "red")
+    }
+
+    @Test("add still assigns a palette color when every color is in use")
+    func addAssignsColorWhenPaletteExhausted() {
+        let existing = ProjectIconColor.palette.map { swatch in
+            var project = Project(name: swatch.id, path: "/tmp/\(swatch.id)")
+            project.iconColor = swatch.id
+            return project
+        }
+        let persistence = ProjectPersistenceStub(initial: existing)
+        let store = ProjectStore(persistence: persistence)
+
+        let project = Project(name: "New", path: "/tmp/new")
+        store.add(project)
+
+        let stored = store.storedProjects.first { $0.id == project.id }
+        #expect(ProjectIconColor.swatch(for: stored?.iconColor) != nil)
+    }
+
     @Test("setPreferredWorktreeParentPath persists normalized path")
     func setPreferredWorktreeParentPath() {
         let project = Project(name: "Repo", path: "/tmp/repo")
