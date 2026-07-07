@@ -275,6 +275,10 @@ final class GhosttyTerminalNSView: NSView {
             NotificationCenter.default.removeObserver(observer)
             occlusionObserver = nil
         }
+        if let observer = keyWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            keyWindowObserver = nil
+        }
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
         destroySurface()
@@ -284,6 +288,7 @@ final class GhosttyTerminalNSView: NSView {
     deinit {
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         occlusionObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        keyWindowObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         delayedResizeWorkItem?.cancel()
         agentDetectionCoalesced?.cancel()
         if let surface {
@@ -302,6 +307,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     nonisolated(unsafe) private var screenChangeObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var keyWindowObserver: NSObjectProtocol?
     nonisolated(unsafe) private var delayedResizeWorkItem: DispatchWorkItem?
 
     override func viewDidMoveToWindow() {
@@ -311,6 +317,8 @@ final class GhosttyTerminalNSView: NSView {
         screenChangeObserver = nil
         occlusionObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         occlusionObserver = nil
+        keyWindowObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        keyWindowObserver = nil
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
 
@@ -339,6 +347,16 @@ final class GhosttyTerminalNSView: NSView {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.updateWindowVisibility()
+            }
+        }
+
+        keyWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.syncSurfaceFocus()
             }
         }
 
