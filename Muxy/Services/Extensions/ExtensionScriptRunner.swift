@@ -134,6 +134,7 @@ final class ExtensionScriptRunner {
             (handle.bridge as? ScriptBridge)?.cancelTimers()
             handle.executor.stop()
         }
+        ExtensionCommandExecutor.cancelExec(extensionID: extensionID)
         ExtensionModalService.shared.dismiss(extensionID: extensionID)
         ExtensionDialogService.cancel(extensionID: extensionID)
     }
@@ -204,6 +205,7 @@ final class ExtensionScriptRunner {
         guard handle.canEvict, contexts[extensionID] === handle else { return }
         contexts.removeValue(forKey: extensionID)
         (handle.bridge as? ScriptBridge)?.cancelTimers()
+        ExtensionCommandExecutor.cancelExec(extensionID: extensionID)
     }
 
     private final class ExceptionCapture {
@@ -426,7 +428,7 @@ private final class ScriptBridge: @unchecked Sendable {
             return jobID
         }
         let completion = ModalDeliveryCompletion(modalPendingChanged)
-        modalPendingChanged?(1)
+        completion.start()
         let callback = ExecAsyncCallbackBox(executor: executor, resolve: resolve, reject: reject, completion: completion)
         _ = ExtensionCommandExecutor.startCancelableExec(
             jobID: jobID,
@@ -703,6 +705,12 @@ private final class ModalDeliveryCompletion: @unchecked Sendable {
 
     init(_ onPending: ((Int) -> Void)?) {
         self.onPending = onPending
+    }
+
+    func start() {
+        DispatchQueue.main.async { [self] in
+            onPending?(1)
+        }
     }
 
     func finish() {

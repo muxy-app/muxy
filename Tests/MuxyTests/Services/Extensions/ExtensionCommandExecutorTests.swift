@@ -141,6 +141,65 @@ struct ExtensionCommandExecutorTests {
         }
     }
 
+    @Test("cancelExec by extension terminates its running jobs and leaves others running")
+    func cancelExecByExtensionTerminatesMatchingJobs() async throws {
+        let evictedBox = ExecCompletionBox()
+        let survivorBox = ExecCompletionBox()
+        let evictedMarker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-exec-evicted-\(UUID().uuidString)")
+        let survivorMarker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-exec-survivor-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: evictedMarker)
+            try? FileManager.default.removeItem(at: survivorMarker)
+        }
+
+        let evictedJobID = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: ExecRequest(
+                argv: nil,
+                shell: "printf started > \(evictedMarker.path); while true; do sleep 1; done",
+                cwd: nil,
+                env: nil,
+                stdin: nil,
+                timeoutMs: 0
+            ),
+            extensionID: "evicted-ext",
+            defaultCwd: nil
+        ) { result in
+            evictedBox.complete(result)
+        }
+        let survivorJobID = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: ExecRequest(
+                argv: nil,
+                shell: "printf started > \(survivorMarker.path); while true; do sleep 1; done",
+                cwd: nil,
+                env: nil,
+                stdin: nil,
+                timeoutMs: 0
+            ),
+            extensionID: "survivor-ext",
+            defaultCwd: nil
+        ) { result in
+            survivorBox.complete(result)
+        }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: survivorJobID) }
+
+        try await waitForFile(at: evictedMarker)
+        try await waitForFile(at: survivorMarker)
+
+        ExtensionCommandExecutor.cancelExec(extensionID: "evicted-ext")
+
+        do {
+            _ = try await evictedBox.wait().get()
+            Issue.record("expected cancellation")
+        } catch ExecError.cancelled {
+        } catch {
+            Issue.record("expected ExecError.cancelled, got \(error)")
+        }
+        #expect(!evictedJobID.isEmpty)
+        #expect(survivorBox.count == 0)
+    }
+
     @Test("cancel after completion is a no-op")
     func cancelAfterCompletionIsNoOp() async throws {
         let box = ExecCompletionBox()

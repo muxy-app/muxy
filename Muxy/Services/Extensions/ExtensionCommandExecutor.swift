@@ -99,6 +99,10 @@ enum ExtensionCommandExecutor {
         jobs.cancel(id: jobID)
     }
 
+    static func cancelExec(extensionID: String) {
+        jobs.cancelAll(extensionID: extensionID)
+    }
+
     static func runUnchecked(
         request: ExecRequest,
         extensionID: String,
@@ -329,12 +333,21 @@ private final class ExecJobRegistry: @unchecked Sendable {
         lock.unlock()
         return job?.cancel() ?? false
     }
+
+    func cancelAll(extensionID: String) {
+        lock.lock()
+        let matching = jobs.values.filter { $0.extensionID == extensionID }
+        lock.unlock()
+        for job in matching {
+            _ = job.cancel()
+        }
+    }
 }
 
 private final class ExecJob: @unchecked Sendable {
     let id: String
+    let extensionID: String
     private let request: ExecRequest
-    private let extensionID: String
     private let defaultCwd: String?
     private let onRemove: @Sendable (String) -> Void
     private let lock = NSLock()
