@@ -19,6 +19,7 @@ struct WindowConfiguratorTests {
     func usesTintedNativeSidebarMaterial() {
         #expect(AppSidebarVibrancy.material == .sidebar)
         #expect(AppSidebarVibrancy.blendingMode == .behindWindow)
+        #expect(AppSidebarVibrancy.state == .active)
         #expect(AppSidebarVibrancy.themeOverlayOpacity == 0.5)
     }
 

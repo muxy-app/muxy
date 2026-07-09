@@ -4,6 +4,7 @@ import SwiftUI
 enum AppSidebarVibrancy {
     static let material = NSVisualEffectView.Material.sidebar
     static let blendingMode = NSVisualEffectView.BlendingMode.behindWindow
+    static let state = NSVisualEffectView.State.active
     static let themeOverlayOpacity = 0.5
 }
 
@@ -52,7 +53,7 @@ private struct SidebarVisualEffectView: NSViewRepresentable {
     private func configured(_ view: NSVisualEffectView) -> NSVisualEffectView {
         view.material = AppSidebarVibrancy.material
         view.blendingMode = AppSidebarVibrancy.blendingMode
-        view.state = .followsWindowActiveState
+        view.state = AppSidebarVibrancy.state
         return view
     }
 }
