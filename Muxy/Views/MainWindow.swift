@@ -416,7 +416,7 @@ struct MainWindow: View {
                     HStack(spacing: 0) {
                         if titleBarSidebarBackgroundWidth > 0 {
                             AppSidebarBackground(
-                                style: appBackgroundStyle,
+                                style: titleBarSidebarBackgroundStyle,
                                 isFullScreen: isFullScreen
                             )
                             .frame(width: titleBarSidebarBackgroundWidth)
@@ -1026,6 +1026,18 @@ struct MainWindow: View {
 
     private var sidebarIsResizable: Bool {
         SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
+    }
+
+    private var isIconSidebarSize: Bool {
+        SidebarLayout.isIcon(
+            expanded: sidebarExpanded,
+            collapsedStyle: sidebarCollapsedStyle,
+            expandedStyle: sidebarExpandedStyle
+        )
+    }
+
+    private var titleBarSidebarBackgroundStyle: AppBackgroundStyle {
+        isIconSidebarSize ? .solid : appBackgroundStyle
     }
 
     private var sidebarBorderVisible: Bool {
