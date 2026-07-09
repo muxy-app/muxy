@@ -23,6 +23,13 @@ enum MainWindowLayout {
         guard !isFullScreen else { return 0 }
         return max(0, titleBarNavigationOverlayWidth - leftNavigationWidth)
     }
+
+    static func titleBarSidebarBackgroundWidth(
+        leftNavigationWidth: CGFloat,
+        titleBarNavigationOverlayWidth: CGFloat
+    ) -> CGFloat {
+        min(leftNavigationWidth, titleBarNavigationOverlayWidth)
+    }
 }
 
 struct MainWindow: View {
@@ -81,6 +88,8 @@ struct MainWindow: View {
     @State private var remoteProjectDevice: RemoteDevice?
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
+    @AppStorage(AppBackgroundStyle.storageKey)
+    private var appBackgroundStyleRaw = AppBackgroundStyle.defaultValue.rawValue
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @State private var layoutStore = AppLayoutStore.shared
     @State private var extensionStore = ExtensionStore.shared
@@ -101,6 +110,7 @@ struct MainWindow: View {
     @MainActor private var trafficLightWidth: CGFloat { UIMetrics.scaled(75) }
 
     private var layout: any AppLayoutProviding { layoutStore.provider }
+    private var appBackgroundStyle: AppBackgroundStyle { AppBackgroundStyle.resolve(appBackgroundStyleRaw) }
     private var isTabFocused: Bool { layoutStore.layout == .tabFocused && !isExtensionSidebarActive }
 
     private var showsBreadcrumb: Bool { layout.topbar == .breadcrumb && !isExtensionSidebarActive }
@@ -276,12 +286,23 @@ struct MainWindow: View {
                 Color.clear
                     .frame(height: UIMetrics.titleBarHeight)
                     .background(WindowDragRepresentable())
-
-                Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                    .accessibilityHidden(true)
+                    .background(MuxyTheme.bg)
             }
 
-            sidebarContent
+            VStack(spacing: 0) {
+                if !isFullScreen {
+                    Color.clear
+                        .frame(height: 1)
+                        .accessibilityHidden(true)
+                }
+
+                sidebarContent
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppSidebarBackground(
+                style: appBackgroundStyle,
+                isFullScreen: isFullScreen
+            ))
         }
         .frame(width: leftNavigationWidth, alignment: .leading)
         .clipped()
@@ -379,7 +400,18 @@ struct MainWindow: View {
                 .frame(width: titleBarNavigationOverlayWidth, height: UIMetrics.titleBarHeight)
                 .fixedSize(horizontal: true, vertical: false)
                 .background(WindowDragRepresentable())
-                .background(MuxyTheme.bg)
+                .background {
+                    HStack(spacing: 0) {
+                        if titleBarSidebarBackgroundWidth > 0 {
+                            AppSidebarBackground(
+                                style: appBackgroundStyle,
+                                isFullScreen: isFullScreen
+                            )
+                            .frame(width: titleBarSidebarBackgroundWidth)
+                        }
+                        MuxyTheme.bg
+                    }
+                }
                 .overlay(alignment: .trailing) {
                     navigationArrows
                         .padding(.trailing, UIMetrics.spacing4)
@@ -997,6 +1029,13 @@ struct MainWindow: View {
             leftNavigationWidth: leftNavigationWidth,
             titleBarNavigationWidth: titleBarNavigationWidth,
             isFullScreen: isFullScreen
+        )
+    }
+
+    private var titleBarSidebarBackgroundWidth: CGFloat {
+        MainWindowLayout.titleBarSidebarBackgroundWidth(
+            leftNavigationWidth: leftNavigationWidth,
+            titleBarNavigationOverlayWidth: titleBarNavigationOverlayWidth
         )
     }
 

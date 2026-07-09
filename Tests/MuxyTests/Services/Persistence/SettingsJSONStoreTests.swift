@@ -221,6 +221,34 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func sidebarBackgroundPersistsSupportedValue() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [AppBackgroundStyle.storageKey])
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(AppBackgroundStyle.storageKey)": "solid"
+        }
+        """)
+
+        #expect(UserDefaults.standard.string(forKey: AppBackgroundStyle.storageKey) == "solid")
+    }
+
+    @Test
+    func sidebarBackgroundRejectsUnsupportedValue() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [AppBackgroundStyle.storageKey])
+        defer { snapshot.restore() }
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(AppBackgroundStyle.storageKey)": "transparent"
+            }
+            """)
+        }
+    }
+
+    @Test
     func tabHeaderWidthRejectsNegativeValues() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [TabWidthPreferences.maxWidthKey])
         defer { snapshot.restore() }

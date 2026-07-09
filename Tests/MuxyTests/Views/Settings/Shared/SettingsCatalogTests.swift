@@ -61,6 +61,23 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func sidebarBackgroundIsRegisteredAndSearchable() throws {
+        let item = try #require(SettingsCatalog.items.first {
+            $0.key == AppBackgroundStyle.storageKey
+        })
+
+        #expect(item.category == .appearance)
+        #expect(item.section == "Sidebar")
+        #expect(item.defaultValue == AnyHashable(AppBackgroundStyle.defaultValue.rawValue))
+        #expect(SettingsCatalog.matchingItems(query: "vibrancy").contains {
+            $0.key == AppBackgroundStyle.storageKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == AppBackgroundStyle.storageKey
+        })
+    }
+
+    @Test
     func jsonEditableItemsHaveDefaults() {
         #expect(!SettingsCatalog.jsonEditableItems.isEmpty)
         #expect(SettingsCatalog.jsonEditableItems.allSatisfy { $0.defaultValue != nil })

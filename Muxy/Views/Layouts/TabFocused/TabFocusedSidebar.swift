@@ -71,7 +71,6 @@ struct TabFocusedSidebar: View {
             SidebarFooter()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(MuxyTheme.bg)
     }
 
     private var sectionHeader: some View {
