@@ -27,10 +27,10 @@ struct InterfaceSettingsView: View {
         Binding(get: { layoutStore.layout }, set: { layoutStore.set($0) })
     }
 
-    private var appBackgroundStyle: Binding<AppBackgroundStyle> {
+    private var sidebarVibrancyEnabled: Binding<Bool> {
         Binding(
-            get: { AppBackgroundStyle.resolve(appBackgroundStyleRaw) },
-            set: { appBackgroundStyleRaw = $0.rawValue }
+            get: { AppBackgroundStyle.resolve(appBackgroundStyleRaw) == .vibrant },
+            set: { appBackgroundStyleRaw = ($0 ? AppBackgroundStyle.vibrant : .solid).rawValue }
         )
     }
 
@@ -125,16 +125,7 @@ struct InterfaceSettingsView: View {
         }
 
         SettingsSection("Sidebar") {
-            SettingsRow("Background") {
-                Picker("", selection: appBackgroundStyle) {
-                    ForEach(AppBackgroundStyle.allCases) { style in
-                        Text(style.title).tag(style)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: SettingsMetrics.controlWidth)
-            }
+            SettingsToggleRow(label: "Vibrancy", isOn: sidebarVibrancyEnabled)
 
             SettingsToggleRow(label: "Show Home", isOn: $showHomeProject)
 

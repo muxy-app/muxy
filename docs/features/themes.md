@@ -19,11 +19,11 @@ Open with `⌘⇧K` (or click the theme button in the topbar). Muxy stores separ
 
 The active variant follows macOS appearance automatically, so your dark choice and light choice are remembered independently.
 
-## Sidebar background
+## Sidebar vibrancy
 
-Choose **Solid** or **Vibrant** in **Settings → Interface → Sidebar**. Vibrant is the default and uses a theme-tinted native macOS material across the sidebar and its traffic-light/title strip. The main topbar and all terminal, browser, extension, panel, and sheet content keep the selected theme background.
+Toggle **Sidebar Vibrancy** in **Settings → Interface → Sidebar**. It is on by default and uses a theme-tinted native macOS material across the sidebar and its traffic-light/title strip. Turn it off for a solid theme background. The main topbar and all terminal, browser, extension, panel, and sheet content keep the selected theme background.
 
-Muxy temporarily uses the solid style in full screen and when macOS **Reduce transparency** or **Increase contrast** is enabled.
+Muxy temporarily falls back to the solid background in full screen and when macOS **Reduce transparency** or **Increase contrast** is enabled.
 
 ## Ghostty colors
 
