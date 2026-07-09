@@ -20,6 +20,28 @@ struct TerminalTextInputClientTests {
         #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: false, next: false) == false)
     }
 
+    @Test func surfaceIsUnfocusedWhenWindowIsNotKey() {
+        #expect(GhosttyTerminalNSView.desiredSurfaceFocus(overlayActive: false, isKeyWindow: false, isFirstResponder: true) == false)
+    }
+
+    @Test func surfaceIsFocusedWhenKeyWindowAndFirstResponder() {
+        #expect(GhosttyTerminalNSView.desiredSurfaceFocus(overlayActive: false, isKeyWindow: true, isFirstResponder: true))
+    }
+
+    @Test func surfaceIsUnfocusedWhenOverlayActive() {
+        #expect(GhosttyTerminalNSView.desiredSurfaceFocus(overlayActive: true, isKeyWindow: true, isFirstResponder: true) == false)
+    }
+
+    @Test func resigningKeyThenBecomingKeyReappliesFocus() {
+        let focused = GhosttyTerminalNSView.desiredSurfaceFocus(overlayActive: false, isKeyWindow: true, isFirstResponder: true)
+
+        let afterResign = GhosttyTerminalNSView.desiredSurfaceFocus(overlayActive: false, isKeyWindow: false, isFirstResponder: true)
+        #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: focused, next: afterResign))
+
+        let afterBecomeKey = GhosttyTerminalNSView.desiredSurfaceFocus(overlayActive: false, isKeyWindow: true, isFirstResponder: true)
+        #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: afterResign, next: afterBecomeKey))
+    }
+
     @Test func selectedRangeDefaultsToValidInsertionPoint() {
         let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
 
