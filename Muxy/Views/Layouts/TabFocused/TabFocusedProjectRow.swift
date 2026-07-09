@@ -68,7 +68,7 @@ struct TabFocusedProjectRow: View {
             } else {
                 Text(project.name)
                     .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fg)
+                    .foregroundStyle(projectTitleColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -83,9 +83,14 @@ struct TabFocusedProjectRow: View {
             }
         }
         .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
-        .padding(.vertical, UIMetrics.spacing3)
-        .background(headerBackground)
-        .contentShape(Rectangle())
+        .frame(minHeight: TabFocusedSidebarMetrics.projectRowHeight)
+        .background {
+            RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
+                .fill(headerBackground)
+        }
+        .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
+        .padding(.vertical, UIMetrics.spacing1)
+        .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
         .onTapGesture { toggle() }
         .contextMenu {
@@ -236,8 +241,13 @@ struct TabFocusedProjectRow: View {
             if hovered {
                 actions
                 chevron
-            } else if !isFocused {
-                statusIndicator
+            } else {
+                if !isFocused {
+                    statusIndicator
+                }
+                if !isFocused, isExpanded {
+                    chevron
+                }
             }
             if isFocused {
                 focusModeButton
@@ -308,6 +318,10 @@ struct TabFocusedProjectRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isExpanded ? "Collapse \(project.name)" : "Expand \(project.name)")
+    }
+
+    private var projectTitleColor: Color {
+        hovered ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 
     private var headerBackground: AnyShapeStyle {

@@ -49,7 +49,9 @@ struct TabFocusedSidebar: View {
         let numbers = shortcutNumbers
         return VStack(spacing: 0) {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+                    sectionHeader
+
                     ForEach(Array(projects.enumerated()), id: \.element.id) { offset, project in
                         TabFocusedProjectRow(
                             project: project,
@@ -61,6 +63,7 @@ struct TabFocusedSidebar: View {
                         TabFocusedAddProjectRow(action: openProjectPicker)
                     }
                 }
+                .padding(.top, UIMetrics.spacing5)
                 .padding(.bottom, UIMetrics.spacing3)
             }
             .scrollIndicators(.never)
@@ -69,6 +72,23 @@ struct TabFocusedSidebar: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(MuxyTheme.bg)
+    }
+
+    private var sectionHeader: some View {
+        HStack(spacing: UIMetrics.spacing2) {
+            Text(expansionStore.focusMode ? "Focused Project" : "Projects")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgDim)
+            Spacer(minLength: UIMetrics.spacing2)
+            if !expansionStore.focusMode {
+                Text(projects.count.formatted())
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fgDim)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.horizontal, TabFocusedSidebarMetrics.sectionHorizontalInset)
+        .padding(.bottom, UIMetrics.spacing1)
     }
 
     private func projectShortcutIndex(forRowAt offset: Int) -> Int? {
@@ -107,11 +127,16 @@ private struct TabFocusedAddProjectRow: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
-            .padding(.vertical, UIMetrics.spacing3)
-            .background(hovered ? MuxyTheme.hover : Color.clear)
-            .contentShape(Rectangle())
+            .frame(minHeight: TabFocusedSidebarMetrics.projectRowHeight)
+            .background {
+                RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
+                    .fill(hovered ? MuxyTheme.hover : Color.clear)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         }
+        .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
         .buttonStyle(.plain)
+        .onHover { hovered = $0 }
         .help(shortcutTooltip)
         .accessibilityLabel("Add Project")
     }

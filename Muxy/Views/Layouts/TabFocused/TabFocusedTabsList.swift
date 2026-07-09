@@ -79,6 +79,13 @@ struct TabFocusedTabsList: View {
         return appState.activeTab(for: project.id)?.id
     }
 
+    private var showsNestingGuide: Bool {
+        if groupedByWorktree {
+            return worktreeStore.list(for: project.id).contains { !areaTabs(for: $0).isEmpty }
+        }
+        return !activeAreaTabs.isEmpty
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if groupedByWorktree {
@@ -87,6 +94,17 @@ struct TabFocusedTabsList: View {
                 }
             } else {
                 tabRows(activeAreaTabs, numbers: shortcutNumbers, emptyOnNoTabs: true)
+            }
+        }
+        .padding(.bottom, UIMetrics.spacing2)
+        .overlay(alignment: .leading) {
+            if showsNestingGuide {
+                Rectangle()
+                    .fill(MuxyTheme.border)
+                    .frame(width: 1)
+                    .padding(.vertical, UIMetrics.spacing1)
+                    .offset(x: TabFocusedSidebarMetrics.tabGuideLeading)
+                    .accessibilityHidden(true)
             }
         }
         .coordinateSpace(name: TabFocusedDragCoordinateSpace.list)
@@ -114,15 +132,27 @@ struct TabFocusedTabsList: View {
                     .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset + UIMetrics.spacing4)
-                    .padding(.vertical, UIMetrics.spacing3)
+                    .frame(minHeight: TabFocusedSidebarMetrics.tabRowHeight)
+                    .padding(
+                        .leading,
+                        TabFocusedSidebarMetrics.rowOuterInset
+                            + TabFocusedSidebarMetrics.tabRowIndent
+                            + TabFocusedSidebarMetrics.tabContentLeadingInset
+                    )
+                    .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.rowHorizontalInset)
             } else {
                 Text("No tabs")
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgDim)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset + UIMetrics.spacing4)
-                    .padding(.vertical, UIMetrics.spacing3)
+                    .frame(minHeight: TabFocusedSidebarMetrics.tabRowHeight)
+                    .padding(
+                        .leading,
+                        TabFocusedSidebarMetrics.rowOuterInset
+                            + TabFocusedSidebarMetrics.tabRowIndent
+                            + TabFocusedSidebarMetrics.tabContentLeadingInset
+                    )
+                    .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.rowHorizontalInset)
             }
         } else {
             ForEach(tabs) { item in
@@ -242,8 +272,13 @@ private struct WorktreeGroupHeader: View {
             }
             .opacity(hovered ? 1 : 0)
         }
-        .padding(.leading, TabFocusedSidebarMetrics.rowHorizontalInset + UIMetrics.spacing4)
-        .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
+        .padding(
+            .leading,
+            TabFocusedSidebarMetrics.rowOuterInset
+                + TabFocusedSidebarMetrics.tabRowIndent
+                + TabFocusedSidebarMetrics.tabContentLeadingInset
+        )
+        .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.rowHorizontalInset)
         .padding(.top, UIMetrics.spacing3)
         .padding(.bottom, UIMetrics.spacing1)
         .contentShape(Rectangle())
@@ -329,6 +364,11 @@ private struct TabFocusedTabRow: View {
         return AnyShapeStyle(Color.clear)
     }
 
+    private var rowRailColor: Color? {
+        guard !active else { return nil }
+        return tabColor
+    }
+
     private var currentIndex: Int? {
         area.tabs.firstIndex(where: { $0.id == tab.id })
     }
@@ -369,7 +409,6 @@ private struct TabFocusedTabRow: View {
                             .offset(x: UIMetrics.scaled(3), y: -UIMetrics.scaled(3))
                     }
                 }
-                .padding(.leading, UIMetrics.spacing4)
 
             if isRenaming {
                 TextField("", text: $renameText)
@@ -385,7 +424,7 @@ private struct TabFocusedTabRow: View {
             } else {
                 Text(tab.title)
                     .font(.system(size: UIMetrics.fontEmphasis))
-                    .foregroundStyle(MuxyTheme.fg)
+                    .foregroundStyle(active || hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -394,25 +433,33 @@ private struct TabFocusedTabRow: View {
 
             trailingAccessory
         }
-        .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
-        .padding(.vertical, UIMetrics.spacing3)
-        .background(rowBackground)
+        .padding(.leading, TabFocusedSidebarMetrics.tabContentLeadingInset)
+        .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
+        .frame(minHeight: TabFocusedSidebarMetrics.tabRowHeight)
+        .background {
+            RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
+                .fill(rowBackground)
+        }
         .overlay {
-            Rectangle()
+            RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
                 .fill(MuxyTheme.accent)
                 .opacity(completionFlashOn ? 0.18 : 0)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
         .overlay(alignment: .leading) {
-            if let tabColor {
-                Rectangle()
-                    .fill(tabColor)
-                    .frame(width: UIMetrics.scaled(3))
+            if let rowRailColor {
+                RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.activeRailWidth / 2, style: .continuous)
+                    .fill(rowRailColor)
+                    .frame(width: TabFocusedSidebarMetrics.activeRailWidth)
+                    .padding(.vertical, UIMetrics.spacing2)
                     .accessibilityHidden(true)
             }
         }
-        .contentShape(Rectangle())
+        .padding(.leading, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.tabRowIndent)
+        .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset)
+        .padding(.vertical, UIMetrics.spacing1)
+        .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
         .onTapGesture { select() }
         .onChange(of: hasCompletionPending) { _, pending in
