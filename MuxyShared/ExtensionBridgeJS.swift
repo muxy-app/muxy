@@ -241,12 +241,14 @@ public enum ExtensionBridgeJS {
         \(surface == .background ? eventsBlock : "")
         \(surface == .background ? remoteBlock : "")
         \(gitBlock)
+        \(ghBlock)
         \(agentsBlock)
             \(surface == .inProcess ?
             "Object.freeze(muxy.tabs); Object.freeze(muxy.browser); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees); Object.freeze(muxy.files);" :
             "")
             \(surface == .background ? "Object.freeze(muxy.tabs);" : "")
             Object.freeze(muxy.git); Object.freeze(muxy.git.pr); Object.freeze(muxy.git.branch); Object.freeze(muxy.git.worktree);
+            Object.freeze(muxy.gh);
             Object.freeze(muxy.agents);
             Object.freeze(muxy.notifications);
             Object.freeze(muxy.dialog);
@@ -498,6 +500,13 @@ public enum ExtensionBridgeJS {
     private static let agentsBlock = """
             muxy.agents = {
                 list: () => dispatch('agents.list', {}),
+            };
+    """
+
+    private static let ghBlock = """
+            const ghProject = (o) => (o && o.project != null ? String(o.project) : null);
+            muxy.gh = {
+                user: (o) => dispatch('gh.user', { project: ghProject(o) }),
             };
     """
 
