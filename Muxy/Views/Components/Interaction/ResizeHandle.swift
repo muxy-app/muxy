@@ -18,49 +18,57 @@ struct ResizeHandle: View {
     var onEnd: (() -> Void)?
     let onDrag: (DragGesture.Value) -> Void
     @State private var hovering = false
+    @State private var cursorPushed = false
     @GestureState private var dragging = false
 
     private var active: Bool { hovering || dragging }
 
     var body: some View {
-        Rectangle()
-            .fill(active ? MuxyTheme.accent : MuxyTheme.border)
-            .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
-            .overlay(alignment: overlayAlignment) {
-                Color.clear
-                    .frame(
-                        width: axis == .horizontal ? UIMetrics.resizeHandleHitArea : nil,
-                        height: axis == .vertical ? UIMetrics.resizeHandleHitArea : nil
-                    )
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .updating($dragging) { _, state, _ in state = true }
-                            .onChanged { value in
-                                cursor.set()
-                                onDrag(value)
-                            }
-                            .onEnded { _ in
-                                onEnd?()
-                            }
-                    )
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active:
-                            hovering = true
-                            cursor.set()
-                        case .ended:
-                            hovering = false
-                            if !dragging {
-                                NSCursor.arrow.set()
+        ZStack(alignment: handleAlignment) {
+            Rectangle()
+                .fill(active ? MuxyTheme.accent : MuxyTheme.border)
+                .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
+            Rectangle()
+                .fill(Color.black.opacity(0.001))
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .updating($dragging) { _, state, _ in state = true }
+                        .onChanged { value in
+                            activateCursor()
+                            onDrag(value)
+                        }
+                        .onEnded { _ in
+                            onEnd?()
+                            if !hovering {
+                                releaseCursor()
                             }
                         }
+                )
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active:
+                        hovering = true
+                        activateCursor()
+                    case .ended:
+                        hovering = false
+                        if !dragging {
+                            releaseCursor()
+                        }
                     }
-            }
-            .zIndex(1)
+                }
+        }
+        .frame(
+            width: axis == .horizontal ? UIMetrics.resizeHandleHitArea : nil,
+            height: axis == .vertical ? UIMetrics.resizeHandleHitArea : nil
+        )
+        .zIndex(1)
+        .onDisappear {
+            releaseCursor()
+        }
     }
 
-    private var overlayAlignment: Alignment {
+    private var handleAlignment: Alignment {
         switch hitAreaBias {
         case .centered:
             .center
@@ -73,6 +81,21 @@ struct ResizeHandle: View {
 
     private var cursor: NSCursor {
         axis == .horizontal ? .resizeLeftRight : .resizeUpDown
+    }
+
+    private func activateCursor() {
+        if cursorPushed {
+            cursor.set()
+        } else {
+            cursor.push()
+            cursorPushed = true
+        }
+    }
+
+    private func releaseCursor() {
+        guard cursorPushed else { return }
+        NSCursor.pop()
+        cursorPushed = false
     }
 }
 
