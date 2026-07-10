@@ -301,7 +301,7 @@ enum MuxyAPI {
             "lifecycle.ackBeforeClose",
             "lifecycle.resolveBeforeClose",
             "lifecycle.closeSelf",
-        ]).union(gitVerbs).union(filesVerbs)
+        ]).union(gitVerbs).union(filesVerbs).union(ghVerbs)
 
         static let filesVerbs: Set<String> = [
             "files.list",
@@ -351,6 +351,10 @@ enum MuxyAPI {
             "git.tag.create",
             "git.pr.checkout",
             "git.pr.checkoutWorktree",
+        ]
+
+        static let ghVerbs: Set<String> = [
+            "gh.user",
         ]
 
         private static let cliAliases: [String: String] = [
@@ -490,6 +494,7 @@ enum MuxyAPI {
             "git.tag.create": .gitWrite,
             "git.pr.checkout": .gitWrite,
             "git.pr.checkoutWorktree": .gitWrite,
+            "gh.user": .ghRead,
             "files.list": .filesRead,
             "files.read": .filesRead,
             "files.stat": .filesRead,

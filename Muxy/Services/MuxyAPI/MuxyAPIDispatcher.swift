@@ -456,6 +456,9 @@ enum MuxyAPIDispatcher {
             if verb.hasPrefix("files.") {
                 return try await handleFiles(verb: verb, args: args, context: context)
             }
+            if verb.hasPrefix("gh.") {
+                return try await handleGh(verb: verb, args: args, context: context)
+            }
             throw APIError.invalidArguments("unknown verb \(verb)")
         }
     }
@@ -776,6 +779,28 @@ enum MuxyAPIDispatcher {
                 context: files
             ))
             return NSNull()
+        default:
+            throw APIError.invalidArguments("unknown verb \(verb)")
+        }
+    }
+
+    private static func handleGh(verb: String, args: [String: Any], context: Context) async throws -> Any {
+        guard let projectStore = context.projectStore,
+              let worktreeStore = context.worktreeStore,
+              let projectGroupStore = context.projectGroupStore
+        else { throw APIError.worktreeStoreUnavailable }
+        let gh = MuxyAPI.Gh.Context(
+            extensionID: context.extensionID,
+            appState: context.appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+
+        switch verb {
+        case "gh.user":
+            let user = try await unwrap(MuxyAPI.Gh.user(context: gh))
+            return GhDTO.user(user)
         default:
             throw APIError.invalidArguments("unknown verb \(verb)")
         }
