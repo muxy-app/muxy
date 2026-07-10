@@ -34,7 +34,7 @@ struct ProjectStatusBar: View {
             rightSide
         }
         .padding(.horizontal, 10)
-        .frame(height: 28)
+        .frame(height: UIMetrics.statusBarHeight)
         .background(MuxyTheme.bg)
         .overlay(
             Rectangle().fill(MuxyTheme.border).frame(height: 1),
@@ -118,9 +118,9 @@ struct ProjectStatusBar: View {
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: remote ? "network" : "folder")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 Text(truncated)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .lineLimit(1)
             }
             .foregroundStyle(MuxyTheme.fgMuted)
@@ -162,11 +162,11 @@ struct ProjectStatusBar: View {
                 ExtensionIconView(
                     icon: binding.displayIcon,
                     muxyExtension: binding.muxyExtension,
-                    size: 10
+                    size: UIMetrics.iconXS
                 )
                 if let text = binding.displayText, !text.isEmpty {
                     Text(text)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                         .lineLimit(1)
                 }
             }
@@ -187,7 +187,7 @@ struct ProjectStatusBar: View {
             extensionOutputVisible.toggle()
         } label: {
             Image(systemName: "ladybug")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(extensionOutputVisible ? MuxyTheme.accent : MuxyTheme.fgMuted)
         }
         .buttonStyle(.plain)
@@ -199,9 +199,9 @@ struct ProjectStatusBar: View {
         Button(action: handleToggleRichInput) {
             HStack(spacing: 4) {
                 Image(systemName: "keyboard")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 Text(richInputShortcutLabel)
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
         }
@@ -215,9 +215,9 @@ struct ProjectStatusBar: View {
         Button(action: handleToggleVoiceRecording) {
             HStack(spacing: 4) {
                 Image(systemName: "mic")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 Text(voiceShortcutLabel)
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
         }
@@ -231,7 +231,7 @@ struct ProjectStatusBar: View {
         HStack(spacing: 2) {
             Button(action: decreaseFontSize) {
                 Image(systemName: "textformat.size.smaller")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
             }
             .buttonStyle(RichInputToolbarButtonStyle())
             .disabled(richInputFontSize <= RichInputPreferences.minFontSize)
@@ -239,14 +239,14 @@ struct ProjectStatusBar: View {
             .help("Decrease font size")
 
             Text("\(Int(clampedFontSize))")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(minWidth: 18)
                 .accessibilityLabel("Editor font size \(Int(clampedFontSize))")
 
             Button(action: increaseFontSize) {
                 Image(systemName: "textformat.size.larger")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
             }
             .buttonStyle(RichInputToolbarButtonStyle())
             .disabled(richInputFontSize >= RichInputPreferences.maxFontSize)
@@ -270,10 +270,10 @@ struct ProjectStatusBar: View {
     private func shortcutHint(keys: String, label: String) -> some View {
         HStack(spacing: 4) {
             Text(keys)
-                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text(label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
         }
     }

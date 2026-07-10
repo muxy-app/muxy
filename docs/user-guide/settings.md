@@ -23,7 +23,7 @@ Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to f
 
 ## Interface
 
-- **Interface Size** — controls app density.
+- **Interface Size** — controls app density across Default, Large, Extra Large, and Huge. Scales fonts, spacing, icons, and the status bar.
 - **Tab header width** — controls maximum tab header width.
 - **Show Status Bar** — shows or hides the bottom status bar.
 - **Show Resource Usage in Status Bar** — shows CPU and memory usage; disabling it stops sampling.
