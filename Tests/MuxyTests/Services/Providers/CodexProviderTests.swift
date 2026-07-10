@@ -119,6 +119,60 @@ struct CodexProviderTests {
         #expect(Self.commands(in: secondInstall, event: "Stop") == Self.commands(in: firstInstall, event: "Stop"))
     }
 
+    @Test("install does not create hooks.json when config.toml contains hooks")
+    func installSkipsConflictingRepresentation() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        try fixture.writeConfig(
+            """
+            [[hooks.SessionStart]]
+
+            [[hooks.SessionStart.hooks]]
+            type = "command"
+            command = "/usr/bin/true"
+            """
+        )
+
+        #expect(throws: CodexProviderError.inlineHooksConfigured(fixture.configURL.path)) {
+            try fixture.provider().install(hookScriptPath: "/tmp/muxy-codex-hook.sh")
+        }
+        #expect(!FileManager.default.fileExists(atPath: fixture.hooksURL.path))
+    }
+
+    @Test("install ignores hooks.state metadata in config.toml")
+    func installAllowsStateOnlyConfig() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        try fixture.writeConfig(
+            """
+            [hooks.state."/tmp/hooks.json:stop:0:0"]
+            enabled = false
+            """
+        )
+
+        try fixture.provider().install(hookScriptPath: "/tmp/muxy-codex-hook.sh")
+
+        #expect(Self.commands(in: try fixture.readSettings(), event: "Stop") == [
+            "'/tmp/muxy-codex-hook.sh' stop # muxy-notification-hook",
+        ])
+    }
+
+    @Test("install removes existing Muxy JSON hooks when config.toml contains hooks")
+    func installRemovesExistingConflictingHooks() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        try fixture.provider().install(hookScriptPath: "/tmp/muxy-codex-hook.sh")
+        try fixture.writeConfig("[[hooks.Stop]]")
+
+        #expect(throws: CodexProviderError.inlineHooksConfigured(fixture.configURL.path)) {
+            try fixture.provider().install(hookScriptPath: "/tmp/muxy-codex-hook.sh")
+        }
+        #expect(Self.commands(in: try fixture.readSettings(), event: "Stop").isEmpty)
+    }
+
     @Test("uninstall removes Muxy hooks and preserves colocated user hook")
     func uninstallRemovesMuxyHooksAndPreservesColocatedUserHook() throws {
         let fixture = try Fixture()
@@ -201,12 +255,14 @@ struct CodexProviderTests {
         let rootURL: URL
         let homeURL: URL
         let hooksURL: URL
+        let configURL: URL
 
         init() throws {
             rootURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("CodexProviderTests-\(UUID().uuidString)", isDirectory: true)
             homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
             hooksURL = homeURL.appendingPathComponent(".codex/hooks.json")
+            configURL = homeURL.appendingPathComponent(".codex/config.toml")
             try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
         }
 
@@ -234,6 +290,14 @@ struct CodexProviderTests {
             )
             let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
             try data.write(to: hooksURL, options: .atomic)
+        }
+
+        func writeConfig(_ config: String) throws {
+            try FileManager.default.createDirectory(
+                at: configURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try config.write(to: configURL, atomically: true, encoding: .utf8)
         }
 
         func readSettings() throws -> [String: Any] {

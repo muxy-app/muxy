@@ -20,6 +20,7 @@ struct CodexProvider: AIProviderIntegration {
     private let homeDirectory: String
     private let pathEnvironment: () -> String
     private let hooksPath: String
+    private var configPath: String { "\(homeDirectory)/.codex/config.toml" }
 
     init(
         homeDirectory: String = NSHomeDirectory(),
@@ -54,6 +55,13 @@ struct CodexProvider: AIProviderIntegration {
     }
 
     func install(hookScriptPath: String) throws {
+        if try hasExecutableInlineHooks() {
+            if isHookInstalled() {
+                try uninstall()
+            }
+            throw CodexProviderError.inlineHooksConfigured(configPath)
+        }
+
         let settings = try readSettings()
         let hooks = settings["hooks"] as? [String: Any] ?? [:]
         var updatedSettings = settings
@@ -172,6 +180,30 @@ struct CodexProvider: AIProviderIntegration {
         } ?? 0
     }
 
+    private func hasExecutableInlineHooks() throws -> Bool {
+        guard FileManager.default.fileExists(atPath: configPath) else { return false }
+        let config = try String(contentsOfFile: configPath, encoding: .utf8)
+        let events = Set([
+            "PreToolUse",
+            "PermissionRequest",
+            "PostToolUse",
+            "PreCompact",
+            "PostCompact",
+            "SessionStart",
+            "UserPromptSubmit",
+            "SubagentStart",
+            "SubagentStop",
+            "Stop",
+        ])
+
+        return config.split(whereSeparator: \.isNewline).contains { rawLine in
+            let line = rawLine.prefix { $0 != "#" }
+            let header = line.filter { !$0.isWhitespace && $0 != "\"" && $0 != "'" }
+            guard header.hasPrefix("[[hooks."), header.hasSuffix("]]") else { return false }
+            return events.contains(String(header.dropFirst(8).dropLast(2)))
+        }
+    }
+
     private func readSettings() throws -> [String: Any] {
         guard FileManager.default.fileExists(atPath: hooksPath) else { return [:] }
         let data = try Data(contentsOf: URL(fileURLWithPath: hooksPath))
@@ -197,5 +229,16 @@ struct CodexProvider: AIProviderIntegration {
             [.posixPermissions: FilePermissions.privateFile],
             ofItemAtPath: hooksPath
         )
+    }
+}
+
+enum CodexProviderError: LocalizedError, Equatable {
+    case inlineHooksConfigured(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .inlineHooksConfigured(path):
+            "Codex hooks are configured in \(path); Muxy skipped hooks.json to avoid loading both"
+        }
     }
 }
