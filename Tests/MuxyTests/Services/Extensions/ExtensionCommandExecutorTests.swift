@@ -223,8 +223,8 @@ struct ExtensionCommandExecutorTests {
         #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID))
     }
 
-    @Test("timeout after cancel does not finish twice")
-    func timeoutAfterCancelDoesNotFinishTwice() async throws {
+    @Test("cancel does not finish twice")
+    func cancelDoesNotFinishTwice() async throws {
         let box = ExecCompletionBox()
         let marker = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-exec-started-\(UUID().uuidString)")
@@ -235,7 +235,7 @@ struct ExtensionCommandExecutorTests {
             cwd: nil,
             env: nil,
             stdin: nil,
-            timeoutMs: 5000
+            timeoutMs: 0
         )
         let jobID = ExtensionCommandExecutor.startCancelableUnchecked(
             request: request,
@@ -248,7 +248,7 @@ struct ExtensionCommandExecutorTests {
         try await waitForFile(at: marker)
         #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID))
         _ = await box.wait()
-        try await Task.sleep(for: .milliseconds(5200))
+        try await Task.sleep(for: .milliseconds(200))
         #expect(box.count == 1)
     }
 

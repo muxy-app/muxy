@@ -153,6 +153,9 @@ enum ExtensionCommandExecutor {
             }
         } as Void
 
+        drain(pipe: stdoutPipe, into: stdoutBox)
+        drain(pipe: stderrPipe, into: stderrBox)
+
         return ExecResult(
             stdout: stdoutBox.string(),
             stderr: stderrBox.string(),
@@ -286,6 +289,16 @@ enum ExtensionCommandExecutor {
                 handle.readabilityHandler = nil
                 return
             }
+            box.append(data)
+        }
+    }
+
+    fileprivate static func drain(pipe: Pipe?, into box: OutputBox?) {
+        guard let pipe, let box else { return }
+        let handle = pipe.fileHandleForReading
+        handle.readabilityHandler = nil
+        let data = handle.readDataToEndOfFile()
+        if !data.isEmpty {
             box.append(data)
         }
     }
@@ -517,8 +530,8 @@ private final class ExecJob: @unchecked Sendable {
         let stderr = stderrBox
         lock.unlock()
 
-        drain(pipe: outputPipes.0, into: stdout)
-        drain(pipe: outputPipes.1, into: stderr)
+        ExtensionCommandExecutor.drain(pipe: outputPipes.0, into: stdout)
+        ExtensionCommandExecutor.drain(pipe: outputPipes.1, into: stderr)
 
         if wasCancelled {
             finish(.failure(ExecError.cancelled))
@@ -553,16 +566,6 @@ private final class ExecJob: @unchecked Sendable {
 
         onRemove(id)
         callback?(result)
-    }
-
-    private func drain(pipe: Pipe?, into box: OutputBox?) {
-        guard let pipe, let box else { return }
-        let handle = pipe.fileHandleForReading
-        handle.readabilityHandler = nil
-        let data = handle.readDataToEndOfFile()
-        if !data.isEmpty {
-            box.append(data)
-        }
     }
 }
 
