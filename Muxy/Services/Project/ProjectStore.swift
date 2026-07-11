@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "ProjectStore")
@@ -20,7 +21,15 @@ final class ProjectStore {
         [Project.home] + storedProjects
     }
 
+    private var usedIconColors: Set<String> {
+        Set(storedProjects.compactMap(\.iconColor))
+    }
+
     func add(_ project: Project) {
+        var project = project
+        if project.iconColor == nil {
+            project.iconColor = ProjectIconColor.randomSwatch(excluding: usedIconColors)?.id
+        }
         storedProjects.append(project)
         save()
     }

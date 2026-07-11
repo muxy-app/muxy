@@ -295,7 +295,7 @@
       "type": "object",
       "required": ["kind"],
       "properties": {
-        "kind": { "enum": ["event", "openTab", "togglePanel", "openPopover", "runScript"] }
+        "kind": { "enum": ["event", "openTab", "togglePanel", "openPopover", "openModal", "runScript"] }
       },
       "allOf": [
         {
@@ -328,6 +328,21 @@
             "properties": {
               "kind": {},
               "popover": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "openModal" } } },
+          "then": {
+            "required": ["entry"],
+            "properties": {
+              "kind": {},
+              "entry": { "type": "string", "minLength": 1, "description": "HTML asset rendered in the modal; resolves inside the extension directory." },
+              "width": { "type": "number" },
+              "height": { "type": "number" },
+              "dismissOnOutsideClick": { "type": "boolean" },
+              "data": {}
             },
             "additionalProperties": false
           }

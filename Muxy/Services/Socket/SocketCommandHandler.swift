@@ -406,7 +406,9 @@ enum SocketCommandHandler {
         case "modal.open",
              "modal.feed",
              "modal.finish",
-             "modal.await":
+             "modal.await",
+             "modal.openWebview",
+             "modal.closeWebview":
             guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
             guard let extensionID = clientContext.extensionID else { return "error:identify required" }
             return await handleModalVerb(
@@ -575,6 +577,9 @@ enum SocketCommandHandler {
                 registerModalResultPush(requestID: requestID, extensionID: context.extensionID)
                 registerModalQueryPush(requestID: requestID, extensionID: context.extensionID)
             }
+            if verb == "modal.openWebview", let dict = result as? [String: Any], let requestID = dict["requestID"] as? String {
+                registerModalWebviewResultPush(requestID: requestID, extensionID: context.extensionID)
+            }
             return encodeJSONFragment(result)
         } catch {
             return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
@@ -585,6 +590,17 @@ enum SocketCommandHandler {
         ExtensionModalService.shared.onResult(requestID: requestID) { item in
             let payload = ExtensionModalService.modalResultPayload(item)
             let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.fragmentsAllowed])) ?? Data("null".utf8)
+            NotificationSocketServer.shared.pushModalResult(
+                extensionID: extensionID,
+                requestID: requestID,
+                payload: data
+            )
+        }
+    }
+
+    private static func registerModalWebviewResultPush(requestID: String, extensionID: String) {
+        ExtensionWebviewModalService.shared.onClose(requestID: requestID) { result in
+            let data = result.flatMap { try? JSONEncoder().encode($0) } ?? Data("null".utf8)
             NotificationSocketServer.shared.pushModalResult(
                 extensionID: extensionID,
                 requestID: requestID,

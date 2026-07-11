@@ -37,7 +37,7 @@ enum UIMetrics {
     static var controlSmall: CGFloat { scaled(20) }
     static var controlMedium: CGFloat { scaled(24) }
     static var controlLarge: CGFloat { scaled(32) }
-    static var resizeHandleHitArea: CGFloat { scaled(18) }
+    static var resizeHandleHitArea: CGFloat { scaled(10) }
 
     static var radiusSM: CGFloat { scaled(4) }
     static var radiusMD: CGFloat { scaled(6) }

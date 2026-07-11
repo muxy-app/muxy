@@ -212,6 +212,32 @@ enum MuxyAPIDispatcher {
             let requestID = (args["requestID"] as? String) ?? ""
             let selected = await ExtensionModalService.shared.awaitSelection(requestID: requestID)
             return selected.map(modalItemDict) ?? NSNull()
+        case "modal.openWebview":
+            let entry = try resolvedEntry(args, context: context)
+            let requestID = ExtensionWebviewModalService.shared.open(
+                ExtensionWebviewModalService.OpenRequest(
+                    extensionID: context.extensionID,
+                    entry: entry,
+                    width: doubleArgOptional(args, "width"),
+                    height: doubleArgOptional(args, "height"),
+                    dismissOnOutsideClick: boolArg(args, "dismissOnOutsideClick") ?? true,
+                    data: panelData(args)
+                )
+            )
+            return ["requestID": requestID]
+        case "modal.awaitWebview":
+            let requestID = (args["requestID"] as? String) ?? ""
+            let result = await ExtensionWebviewModalService.shared.awaitClose(requestID: requestID)
+            return foundationValue(result)
+        case "modal.submitWebview":
+            try ExtensionWebviewModalService.shared.submit(
+                requestID: stringArg(args, "requestID"),
+                result: clampedResult(args["result"])
+            )
+            return NSNull()
+        case "modal.closeWebview":
+            ExtensionWebviewModalService.shared.dismiss()
+            return NSNull()
         case "tabs.list":
             return try unwrap(MuxyAPI.Tabs.list(appState: context.appState)).map(tabDict)
         case "tabs.switch":
@@ -1089,6 +1115,33 @@ enum MuxyAPIDispatcher {
         guard let raw = args["data"] else { return nil }
         guard let data = try? JSONSerialization.data(withJSONObject: raw) else { return nil }
         return try? JSONDecoder().decode(ExtensionJSON.self, from: data)
+    }
+
+    private static func resolvedEntry(_ args: [String: Any], context: Context) throws -> String {
+        let entry = try stringArg(args, "entry")
+        guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: context.extensionID) else {
+            throw APIError.invalidArguments("extension \(context.extensionID) not loaded")
+        }
+        guard muxyExtension.resolveResource(entry) != nil else {
+            throw APIError.invalidArguments("entry '\(entry)' not found in extension")
+        }
+        return entry
+    }
+
+    private static func clampedResult(_ value: Any?) -> ExtensionJSON? {
+        guard let value, !(value is NSNull) else { return nil }
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
+              data.count <= ExtensionWebviewModalService.maxResultBytes
+        else { return nil }
+        return try? JSONDecoder().decode(ExtensionJSON.self, from: data)
+    }
+
+    private static func foundationValue(_ value: ExtensionJSON?) -> Any {
+        guard let value else { return NSNull() }
+        guard let data = try? JSONEncoder().encode(value),
+              let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        else { return NSNull() }
+        return object
     }
 
     private static func decodeOpenTabRequest(_ args: [String: Any]) throws -> OpenTabRequest {

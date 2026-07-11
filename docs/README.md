@@ -35,7 +35,7 @@ flowchart TB
 | [Rich Input](features/rich-input.md) | Multiline prompts, files, images, broadcast send |
 | [Voice Recording](features/voice-recording.md) | Dictate text into Muxy from the status bar |
 | [Notification Setup](features/notifications.md) | OSC sequences, hooks, socket API |
-| [Themes](features/themes.md) | Theme picker and Ghostty config |
+| [Themes](features/themes.md) | Theme picker, sidebar background, and Ghostty config |
 | [Muxy CLI](features/muxy-cli.md) | Open projects and control workspaces from a terminal, plus an AI agent skill |
 
 ## Layouts

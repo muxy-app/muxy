@@ -18,6 +18,14 @@ enum ExtensionLifecycleEvents {
         broadcast(name: ExtensionEventName.popoverClosed, extensionID: extensionID, surfaceID: popoverID, key: "popoverID")
     }
 
+    static func modalOpened(extensionID: String, modalID: String) {
+        broadcast(name: ExtensionEventName.modalOpened, extensionID: extensionID, surfaceID: modalID, key: "modalID")
+    }
+
+    static func modalClosed(extensionID: String, modalID: String) {
+        broadcast(name: ExtensionEventName.modalClosed, extensionID: extensionID, surfaceID: modalID, key: "modalID")
+    }
+
     private static func broadcast(name: String, extensionID: String, surfaceID: String, key: String) {
         NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
             name: name,

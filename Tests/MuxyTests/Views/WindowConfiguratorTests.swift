@@ -15,6 +15,14 @@ struct WindowConfiguratorTests {
         #expect(window.tabbingMode == .disallowed)
     }
 
+    @Test("uses a tinted native sidebar material")
+    func usesTintedNativeSidebarMaterial() {
+        #expect(AppSidebarVibrancy.material == .sidebar)
+        #expect(AppSidebarVibrancy.blendingMode == .behindWindow)
+        #expect(AppSidebarVibrancy.state == .active)
+        #expect(AppSidebarVibrancy.themeOverlayOpacity == 0.8)
+    }
+
     @Test("rejects untitled window requests")
     func rejectsUntitledWindowRequests() {
         let delegate = AppDelegate()

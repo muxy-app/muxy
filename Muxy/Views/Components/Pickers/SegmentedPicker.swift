@@ -21,6 +21,7 @@ struct SegmentedPicker<T: Hashable>: View {
                                 : Color.clear,
                             in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                         )
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 

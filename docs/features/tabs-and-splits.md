@@ -58,6 +58,10 @@ Maximize is available only when the worktree has multiple panes. Moving focus to
 
 Tabs can be dragged within a pane to reorder, between panes to move, or onto a pane edge to create a new split.
 
+## Tab Focused layout
+
+Choose **Tab Focused** under **Settings → Interface** to move tab navigation into the left sidebar. The sidebar groups open tabs by project, keeps project switching on `⌃1…9`, and shows tab shortcuts for the first nine open tabs.
+
 ## Navigation history
 
 Mouse side buttons (3 / 4) and three-finger horizontal trackpad swipes navigate Back / Forward through tab history. Keyboard equivalents: `⌘⌃←` / `⌘⌃→`.

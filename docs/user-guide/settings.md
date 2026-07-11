@@ -28,6 +28,7 @@ Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to f
 - **Show Status Bar** — shows or hides the bottom status bar.
 - **Show Resource Usage in Status Bar** — shows CPU and memory usage; disabling it stops sampling.
 - **Light Terminal Theme** and **Dark Terminal Theme** — paired terminal themes that follow macOS appearance.
+- **Sidebar Vibrancy** — on by default; uses theme-tinted native macOS vibrancy across the sidebar and its traffic-light/title strip. Turn it off for a solid theme background. The main topbar keeps the active theme background.
 - **Auto-expand Worktrees** — reveals worktrees when switching projects.
 - **Show Home** — shows the permanent Home project at the top of the sidebar.
 - **Active Sidebar** — chooses the built-in sidebar or one provided by an extension.

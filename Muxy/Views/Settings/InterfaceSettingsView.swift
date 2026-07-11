@@ -8,6 +8,8 @@ struct InterfaceSettingsView: View {
     @State private var showDarkThemePicker = false
     @State private var currentLightTheme: String?
     @State private var currentDarkTheme: String?
+    @AppStorage(AppBackgroundStyle.storageKey)
+    private var appBackgroundStyleRaw = AppBackgroundStyle.defaultValue.rawValue
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
     @State private var layoutStore = AppLayoutStore.shared
@@ -23,6 +25,13 @@ struct InterfaceSettingsView: View {
 
     private var layoutSelection: Binding<AppLayout> {
         Binding(get: { layoutStore.layout }, set: { layoutStore.set($0) })
+    }
+
+    private var sidebarVibrancyEnabled: Binding<Bool> {
+        Binding(
+            get: { AppBackgroundStyle.resolve(appBackgroundStyleRaw) == .vibrant },
+            set: { appBackgroundStyleRaw = ($0 ? AppBackgroundStyle.vibrant : .solid).rawValue }
+        )
     }
 
     private var isProjectFocused: Bool {
@@ -116,6 +125,8 @@ struct InterfaceSettingsView: View {
         }
 
         SettingsSection("Sidebar") {
+            SettingsToggleRow(label: "Vibrancy", isOn: sidebarVibrancyEnabled)
+
             SettingsToggleRow(label: "Show Home", isOn: $showHomeProject)
 
             SettingsToggleRow(

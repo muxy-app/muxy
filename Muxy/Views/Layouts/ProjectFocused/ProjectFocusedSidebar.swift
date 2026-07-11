@@ -36,6 +36,17 @@ enum SidebarLayout {
     static func isHidden(expanded: Bool, collapsedStyle: SidebarCollapsedStyle) -> Bool {
         !expanded && collapsedStyle == .hidden
     }
+
+    static func isIcon(
+        expanded: Bool,
+        collapsedStyle: SidebarCollapsedStyle,
+        expandedStyle: SidebarExpandedStyle
+    ) -> Bool {
+        if expanded {
+            return expandedStyle == .icons
+        }
+        return collapsedStyle == .icons
+    }
 }
 
 struct ProjectFocusedSidebar: View {

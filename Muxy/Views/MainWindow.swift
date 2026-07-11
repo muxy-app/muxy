@@ -23,6 +23,13 @@ enum MainWindowLayout {
         guard !isFullScreen else { return 0 }
         return max(0, titleBarNavigationOverlayWidth - leftNavigationWidth)
     }
+
+    static func titleBarSidebarBackgroundWidth(
+        leftNavigationWidth: CGFloat,
+        titleBarNavigationOverlayWidth: CGFloat
+    ) -> CGFloat {
+        min(leftNavigationWidth, titleBarNavigationOverlayWidth)
+    }
 }
 
 struct MainWindow: View {
@@ -81,6 +88,8 @@ struct MainWindow: View {
     @State private var remoteProjectDevice: RemoteDevice?
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
+    @AppStorage(AppBackgroundStyle.storageKey)
+    private var appBackgroundStyleRaw = AppBackgroundStyle.defaultValue.rawValue
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @State private var layoutStore = AppLayoutStore.shared
     @State private var extensionStore = ExtensionStore.shared
@@ -101,172 +110,186 @@ struct MainWindow: View {
     @MainActor private var trafficLightWidth: CGFloat { UIMetrics.scaled(75) }
 
     private var layout: any AppLayoutProviding { layoutStore.provider }
+    private var appBackgroundStyle: AppBackgroundStyle { AppBackgroundStyle.resolve(appBackgroundStyleRaw) }
     private var isTabFocused: Bool { layoutStore.layout == .tabFocused && !isExtensionSidebarActive }
 
     private var showsBreadcrumb: Bool { layout.topbar == .breadcrumb && !isExtensionSidebarActive }
 
     var body: some View {
+        windowColumns
+            .modifier(windowOverlays)
+            .modifier(windowChrome)
+            .modifier(windowEventListeners)
+    }
+
+    private var windowColumns: some View {
         HStack(spacing: 0) {
             sidebarColumn
             mainWorkspaceColumn
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
         .animation(.easeInOut(duration: 0.2), value: layoutStore.layout)
-        .overlay(alignment: .topLeading) {
-            titleBarNavigationOverlay
-        }
-        .environment(\.overlayActive, overlayActive)
-        .overlay(alignment: .bottom) {
+    }
+
+    private var windowOverlays: MainWindowOverlays {
+        MainWindowOverlays(
+            titleBarNavigationOverlay: { AnyView(titleBarNavigationOverlay) },
+            voicePanel: { AnyView(voiceRecordingPanel) },
+            toast: { AnyView(toastOverlay) },
+            modalOverlayLayer: { AnyView(modalOverlayLayer) },
+            overlayActive: overlayActive,
+            toastAlignment: toastAlignment,
+            isVoicePanelVisible: voiceRecording.isPanelVisible,
+            hasToast: ToastState.shared.message != nil
+        )
+    }
+
+    private var windowChrome: MainWindowChrome {
+        MainWindowChrome(
+            worktreeActions: WorktreeActionsModifier(
+                creationProject: $worktreeCreationProject,
+                pendingRemoval: $pendingWorktreeRemoval,
+                onCreateRequested: beginCreateWorktree,
+                onRemoveCurrentRequested: requestRemoveCurrentWorktree,
+                onCreateResult: handleCreateWorktreeResult,
+                onPerformRemove: performRemoveWorktree
+            ),
+            overlayExitTracker: OverlayExitTracker(
+                showTerminalOmnibox: showTerminalOmnibox,
+                showProjectPicker: showProjectPicker,
+                onAnimatingOut: { overlayAnimatingOut = $0 }
+            ),
+            shortcutInterceptor: MainWindowShortcutInterceptor(
+                isTerminalFocused: { isTerminalPaneFocused },
+                isBrowserFocused: { isBrowserPaneFocused },
+                onShortcut: { action in handleShortcutAction(action) },
+                onCommandShortcut: { shortcut in handleCommandShortcut(shortcut) },
+                onExtensionShortcut: { shortcut in handleExtensionShortcut(shortcut) },
+                onMouseBack: { appState.goBack() },
+                onMouseForward: { appState.goForward() }
+            ),
+            windowConfigurator: WindowConfigurator(
+                configVersion: ghostty.configVersion,
+                uiScalePreset: UIScale.shared.preset
+            ),
+            windowTitle: windowTitle,
+            dragCoordinator: dragCoordinator,
+            showTerminalOmnibox: showTerminalOmnibox,
+            showProjectPicker: showProjectPicker
+        )
+    }
+
+    private var windowEventListeners: MainWindowEventListeners {
+        MainWindowEventListeners(
+            sidePanelListeners: SidePanelNotificationListeners(
+                onToggleRichInput: { toggleRichInputPanel() },
+                onToggleVoiceRecording: { _ = openVoiceRecorder() }
+            ),
+            tabCloseObserver: TabCloseConfirmationObserver(
+                lastTab: appState.pendingLastTabClose != nil,
+                runningProcess: appState.pendingProcessTabClose != nil,
+                onLastTab: { presentCloseConfirmation(.lastTab) },
+                onRunningProcess: { presentCloseConfirmation(.runningProcess) }
+            ),
+            worktreeKeysSignature: worktreeKeysSignature,
+            activeWorktreeSignature: activeWorktreeSignature,
+            activeProjectID: appState.activeProjectID,
+            hasPendingLayoutApply: appState.pendingLayoutApply != nil,
+            onOpenProjectPicker: { showProjectPicker = true },
+            onOpenRemoteProjectPicker: handleOpenRemoteProjectPicker,
+            onOpenExtensionDirectory: handleOpenExtensionDirectory,
+            onTerminalOmnibox: handleTerminalOmniboxNotification,
+            onToggleSidebar: toggleSidebar,
+            onToggleAppLayout: toggleAppLayout,
+            onToggleExtensionConsole: toggleExtensionConsole,
+            onFullScreenChange: { isFullScreen = $0 },
+            onWorktreeKeysChange: pruneWorktreeStatesAndVisited,
+            onActiveWorktreeChange: refreshWorkspaceWatcherAndVisited,
+            onActiveProjectChange: activateWorkspaceForActiveProject,
+            onAppear: refreshWorkspaceWatcherAndVisited,
+            onPendingLayoutApply: presentPendingLayoutApply
+        )
+    }
+
+    private var voiceRecordingPanel: some View {
+        Group {
             if voiceRecording.isPanelVisible {
                 VoiceRecordingPanel(state: voiceRecording, autoSend: recordingAutoSend)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: voiceRecording.isPanelVisible)
-        .overlay(alignment: toastAlignment) {
-            if let toast = ToastState.shared.content {
-                HStack(alignment: toast.body == nil ? .center : .top, spacing: UIMetrics.spacing3) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-                        .foregroundStyle(MuxyTheme.diffAddFg)
-                    VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                        Text(toast.title)
-                            .font(.system(size: UIMetrics.fontBody, weight: .medium))
-                            .foregroundStyle(MuxyTheme.fg)
-                            .lineLimit(1)
-                        if let body = toast.body {
-                            Text(body)
-                                .font(.system(size: UIMetrics.fontFootnote))
-                                .foregroundStyle(MuxyTheme.fgMuted)
-                                .lineLimit(2)
-                        }
-                    }
-                    .frame(maxWidth: UIMetrics.scaled(360), alignment: .leading)
-                }
-                .padding(.horizontal, UIMetrics.scaled(14))
-                .padding(.vertical, UIMetrics.spacing4)
-                .fixedSize(horizontal: true, vertical: false)
-                .background(MuxyTheme.bg, in: Capsule())
-                .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
-                .contentShape(Capsule())
-                .padding(toastEdgePadding)
-                .transition(.move(edge: toastTransitionEdge).combined(with: .opacity))
-                .allowsHitTesting(toast.isActionable)
-                .onTapGesture {
-                    ToastState.shared.performAction()
-                }
-                .accessibilityLabel(toast.accessibilityLabel)
-                .accessibilityAddTraits(toast.isActionable ? .isButton : .isStaticText)
-            }
-        }
-        .overlay { modalOverlayLayer }
-        .overlay { ExtensionConsentOverlay() }
-        .modifier(WorktreeActionsModifier(
-            creationProject: $worktreeCreationProject,
-            pendingRemoval: $pendingWorktreeRemoval,
-            onCreateRequested: beginCreateWorktree,
-            onRemoveCurrentRequested: requestRemoveCurrentWorktree,
-            onCreateResult: handleCreateWorktreeResult,
-            onPerformRemove: performRemoveWorktree
-        ))
-        .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
-        .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
-        .animation(.easeInOut(duration: 0.15), value: ExtensionModalService.shared.active)
-        .modifier(OverlayExitTracker(
-            showTerminalOmnibox: showTerminalOmnibox,
-            showProjectPicker: showProjectPicker,
-            onAnimatingOut: { overlayAnimatingOut = $0 }
-        ))
-        .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
-        .coordinateSpace(name: DragCoordinateSpace.mainWindow)
-        .environment(dragCoordinator)
-        .background(MainWindowShortcutInterceptor(
-            isTerminalFocused: { isTerminalPaneFocused },
-            isBrowserFocused: { isBrowserPaneFocused },
-            onShortcut: { action in handleShortcutAction(action) },
-            onCommandShortcut: { shortcut in handleCommandShortcut(shortcut) },
-            onExtensionShortcut: { shortcut in handleExtensionShortcut(shortcut) },
-            onMouseBack: { appState.goBack() },
-            onMouseForward: { appState.goForward() }
-        ))
-        .background(WindowConfigurator(configVersion: ghostty.configVersion, uiScalePreset: UIScale.shared.preset))
-        .background(WindowTitleUpdater(title: windowTitle))
-        .ignoresSafeArea(.container, edges: .top)
-        .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
-            showProjectPicker = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openRemoteProjectPicker)) { notification in
-            guard let deviceID = notification.userInfo?[OpenRemoteProjectPickerUserInfoKey.deviceID] as? UUID,
-                  let device = remoteDeviceStore.device(id: deviceID)
-            else { return }
-            remoteProjectDevice = device
-            showProjectPicker = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openExtensionDirectoryAsProject)) { notification in
-            guard let path = notification.userInfo?[OpenExtensionDirectoryUserInfoKey.path] as? String else { return }
-            CLIAccessor.openProjectFromPath(
-                path,
-                appState: appState,
-                projectStore: projectStore,
-                worktreeStore: worktreeStore,
-                projectGroupStore: projectGroupStore
+    }
+
+    @ViewBuilder
+    private var toastOverlay: some View {
+        if let toast = ToastState.shared.content {
+            MainWindowToast(
+                toast: toast,
+                edgePadding: toastEdgePadding,
+                transitionEdge: toastTransitionEdge,
+                onTap: { ToastState.shared.performAction() }
             )
         }
-        .onReceive(NotificationCenter.default.publisher(for: .terminalOmnibox)) { notification in
-            let launchScope = terminalOmniboxScope(from: notification)
-            if showTerminalOmnibox, launchScope != terminalOmniboxLaunchScope {
-                terminalOmniboxLaunchScope = launchScope
-                return
-            }
+    }
+
+    private func handleOpenRemoteProjectPicker(_ notification: Notification) {
+        guard let deviceID = notification.userInfo?[OpenRemoteProjectPickerUserInfoKey.deviceID] as? UUID,
+              let device = remoteDeviceStore.device(id: deviceID)
+        else { return }
+        remoteProjectDevice = device
+        showProjectPicker = true
+    }
+
+    private func handleOpenExtensionDirectory(_ notification: Notification) {
+        guard let path = notification.userInfo?[OpenExtensionDirectoryUserInfoKey.path] as? String else { return }
+        CLIAccessor.openProjectFromPath(
+            path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+    }
+
+    private func handleTerminalOmniboxNotification(_ notification: Notification) {
+        let launchScope = terminalOmniboxScope(from: notification)
+        if showTerminalOmnibox, launchScope != terminalOmniboxLaunchScope {
             terminalOmniboxLaunchScope = launchScope
-            showTerminalOmnibox.toggle()
+            return
         }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                sidebarExpanded.toggle()
-            }
+        terminalOmniboxLaunchScope = launchScope
+        showTerminalOmnibox.toggle()
+    }
+
+    private func toggleSidebar() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            sidebarExpanded.toggle()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleAppLayout)) { _ in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                layoutStore.toggle()
-            }
+    }
+
+    private func toggleAppLayout() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            layoutStore.toggle()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleExtensionConsole)) { _ in
-            panelHost.toggle(BuiltinPanel.extensionConsole, at: .bottom, mode: .floating)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
-            isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
-        }
-        .modifier(SidePanelNotificationListeners(
-            onToggleRichInput: { toggleRichInputPanel() },
-            onToggleVoiceRecording: { _ = openVoiceRecorder() }
-        ))
-        .onChange(of: worktreeKeysSignature) {
-            pruneWorktreeStates()
-            pruneVisitedWorktreeKeys()
-        }
-        .onChange(of: activeWorktreeSignature) {
-            updateWorkspaceFileWatcher()
-            recordVisitedActiveWorktree()
-        }
-        .onChange(of: appState.activeProjectID) {
-            activateWorkspaceForActiveProject()
-        }
-        .task {
-            updateWorkspaceFileWatcher()
-            recordVisitedActiveWorktree()
-        }
-        .modifier(TabCloseConfirmationObserver(
-            lastTab: appState.pendingLastTabClose != nil,
-            runningProcess: appState.pendingProcessTabClose != nil,
-            onLastTab: { presentCloseConfirmation(.lastTab) },
-            onRunningProcess: { presentCloseConfirmation(.runningProcess) }
-        ))
-        .onChange(of: appState.pendingLayoutApply != nil) { _, isPresented in
-            guard isPresented, let pending = appState.pendingLayoutApply else { return }
-            presentLayoutApplyConfirmation(pending: pending)
-        }
-        .modifier(SentryConsentPrompter())
+    }
+
+    private func toggleExtensionConsole() {
+        panelHost.toggle(BuiltinPanel.extensionConsole, at: .bottom, mode: .floating)
+    }
+
+    private func pruneWorktreeStatesAndVisited() {
+        pruneWorktreeStates()
+        pruneVisitedWorktreeKeys()
+    }
+
+    private func refreshWorkspaceWatcherAndVisited() {
+        updateWorkspaceFileWatcher()
+        recordVisitedActiveWorktree()
+    }
+
+    private func presentPendingLayoutApply() {
+        guard let pending = appState.pendingLayoutApply else { return }
+        presentLayoutApplyConfirmation(pending: pending)
     }
 
     private var sidebarColumn: some View {
@@ -275,12 +298,23 @@ struct MainWindow: View {
                 Color.clear
                     .frame(height: UIMetrics.titleBarHeight)
                     .background(WindowDragRepresentable())
-
-                Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                    .accessibilityHidden(true)
+                    .background(MuxyTheme.bg)
             }
 
-            sidebarContent
+            VStack(spacing: 0) {
+                if !isFullScreen {
+                    Color.clear
+                        .frame(height: 1)
+                        .accessibilityHidden(true)
+                }
+
+                sidebarContent
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppSidebarBackground(
+                style: appBackgroundStyle,
+                isFullScreen: isFullScreen
+            ))
         }
         .frame(width: leftNavigationWidth, alignment: .leading)
         .clipped()
@@ -378,7 +412,18 @@ struct MainWindow: View {
                 .frame(width: titleBarNavigationOverlayWidth, height: UIMetrics.titleBarHeight)
                 .fixedSize(horizontal: true, vertical: false)
                 .background(WindowDragRepresentable())
-                .background(MuxyTheme.bg)
+                .background {
+                    HStack(spacing: 0) {
+                        if titleBarSidebarBackgroundWidth > 0 {
+                            AppSidebarBackground(
+                                style: titleBarSidebarBackgroundStyle,
+                                isFullScreen: isFullScreen
+                            )
+                            .frame(width: titleBarSidebarBackgroundWidth)
+                        }
+                        MuxyTheme.bg
+                    }
+                }
                 .overlay(alignment: .trailing) {
                     navigationArrows
                         .padding(.trailing, UIMetrics.spacing4)
@@ -614,6 +659,7 @@ struct MainWindow: View {
         showTerminalOmnibox
             || showProjectPicker
             || ExtensionModalService.shared.active != nil
+            || ExtensionWebviewModalService.shared.active != nil
             || overlayAnimatingOut
     }
 
@@ -622,6 +668,19 @@ struct MainWindow: View {
         terminalOmniboxOverlay
         projectPickerOverlay
         extensionModalOverlay
+        extensionWebviewModalOverlay
+    }
+
+    @ViewBuilder
+    private var extensionWebviewModalOverlay: some View {
+        if let request = ExtensionWebviewModalService.shared.active {
+            ExtensionWebviewModalOverlay(
+                request: request,
+                onDismiss: { ExtensionWebviewModalService.shared.dismiss(requestID: request.id) }
+            )
+            .id(request.id)
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        }
     }
 
     @ViewBuilder
@@ -969,6 +1028,18 @@ struct MainWindow: View {
         SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
     }
 
+    private var isIconSidebarSize: Bool {
+        SidebarLayout.isIcon(
+            expanded: sidebarExpanded,
+            collapsedStyle: sidebarCollapsedStyle,
+            expandedStyle: sidebarExpandedStyle
+        )
+    }
+
+    private var titleBarSidebarBackgroundStyle: AppBackgroundStyle {
+        isIconSidebarSize ? .solid : appBackgroundStyle
+    }
+
     private var sidebarBorderVisible: Bool {
         leftNavigationWidth > 0
     }
@@ -982,6 +1053,13 @@ struct MainWindow: View {
             leftNavigationWidth: leftNavigationWidth,
             titleBarNavigationWidth: titleBarNavigationWidth,
             isFullScreen: isFullScreen
+        )
+    }
+
+    private var titleBarSidebarBackgroundWidth: CGFloat {
+        MainWindowLayout.titleBarSidebarBackgroundWidth(
+            leftNavigationWidth: leftNavigationWidth,
+            titleBarNavigationOverlayWidth: titleBarNavigationOverlayWidth
         )
     }
 
@@ -1791,6 +1869,221 @@ private final class ShortcutInterceptingView: NSView {
         guard let mouseMonitor else { return }
         NSEvent.removeMonitor(mouseMonitor)
         self.mouseMonitor = nil
+    }
+}
+
+private struct MainWindowToast: View {
+    let toast: ToastContent
+    let edgePadding: EdgeInsets
+    let transitionEdge: Edge
+    let onTap: () -> Void
+
+    var body: some View {
+        HStack(alignment: toast.body == nil ? .center : .top, spacing: UIMetrics.spacing3) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .foregroundStyle(MuxyTheme.diffAddFg)
+            VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                Text(toast.title)
+                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                    .foregroundStyle(MuxyTheme.fg)
+                    .lineLimit(1)
+                if let body = toast.body {
+                    Text(body)
+                        .font(.system(size: UIMetrics.fontFootnote))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxWidth: UIMetrics.scaled(360), alignment: .leading)
+        }
+        .padding(.horizontal, UIMetrics.scaled(14))
+        .padding(.vertical, UIMetrics.spacing4)
+        .fixedSize(horizontal: true, vertical: false)
+        .background(MuxyTheme.bg, in: Capsule())
+        .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
+        .contentShape(Capsule())
+        .padding(edgePadding)
+        .transition(.move(edge: transitionEdge).combined(with: .opacity))
+        .allowsHitTesting(toast.isActionable)
+        .onTapGesture(perform: onTap)
+        .accessibilityLabel(toast.accessibilityLabel)
+        .accessibilityAddTraits(toast.isActionable ? .isButton : .isStaticText)
+    }
+}
+
+private struct MainWindowOverlays: ViewModifier {
+    let titleBarNavigationOverlay: () -> AnyView
+    let voicePanel: () -> AnyView
+    let toast: () -> AnyView
+    let modalOverlayLayer: () -> AnyView
+    let overlayActive: Bool
+    let toastAlignment: Alignment
+    let isVoicePanelVisible: Bool
+    let hasToast: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .topLeading) { titleBarNavigationOverlay() }
+            .environment(\.overlayActive, overlayActive)
+            .overlay(alignment: .bottom) { voicePanel() }
+            .animation(.easeInOut(duration: 0.2), value: isVoicePanelVisible)
+            .overlay(alignment: toastAlignment) { toast() }
+            .overlay { modalOverlayLayer() }
+            .overlay { ExtensionConsentOverlay() }
+            .animation(.easeInOut(duration: 0.2), value: hasToast)
+    }
+}
+
+private struct MainWindowChrome: ViewModifier {
+    let worktreeActions: WorktreeActionsModifier
+    let overlayExitTracker: OverlayExitTracker
+    let shortcutInterceptor: MainWindowShortcutInterceptor
+    let windowConfigurator: WindowConfigurator
+    let windowTitle: String
+    let dragCoordinator: TabDragCoordinator
+    let showTerminalOmnibox: Bool
+    let showProjectPicker: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(worktreeActions)
+            .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
+            .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
+            .animation(.easeInOut(duration: 0.15), value: ExtensionModalService.shared.active)
+            .animation(.easeInOut(duration: 0.15), value: ExtensionWebviewModalService.shared.active)
+            .modifier(overlayExitTracker)
+            .coordinateSpace(name: DragCoordinateSpace.mainWindow)
+            .environment(dragCoordinator)
+            .background(shortcutInterceptor)
+            .background(windowConfigurator)
+            .background(WindowTitleUpdater(title: windowTitle))
+            .ignoresSafeArea(.container, edges: .top)
+    }
+}
+
+private struct MainWindowEventListeners: ViewModifier {
+    let sidePanelListeners: SidePanelNotificationListeners
+    let tabCloseObserver: TabCloseConfirmationObserver
+    let worktreeKeysSignature: [String]
+    let activeWorktreeSignature: String
+    let activeProjectID: UUID?
+    let hasPendingLayoutApply: Bool
+    let onOpenProjectPicker: () -> Void
+    let onOpenRemoteProjectPicker: (Notification) -> Void
+    let onOpenExtensionDirectory: (Notification) -> Void
+    let onTerminalOmnibox: (Notification) -> Void
+    let onToggleSidebar: () -> Void
+    let onToggleAppLayout: () -> Void
+    let onToggleExtensionConsole: () -> Void
+    let onFullScreenChange: (Bool) -> Void
+    let onWorktreeKeysChange: () -> Void
+    let onActiveWorktreeChange: () -> Void
+    let onActiveProjectChange: () -> Void
+    let onAppear: () -> Void
+    let onPendingLayoutApply: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .modifier(notificationListeners)
+            .modifier(stateChangeListeners)
+    }
+
+    private var notificationListeners: some ViewModifier {
+        MainWindowNotificationListeners(
+            onOpenProjectPicker: onOpenProjectPicker,
+            onOpenRemoteProjectPicker: onOpenRemoteProjectPicker,
+            onOpenExtensionDirectory: onOpenExtensionDirectory,
+            onTerminalOmnibox: onTerminalOmnibox,
+            onToggleSidebar: onToggleSidebar,
+            onToggleAppLayout: onToggleAppLayout,
+            onToggleExtensionConsole: onToggleExtensionConsole,
+            onFullScreenChange: onFullScreenChange,
+            sidePanelListeners: sidePanelListeners
+        )
+    }
+
+    private var stateChangeListeners: some ViewModifier {
+        MainWindowStateListeners(
+            tabCloseObserver: tabCloseObserver,
+            worktreeKeysSignature: worktreeKeysSignature,
+            activeWorktreeSignature: activeWorktreeSignature,
+            activeProjectID: activeProjectID,
+            hasPendingLayoutApply: hasPendingLayoutApply,
+            onWorktreeKeysChange: onWorktreeKeysChange,
+            onActiveWorktreeChange: onActiveWorktreeChange,
+            onActiveProjectChange: onActiveProjectChange,
+            onAppear: onAppear,
+            onPendingLayoutApply: onPendingLayoutApply
+        )
+    }
+}
+
+private struct MainWindowNotificationListeners: ViewModifier {
+    let onOpenProjectPicker: () -> Void
+    let onOpenRemoteProjectPicker: (Notification) -> Void
+    let onOpenExtensionDirectory: (Notification) -> Void
+    let onTerminalOmnibox: (Notification) -> Void
+    let onToggleSidebar: () -> Void
+    let onToggleAppLayout: () -> Void
+    let onToggleExtensionConsole: () -> Void
+    let onFullScreenChange: (Bool) -> Void
+    let sidePanelListeners: SidePanelNotificationListeners
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
+                onOpenProjectPicker()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openRemoteProjectPicker)) { notification in
+                onOpenRemoteProjectPicker(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openExtensionDirectoryAsProject)) { notification in
+                onOpenExtensionDirectory(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .terminalOmnibox)) { notification in
+                onTerminalOmnibox(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
+                onToggleSidebar()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleAppLayout)) { _ in
+                onToggleAppLayout()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleExtensionConsole)) { _ in
+                onToggleExtensionConsole()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
+                onFullScreenChange(notification.userInfo?["isFullScreen"] as? Bool ?? false)
+            }
+            .modifier(sidePanelListeners)
+    }
+}
+
+private struct MainWindowStateListeners: ViewModifier {
+    let tabCloseObserver: TabCloseConfirmationObserver
+    let worktreeKeysSignature: [String]
+    let activeWorktreeSignature: String
+    let activeProjectID: UUID?
+    let hasPendingLayoutApply: Bool
+    let onWorktreeKeysChange: () -> Void
+    let onActiveWorktreeChange: () -> Void
+    let onActiveProjectChange: () -> Void
+    let onAppear: () -> Void
+    let onPendingLayoutApply: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: worktreeKeysSignature) { onWorktreeKeysChange() }
+            .onChange(of: activeWorktreeSignature) { onActiveWorktreeChange() }
+            .onChange(of: activeProjectID) { onActiveProjectChange() }
+            .task { onAppear() }
+            .modifier(tabCloseObserver)
+            .onChange(of: hasPendingLayoutApply) { _, isPresented in
+                guard isPresented else { return }
+                onPendingLayoutApply()
+            }
+            .modifier(SentryConsentPrompter())
     }
 }
 

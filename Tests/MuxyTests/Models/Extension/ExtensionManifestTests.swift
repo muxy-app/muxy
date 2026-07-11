@@ -47,6 +47,63 @@ struct ExtensionManifestTests {
         #expect(manifest.permissions == [.panesRead, .tabsWrite, .notificationsWrite])
     }
 
+    @Test("decodes an openModal command action with inline fields")
+    func decodesOpenModalAction() throws {
+        let json = #"""
+        {
+            "name": "demo",
+            "version": "1.0.0",
+            "commands": [
+                {
+                    "id": "quick",
+                    "title": "Quick",
+                    "defaultShortcut": "cmd+ctrl+m",
+                    "action": {
+                        "kind": "openModal",
+                        "entry": "modal/index.html",
+                        "width": 460,
+                        "height": 300,
+                        "dismissOnOutsideClick": false,
+                        "data": { "hello": "world" }
+                    }
+                }
+            ]
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+        let command = try #require(manifest.commands.first)
+        guard case let .openModal(modal) = command.action else {
+            Issue.record("expected openModal action")
+            return
+        }
+        #expect(modal.entry == "modal/index.html")
+        #expect(modal.width == 460)
+        #expect(modal.height == 300)
+        #expect(modal.dismissOnOutsideClick == false)
+        #expect(modal.data == .object(["hello": .string("world")]))
+        #expect(command.action.requiredPermission == .panelsWrite)
+    }
+
+    @Test("openModal defaults dismissOnOutsideClick to true when omitted")
+    func openModalDefaultsDismiss() throws {
+        let json = #"""
+        {
+            "name": "demo",
+            "version": "1.0.0",
+            "commands": [
+                { "id": "q", "title": "Q", "action": { "kind": "openModal", "entry": "m.html" } }
+            ]
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+        guard case let .openModal(modal) = manifest.commands.first?.action else {
+            Issue.record("expected openModal action")
+            return
+        }
+        #expect(modal.dismissOnOutsideClick == true)
+        #expect(modal.width == nil)
+    }
+
     @Test("decodes file openers with defaults")
     func decodesFileOpeners() throws {
         let json = #"""

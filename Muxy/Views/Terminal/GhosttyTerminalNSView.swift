@@ -275,6 +275,14 @@ final class GhosttyTerminalNSView: NSView {
             NotificationCenter.default.removeObserver(observer)
             occlusionObserver = nil
         }
+        if let observer = keyWindowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            keyWindowObserver = nil
+        }
+        if let observer = keyWindowResignObserver {
+            NotificationCenter.default.removeObserver(observer)
+            keyWindowResignObserver = nil
+        }
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
         destroySurface()
@@ -284,6 +292,8 @@ final class GhosttyTerminalNSView: NSView {
     deinit {
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         occlusionObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        keyWindowObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        keyWindowResignObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         delayedResizeWorkItem?.cancel()
         agentDetectionCoalesced?.cancel()
         if let surface {
@@ -302,6 +312,8 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     nonisolated(unsafe) private var screenChangeObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var keyWindowObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var keyWindowResignObserver: NSObjectProtocol?
     nonisolated(unsafe) private var delayedResizeWorkItem: DispatchWorkItem?
 
     override func viewDidMoveToWindow() {
@@ -311,6 +323,10 @@ final class GhosttyTerminalNSView: NSView {
         screenChangeObserver = nil
         occlusionObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         occlusionObserver = nil
+        keyWindowObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        keyWindowObserver = nil
+        keyWindowResignObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        keyWindowResignObserver = nil
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
 
@@ -339,6 +355,26 @@ final class GhosttyTerminalNSView: NSView {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.updateWindowVisibility()
+            }
+        }
+
+        keyWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.syncSurfaceFocus()
+            }
+        }
+
+        keyWindowResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.syncSurfaceFocus()
             }
         }
 
@@ -589,7 +625,11 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func syncSurfaceFocus() {
-        setSurfaceFocused(!overlayActive && (window?.firstResponder === self || window?.firstResponder === inputContext))
+        setSurfaceFocused(Self.desiredSurfaceFocus(
+            overlayActive: overlayActive,
+            isKeyWindow: window?.isKeyWindow == true,
+            isFirstResponder: window?.firstResponder === self || window?.firstResponder === inputContext
+        ))
     }
 
     private func setSurfaceFocused(_ focused: Bool) {
@@ -607,6 +647,10 @@ final class GhosttyTerminalNSView: NSView {
 
     static func shouldApplySurfaceFocusChange(previous: Bool?, next: Bool) -> Bool {
         previous != next && (next || previous != nil)
+    }
+
+    static func desiredSurfaceFocus(overlayActive: Bool, isKeyWindow: Bool, isFirstResponder: Bool) -> Bool {
+        !overlayActive && isKeyWindow && isFirstResponder
     }
 
     override var acceptsFirstResponder: Bool { !overlayActive }

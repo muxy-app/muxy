@@ -14,6 +14,10 @@ struct SidebarActionButton: View {
                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(foreground)
                 .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
+                .background {
+                    RoundedRectangle(cornerRadius: UIMetrics.radiusSM, style: .continuous)
+                        .fill(background)
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -26,5 +30,10 @@ struct SidebarActionButton: View {
     private var foreground: Color {
         if isActive { return MuxyTheme.accent }
         return hovered ? MuxyTheme.fg : MuxyTheme.fgMuted
+    }
+
+    private var background: Color {
+        if isActive { return MuxyTheme.accentSoft }
+        return hovered ? MuxyTheme.hover : .clear
     }
 }

@@ -35,6 +35,8 @@ enum ExtensionEventName {
     static let panelClosed = "panel.closed"
     static let popoverOpened = "popover.opened"
     static let popoverClosed = "popover.closed"
+    static let modalOpened = "modal.opened"
+    static let modalClosed = "modal.closed"
     static let projectSwitched = "project.switched"
     static let projectsChanged = "projects.changed"
     static let worktreeSwitched = "worktree.switched"

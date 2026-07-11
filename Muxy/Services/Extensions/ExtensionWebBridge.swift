@@ -333,6 +333,22 @@ enum ExtensionWebBridge {
                         if (activeModalQueryID != null) payload.queryID = activeModalQueryID;
                         return await send('modal.finish', payload);
                     },
+                    async openWebview(opts) {
+                        const o = opts || {};
+                        const payload = { entry: String(o.entry == null ? '' : o.entry) };
+                        if (o.width != null) payload.width = Number(o.width);
+                        if (o.height != null) payload.height = Number(o.height);
+                        if (o.dismissOnOutsideClick != null) payload.dismissOnOutsideClick = !!o.dismissOnOutsideClick;
+                        if (o.data !== undefined) payload.data = o.data ?? null;
+                        const opened = await send('modal.openWebview', payload);
+                        const requestID = opened && opened.requestID;
+                        if (requestID == null) return null;
+                        return await send('modal.awaitWebview', { requestID });
+                    },
+                    submitWebview(result) {
+                        return send('modal.submitWebview', { requestID: muxy.tabInstanceID, result: result === undefined ? null : result });
+                    },
+                    closeWebview() { return send('modal.closeWebview', {}); },
                 },
                 topbar: {
                     set(opts) {

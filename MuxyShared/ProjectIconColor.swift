@@ -44,6 +44,12 @@ public enum ProjectIconColor {
         return palette.first { $0.hex.caseInsensitiveCompare(identifier) == .orderedSame }
     }
 
+    public static func randomSwatch(excluding usedIdentifiers: Set<String>) -> Swatch? {
+        let usedIDs = Set(usedIdentifiers.compactMap { swatch(for: $0)?.id })
+        let available = palette.filter { !usedIDs.contains($0.id) }
+        return (available.isEmpty ? palette : available).randomElement()
+    }
+
     public static func rgb(fromHex hex: String) -> (Double, Double, Double)? {
         var normalized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.hasPrefix("#") { normalized.removeFirst() }

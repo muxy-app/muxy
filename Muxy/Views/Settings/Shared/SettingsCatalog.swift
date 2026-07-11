@@ -349,6 +349,15 @@ enum SettingsCatalog {
             defaultValue: ThemeService.defaultThemeName
         ),
         SettingsCatalogItem(
+            key: AppBackgroundStyle.storageKey,
+            title: "Sidebar Vibrancy",
+            description: "Uses tinted native macOS vibrancy for the sidebar and its left title strip. Turn off for a solid background.",
+            category: .appearance,
+            section: "Sidebar",
+            defaultValue: AppBackgroundStyle.defaultValue.rawValue,
+            aliases: ["vibrancy", "material", "transparency", "background", "sidebar"]
+        ),
+        SettingsCatalogItem(
             key: SidebarCollapsedStyle.storageKey,
             title: "Collapsed Sidebar Style",
             description: "Controls the sidebar appearance when collapsed.",

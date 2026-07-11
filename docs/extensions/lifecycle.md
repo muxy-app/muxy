@@ -2,7 +2,7 @@
 
 [Events](events.md) tell you a surface *did* something. Lifecycle lets your surface **act before it closes** — most importantly, prevent the close. The canonical case: a file editor that refuses to close while the file is dirty and shows its own Save / Don't Save / Cancel dialog instead.
 
-`muxy.lifecycle` is available on tab, panel, and popover pages. There is no manifest field and no permission to declare: registering a handler is the opt-in.
+`muxy.lifecycle` is available on tab, panel, popover, and [webview modal](modal.md#webview-modal-openwebview) pages. There is no manifest field and no permission to declare: registering a handler is the opt-in.
 
 ## Intercepting a close
 
@@ -29,7 +29,7 @@ muxy.lifecycle.onBeforeClose(async () => {
 - The handler may be sync, return a Promise, or be `async` (so you can `await` your own dialog or a save).
 - `onBeforeClose` returns an unsubscribe function. Registering again replaces the handler — there is one per surface.
 
-The handler receives a small context: `{ surface: 'tab' | 'panel' | 'popover', instanceID }`.
+The handler receives a small context: `{ surface: 'tab' | 'panel' | 'popover' | 'modalWebview', instanceID }`.
 
 ## Closing yourself
 

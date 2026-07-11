@@ -137,6 +137,7 @@ final class ExtensionScriptRunner {
         ExtensionCommandExecutor.cancelExec(extensionID: extensionID)
         ExtensionModalService.shared.dismiss(extensionID: extensionID)
         ExtensionDialogService.cancel(extensionID: extensionID)
+        ExtensionWebviewModalService.shared.dismiss(extensionID: extensionID)
     }
 
     func evictAll() {

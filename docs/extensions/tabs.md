@@ -71,6 +71,8 @@ Only files inside the active project are routed; anything else falls back to the
 
 A tab fills its whole region with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
 
+Tab webviews use an opaque native backing that follows `--muxy-background`, which keeps large scrolling pages composited smoothly. Paint the `html` and `body` backgrounds with `--muxy-background`; transparent page backgrounds are supported only for [popovers](popovers.md).
+
 The bar's height tracks the user's interface scale (Settings → Interface), so don't hardcode it — Muxy injects it as the `--muxy-topbar-height` CSS variable, updated live when the scale or theme changes. Use it together with the theme variables so the bar matches the app exactly:
 
 ```css

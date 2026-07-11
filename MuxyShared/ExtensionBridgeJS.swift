@@ -6,8 +6,11 @@ public enum ExtensionBridgeJS {
         case background
     }
 
+    public static let webviewModalRequestIDPrefix = "webview"
+
     public static func script(extensionID: String, surface: Surface) -> String {
         let extLiteral = jsLiteral(extensionID)
+        let webviewPrefixLiteral = jsLiteral("\(webviewModalRequestIDPrefix):")
         return """
         (() => {
             const dispatch = (verb, args) => {
@@ -70,9 +73,19 @@ public enum ExtensionBridgeJS {
                 return error;
             };
             const modalResultHandlers = {};
+            const modalWebviewResultHandlers = {};
             const modalQueryHandlers = {};
             let activeModalQueryID = null;
+            const webviewModalPrefix = \(webviewPrefixLiteral);
             this.__muxiDeliverModalResult = (requestID, item) => {
+                if (String(requestID).indexOf(webviewModalPrefix) === 0) {
+                    const webviewHandler = modalWebviewResultHandlers[requestID];
+                    delete modalWebviewResultHandlers[requestID];
+                    if (typeof webviewHandler === 'function') {
+                        try { webviewHandler(item == null ? null : item); } catch (error) { console.error(error); }
+                    }
+                    return;
+                }
                 const handler = modalResultHandlers[requestID];
                 delete modalResultHandlers[requestID];
                 delete modalQueryHandlers[requestID];
@@ -233,6 +246,21 @@ public enum ExtensionBridgeJS {
                         if (activeModalQueryID != null) payload.queryID = activeModalQueryID;
                         return dispatch('modal.finish', payload);
                     },
+                    openWebview(opts) {
+                        const o = opts || {};
+                        const payload = { entry: String(o.entry == null ? '' : o.entry) };
+                        if (o.width != null) payload.width = Number(o.width);
+                        if (o.height != null) payload.height = Number(o.height);
+                        if (o.dismissOnOutsideClick != null) payload.dismissOnOutsideClick = !!o.dismissOnOutsideClick;
+                        if (o.data !== undefined) payload.data = o.data == null ? null : o.data;
+                        const opened = dispatch('modal.openWebview', payload);
+                        const requestID = opened && opened.requestID;
+                        return new Promise((resolve) => {
+                            if (requestID == null) { resolve(null); return; }
+                            modalWebviewResultHandlers[requestID] = resolve;
+                        });
+                    },
+                    closeWebview() { return dispatch('modal.closeWebview', {}); },
                 },
                 topbar: {
                     set(opts) {

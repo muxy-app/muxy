@@ -203,6 +203,7 @@ enum SettingsJSONStore {
             ProjectPickerPreferences.storageKey: Set(ProjectPickerMode.allCases.map(\.rawValue)),
             SentryConsent.storageKey: Set(["", SentryConsent.allowed.rawValue, SentryConsent.denied.rawValue]),
             "muxy.ui.scale": Set(UIScale.Preset.allCases.map(\.rawValue)),
+            AppBackgroundStyle.storageKey: Set(AppBackgroundStyle.allCases.map(\.rawValue)),
             SidebarCollapsedStyle.storageKey: Set(SidebarCollapsedStyle.allCases.map(\.rawValue)),
             SidebarExpandedStyle.storageKey: Set(SidebarExpandedStyle.allCases.map(\.rawValue)),
             RichInputPreferences.positionKey: Set(PanelPosition.allCases.map(\.rawValue)),

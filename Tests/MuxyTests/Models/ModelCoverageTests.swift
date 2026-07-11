@@ -28,6 +28,21 @@ struct ModelCoverageTests {
         #expect(!ProjectIconColor.Swatch(id: "bad", name: "Bad", hex: "bad").prefersDarkForeground)
     }
 
+    @Test("Random swatch avoids used identifiers and falls back to the full palette")
+    func randomSwatchAvoidsUsedIdentifiers() {
+        let allButBlue = Set(ProjectIconColor.palette.map(\.id)).subtracting(["blue"])
+        #expect(ProjectIconColor.randomSwatch(excluding: allButBlue)?.id == "blue")
+
+        let allByHex = Set(ProjectIconColor.palette.map(\.hex)).subtracting(["#3E63DD"])
+        #expect(ProjectIconColor.randomSwatch(excluding: allByHex)?.id == "blue")
+
+        let everyID = Set(ProjectIconColor.palette.map(\.id))
+        #expect(ProjectIconColor.randomSwatch(excluding: everyID) != nil)
+
+        let picked = ProjectIconColor.randomSwatch(excluding: ["unknown"])
+        #expect(picked != nil)
+    }
+
     @Test("UIMetrics exposes scaled values for every metric")
     func uiMetricsExposeScaledValues() {
         let scale = UIScale.shared
@@ -67,7 +82,7 @@ struct ModelCoverageTests {
         #expect(UIMetrics.controlSmall == 20)
         #expect(UIMetrics.controlMedium == 24)
         #expect(UIMetrics.controlLarge == 32)
-        #expect(UIMetrics.resizeHandleHitArea == 18)
+        #expect(UIMetrics.resizeHandleHitArea == 10)
         #expect(UIMetrics.radiusSM == 4)
         #expect(UIMetrics.radiusMD == 6)
         #expect(UIMetrics.radiusLG == 8)

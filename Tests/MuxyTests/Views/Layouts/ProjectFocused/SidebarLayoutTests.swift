@@ -139,6 +139,22 @@ struct MainWindowLayoutTests {
         ) == 127)
     }
 
+    @Test("title bar vibrancy stops at the sidebar edge")
+    func titleBarVibrancyStopsAtSidebarEdge() {
+        #expect(MainWindowLayout.titleBarSidebarBackgroundWidth(
+            leftNavigationWidth: 220,
+            titleBarNavigationOverlayWidth: 220
+        ) == 220)
+        #expect(MainWindowLayout.titleBarSidebarBackgroundWidth(
+            leftNavigationWidth: 44,
+            titleBarNavigationOverlayWidth: 127
+        ) == 44)
+        #expect(MainWindowLayout.titleBarSidebarBackgroundWidth(
+            leftNavigationWidth: 0,
+            titleBarNavigationOverlayWidth: 127
+        ) == 0)
+    }
+
     @Test("full screen suppresses title bar navigation overlay")
     func fullScreenSuppressesTitleBarOverlay() {
         #expect(MainWindowLayout.titleBarNavigationOverlayWidth(
