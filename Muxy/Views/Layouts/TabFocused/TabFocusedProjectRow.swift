@@ -276,15 +276,11 @@ struct TabFocusedProjectRow: View {
         HStack(spacing: 0) {
             if hovered {
                 actions
-                chevron
             } else if !isFocused {
                 if isWorktreeRow {
                     worktreeIndicator
                 } else if !isExpanded {
                     statusIndicator
-                }
-                if isExpanded {
-                    chevron
                 }
             }
             if isFocused {
@@ -332,19 +328,6 @@ struct TabFocusedProjectRow: View {
         )
         else { return }
         appState.selectProject(project, worktree: target)
-    }
-
-    private var chevron: some View {
-        Button(action: toggle) {
-            Image(systemName: "chevron.right")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(isExpanded ? "Collapse \(project.name)" : "Expand \(project.name)")
     }
 
     private var projectTitleColor: Color {

@@ -60,7 +60,7 @@ Tabs can be dragged within a pane to reorder, between panes to move, or onto a p
 
 ## Tab Focused layout
 
-Choose **Tab Focused** under **Settings → Interface** to move tab navigation into the left sidebar. The sidebar groups open tabs by project, keeps project switching on `⌃1…9`, and shows tab shortcuts for the first nine open tabs.
+Choose **Tab Focused** under **Settings → Interface** to move tab navigation into the left sidebar. The sidebar groups open tabs by project, keeps every project visible when it has no open tabs, preserves project switching on `⌃1…9`, and shows tab shortcuts for the first nine open tabs.
 
 ## Navigation history
 

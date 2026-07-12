@@ -27,6 +27,34 @@ struct AppLayoutTests {
             #expect(AppLayout(rawValue: layout.rawValue) == layout)
         }
     }
+
+    @Test("tab focused sidebar keeps every project visible outside focus mode")
+    func tabFocusedSidebarKeepsEveryProjectVisible() {
+        let first = Project(name: "First", path: "/tmp/first")
+        let second = Project(name: "Second", path: "/tmp/second")
+
+        let projects = TabFocusedSidebarProjectSelection.resolve(
+            projects: [first, second],
+            focusMode: false,
+            activeProjectID: first.id
+        )
+
+        #expect(projects == [first, second])
+    }
+
+    @Test("tab focused sidebar focus mode keeps only the active project")
+    func tabFocusedSidebarFocusModeKeepsActiveProject() {
+        let first = Project(name: "First", path: "/tmp/first")
+        let second = Project(name: "Second", path: "/tmp/second")
+
+        let projects = TabFocusedSidebarProjectSelection.resolve(
+            projects: [first, second],
+            focusMode: true,
+            activeProjectID: second.id
+        )
+
+        #expect(projects == [second])
+    }
 }
 
 @Suite("AppLayoutStore")

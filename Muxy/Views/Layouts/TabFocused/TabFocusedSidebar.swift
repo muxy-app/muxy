@@ -24,11 +24,11 @@ struct TabFocusedSidebar: View {
     private var projects: [Project] {
         let stored = projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
         let all = homeProject.map { [$0] + stored } ?? stored
-        guard expansionStore.focusMode,
-              let activeID = appState.activeProjectID,
-              let focused = all.first(where: { $0.id == activeID })
-        else { return all.filter { appState.hasAnyTabs(for: $0.id) } }
-        return [focused]
+        return TabFocusedSidebarProjectSelection.resolve(
+            projects: all,
+            focusMode: expansionStore.focusMode,
+            activeProjectID: appState.activeProjectID
+        )
     }
 
     private var rows: [TabFocusedSidebarRowItem] {
@@ -91,6 +91,16 @@ struct TabFocusedSidebar: View {
             worktreeStore: worktreeStore,
             projectGroupStore: projectGroupStore
         )
+    }
+}
+
+enum TabFocusedSidebarProjectSelection {
+    static func resolve(projects: [Project], focusMode: Bool, activeProjectID: UUID?) -> [Project] {
+        guard focusMode,
+              let activeProjectID,
+              let activeProject = projects.first(where: { $0.id == activeProjectID })
+        else { return projects }
+        return [activeProject]
     }
 }
 
