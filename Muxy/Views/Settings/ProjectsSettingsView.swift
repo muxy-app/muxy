@@ -105,7 +105,7 @@ struct ProjectsSettingsView: View {
 
     private var projectsFooter: String {
         if projectPickerMode == .custom {
-            return "Muxy Picker starts in this default location. Use App Default to reset it. "
+            return "Muxy Picker searches this location by folder name. Use App Default to search your home folder. "
                 + "Projects can stay in the sidebar after closing their last tab."
         }
         return "Muxy Picker can use Finder or Muxy's picker. Projects can stay in the sidebar after closing their last tab."

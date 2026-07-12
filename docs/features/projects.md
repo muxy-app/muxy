@@ -27,6 +27,12 @@ flowchart TB
 
 All entry points dedupe — opening the same path twice activates the existing project.
 
+### Finding a folder with Cmd+O
+
+The Muxy picker starts as a folder-name search. Type any part of a folder name, use the arrow keys to choose between matching paths, then press Return to add or open it. Results are searched recursively inside the **Folder search location** configured under **Settings -> Projects**.
+
+Hidden folders, packages, and generated dependency/build trees are not traversed by the name index. To browse any location directly, type a value containing `/`, such as `~/Projects/` or `/Volumes/Work/`. Path mode keeps folder autocomplete with Tab, parent navigation with Option-Delete, and typed-path confirmation with Cmd+Return. SSH workspaces continue to use path mode so Muxy does not recursively scan remote servers.
+
 ## Customising appearance
 
 Right‑click a project in the sidebar:

@@ -11,11 +11,11 @@ enum ProjectPickerDefaultLocationStatus: Equatable {
         case .ready:
             nil
         case .missing:
-            "Default location no longer exists. Choose another folder or use the app default."
+            "Search location no longer exists. Choose another folder or use the app default."
         case .notDirectory:
-            "Default location is not a folder. Choose another folder or use the app default."
+            "Search location is not a folder. Choose another folder or use the app default."
         case .unreadable:
-            "Default location can’t be read. Choose another folder, fix permissions, or use the app default."
+            "Search location can’t be read. Choose another folder, fix permissions, or use the app default."
         }
     }
 }

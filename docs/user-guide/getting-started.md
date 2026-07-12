@@ -28,7 +28,8 @@ A project is just a directory you've added to Muxy.
 
 1. Open the sidebar with `⌘B` (or **View → Toggle Sidebar**).
 2. Click **+** at the bottom of the sidebar — or **File → Open Project…** (`⌘O`).
-3. Right-click the project to rename, recolor, or change its icon.
+3. Type the folder name, choose the matching path, and press Return. You can also type a path such as `~/Projects/muxy`.
+4. Right-click the project to rename, recolor, or change its icon.
 
 Projects persist in `~/Library/Application Support/Muxy/projects.json`.
 

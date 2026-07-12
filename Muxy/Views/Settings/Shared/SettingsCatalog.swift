@@ -214,12 +214,12 @@ enum SettingsCatalog {
         ),
         SettingsCatalogItem(
             key: ProjectPickerDefaultLocation.storageKey,
-            title: "Project Picker Default Path",
-            description: "Sets the default folder for Muxy's project picker.",
+            title: "Project Picker Search Location",
+            description: "Sets where Muxy's project picker searches for folders.",
             category: .projects,
             section: "Projects",
             defaultValue: "",
-            aliases: ["folder", "path", "directory"]
+            aliases: ["folder", "path", "directory", "search root"]
         ),
         SettingsCatalogItem(
             key: ProjectLifecyclePreferences.keepOpenWhenNoTabsKey,

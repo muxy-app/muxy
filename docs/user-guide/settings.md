@@ -11,7 +11,7 @@ Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to f
 ## Projects
 
 - **Project Picker** — use Muxy's picker or the Finder picker.
-- **Project Picker Default Path** — default folder for Muxy's picker.
+- **Project Picker Search Location** — folder recursively searched by Muxy's picker.
 - **Keep Projects Open** — keeps projects in the sidebar after closing the last tab.
 - **Default Opener** — chooses the IDE or extension opener for files opened from native surfaces.
 - **Default Worktree Path** — parent folder for new worktrees.

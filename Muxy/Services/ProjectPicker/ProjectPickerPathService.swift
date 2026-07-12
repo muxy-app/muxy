@@ -248,6 +248,14 @@ struct ProjectPickerPathService {
         return displayPath.hasSuffix("/") ? displayPath : displayPath + "/"
     }
 
+    func directoryDisplayPath(_ path: String) -> String {
+        guard !isRemote else {
+            let standardizedPath = standardize(path)
+            return standardizedPath.hasSuffix("/") ? standardizedPath : standardizedPath + "/"
+        }
+        return abbreviatedDirectoryDisplayPath(path)
+    }
+
     static func standardizedPath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
     }

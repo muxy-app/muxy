@@ -2,6 +2,13 @@ import Foundation
 
 typealias ProjectPickerDirectoryLoader = @Sendable (ProjectPickerPathState) async -> ProjectPickerDirectorySnapshot
 typealias ProjectPickerDirectoryItemsLoader = @Sendable (String) async -> [ProjectPickerDirectoryItem]?
+typealias ProjectPickerFolderSearchPreparer = @Sendable (String) async -> Void
+typealias ProjectPickerFolderSearchLoader = @Sendable (
+    _ query: String,
+    _ rootPath: String,
+    _ existingProjectPaths: [String],
+    _ limit: Int
+) async -> ProjectPickerFolderSearchSnapshot
 
 @MainActor
 @Observable
@@ -10,21 +17,27 @@ final class ProjectPickerWorkflow {
 
     @ObservationIgnored private var directoryLoadID = UUID()
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    @ObservationIgnored private var folderSearchPreparationTask: Task<Void, Never>?
     @ObservationIgnored private var loadingMessageTask: Task<Void, Never>?
     @ObservationIgnored private let directoryLoader: ProjectPickerDirectoryLoader?
     @ObservationIgnored private let itemsLoader: ProjectPickerDirectoryItemsLoader
+    @ObservationIgnored private let folderSearchPreparer: ProjectPickerFolderSearchPreparer?
+    @ObservationIgnored private let folderSearchLoader: ProjectPickerFolderSearchLoader?
     @ObservationIgnored private let reloadDelay: Duration
     @ObservationIgnored private let loadingMessageDelay: Duration
     @ObservationIgnored private var didAppear = false
     @ObservationIgnored private var directoryCache: [String: [ProjectPickerDirectoryItem]] = [:]
     @ObservationIgnored private var directoryCacheOrder: [String] = []
     private static let directoryCacheLimit = 64
+    private static let folderSearchResultLimit = 50
 
     init(
         defaultDisplayPath: String = ProjectPickerDefaultLocation.state.displayPath,
         homeDirectory: String = NSHomeDirectory(),
         projectPaths: [String],
         directoryLoader: ProjectPickerDirectoryLoader? = nil,
+        folderSearchPreparer: ProjectPickerFolderSearchPreparer? = nil,
+        folderSearchLoader: ProjectPickerFolderSearchLoader? = nil,
         reloadDelay: Duration = .milliseconds(100),
         loadingMessageDelay: Duration = .milliseconds(500)
     ) {
@@ -36,6 +49,8 @@ final class ProjectPickerWorkflow {
         self.session = session
         self.directoryLoader = directoryLoader
         itemsLoader = Self.itemsLoader(for: session.pathService)
+        self.folderSearchPreparer = folderSearchPreparer ?? Self.liveFolderSearchPreparer
+        self.folderSearchLoader = folderSearchLoader ?? Self.liveFolderSearchLoader
         self.reloadDelay = reloadDelay
         self.loadingMessageDelay = loadingMessageDelay
     }
@@ -50,6 +65,8 @@ final class ProjectPickerWorkflow {
         self.session = session
         directoryLoader = nil
         itemsLoader = Self.itemsLoader(for: session.pathService)
+        folderSearchPreparer = context.isRemote ? nil : Self.liveFolderSearchPreparer
+        folderSearchLoader = context.isRemote ? nil : Self.liveFolderSearchLoader
         self.reloadDelay = reloadDelay
         self.loadingMessageDelay = loadingMessageDelay
     }
@@ -57,11 +74,22 @@ final class ProjectPickerWorkflow {
     func appear() {
         guard !didAppear else { return }
         didAppear = true
-        scheduleDirectoryReload(pathState: session.pathState)
+        guard session.allowsFolderSearch else {
+            scheduleReload()
+            return
+        }
+        session.applyFolderSearchSnapshot(ProjectPickerFolderSearchSnapshot(results: [], readFailed: false))
+        guard let folderSearchPreparer else { return }
+        let rootPath = session.searchRootPath
+        folderSearchPreparationTask = Task(priority: .utility) {
+            await folderSearchPreparer(rootPath)
+        }
     }
 
     func cancel() {
-        cancelDirectoryReload()
+        cancelReload()
+        folderSearchPreparationTask?.cancel()
+        folderSearchPreparationTask = nil
     }
 
     func setProjectPaths(_ projectPaths: [String]) {
@@ -70,7 +98,7 @@ final class ProjectPickerWorkflow {
 
     func setInput(_ input: String) -> [ProjectPickerWorkflowRequest] {
         session.setInput(input)
-        scheduleDirectoryReload(pathState: session.pathState)
+        scheduleReload()
         return []
     }
 
@@ -84,20 +112,28 @@ final class ProjectPickerWorkflow {
         }
     }
 
+    func activate(searchResult: ProjectPickerFolderSearchResult) -> [ProjectPickerWorkflowRequest] {
+        [.confirmProjectPath(path: searchResult.path, createIfMissing: false)]
+    }
+
     func handle(_ command: ProjectPickerCommand) -> [ProjectPickerWorkflowRequest] {
         switch command {
         case .moveHighlightUp,
              .moveHighlightDown:
             session.handle(command)
             return []
-        case .openHighlighted,
-             .goBack,
+        case .openHighlighted:
+            guard session.inputMode == .path else { return confirmHighlightedSearchResult() }
+            return reloadAfterInputChange {
+                session.handle(command)
+            }
+        case .goBack,
              .completeHighlighted:
             return reloadAfterInputChange {
                 session.handle(command)
             }
         case .confirmTypedPath:
-            return confirmTypedPath()
+            return confirmSelection()
         case .dismiss:
             return [.dismiss]
         }
@@ -124,7 +160,8 @@ final class ProjectPickerWorkflow {
         return [.showFailure(ProjectPickerConfirmationFailurePresentation(result: result, path: path))]
     }
 
-    private func confirmTypedPath() -> [ProjectPickerWorkflowRequest] {
+    private func confirmSelection() -> [ProjectPickerWorkflowRequest] {
+        guard session.inputMode == .path else { return confirmHighlightedSearchResult() }
         let path = session.standardizedTypedPath
         guard session.typedPathState != .missing else {
             return [.askCreateDirectory(path: path)]
@@ -132,30 +169,68 @@ final class ProjectPickerWorkflow {
         return [.confirmProjectPath(path: path, createIfMissing: false)]
     }
 
+    private func confirmHighlightedSearchResult() -> [ProjectPickerWorkflowRequest] {
+        guard let path = session.highlightedSearchResult?.path else { return [] }
+        return [.confirmProjectPath(path: path, createIfMissing: false)]
+    }
+
     private func reloadAfterInputChange(_ update: () -> Void) -> [ProjectPickerWorkflowRequest] {
         let previousInput = session.input
         update()
         guard session.input != previousInput else { return [] }
-        scheduleDirectoryReload(pathState: session.pathState)
+        scheduleReload()
         return []
     }
 
-    private func scheduleDirectoryReload(pathState: ProjectPickerPathState) {
-        cancelDirectoryReload()
+    private func scheduleReload() {
+        cancelReload()
         let loadID = UUID()
         directoryLoadID = loadID
 
+        guard session.inputMode == .path else {
+            scheduleFolderSearch(loadID: loadID)
+            return
+        }
+        scheduleDirectoryReload(pathState: session.pathState, loadID: loadID)
+    }
+
+    private func scheduleFolderSearch(loadID: UUID) {
+        let query = session.searchQuery
+        guard !query.isEmpty else {
+            applyFolderSearchSnapshot(
+                ProjectPickerFolderSearchSnapshot(results: [], readFailed: false),
+                loadID: loadID
+            )
+            return
+        }
+
+        scheduleLoadingMessage(loadID: loadID)
+        guard let folderSearchLoader else {
+            applyFolderSearchSnapshot(
+                ProjectPickerFolderSearchSnapshot(results: [], readFailed: true),
+                loadID: loadID
+            )
+            return
+        }
+        let rootPath = session.searchRootPath
+        let projectPaths = session.projectPaths
+        reloadTask = Task { [weak self, reloadDelay] in
+            try? await Task.sleep(for: reloadDelay)
+            guard !Task.isCancelled else { return }
+            let snapshot = await folderSearchLoader(query, rootPath, projectPaths, Self.folderSearchResultLimit)
+            guard !Task.isCancelled else { return }
+            self?.applyFolderSearchSnapshot(snapshot, loadID: loadID)
+        }
+    }
+
+    private func scheduleDirectoryReload(pathState: ProjectPickerPathState, loadID: UUID) {
         if let cached = directoryCache[pathState.directoryPath] {
             let snapshot = session.pathService.snapshot(for: pathState, items: cached)
             applyDirectorySnapshot(snapshot, loadID: loadID)
             return
         }
 
-        loadingMessageTask = Task { [weak self, loadingMessageDelay] in
-            try? await Task.sleep(for: loadingMessageDelay)
-            guard !Task.isCancelled else { return }
-            self?.showLoadingMessage(loadID: loadID)
-        }
+        scheduleLoadingMessage(loadID: loadID)
 
         if let directoryLoader {
             reloadTask = Task { [weak self, reloadDelay] in
@@ -174,6 +249,14 @@ final class ProjectPickerWorkflow {
             let items = await itemsLoader(pathState.directoryPath)
             guard !Task.isCancelled else { return }
             self?.applyItems(items, pathState: pathState, loadID: loadID)
+        }
+    }
+
+    private func scheduleLoadingMessage(loadID: UUID) {
+        loadingMessageTask = Task { [weak self, loadingMessageDelay] in
+            try? await Task.sleep(for: loadingMessageDelay)
+            guard !Task.isCancelled else { return }
+            self?.showLoadingMessage(loadID: loadID)
         }
     }
 
@@ -203,7 +286,7 @@ final class ProjectPickerWorkflow {
         }
     }
 
-    private func cancelDirectoryReload() {
+    private func cancelReload() {
         reloadTask?.cancel()
         loadingMessageTask?.cancel()
         reloadTask = nil
@@ -222,6 +305,13 @@ final class ProjectPickerWorkflow {
         session.applyDirectorySnapshot(snapshot)
     }
 
+    private func applyFolderSearchSnapshot(_ snapshot: ProjectPickerFolderSearchSnapshot, loadID: UUID) {
+        guard directoryLoadID == loadID else { return }
+        loadingMessageTask?.cancel()
+        loadingMessageTask = nil
+        session.applyFolderSearchSnapshot(snapshot)
+    }
+
     private static func itemsLoader(for pathService: ProjectPickerPathService) -> ProjectPickerDirectoryItemsLoader {
         { directoryPath in
             switch await pathService.directoryContents(atPath: directoryPath) {
@@ -229,6 +319,19 @@ final class ProjectPickerWorkflow {
             case .failure: nil
             }
         }
+    }
+
+    private static let liveFolderSearchPreparer: ProjectPickerFolderSearchPreparer = { rootPath in
+        await ProjectPickerFolderSearchService.shared.prepare(rootPath: rootPath)
+    }
+
+    private static let liveFolderSearchLoader: ProjectPickerFolderSearchLoader = { query, rootPath, projectPaths, limit in
+        await ProjectPickerFolderSearchService.shared.search(
+            query: query,
+            rootPath: rootPath,
+            existingProjectPaths: projectPaths,
+            limit: limit
+        )
     }
 }
 

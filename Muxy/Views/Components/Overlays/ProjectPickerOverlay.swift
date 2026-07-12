@@ -60,6 +60,12 @@ struct ProjectPickerOverlay: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
 
             ZStack(alignment: .leading) {
+                if workflow.session.input.isEmpty {
+                    Text("Search folders or enter a path…")
+                        .font(.system(size: UIMetrics.fontEmphasis, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fgDim)
+                        .allowsHitTesting(false)
+                }
                 ghostTextPreview
                 ProjectPickerPathField(
                     text: inputBinding,
@@ -93,6 +99,7 @@ struct ProjectPickerOverlay: View {
                 }
             )
             .buttonStyle(.plain)
+            .disabled(workflow.session.confirmationPath == nil)
 
             if !isRemote {
                 Rectangle()
@@ -109,10 +116,10 @@ struct ProjectPickerOverlay: View {
                         editDefaultLocation()
                     } label: {
                         if defaultLocationNeedsFix {
-                            Label("Fix Default Location", systemImage: "exclamationmark.triangle.fill")
+                            Label("Fix Search Location", systemImage: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
                         } else {
-                            Label("Edit Default Location", systemImage: "gearshape")
+                            Label("Edit Search Location", systemImage: "gearshape")
                         }
                     }
                 } label: {
@@ -151,6 +158,8 @@ struct ProjectPickerOverlay: View {
                 loadingProjectContent
             } else if workflow.session.showsUnavailableProjectState {
                 unavailableProjectContent
+            } else if workflow.session.inputMode == .folderSearch {
+                folderSearchRows
             } else {
                 directoryRows
             }
@@ -212,6 +221,37 @@ struct ProjectPickerOverlay: View {
         }
     }
 
+    private var folderSearchRows: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: true) {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(workflow.session.searchResults.enumerated()), id: \.element.path) { index, result in
+                        ProjectPickerFolderSearchRowView(
+                            result: result,
+                            isHighlighted: index == workflow.session.highlightedIndex
+                        )
+                        .onTapGesture {
+                            workflow.selectRow(at: index)
+                            execute(workflow.activate(searchResult: result))
+                        }
+                        .id(result.path)
+                    }
+                    if let searchResultsNotice {
+                        Text(searchResultsNotice)
+                            .font(.system(size: UIMetrics.fontFootnote))
+                            .foregroundStyle(MuxyTheme.fgDim)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, UIMetrics.spacing3)
+                    }
+                }
+            }
+            .onChange(of: workflow.session.highlightedIndex) { _, newIndex in
+                guard let newIndex, newIndex < workflow.session.searchResults.count else { return }
+                proxy.scrollTo(workflow.session.searchResults[newIndex].path, anchor: nil)
+            }
+        }
+    }
+
     private var unavailableProjectMessage: some View {
         VStack(spacing: UIMetrics.spacing4) {
             Text(unavailableProjectTitle)
@@ -228,7 +268,12 @@ struct ProjectPickerOverlay: View {
 
     private var footer: some View {
         HStack(spacing: UIMetrics.scaled(18)) {
-            ForEach(ProjectPickerFooterShortcut.ordered(actionTitle: workflow.session.topRightActionTitle), id: \.self) { shortcut in
+            ForEach(ProjectPickerFooterShortcut.ordered(
+                inputMode: workflow.session.inputMode,
+                actionTitle: workflow.session.inputMode == .folderSearch
+                    ? workflow.session.actionTitle
+                    : workflow.session.topRightActionTitle
+            ), id: \.self) { shortcut in
                 ProjectPickerShortcutHint(shortcut: shortcut)
             }
         }
@@ -295,11 +340,68 @@ struct ProjectPickerOverlay: View {
     }
 
     private var unavailableProjectTitle: String {
-        "No project folders found"
+        guard workflow.session.inputMode == .folderSearch else { return "No project folders found" }
+        if workflow.session.directoryLoadState.readFailed { return "Folder search unavailable" }
+        return workflow.session.searchQuery.isEmpty ? "Find a project folder" : "No matching folders"
     }
 
     private var unavailableProjectDescription: String {
-        "Use the action above to open or create this project, go up, or choose with Finder."
+        guard workflow.session.inputMode == .folderSearch else {
+            return "Use the action above to open or create this project, go up, or choose with Finder."
+        }
+        let root = workflow.session.pathService.abbreviatedDirectoryDisplayPath(workflow.session.searchRootPath)
+        if workflow.session.directoryLoadState.readFailed {
+            return "Check the folder search location, enter a path, or choose with Finder."
+        }
+        if workflow.session.searchQuery.isEmpty {
+            return "Type a folder name to search inside \(root), or enter a path."
+        }
+        if workflow.session.folderSearchIsTruncated {
+            return "The folder index reached its safety limit. Refine the search location or enter a path."
+        }
+        return "No folders in \(root) match “\(workflow.session.searchQuery)”. You can still enter a path."
+    }
+
+    private var searchResultsNotice: String? {
+        if workflow.session.folderSearchHasMoreResults {
+            return "More matches available — keep typing to narrow the results."
+        }
+        if workflow.session.folderSearchIsTruncated {
+            return "Folder index safety limit reached — some paths may require direct entry."
+        }
+        return nil
+    }
+}
+
+private struct ProjectPickerFolderSearchRowView: View {
+    let result: ProjectPickerFolderSearchResult
+    let isHighlighted: Bool
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(spacing: UIMetrics.spacing3) {
+            Image(systemName: "folder")
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.scaled(16), height: UIMetrics.scaled(16))
+
+            VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                Text(result.name)
+                    .font(.system(size: UIMetrics.fontBody, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.fg)
+                Text(result.displayPath)
+                    .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.fgDim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, UIMetrics.spacing5)
+        .padding(.vertical, UIMetrics.spacing3)
+        .background(isHighlighted ? MuxyTheme.surface : hovered ? MuxyTheme.hover : .clear)
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
     }
 }
 

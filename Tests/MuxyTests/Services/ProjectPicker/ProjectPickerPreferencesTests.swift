@@ -117,7 +117,7 @@ struct ProjectPickerPreferencesTests {
         let missingState = ProjectPickerDefaultLocation.state(defaults: defaults, pathService: pathService)
 
         #expect(missingState.status == .missing)
-        #expect(missingState.warning == "Default location no longer exists. Choose another folder or use the app default.")
+        #expect(missingState.warning == "Search location no longer exists. Choose another folder or use the app default.")
         #expect(missingState.chooserInitialPath == "/Users/alice")
     }
 
