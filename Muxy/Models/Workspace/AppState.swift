@@ -252,6 +252,16 @@ final class AppState {
         allAreas(for: projectID).contains { !$0.tabs.isEmpty }
     }
 
+    func hasAnyTabs(for projectID: UUID) -> Bool {
+        workspaceRoots.contains { key, root in
+            key.projectID == projectID && root.allAreas().contains { !$0.tabs.isEmpty }
+        }
+    }
+
+    func hasTabs(for key: WorktreeKey) -> Bool {
+        areas(for: key).contains { !$0.tabs.isEmpty }
+    }
+
     func locatePane(paneID: UUID) -> (worktreeKey: WorktreeKey, pane: TerminalPaneState)? {
         for (key, root) in workspaceRoots {
             for area in root.allAreas() {

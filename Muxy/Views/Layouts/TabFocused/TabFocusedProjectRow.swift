@@ -4,8 +4,8 @@ import SwiftUI
 
 struct TabFocusedProjectRow: View {
     let project: Project
+    var worktree: Worktree?
     let shortcutNumbers: [UUID: Int]
-    var projectShortcutIndex: Int?
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -14,7 +14,6 @@ struct TabFocusedProjectRow: View {
     @State private var expansionStore = TabFocusedSidebarState.shared
     @State private var notificationStore = NotificationStore.shared
     @State private var progressStore = TerminalProgressStore.shared
-    @State private var modifierMonitor = ModifierKeyMonitor.shared
 
     @State private var hovered = false
     @State private var isGitRepo = false
@@ -28,53 +27,65 @@ struct TabFocusedProjectRow: View {
     @State private var projectPendingRemoval = false
     @FocusState private var renameFieldFocused: Bool
 
+    private var isWorktreeRow: Bool { worktree != nil }
+
+    private var rowID: UUID { worktree?.id ?? project.id }
+
+    private var rowTitle: String {
+        worktree?.name ?? project.name
+    }
+
+    private var listWorktree: Worktree? {
+        worktree ?? worktreeStore.primary(for: project.id)
+    }
+
     private var isActive: Bool {
-        appState.activeProjectID == project.id
+        guard appState.activeProjectID == project.id else { return false }
+        guard let worktree else { return isActiveWorktreePrimary }
+        return appState.activeWorktreeID[project.id] == worktree.id
+    }
+
+    private var isActiveWorktreePrimary: Bool {
+        guard let activeID = appState.activeWorktreeID[project.id] else { return true }
+        return worktreeStore.primary(for: project.id)?.id == activeID
     }
 
     private var isExpanded: Bool {
-        expansionStore.isExpanded(project.id, default: false)
-    }
-
-    private var shortcutHint: KeyCombo? {
-        guard let projectShortcutIndex,
-              let action = ShortcutAction.projectAction(for: projectShortcutIndex)
-        else { return nil }
-        return modifierMonitor.hint(for: action)
+        expansionStore.isExpanded(rowID, default: false)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            if isExpanded {
-                TabFocusedTabsList(project: project, shortcutNumbers: shortcutNumbers)
+            if isExpanded, let listWorktree {
+                TabFocusedTabsList(project: project, worktree: listWorktree, shortcutNumbers: shortcutNumbers)
             }
         }
         .onAppear { applyDefaultExpansion() }
         .onChange(of: isActive) { _, active in
             guard active, !isExpanded else { return }
             withAnimation(.easeInOut(duration: 0.15)) {
-                expansionStore.set(project.id, expanded: true)
+                expansionStore.set(rowID, expanded: true)
             }
         }
         .task(id: project.path) { await checkGitRepo() }
     }
 
     private var header: some View {
-        HStack(spacing: UIMetrics.spacing3) {
-            icon
+        HStack(spacing: TabFocusedSidebarMetrics.iconTitleGap) {
+            rowIcon
             if isRenaming {
                 renameField
             } else {
-                Text(project.name)
-                    .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
+                Text(rowTitle)
+                    .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                     .foregroundStyle(projectTitleColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             Spacer(minLength: UIMetrics.spacing2)
             trailingControls
-            if project.isPinned {
+            if !isWorktreeRow, project.isPinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
@@ -83,18 +94,20 @@ struct TabFocusedProjectRow: View {
             }
         }
         .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
-        .frame(minHeight: TabFocusedSidebarMetrics.projectRowHeight)
+        .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
         .background {
             RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
                 .fill(headerBackground)
         }
         .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
-        .padding(.vertical, UIMetrics.spacing1)
+        .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
         .onTapGesture { toggle() }
         .contextMenu {
-            if project.isHome {
+            if let worktree {
+                worktreeContextMenu(worktree)
+            } else if project.isHome {
                 Button("Hide Home") { HomeProjectPreferences.isVisible = false }
             } else {
                 projectContextMenu
@@ -202,11 +215,43 @@ struct TabFocusedProjectRow: View {
             get: { project.worktreesEnabled },
             set: { enabled in
                 projectStore.setWorktreesEnabled(id: project.id, to: enabled)
-                if !enabled, isGroupedByWorktree {
-                    expansionStore.setGroupedByWorktree(project.id, grouped: false)
-                }
             }
         )
+    }
+
+    @ViewBuilder
+    private func worktreeContextMenu(_ worktree: Worktree) -> some View {
+        Button("New Terminal Tab") {
+            selectWorktreeIfNeeded(worktree)
+            appState.createTab(projectID: project.id)
+        }
+        Divider()
+        Button("Rename Worktree") { startRename() }
+        if worktree.canBeRemoved {
+            Divider()
+            Button("Remove Worktree", role: .destructive) {
+                Task { await requestRemoveWorktree(worktree) }
+            }
+        }
+    }
+
+    private func selectWorktreeIfNeeded(_ worktree: Worktree) {
+        guard appState.activeWorktreeID[project.id] != worktree.id else { return }
+        appState.selectProject(project, worktree: worktree)
+    }
+
+    private func requestRemoveWorktree(_ worktree: Worktree) async {
+        let context = projectGroupStore.workspaceContext(for: project)
+        worktreeStore.beginRemoval(worktree: worktree, repoPath: project.path, context: context) {
+            appState.removeWorktree(
+                projectID: project.id,
+                worktree: worktree,
+                replacement: worktreeStore.preferred(
+                    for: project.id,
+                    matching: appState.activeWorktreeID[project.id]
+                )
+            )
+        }
     }
 
     @ViewBuilder
@@ -227,25 +272,18 @@ struct TabFocusedProjectRow: View {
         }
     }
 
-    private var hasWorktreeUI: Bool {
-        guard project.worktreesEnabled, !project.isHome else { return false }
-        return isGitRepo || worktreeStore.list(for: project.id).count > 1
-    }
-
-    private var isGroupedByWorktree: Bool {
-        expansionStore.isGroupedByWorktree(project.id)
-    }
-
     private var trailingControls: some View {
         HStack(spacing: 0) {
             if hovered {
                 actions
                 chevron
-            } else {
-                if !isFocused {
+            } else if !isFocused {
+                if isWorktreeRow {
+                    worktreeIndicator
+                } else if !isExpanded {
                     statusIndicator
                 }
-                if !isFocused, isExpanded {
+                if isExpanded {
                     chevron
                 }
             }
@@ -257,25 +295,14 @@ struct TabFocusedProjectRow: View {
 
     @ViewBuilder
     private var actions: some View {
-        if !isGroupedByWorktree {
-            TabFocusedTabActions(project: project, worktree: nil)
-        }
-        if hasWorktreeUI {
-            SidebarActionButton(
-                symbol: "point.3.connected.trianglepath.dotted",
-                label: isGroupedByWorktree ? "Ungroup Worktree Tabs" : "Group Tabs by Worktree",
-                isActive: isGroupedByWorktree
-            ) {
-                expansionStore.setGroupedByWorktree(project.id, grouped: !isGroupedByWorktree)
-            }
-        }
-        if !project.isHome, !isFocused {
+        TabFocusedTabActions(project: project, worktree: worktree)
+        if !isWorktreeRow, !project.isHome, !isFocused {
             focusModeButton
         }
     }
 
     private var isFocused: Bool {
-        expansionStore.focusMode && isActive
+        !isWorktreeRow && expansionStore.focusMode && isActive
     }
 
     private var focusModeButton: some View {
@@ -324,82 +351,38 @@ struct TabFocusedProjectRow: View {
         hovered ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 
+    private var rowIcon: some View {
+        Image(systemName: isExpanded ? "folder.fill" : "folder")
+            .font(.system(size: UIMetrics.fontHeadline, weight: .regular))
+            .foregroundStyle(projectTitleColor)
+            .frame(width: TabFocusedSidebarMetrics.folderIconSize, height: TabFocusedSidebarMetrics.folderIconSize)
+            .accessibilityHidden(true)
+    }
+
+    private var worktreeIndicator: some View {
+        Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            .foregroundStyle(MuxyTheme.fgMuted)
+            .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
+            .help("Worktree")
+            .accessibilityLabel("Worktree")
+    }
+
     private var headerBackground: AnyShapeStyle {
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(Color.clear)
     }
 
-    private var displayLetter: String {
-        String(project.name.prefix(1)).uppercased()
-    }
-
-    @ViewBuilder
-    private var icon: some View {
-        if let projectShortcutIndex, let hint = shortcutHint {
-            ShortcutIconBadge(number: projectShortcutIndex, size: UIMetrics.iconXL, combo: hint)
-        } else {
-            projectIcon
-        }
-    }
-
-    private var projectIcon: some View {
-        let logo = resolvedLogo
-        return ZStack {
-            RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous)
-                .fill(iconBackground(hasLogo: logo != nil))
-            if project.isHome {
-                Image(systemName: Project.homeIcon)
-                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
-                    .foregroundStyle(MuxyTheme.accentForeground)
-            } else if let logo {
-                Image(nsImage: logo)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: UIMetrics.iconXL, height: UIMetrics.iconXL)
-                    .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous))
-            } else if let iconName = project.icon {
-                Image(systemName: iconName)
-                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
-                    .foregroundStyle(letterForeground)
-            } else {
-                Text(displayLetter)
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .bold))
-                    .foregroundStyle(letterForeground)
-            }
-        }
-        .frame(width: UIMetrics.iconXL, height: UIMetrics.iconXL)
-    }
-
-    private func iconBackground(hasLogo: Bool) -> AnyShapeStyle {
-        if project.isHome { return AnyShapeStyle(MuxyTheme.accent) }
-        if hasLogo { return AnyShapeStyle(Color.clear) }
-        if let tint = ProjectIconColor.color(for: project.iconColor) {
-            return AnyShapeStyle(tint)
-        }
-        return AnyShapeStyle(MuxyTheme.fg.opacity(0.18))
-    }
-
-    private var letterForeground: Color {
-        ProjectIconColor.foreground(for: project.iconColor) ?? MuxyTheme.fg
-    }
-
-    private var resolvedLogo: NSImage? {
-        guard let filename = project.logo,
-              let path = ProjectLogoStorage.safeLogoPath(for: filename)
-        else { return nil }
-        return NSImage(contentsOfFile: path)
-    }
-
     private func toggle() {
         withAnimation(.easeInOut(duration: 0.15)) {
-            expansionStore.set(project.id, expanded: !isExpanded)
+            expansionStore.set(rowID, expanded: !isExpanded)
         }
     }
 
     private func applyDefaultExpansion() {
-        let key = TabFocusedSidebarPreferences.projectExpandedKey(project.id)
+        let key = TabFocusedSidebarPreferences.projectExpandedKey(rowID)
         guard UserDefaults.standard.object(forKey: key) == nil, isActive, !isExpanded else { return }
-        expansionStore.set(project.id, expanded: true)
+        expansionStore.set(rowID, expanded: true)
     }
 
     private func checkGitRepo() async {
@@ -431,7 +414,7 @@ struct TabFocusedProjectRow: View {
     }
 
     private func startRename() {
-        renameText = project.name
+        renameText = rowTitle
         isRenaming = true
         renameFieldFocused = true
     }
@@ -439,7 +422,11 @@ struct TabFocusedProjectRow: View {
     private func commitRename() {
         let trimmed = renameText.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
-            projectStore.rename(id: project.id, to: trimmed)
+            if let worktree {
+                worktreeStore.rename(worktreeID: worktree.id, in: project.id, to: trimmed)
+            } else {
+                projectStore.rename(id: project.id, to: trimmed)
+            }
         }
         isRenaming = false
     }

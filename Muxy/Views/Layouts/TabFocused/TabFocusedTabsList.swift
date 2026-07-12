@@ -43,69 +43,39 @@ struct TabFocusedTabActions: View {
 
 struct TabFocusedTabsList: View {
     let project: Project
+    let worktree: Worktree
     let shortcutNumbers: [UUID: Int]
 
     @Environment(AppState.self) private var appState
-    @Environment(WorktreeStore.self) private var worktreeStore
-    @State private var expansionStore = TabFocusedSidebarState.shared
     @State private var dragState = TabFocusedDragState()
 
     private struct AreaTab: Identifiable {
         let area: TabArea
         let tab: TerminalTab
-        let worktree: Worktree?
+        let worktree: Worktree
         var id: UUID { tab.id }
     }
 
-    private var groupedByWorktree: Bool {
-        expansionStore.isGroupedByWorktree(project.id)
+    private var worktreeKey: WorktreeKey {
+        WorktreeKey(projectID: project.id, worktreeID: worktree.id)
     }
 
-    private func areaTabs(for worktree: Worktree) -> [AreaTab] {
-        let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
-        return appState.areas(for: key).flatMap { area in
+    private var areaTabs: [AreaTab] {
+        appState.areas(for: worktreeKey).flatMap { area in
             area.tabs.map { AreaTab(area: area, tab: $0, worktree: worktree) }
         }
     }
 
-    private var activeAreaTabs: [AreaTab] {
-        appState.allAreas(for: project.id).flatMap { area in
-            area.tabs.map { AreaTab(area: area, tab: $0, worktree: nil) }
-        }
-    }
-
     private var activeTabID: UUID? {
-        guard appState.activeProjectID == project.id else { return nil }
+        guard appState.activeProjectID == project.id,
+              appState.activeWorktreeID[project.id] == worktree.id
+        else { return nil }
         return appState.activeTab(for: project.id)?.id
-    }
-
-    private var showsNestingGuide: Bool {
-        if groupedByWorktree {
-            return worktreeStore.list(for: project.id).contains { !areaTabs(for: $0).isEmpty }
-        }
-        return !activeAreaTabs.isEmpty
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if groupedByWorktree {
-                ForEach(worktreeStore.list(for: project.id)) { worktree in
-                    worktreeGroup(worktree, numbers: shortcutNumbers)
-                }
-            } else {
-                tabRows(activeAreaTabs, numbers: shortcutNumbers, emptyOnNoTabs: true)
-            }
-        }
-        .padding(.bottom, UIMetrics.spacing2)
-        .overlay(alignment: .leading) {
-            if showsNestingGuide {
-                Rectangle()
-                    .fill(MuxyTheme.border)
-                    .frame(width: 1)
-                    .padding(.vertical, UIMetrics.spacing1)
-                    .offset(x: TabFocusedSidebarMetrics.tabGuideLeading)
-                    .accessibilityHidden(true)
-            }
+            tabRows(areaTabs, numbers: shortcutNumbers)
         }
         .coordinateSpace(name: TabFocusedDragCoordinateSpace.list)
         .onPreferenceChange(TabFocusedRowFramePreferenceKey.self) { frames in
@@ -115,45 +85,18 @@ struct TabFocusedTabsList: View {
     }
 
     @ViewBuilder
-    private func worktreeGroup(_ worktree: Worktree, numbers: [UUID: Int]) -> some View {
-        let tabs = areaTabs(for: worktree)
-        VStack(alignment: .leading, spacing: 0) {
-            WorktreeGroupHeader(project: project, worktree: worktree, title: worktreeName(worktree))
-            tabRows(tabs, numbers: numbers, emptyOnNoTabs: false)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func tabRows(_ tabs: [AreaTab], numbers: [UUID: Int], emptyOnNoTabs: Bool) -> some View {
+    private func tabRows(_ tabs: [AreaTab], numbers: [UUID: Int]) -> some View {
         if tabs.isEmpty {
-            if emptyOnNoTabs {
-                Text("No open tabs")
-                    .font(.system(size: UIMetrics.fontBody))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(minHeight: TabFocusedSidebarMetrics.tabRowHeight)
-                    .padding(
-                        .leading,
-                        TabFocusedSidebarMetrics.rowOuterInset
-                            + TabFocusedSidebarMetrics.tabRowIndent
-                            + TabFocusedSidebarMetrics.tabContentLeadingInset
-                    )
-                    .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.rowHorizontalInset)
-            } else {
-                Text("No tabs")
-                    .font(.system(size: UIMetrics.fontFootnote))
-                    .foregroundStyle(MuxyTheme.fgDim)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(minHeight: TabFocusedSidebarMetrics.tabRowHeight)
-                    .padding(
-                        .leading,
-                        TabFocusedSidebarMetrics.rowOuterInset
-                            + TabFocusedSidebarMetrics.tabRowIndent
-                            + TabFocusedSidebarMetrics.tabContentLeadingInset
-                    )
-                    .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.rowHorizontalInset)
-            }
+            Text("No open tabs")
+                .font(.system(size: UIMetrics.fontBody))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
+                .padding(
+                    .leading,
+                    TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.tabContentLeadingInset
+                )
+                .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.rowHorizontalInset)
         } else {
             ForEach(tabs) { item in
                 TabFocusedTabRow(
@@ -229,11 +172,6 @@ struct TabFocusedTabsList: View {
             dragState.lastReorderTargetID = nil
         }
     }
-
-    private func worktreeName(_ worktree: Worktree) -> String {
-        if worktree.isPrimary, worktree.name.isEmpty { return "main" }
-        return worktree.name
-    }
 }
 
 private struct TabFocusedDragState {
@@ -250,39 +188,6 @@ private struct TabFocusedRowFramePreferenceKey: PreferenceKey {
     static let defaultValue: [UUID: CGRect] = [:]
     static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
         value.merge(nextValue()) { _, new in new }
-    }
-}
-
-private struct WorktreeGroupHeader: View {
-    let project: Project
-    let worktree: Worktree
-    let title: String
-
-    @State private var hovered = false
-
-    var body: some View {
-        HStack(spacing: UIMetrics.spacing2) {
-            Text(title.uppercased())
-                .font(.system(size: UIMetrics.fontXS, weight: .semibold))
-                .tracking(0.5)
-                .foregroundStyle(MuxyTheme.fgDim)
-            Spacer(minLength: UIMetrics.spacing2)
-            HStack(spacing: 0) {
-                TabFocusedTabActions(project: project, worktree: worktree)
-            }
-            .opacity(hovered ? 1 : 0)
-        }
-        .padding(
-            .leading,
-            TabFocusedSidebarMetrics.rowOuterInset
-                + TabFocusedSidebarMetrics.tabRowIndent
-                + TabFocusedSidebarMetrics.tabContentLeadingInset
-        )
-        .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.rowHorizontalInset)
-        .padding(.top, UIMetrics.spacing3)
-        .padding(.bottom, UIMetrics.spacing1)
-        .contentShape(Rectangle())
-        .onHover { hovered = $0 }
     }
 }
 
@@ -393,27 +298,19 @@ private struct TabFocusedTabRow: View {
 
     private var closeButtonVisible: Bool {
         guard !tab.isPinned else { return false }
-        return active || hovered
+        return hovered
     }
 
     var body: some View {
         HStack(spacing: UIMetrics.spacing3) {
             leadingIcon
-                .frame(width: UIMetrics.scaled(16))
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
-                .overlay(alignment: .topTrailing) {
-                    if let dotColor = statusDotColor, shortcutHint == nil {
-                        Circle()
-                            .fill(dotColor)
-                            .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
-                            .offset(x: UIMetrics.scaled(3), y: -UIMetrics.scaled(3))
-                    }
-                }
 
             if isRenaming {
                 TextField("", text: $renameText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: UIMetrics.fontEmphasis))
+                    .font(.system(size: UIMetrics.fontHeadline))
                     .foregroundStyle(MuxyTheme.fg)
                     .focused($renameFieldFocused)
                     .onSubmit { commitRename() }
@@ -423,19 +320,19 @@ private struct TabFocusedTabRow: View {
                     }
             } else {
                 Text(tab.title)
-                    .font(.system(size: UIMetrics.fontEmphasis))
-                    .foregroundStyle(active || hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
+                    .font(.system(size: UIMetrics.fontHeadline))
+                    .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
 
-            Spacer(minLength: UIMetrics.spacing1)
+            Spacer(minLength: UIMetrics.spacing2)
 
             trailingAccessory
         }
         .padding(.leading, TabFocusedSidebarMetrics.tabContentLeadingInset)
         .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
-        .frame(minHeight: TabFocusedSidebarMetrics.tabRowHeight)
+        .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
         .background {
             RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
                 .fill(rowBackground)
@@ -456,9 +353,8 @@ private struct TabFocusedTabRow: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.leading, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.tabRowIndent)
-        .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset)
-        .padding(.vertical, UIMetrics.spacing1)
+        .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
+        .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
         .onTapGesture { select() }
@@ -534,43 +430,59 @@ private struct TabFocusedTabRow: View {
     }
 
     private var trailingAccessory: some View {
-        ZStack {
-            if tab.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-            } else if closeButtonVisible {
-                Image(systemName: "xmark")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
-                    .foregroundStyle(MuxyTheme.fgDim)
-                    .onTapGesture { close() }
-                    .accessibilityLabel("Close Tab")
-                    .accessibilityAddTraits(.isButton)
-            }
-        }
-        .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+        trailingContent
+            .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
     }
 
     @ViewBuilder
-    private var leadingIcon: some View {
-        if let shortcutNumber, let combo = shortcutHint {
+    private var trailingContent: some View {
+        if !tab.isPinned, closeButtonVisible {
+            Image(systemName: "xmark")
+                .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+                .contentShape(Rectangle())
+                .onTapGesture { close() }
+                .accessibilityLabel("Close Tab")
+                .accessibilityAddTraits(.isButton)
+        } else {
+            statusAccessory
+        }
+    }
+
+    @ViewBuilder
+    private var statusAccessory: some View {
+        if tab.isPinned {
+            Image(systemName: "pin.fill")
+                .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+        } else if let shortcutNumber, let combo = shortcutHint {
             ShortcutIconBadge(number: shortcutNumber, size: UIMetrics.iconMD, combo: combo)
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         } else if let progress = tabProgress {
             TerminalProgressCircle(progress: progress)
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                 .transition(.opacity)
+        } else if let dotColor = statusDotColor {
+            Circle()
+                .fill(dotColor)
+                .frame(width: UIMetrics.scaled(7), height: UIMetrics.scaled(7))
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         } else if isIdle, !active {
             Image(systemName: "moon.zzz")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 .help("Idle — terminal freed to save memory. Reopens when selected.")
         } else {
-            kindIcon
+            Color.clear
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         }
     }
 
     @ViewBuilder
-    private var kindIcon: some View {
+    private var leadingIcon: some View {
         switch tab.kind {
         case .terminal:
             if let agentIconName = DetectedAgentStore.shared.iconName(forPane: tab.content.pane?.id) {

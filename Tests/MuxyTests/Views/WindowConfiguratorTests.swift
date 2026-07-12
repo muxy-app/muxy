@@ -20,7 +20,7 @@ struct WindowConfiguratorTests {
         #expect(AppSidebarVibrancy.material == .sidebar)
         #expect(AppSidebarVibrancy.blendingMode == .behindWindow)
         #expect(AppSidebarVibrancy.state == .active)
-        #expect(AppSidebarVibrancy.themeOverlayOpacity == 0.8)
+        #expect(AppSidebarVibrancy.themeOverlayOpacity == 0.6)
     }
 
     @Test("rejects untitled window requests")

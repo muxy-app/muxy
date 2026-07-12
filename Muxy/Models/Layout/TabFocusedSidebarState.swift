@@ -40,18 +40,4 @@ final class TabFocusedSidebarState {
             defaults.set(focusMode, forKey: TabFocusedSidebarPreferences.focusModeKey)
         }
     }
-
-    private var groupByWorktree: [UUID: Bool] = [:]
-
-    func isGroupedByWorktree(_ projectID: UUID) -> Bool {
-        if let value = groupByWorktree[projectID] { return value }
-        let stored = defaults.bool(forKey: TabFocusedSidebarPreferences.groupByWorktreeKey(projectID))
-        groupByWorktree[projectID] = stored
-        return stored
-    }
-
-    func setGroupedByWorktree(_ projectID: UUID, grouped value: Bool) {
-        groupByWorktree[projectID] = value
-        defaults.set(value, forKey: TabFocusedSidebarPreferences.groupByWorktreeKey(projectID))
-    }
 }

@@ -27,8 +27,21 @@ struct TabFocusedSidebar: View {
         guard expansionStore.focusMode,
               let activeID = appState.activeProjectID,
               let focused = all.first(where: { $0.id == activeID })
-        else { return all }
+        else { return all.filter { appState.hasAnyTabs(for: $0.id) } }
         return [focused]
+    }
+
+    private var rows: [TabFocusedSidebarRowItem] {
+        projects.flatMap { project -> [TabFocusedSidebarRowItem] in
+            var items: [TabFocusedSidebarRowItem] = [.project(project)]
+            guard project.worktreesEnabled, !project.isHome else { return items }
+            for worktree in worktreeStore.list(for: project.id) where !worktree.isPrimary {
+                let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
+                guard appState.hasTabs(for: key) else { continue }
+                items.append(.worktree(project, worktree))
+            }
+            return items
+        }
     }
 
     private var shortcutNumbers: [UUID: Int] {
@@ -49,14 +62,12 @@ struct TabFocusedSidebar: View {
         let numbers = shortcutNumbers
         return VStack(spacing: 0) {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: UIMetrics.spacing2) {
-                    sectionHeader
-
-                    ForEach(Array(projects.enumerated()), id: \.element.id) { offset, project in
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(rows) { row in
                         TabFocusedProjectRow(
-                            project: project,
-                            shortcutNumbers: numbers,
-                            projectShortcutIndex: projectShortcutIndex(forRowAt: offset)
+                            project: row.project,
+                            worktree: row.worktree,
+                            shortcutNumbers: numbers
                         )
                     }
                     if !expansionStore.focusMode {
@@ -73,28 +84,6 @@ struct TabFocusedSidebar: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private var sectionHeader: some View {
-        HStack(spacing: UIMetrics.spacing2) {
-            Text(expansionStore.focusMode ? "Focused Project" : "Projects")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgDim)
-            Spacer(minLength: UIMetrics.spacing2)
-            if !expansionStore.focusMode {
-                Text(projects.count.formatted())
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fgDim)
-                    .monospacedDigit()
-            }
-        }
-        .padding(.horizontal, TabFocusedSidebarMetrics.sectionHorizontalInset)
-        .padding(.bottom, UIMetrics.spacing1)
-    }
-
-    private func projectShortcutIndex(forRowAt offset: Int) -> Int? {
-        let index = offset + 1
-        return index <= 9 ? index : nil
-    }
-
     private func openProjectPicker() {
         ProjectOpenService.openProjectViaPicker(
             appState: appState,
@@ -105,28 +94,53 @@ struct TabFocusedSidebar: View {
     }
 }
 
+enum TabFocusedSidebarRowItem: Identifiable {
+    case project(Project)
+    case worktree(Project, Worktree)
+
+    var id: UUID {
+        switch self {
+        case let .project(project): project.id
+        case let .worktree(_, worktree): worktree.id
+        }
+    }
+
+    var project: Project {
+        switch self {
+        case let .project(project): project
+        case let .worktree(project, _): project
+        }
+    }
+
+    var worktree: Worktree? {
+        switch self {
+        case .project: nil
+        case let .worktree(_, worktree): worktree
+        }
+    }
+}
+
 private struct TabFocusedAddProjectRow: View {
     let action: () -> Void
     @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: UIMetrics.spacing3) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous)
-                        .fill(MuxyTheme.surface)
-                    Image(systemName: "plus")
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .bold))
-                        .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
-                }
-                .frame(width: UIMetrics.iconXL, height: UIMetrics.iconXL)
+            HStack(spacing: TabFocusedSidebarMetrics.iconTitleGap) {
+                Image(systemName: "plus")
+                    .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                    .frame(
+                        width: TabFocusedSidebarMetrics.folderIconSize,
+                        height: TabFocusedSidebarMetrics.folderIconSize
+                    )
                 Text("Add Project")
-                    .font(.system(size: UIMetrics.fontEmphasis, weight: .medium))
+                    .font(.system(size: UIMetrics.fontHeadline, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
-            .frame(minHeight: TabFocusedSidebarMetrics.projectRowHeight)
+            .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
             .background {
                 RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
                     .fill(hovered ? MuxyTheme.hover : Color.clear)
@@ -134,6 +148,7 @@ private struct TabFocusedAddProjectRow: View {
             .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         }
         .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
+        .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .help(shortcutTooltip)

@@ -119,21 +119,6 @@ struct TabFocusedSidebarStateTests {
         #expect(reloaded.isExpandedPersisted(projectID))
     }
 
-    @Test("grouped by worktree defaults to false and persists when set")
-    func groupedByWorktreePersists() throws {
-        let (defaults, name) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: name) }
-        let state = TabFocusedSidebarState(defaults: defaults)
-        let projectID = UUID()
-
-        #expect(!state.isGroupedByWorktree(projectID))
-
-        state.setGroupedByWorktree(projectID, grouped: true)
-
-        #expect(state.isGroupedByWorktree(projectID))
-        #expect(TabFocusedSidebarState(defaults: defaults).isGroupedByWorktree(projectID))
-    }
-
     private func makeDefaults() throws -> (UserDefaults, String) {
         let suiteName = "TabFocusedSidebarStateTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
