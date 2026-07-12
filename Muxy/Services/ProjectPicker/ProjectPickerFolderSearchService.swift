@@ -58,6 +58,7 @@ struct ProjectPickerFolderSearchIndexEntry: Equatable {
     let name: String
     let path: String
     let foldedName: String
+    let foldedSearchPath: String
 }
 
 struct ProjectPickerFolderSearchIndex: Equatable {
@@ -153,7 +154,7 @@ struct FileManagerProjectPickerFolderSearchFileSystem: ProjectPickerFolderSearch
         entries.reserveCapacity(min(maximumDirectoryCount, 4096))
         var isTruncated = false
         var visitedEntryCount = 0
-        append(rootURL, to: &entries)
+        append(rootURL, rootURL: rootURL, to: &entries)
 
         for case let url as URL in enumerator {
             try Task.checkCancellation()
@@ -178,7 +179,7 @@ struct FileManagerProjectPickerFolderSearchFileSystem: ProjectPickerFolderSearch
             }
 
             let standardizedURL = url.standardizedFileURL
-            append(standardizedURL, name: values.name, to: &entries)
+            append(standardizedURL, rootURL: rootURL, name: values.name, to: &entries)
             if shouldSkipDescendants(of: standardizedURL, values: values, rootURL: rootURL) {
                 enumerator.skipDescendants()
             }
@@ -189,6 +190,7 @@ struct FileManagerProjectPickerFolderSearchFileSystem: ProjectPickerFolderSearch
 
     private func append(
         _ url: URL,
+        rootURL: URL,
         name suppliedName: String? = nil,
         to entries: inout [ProjectPickerFolderSearchIndexEntry]
     ) {
@@ -197,7 +199,8 @@ struct FileManagerProjectPickerFolderSearchFileSystem: ProjectPickerFolderSearch
         entries.append(ProjectPickerFolderSearchIndexEntry(
             name: name,
             path: path,
-            foldedName: ProjectPickerFolderSearchPath.fold(name)
+            foldedName: ProjectPickerFolderSearchPath.fold(name),
+            foldedSearchPath: ProjectPickerFolderSearchPath.foldedSearchPath(for: path, rootPath: rootURL.path)
         ))
     }
 
@@ -402,10 +405,9 @@ actor ProjectPickerFolderSearchService {
         index: ProjectPickerFolderSearchIndex,
         limit: Int
     ) -> ProjectPickerFolderSearchSnapshot {
-        let foldedQuery = ProjectPickerFolderSearchPath.fold(
-            query.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        guard !foldedQuery.isEmpty else { return emptySnapshot(isTruncated: index.isTruncated) }
+        guard let searchQuery = SearchQuery(rawValue: query) else {
+            return emptySnapshot(isTruncated: index.isTruncated)
+        }
         let effectiveLimit = min(max(0, limit), maximumResultLimit)
         guard effectiveLimit > 0 else { return emptySnapshot(isTruncated: index.isTruncated) }
 
@@ -416,7 +418,12 @@ actor ProjectPickerFolderSearchService {
         for path in existingPaths {
             guard candidates.count < maximumIndexedDirectoryCount else { break }
             let name = ProjectPickerFolderSearchPath.name(for: path)
-            guard let match = SearchMatch(foldedName: ProjectPickerFolderSearchPath.fold(name), query: foldedQuery) else {
+            guard let match = SearchMatch(
+                foldedName: ProjectPickerFolderSearchPath.fold(name),
+                foldedSearchPath: ProjectPickerFolderSearchPath.foldedSearchPath(for: path, rootPath: rootPath),
+                query: searchQuery
+            )
+            else {
                 continue
             }
             candidates[path] = SearchCandidate(
@@ -430,7 +437,12 @@ actor ProjectPickerFolderSearchService {
 
         for entry in index.entries {
             guard !Task.isCancelled else { return emptySnapshot(isTruncated: index.isTruncated) }
-            guard let match = SearchMatch(foldedName: entry.foldedName, query: foldedQuery) else { continue }
+            guard let match = SearchMatch(
+                foldedName: entry.foldedName,
+                foldedSearchPath: entry.foldedSearchPath,
+                query: searchQuery
+            )
+            else { continue }
             if let existing = candidates[entry.path] {
                 candidates[entry.path] = SearchCandidate(
                     name: entry.name,
@@ -534,25 +546,92 @@ private enum PreparationOutcome {
     case cancelled
 }
 
-private enum SearchMatch: Int, Comparable {
+private struct SearchQuery {
+    let terms: [SearchTerm]
+
+    init?(rawValue: String) {
+        let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "/"))
+        var seenTerms = Set<String>()
+        terms = rawValue.components(separatedBy: separators).compactMap { value in
+            let foldedValue = ProjectPickerFolderSearchPath.fold(value)
+            guard !foldedValue.isEmpty, seenTerms.insert(foldedValue).inserted else { return nil }
+            return SearchTerm(value: foldedValue)
+        }
+        guard !terms.isEmpty else { return nil }
+    }
+}
+
+private struct SearchTerm {
+    let value: String
+    let exactComponent: String
+    let componentPrefix: String
+
+    init(value: String) {
+        self.value = value
+        exactComponent = "/\(value)/"
+        componentPrefix = "/\(value)"
+    }
+}
+
+private enum SearchMatchKind: Int, Comparable {
     case exact
     case prefix
     case substring
+    case context
 
-    init?(foldedName: String, query: String) {
-        if foldedName == query {
+    init?(foldedName: String, term: String) {
+        if foldedName == term {
             self = .exact
-        } else if foldedName.hasPrefix(query) {
+        } else if foldedName.hasPrefix(term) {
             self = .prefix
-        } else if foldedName.contains(query) {
+        } else if foldedName.contains(term) {
             self = .substring
         } else {
             return nil
         }
     }
 
-    static func < (lhs: SearchMatch, rhs: SearchMatch) -> Bool {
+    static func < (lhs: SearchMatchKind, rhs: SearchMatchKind) -> Bool {
         lhs.rawValue < rhs.rawValue
+    }
+}
+
+private struct SearchMatch: Comparable {
+    let kind: SearchMatchKind
+    let pathScore: Int
+
+    init?(foldedName: String, foldedSearchPath: String, query: SearchQuery) {
+        if query.terms.count == 1 {
+            guard let term = query.terms.first,
+                  let kind = SearchMatchKind(foldedName: foldedName, term: term.value)
+            else { return nil }
+            self.kind = kind
+            pathScore = kind.rawValue
+            return
+        }
+
+        var pathScore = 0
+        for term in query.terms {
+            if foldedSearchPath.contains(term.exactComponent) {
+                continue
+            }
+            if foldedSearchPath.contains(term.componentPrefix) {
+                pathScore += SearchMatchKind.prefix.rawValue
+                continue
+            }
+            guard foldedSearchPath.contains(term.value) else { return nil }
+            pathScore += SearchMatchKind.substring.rawValue
+        }
+
+        kind = query.terms.compactMap {
+            SearchMatchKind(foldedName: foldedName, term: $0.value)
+        }.min() ?? .context
+        self.pathScore = pathScore
+    }
+
+    static func < (lhs: SearchMatch, rhs: SearchMatch) -> Bool {
+        if lhs.kind != rhs.kind { return lhs.kind < rhs.kind }
+        return lhs.pathScore < rhs.pathScore
     }
 }
 
@@ -609,6 +688,17 @@ private enum ProjectPickerFolderSearchPath {
         max(0, URL(fileURLWithPath: path).pathComponents.count - URL(fileURLWithPath: root).pathComponents.count)
     }
 
+    static func foldedSearchPath(for path: String, rootPath: String) -> String {
+        let relativePath: Substring = if path == rootPath {
+            Substring(name(for: path))
+        } else if rootPath == "/" {
+            path.dropFirst()
+        } else {
+            path.dropFirst(rootPath.count + 1)
+        }
+        return "/\(fold(relativePath.description))/"
+    }
+
     static func displayPath(_ path: String, homeDirectory: String) -> String {
         let displayPath: String = if path == homeDirectory {
             "~"
@@ -640,7 +730,8 @@ private enum ProjectPickerFolderSearchPath {
             entriesByPath[path] = ProjectPickerFolderSearchIndexEntry(
                 name: name,
                 path: path,
-                foldedName: fold(name)
+                foldedName: fold(name),
+                foldedSearchPath: foldedSearchPath(for: path, rootPath: rootPath)
             )
         }
         return ProjectPickerFolderSearchIndex(

@@ -86,6 +86,50 @@ struct ProjectPickerFolderSearchServiceTests {
         #expect(snapshot.hasMoreResults)
     }
 
+    @Test("matches unordered parent and folder terms separated by slashes or spaces")
+    func matchesPathTerms() async {
+        let root = "/Users/alice"
+        let target = "/Users/alice/Projects/capty/app"
+        let capty = "/Users/alice/Projects/capty"
+        let fileSystem = FolderSearchFileSystemStub(
+            rootStates: [root: .ready],
+            indexes: [root: ProjectPickerFolderSearchIndex(entries: [
+                entry(capty),
+                entry(target),
+                entry("/Users/alice/Projects/capty/apple"),
+                entry("/Users/alice/Projects/my-capty/application"),
+                entry("/Users/alice/Projects/other/app"),
+            ], isTruncated: false)]
+        )
+        let service = ProjectPickerFolderSearchService(
+            fileSystem: fileSystem,
+            watcherFactory: { _, _ in nil },
+            homeDirectory: root
+        )
+
+        for query in ["capty/app", "capty app", "app capty"] {
+            let snapshot = await service.search(
+                query: query,
+                rootPath: root,
+                existingProjectPaths: [],
+                limit: 100
+            )
+
+            #expect(snapshot.results.first?.path == target)
+            #expect(!snapshot.results.map(\.path).contains("/Users/alice/Projects/other/app"))
+        }
+
+        let singleTermSnapshot = await service.search(
+            query: "capty",
+            rootPath: root,
+            existingProjectPaths: [],
+            limit: 100
+        )
+
+        #expect(singleTermSnapshot.results.first?.path == capty)
+        #expect(!singleTermSnapshot.results.map(\.path).contains(target))
+    }
+
     @Test("reports invalid and unreadable roots without scanning")
     func reportsRootFailures() async {
         let fileSystem = FolderSearchFileSystemStub(rootStates: [
@@ -264,7 +308,12 @@ struct ProjectPickerFolderSearchServiceTests {
 
     private func entry(_ path: String) -> ProjectPickerFolderSearchIndexEntry {
         let name = URL(fileURLWithPath: path).lastPathComponent
-        return ProjectPickerFolderSearchIndexEntry(name: name, path: path, foldedName: name.lowercased())
+        return ProjectPickerFolderSearchIndexEntry(
+            name: name,
+            path: path,
+            foldedName: name.lowercased(),
+            foldedSearchPath: path.lowercased()
+        )
     }
 }
 

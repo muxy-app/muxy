@@ -7,7 +7,14 @@ enum ProjectPickerInputMode: Equatable {
     static func resolve(input: String, allowsFolderSearch: Bool) -> ProjectPickerInputMode {
         guard allowsFolderSearch else { return .path }
         let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.contains("/"), value != "~", value != ".", value != ".." else { return .path }
+        let isExplicitPath = value.hasPrefix("/")
+            || value == "~"
+            || value.hasPrefix("~/")
+            || value == "."
+            || value.hasPrefix("./")
+            || value == ".."
+            || value.hasPrefix("../")
+        guard !isExplicitPath else { return .path }
         return .folderSearch
     }
 }

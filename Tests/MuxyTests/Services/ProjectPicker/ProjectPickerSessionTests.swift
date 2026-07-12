@@ -112,10 +112,12 @@ struct ProjectPickerSessionTests {
         #expect(session.searchRootPath == "/Users/alice/Projects")
         #expect(session.inputMode == .folderSearch)
 
-        session.setInput("muxy")
-        #expect(session.inputMode == .folderSearch)
+        for input in ["muxy", "Projects/muxy", "Projects muxy", "muxy/"] {
+            session.setInput(input)
+            #expect(session.inputMode == .folderSearch)
+        }
 
-        for input in ["~/Projects", "/Users/alice/Projects", "Projects/muxy", "~", ".", ".."] {
+        for input in ["~/Projects", "/Users/alice/Projects", "./Projects", "../Projects", "~", ".", ".."] {
             session.setInput(input)
             #expect(session.inputMode == .path)
         }
