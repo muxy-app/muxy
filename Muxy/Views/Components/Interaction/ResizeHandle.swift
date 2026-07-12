@@ -24,48 +24,48 @@ struct ResizeHandle: View {
     private var active: Bool { hovering || dragging }
 
     var body: some View {
-        ZStack(alignment: handleAlignment) {
-            Rectangle()
-                .fill(active ? MuxyTheme.accent : MuxyTheme.border)
-                .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
-            Rectangle()
-                .fill(Color.black.opacity(0.001))
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                        .updating($dragging) { _, state, _ in state = true }
-                        .onChanged { value in
+        Rectangle()
+            .fill(active ? MuxyTheme.accent : MuxyTheme.border)
+            .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
+            .overlay(alignment: handleAlignment) {
+                Rectangle()
+                    .fill(Color.black.opacity(0.001))
+                    .frame(
+                        width: axis == .horizontal ? UIMetrics.resizeHandleHitArea : nil,
+                        height: axis == .vertical ? UIMetrics.resizeHandleHitArea : nil
+                    )
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .updating($dragging) { _, state, _ in state = true }
+                            .onChanged { value in
+                                activateCursor()
+                                onDrag(value)
+                            }
+                            .onEnded { _ in
+                                onEnd?()
+                                if !hovering {
+                                    releaseCursor()
+                                }
+                            }
+                    )
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active:
+                            hovering = true
                             activateCursor()
-                            onDrag(value)
-                        }
-                        .onEnded { _ in
-                            onEnd?()
-                            if !hovering {
+                        case .ended:
+                            hovering = false
+                            if !dragging {
                                 releaseCursor()
                             }
                         }
-                )
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active:
-                        hovering = true
-                        activateCursor()
-                    case .ended:
-                        hovering = false
-                        if !dragging {
-                            releaseCursor()
-                        }
                     }
-                }
-        }
-        .frame(
-            width: axis == .horizontal ? UIMetrics.resizeHandleHitArea : nil,
-            height: axis == .vertical ? UIMetrics.resizeHandleHitArea : nil
-        )
-        .zIndex(1)
-        .onDisappear {
-            releaseCursor()
-        }
+            }
+            .zIndex(1)
+            .onDisappear {
+                releaseCursor()
+            }
     }
 
     private var handleAlignment: Alignment {
@@ -148,13 +148,6 @@ struct PanelResizeHandle: View {
     }
 
     private var hitAreaBias: ResizeHandle.HitAreaBias {
-        switch edge {
-        case .leading,
-             .top:
-            .leading
-        case .trailing,
-             .bottom:
-            .trailing
-        }
+        .trailing
     }
 }
