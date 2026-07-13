@@ -22,6 +22,7 @@ struct RepositoryAITextGeneratorTests {
         #expect(launch.executable == "/usr/bin/env")
         #expect(launch.workingDirectory == "/tmp/muxy repository")
         #expect(launch.arguments == [
+            "MUXY_PANE_ID=",
             "MUXY_TEST=value with spaces",
             "PATH=\(LoginShellPath.current)",
             "claude",
@@ -50,6 +51,7 @@ struct RepositoryAITextGeneratorTests {
         #expect(launch.arguments.contains("example.com"))
         #expect(launch.arguments.last?.contains("codex") == true)
         #expect(launch.arguments.last?.contains("read-only") == true)
+        #expect(launch.arguments.last?.contains("export MUXY_PANE_ID=") == true)
     }
 
     @Test("provider failure detail favors stderr, strips controls, and caps displayed output")

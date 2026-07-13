@@ -133,6 +133,18 @@ struct MuxyNotificationHooksTests {
         }
     }
 
+    @Test("shell hooks ignore sessions without a pane identity")
+    func shellHooksIgnoreSessionsWithoutPaneIdentity() throws {
+        let payloads = try Self.runShellHook(.init(
+            scriptName: "muxy-codex-hook.sh",
+            event: "stop",
+            input: #"{"last_assistant_message":"Background metadata"}"#,
+            hasPaneIdentity: false
+        ))
+
+        #expect(payloads.isEmpty)
+    }
+
     @Test("Codex hook reports working waiting and finished phases")
     func codexHookReportsLifecycle() throws {
         let workingPrompt = try Self.runShellHook(.init(
@@ -309,6 +321,7 @@ struct MuxyNotificationHooksTests {
         let input: String
         var protocolVersion: String? = "2"
         var plutilPath: String?
+        var hasPaneIdentity = true
     }
 
     private static func runShellHook(_ sample: ShellHookSample) throws -> [String] {
@@ -331,7 +344,11 @@ struct MuxyNotificationHooksTests {
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = socketPath
-        environment["MUXY_PANE_ID"] = paneID
+        if sample.hasPaneIdentity {
+            environment["MUXY_PANE_ID"] = paneID
+        } else {
+            environment.removeValue(forKey: "MUXY_PANE_ID")
+        }
         if let protocolVersion = sample.protocolVersion {
             environment["MUXY_AGENT_EVENT_PROTOCOL"] = protocolVersion
         } else {

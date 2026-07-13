@@ -18,8 +18,7 @@ struct AIAgentLaunchProviderTests {
                     "--permission-mode",
                     "dontAsk",
                     "--no-session-persistence",
-                    "--tools",
-                    "",
+                    "--tools=",
                     prompt,
                 ]
             ),

@@ -17,8 +17,7 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
                 "--permission-mode",
                 "dontAsk",
                 "--no-session-persistence",
-                "--tools",
-                "",
+                "--tools=",
             ]
         )
     }

@@ -99,17 +99,18 @@ struct RepositoryAITextGenerator {
         workingDirectory: String,
         context: WorkspaceContext
     ) -> ResolvedLaunch {
+        var environment = invocation.environment
+        environment["MUXY_PANE_ID"] = ""
         guard !context.isRemote else {
             return CommandTransform.resolve(
                 executable: invocation.executable,
                 arguments: invocation.arguments,
                 workingDirectory: workingDirectory,
-                environment: invocation.environment,
+                environment: environment,
                 in: context
             )
         }
 
-        var environment = invocation.environment
         environment["PATH"] = LoginShellPath.current
         let assignments = environment.keys.sorted().map { "\($0)=\(environment[$0] ?? "")" }
         return ResolvedLaunch(

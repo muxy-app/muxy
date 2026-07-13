@@ -54,6 +54,8 @@ agent_event|<type>|<paneID>|<phase>|<title>|<body>
 
 `phase` is `working`, `waiting`, or `finished`. Title and body are optional; when both are empty, Muxy updates activity without posting a notification. Muxy applies the lifecycle update and optional notification together, then aggregates it from pane to worktree and project. Tabs and both sidebar layouts use the same precedence: working, waiting, unread, finished.
 
+Provider hooks emit lifecycle events only for interactive terminal sessions carrying a Muxy pane identity. Background provider processes that generate repository commit or pull request metadata clear that identity, so their global Claude Code, Codex, and other provider hooks do not create pane notifications.
+
 The public four-field notification format remains the supported format for custom tools. The lifecycle format is internal to Muxy's bundled provider adapters so provider-specific events can be normalized without expanding the extension API.
 
 ## Examples
