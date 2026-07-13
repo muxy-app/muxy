@@ -50,6 +50,35 @@ struct TabFocusedProjectRow: View {
         return worktreeStore.primary(for: project.id)?.id == activeID
     }
 
+    private var rowActivity: TerminalActivity? {
+        let agentStore = AgentStatusStore.shared
+        let hasProgress: Bool
+        let agentStatus: AgentStatus?
+        let unreadCount: Int
+        let completionPending: Bool
+
+        if let worktree {
+            hasProgress = progressStore.hasActiveProgress(forWorktree: worktree.id)
+            agentStatus = agentStore.status(forWorktree: worktree.id)
+            unreadCount = notificationStore.unreadCount(for: project.id, worktreeID: worktree.id)
+            completionPending = progressStore.hasCompletionPending(forWorktree: worktree.id)
+                || agentStore.hasCompletionPending(forWorktree: worktree.id)
+        } else {
+            hasProgress = progressStore.hasActiveProgress(for: project.id)
+            agentStatus = agentStore.status(forProject: project.id)
+            unreadCount = notificationStore.unreadCount(for: project.id)
+            completionPending = progressStore.hasCompletionPending(for: project.id)
+                || agentStore.hasCompletionPending(forProject: project.id)
+        }
+
+        return TerminalActivity.resolve(
+            progress: hasProgress ? TerminalProgress(kind: .indeterminate, percent: nil) : nil,
+            agentStatus: agentStatus,
+            unreadCount: unreadCount,
+            completionPending: completionPending
+        )
+    }
+
     private var isExpanded: Bool {
         expansionStore.isExpanded(rowID, default: false)
     }
@@ -256,18 +285,8 @@ struct TabFocusedProjectRow: View {
 
     @ViewBuilder
     private var statusIndicator: some View {
-        let unread = notificationStore.unreadCount(for: project.id)
-        if progressStore.hasActiveProgress(for: project.id) {
-            ProgressView()
-                .controlSize(.mini)
-                .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
-        } else if unread > 0 {
-            NotificationBadge(count: unread)
-                .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
-        } else if progressStore.hasCompletionPending(for: project.id) {
-            Circle()
-                .fill(MuxyTheme.accent)
-                .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
+        if let rowActivity {
+            TerminalActivityIndicator(activity: rowActivity)
                 .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
         }
     }
@@ -342,13 +361,19 @@ struct TabFocusedProjectRow: View {
             .accessibilityHidden(true)
     }
 
+    @ViewBuilder
     private var worktreeIndicator: some View {
-        Image(systemName: "arrow.triangle.branch")
-            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-            .foregroundStyle(MuxyTheme.fgMuted)
-            .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
-            .help("Worktree")
-            .accessibilityLabel("Worktree")
+        if let rowActivity {
+            TerminalActivityIndicator(activity: rowActivity)
+                .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
+        } else {
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
+                .help("Worktree")
+                .accessibilityLabel("Worktree")
+        }
     }
 
     private var headerBackground: AnyShapeStyle {

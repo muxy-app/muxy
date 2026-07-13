@@ -227,6 +227,7 @@ private struct TabFocusedTabRow: View {
     private var hasCompletionPending: Bool {
         guard let paneID = tab.content.pane?.id else { return false }
         return progressStore.isCompletionPending(for: paneID)
+            || AgentStatusStore.shared.isCompletionPending(forPane: paneID)
     }
 
     private var hasUnread: Bool {
@@ -526,6 +527,7 @@ private struct TabFocusedTabRow: View {
         }
         if active, let paneID = tab.content.pane?.id {
             progressStore.clearCompletion(for: paneID)
+            AgentStatusStore.shared.clearCompletion(for: paneID)
         }
         flashTask = Task { @MainActor in
             try await Task.sleep(for: .milliseconds(450))

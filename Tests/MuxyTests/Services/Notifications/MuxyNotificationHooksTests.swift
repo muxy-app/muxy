@@ -66,8 +66,8 @@ struct MuxyNotificationHooksTests {
         #expect(found == rootFile.path)
     }
 
-    @Test("shell hooks terminate socket notification payloads with newline")
-    func shellHooksTerminateNotificationPayloadsWithNewline() throws {
+    @Test("shell hooks delegate to one normalized lifecycle runtime")
+    func shellHooksUseSharedRuntime() throws {
         for scriptName in [
             "muxy-claude-hook.sh",
             "muxy-codex-hook.sh",
@@ -80,8 +80,15 @@ struct MuxyNotificationHooksTests {
                     .appendingPathComponent("Muxy/Resources/scripts/\(scriptName)"),
                 encoding: .utf8
             )
-            #expect(contents.contains("printf '%s|%s|%s|%s\\n'"))
+            #expect(contents.contains("muxy-agent-hook.sh"))
         }
+        let runtime = try String(
+            contentsOf: Self.repositoryRoot
+                .appendingPathComponent("Muxy/Resources/scripts/muxy-agent-hook.sh"),
+            encoding: .utf8
+        )
+        #expect(runtime.contains("printf 'agent_event|%s|%s|%s|%s|%s\\n'"))
+        #expect(runtime.contains("printf 'agent_status|%s|%s|%s\\n'"))
     }
 
     @Test("OpenCode plugin terminates socket notification payloads with newline")
@@ -91,8 +98,13 @@ struct MuxyNotificationHooksTests {
                 .appendingPathComponent("Muxy/Resources/scripts/opencode-muxy-plugin.js"),
             encoding: .utf8
         )
-        #expect(contents.contains("send(socketPath, `opencode|${paneID}|OpenCode|${sanitize(body)}`)"))
+        #expect(contents.contains("`agent_event|opencode|${paneID}|${phase}|"))
+        #expect(contents.contains("process.env.MUXY_AGENT_EVENT_PROTOCOL === \"2\""))
+        #expect(contents.contains("`agent_status|opencode|${paneID}|${status}\\nopencode|"))
         #expect(contents.contains("conn.write(`${payload}\\n`"))
+        #expect(contents.contains("sendQueue = sendQueue.then(transmit, transmit)"))
+        #expect(contents.contains("clearSettledSession(sessionID, version)"))
+        #expect(!contents.contains("client.session.messages"))
     }
 
     @Test("Pi extension terminates socket notification payloads with newline")
@@ -102,7 +114,9 @@ struct MuxyNotificationHooksTests {
                 .appendingPathComponent("Muxy/Resources/scripts/muxy-pi-extension.ts"),
             encoding: .utf8
         )
-        #expect(contents.contains("send(`pi|${paneID}|Pi|${body}`)"))
+        #expect(contents.contains("send(`agent_event|pi|${paneID}|${phase}|${title}|${body}`)"))
+        #expect(contents.contains("process.env.MUXY_AGENT_EVENT_PROTOCOL === \"2\""))
+        #expect(contents.contains("`agent_status|pi|${paneID}|${status}\\npi|"))
         #expect(contents.contains("conn.write(`${payload}\\n`"))
     }
 
@@ -110,16 +124,17 @@ struct MuxyNotificationHooksTests {
     func shellHooksSendNewlineTerminatedPayloadsToSocket() throws {
         for sample in Self.shellHookSamples {
             let payloads = try Self.runShellHook(sample)
-            #expect(!payloads.isEmpty)
+            #expect(payloads.count == 1)
             for payload in payloads {
                 #expect(payload.hasSuffix("\n"))
+                #expect(payload.hasPrefix("agent_event|"))
                 #expect(payload.contains("|\(Self.paneID)|"))
             }
         }
     }
 
-    @Test("Codex hook reports working and idle statuses")
-    func codexHookReportsStatuses() throws {
+    @Test("Codex hook reports working waiting and finished phases")
+    func codexHookReportsLifecycle() throws {
         let workingPrompt = try Self.runShellHook(.init(
             scriptName: "muxy-codex-hook.sh",
             event: "user-prompt-submit",
@@ -135,33 +150,56 @@ struct MuxyNotificationHooksTests {
             event: "permission-request",
             input: "{}"
         ))
-        let idle = try Self.runShellHook(.init(
+        let finished = try Self.runShellHook(.init(
             scriptName: "muxy-codex-hook.sh",
             event: "stop",
+            input: #"{"last_assistant_message":"Implemented | verified"}"#
+        ))
+
+        #expect(workingPrompt == ["agent_event|codex_hook|\(Self.paneID)|working||\n"])
+        #expect(workingTool == ["agent_event|codex_hook|\(Self.paneID)|working||\n"])
+        #expect(attention == ["agent_event|codex_hook|\(Self.paneID)|waiting|Codex|Needs attention\n"])
+        #expect(finished == ["agent_event|codex_hook|\(Self.paneID)|finished|Codex|Implemented   verified\n"])
+    }
+
+    @Test("Cursor reports work from prompt submission and finishes on session end")
+    func cursorReportsLifecycle() throws {
+        let working = try Self.runShellHook(.init(
+            scriptName: "muxy-cursor-hook.sh",
+            event: "beforeSubmitPrompt",
+            input: "{}"
+        ))
+        let finished = try Self.runShellHook(.init(
+            scriptName: "muxy-cursor-hook.sh",
+            event: "sessionEnd",
             input: "{}"
         ))
 
-        #expect(workingPrompt.contains("agent_status|codex_hook|\(Self.paneID)|working\n"))
-        #expect(workingTool.contains("agent_status|codex_hook|\(Self.paneID)|working\n"))
-        #expect(!attention.contains("agent_status|codex_hook|\(Self.paneID)|waiting\n"))
-        #expect(attention.contains("codex_hook|\(Self.paneID)|Codex|Needs attention\n"))
-        #expect(idle.contains("agent_status|codex_hook|\(Self.paneID)|idle\n"))
-        #expect(idle.contains("codex_hook|\(Self.paneID)|Codex|Session completed\n"))
+        #expect(working == ["agent_event|cursor_hook|\(Self.paneID)|working||\n"])
+        #expect(finished == ["agent_event|cursor_hook|\(Self.paneID)|finished||\n"])
     }
 
-    @Test("Codex hook drains non-stop input before socket writes")
-    func codexHookDrainsInputBeforeSocketWrites() throws {
-        let contents = try String(
-            contentsOf: Self.repositoryRoot
-                .appendingPathComponent("Muxy/Resources/scripts/muxy-codex-hook.sh"),
-            encoding: .utf8
-        )
-        let workingBranch = try Self.branchBody(in: contents, startingAt: "user-prompt-submit")
-        let permissionBranch = try Self.branchBody(in: contents, startingAt: "permission-request")
+    @Test("notification types map to stable lifecycle phases")
+    func notificationTypesMapToLifecycle() throws {
+        let permission = try Self.runShellHook(.init(
+            scriptName: "muxy-claude-hook.sh",
+            event: "notification",
+            input: #"{"notification_type":"permission_prompt","message":"Allow command?"}"#
+        ))
+        let completed = try Self.runShellHook(.init(
+            scriptName: "muxy-grok-hook.sh",
+            event: "notification",
+            input: #"{"notificationType":"task_complete","message":"Done"}"#
+        ))
+        let authentication = try Self.runShellHook(.init(
+            scriptName: "muxy-claude-hook.sh",
+            event: "notification",
+            input: #"{"notification_type":"auth_success"}"#
+        ))
 
-        #expect(try Self.offset(of: "cat >/dev/null", in: workingBranch) < Self.offset(of: "send_status", in: workingBranch))
-        #expect(try Self.offset(of: "cat >/dev/null", in: permissionBranch) < Self.offset(of: "send_notification", in: permissionBranch))
-        #expect(!permissionBranch.contains("send_status"))
+        #expect(permission == ["agent_event|claude_hook|\(Self.paneID)|waiting|Claude Code|Allow command?\n"])
+        #expect(completed == ["agent_event|grok_hook|\(Self.paneID)|finished|Grok|Done\n"])
+        #expect(authentication.isEmpty)
     }
 
     @Test("Codex session start hook event does not report working")
@@ -173,6 +211,28 @@ struct MuxyNotificationHooksTests {
         ))
 
         #expect(sessionStart.isEmpty)
+    }
+
+    @Test("shell hooks fall back to the legacy status wire for older Muxy terminals")
+    func shellHooksFallBackForOlderMuxyTerminals() throws {
+        let working = try Self.runShellHook(.init(
+            scriptName: "muxy-codex-hook.sh",
+            event: "user-prompt-submit",
+            input: "{}",
+            protocolVersion: nil
+        ))
+        let finished = try Self.runShellHook(.init(
+            scriptName: "muxy-codex-hook.sh",
+            event: "stop",
+            input: #"{"last_assistant_message":"Done"}"#,
+            protocolVersion: nil
+        ))
+
+        #expect(working == ["agent_status|codex_hook|\(Self.paneID)|working\n"])
+        #expect(finished == [
+            "agent_status|codex_hook|\(Self.paneID)|idle\ncodex_hook|\(Self.paneID)|Codex|Done\n",
+        ])
+        #expect(!working.joined().contains("working||"))
     }
 
     private func temporaryBundle() throws -> URL {
@@ -209,6 +269,7 @@ struct MuxyNotificationHooksTests {
         let scriptName: String
         let event: String
         let input: String
+        var protocolVersion: String? = "2"
     }
 
     private static func runShellHook(_ sample: ShellHookSample) throws -> [String] {
@@ -232,6 +293,11 @@ struct MuxyNotificationHooksTests {
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = socketPath
         environment["MUXY_PANE_ID"] = paneID
+        if let protocolVersion = sample.protocolVersion {
+            environment["MUXY_AGENT_EVENT_PROTOCOL"] = protocolVersion
+        } else {
+            environment.removeValue(forKey: "MUXY_AGENT_EVENT_PROTOCOL")
+        }
         process.environment = environment
         let stdin = Pipe()
         process.standardInput = stdin
@@ -312,17 +378,6 @@ struct MuxyNotificationHooksTests {
             data.append(buffer, count: count)
         }
         return data
-    }
-
-    private static func branchBody(in contents: String, startingAt marker: String) throws -> Substring {
-        let start = try #require(contents.range(of: marker)?.lowerBound)
-        let end = try #require(contents[start...].range(of: "\n        ;;")?.lowerBound)
-        return contents[start..<end]
-    }
-
-    private static func offset(of needle: String, in haystack: Substring) throws -> Int {
-        let range = try #require(haystack.range(of: needle))
-        return haystack.distance(from: haystack.startIndex, to: range.lowerBound)
     }
 
     private static func waitForProcess(_ process: Process) throws {

@@ -8,8 +8,16 @@ struct CursorProvider: AIProviderIntegration {
     let executableNames = ["cursor-agent", "cursor"]
     let hookScriptName = "muxy-cursor-hook"
 
-    private static let hooksPath = NSHomeDirectory() + "/.cursor/hooks.json"
     private static let muxyMarker = "muxy-notification-hook"
+    private let homeDirectory: String
+
+    init(homeDirectory: String = NSHomeDirectory()) {
+        self.homeDirectory = homeDirectory
+    }
+
+    private var hooksPath: String {
+        homeDirectory + "/.cursor/hooks.json"
+    }
 
     private struct EventBinding {
         let event: String
@@ -17,21 +25,35 @@ struct CursorProvider: AIProviderIntegration {
     }
 
     private static let bindings: [EventBinding] = [
-        EventBinding(event: "stop", argument: "Stop"),
-        EventBinding(event: "beforeShellExecution", argument: "PermissionRequest"),
-        EventBinding(event: "beforeMCPExecution", argument: "PermissionRequest"),
+        EventBinding(event: "beforeSubmitPrompt", argument: "beforeSubmitPrompt"),
+        EventBinding(event: "stop", argument: "stop"),
+        EventBinding(event: "sessionEnd", argument: "sessionEnd"),
     ]
+    private static let removableEvents = bindings.map(\.event) + ["beforeShellExecution", "beforeMCPExecution"]
 
     func isHookInstalled() -> Bool {
-        ClaudeCodeProvider.fileContainsMuxyMarker(at: Self.hooksPath)
+        ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath)
     }
 
     func install(hookScriptPath: String) throws {
-        var settings = try Self.readSettings()
+        var settings = try Self.readSettings(at: hooksPath)
         settings["version"] = settings["version"] ?? 1
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
 
         var changed = false
+        let installedEvents = Set(Self.bindings.map(\.event))
+        for event in Self.removableEvents where !installedEvents.contains(event) {
+            guard var entries = hooks[event] as? [[String: Any]] else { continue }
+            let initialCount = entries.count
+            entries.removeAll { Self.isMuxyHookEntry($0) }
+            guard entries.count != initialCount else { continue }
+            changed = true
+            if entries.isEmpty {
+                hooks.removeValue(forKey: event)
+            } else {
+                hooks[event] = entries
+            }
+        }
         for binding in Self.bindings {
             let command = Self.hookCommand(hookScript: hookScriptPath, argument: binding.argument)
             let existing = hooks[binding.event] as? [[String: Any]]
@@ -42,26 +64,27 @@ struct CursorProvider: AIProviderIntegration {
 
         guard changed else { return }
         settings["hooks"] = hooks
-        try Self.writeSettings(settings)
+        try Self.writeSettings(settings, at: hooksPath)
     }
 
     func uninstall() throws {
-        guard FileManager.default.fileExists(atPath: Self.hooksPath) else { return }
-        var settings = try Self.readSettings()
+        guard FileManager.default.fileExists(atPath: hooksPath) else { return }
+        guard isHookInstalled() else { return }
+        var settings = try Self.readSettings(at: hooksPath)
         guard var hooks = settings["hooks"] as? [String: Any] else { return }
 
-        for binding in Self.bindings {
-            guard var entries = hooks[binding.event] as? [[String: Any]] else { continue }
+        for event in Self.removableEvents {
+            guard var entries = hooks[event] as? [[String: Any]] else { continue }
             entries.removeAll { Self.isMuxyHookEntry($0) }
             if entries.isEmpty {
-                hooks.removeValue(forKey: binding.event)
+                hooks.removeValue(forKey: event)
             } else {
-                hooks[binding.event] = entries
+                hooks[event] = entries
             }
         }
 
         settings["hooks"] = hooks
-        try Self.writeSettings(settings)
+        try Self.writeSettings(settings, at: hooksPath)
     }
 
     private static func hookCommand(hookScript: String, argument: String) -> String {
@@ -87,20 +110,20 @@ struct CursorProvider: AIProviderIntegration {
         return command.contains(muxyMarker)
     }
 
-    private static func readSettings() throws -> [String: Any] {
-        guard FileManager.default.fileExists(atPath: hooksPath) else { return [:] }
-        let data = try Data(contentsOf: URL(fileURLWithPath: hooksPath))
+    private static func readSettings(at path: String) throws -> [String: Any] {
+        guard FileManager.default.fileExists(atPath: path) else { return [:] }
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
         return json
     }
 
-    private static func writeSettings(_ settings: [String: Any]) throws {
-        let dirPath = (hooksPath as NSString).deletingLastPathComponent
+    private static func writeSettings(_ settings: [String: Any], at path: String) throws {
+        let dirPath = (path as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
 
-        let fileURL = URL(fileURLWithPath: hooksPath)
-        if FileManager.default.fileExists(atPath: hooksPath) {
-            let backupPath = hooksPath + ".muxy-backup"
+        let fileURL = URL(fileURLWithPath: path)
+        if FileManager.default.fileExists(atPath: path) {
+            let backupPath = path + ".muxy-backup"
             let backupURL = URL(fileURLWithPath: backupPath)
             try? FileManager.default.removeItem(at: backupURL)
             try FileManager.default.copyItem(at: fileURL, to: backupURL)
@@ -110,7 +133,7 @@ struct CursorProvider: AIProviderIntegration {
         try data.write(to: fileURL, options: .atomic)
         try FileManager.default.setAttributes(
             [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: hooksPath
+            ofItemAtPath: path
         )
     }
 }

@@ -547,10 +547,10 @@ struct TerminalBridge: NSViewRepresentable {
 
     private func configureProgressCallback(_ view: GhosttyTerminalNSView) {
         let paneID = state.id
-        let projectID = worktreeKey?.projectID
+        let worktreeKey = worktreeKey
         view.onProgressReport = { progress in
             Task { @MainActor in
-                TerminalProgressStore.shared.setProgress(progress, for: paneID, projectID: projectID)
+                TerminalProgressStore.shared.setProgress(progress, for: paneID, worktreeKey: worktreeKey)
             }
         }
     }

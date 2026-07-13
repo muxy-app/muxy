@@ -10,7 +10,7 @@ final class TerminalProgressStore {
 
     private(set) var progresses: [UUID: TerminalProgress] = [:]
     private(set) var completionPending: Set<UUID> = []
-    private var paneToProject: [UUID: UUID] = [:]
+    private var paneToWorktree: [UUID: WorktreeKey] = [:]
     private var didBecomeActiveObserver: NSObjectProtocol?
 
     init() {
@@ -36,13 +36,14 @@ final class TerminalProgressStore {
     private func clearActivePaneCompletion() {
         guard let appState, let paneID = NotificationNavigator.activePaneID(appState: appState) else { return }
         clearCompletion(for: paneID)
+        AgentStatusStore.shared.clearCompletion(for: paneID)
     }
 
-    func setProgress(_ progress: TerminalProgress?, for paneID: UUID, projectID: UUID?) {
+    func setProgress(_ progress: TerminalProgress?, for paneID: UUID, worktreeKey: WorktreeKey?) {
         let existing = progresses[paneID]
 
-        if let projectID {
-            paneToProject[paneID] = projectID
+        if let worktreeKey {
+            paneToWorktree[paneID] = worktreeKey
         }
 
         if let progress {
@@ -62,7 +63,7 @@ final class TerminalProgressStore {
     func resetPane(_ paneID: UUID) {
         progresses.removeValue(forKey: paneID)
         completionPending.remove(paneID)
-        paneToProject.removeValue(forKey: paneID)
+        paneToWorktree.removeValue(forKey: paneID)
     }
 
     func progress(for paneID: UUID) -> TerminalProgress? {
@@ -74,10 +75,18 @@ final class TerminalProgressStore {
     }
 
     func hasCompletionPending(for projectID: UUID) -> Bool {
-        completionPending.contains { paneToProject[$0] == projectID }
+        completionPending.contains { paneToWorktree[$0]?.projectID == projectID }
+    }
+
+    func hasCompletionPending(forWorktree worktreeID: UUID) -> Bool {
+        completionPending.contains { paneToWorktree[$0]?.worktreeID == worktreeID }
     }
 
     func hasActiveProgress(for projectID: UUID) -> Bool {
-        progresses.keys.contains { paneToProject[$0] == projectID }
+        progresses.keys.contains { paneToWorktree[$0]?.projectID == projectID }
+    }
+
+    func hasActiveProgress(forWorktree worktreeID: UUID) -> Bool {
+        progresses.keys.contains { paneToWorktree[$0]?.worktreeID == worktreeID }
     }
 }

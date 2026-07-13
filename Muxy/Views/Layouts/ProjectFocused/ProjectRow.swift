@@ -35,6 +35,19 @@ struct ProjectRow: View {
         appState.activeProjectID == project.id
     }
 
+    private var projectActivity: TerminalActivity? {
+        let progressStore = TerminalProgressStore.shared
+        let agentStore = AgentStatusStore.shared
+        let hasProgress = progressStore.hasActiveProgress(for: project.id)
+        return TerminalActivity.resolve(
+            progress: hasProgress ? TerminalProgress(kind: .indeterminate, percent: nil) : nil,
+            agentStatus: agentStore.status(forProject: project.id),
+            unreadCount: NotificationStore.shared.unreadCount(for: project.id),
+            completionPending: progressStore.hasCompletionPending(for: project.id)
+                || agentStore.hasCompletionPending(forProject: project.id)
+        )
+    }
+
     private var worktrees: [Worktree] {
         worktreeStore.list(for: project.id)
     }
@@ -226,9 +239,6 @@ struct ProjectRow: View {
 
     private var projectIcon: some View {
         let logo = resolvedLogo
-        let unread = NotificationStore.shared.unreadCount(for: project.id)
-        let isRunning = TerminalProgressStore.shared.hasActiveProgress(for: project.id)
-        let hasCompletion = TerminalProgressStore.shared.hasCompletionPending(for: project.id)
         return ZStack {
             RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous)
                 .fill(iconBackground(hasLogo: logo != nil))
@@ -256,18 +266,12 @@ struct ProjectRow: View {
         .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
         .padding(UIMetrics.scaled(3))
         .overlay(alignment: .topTrailing) {
-            if unread > 0 {
-                NotificationBadge(count: unread)
-                    .offset(x: UIMetrics.spacing2, y: -UIMetrics.spacing2)
-            } else if isRunning {
-                ProgressView()
-                    .controlSize(.mini)
-                    .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
-            } else if hasCompletion {
-                Circle()
-                    .fill(MuxyTheme.accent)
-                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
-                    .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
+            if let projectActivity {
+                TerminalActivityIndicator(activity: projectActivity)
+                    .offset(
+                        x: projectActivity.isUnread ? UIMetrics.spacing2 : UIMetrics.spacing1,
+                        y: projectActivity.isUnread ? -UIMetrics.spacing2 : -UIMetrics.spacing1
+                    )
             }
         }
         .overlay {

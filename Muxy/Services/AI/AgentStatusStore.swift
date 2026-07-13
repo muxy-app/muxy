@@ -14,6 +14,20 @@ enum AgentStatus: String, Equatable, Codable {
     }
 }
 
+enum AgentLifecyclePhase: String, Equatable {
+    case working
+    case waiting
+    case finished
+
+    var status: AgentStatus {
+        switch self {
+        case .working: .working
+        case .waiting: .waiting
+        case .finished: .idle
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AgentStatusStore {
@@ -29,6 +43,7 @@ final class AgentStatusStore {
     }
 
     private(set) var entries: [UUID: Entry] = [:]
+    private(set) var completionPending: Set<UUID> = []
     private var panes: [UUID: Entry] = [:]
 
     private init() {}
@@ -46,6 +61,7 @@ final class AgentStatusStore {
               )
         else { return }
 
+        let existingStatus = panes[paneID]?.status
         panes[paneID] = Entry(
             worktreeID: context.worktreeID,
             projectID: context.projectID,
@@ -54,10 +70,12 @@ final class AgentStatusStore {
             status: status,
             updatedAt: Date()
         )
+        updateCompletion(paneID: paneID, from: existingStatus, to: status)
         recompute(worktreeID: context.worktreeID)
     }
 
     func removePane(_ paneID: UUID) {
+        completionPending.remove(paneID)
         guard let removed = panes.removeValue(forKey: paneID) else { return }
         recompute(worktreeID: removed.worktreeID)
     }
@@ -72,12 +90,42 @@ final class AgentStatusStore {
             status: .idle,
             updatedAt: Date()
         )
+        completionPending.insert(paneID)
         recompute(worktreeID: existing.worktreeID)
+    }
+
+    func clearCompletion(for paneID: UUID) {
+        completionPending.remove(paneID)
     }
 
     func status(forPane paneID: UUID?) -> AgentStatus? {
         guard let paneID else { return nil }
         return panes[paneID]?.status
+    }
+
+    func status(forWorktree worktreeID: UUID) -> AgentStatus? {
+        entries[worktreeID]?.status
+    }
+
+    func status(forProject projectID: UUID) -> AgentStatus? {
+        Self.winningEntry(among: panes.values.filter { $0.projectID == projectID })?.status
+    }
+
+    func isCompletionPending(forPane paneID: UUID) -> Bool {
+        completionPending.contains(paneID)
+    }
+
+    func hasCompletionPending(forWorktree worktreeID: UUID) -> Bool {
+        completionPending.contains { panes[$0]?.worktreeID == worktreeID }
+    }
+
+    func hasCompletionPending(forProject projectID: UUID) -> Bool {
+        completionPending.contains { panes[$0]?.projectID == projectID }
+    }
+
+    nonisolated static func marksCompletion(from previous: AgentStatus?, to current: AgentStatus) -> Bool {
+        guard current == .idle else { return false }
+        return previous == .working || previous == .waiting
     }
 
     nonisolated static func winningEntry(among candidates: [Entry]) -> Entry? {
@@ -86,6 +134,15 @@ final class AgentStatusStore {
                 ? lhs.status.priority < rhs.status.priority
                 : lhs.updatedAt < rhs.updatedAt
         }
+    }
+
+    private func updateCompletion(paneID: UUID, from previous: AgentStatus?, to current: AgentStatus) {
+        if Self.marksCompletion(from: previous, to: current) {
+            completionPending.insert(paneID)
+            return
+        }
+        guard current != .idle else { return }
+        completionPending.remove(paneID)
     }
 
     private func recompute(worktreeID: UUID) {

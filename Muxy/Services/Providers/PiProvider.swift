@@ -66,6 +66,10 @@ struct PiProvider: AIProviderIntegration {
         FileManager.default.fileExists(atPath: destinationPath)
     }
 
+    func hasManagedState() -> Bool {
+        isHookInstalled() || isRegisteredInSettings()
+    }
+
     func install(hookScriptPath: String) throws {
         guard let sourceURL = resourceURL(Self.bundleResourceName, Self.bundleResourceExtension) else {
             throw PiProviderError.bundleResourceNotFound
@@ -77,6 +81,7 @@ struct PiProvider: AIProviderIntegration {
            let existingData = try? Data(contentsOf: URL(fileURLWithPath: destinationPath)),
            existingData == sourceData
         {
+            try unregisterExtensionFromSettings()
             return
         }
 
@@ -92,50 +97,14 @@ struct PiProvider: AIProviderIntegration {
         }
 
         try sourceData.write(to: destURL, options: .atomic)
-
-        try registerExtensionInSettings()
-    }
-
-    func uninstall() throws {
-        guard FileManager.default.fileExists(atPath: destinationPath) else { return }
-        try FileManager.default.removeItem(atPath: destinationPath)
         try unregisterExtensionFromSettings()
     }
 
-    private func registerExtensionInSettings() throws {
-        let url = URL(fileURLWithPath: settingsPath)
-
-        var json: [String: Any]
-        if FileManager.default.fileExists(atPath: settingsPath) {
-            let data = try Data(contentsOf: url)
-            guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw PiProviderError.invalidSettingsFile(settingsPath)
-            }
-            json = parsed
-        } else {
-            json = [:]
+    func uninstall() throws {
+        if FileManager.default.fileExists(atPath: destinationPath) {
+            try FileManager.default.removeItem(atPath: destinationPath)
         }
-
-        var extensions = json["extensions"] as? [String] ?? []
-        let extensionPath = destinationPath
-
-        if !extensions.contains(extensionPath) {
-            extensions.append(extensionPath)
-            json["extensions"] = extensions
-            let updatedData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-
-            let backupPath = settingsPath + ".muxy-backup"
-            try? FileManager.default.removeItem(atPath: backupPath)
-            if FileManager.default.fileExists(atPath: settingsPath) {
-                try FileManager.default.copyItem(atPath: settingsPath, toPath: backupPath)
-            }
-
-            try updatedData.write(to: url, options: .atomic)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: FilePermissions.privateFile],
-                ofItemAtPath: settingsPath
-            )
-        }
+        try unregisterExtensionFromSettings()
     }
 
     private func unregisterExtensionFromSettings() throws {
@@ -145,12 +114,13 @@ struct PiProvider: AIProviderIntegration {
         }
         let url = URL(fileURLWithPath: settingsPath)
         let data = try Data(contentsOf: url)
-        guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             logger.warning("Cannot parse settings.json, skipping unregister")
             return
         }
 
         guard var extensions = json["extensions"] as? [String] else { return }
+        guard extensions.contains(destinationPath) else { return }
         extensions.removeAll { $0 == destinationPath }
 
         if extensions.isEmpty {
@@ -171,18 +141,23 @@ struct PiProvider: AIProviderIntegration {
             ofItemAtPath: settingsPath
         )
     }
+
+    private func isRegisteredInSettings() -> Bool {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: settingsPath)),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let extensions = json["extensions"] as? [String]
+        else { return false }
+        return extensions.contains(destinationPath)
+    }
 }
 
 enum PiProviderError: LocalizedError, Equatable {
     case bundleResourceNotFound
-    case invalidSettingsFile(String)
 
     var errorDescription: String? {
         switch self {
         case .bundleResourceNotFound:
             "Pi extension file (muxy-pi-extension.ts) not found in app bundle"
-        case let .invalidSettingsFile(path):
-            "Cannot parse Pi settings file: \(path)"
         }
     }
 }

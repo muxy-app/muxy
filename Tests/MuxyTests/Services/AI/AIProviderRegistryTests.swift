@@ -75,11 +75,27 @@ struct AIProviderRegistryTests {
         #expect(provider.toolCheckCount == 1)
     }
 
-    @Test("installAll uninstalls disabled providers without login shell PATH hydration")
-    func installAllUninstallsDisabledProvidersWithoutLoginShellPathHydration() async {
+    @Test("prepareForInstallation skips PATH hydration when dev hook installation is disabled")
+    func prepareForInstallationSkipsPathHydrationWithoutDevOptIn() async {
+        let gate = HydrationGate()
+        let registry = AIProviderRegistry(
+            providers: [],
+            hydrateLoginShellPath: { await gate.wait() },
+            shouldInstallHooksInDebug: { false }
+        )
+
+        registry.prepareForInstallation()
+        await Task.yield()
+
+        #expect(!gate.started)
+    }
+
+    @Test("installAll cleans disabled provider managed state without PATH hydration")
+    func installAllCleansDisabledProviderManagedStateWithoutPathHydration() async {
         let provider = RecordingProvider()
         defer { provider.resetSettings() }
         provider.isEnabled = false
+        provider.managedStateInstalled = true
         let gate = HydrationGate()
         let registry = AIProviderRegistry(
             providers: [provider],
@@ -90,7 +106,25 @@ struct AIProviderRegistryTests {
         await registry.installAll()
 
         #expect(provider.uninstallCount == 1)
+        #expect(provider.toolCheckCount == 0)
         #expect(!gate.started)
+    }
+
+    @Test("installAll does not touch disabled providers without managed state")
+    func installAllDoesNotTouchDisabledProvidersWithoutManagedState() async {
+        let provider = RecordingProvider()
+        defer { provider.resetSettings() }
+        provider.isEnabled = false
+        let registry = AIProviderRegistry(
+            providers: [provider],
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { false }
+        )
+
+        await registry.installAll()
+
+        #expect(provider.uninstallCount == 0)
+        #expect(provider.toolCheckCount == 0)
     }
 
     @Test("installAll refreshes only providers whose hook is already installed in dev")
@@ -105,17 +139,42 @@ struct AIProviderRegistryTests {
         installed.hookInstalled = true
         notInstalled.isEnabled = true
         notInstalled.hookInstalled = false
+        notInstalled.toolInstalled = true
+        let gate = HydrationGate()
 
         let registry = AIProviderRegistry(
             providers: [installed, notInstalled],
-            hydrateLoginShellPath: {},
-            shouldInstallHooksInDebug: { false }
+            hydrateLoginShellPath: { await gate.wait() },
+            shouldInstallHooksInDebug: { false },
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" }
         )
 
         await registry.installAll()
 
         #expect(installed.hookInstalledCheckCount >= 1)
+        #expect(installed.installAttempted)
         #expect(!notInstalled.installAttempted)
+        #expect(notInstalled.toolCheckCount == 0)
+        #expect(!gate.started)
+    }
+
+    @Test("installAll installs missing hooks in dev only with the explicit opt-in")
+    func installAllInstallsMissingHooksInDevWithExplicitOptIn() async {
+        let provider = RecordingProvider()
+        defer { provider.resetSettings() }
+        provider.isEnabled = true
+        provider.toolInstalled = true
+        let registry = AIProviderRegistry(
+            providers: [provider],
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { true },
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" }
+        )
+
+        await registry.installAll()
+
+        #expect(provider.toolCheckCount == 1)
+        #expect(provider.installCount == 1)
     }
 }
 
@@ -127,9 +186,14 @@ private final class RefreshRecordingProvider: AIProviderIntegration {
     let executableNames = ["refresh-recording"]
     var hookInstalled = false
     var hookInstalledCheckCount = 0
+    var toolInstalled = false
+    var toolCheckCount = 0
     var installAttempted = false
 
-    func isToolInstalled() -> Bool { false }
+    func isToolInstalled() -> Bool {
+        toolCheckCount += 1
+        return toolInstalled
+    }
 
     func isHookInstalled() -> Bool {
         hookInstalledCheckCount += 1
@@ -153,7 +217,11 @@ private final class RecordingProvider: AIProviderIntegration {
     let socketTypeKey = "registry_test"
     let iconName = "sparkles"
     let executableNames = ["registry-test"]
+    var hookInstalled = false
+    var managedStateInstalled = false
+    var toolInstalled = false
     var toolCheckCount = 0
+    var installCount = 0
     var uninstallCount = 0
 
     init(id: String = "registry-test-provider-\(UUID().uuidString)") {
@@ -162,10 +230,20 @@ private final class RecordingProvider: AIProviderIntegration {
 
     func isToolInstalled() -> Bool {
         toolCheckCount += 1
-        return false
+        return toolInstalled
     }
 
-    func install(hookScriptPath _: String) throws {}
+    func isHookInstalled() -> Bool {
+        hookInstalled
+    }
+
+    func hasManagedState() -> Bool {
+        managedStateInstalled || hookInstalled
+    }
+
+    func install(hookScriptPath _: String) throws {
+        installCount += 1
+    }
 
     func uninstall() throws {
         uninstallCount += 1

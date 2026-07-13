@@ -14,6 +14,7 @@ protocol AIProviderIntegration {
 
     func isToolInstalled() -> Bool
     func isHookInstalled() -> Bool
+    func hasManagedState() -> Bool
     func install(hookScriptPath: String) throws
     func uninstall() throws
 }
@@ -21,6 +22,10 @@ protocol AIProviderIntegration {
 extension AIProviderIntegration {
     func isHookInstalled() -> Bool {
         false
+    }
+
+    func hasManagedState() -> Bool {
+        isHookInstalled()
     }
 }
 
@@ -64,6 +69,7 @@ final class AIProviderRegistry {
     private let injectedProviders: [AIProviderIntegration]?
     private let hydrateLoginShellPath: @Sendable () async -> Void
     private let shouldInstallHooksInDebug: @Sendable () -> Bool
+    private let hookScriptPath: @Sendable (String, String) -> String?
     private var loginShellPathHydration: Task<Void, Never>?
 
     lazy var providers: [AIProviderIntegration] = injectedProviders ?? [
@@ -81,73 +87,83 @@ final class AIProviderRegistry {
         hydrateLoginShellPath: @escaping @Sendable () async -> Void = { await LoginShellPath.hydrate() },
         shouldInstallHooksInDebug: @escaping @Sendable () -> Bool = {
             ProcessInfo.processInfo.environment["FF_AI_HOOKS"] != nil
+        },
+        hookScriptPath: @escaping @Sendable (String, String) -> String? = {
+            MuxyNotificationHooks.scriptPath(named: $0, extension: $1)
         }
     ) {
         injectedProviders = providers
         self.hydrateLoginShellPath = hydrateLoginShellPath
         self.shouldInstallHooksInDebug = shouldInstallHooksInDebug
+        self.hookScriptPath = hookScriptPath
     }
 
     func prepareForInstallation() {
+        #if DEBUG
+        guard shouldInstallHooksInDebug() else { return }
+        #endif
         _ = loginShellPathHydrationTask()
     }
 
     func installAll() async {
         #if DEBUG
-        guard shouldInstallHooksInDebug() else {
-            logger.info("Skipping AI hooks install in dev mode (set FF_AI_HOOKS=true to enable)")
-            await refreshInstalledHooks()
-            return
+        let installMissingHooks = shouldInstallHooksInDebug()
+        if !installMissingHooks {
+            logger.info("Reconciling installed AI hooks in dev mode (set FF_AI_HOOKS=true to install missing hooks)")
         }
+        #else
+        let installMissingHooks = true
         #endif
 
         for provider in providers {
             guard provider.isEnabled else {
-                logger.info("\(provider.displayName) is disabled, uninstalling hook if present")
-                do {
-                    try provider.uninstall()
-                } catch {
-                    logger.warning("Failed to uninstall \(provider.displayName): \(error.localizedDescription)")
-                }
+                removeInstalledHook(for: provider)
                 continue
             }
+
+            if provider.isHookInstalled() {
+                installHook(for: provider, action: "Refreshed")
+                continue
+            }
+
+            guard installMissingHooks else { continue }
             await loginShellPathHydrationTask().value
 
             guard provider.isToolInstalled() else {
                 logger.info("\(provider.displayName) tool not installed, skipping hook install")
                 continue
             }
-            guard let hookScript = MuxyNotificationHooks
-                .scriptPath(named: provider.hookScriptName, extension: provider.hookScriptExtension)
-            else {
-                logger.warning("Hook script \(provider.hookScriptName) not found in bundle, skipping \(provider.displayName)")
-                continue
-            }
-            do {
-                try provider.install(hookScriptPath: hookScript)
-                logger.info("Installed \(provider.displayName) integration")
-            } catch {
-                logger.error("Failed to install \(provider.displayName): \(error.localizedDescription)")
-            }
+
+            installHook(for: provider, action: "Installed")
         }
     }
 
-    private func refreshInstalledHooks() async {
-        for provider in providers where provider.isEnabled && provider.isHookInstalled() {
-            guard let hookScript = MuxyNotificationHooks
-                .scriptPath(named: provider.hookScriptName, extension: provider.hookScriptExtension)
-            else { continue }
-            do {
-                try provider.install(hookScriptPath: hookScript)
-                logger.info("Refreshed \(provider.displayName) hook to the bundled version")
-            } catch {
-                logger.warning("Failed to refresh \(provider.displayName) hook: \(error.localizedDescription)")
-            }
+    private func removeInstalledHook(for provider: AIProviderIntegration) {
+        guard provider.hasManagedState() else { return }
+        logger.info("\(provider.displayName) is disabled, removing managed hook state")
+        do {
+            try provider.uninstall()
+        } catch {
+            logger.warning("Failed to uninstall \(provider.displayName): \(error.localizedDescription)")
+        }
+    }
+
+    private func installHook(for provider: AIProviderIntegration, action: String) {
+        guard let hookScript = hookScriptPath(provider.hookScriptName, provider.hookScriptExtension)
+        else {
+            logger.warning("Hook script \(provider.hookScriptName) not found in bundle, skipping \(provider.displayName)")
+            return
+        }
+        do {
+            try provider.install(hookScriptPath: hookScript)
+            logger.info("\(action) \(provider.displayName) integration")
+        } catch {
+            logger.error("Failed to reconcile \(provider.displayName): \(error.localizedDescription)")
         }
     }
 
     func forceInstall(_ provider: AIProviderIntegration) async {
-        guard let hookScript = MuxyNotificationHooks.scriptPath(named: provider.hookScriptName, extension: provider.hookScriptExtension)
+        guard let hookScript = hookScriptPath(provider.hookScriptName, provider.hookScriptExtension)
         else {
             logger.warning("Hook script \(provider.hookScriptName) not found, cannot force-install \(provider.displayName)")
             return

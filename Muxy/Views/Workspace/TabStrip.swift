@@ -403,6 +403,7 @@ private struct TabCell: View {
     private var hasCompletionPending: Bool {
         guard let paneID = tab.paneID else { return false }
         return progressStore.isCompletionPending(for: paneID)
+            || AgentStatusStore.shared.isCompletionPending(forPane: paneID)
     }
 
     private var statusDotColor: Color? {
@@ -612,6 +613,7 @@ private struct TabCell: View {
         }
         if active, let paneID = tab.paneID {
             progressStore.clearCompletion(for: paneID)
+            AgentStatusStore.shared.clearCompletion(for: paneID)
         }
         flashTask = Task { @MainActor in
             try await Task.sleep(for: .milliseconds(450))

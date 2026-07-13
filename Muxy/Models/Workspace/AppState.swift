@@ -726,6 +726,7 @@ final class AppState {
 
         if let activePaneID = NotificationNavigator.activePaneID(appState: self) {
             TerminalProgressStore.shared.clearCompletion(for: activePaneID)
+            AgentStatusStore.shared.clearCompletion(for: activePaneID)
         }
     }
 

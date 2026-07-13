@@ -69,6 +69,7 @@ struct GrokProvider: AIProviderIntegration {
 
     func uninstall() throws {
         guard FileManager.default.fileExists(atPath: hookFilePath) else { return }
+        guard isHookInstalled() else { return }
         var settings = try Self.readHooksFile(at: hookFilePath)
         guard let hooks = settings["hooks"] as? [String: Any] else { return }
 

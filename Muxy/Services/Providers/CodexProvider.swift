@@ -98,6 +98,7 @@ struct CodexProvider: AIProviderIntegration {
 
     func uninstall() throws {
         guard FileManager.default.fileExists(atPath: hooksPath) else { return }
+        guard isHookInstalled() else { return }
         var settings = try readSettings()
         guard var hooks = settings["hooks"] as? [String: Any] else { return }
 

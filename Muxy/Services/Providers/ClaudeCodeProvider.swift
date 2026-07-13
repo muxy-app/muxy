@@ -22,7 +22,10 @@ struct ClaudeCodeProvider: AIProviderIntegration {
 
     static let hookEvents: [(settingsKey: String, event: String)] = [
         ("Stop", "stop"),
+        ("StopFailure", "stop-failure"),
+        ("SessionEnd", "session-end"),
         ("Notification", "notification"),
+        ("PermissionRequest", "permission-request"),
         ("UserPromptSubmit", "user-prompt-submit"),
         ("PreToolUse", "pre-tool-use"),
     ]
@@ -53,6 +56,7 @@ struct ClaudeCodeProvider: AIProviderIntegration {
 
     func uninstall() throws {
         guard FileManager.default.fileExists(atPath: Self.settingsPath) else { return }
+        guard isHookInstalled() else { return }
         var settings = try Self.readSettings()
         guard let hooks = settings["hooks"] as? [String: Any] else { return }
 

@@ -198,7 +198,7 @@ struct GrokProviderTests {
         }
     }
 
-    @Test("shipped muxy-grok-hook emits grok_hook agent_status and notification lines")
+    @Test("shipped muxy-grok-hook emits one normalized finished event")
     func shippedHookEmitsGrokWireFormat() throws {
         let scriptPath = try #require(
             MuxyNotificationHooks.scriptPath(named: "muxy-grok-hook", extension: "sh")
@@ -211,9 +211,8 @@ struct GrokProviderTests {
         )
         #expect(!payloads.isEmpty)
         let joined = payloads.joined()
-        #expect(joined.contains("agent_status|grok_hook|"))
-        #expect(joined.contains("|idle"))
-        #expect(joined.contains("grok_hook|"))
+        #expect(joined.contains("agent_event|grok_hook|"))
+        #expect(joined.contains("|finished|"))
         #expect(joined.contains("|Grok|"))
         #expect(joined.contains("Session completed"))
         for payload in payloads {
@@ -314,6 +313,7 @@ struct GrokProviderTests {
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = socketPath
         environment["MUXY_PANE_ID"] = paneID
+        environment["MUXY_AGENT_EVENT_PROTOCOL"] = "2"
         process.environment = environment
         let stdin = Pipe()
         process.standardInput = stdin

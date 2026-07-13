@@ -322,6 +322,14 @@ final class NotificationSocketServer: @unchecked Sendable {
         let status: AgentStatus
     }
 
+    struct AgentLifecycleMessage: Equatable {
+        let socketType: String
+        let paneID: UUID
+        let phase: AgentLifecyclePhase
+        let title: String
+        let body: String
+    }
+
     private static func pipeFields(_ message: String) -> [String] {
         message.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
     }
@@ -335,6 +343,23 @@ final class NotificationSocketServer: @unchecked Sendable {
               let status = AgentStatus(rawValue: parts[3])
         else { return nil }
         return AgentStatusMessage(socketType: parts[1], paneID: paneID, status: status)
+    }
+
+    static func parseAgentLifecycleMessage(_ message: String) -> AgentLifecycleMessage? {
+        let parts = message.split(separator: "|", maxSplits: 5, omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 6,
+              parts[0] == "agent_event",
+              !parts[1].isEmpty,
+              let paneID = UUID(uuidString: parts[2]),
+              let phase = AgentLifecyclePhase(rawValue: parts[3])
+        else { return nil }
+        return AgentLifecycleMessage(
+            socketType: parts[1],
+            paneID: paneID,
+            phase: phase,
+            title: parts[4],
+            body: parts[5]
+        )
     }
 
     static func parseInvokeResult(_ message: String) -> InvokeResult? {
@@ -745,6 +770,13 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
+        if session.extensionID == nil, let lifecycleMessage = Self.parseAgentLifecycleMessage(message) {
+            DispatchQueue.main.async { [weak self] in
+                self?.dispatchAgentLifecycle(lifecycleMessage)
+            }
+            return
+        }
+
         if session.extensionID == nil, let statusMessage = Self.parseAgentStatusMessage(message) {
             DispatchQueue.main.async { [weak self] in
                 self?.dispatchAgentStatus(statusMessage)
@@ -793,6 +825,27 @@ final class NotificationSocketServer: @unchecked Sendable {
             providerID: providerID,
             status: message.status,
             appState: appState
+        )
+    }
+
+    @MainActor
+    private func dispatchAgentLifecycle(_ message: AgentLifecycleMessage) {
+        guard let appState = NotificationStore.shared.appState else { return }
+        guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.socketType) else {
+            return
+        }
+        AgentStatusStore.shared.update(
+            paneID: message.paneID,
+            providerID: providerID,
+            status: message.phase.status,
+            appState: appState
+        )
+        guard !message.title.isEmpty || !message.body.isEmpty else { return }
+        dispatchNotification(
+            type: message.socketType,
+            title: message.title.isEmpty ? "Task completed!" : message.title,
+            body: message.body,
+            paneIDString: message.paneID.uuidString
         )
     }
 

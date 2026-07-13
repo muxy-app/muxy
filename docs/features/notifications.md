@@ -44,6 +44,18 @@ Limits:
 - Max message size: **128 KB**.
 - Newlines terminate a message; you can send multiple by separating them with `\n`.
 
+## Built-in AI lifecycle
+
+Built-in provider adapters use one internal, newline-terminated lifecycle message:
+
+```
+agent_event|<type>|<paneID>|<phase>|<title>|<body>
+```
+
+`phase` is `working`, `waiting`, or `finished`. Title and body are optional; when both are empty, Muxy updates activity without posting a notification. Muxy applies the lifecycle update and optional notification together, then aggregates it from pane to worktree and project. Tabs and both sidebar layouts use the same precedence: working, waiting, unread, finished.
+
+The public four-field notification format remains the supported format for custom tools. The lifecycle format is internal to Muxy's bundled provider adapters so provider-specific events can be normalized without expanding the extension API.
+
 ## Examples
 
 ### Shell
@@ -106,9 +118,15 @@ def muxy_notify(title: str, body: str = "") -> None:
 
 The built-in integrations are good templates:
 
-- **Shell hook (Claude Code):** [`Muxy/Resources/scripts/muxy-claude-hook.sh`](../../Muxy/Resources/scripts/muxy-claude-hook.sh)
-- **Shell hook (Grok):** [`Muxy/Resources/scripts/muxy-grok-hook.sh`](../../Muxy/Resources/scripts/muxy-grok-hook.sh) (installs to `~/.grok/hooks/muxy-notify.json`)
+- **Shared shell lifecycle adapter:** [`Muxy/Resources/scripts/muxy-agent-hook.sh`](../../Muxy/Resources/scripts/muxy-agent-hook.sh)
+- **Provider shell wrapper (Claude Code):** [`Muxy/Resources/scripts/muxy-claude-hook.sh`](../../Muxy/Resources/scripts/muxy-claude-hook.sh)
+- **Provider shell wrapper (Grok):** [`Muxy/Resources/scripts/muxy-grok-hook.sh`](../../Muxy/Resources/scripts/muxy-grok-hook.sh) (installs to `~/.grok/hooks/muxy-notify.json`)
 - **Node plugin (OpenCode):** [`Muxy/Resources/scripts/opencode-muxy-plugin.js`](../../Muxy/Resources/scripts/opencode-muxy-plugin.js)
+- **Pi extension:** [`Muxy/Resources/scripts/muxy-pi-extension.ts`](../../Muxy/Resources/scripts/muxy-pi-extension.ts)
+
+## Development builds
+
+`swift run Muxy` uses the development socket (`muxy-dev.sock`). On startup, a debug build refreshes enabled provider hooks that are already installed and removes Muxy-managed state for disabled providers. This keeps bundled scripts pointed at the current development build without installing integrations that were never enabled. Each terminal exports the supported agent protocol version, so a refreshed global hook falls back to the legacy lifecycle wire when invoked from an older running Muxy build instead of displaying internal lifecycle fields as notifications. Start a new provider session in a Muxy terminal after relaunching the development build; the pane exports the matching `MUXY_SOCKET_PATH` and `MUXY_PANE_ID`. Set `FF_AI_HOOKS=true` only when a debug run also needs to install integrations that are not already present.
 
 ## Tips
 
