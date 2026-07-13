@@ -202,6 +202,44 @@ struct MuxyNotificationHooksTests {
         #expect(authentication.isEmpty)
     }
 
+    @Test("failed JSON extraction diagnostics are not treated as hook values")
+    func failedJSONExtractionDiagnosticsAreIgnored() throws {
+        let plutilURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-test-plutil-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: plutilURL) }
+        let wrapper = #"""
+        #!/bin/sh
+        output=$(/usr/bin/plutil "$@" 2>/dev/null)
+        status=$?
+        if [ "$status" -ne 0 ]; then
+            printf '<stdin>: Could not extract value'
+            exit "$status"
+        fi
+        printf '%s' "$output"
+        """#
+        try Data(wrapper.utf8).write(to: plutilURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: plutilURL.path
+        )
+
+        let completed = try Self.runShellHook(.init(
+            scriptName: "muxy-grok-hook.sh",
+            event: "notification",
+            input: #"{"notificationType":"task_complete","message":"Done"}"#,
+            plutilPath: plutilURL.path
+        ))
+        let stopped = try Self.runShellHook(.init(
+            scriptName: "muxy-grok-hook.sh",
+            event: "stop",
+            input: "{}",
+            plutilPath: plutilURL.path
+        ))
+
+        #expect(completed == ["agent_event|grok_hook|\(Self.paneID)|finished|Grok|Done\n"])
+        #expect(stopped == ["agent_event|grok_hook|\(Self.paneID)|finished|Grok|Session completed\n"])
+    }
+
     @Test("Codex session start hook event does not report working")
     func codexSessionStartDoesNotReportWorking() throws {
         let sessionStart = try Self.runShellHook(.init(
@@ -270,6 +308,7 @@ struct MuxyNotificationHooksTests {
         let event: String
         let input: String
         var protocolVersion: String? = "2"
+        var plutilPath: String?
     }
 
     private static func runShellHook(_ sample: ShellHookSample) throws -> [String] {
@@ -297,6 +336,11 @@ struct MuxyNotificationHooksTests {
             environment["MUXY_AGENT_EVENT_PROTOCOL"] = protocolVersion
         } else {
             environment.removeValue(forKey: "MUXY_AGENT_EVENT_PROTOCOL")
+        }
+        if let plutilPath = sample.plutilPath {
+            environment["MUXY_AGENT_PLUTIL_PATH"] = plutilPath
+        } else {
+            environment.removeValue(forKey: "MUXY_AGENT_PLUTIL_PATH")
         }
         process.environment = environment
         let stdin = Pipe()

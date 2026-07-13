@@ -5,6 +5,7 @@ socket_type="${1:-}"
 provider_title="${2:-}"
 event="${3:-}"
 input=$(cat)
+plutil_path="${MUXY_AGENT_PLUTIL_PATH:-/usr/bin/plutil}"
 
 if [ -z "${MUXY_SOCKET_PATH:-}" ] || [ -z "${MUXY_PANE_ID:-}" ] || [ -z "$socket_type" ]; then
     exit 0
@@ -18,7 +19,11 @@ sanitize() {
 
 json_value() {
     local key="$1"
-    printf '%s' "$input" | /usr/bin/plutil -extract "$key" raw -o - -- - 2>/dev/null || true
+    local value=""
+    if ! value=$(printf '%s' "$input" | "$plutil_path" -extract "$key" raw -o - -- - 2>/dev/null); then
+        return
+    fi
+    printf '%s' "$value"
 }
 
 first_json_value() {
