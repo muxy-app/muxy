@@ -17,6 +17,7 @@ struct TabFocusedPullRequestPopover: View {
     @State private var mergeMethod: GitRepositoryService.PRMergeMethod = .squash
     @State private var confirmationState = PullRequestActionConfirmation.State()
     @State private var confirmationProgress: CGFloat = 0
+    @State private var remainingSeconds = Int(PullRequestActionConfirmation.duration)
     @State private var confirmationTask: Task<Void, Never>?
     @State private var isCancelHovered = false
 
@@ -254,16 +255,25 @@ struct TabFocusedPullRequestPopover: View {
     private func armConfirmation(for action: PullRequestActionConfirmation.Kind) {
         cancelConfirmation()
         let confirmation = confirmationState.arm(action)
+        let totalSeconds = Int(PullRequestActionConfirmation.duration)
+        remainingSeconds = totalSeconds
         confirmationTask = Task { @MainActor in
             await Task.yield()
             guard pendingConfirmation == confirmation else { return }
             withAnimation(.linear(duration: PullRequestActionConfirmation.duration)) {
                 confirmationProgress = 1
             }
+            for second in stride(from: totalSeconds - 1, through: 1, by: -1) {
+                do {
+                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                } catch {
+                    return
+                }
+                guard pendingConfirmation == confirmation else { return }
+                remainingSeconds = second
+            }
             do {
-                try await Task.sleep(
-                    nanoseconds: UInt64(PullRequestActionConfirmation.duration * 1_000_000_000)
-                )
+                try await Task.sleep(nanoseconds: 1_000_000_000)
             } catch {
                 return
             }
@@ -290,6 +300,7 @@ struct TabFocusedPullRequestPopover: View {
         withTransaction(transaction) {
             confirmationState.cancel()
             confirmationProgress = 0
+            remainingSeconds = Int(PullRequestActionConfirmation.duration)
             isCancelHovered = false
         }
     }
@@ -305,7 +316,7 @@ struct TabFocusedPullRequestPopover: View {
     private var mergeButtonLabel: String {
         if isMerging { return "Merging…" }
         if pendingConfirmation?.kind == .merge(mergeMethod) {
-            return "\(mergeMethod.shortLabel) in 5s · click again"
+            return "\(mergeMethod.shortLabel) in \(remainingSeconds)s · click again"
         }
         return mergeMethod.label
     }
@@ -318,7 +329,7 @@ struct TabFocusedPullRequestPopover: View {
 
     private var closeButtonLabel: String {
         if isClosing { return "Closing…" }
-        if pendingConfirmation?.kind == .close { return "Close in 5s · click again" }
+        if pendingConfirmation?.kind == .close { return "Close in \(remainingSeconds)s · click again" }
         return "Close PR"
     }
 

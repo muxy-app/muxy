@@ -29,9 +29,6 @@ struct RepositoryAIActionSplitButton: View {
     var body: some View {
         HStack(spacing: 0) {
             primaryButton
-            Rectangle()
-                .fill(MuxyTheme.border)
-                .frame(width: 1, height: UIMetrics.scaled(14))
             menuButton
         }
         .fixedSize(horizontal: true, vertical: false)

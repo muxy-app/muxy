@@ -215,8 +215,13 @@ final class TabFocusedRepositoryState {
                 deleteBranch: false
             )
             guard repository == activeRepository else { return }
-            ToastState.shared.show("Merged PR #\(info.number)")
+            try await repository.service.switchBranch(repoPath: repository.path, branch: info.baseBranch)
+            guard repository == activeRepository else { return }
+            try await repository.service.pull(repoPath: repository.path)
+            guard repository == activeRepository else { return }
+            ToastState.shared.show("Merged PR #\(info.number) into \(info.baseBranch)")
             _ = await refreshSummary(refreshPullRequestOnHeadChange: false)
+            await loadBranches()
             await refreshPullRequest(forceFresh: true)
             postRepositoryChange(repository)
         } catch {

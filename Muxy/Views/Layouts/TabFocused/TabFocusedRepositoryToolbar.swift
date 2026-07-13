@@ -53,6 +53,11 @@ struct TabFocusedRepositoryToolbar: View {
                     showPullRequestPopover = false
                 }
             }
+            .onChange(of: isPerformingPullRequestAction) { wasPerforming, isPerforming in
+                if wasPerforming, !isPerforming {
+                    showPullRequestPopover = false
+                }
+            }
     }
 
     @ViewBuilder
@@ -169,7 +174,8 @@ struct TabFocusedRepositoryToolbar: View {
     @ViewBuilder
     private func pullRequestActionContent(_ summary: GitRepositorySummary) -> some View {
         switch repositoryState.pullRequestState {
-        case .loading:
+        case .loading,
+             .unavailable:
             EmptyView()
         case .noPullRequest:
             aiRepositoryAction(
@@ -177,30 +183,6 @@ struct TabFocusedRepositoryToolbar: View {
                 summary: summary,
                 providerID: $pullRequestProviderID
             )
-        case .unavailable:
-            RepositoryToolbarChip(
-                isOpen: false,
-                action: {
-                    Task { await repositoryState.refreshPullRequest(forceFresh: true) }
-                },
-                content: {
-                    HStack(spacing: UIMetrics.spacing2) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: UIMetrics.fontXS, weight: .bold))
-                        Text("PR unavailable")
-                            .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-                    }
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                }
-            )
-            .disabled(
-                repositoryState.isRefreshingPullRequest
-                    || repositoryState.isSwitchingBranch
-                    || isWorktreeRemovalInProgress
-                    || hasRunningAIWorkflow
-            )
-            .help("Click to retry. GitHub pull requests require an installed and authenticated gh CLI.")
-            .accessibilityLabel("Pull request unavailable. Retry GitHub connection.")
         case let .found(info):
             pullRequestChip(info)
         }
@@ -493,14 +475,12 @@ struct TabFocusedRepositoryToolbar: View {
                 ToastState.shared.show(title: "Pull request is no longer mergeable", body: availability.help)
                 return
             }
-            showPullRequestPopover = false
             Task { await repositoryState.mergePullRequest(info, method: method) }
         case .close:
             guard info.state == .open else {
                 ToastState.shared.show("Pull request #\(info.number) is no longer open.")
                 return
             }
-            showPullRequestPopover = false
             Task { await repositoryState.closePullRequest(info) }
         }
     }
