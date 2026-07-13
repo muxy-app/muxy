@@ -214,19 +214,32 @@ final class TabFocusedRepositoryState {
                 method: method,
                 deleteBranch: false
             )
-            guard repository == activeRepository else { return }
-            try await repository.service.switchBranch(repoPath: repository.path, branch: info.baseBranch)
-            guard repository == activeRepository else { return }
-            try await repository.service.pull(repoPath: repository.path)
-            guard repository == activeRepository else { return }
-            ToastState.shared.show("Merged PR #\(info.number) into \(info.baseBranch)")
-            _ = await refreshSummary(refreshPullRequestOnHeadChange: false)
-            await loadBranches()
-            await refreshPullRequest(forceFresh: true)
-            postRepositoryChange(repository)
         } catch {
             guard repository == activeRepository else { return }
             ToastState.shared.show(title: "Failed to merge PR #\(info.number)", body: error.localizedDescription)
+            return
+        }
+        guard repository == activeRepository else { return }
+        await checkoutBaseBranch(info.baseBranch, on: repository)
+        guard repository == activeRepository else { return }
+        ToastState.shared.show("Merged PR #\(info.number) into \(info.baseBranch)")
+        _ = await refreshSummary(refreshPullRequestOnHeadChange: false)
+        await loadBranches()
+        await refreshPullRequest(forceFresh: true)
+        postRepositoryChange(repository)
+    }
+
+    private func checkoutBaseBranch(_ baseBranch: String, on repository: ActiveRepository) async {
+        do {
+            try await repository.service.switchBranch(repoPath: repository.path, branch: baseBranch)
+            guard repository == activeRepository else { return }
+            try await repository.service.pull(repoPath: repository.path)
+        } catch {
+            guard repository == activeRepository else { return }
+            ToastState.shared.show(
+                title: "Merged, but couldn't switch to \(baseBranch)",
+                body: error.localizedDescription
+            )
         }
     }
 

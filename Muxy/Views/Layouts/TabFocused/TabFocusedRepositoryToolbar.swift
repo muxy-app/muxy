@@ -174,8 +174,7 @@ struct TabFocusedRepositoryToolbar: View {
     @ViewBuilder
     private func pullRequestActionContent(_ summary: GitRepositorySummary) -> some View {
         switch repositoryState.pullRequestState {
-        case .loading,
-             .unavailable:
+        case .loading:
             EmptyView()
         case .noPullRequest:
             aiRepositoryAction(
@@ -183,9 +182,33 @@ struct TabFocusedRepositoryToolbar: View {
                 summary: summary,
                 providerID: $pullRequestProviderID
             )
+        case .unavailable:
+            pullRequestUnavailableChip
         case let .found(info):
             pullRequestChip(info)
         }
+    }
+
+    private var pullRequestUnavailableChip: some View {
+        RepositoryToolbarChip(
+            isOpen: false,
+            action: {
+                Task { await repositoryState.refreshPullRequest(forceFresh: true) }
+            },
+            content: {
+                Image(systemName: "arrow.triangle.pull")
+                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+            }
+        )
+        .disabled(
+            repositoryState.isRefreshingPullRequest
+                || repositoryState.isSwitchingBranch
+                || isWorktreeRemovalInProgress
+                || hasRunningAIWorkflow
+        )
+        .help("Click to retry. GitHub pull requests require an installed and authenticated gh CLI.")
+        .accessibilityLabel("Pull request unavailable. Retry GitHub connection.")
     }
 
     private func pullRequestChip(_ info: GitRepositoryService.PRInfo) -> some View {
