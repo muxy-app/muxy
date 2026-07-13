@@ -64,9 +64,13 @@ Choose **Tab Focused** under **Settings → Interface** to move tab navigation i
 
 The top bar becomes a repository status strip for the active worktree:
 
-- The branch control shows clean or dirty state, change count, and upstream ahead/behind counts. Open it to refresh repository status or switch branches.
+- The branch control shows clean or dirty state, change count, and upstream ahead/behind counts. Open it to refresh repository status, switch branches, or remove the active secondary worktree through the standard dirty-worktree warning and teardown flow.
 - When the current branch has a GitHub pull request, the PR control shows its number and check health. Open it to inspect mergeability and checks, update a behind branch, choose a merge method, merge or close the PR, or open it on GitHub. Merge and close actions use a five-second inline confirmation; click the armed action again to run it immediately, or use its Cancel control to stop it.
-- Secondary worktrees show a **Remove worktree** control. It uses the standard dirty-worktree warning and teardown flow; the primary worktree never shows this control.
+- **Commit** stages all changes, asks the configured AI CLI for a commit message in the background, then commits and pushes through Muxy's Git service. The provider runs non-interactively with repository-writing tools disabled; it never receives control of the Git workflow. The control is disabled for clean worktrees and detached HEADs.
+- **Create PR** appears only after Muxy confirms the branch has no pull request. The configured AI CLI generates a title, summary, new branch name, and target branch as JSON. Muxy validates that metadata, creates the branch, commits staged changes when present, pushes, and creates the pull request through its existing GitHub service.
+- Use the dropdown attached to either button to choose its provider or keep **Auto**, which selects the first available supported CLI. Configure each action's metadata prompt and provider under **Settings → AI**. No terminal tab is opened, and repository-changing controls remain disabled until the native workflow finishes.
+- Controls remain ordered as Branch, Commit, then pull request. Branch and disabled Commit controls appear immediately without a loading indicator. After pull request lookup finishes, the final position shows either **Create PR**, pull request information, or a retry control.
+- **Remove worktree** appears inside the branch dropdown only for secondary worktrees. The primary worktree cannot be removed.
 - Pull request information and actions require an installed and authenticated `gh` CLI.
 
 ## Navigation history

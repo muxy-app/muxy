@@ -41,6 +41,15 @@ gh auth login
 
 After authenticating, restart Muxy so it picks up the new credentials.
 
+## Commit or Create PR is disabled
+
+- **Commit** requires an active branch with uncommitted changes. It is disabled for a clean worktree, detached HEAD, or while another repository action is running.
+- **Create PR** appears only when Muxy can confirm through `gh` that the active branch has no pull request. Install and authenticate `gh` as shown above.
+- Install and authenticate at least one supported provider CLI, then reopen Muxy or bring it to the foreground so the provider list refreshes. The dropdown beside each action shows locally missing CLIs.
+- For an SSH workspace, the selected provider CLI and `gh` must be installed and authenticated on the remote host. If **Auto** selects a CLI that is unavailable remotely, choose the installed provider explicitly from the action dropdown.
+- Provider CLIs run headlessly and cannot show interactive authentication or permission prompts. Authenticate the chosen CLI in a terminal first, then retry the button; failures are shown in a toast.
+- AI only generates metadata. Muxy always owns staging, branch creation, commits, pushes, and pull request creation. Update the prompt when the provider returns invalid JSON or unsuitable metadata, not to change the native Git sequence.
+
 ## Mobile server won't start
 
 - Make sure the port (default 4865) isn't in use: `lsof -i :4865`.

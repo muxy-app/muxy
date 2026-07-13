@@ -1,12 +1,26 @@
 import Foundation
 
-struct CodexProvider: AIProviderIntegration {
+struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "codex"
     let displayName = "Codex"
     let socketTypeKey = "codex_hook"
     let iconName = "codex"
     let executableNames = ["codex"]
     let hookScriptName = "muxy-codex-hook"
+
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "codex",
+            headlessArguments: [
+                "exec",
+                "--ephemeral",
+                "--sandbox",
+                "read-only",
+                "--color",
+                "never",
+            ]
+        )
+    }
 
     private static let muxyMarker = "muxy-notification-hook"
     private static let hookTimeoutSeconds = 10

@@ -198,6 +198,13 @@ enum SettingsJSONStore {
     }
 
     private static func validateAllowedString(_ value: String, key: String) throws {
+        if RepositoryAIAction.allCases.contains(where: { $0.providerKey == key }) {
+            let providerIDs = Set(AIProviderRegistry.shared.agentLaunchProviders.map(\.id))
+            guard value.isEmpty || providerIDs.contains(value) else {
+                throw SettingsJSONError.invalidValue(key)
+            }
+            return
+        }
         let allowedValues: [String: Set<String>] = [
             UpdateChannel.storageKey: Set(UpdateChannel.allCases.map(\.rawValue)),
             ProjectPickerPreferences.storageKey: Set(ProjectPickerMode.allCases.map(\.rawValue)),

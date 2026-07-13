@@ -13,6 +13,12 @@ final class TabFocusedRepositoryState {
         case found(GitRepositoryService.PRInfo)
     }
 
+    struct PullRequestIdentity: Equatable {
+        let repositoryKey: String
+        let branch: String
+        let headOID: String
+    }
+
     static let notificationOriginKey = "muxy.repositoryToolbar.origin"
     static let notificationOriginID = "tabFocusedRepositoryToolbar"
 
@@ -35,6 +41,7 @@ final class TabFocusedRepositoryState {
     @ObservationIgnored private var summaryRevision = 0
     @ObservationIgnored private var branchesRevision = 0
     @ObservationIgnored private var pullRequestRevision = 0
+    @ObservationIgnored private var pullRequestIdentity: PullRequestIdentity?
 
     var pullRequest: GitRepositoryService.PRInfo? {
         guard case let .found(info) = pullRequestState else { return nil }
@@ -62,6 +69,7 @@ final class TabFocusedRepositoryState {
         summary = nil
         branches = []
         pullRequestState = .loading
+        pullRequestIdentity = nil
         summaryError = nil
         resetTransientState()
     }
@@ -142,12 +150,20 @@ final class TabFocusedRepositoryState {
               headOID != "(initial)"
         else {
             pullRequestState = .noPullRequest
+            pullRequestIdentity = nil
             isRefreshingPullRequest = false
             return
         }
-        if pullRequest == nil {
-            pullRequestState = .loading
-        }
+        let identity = PullRequestIdentity(
+            repositoryKey: repository.key,
+            branch: summary.branch,
+            headOID: headOID
+        )
+        pullRequestState = Self.pullRequestStateForRefresh(
+            current: pullRequestState,
+            resolvedIdentity: pullRequestIdentity,
+            requestedIdentity: identity
+        )
         isRefreshingPullRequest = true
         defer {
             if revision == pullRequestRevision {
@@ -160,7 +176,12 @@ final class TabFocusedRepositoryState {
             headSha: headOID,
             forceFresh: forceFresh
         )
-        guard repository == activeRepository, revision == pullRequestRevision else { return }
+        guard repository == activeRepository,
+              revision == pullRequestRevision,
+              self.summary?.branch == identity.branch,
+              self.summary?.headOID == identity.headOID
+        else { return }
+        pullRequestIdentity = identity
         switch result {
         case let .found(info):
             pullRequestState = .found(info)
@@ -270,6 +291,7 @@ final class TabFocusedRepositoryState {
         summary = nil
         branches = []
         pullRequestState = .loading
+        pullRequestIdentity = nil
         summaryError = nil
         resetTransientState()
         summaryRevision += 1
@@ -322,10 +344,16 @@ final class TabFocusedRepositoryState {
             guard repository == activeRepository, revision == summaryRevision else { return false }
             let previous = summary
             summary = loaded
-            if refreshPullRequestOnHeadChange,
-               let previous,
-               previous.branch != loaded.branch || previous.headOID != loaded.headOID
-            {
+            let pullRequestIdentityChanged = previous.map {
+                $0.branch != loaded.branch || $0.headOID != loaded.headOID
+            } ?? false
+            if pullRequestIdentityChanged {
+                pullRequestRevision += 1
+                pullRequestState = .loading
+                pullRequestIdentity = nil
+                isRefreshingPullRequest = false
+            }
+            if refreshPullRequestOnHeadChange, pullRequestIdentityChanged {
                 await refreshPullRequest(forceFresh: false)
             }
             return true
@@ -337,6 +365,7 @@ final class TabFocusedRepositoryState {
             summary = nil
             branches = []
             pullRequestState = .unavailable
+            pullRequestIdentity = nil
             isRefreshingPullRequest = false
             summaryError = error.localizedDescription
             return false
@@ -355,6 +384,14 @@ final class TabFocusedRepositoryState {
 
     private var isPerformingPullRequestAction: Bool {
         isMergingPullRequest || isClosingPullRequest || isUpdatingPullRequestBranch
+    }
+
+    nonisolated static func pullRequestStateForRefresh(
+        current: PullRequestFetchState,
+        resolvedIdentity: PullRequestIdentity?,
+        requestedIdentity: PullRequestIdentity
+    ) -> PullRequestFetchState {
+        resolvedIdentity == requestedIdentity ? current : .loading
     }
 
     private func scheduleFileRefresh(for repositoryKey: String) {

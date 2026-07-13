@@ -61,6 +61,25 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func repositoryAIActionsAreRegisteredAndSearchable() {
+        for action in RepositoryAIAction.allCases {
+            let provider = SettingsCatalog.items.first { $0.key == action.providerKey }
+            let prompt = SettingsCatalog.items.first { $0.key == action.promptKey }
+
+            #expect(provider?.category == .ai)
+            #expect(prompt?.category == .ai)
+            #expect(provider?.defaultValue == AnyHashable(RepositoryAIActionPreferences.automaticProviderID))
+            #expect(prompt?.defaultValue == AnyHashable(action.defaultPrompt))
+        }
+        #expect(SettingsCatalog.matchingItems(query: "github").contains {
+            $0.key == RepositoryAIAction.createPullRequest.promptKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "push").contains {
+            $0.key == RepositoryAIAction.commit.promptKey
+        })
+    }
+
+    @Test
     func sidebarBackgroundIsRegisteredAndSearchable() throws {
         let item = try #require(SettingsCatalog.items.first {
             $0.key == AppBackgroundStyle.storageKey

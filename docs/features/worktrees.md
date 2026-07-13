@@ -76,5 +76,5 @@ Per-project worktree records live at `~/Library/Application Support/Muxy/worktre
 ## Notes
 
 - Switching worktrees does **not** kill running terminals — they stay alive; you just see a different worktree's tabs.
-- In Tab Focused layout, remove the active secondary worktree from the top bar. Removal still runs any configured teardown commands and warns before discarding uncommitted changes.
+- In Tab Focused layout, remove the active secondary worktree from the branch dropdown in the top bar. Removal still runs any configured teardown commands and warns before discarding uncommitted changes.
 - The primary worktree (project root) is always present and cannot be deleted from Muxy.

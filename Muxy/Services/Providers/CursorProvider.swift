@@ -1,6 +1,6 @@
 import Foundation
 
-struct CursorProvider: AIProviderIntegration {
+struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "cursor"
     let displayName = "Cursor CLI"
     let socketTypeKey = "cursor_hook"
@@ -8,11 +8,27 @@ struct CursorProvider: AIProviderIntegration {
     let executableNames = ["cursor-agent", "cursor"]
     let hookScriptName = "muxy-cursor-hook"
 
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "cursor-agent",
+            headlessArguments: ["--print", "--output-format", "text"]
+        )
+    }
+
     private static let muxyMarker = "muxy-notification-hook"
     private let homeDirectory: String
 
     init(homeDirectory: String = NSHomeDirectory()) {
         self.homeDirectory = homeDirectory
+    }
+
+    func isAgentCLIInstalled() -> Bool {
+        ProviderExecutableLocator.isInstalled(
+            names: ["cursor-agent"],
+            homeDirectory: homeDirectory,
+            pathEnvironment: LoginShellPath.current,
+            includeSystemWide: homeDirectory == NSHomeDirectory()
+        )
     }
 
     private var hooksPath: String {

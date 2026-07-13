@@ -3,7 +3,7 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "PiProvider")
 
-struct PiProvider: AIProviderIntegration {
+struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "pi"
     let displayName = "Pi"
     let socketTypeKey = "pi"
@@ -11,6 +11,13 @@ struct PiProvider: AIProviderIntegration {
     let executableNames = ["pi"]
     let hookScriptName = "muxy-pi-extension"
     let hookScriptExtension = "ts"
+
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "pi",
+            headlessArguments: ["--print", "--no-session", "--no-tools"]
+        )
+    }
 
     private static let destinationFileName = "muxy-notify.ts"
     private static let bundleResourceName = "muxy-pi-extension"

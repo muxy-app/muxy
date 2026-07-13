@@ -10,6 +10,12 @@ struct TabFocusedRepositoryToolbar: View {
     @State private var repositoryState = TabFocusedRepositoryState()
     @State private var showBranchPopover = false
     @State private var showPullRequestPopover = false
+    @State private var installedProviderIDs: Set<String> = []
+    @State private var aiActions = RepositoryAIActionsService.shared
+    @State private var preparingPullRequestRepositoryID: String?
+    @AppStorage(RepositoryAIAction.commit.providerKey) private var commitProviderID = RepositoryAIActionPreferences.automaticProviderID
+    @AppStorage(RepositoryAIAction.createPullRequest.providerKey) private var pullRequestProviderID = RepositoryAIActionPreferences
+        .automaticProviderID
 
     var body: some View {
         let context = repositoryContext
@@ -20,7 +26,12 @@ struct TabFocusedRepositoryToolbar: View {
                     repositoryState.deactivate()
                     return
                 }
-                await repositoryState.activate(repoPath: context.path, context: context.workspaceContext)
+                async let providerRefresh: Void = refreshInstalledProviders()
+                async let repositoryActivation: Void = repositoryState.activate(
+                    repoPath: context.path,
+                    context: context.workspaceContext
+                )
+                _ = await (providerRefresh, repositoryActivation)
             }
             .onDisappear {
                 repositoryState.deactivate()
@@ -32,7 +43,10 @@ struct TabFocusedRepositoryToolbar: View {
                 handleRepositoryNotification(notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                Task { await repositoryState.refreshAfterAppActivation() }
+                Task {
+                    await refreshInstalledProviders()
+                    await repositoryState.refreshAfterAppActivation()
+                }
             }
             .onChange(of: repositoryState.pullRequest) { _, pullRequest in
                 if pullRequest == nil {
@@ -41,51 +55,25 @@ struct TabFocusedRepositoryToolbar: View {
             }
     }
 
+    @ViewBuilder
     private func content(hasRepository: Bool) -> some View {
-        HStack(spacing: UIMetrics.spacing3) {
-            repositoryStatusContent(hasRepository: hasRepository)
-            worktreeRemovalContent
+        if hasRepository {
+            HStack(spacing: UIMetrics.spacing3) {
+                branchChip(repositoryState.summary)
+                aiRepositoryAction(.commit, summary: repositoryState.summary, providerID: $commitProviderID)
+                repositoryResultContent
+            }
+            .padding(.leading, UIMetrics.spacing6)
         }
-        .padding(.leading, UIMetrics.spacing6)
     }
 
     @ViewBuilder
-    private func repositoryStatusContent(hasRepository: Bool) -> some View {
-        switch RepositoryToolbarPresentation.contentState(
-            hasRepository: hasRepository,
-            hasSummary: repositoryState.summary != nil,
-            error: repositoryState.summaryError
-        ) {
-        case .hidden:
-            EmptyView()
-        case .loading:
-            repositoryLoadingView
-        case let .unavailable(error):
+    private var repositoryResultContent: some View {
+        if let summary = repositoryState.summary {
+            pullRequestActionContent(summary)
+        } else if let error = repositoryState.summaryError {
             repositoryUnavailableChip(error)
-        case .ready:
-            if let summary = repositoryState.summary {
-                repositoryContent(summary)
-            }
         }
-    }
-
-    private func repositoryContent(_ summary: GitRepositorySummary) -> some View {
-        HStack(spacing: UIMetrics.spacing3) {
-            branchChip(summary)
-            pullRequestContent
-        }
-    }
-
-    private var repositoryLoadingView: some View {
-        HStack(spacing: UIMetrics.spacing3) {
-            ProgressView()
-                .controlSize(.mini)
-            Text("Reading repository…")
-                .font(.system(size: UIMetrics.fontCaption, weight: .medium))
-                .foregroundStyle(MuxyTheme.fgMuted)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Loading repository status")
     }
 
     private func repositoryUnavailableChip(_ error: String) -> some View {
@@ -96,14 +84,10 @@ struct TabFocusedRepositoryToolbar: View {
             },
             content: {
                 HStack(spacing: UIMetrics.spacing2) {
-                    if repositoryState.isLoadingSummary {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: UIMetrics.fontXS, weight: .bold))
-                            .foregroundStyle(MuxyTheme.warning)
-                    }
-                    Text(repositoryState.isLoadingSummary ? "Reading repository…" : "Repository unavailable")
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                        .foregroundStyle(MuxyTheme.warning)
+                    Text("Repository unavailable")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fgMuted)
                 }
@@ -114,45 +98,7 @@ struct TabFocusedRepositoryToolbar: View {
         .accessibilityLabel("Repository unavailable. Click to retry.")
     }
 
-    @ViewBuilder
-    private var worktreeRemovalContent: some View {
-        if let worktree = activeWorktree {
-            let isPreparing = worktreeStore.isPreparingRemoval(worktreeID: worktree.id)
-            let isRemoving = worktreeStore.isRemoving(worktreeID: worktree.id)
-            let removalState = RepositoryToolbarPresentation.worktreeRemovalState(
-                worktree: worktree,
-                isPreparing: isPreparing,
-                isRemoving: isRemoving
-            )
-            switch removalState {
-            case .hidden:
-                EmptyView()
-            case .available:
-                worktreeRemovalButton(worktree, state: removalState)
-            case .preparing:
-                worktreeRemovalButton(worktree, state: removalState)
-            case .removing:
-                worktreeRemovalButton(worktree, state: removalState)
-            }
-        }
-    }
-
-    private func worktreeRemovalButton(
-        _ worktree: Worktree,
-        state: RepositoryToolbarPresentation.WorktreeRemovalState
-    ) -> some View {
-        let isBusy = state != .available
-        return RepositoryToolbarDestructiveButton(
-            label: worktreeRemovalLabel(state),
-            isBusy: isBusy,
-            action: { requestWorktreeRemoval(worktree) }
-        )
-        .disabled(isBusy || repositoryState.isSwitchingBranch || isPerformingPullRequestAction)
-        .help(worktreeRemovalHelp(worktree, state: state))
-        .accessibilityLabel(worktreeRemovalHelp(worktree, state: state))
-    }
-
-    private func branchChip(_ summary: GitRepositorySummary) -> some View {
+    private func branchChip(_ summary: GitRepositorySummary?) -> some View {
         RepositoryToolbarChip(
             isOpen: showBranchPopover,
             action: {
@@ -161,59 +107,76 @@ struct TabFocusedRepositoryToolbar: View {
             },
             content: {
                 HStack(spacing: UIMetrics.spacing2) {
-                    if repositoryState.isSwitchingBranch {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: UIMetrics.fontXS, weight: .bold))
-                            .foregroundStyle(MuxyTheme.accent)
-                    }
-                    Text(summary.displayBranch)
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                        .foregroundStyle(MuxyTheme.accent)
+                    Text(RepositoryToolbarPresentation.branchLabel(summary: summary, worktree: activeWorktree))
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fg)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .frame(maxWidth: UIMetrics.scaled(180))
                         .fixedSize(horizontal: true, vertical: false)
-                    workingTreePulse(summary)
-                    upstreamTelemetry(summary.aheadBehind)
+                    if let summary {
+                        workingTreePulse(summary)
+                        upstreamTelemetry(summary.aheadBehind)
+                    }
                     Image(systemName: "chevron.down")
                         .font(.system(size: UIMetrics.fontMicro, weight: .bold))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }
         )
-        .disabled(isPerformingPullRequestAction || isWorktreeRemovalInProgress)
-        .help(branchHelp(summary))
-        .accessibilityLabel(branchHelp(summary))
+        .disabled(
+            summary == nil
+                || repositoryState.isSwitchingBranch
+                || isPerformingPullRequestAction
+                || isWorktreeRemovalInProgress
+                || hasRunningAIWorkflow
+        )
+        .help(summary.map(branchHelp) ?? "Loading repository status")
+        .accessibilityLabel(summary.map(branchHelp) ?? "Loading repository status")
         .popover(isPresented: $showBranchPopover, arrowEdge: .top) {
-            TabFocusedBranchPopover(
-                summary: repositoryState.summary ?? summary,
-                branches: repositoryState.branches,
-                isLoadingBranches: repositoryState.isLoadingBranches,
-                isRefreshing: repositoryState.isLoadingSummary || repositoryState.isLoadingBranches,
-                isSwitching: repositoryState.isSwitchingBranch,
-                isWorktreeRemovalInProgress: isWorktreeRemovalInProgress,
-                onSwitch: { branch in
-                    switchBranch(branch)
-                },
-                onRefresh: {
-                    Task { await repositoryState.refreshRepositoryDetails() }
-                }
-            )
+            if let summary {
+                TabFocusedBranchPopover(
+                    summary: repositoryState.summary ?? summary,
+                    branches: repositoryState.branches,
+                    isLoadingBranches: repositoryState.isLoadingBranches,
+                    isRefreshing: repositoryState.isLoadingSummary || repositoryState.isLoadingBranches,
+                    isSwitching: repositoryState.isSwitchingBranch,
+                    isWorktreeRemovalInProgress: isWorktreeRemovalInProgress,
+                    isRepositoryInteractionDisabled: isPerformingPullRequestAction || hasRunningAIWorkflow,
+                    worktreeRemovalState: worktreeRemovalState,
+                    worktreeRemovalHelp: activeWorktree.map {
+                        worktreeRemovalHelp($0, state: worktreeRemovalState)
+                    },
+                    onSwitch: { branch in
+                        switchBranch(branch)
+                    },
+                    onRefresh: {
+                        Task { await repositoryState.refreshRepositoryDetails() }
+                    },
+                    onRemoveWorktree: {
+                        showBranchPopover = false
+                        guard let worktree = activeWorktree else { return }
+                        requestWorktreeRemoval(worktree)
+                    }
+                )
+            }
         }
     }
 
     @ViewBuilder
-    private var pullRequestContent: some View {
+    private func pullRequestActionContent(_ summary: GitRepositorySummary) -> some View {
         switch repositoryState.pullRequestState {
         case .loading:
-            ProgressView()
-                .controlSize(.mini)
-                .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
-                .help("Loading pull request")
-        case .noPullRequest:
             EmptyView()
+        case .noPullRequest:
+            aiRepositoryAction(
+                .createPullRequest,
+                summary: summary,
+                providerID: $pullRequestProviderID
+            )
         case .unavailable:
             RepositoryToolbarChip(
                 isOpen: false,
@@ -222,12 +185,8 @@ struct TabFocusedRepositoryToolbar: View {
                 },
                 content: {
                     HStack(spacing: UIMetrics.spacing2) {
-                        if repositoryState.isRefreshingPullRequest {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Image(systemName: "exclamationmark.triangle")
-                                .font(.system(size: UIMetrics.fontXS, weight: .bold))
-                        }
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: UIMetrics.fontXS, weight: .bold))
                         Text("PR unavailable")
                             .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     }
@@ -238,6 +197,7 @@ struct TabFocusedRepositoryToolbar: View {
                 repositoryState.isRefreshingPullRequest
                     || repositoryState.isSwitchingBranch
                     || isWorktreeRemovalInProgress
+                    || hasRunningAIWorkflow
             )
             .help("Click to retry. GitHub pull requests require an installed and authenticated gh CLI.")
             .accessibilityLabel("Pull request unavailable. Retry GitHub connection.")
@@ -270,7 +230,7 @@ struct TabFocusedRepositoryToolbar: View {
                 }
             }
         )
-        .disabled(repositoryState.isSwitchingBranch || isWorktreeRemovalInProgress)
+        .disabled(repositoryState.isSwitchingBranch || isWorktreeRemovalInProgress || hasRunningAIWorkflow)
         .help("Pull request #\(info.number) · \(PullRequestPresentation.stateLabel(for: info))")
         .accessibilityLabel("Pull request #\(info.number), \(PullRequestPresentation.stateLabel(for: info))")
         .popover(isPresented: $showPullRequestPopover, arrowEdge: .top) {
@@ -303,6 +263,73 @@ struct TabFocusedRepositoryToolbar: View {
                 )
             }
         }
+    }
+
+    private func aiRepositoryAction(
+        _ action: RepositoryAIAction,
+        summary: GitRepositorySummary?,
+        providerID: Binding<String>
+    ) -> some View {
+        let availability = aiRepositoryActionAvailability(action, summary: summary)
+        return RepositoryAIActionSplitButton(
+            action: action,
+            providers: agentLaunchProviders,
+            selectedProvider: selectedProvider(for: action),
+            installedProviderIDs: installedProviderIDs,
+            isRemote: repositoryContext?.workspaceContext.isRemote ?? false,
+            availability: availability,
+            isRunning: isRunningAIWorkflow(action),
+            menuDisabled: hasRunningAIWorkflow,
+            configuredProviderID: providerID,
+            onRun: { runAIRepositoryAction(action, availability: availability) }
+        )
+    }
+
+    private func aiRepositoryActionAvailability(
+        _ action: RepositoryAIAction,
+        summary: GitRepositorySummary?
+    ) -> RepositoryAIActionAvailability {
+        switch action {
+        case .commit:
+            return RepositoryAIActionPresentation.commit(
+                isDirty: summary?.isDirty,
+                isDetached: summary?.isDetached,
+                isRepositoryBusy: isRepositoryBusy,
+                hasRunningAction: hasRunningAIWorkflow
+            )
+        case .createPullRequest:
+            guard let summary else { return .hidden }
+            return RepositoryAIActionPresentation.createPullRequest(
+                pullRequest: pullRequestPresence,
+                isDetached: summary.isDetached,
+                isRepositoryBusy: isRepositoryBusy,
+                hasRunningAction: hasRunningAIWorkflow
+            )
+        }
+    }
+
+    private var pullRequestPresence: RepositoryPullRequestPresence {
+        switch repositoryState.pullRequestState {
+        case .loading: .loading
+        case .noPullRequest: .none
+        case .unavailable: .unavailable
+        case .found: .found
+        }
+    }
+
+    private var agentLaunchProviders: [any AIAgentLaunchProvider] {
+        AIProviderRegistry.shared.agentLaunchProviders
+    }
+
+    private func selectedProvider(
+        for action: RepositoryAIAction
+    ) -> (any AIAgentLaunchProvider)? {
+        RepositoryAIActionsService.resolveProvider(
+            for: action,
+            providers: agentLaunchProviders,
+            installedProviderIDs: installedProviderIDs,
+            isRemote: repositoryContext?.workspaceContext.isRemote ?? false
+        )
     }
 
     private func workingTreePulse(_ summary: GitRepositorySummary) -> some View {
@@ -353,11 +380,12 @@ struct TabFocusedRepositoryToolbar: View {
     }
 
     private var repositoryContext: RepositoryContext? {
-        guard let project = activeProject else { return nil }
-        let worktree = activeWorktree
-        let path = worktree?.path ?? project.path
+        guard let project = activeProject,
+              let worktree = activeWorktree
+        else { return nil }
+        let path = worktree.path
         return RepositoryContext(
-            id: "\(project.id.uuidString)|\(worktree?.id.uuidString ?? "primary")|\(path)",
+            id: "\(project.id.uuidString)|\(worktree.id.uuidString)|\(path)",
             path: path,
             workspaceContext: projectGroupStore.workspaceContext(for: project)
         )
@@ -368,8 +396,20 @@ struct TabFocusedRepositoryToolbar: View {
         return worktreeStore.isRemovalInProgress(worktreeID: activeWorktree.id)
     }
 
+    private var worktreeRemovalState: RepositoryToolbarPresentation.WorktreeRemovalState {
+        guard let activeWorktree else { return .hidden }
+        return RepositoryToolbarPresentation.worktreeRemovalState(
+            worktree: activeWorktree,
+            isPreparing: worktreeStore.isPreparingRemoval(worktreeID: activeWorktree.id),
+            isRemoving: worktreeStore.isRemoving(worktreeID: activeWorktree.id)
+        )
+    }
+
     private func switchBranch(_ branch: String) {
-        guard !isWorktreeRemovalInProgress, !isPerformingPullRequestAction else { return }
+        guard !isWorktreeRemovalInProgress,
+              !isPerformingPullRequestAction,
+              !hasRunningAIWorkflow
+        else { return }
         showBranchPopover = false
         Task { await repositoryState.switchBranch(branch) }
     }
@@ -377,7 +417,8 @@ struct TabFocusedRepositoryToolbar: View {
     private func updatePullRequestBranch(_ info: GitRepositoryService.PRInfo) {
         guard !isWorktreeRemovalInProgress,
               !repositoryState.isSwitchingBranch,
-              !isPerformingPullRequestAction
+              !isPerformingPullRequestAction,
+              !hasRunningAIWorkflow
         else { return }
         Task { await repositoryState.updatePullRequestBranch(info) }
     }
@@ -385,26 +426,13 @@ struct TabFocusedRepositoryToolbar: View {
     private func requestWorktreeRemoval(_ worktree: Worktree) {
         guard !repositoryState.isSwitchingBranch,
               !isPerformingPullRequestAction,
+              !hasRunningAIWorkflow,
               let currentWorktree = activeWorktree,
               currentWorktree.id == worktree.id,
               currentWorktree.canBeRemoved,
               !worktreeStore.isRemovalInProgress(worktreeID: currentWorktree.id)
         else { return }
         NotificationCenter.default.post(name: .removeCurrentWorktreeRequested, object: nil)
-    }
-
-    private func worktreeRemovalLabel(
-        _ state: RepositoryToolbarPresentation.WorktreeRemovalState
-    ) -> String {
-        switch state {
-        case .hidden,
-             .available:
-            "Remove worktree"
-        case .preparing:
-            "Checking…"
-        case .removing:
-            "Removing…"
-        }
     }
 
     private func worktreeRemovalHelp(
@@ -434,6 +462,7 @@ struct TabFocusedRepositoryToolbar: View {
         guard !repositoryState.isSwitchingBranch,
               !repositoryState.isRefreshingPullRequest,
               !isWorktreeRemovalInProgress,
+              !hasRunningAIWorkflow,
               let currentPullRequest = repositoryState.pullRequest,
               pullRequestActionContext(for: currentPullRequest) == context
         else {
@@ -479,6 +508,87 @@ struct TabFocusedRepositoryToolbar: View {
         repositoryState.isMergingPullRequest
             || repositoryState.isClosingPullRequest
             || repositoryState.isUpdatingPullRequestBranch
+    }
+
+    private var isRepositoryBusy: Bool {
+        repositoryState.isSwitchingBranch
+            || isPerformingPullRequestAction
+            || isWorktreeRemovalInProgress
+    }
+
+    private var hasRunningAIWorkflow: Bool {
+        guard let repositoryID = repositoryContext?.id else { return false }
+        return preparingPullRequestRepositoryID == repositoryID || aiActions.isRunning(repositoryID: repositoryID)
+    }
+
+    private func isRunningAIWorkflow(_ action: RepositoryAIAction) -> Bool {
+        guard let repositoryID = repositoryContext?.id else { return false }
+        return (action == .createPullRequest && preparingPullRequestRepositoryID == repositoryID)
+            || aiActions.isRunning(repositoryID: repositoryID, action: action)
+    }
+
+    private func refreshInstalledProviders() async {
+        await LoginShellPath.hydrate()
+        installedProviderIDs = Set(agentLaunchProviders.filter { $0.isAgentCLIInstalled() }.map(\.id))
+    }
+
+    private func runAIRepositoryAction(
+        _ action: RepositoryAIAction,
+        availability: RepositoryAIActionAvailability
+    ) {
+        guard availability == .available,
+              !hasRunningAIWorkflow,
+              let context = repositoryContext
+        else { return }
+
+        if action == .createPullRequest {
+            preparingPullRequestRepositoryID = context.id
+            Task {
+                defer {
+                    if preparingPullRequestRepositoryID == context.id {
+                        preparingPullRequestRepositoryID = nil
+                    }
+                }
+                await repositoryState.refreshPullRequest(forceFresh: true)
+                guard repositoryContext?.id == context.id
+                else { return }
+                guard pullRequestPresence == .none else {
+                    if pullRequestPresence == .unavailable {
+                        ToastState.shared.show("Could not verify that this branch has no pull request.")
+                    }
+                    return
+                }
+                startAIRepositoryAction(action, context: context)
+            }
+            return
+        }
+
+        startAIRepositoryAction(action, context: context)
+    }
+
+    private func startAIRepositoryAction(
+        _ action: RepositoryAIAction,
+        context: RepositoryContext
+    ) {
+        guard let summary = repositoryState.summary else { return }
+        let serviceContext = RepositoryAIActionsService.Context(
+            repositoryID: context.id,
+            path: context.path,
+            workspaceContext: context.workspaceContext,
+            expectedBranch: summary.branch,
+            hasUpstream: summary.aheadBehind.hasUpstream
+        )
+
+        do {
+            try aiActions.start(
+                action: action,
+                context: serviceContext,
+                providers: agentLaunchProviders,
+                installedProviderIDs: installedProviderIDs
+            )
+        } catch {
+            ToastState.shared.show(title: "Could not start \(action.settingsTitle)", body: error.localizedDescription)
+        }
     }
 
     private func branchHelp(_ summary: GitRepositorySummary) -> String {
@@ -538,45 +648,5 @@ private struct RepositoryToolbarChip<Content: View>: View {
         if isOpen { return MuxyTheme.surface }
         if hovered { return MuxyTheme.hover }
         return .clear
-    }
-}
-
-private struct RepositoryToolbarDestructiveButton: View {
-    let label: String
-    let isBusy: Bool
-    let action: () -> Void
-
-    @State private var hovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: UIMetrics.spacing2) {
-                if isBusy {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else {
-                    Image(systemName: "trash")
-                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
-                }
-                Text(label)
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-            }
-            .foregroundStyle(foreground)
-            .padding(.horizontal, UIMetrics.spacing3)
-            .frame(height: UIMetrics.controlSmall)
-            .background(background, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
-            .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovered = $0 }
-    }
-
-    private var foreground: Color {
-        if isBusy { return MuxyTheme.fgMuted }
-        return hovered ? MuxyTheme.diffRemoveFg : MuxyTheme.fgMuted
-    }
-
-    private var background: Color {
-        hovered && !isBusy ? MuxyTheme.hover : .clear
     }
 }

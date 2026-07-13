@@ -1,12 +1,30 @@
 import Foundation
 
-struct GrokProvider: AIProviderIntegration {
+struct GrokProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "grok"
     let displayName = "Grok"
     let socketTypeKey = "grok_hook"
     let iconName = "grok"
     let executableNames = ["grok"]
     let hookScriptName = "muxy-grok-hook"
+
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "grok",
+            headlessArguments: [
+                "--no-auto-update",
+                "--sandbox",
+                "workspace",
+                "--permission-mode",
+                "dontAsk",
+                "--no-subagents",
+                "--disable-web-search",
+                "--output-format",
+                "text",
+                "-p",
+            ]
+        )
+    }
 
     private static let muxyMarker = "muxy-notification-hook"
     private static let hookFileName = "muxy-notify.json"

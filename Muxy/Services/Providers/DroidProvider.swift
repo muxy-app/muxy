@@ -1,12 +1,19 @@
 import Foundation
 
-struct DroidProvider: AIProviderIntegration {
+struct DroidProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "droid"
     let displayName = "Droid"
     let socketTypeKey = "droid_hook"
     let iconName = "factory"
     let executableNames = ["droid"]
     let hookScriptName = "muxy-droid-hook"
+
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "droid",
+            headlessArguments: ["exec", "--output-format", "text"]
+        )
+    }
 
     private static let settingsPath = NSHomeDirectory() + "/.factory/settings.json"
     private static let muxyMarker = "muxy-notification-hook"

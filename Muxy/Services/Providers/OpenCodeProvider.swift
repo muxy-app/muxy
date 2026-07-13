@@ -1,11 +1,19 @@
 import Foundation
 
-struct OpenCodeProvider: AIProviderIntegration {
+struct OpenCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "opencode"
     let displayName = "OpenCode"
     let socketTypeKey = "opencode"
     let iconName = "opencode"
     let executableNames = ["opencode"]
+
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "opencode",
+            headlessArguments: ["run", "--pure"],
+            environment: ["OPENCODE_PERMISSION": #"{"*":"deny"}"#]
+        )
+    }
 
     private static let pluginsDir = NSHomeDirectory() + "/.opencode/plugins"
     private static let pluginFileName = "muxy-notify.js"

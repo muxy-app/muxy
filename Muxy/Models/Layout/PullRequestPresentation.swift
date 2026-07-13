@@ -1,13 +1,6 @@
 import SwiftUI
 
 enum RepositoryToolbarPresentation {
-    enum ContentState: Equatable {
-        case hidden
-        case loading
-        case unavailable(String)
-        case ready
-    }
-
     enum WorktreeRemovalState: Equatable {
         case hidden
         case available
@@ -15,15 +8,10 @@ enum RepositoryToolbarPresentation {
         case removing
     }
 
-    static func contentState(
-        hasRepository: Bool,
-        hasSummary: Bool,
-        error: String?
-    ) -> ContentState {
-        guard hasRepository else { return .hidden }
-        if hasSummary { return .ready }
-        if let error { return .unavailable(error) }
-        return .loading
+    static func branchLabel(summary: GitRepositorySummary?, worktree: Worktree?) -> String {
+        if let summary { return summary.displayBranch }
+        guard let branch = worktree?.branch, !branch.isEmpty else { return "Branch" }
+        return branch
     }
 
     static func worktreeRemovalState(

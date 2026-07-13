@@ -50,6 +50,19 @@ struct AIProviderRegistryTests {
         #expect(AIProviderRegistry.shared.iconName(for: .socket) == "network")
     }
 
+    @Test("metadata providers include every supported CLI")
+    func agentLaunchProvidersIncludeEverySupportedCLI() {
+        #expect(AIProviderRegistry.shared.agentLaunchProviders.map(\.id) == [
+            "claude",
+            "opencode",
+            "codex",
+            "cursor",
+            "droid",
+            "pi",
+            "grok",
+        ])
+    }
+
     @Test("installAll waits for login shell PATH hydration before checking providers")
     func installAllWaitsForLoginShellPathHydrationBeforeCheckingProviders() async {
         let provider = RecordingProvider()

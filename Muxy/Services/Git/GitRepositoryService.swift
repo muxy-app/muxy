@@ -1,6 +1,8 @@
 import Foundation
 
 struct GitRepositoryService {
+    private static let limitedDiffByteCount = 1_048_576
+
     let context: WorkspaceContext
 
     init(context: WorkspaceContext = .local) {
@@ -22,12 +24,14 @@ struct GitRepositoryService {
     private func runGit(
         repoPath: String,
         arguments: [String],
-        lineLimit: Int? = nil
+        lineLimit: Int? = nil,
+        outputByteLimit: Int? = nil
     ) async throws -> GitProcessResult {
         try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: arguments,
             lineLimit: lineLimit,
+            outputByteLimit: outputByteLimit,
             context: context
         )
     }
@@ -1940,8 +1944,14 @@ struct GitRepositoryService {
         if let filePath, !filePath.isEmpty {
             arguments.append(contentsOf: ["--", filePath])
         }
-        let result = try await runGit(repoPath: repoPath, arguments: arguments, lineLimit: lineLimit)
-        guard result.status == 0 else {
+        let result = try await runGit(
+            repoPath: repoPath,
+            arguments: arguments,
+            lineLimit: lineLimit,
+            outputByteLimit: lineLimit == nil ? nil : Self.limitedDiffByteCount
+        )
+        try Task.checkCancellation()
+        guard result.status == 0 || result.truncated else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load diff." : result.stderr)
         }
         return RawDiffResult(diff: result.stdout, truncated: result.truncated)
@@ -1959,9 +1969,11 @@ struct GitRepositoryService {
         let result = try await runGit(
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "\(base)...\(localRef)"],
-            lineLimit: lineLimit
+            lineLimit: lineLimit,
+            outputByteLimit: lineLimit == nil ? nil : Self.limitedDiffByteCount
         )
-        guard result.status == 0 else {
+        try Task.checkCancellation()
+        guard result.status == 0 || result.truncated else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load pull request diff." : result.stderr)
         }
         return RawDiffResult(diff: result.stdout, truncated: result.truncated)
@@ -1991,5 +2003,21 @@ struct GitRepositoryService {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to initialize repository." : result.stderr)
         }
         GitMetadataCache.shared.markVerifiedGitRepo(repoPath: repoPath)
+    }
+}
+
+extension GitRepositoryService: RepositoryAIGitOperating {
+    func createPullRequest(
+        repoPath: String,
+        request: RepositoryAIPullRequestRequest
+    ) async throws -> PRInfo {
+        try await createPullRequest(
+            repoPath: repoPath,
+            branch: request.branch,
+            baseBranch: request.baseBranch,
+            title: request.title,
+            body: request.body,
+            draft: request.draft
+        )
     }
 }

@@ -70,6 +70,15 @@ See [Keyboard Shortcuts](keyboard-shortcuts.md).
 
 See [Terminal](../features/terminal.md#custom-command-shortcuts).
 
+## AI
+
+- **Commit and Push** — choose the provider CLI and edit the instructions used to generate the commit message. Muxy always stages all changes, commits, and pushes; the prompt cannot change that workflow.
+- **Create Pull Request** — choose the provider CLI and edit the instructions used to generate the pull request title, summary, new branch name, and target branch. Muxy validates the response before creating the branch, commit, push, and pull request.
+- **Auto** selects the first available supported provider CLI. Claude Code, Codex, Cursor Agent, Droid, Grok, OpenCode, and Pi are supported.
+- Provider CLIs run non-interactively in the active worktree and return metadata without opening a terminal tab. Muxy disables provider write tools and performs every Git and GitHub mutation through its native services.
+- Prompts are stored as settings, and repository context such as changed paths and capped diffs is sent to the selected provider CLI. Do not put credentials or other secrets in prompts or changes sent to a remote provider.
+- Model selection is not exposed yet. Configure a provider's own defaults when a specific model is required.
+
 ## Voice
 
 - **Press Return after inserting** — sends dictated text immediately.

@@ -1,11 +1,27 @@
 import Foundation
 
-struct ClaudeCodeProvider: AIProviderIntegration {
+struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "claude"
     let displayName = "Claude Code"
     let socketTypeKey = "claude_hook"
     let iconName = "claude"
     let executableNames = ["claude"]
+
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "claude",
+            headlessArguments: [
+                "--print",
+                "--output-format",
+                "text",
+                "--permission-mode",
+                "dontAsk",
+                "--no-session-persistence",
+                "--tools",
+                "",
+            ]
+        )
+    }
 
     private static let settingsPath = NSHomeDirectory() + "/.claude/settings.json"
     private static let muxyMarker = "muxy-notification-hook"

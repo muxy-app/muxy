@@ -223,4 +223,8 @@ final class AIProviderRegistry {
     func iconName(forProviderID id: String) -> String? {
         providers.first(where: { $0.id == id })?.iconName
     }
+
+    var agentLaunchProviders: [any AIAgentLaunchProvider] {
+        providers.compactMap { $0 as? any AIAgentLaunchProvider }
+    }
 }

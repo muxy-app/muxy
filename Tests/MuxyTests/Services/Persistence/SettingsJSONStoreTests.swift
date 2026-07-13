@@ -249,6 +249,38 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func repositoryAIActionSettingsAcceptSupportedProvidersAndPrompts() throws {
+        let keys = [RepositoryAIAction.commit.providerKey, RepositoryAIAction.commit.promptKey]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(RepositoryAIAction.commit.providerKey)": "codex",
+          "\(RepositoryAIAction.commit.promptKey)": "Use Conventional Commits"
+        }
+        """)
+
+        #expect(UserDefaults.standard.string(forKey: RepositoryAIAction.commit.providerKey) == "codex")
+        #expect(UserDefaults.standard.string(forKey: RepositoryAIAction.commit.promptKey) == "Use Conventional Commits")
+    }
+
+    @Test
+    func repositoryAIActionSettingsRejectUnsupportedProviders() throws {
+        let key = RepositoryAIAction.createPullRequest.providerKey
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
+        defer { snapshot.restore() }
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(key)": "unsupported-provider"
+            }
+            """)
+        }
+    }
+
+    @Test
     func tabHeaderWidthRejectsNegativeValues() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [TabWidthPreferences.maxWidthKey])
         defer { snapshot.restore() }

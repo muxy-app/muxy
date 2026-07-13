@@ -4,48 +4,35 @@ import Testing
 
 @Suite("RepositoryToolbarPresentation")
 struct RepositoryToolbarPresentationTests {
-    @Test("hides only when there is no repository")
-    func hidesWithoutRepository() {
-        let state = RepositoryToolbarPresentation.contentState(
-            hasRepository: false,
-            hasSummary: false,
-            error: nil
-        )
+    @Test("uses the worktree branch before repository status loads")
+    func usesWorktreeBranchBeforeRepositoryStatus() {
+        let worktree = Worktree(name: "feature", path: "/worktrees/feature", branch: "feature/toolbar", isPrimary: false)
 
-        #expect(state == .hidden)
+        #expect(RepositoryToolbarPresentation.branchLabel(summary: nil, worktree: worktree) == "feature/toolbar")
     }
 
-    @Test("materializes loading content before the first repository result")
-    func loadsBeforeFirstResult() {
-        let state = RepositoryToolbarPresentation.contentState(
-            hasRepository: true,
-            hasSummary: false,
-            error: nil
-        )
+    @Test("uses a stable branch label when repository status and metadata are unavailable")
+    func usesStableBranchLabelWithoutRepositoryStatus() {
+        let worktree = Worktree(name: "primary", path: "/projects/app", isPrimary: true)
 
-        #expect(state == .loading)
+        #expect(RepositoryToolbarPresentation.branchLabel(summary: nil, worktree: worktree) == "Branch")
     }
 
-    @Test("surfaces repository errors instead of becoming empty")
-    func surfacesRepositoryErrors() {
-        let state = RepositoryToolbarPresentation.contentState(
-            hasRepository: true,
-            hasSummary: false,
-            error: "Not a Git repository"
+    @Test("repository status supersedes stored worktree metadata")
+    func repositoryStatusSupersedesWorktreeMetadata() {
+        let summary = GitRepositorySummary(
+            branch: "feature/current",
+            headOID: "1234567890",
+            isDetached: false,
+            aheadBehind: GitRepositoryService.AheadBehind(ahead: 0, behind: 0, hasUpstream: true),
+            changedCount: 0,
+            stagedCount: 0,
+            unstagedCount: 0,
+            untrackedCount: 0
         )
+        let worktree = Worktree(name: "stale", path: "/worktrees/stale", branch: "feature/stale", isPrimary: false)
 
-        #expect(state == .unavailable("Not a Git repository"))
-    }
-
-    @Test("shows repository content after a summary loads")
-    func showsLoadedRepository() {
-        let state = RepositoryToolbarPresentation.contentState(
-            hasRepository: true,
-            hasSummary: true,
-            error: "Stale error"
-        )
-
-        #expect(state == .ready)
+        #expect(RepositoryToolbarPresentation.branchLabel(summary: summary, worktree: worktree) == "feature/current")
     }
 
     @Test("hides worktree removal without an active worktree")
