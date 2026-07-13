@@ -22,8 +22,8 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
         self.homeDirectory = homeDirectory
     }
 
-    func isAgentCLIInstalled() -> Bool {
-        ProviderExecutableLocator.isInstalled(
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
             names: ["cursor-agent"],
             homeDirectory: homeDirectory,
             pathEnvironment: LoginShellPath.current,

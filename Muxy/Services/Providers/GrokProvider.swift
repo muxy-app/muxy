@@ -58,8 +58,12 @@ struct GrokProvider: AIProviderIntegration, AIAgentLaunchProvider {
     private var hookFilePath: String { hooksDir + "/" + Self.hookFileName }
 
     func isToolInstalled() -> Bool {
-        ProviderExecutableLocator.isInstalled(
-            names: executableNames,
+        agentCLIExecutablePath() != nil
+    }
+
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
             homeDirectory: homeDirectory,
             pathEnvironment: pathEnvironment(),
             includeSystemWide: homeDirectory == NSHomeDirectory()

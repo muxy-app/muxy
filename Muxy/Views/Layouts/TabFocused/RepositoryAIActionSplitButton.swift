@@ -1,5 +1,12 @@
 import SwiftUI
 
+struct RepositoryAIActionProjectPromptConfiguration {
+    let projectName: String
+    let prompt: String?
+    let fallbackPrompt: String
+    let onSave: (String?) -> Void
+}
+
 struct RepositoryAIActionSplitButton: View {
     let action: RepositoryAIAction
     let providers: [any AIAgentLaunchProvider]
@@ -10,11 +17,14 @@ struct RepositoryAIActionSplitButton: View {
     let isRunning: Bool
     let menuDisabled: Bool
     @Binding var configuredProviderID: String
+    let projectPrompt: RepositoryAIActionProjectPromptConfiguration?
     let onRun: () -> Void
 
     @State private var hoveredPrimary = false
     @State private var hoveredMenu = false
     @State private var showingMenu = false
+    @State private var editingProjectPrompt = false
+    @State private var projectPromptDraft = ""
 
     var body: some View {
         HStack(spacing: 0) {
@@ -31,6 +41,20 @@ struct RepositoryAIActionSplitButton: View {
                 .stroke(MuxyTheme.border, lineWidth: 1)
         }
         .popover(isPresented: $showingMenu, arrowEdge: .top) {
+            popoverContent
+        }
+        .onChange(of: showingMenu) { _, isShowing in
+            if !isShowing {
+                editingProjectPrompt = false
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var popoverContent: some View {
+        if editingProjectPrompt, let projectPrompt {
+            projectPromptEditor(projectPrompt)
+        } else {
             providerMenu
         }
     }
@@ -112,9 +136,104 @@ struct RepositoryAIActionSplitButton: View {
                     iconName: provider.iconName
                 )
             }
+
+            if let projectPrompt {
+                Divider().padding(.vertical, UIMetrics.spacing2)
+                projectPromptRow(projectPrompt)
+            }
         }
         .padding(UIMetrics.spacing4)
         .fixedSize(horizontal: true, vertical: true)
+        .background(MuxyTheme.bg)
+    }
+
+    private func projectPromptRow(
+        _ configuration: RepositoryAIActionProjectPromptConfiguration
+    ) -> some View {
+        Button {
+            projectPromptDraft = configuration.prompt ?? configuration.fallbackPrompt
+            editingProjectPrompt = true
+        } label: {
+            HStack(spacing: UIMetrics.spacing3) {
+                Image(systemName: "text.quote")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                    .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+                VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                    Text("Edit Project Prompt…")
+                        .font(.system(size: UIMetrics.fontBody))
+                        .foregroundStyle(MuxyTheme.fg)
+                    Text(configuration.projectName)
+                        .font(.system(size: UIMetrics.fontCaption))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: UIMetrics.spacing6)
+                if configuration.prompt != nil {
+                    Circle()
+                        .fill(MuxyTheme.accent)
+                        .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
+                }
+            }
+            .padding(.horizontal, UIMetrics.spacing3)
+            .frame(minWidth: UIMetrics.scaled(220))
+            .frame(height: UIMetrics.scaled(44))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func projectPromptEditor(
+        _ configuration: RepositoryAIActionProjectPromptConfiguration
+    ) -> some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing4) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                Text("Create PR Prompt")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fg)
+                Text(configuration.projectName)
+                    .font(.system(size: UIMetrics.fontCaption))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+            }
+
+            TextEditor(text: $projectPromptDraft)
+                .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fg)
+                .scrollContentBackground(.hidden)
+                .padding(UIMetrics.spacing3)
+                .frame(height: UIMetrics.scaled(150))
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                .overlay {
+                    RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
+                        .stroke(MuxyTheme.border, lineWidth: 1)
+                }
+
+            Text("This prompt overrides Settings → AI only for this project.")
+                .font(.system(size: UIMetrics.fontCaption))
+                .foregroundStyle(MuxyTheme.fgMuted)
+
+            HStack(spacing: UIMetrics.spacing3) {
+                Button("Use Global Prompt") {
+                    configuration.onSave(nil)
+                    showingMenu = false
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(MuxyTheme.accent)
+                .disabled(configuration.prompt == nil)
+                Spacer(minLength: 0)
+                Button("Cancel") {
+                    editingProjectPrompt = false
+                }
+                Button("Save") {
+                    configuration.onSave(projectPromptDraft)
+                    showingMenu = false
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(RepositoryAIActionPreferences.normalizedPrompt(projectPromptDraft) == nil)
+            }
+            .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+        }
+        .padding(UIMetrics.spacing5)
+        .frame(width: UIMetrics.scaled(380))
         .background(MuxyTheme.bg)
     }
 

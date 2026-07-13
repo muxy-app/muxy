@@ -281,6 +281,7 @@ struct TabFocusedRepositoryToolbar: View {
             isRunning: isRunningAIWorkflow(action),
             menuDisabled: hasRunningAIWorkflow,
             configuredProviderID: providerID,
+            projectPrompt: projectPromptConfiguration(for: action),
             onRun: { runAIRepositoryAction(action, availability: availability) }
         )
     }
@@ -301,6 +302,7 @@ struct TabFocusedRepositoryToolbar: View {
             guard let summary else { return .hidden }
             return RepositoryAIActionPresentation.createPullRequest(
                 pullRequest: pullRequestPresence,
+                isDirty: summary.isDirty,
                 isDetached: summary.isDetached,
                 isRepositoryBusy: isRepositoryBusy,
                 hasRunningAction: hasRunningAIWorkflow
@@ -319,6 +321,20 @@ struct TabFocusedRepositoryToolbar: View {
 
     private var agentLaunchProviders: [any AIAgentLaunchProvider] {
         AIProviderRegistry.shared.agentLaunchProviders
+    }
+
+    private func projectPromptConfiguration(
+        for action: RepositoryAIAction
+    ) -> RepositoryAIActionProjectPromptConfiguration? {
+        guard action == .createPullRequest, let project = activeProject else { return nil }
+        return RepositoryAIActionProjectPromptConfiguration(
+            projectName: project.name,
+            prompt: project.pullRequestPrompt,
+            fallbackPrompt: RepositoryAIActionPreferences.prompt(for: action),
+            onSave: { prompt in
+                projectStore.setPullRequestPrompt(id: project.id, to: prompt)
+            }
+        )
     }
 
     private func selectedProvider(
@@ -584,7 +600,11 @@ struct TabFocusedRepositoryToolbar: View {
                 action: action,
                 context: serviceContext,
                 providers: agentLaunchProviders,
-                installedProviderIDs: installedProviderIDs
+                installedProviderIDs: installedProviderIDs,
+                instructions: RepositoryAIActionPreferences.prompt(
+                    for: action,
+                    projectPrompt: action == .createPullRequest ? activeProject?.pullRequestPrompt : nil
+                )
             )
         } catch {
             ToastState.shared.show(title: "Could not start \(action.settingsTitle)", body: error.localizedDescription)

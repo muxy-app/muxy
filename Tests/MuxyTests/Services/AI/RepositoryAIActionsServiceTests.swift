@@ -64,6 +64,36 @@ struct RepositoryAIActionsServiceTests {
         #expect(provider.id == "first")
     }
 
+    @Test("local launch uses the exact executable found during detection")
+    func localLaunchUsesResolvedExecutable() throws {
+        let provider = RepositoryActionProvider(
+            id: "codex",
+            executablePath: "/custom/bin/codex"
+        )
+
+        let configuration = try #require(RepositoryAIActionsService.resolveLaunchConfiguration(
+            provider: provider,
+            isRemote: false
+        ))
+
+        #expect(configuration.executable == "/custom/bin/codex")
+    }
+
+    @Test("remote launch keeps the executable name for host-side resolution")
+    func remoteLaunchKeepsExecutableName() throws {
+        let provider = RepositoryActionProvider(
+            id: "codex",
+            executablePath: "/custom/bin/codex"
+        )
+
+        let configuration = try #require(RepositoryAIActionsService.resolveLaunchConfiguration(
+            provider: provider,
+            isRemote: true
+        ))
+
+        #expect(configuration.executable == "codex")
+    }
+
     @Test("commit stages, generates metadata, commits, and pushes through native Git")
     func commitWorkflow() async throws {
         let git = RepositoryActionGitMock(stagedDiff: "diff --git a/file b/file")
@@ -145,9 +175,10 @@ struct RepositoryAIActionsServiceTests {
         ])
     }
 
-    @Test("create PR skips the commit when only existing branch commits need a pull request")
-    func pullRequestWorkflowWithoutWorkingTreeChanges() async throws {
+    @Test("create PR rejects a clean working tree even when the branch has commits")
+    func pullRequestWorkflowRejectsCleanWorkingTreeWithBranchCommits() async throws {
         let git = RepositoryActionGitMock(
+            hasChanges: false,
             stagedDiff: "",
             branchDiff: "existing branch commit",
             localBranches: ["feature/native-actions"],
@@ -156,16 +187,17 @@ struct RepositoryAIActionsServiceTests {
         let recorder = RepositoryActionPromptRecorder(response: #"{"title":"Open existing work","summary":"Existing commits.","newBranchName":"muxy/existing-work","targetBranchName":"main"}"#)
         let service = makeService(recorder: recorder)
 
-        _ = try await service.performCreatePullRequest(
-            context: makeContext(),
-            provider: RepositoryActionProvider(id: "claude"),
-            instructions: "",
-            git: git
-        )
+        await #expect(throws: RepositoryAIActionsService.WorkflowError.noChangesForPullRequest) {
+            try await service.performCreatePullRequest(
+                context: makeContext(),
+                provider: RepositoryActionProvider(id: "claude"),
+                instructions: "",
+                git: git
+            )
+        }
 
-        let operations = await git.recordedOperations()
-        #expect(!operations.contains { $0.hasPrefix("commit:") })
-        #expect(operations.contains("pushSetUpstream:muxy/existing-work"))
+        #expect(await git.recordedOperations().isEmpty)
+        #expect(await recorder.recordedPrompt() == nil)
     }
 
     @Test("create PR stops before AI generation when no changes exist")
@@ -189,6 +221,72 @@ struct RepositoryAIActionsServiceTests {
         }
 
         #expect(await git.recordedOperations() == ["stageAll"])
+        #expect(await recorder.recordedPrompt() == nil)
+    }
+
+    @Test("create PR allows the primary branch when the working tree is dirty")
+    func pullRequestWorkflowAllowsDirtyPrimaryBranch() async throws {
+        let git = RepositoryActionGitMock(
+            currentBranch: "main",
+            stagedDiff: "working tree diff",
+            localBranches: ["main"],
+            remoteBranches: ["main"]
+        )
+        let recorder = RepositoryActionPromptRecorder(
+            response: #"{"title":"Open main changes","summary":"Main changes.","newBranchName":"muxy/main-changes","targetBranchName":"main"}"#
+        )
+        let service = makeService(recorder: recorder)
+
+        let outcome = try await service.performCreatePullRequest(
+            context: makeContext(expectedBranch: "main"),
+            provider: RepositoryActionProvider(id: "claude"),
+            instructions: "",
+            git: git
+        )
+
+        #expect(outcome == .pullRequestCreated("https://github.com/muxy-app/muxy/pull/42"))
+        #expect(await git.recordedOperations().first == "stageAll")
+    }
+
+    @Test("create PR rejects a stale branch context before resolving or staging")
+    func pullRequestWorkflowRejectsStaleBranchContext() async throws {
+        let git = RepositoryActionGitMock(currentBranch: "main", stagedDiff: "working tree diff")
+        let recorder = RepositoryActionPromptRecorder(response: "unused")
+        let service = makeService(recorder: recorder)
+
+        await #expect(throws: RepositoryAIActionsService.WorkflowError.contextChanged) {
+            try await service.performCreatePullRequest(
+                context: makeContext(),
+                provider: RepositoryActionProvider(id: "claude"),
+                instructions: "",
+                git: git
+            )
+        }
+
+        #expect(await git.recordedOperations().isEmpty)
+        #expect(await recorder.recordedPrompt() == nil)
+    }
+
+    @Test("create PR rechecks the branch after reading working tree status")
+    func pullRequestWorkflowRejectsBranchChangeDuringStatusResolution() async throws {
+        let git = RepositoryActionGitMock(
+            currentBranch: "feature/native-actions",
+            currentBranchAfterStatusResolution: "main",
+            stagedDiff: "working tree diff"
+        )
+        let recorder = RepositoryActionPromptRecorder(response: "unused")
+        let service = makeService(recorder: recorder)
+
+        await #expect(throws: RepositoryAIActionsService.WorkflowError.contextChanged) {
+            try await service.performCreatePullRequest(
+                context: makeContext(),
+                provider: RepositoryActionProvider(id: "claude"),
+                instructions: "",
+                git: git
+            )
+        }
+
+        #expect(await git.recordedOperations().isEmpty)
         #expect(await recorder.recordedPrompt() == nil)
     }
 
@@ -219,12 +317,15 @@ struct RepositoryAIActionsServiceTests {
         }
     }
 
-    private func makeContext(hasUpstream: Bool = true) -> RepositoryAIActionsService.Context {
+    private func makeContext(
+        hasUpstream: Bool = true,
+        expectedBranch: String = "feature/native-actions"
+    ) -> RepositoryAIActionsService.Context {
         RepositoryAIActionsService.Context(
             repositoryID: "repository",
             path: "/tmp/muxy repository",
             workspaceContext: .local,
-            expectedBranch: "feature/native-actions",
+            expectedBranch: expectedBranch,
             hasUpstream: hasUpstream
         )
     }
@@ -244,16 +345,19 @@ private struct RepositoryActionProvider: AIAgentLaunchProvider {
     let displayName: String
     let iconName = "sparkles"
     let agentLaunchConfiguration: AIAgentLaunchConfiguration
+    let executablePath: String?
 
-    init(id: String, displayName: String? = nil) {
+    init(id: String, displayName: String? = nil, executablePath: String? = nil) {
         self.id = id
         self.displayName = displayName ?? id
+        self.executablePath = executablePath
         agentLaunchConfiguration = AIAgentLaunchConfiguration(
             executable: id,
             headlessArguments: ["--print"]
         )
     }
 
+    func agentCLIExecutablePath() -> String? { executablePath }
     func isAgentCLIInstalled() -> Bool { true }
 }
 
@@ -277,22 +381,31 @@ private actor RepositoryActionPromptRecorder {
 
 private actor RepositoryActionGitMock: RepositoryAIGitOperating {
     private var currentBranchValue: String
+    private let hasChanges: Bool
+    private let currentBranchAfterStatusResolution: String?
     private let stagedDiff: String
     private let branchDiff: String
+    private let defaultBranchValue: String?
     private let localBranches: [String]
     private let remoteBranches: [String]
     private var operations: [String] = []
 
     init(
         currentBranch: String = "feature/native-actions",
+        hasChanges: Bool = true,
+        currentBranchAfterStatusResolution: String? = nil,
         stagedDiff: String,
         branchDiff: String = "",
         localBranches: [String] = ["feature/native-actions"],
-        remoteBranches: [String] = ["main"]
+        remoteBranches: [String] = ["main"],
+        defaultBranch: String? = "main"
     ) {
         currentBranchValue = currentBranch
+        self.hasChanges = hasChanges
+        self.currentBranchAfterStatusResolution = currentBranchAfterStatusResolution
         self.stagedDiff = stagedDiff
         self.branchDiff = branchDiff
+        defaultBranchValue = defaultBranch
         self.localBranches = localBranches
         self.remoteBranches = remoteBranches
     }
@@ -302,7 +415,19 @@ private actor RepositoryActionGitMock: RepositoryAIGitOperating {
     }
 
     func changedFiles(repoPath _: String) async throws -> [GitStatusFile] {
-        []
+        if let currentBranchAfterStatusResolution {
+            currentBranchValue = currentBranchAfterStatusResolution
+        }
+        guard hasChanges else { return [] }
+        return [GitStatusFile(
+            path: "file.txt",
+            oldPath: nil,
+            xStatus: "M",
+            yStatus: " ",
+            additions: 1,
+            deletions: 0,
+            isBinary: false
+        )]
     }
 
     func rawDiff(
@@ -336,7 +461,7 @@ private actor RepositoryActionGitMock: RepositoryAIGitOperating {
     }
 
     func defaultBranch(repoPath _: String) async -> String? {
-        "main"
+        defaultBranchValue
     }
 
     func listBranches(repoPath _: String) async throws -> [String] {
@@ -385,4 +510,5 @@ private actor RepositoryActionGitMock: RepositoryAIGitOperating {
     func recordedOperations() -> [String] {
         operations
     }
+
 }

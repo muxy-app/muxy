@@ -26,13 +26,16 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     private static let muxyMarker = "muxy-notification-hook"
 
     func isToolInstalled() -> Bool {
-        let home = NSHomeDirectory()
-        let paths = [
-            "\(home)/.local/bin/claude",
-            "/usr/local/bin/claude",
-            "/opt/homebrew/bin/claude",
-        ]
-        return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
+        agentCLIExecutablePath() != nil
+    }
+
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
+            homeDirectory: NSHomeDirectory(),
+            pathEnvironment: LoginShellPath.current,
+            includeSystemWide: true
+        )
     }
 
     static let hookEvents: [(settingsKey: String, event: String)] = [

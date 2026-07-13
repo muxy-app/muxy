@@ -80,6 +80,23 @@ struct ProjectStoreTests {
         #expect(persistence.projects.first?.preferredWorktreeParentPath == nil)
     }
 
+    @Test("setPullRequestPrompt persists and clears the project override")
+    func setPullRequestPrompt() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let persistence = ProjectPersistenceStub(initial: [project])
+        let store = ProjectStore(persistence: persistence)
+
+        store.setPullRequestPrompt(id: project.id, to: "Keep the summary concise")
+
+        #expect(store.storedProjects.first?.pullRequestPrompt == "Keep the summary concise")
+        #expect(persistence.projects.first?.pullRequestPrompt == "Keep the summary concise")
+
+        store.setPullRequestPrompt(id: project.id, to: " \n ")
+
+        #expect(store.storedProjects.first?.pullRequestPrompt == nil)
+        #expect(persistence.projects.first?.pullRequestPrompt == nil)
+    }
+
     @Test("setWorktreesEnabled persists the new value")
     func setWorktreesEnabled() {
         let project = Project(name: "Repo", path: "/tmp/repo")

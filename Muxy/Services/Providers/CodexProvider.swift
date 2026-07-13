@@ -55,8 +55,12 @@ struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     func isToolInstalled() -> Bool {
-        ProviderExecutableLocator.isInstalled(
-            names: executableNames,
+        agentCLIExecutablePath() != nil
+    }
+
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
             homeDirectory: homeDirectory,
             pathEnvironment: pathEnvironment(),
             includeSystemWide: homeDirectory == NSHomeDirectory(),

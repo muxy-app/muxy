@@ -58,15 +58,16 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
     private var settingsPath: String { homeDirectory + "/.pi/agent/settings.json" }
 
     func isToolInstalled() -> Bool {
-        let paths = [
-            "\(homeDirectory)/.local/bin/pi",
-            "/usr/local/bin/pi",
-            "/opt/homebrew/bin/pi",
-        ] + pathEnvironment()
-            .split(separator: ":", omittingEmptySubsequences: true)
-            .map { "\($0)/pi" }
+        agentCLIExecutablePath() != nil
+    }
 
-        return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
+            homeDirectory: homeDirectory,
+            pathEnvironment: pathEnvironment(),
+            includeSystemWide: homeDirectory == NSHomeDirectory()
+        )
     }
 
     func isHookInstalled() -> Bool {

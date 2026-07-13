@@ -131,6 +131,21 @@ final class RepositoryAIActionsService {
         return providers.first { installedProviderIDs.contains($0.id) }
     }
 
+    static func resolveLaunchConfiguration(
+        provider: any AIAgentLaunchProvider,
+        isRemote: Bool
+    ) -> AIAgentLaunchConfiguration? {
+        let configuration = provider.agentLaunchConfiguration
+        guard !isRemote else { return configuration }
+        guard let executable = provider.agentCLIExecutablePath() else { return nil }
+        return AIAgentLaunchConfiguration(
+            executable: executable,
+            headlessArguments: configuration.headlessArguments,
+            modelArgument: configuration.modelArgument,
+            environment: configuration.environment
+        )
+    }
+
     func isRunning(repositoryID: String, action: RepositoryAIAction? = nil) -> Bool {
         guard let running = activeRuns[repositoryID] else { return false }
         return action == nil || running == action
@@ -141,6 +156,7 @@ final class RepositoryAIActionsService {
         context: Context,
         providers: [any AIAgentLaunchProvider],
         installedProviderIDs: Set<String>,
+        instructions: String? = nil,
         defaults: UserDefaults = .standard
     ) throws {
         guard activeRuns[context.repositoryID] == nil else {
@@ -160,12 +176,16 @@ final class RepositoryAIActionsService {
         else {
             throw StartError.noProviderAvailable
         }
-        guard context.workspaceContext.isRemote || installedProviderIDs.contains(provider.id) else {
+        guard let launchConfiguration = Self.resolveLaunchConfiguration(
+            provider: provider,
+            isRemote: context.workspaceContext.isRemote
+        )
+        else {
             throw StartError.cliNotInstalled(provider.displayName)
         }
 
         activeRuns[context.repositoryID] = action
-        let instructions = RepositoryAIActionPreferences.prompt(for: action, defaults: defaults)
+        let resolvedInstructions = instructions ?? RepositoryAIActionPreferences.prompt(for: action, defaults: defaults)
         tasks[context.repositoryID] = Task { [weak self] in
             guard let self else { return }
             let result: Result<Outcome, Error>
@@ -176,14 +196,16 @@ final class RepositoryAIActionsService {
                     try await performCommit(
                         context: context,
                         provider: provider,
-                        instructions: instructions,
+                        launchConfiguration: launchConfiguration,
+                        instructions: resolvedInstructions,
                         git: git
                     )
                 case .createPullRequest:
                     try await performCreatePullRequest(
                         context: context,
                         provider: provider,
-                        instructions: instructions,
+                        launchConfiguration: launchConfiguration,
+                        instructions: resolvedInstructions,
                         git: git
                     )
                 }
@@ -198,6 +220,7 @@ final class RepositoryAIActionsService {
     func performCommit(
         context: Context,
         provider: any AIAgentLaunchProvider,
+        launchConfiguration: AIAgentLaunchConfiguration? = nil,
         instructions: String,
         git: any RepositoryAIGitOperating
     ) async throws -> Outcome {
@@ -218,7 +241,7 @@ final class RepositoryAIActionsService {
         )
         let response = try await generateText(
             prompt,
-            provider.agentLaunchConfiguration,
+            launchConfiguration ?? provider.agentLaunchConfiguration,
             provider.displayName,
             context.path,
             context.workspaceContext
@@ -239,9 +262,16 @@ final class RepositoryAIActionsService {
     func performCreatePullRequest(
         context: Context,
         provider: any AIAgentLaunchProvider,
+        launchConfiguration: AIAgentLaunchConfiguration? = nil,
         instructions: String,
         git: any RepositoryAIGitOperating
     ) async throws -> Outcome {
+        try await verifyBranch(context, git: git)
+        let changedFiles = try await git.changedFiles(repoPath: context.path)
+        guard !changedFiles.isEmpty else {
+            throw WorkflowError.noChangesForPullRequest
+        }
+        try await verifyBranch(context, git: git)
         try await git.stageAll(repoPath: context.path)
         let metadataContext = try await makeMetadataContext(
             context: context,
@@ -259,7 +289,7 @@ final class RepositoryAIActionsService {
         )
         let response = try await generateText(
             prompt,
-            provider.agentLaunchConfiguration,
+            launchConfiguration ?? provider.agentLaunchConfiguration,
             provider.displayName,
             context.path,
             context.workspaceContext

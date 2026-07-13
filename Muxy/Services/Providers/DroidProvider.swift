@@ -27,14 +27,17 @@ struct DroidProvider: AIProviderIntegration, AIAgentLaunchProvider {
     ]
 
     func isToolInstalled() -> Bool {
-        let home = NSHomeDirectory()
-        let paths = [
-            "\(home)/.factory/bin/droid",
-            "\(home)/.local/bin/droid",
-            "/usr/local/bin/droid",
-            "/opt/homebrew/bin/droid",
-        ]
-        return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
+        agentCLIExecutablePath() != nil
+    }
+
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
+            homeDirectory: NSHomeDirectory(),
+            pathEnvironment: LoginShellPath.current,
+            includeSystemWide: true,
+            homeRelativeBins: [".factory/bin", ".local/bin"]
+        )
     }
 
     func isHookInstalled() -> Bool {

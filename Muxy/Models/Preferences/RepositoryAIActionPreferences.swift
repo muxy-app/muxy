@@ -66,12 +66,23 @@ enum RepositoryAIActionPreferences {
 
     static func prompt(
         for action: RepositoryAIAction,
+        projectPrompt: String? = nil,
         defaults: UserDefaults = .standard
     ) -> String {
+        if action == .createPullRequest, let projectPrompt = normalizedPrompt(projectPrompt) {
+            return projectPrompt
+        }
         guard let stored = defaults.string(forKey: action.promptKey),
               !stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return action.defaultPrompt }
         return stored
+    }
+
+    static func normalizedPrompt(_ prompt: String?) -> String? {
+        guard let prompt,
+              !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return prompt
     }
 }
 
@@ -113,6 +124,7 @@ enum RepositoryAIActionPresentation {
 
     static func createPullRequest(
         pullRequest: RepositoryPullRequestPresence,
+        isDirty: Bool,
         isDetached: Bool,
         isRepositoryBusy: Bool,
         hasRunningAction: Bool
@@ -127,6 +139,7 @@ enum RepositoryAIActionPresentation {
         if isDetached {
             return .disabled("Switch to a branch before creating a pull request.")
         }
+        guard isDirty else { return .disabled("The working tree is clean.") }
         return .available
     }
 }

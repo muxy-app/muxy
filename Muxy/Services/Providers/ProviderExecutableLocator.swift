@@ -32,17 +32,36 @@ enum ProviderExecutableLocator {
         homeRelativeBins: [String] = [".local/bin"],
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> Bool {
+        executablePath(
+            names: names,
+            homeDirectory: homeDirectory,
+            pathEnvironment: pathEnvironment,
+            includeSystemWide: includeSystemWide,
+            homeRelativeBins: homeRelativeBins,
+            isExecutable: isExecutable
+        ) != nil
+    }
+
+    static func executablePath(
+        names: [String],
+        homeDirectory: String,
+        pathEnvironment: String,
+        includeSystemWide: Bool,
+        homeRelativeBins: [String] = [".local/bin"],
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> String? {
         let directories = candidateDirectories(
             homeDirectory: homeDirectory,
             pathEnvironment: pathEnvironment,
             includeSystemWide: includeSystemWide,
             homeRelativeBins: homeRelativeBins
         )
-        return names.contains { name in
-            directories.contains { directory in
+        for name in names {
+            for directory in directories {
                 let path = URL(fileURLWithPath: directory).appendingPathComponent(name).path
-                return isExecutable(path)
+                if isExecutable(path) { return path }
             }
         }
+        return nil
     }
 }

@@ -21,14 +21,17 @@ struct OpenCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     private static let pluginScriptName = "opencode-muxy-plugin.js"
 
     func isToolInstalled() -> Bool {
-        let home = NSHomeDirectory()
-        let paths = [
-            "\(home)/.opencode/bin/opencode",
-            "\(home)/.local/bin/opencode",
-            "/usr/local/bin/opencode",
-            "/opt/homebrew/bin/opencode",
-        ]
-        return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
+        agentCLIExecutablePath() != nil
+    }
+
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
+            homeDirectory: NSHomeDirectory(),
+            pathEnvironment: LoginShellPath.current,
+            includeSystemWide: true,
+            homeRelativeBins: [".opencode/bin", ".local/bin"]
+        )
     }
 
     func isHookInstalled() -> Bool {

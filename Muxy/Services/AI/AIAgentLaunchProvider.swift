@@ -50,16 +50,21 @@ protocol AIAgentLaunchProvider {
     var iconName: String { get }
     var agentLaunchConfiguration: AIAgentLaunchConfiguration { get }
 
+    func agentCLIExecutablePath() -> String?
     func isAgentCLIInstalled() -> Bool
 }
 
-extension AIAgentLaunchProvider where Self: AIProviderIntegration {
-    func isAgentCLIInstalled() -> Bool {
-        isToolInstalled() || ProviderExecutableLocator.isInstalled(
+extension AIAgentLaunchProvider {
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
             names: [agentLaunchConfiguration.executable],
             homeDirectory: NSHomeDirectory(),
             pathEnvironment: LoginShellPath.current,
             includeSystemWide: true
         )
+    }
+
+    func isAgentCLIInstalled() -> Bool {
+        agentCLIExecutablePath() != nil
     }
 }

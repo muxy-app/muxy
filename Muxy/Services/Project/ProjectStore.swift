@@ -86,6 +86,12 @@ final class ProjectStore {
         save()
     }
 
+    func setPullRequestPrompt(id: UUID, to prompt: String?) {
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
+        storedProjects[index].pullRequestPrompt = RepositoryAIActionPreferences.normalizedPrompt(prompt)
+        save()
+    }
+
     func markActive(id: UUID) {
         guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
         storedProjects[index].lastActiveAt = Date()

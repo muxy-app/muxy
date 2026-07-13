@@ -264,7 +264,7 @@ await muxy.exec(['ls'], { cwd: '~', timeoutMs: 5000 });
 - Default cwd is the active worktree; override with `options.cwd` (`~` expands).
 - Default timeout is 30 s. On timeout the child gets `SIGTERM`, then `SIGKILL` 2 s later, and the Promise resolves with `timedOut: true`.
 - stdout and stderr are each capped at 10 MB independently; if either is exceeded it resolves with `truncated: true` and the captured prefix.
-- `PATH` is taken from the user's login shell at startup, so `git`, `npm`, etc. resolve without absolute paths.
+- `PATH` is taken from the user's interactive login shell at startup, so `git`, `npm`, etc. resolve without absolute paths.
 
 ### Subscribing to workspace events
 

@@ -84,6 +84,20 @@ struct ProviderExecutableLocatorTests {
         #expect(installed)
     }
 
+    @Test("executablePath returns the same candidate used for detection")
+    func executablePathReturnsDetectedCandidate() {
+        let executable = ProviderExecutableLocator.executablePath(
+            names: ["codex"],
+            homeDirectory: "/tmp/fixture-home",
+            pathEnvironment: "/custom/bin",
+            includeSystemWide: false,
+            homeRelativeBins: [".npm-global/bin"],
+            isExecutable: { $0 == "/custom/bin/codex" }
+        )
+
+        #expect(executable == "/custom/bin/codex")
+    }
+
     @Test("isInstalled ignores system-wide paths when includeSystemWide is false even if probe would accept them")
     func doesNotProbeSystemWideWhenDisabled() {
         var probed: [String] = []

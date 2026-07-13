@@ -41,6 +41,29 @@ struct RepositoryAIActionPreferencesTests {
         #expect(RepositoryAIActionPreferences.prompt(for: .commit, defaults: defaults) == RepositoryAIAction.commit.defaultPrompt)
     }
 
+    @Test("project prompt overrides only the Create PR global prompt")
+    func projectPromptOverride() {
+        let defaults = makeDefaults()
+        defaults.set("Global commit prompt", forKey: RepositoryAIAction.commit.promptKey)
+        defaults.set("Global PR prompt", forKey: RepositoryAIAction.createPullRequest.promptKey)
+
+        #expect(RepositoryAIActionPreferences.prompt(
+            for: .createPullRequest,
+            projectPrompt: "Project PR prompt",
+            defaults: defaults
+        ) == "Project PR prompt")
+        #expect(RepositoryAIActionPreferences.prompt(
+            for: .createPullRequest,
+            projectPrompt: " \n ",
+            defaults: defaults
+        ) == "Global PR prompt")
+        #expect(RepositoryAIActionPreferences.prompt(
+            for: .commit,
+            projectPrompt: "Project PR prompt",
+            defaults: defaults
+        ) == "Global commit prompt")
+    }
+
     @Test("commit presentation protects repository state")
     func commitPresentation() {
         #expect(RepositoryAIActionPresentation.commit(
@@ -90,6 +113,7 @@ struct RepositoryAIActionPreferencesTests {
         ] {
             #expect(RepositoryAIActionPresentation.createPullRequest(
                 pullRequest: presence,
+                isDirty: true,
                 isDetached: false,
                 isRepositoryBusy: false,
                 hasRunningAction: false
@@ -97,16 +121,25 @@ struct RepositoryAIActionPreferencesTests {
         }
         #expect(RepositoryAIActionPresentation.createPullRequest(
             pullRequest: .none,
+            isDirty: true,
             isDetached: false,
             isRepositoryBusy: false,
             hasRunningAction: false
         ) == .available)
         #expect(RepositoryAIActionPresentation.createPullRequest(
             pullRequest: .none,
+            isDirty: true,
             isDetached: true,
             isRepositoryBusy: false,
             hasRunningAction: false
         ) == .disabled("Switch to a branch before creating a pull request."))
+        #expect(RepositoryAIActionPresentation.createPullRequest(
+            pullRequest: .none,
+            isDirty: false,
+            isDetached: false,
+            isRepositoryBusy: false,
+            hasRunningAction: false
+        ) == .disabled("The working tree is clean."))
     }
 
     private func makeDefaults() -> UserDefaults {

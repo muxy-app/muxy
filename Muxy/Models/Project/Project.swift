@@ -11,6 +11,7 @@ struct Project: Identifiable, Codable, Hashable {
     var logo: String?
     var iconColor: String?
     var preferredWorktreeParentPath: String?
+    var pullRequestPrompt: String?
     var worktreesEnabled: Bool
     var isPinned: Bool
     var remoteWorkspaceID: UUID?
@@ -34,6 +35,7 @@ struct Project: Identifiable, Codable, Hashable {
         self.logo = nil
         self.iconColor = nil
         self.preferredWorktreeParentPath = nil
+        self.pullRequestPrompt = nil
         self.worktreesEnabled = false
         self.isPinned = false
         self.remoteWorkspaceID = remoteWorkspaceID
@@ -54,6 +56,7 @@ struct Project: Identifiable, Codable, Hashable {
         logo = try container.decodeIfPresent(String.self, forKey: .logo)
         iconColor = try container.decodeIfPresent(String.self, forKey: .iconColor)
         preferredWorktreeParentPath = try container.decodeIfPresent(String.self, forKey: .preferredWorktreeParentPath)
+        pullRequestPrompt = try container.decodeIfPresent(String.self, forKey: .pullRequestPrompt)
         worktreesEnabled = try container.decodeIfPresent(Bool.self, forKey: .worktreesEnabled) ?? false
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         remoteWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .remoteWorkspaceID)
