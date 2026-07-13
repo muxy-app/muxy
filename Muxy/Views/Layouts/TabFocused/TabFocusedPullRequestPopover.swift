@@ -222,11 +222,12 @@ struct TabFocusedPullRequestPopover: View {
 
     private var confirmationCancelButton: some View {
         Button(action: cancelConfirmation) {
-            Label("Cancel", systemImage: "xmark")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+            Image(systemName: "xmark")
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .padding(.horizontal, UIMetrics.spacing3)
-                .frame(height: UIMetrics.controlMedium)
+                .padding(.horizontal, UIMetrics.spacing4)
+                .padding(.vertical, UIMetrics.spacing3)
+                .frame(maxHeight: .infinity)
                 .background(
                     isCancelHovered ? MuxyTheme.hover : MuxyTheme.surface,
                     in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
