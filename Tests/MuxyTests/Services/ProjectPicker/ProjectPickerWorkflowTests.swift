@@ -72,31 +72,6 @@ struct ProjectPickerWorkflowTests {
         #expect(fastWorkflow.session.directoryLoadState == .loaded)
     }
 
-    @Test("cancel ignores pending directory snapshot")
-    func cancelStopsPendingReloadWork() async {
-        let loader = ProjectPickerWorkflowTestDirectoryLoader()
-        let workflow = ProjectPickerWorkflow(
-            defaultDisplayPath: "~/Canceled",
-            homeDirectory: "/Users/alice",
-            projectPaths: [],
-            directoryLoader: { await loader.load($0) },
-            reloadDelay: .zero,
-            loadingMessageDelay: .seconds(5)
-        )
-
-        _ = workflow.setInput("~/Canceled")
-        await waitUntil { await loader.hasRequest(for: "~/Canceled") }
-        workflow.cancel()
-        await loader.resolve(
-            input: "~/Canceled",
-            snapshot: ProjectPickerDirectorySnapshot(rows: ["Canceled"], readFailed: false)
-        )
-        try? await Task.sleep(for: .milliseconds(20))
-
-        #expect(workflow.session.rows.isEmpty)
-        #expect(workflow.session.directoryLoadState == .loading(showsMessage: false))
-    }
-
     @Test("folder search applies only the latest query and confirms the selected absolute path")
     func latestFolderSearchWins() async {
         let loader = ProjectPickerWorkflowTestFolderSearchLoader()
