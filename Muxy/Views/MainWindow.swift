@@ -113,7 +113,7 @@ struct MainWindow: View {
     private var appBackgroundStyle: AppBackgroundStyle { AppBackgroundStyle.resolve(appBackgroundStyleRaw) }
     private var isTabFocused: Bool { layoutStore.layout == .tabFocused && !isExtensionSidebarActive }
 
-    private var showsBreadcrumb: Bool { layout.topbar == .breadcrumb && !isExtensionSidebarActive }
+    private var showsRepositoryStatus: Bool { layout.topbar == .repositoryStatus && !isExtensionSidebarActive }
 
     var body: some View {
         windowColumns
@@ -148,7 +148,7 @@ struct MainWindow: View {
         MainWindowChrome(
             worktreeActions: WorktreeActionsModifier(
                 creationProject: $worktreeCreationProject,
-                pendingRemoval: $pendingWorktreeRemoval,
+                pendingRemoval: pendingWorktreeRemovalBinding,
                 onCreateRequested: beginCreateWorktree,
                 onRemoveCurrentRequested: requestRemoveCurrentWorktree,
                 onCreateResult: handleCreateWorktreeResult,
@@ -176,6 +176,20 @@ struct MainWindow: View {
             dragCoordinator: dragCoordinator,
             showTerminalOmnibox: showTerminalOmnibox,
             showProjectPicker: showProjectPicker
+        )
+    }
+
+    private var pendingWorktreeRemovalBinding: Binding<PendingWorktreeRemoval?> {
+        Binding(
+            get: { pendingWorktreeRemoval },
+            set: { removal in
+                let previousRemoval = pendingWorktreeRemoval
+                pendingWorktreeRemoval = removal
+                guard removal == nil, let previousRemoval else { return }
+                worktreeStore.endRemovalPreparation(
+                    worktreeID: previousRemoval.confirmation.worktree.id
+                )
+            }
         )
     }
 
@@ -396,11 +410,6 @@ struct MainWindow: View {
             }
 
             topBarContent
-                .overlay(alignment: .leading) {
-                    if showsBreadcrumb {
-                        TabFocusedBreadcrumb()
-                    }
-                }
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
@@ -544,12 +553,13 @@ struct MainWindow: View {
         {
             PaneTabStrip(
                 areaID: area.id,
-                tabs: showsBreadcrumb ? [] : PaneTabStrip.snapshots(from: area.tabs),
+                tabs: showsRepositoryStatus ? [] : PaneTabStrip.snapshots(from: area.tabs),
                 activeTabID: area.activeTabID,
                 isFocused: true,
                 isWindowTitleBar: true,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
                 openInIDEProjectPath: project.isRemote ? nil : activeWorktreePath(for: project),
+                leadingAccessory: showsRepositoryStatus ? AnyView(TabFocusedRepositoryToolbar()) : nil,
                 projectID: project.id,
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -617,42 +627,57 @@ struct MainWindow: View {
                 }
             )
         } else {
-            WindowDragRepresentable(alwaysEnabled: true)
-                .overlay {
-                    HStack {
-                        if let project = activeProject, !showsBreadcrumb {
-                            Text(project.name)
-                                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-                                .foregroundStyle(MuxyTheme.fgMuted)
-                                .padding(.leading, UIMetrics.spacing6)
-                        }
-                        Spacer(minLength: 0)
+            HStack(spacing: 0) {
+                if showsRepositoryStatus {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        TabFocusedRepositoryToolbar()
                     }
-                    .allowsHitTesting(false)
-                }
-                .overlay(alignment: .trailing) {
-                    HStack(spacing: 0) {
-                        if let version = UpdateService.shared.availableUpdateVersion {
-                            UpdateBadge(version: version) {
-                                UpdateService.shared.checkForUpdates()
+                    .frame(maxWidth: .infinity)
+                    .background(WindowDragRepresentable(alwaysEnabled: true))
+                } else {
+                    WindowDragRepresentable(alwaysEnabled: true)
+                        .overlay {
+                            HStack {
+                                if let project = activeProject {
+                                    Text(project.name)
+                                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                                        .foregroundStyle(MuxyTheme.fgMuted)
+                                        .padding(.leading, UIMetrics.spacing6)
+                                }
+                                Spacer(minLength: 0)
                             }
-                            .padding(.trailing, UIMetrics.spacing2)
+                            .allowsHitTesting(false)
                         }
-                        if AppEnvironment.isDevelopment {
-                            devModeBadge
-                                .padding(.trailing, UIMetrics.spacing3)
-                        }
-                        if let project = activeProject {
-                            if !project.isRemote {
-                                OpenInIDEControl(projectPath: activeWorktreePath(for: project), projectID: project.id)
-                            }
-                            LayoutPickerMenu(projectID: project.id)
-                        }
-                        ExtensionTopbarItems()
-                    }
-                    .padding(.trailing, UIMetrics.spacing2)
                 }
+                fallbackTopbarActions
+            }
+            .frame(height: UIMetrics.scaled(32))
         }
+    }
+
+    private var fallbackTopbarActions: some View {
+        HStack(spacing: 0) {
+            if let version = UpdateService.shared.availableUpdateVersion {
+                UpdateBadge(version: version) {
+                    UpdateService.shared.checkForUpdates()
+                }
+                .padding(.trailing, UIMetrics.spacing2)
+            }
+            if AppEnvironment.isDevelopment {
+                devModeBadge
+                    .padding(.trailing, UIMetrics.spacing3)
+            }
+            if let project = activeProject {
+                if !project.isRemote {
+                    OpenInIDEControl(projectPath: activeWorktreePath(for: project), projectID: project.id)
+                }
+                LayoutPickerMenu(projectID: project.id)
+            }
+            ExtensionTopbarItems()
+        }
+        .padding(.trailing, UIMetrics.spacing2)
+        .fixedSize(horizontal: true, vertical: false)
+        .background(WindowDragRepresentable(alwaysEnabled: true))
     }
 
     private var overlayActive: Bool {
@@ -1163,30 +1188,85 @@ struct MainWindow: View {
                   project: project,
                   appState: appState,
                   worktreeStore: worktreeStore
-              )
+              ),
+              WorktreeRemovalRequestPolicy.canStartInspection(
+                  hasPendingConfirmation: pendingWorktreeRemoval != nil,
+                  isInspecting: worktreeStore.hasRemovalPreparation,
+                  isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id)
+              ),
+              worktreeStore.beginRemovalPreparation(worktree: worktree)
         else { return }
-        Task { await requestRemoveWorktree(worktree, in: project) }
+        let request = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
+        Task { await requestRemoveWorktree(worktree, in: project, request: request) }
     }
 
     @MainActor
-    private func requestRemoveWorktree(_ worktree: Worktree, in project: Project) async {
+    private func requestRemoveWorktree(
+        _ worktree: Worktree,
+        in project: Project,
+        request: WorktreeKey
+    ) async {
+        var keepsRemovalPreparation = false
+        defer {
+            if !keepsRemovalPreparation {
+                worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
+            }
+        }
         let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
             worktreePath: worktree.path,
             context: projectGroupStore.workspaceContext(for: project)
         )
+        let currentProject = activeProject
+        let currentWorktree = WorktreeActionEligibility.removableCurrentWorktree(
+            project: currentProject,
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+        let currentRequest = currentProject.flatMap { currentProject in
+            currentWorktree.map {
+                WorktreeKey(projectID: currentProject.id, worktreeID: $0.id)
+            }
+        }
+        let confirmationConditions = WorktreeRemovalRequestPolicy.ConfirmationConditions(
+            expected: request,
+            current: currentRequest,
+            isRegistered: worktreeStore.worktree(
+                projectID: project.id,
+                worktreeID: worktree.id
+            ) == worktree,
+            isPreparing: worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
+            isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id),
+            hasPendingConfirmation: pendingWorktreeRemoval != nil
+        )
+        guard WorktreeRemovalRequestPolicy.canPresentConfirmation(confirmationConditions)
+        else { return }
         pendingWorktreeRemoval = PendingWorktreeRemoval(
             project: project,
             confirmation: WorktreeRemovalConfirmation(worktree: worktree, hasUncommittedChanges: hasChanges)
         )
+        keepsRemovalPreparation = true
     }
 
     private func performRemoveWorktree(_ pending: PendingWorktreeRemoval) {
         let project = pending.project
-        let worktree = pending.confirmation.worktree
+        guard activeProject?.id == project.id,
+              let worktree = worktreeStore.worktree(
+                  projectID: project.id,
+                  worktreeID: pending.confirmation.worktree.id
+              ),
+              WorktreeActionEligibility.removableCurrentWorktree(
+                  project: project,
+                  appState: appState,
+                  worktreeStore: worktreeStore
+              )?.id == worktree.id,
+              worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
+              !worktreeStore.isRemoving(worktreeID: worktree.id)
+        else { return }
         let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.id == appState.activeWorktreeID[project.id] })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
+        worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
         worktreeStore.beginRemoval(
             worktree: worktree,
             repoPath: project.path,

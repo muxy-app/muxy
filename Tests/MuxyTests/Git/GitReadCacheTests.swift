@@ -62,7 +62,83 @@ struct GitReadCacheTests {
         #expect(newest == ["file=199"])
     }
 
+    @Test("isolates pull request entries and invalidation by workspace context")
+    func pullRequestContextIsolation() throws {
+        let cache = GitMetadataCache.shared
+        let repoPath = "/repo/pr-context-\(UUID().uuidString)"
+        let branch = "feature"
+        let headSha = "abc123"
+        let localContext = WorkspaceContext.local
+        let remoteContext = WorkspaceContext.ssh(SSHDestination(host: "example.test"))
+        let localInfo = pullRequestInfo(number: 41)
+        let remoteInfo = pullRequestInfo(number: 42)
+        defer {
+            cache.invalidatePRInfo(context: localContext, repoPath: repoPath)
+            cache.invalidatePRInfo(context: remoteContext, repoPath: repoPath)
+        }
+
+        cache.storePRInfo(
+            localInfo,
+            context: localContext,
+            repoPath: repoPath,
+            branch: branch,
+            headSha: headSha
+        )
+        cache.storePRInfo(
+            remoteInfo,
+            context: remoteContext,
+            repoPath: repoPath,
+            branch: branch,
+            headSha: headSha
+        )
+
+        let localEntry = try #require(cache.cachedPRInfo(
+            context: localContext,
+            repoPath: repoPath,
+            branch: branch,
+            headSha: headSha
+        ))
+        let remoteEntry = try #require(cache.cachedPRInfo(
+            context: remoteContext,
+            repoPath: repoPath,
+            branch: branch,
+            headSha: headSha
+        ))
+        #expect(localEntry == localInfo)
+        #expect(remoteEntry == remoteInfo)
+
+        cache.invalidatePRInfo(context: localContext, repoPath: repoPath)
+
+        #expect(cache.cachedPRInfo(
+            context: localContext,
+            repoPath: repoPath,
+            branch: branch,
+            headSha: headSha
+        ) == nil)
+        let retainedRemoteEntry = try #require(cache.cachedPRInfo(
+            context: remoteContext,
+            repoPath: repoPath,
+            branch: branch,
+            headSha: headSha
+        ))
+        #expect(retainedRemoteEntry == remoteInfo)
+    }
+
     private func key(_ repoPath: String) -> GitMetadataCache.ReadKey {
         GitMetadataCache.ReadKey(repoPath: repoPath, endpoint: "branches", params: "")
+    }
+
+    private func pullRequestInfo(number: Int) -> GitRepositoryService.PRInfo {
+        GitRepositoryService.PRInfo(
+            url: "https://github.com/muxy-app/muxy/pull/\(number)",
+            number: number,
+            state: .open,
+            isDraft: false,
+            baseBranch: "main",
+            mergeable: true,
+            mergeStateStatus: .clean,
+            checks: .init(status: .success, passing: 1, failing: 0, pending: 0, total: 1),
+            isCrossRepository: false
+        )
     }
 }

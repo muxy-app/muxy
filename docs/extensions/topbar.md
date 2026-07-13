@@ -1,6 +1,6 @@
 # Topbar Items
 
-A topbar item is an icon Muxy adds to the right-hand cluster of the tab strip — the same row that holds the VCS, file-diff, and file-tree buttons. Clicking it runs one of the extension's declared [commands](palette-commands.md).
+A topbar item is an icon Muxy adds to the right-hand cluster of the tab strip, just before the built-in split and new-tab controls. Clicking it runs one of the extension's declared [commands](palette-commands.md).
 
 ```json
 {

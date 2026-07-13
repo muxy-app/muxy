@@ -14,11 +14,13 @@ flowchart TB
 
 ## Worktree picker
 
-Click the worktree button in the topbar to:
+Use the active project's worktree rows in the sidebar to:
 
 - See all known worktrees and their branches.
 - Create a new git worktree.
 - Refresh the list (picks up worktrees created externally with `git worktree add`).
+
+In Tab Focused layout, worktrees appear directly beneath their project so the top bar can show repository and pull-request status for the selected worktree.
 
 ## Creating a worktree
 
@@ -74,4 +76,5 @@ Per-project worktree records live at `~/Library/Application Support/Muxy/worktre
 ## Notes
 
 - Switching worktrees does **not** kill running terminals — they stay alive; you just see a different worktree's tabs.
+- In Tab Focused layout, remove the active secondary worktree from the top bar. Removal still runs any configured teardown commands and warns before discarding uncommitted changes.
 - The primary worktree (project root) is always present and cannot be deleted from Muxy.

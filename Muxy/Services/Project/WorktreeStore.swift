@@ -15,6 +15,7 @@ struct WorktreeCreationRequest {
 @Observable
 final class WorktreeStore {
     private(set) var worktrees: [UUID: [Worktree]] = [:]
+    private(set) var preparingRemovalWorktreeIDs: Set<UUID> = []
     private(set) var removingWorktreeIDs: Set<UUID> = []
     private var projectIDByPath: [String: UUID] = [:]
     private let persistence: any WorktreePersisting
@@ -170,13 +171,37 @@ final class WorktreeStore {
         removingWorktreeIDs.contains(worktreeID)
     }
 
+    var hasRemovalPreparation: Bool {
+        !preparingRemovalWorktreeIDs.isEmpty
+    }
+
+    func isPreparingRemoval(worktreeID: UUID) -> Bool {
+        preparingRemovalWorktreeIDs.contains(worktreeID)
+    }
+
+    func isRemovalInProgress(worktreeID: UUID) -> Bool {
+        isPreparingRemoval(worktreeID: worktreeID) || isRemoving(worktreeID: worktreeID)
+    }
+
+    func beginRemovalPreparation(worktree: Worktree) -> Bool {
+        guard worktree.canBeRemoved, !isRemoving(worktreeID: worktree.id) else { return false }
+        return preparingRemovalWorktreeIDs.insert(worktree.id).inserted
+    }
+
+    func endRemovalPreparation(worktreeID: UUID) {
+        preparingRemovalWorktreeIDs.remove(worktreeID)
+    }
+
     func beginRemoval(
         worktree: Worktree,
         repoPath: String,
         context: WorkspaceContext,
         onSuccess: @escaping @MainActor () -> Void
     ) {
-        guard worktree.canBeRemoved, removingWorktreeIDs.insert(worktree.id).inserted else { return }
+        guard worktree.canBeRemoved,
+              !isPreparingRemoval(worktreeID: worktree.id),
+              removingWorktreeIDs.insert(worktree.id).inserted
+        else { return }
         Task { [weak self] in
             do {
                 try await WorktreeStore.cleanupOnDisk(

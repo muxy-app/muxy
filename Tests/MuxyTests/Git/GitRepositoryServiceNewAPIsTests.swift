@@ -5,6 +5,37 @@ import Testing
 
 @Suite("GitRepositoryService new extension APIs")
 struct GitRepositoryServiceNewAPIsTests {
+    @Test("resolves GitHub CLI locally from the local executable search")
+    func resolvesLocalGitHubCLI() {
+        let resolved = GitRepositoryService.resolveGhExecutable(
+            context: .local,
+            localResolver: { executable in executable == "gh" ? "/local/bin/gh" : nil }
+        )
+
+        #expect(resolved == "/local/bin/gh")
+    }
+
+    @Test("reports a missing local GitHub CLI")
+    func reportsMissingLocalGitHubCLI() {
+        let resolved = GitRepositoryService.resolveGhExecutable(
+            context: .local,
+            localResolver: { _ in nil }
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test("uses the remote GitHub CLI name for SSH workspaces")
+    func resolvesRemoteGitHubCLI() {
+        let context = WorkspaceContext.ssh(SSHDestination(host: "example.test"))
+        let resolved = GitRepositoryService.resolveGhExecutable(
+            context: context,
+            localResolver: { _ in nil }
+        )
+
+        #expect(resolved == "gh")
+    }
+
     @Test("repoInfo reports root, gitDir and current branch for a normal repo")
     func repoInfoForNormalRepo() async throws {
         let repo = try TempGitRepo()

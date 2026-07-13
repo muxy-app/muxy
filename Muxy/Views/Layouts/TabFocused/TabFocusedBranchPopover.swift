@@ -1,11 +1,14 @@
 import SwiftUI
 
 struct TabFocusedBranchPopover: View {
-    let project: Project
-    let currentBranch: String?
+    let summary: GitRepositorySummary
     let branches: [String]
+    let isLoadingBranches: Bool
+    let isRefreshing: Bool
+    let isSwitching: Bool
+    let isWorktreeRemovalInProgress: Bool
     let onSwitch: (String) -> Void
-    let onDismiss: () -> Void
+    let onRefresh: () -> Void
 
     private struct BranchItem: Identifiable {
         let name: String
@@ -17,22 +20,90 @@ struct TabFocusedBranchPopover: View {
     }
 
     var body: some View {
-        PopoverPicker(
-            items: items,
-            filterKey: { $0.name },
-            searchPlaceholder: "Search branches…",
-            emptyLabel: "No branches",
-            onSelect: { item in
-                switchTo(item.name)
-            },
-            row: { item, isHighlighted in
-                row(item, isHighlighted: isHighlighted)
+        VStack(spacing: 0) {
+            summaryHeader
+            Divider().overlay(MuxyTheme.border)
+            branchPicker
+        }
+        .frame(width: UIMetrics.scaled(320), height: UIMetrics.scaled(420))
+        .background(MuxyTheme.bg)
+    }
+
+    private var summaryHeader: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
+            HStack(spacing: UIMetrics.spacing4) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.accent)
+                VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                    Text(summary.displayBranch)
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fg)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(summary.isDetached ? "Detached HEAD" : "Current branch")
+                        .font(.system(size: UIMetrics.fontCaption))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                }
+                Spacer(minLength: UIMetrics.spacing3)
+                statusBadge
+                Button(action: onRefresh) {
+                    Group {
+                        if isRefreshing {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                        }
+                    }
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing || isWorktreeRemovalInProgress)
+                .help("Refresh repository status")
             }
-        )
+        }
+        .padding(UIMetrics.spacing6)
+    }
+
+    private var statusBadge: some View {
+        HStack(spacing: UIMetrics.spacing2) {
+            Circle()
+                .fill(summary.isDirty ? MuxyTheme.warning : MuxyTheme.diffAddFg)
+                .frame(width: UIMetrics.spacing2, height: UIMetrics.spacing2)
+            Text(summary.isDirty ? "Dirty" : "Clean")
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+        }
+        .foregroundStyle(summary.isDirty ? MuxyTheme.warning : MuxyTheme.diffAddFg)
+        .padding(.horizontal, UIMetrics.spacing3)
+        .padding(.vertical, UIMetrics.spacing2)
+        .background(MuxyTheme.surface, in: Capsule())
+    }
+
+    @ViewBuilder
+    private var branchPicker: some View {
+        if isLoadingBranches, branches.isEmpty {
+            ProgressView()
+                .controlSize(.small)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            SearchableListPicker(
+                items: items,
+                filterKey: { $0.name },
+                placeholder: "Search branches…",
+                emptyLabel: "No branches",
+                onSelect: { onSwitch($0.name) },
+                row: { item, isHighlighted in
+                    row(item, isHighlighted: isHighlighted)
+                }
+            )
+            .disabled(isSwitching || isWorktreeRemovalInProgress)
+        }
     }
 
     private func row(_ item: BranchItem, isHighlighted: Bool) -> some View {
-        let selected = item.name == currentBranch
+        let selected = item.name == summary.branch
         return HStack(spacing: UIMetrics.spacing3) {
             Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
@@ -52,7 +123,10 @@ struct TabFocusedBranchPopover: View {
         }
         .padding(.horizontal, UIMetrics.spacing4)
         .padding(.vertical, UIMetrics.scaled(7))
-        .background(rowBackground(selected: selected, isHighlighted: isHighlighted), in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .background(
+            rowBackground(selected: selected, isHighlighted: isHighlighted),
+            in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+        )
         .padding(.horizontal, UIMetrics.spacing3)
         .padding(.vertical, UIMetrics.spacing1)
         .contentShape(Rectangle())
@@ -62,14 +136,5 @@ struct TabFocusedBranchPopover: View {
         if selected { return AnyShapeStyle(MuxyTheme.accentSoft) }
         if isHighlighted { return AnyShapeStyle(MuxyTheme.surface) }
         return AnyShapeStyle(Color.clear)
-    }
-
-    private func switchTo(_ branch: String) {
-        guard branch != currentBranch else {
-            onDismiss()
-            return
-        }
-        onSwitch(branch)
-        onDismiss()
     }
 }

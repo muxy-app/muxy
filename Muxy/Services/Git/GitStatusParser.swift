@@ -1,6 +1,73 @@
 import Foundation
 
 enum GitStatusParser {
+    static func parseRepositorySummary(_ output: String) -> GitRepositorySummary? {
+        var branch: String?
+        var headOID: String?
+        var hasUpstream = false
+        var ahead = 0
+        var behind = 0
+        var changedCount = 0
+        var stagedCount = 0
+        var unstagedCount = 0
+        var untrackedCount = 0
+
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            if line.hasPrefix("# branch.head ") {
+                branch = String(line.dropFirst("# branch.head ".count))
+                continue
+            }
+            if line.hasPrefix("# branch.oid ") {
+                headOID = String(line.dropFirst("# branch.oid ".count))
+                continue
+            }
+            if line.hasPrefix("# branch.upstream ") {
+                hasUpstream = true
+                continue
+            }
+            if line.hasPrefix("# branch.ab ") {
+                let counts = line.dropFirst("# branch.ab ".count).split(separator: " ")
+                ahead = counts.first.flatMap { Int($0.dropFirst()) } ?? 0
+                behind = counts.dropFirst().first.flatMap { Int($0.dropFirst()) } ?? 0
+                continue
+            }
+            if line.hasPrefix("? ") {
+                changedCount += 1
+                untrackedCount += 1
+                continue
+            }
+            if line.hasPrefix("u ") {
+                changedCount += 1
+                stagedCount += 1
+                unstagedCount += 1
+                continue
+            }
+            guard line.hasPrefix("1 ") || line.hasPrefix("2 ") else { continue }
+            let fields = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard fields.count >= 2, fields[1].count == 2 else { continue }
+            let status = Array(fields[1])
+            changedCount += 1
+            if status[0] != "." { stagedCount += 1 }
+            if status[1] != "." { unstagedCount += 1 }
+        }
+
+        guard let branch else { return nil }
+        return GitRepositorySummary(
+            branch: branch,
+            headOID: headOID,
+            isDetached: branch == "(detached)",
+            aheadBehind: GitRepositoryService.AheadBehind(
+                ahead: ahead,
+                behind: behind,
+                hasUpstream: hasUpstream
+            ),
+            changedCount: changedCount,
+            stagedCount: stagedCount,
+            unstagedCount: unstagedCount,
+            untrackedCount: untrackedCount
+        )
+    }
+
     static func parseStatusPorcelain(
         _ data: Data,
         stats: [String: NumstatEntry]

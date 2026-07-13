@@ -47,6 +47,28 @@ struct WorktreeStoreTests {
         #expect(worktree.canBeRemoved)
     }
 
+    @Test("removal preparation serializes a worktree removal lifecycle")
+    func removalPreparationSerializesLifecycle() {
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+        let worktree = Worktree(
+            name: "feature",
+            path: "/tmp/repo-feature",
+            isPrimary: false
+        )
+
+        #expect(store.beginRemovalPreparation(worktree: worktree))
+        #expect(!store.beginRemovalPreparation(worktree: worktree))
+        #expect(store.hasRemovalPreparation)
+        #expect(store.isPreparingRemoval(worktreeID: worktree.id))
+        #expect(store.isRemovalInProgress(worktreeID: worktree.id))
+
+        store.endRemovalPreparation(worktreeID: worktree.id)
+
+        #expect(!store.hasRemovalPreparation)
+        #expect(!store.isPreparingRemoval(worktreeID: worktree.id))
+        #expect(!store.isRemovalInProgress(worktreeID: worktree.id))
+    }
+
     @Test("refreshFromGit imports missing external worktrees and preserves existing IDs by path")
     func refreshFromGitImportsAndPreservesIDs() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")

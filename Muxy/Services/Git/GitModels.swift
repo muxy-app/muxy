@@ -6,6 +6,25 @@ struct NumstatEntry {
     let isBinary: Bool
 }
 
+struct GitRepositorySummary: Equatable {
+    let branch: String
+    let headOID: String?
+    let isDetached: Bool
+    let aheadBehind: GitRepositoryService.AheadBehind
+    let changedCount: Int
+    let stagedCount: Int
+    let unstagedCount: Int
+    let untrackedCount: Int
+
+    var isDirty: Bool { changedCount > 0 }
+
+    var displayBranch: String {
+        guard isDetached else { return branch }
+        guard let headOID, headOID != "(initial)" else { return "Detached" }
+        return "Detached \(headOID.prefix(7))"
+    }
+}
+
 struct GitStatusFile: Identifiable, Hashable {
     let path: String
     let oldPath: String?

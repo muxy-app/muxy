@@ -62,6 +62,13 @@ Tabs can be dragged within a pane to reorder, between panes to move, or onto a p
 
 Choose **Tab Focused** under **Settings → Interface** to move tab navigation into the left sidebar. The sidebar groups open tabs by project, keeps every project visible when it has no open tabs, preserves project switching on `⌃1…9`, and shows tab shortcuts for the first nine open tabs.
 
+The top bar becomes a repository status strip for the active worktree:
+
+- The branch control shows clean or dirty state, change count, and upstream ahead/behind counts. Open it to refresh repository status or switch branches.
+- When the current branch has a GitHub pull request, the PR control shows its number and check health. Open it to inspect mergeability and checks, update a behind branch, choose a merge method, merge or close the PR, or open it on GitHub. Merge and close actions use a five-second inline confirmation; click the armed action again to run it immediately, or use its Cancel control to stop it.
+- Secondary worktrees show a **Remove worktree** control. It uses the standard dirty-worktree warning and teardown flow; the primary worktree never shows this control.
+- Pull request information and actions require an installed and authenticated `gh` CLI.
+
 ## Navigation history
 
 Mouse side buttons (3 / 4) and three-finger horizontal trackpad swipes navigate Back / Forward through tab history. Keyboard equivalents: `⌘⌃←` / `⌘⌃→`.
