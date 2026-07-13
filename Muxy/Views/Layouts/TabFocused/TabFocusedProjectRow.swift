@@ -118,6 +118,7 @@ struct TabFocusedProjectRow: View {
                 Image(systemName: "pin.fill")
                     .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
                     .help("Pinned")
                     .accessibilityLabel("Pinned")
             }

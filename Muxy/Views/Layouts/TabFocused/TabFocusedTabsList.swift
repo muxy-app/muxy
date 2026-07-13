@@ -84,50 +84,36 @@ struct TabFocusedTabsList: View {
         }
     }
 
-    @ViewBuilder
     private func tabRows(_ tabs: [AreaTab], numbers: [UUID: Int]) -> some View {
-        if tabs.isEmpty {
-            Text("No open tabs")
-                .font(.system(size: UIMetrics.fontBody))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
-                .padding(
-                    .leading,
-                    TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.tabContentLeadingInset
-                )
-                .padding(.trailing, TabFocusedSidebarMetrics.rowOuterInset + TabFocusedSidebarMetrics.rowHorizontalInset)
-        } else {
-            ForEach(tabs) { item in
-                TabFocusedTabRow(
-                    project: project,
-                    area: item.area,
-                    tab: item.tab,
-                    active: item.tab.id == activeTabID,
-                    worktree: item.worktree,
-                    shortcutNumber: numbers[item.tab.id]
-                )
-                .opacity(dragState.draggedID == item.tab.id ? 0.5 : 1)
-                .background {
-                    if dragState.draggedID != nil {
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: TabFocusedRowFramePreferenceKey.self,
-                                value: [item.tab.id: geo.frame(in: .named(TabFocusedDragCoordinateSpace.list))]
-                            )
-                        }
+        ForEach(tabs) { item in
+            TabFocusedTabRow(
+                project: project,
+                area: item.area,
+                tab: item.tab,
+                active: item.tab.id == activeTabID,
+                worktree: item.worktree,
+                shortcutNumber: numbers[item.tab.id]
+            )
+            .opacity(dragState.draggedID == item.tab.id ? 0.5 : 1)
+            .background {
+                if dragState.draggedID != nil {
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key: TabFocusedRowFramePreferenceKey.self,
+                            value: [item.tab.id: geo.frame(in: .named(TabFocusedDragCoordinateSpace.list))]
+                        )
                     }
                 }
-                .gesture(
-                    DragGesture(minimumDistance: 6, coordinateSpace: .named(TabFocusedDragCoordinateSpace.list))
-                        .onChanged { value in
-                            handleDragChanged(item: item, location: value.location)
-                        }
-                        .onEnded { _ in
-                            handleDragEnded()
-                        }
-                )
             }
+            .gesture(
+                DragGesture(minimumDistance: 6, coordinateSpace: .named(TabFocusedDragCoordinateSpace.list))
+                    .onChanged { value in
+                        handleDragChanged(item: item, location: value.location)
+                    }
+                    .onEnded { _ in
+                        handleDragEnded()
+                    }
+            )
         }
     }
 
