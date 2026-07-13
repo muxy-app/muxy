@@ -784,23 +784,10 @@ enum MuxyAPIDispatcher {
         }
     }
 
-    private static func handleGh(verb: String, args: [String: Any], context: Context) async throws -> Any {
-        guard let projectStore = context.projectStore,
-              let worktreeStore = context.worktreeStore,
-              let projectGroupStore = context.projectGroupStore
-        else { throw APIError.worktreeStoreUnavailable }
-        let gh = MuxyAPI.Gh.Context(
-            extensionID: context.extensionID,
-            appState: context.appState,
-            projectStore: projectStore,
-            worktreeStore: worktreeStore,
-            projectGroupStore: projectGroupStore
-        )
-
+    private static func handleGh(verb: String, args _: [String: Any], context _: Context) async throws -> Any {
         switch verb {
         case "gh.user":
-            let user = try await unwrap(MuxyAPI.Gh.user(context: gh))
-            return GhDTO.user(user)
+            return try await GhDTO.user(unwrap(MuxyAPI.Gh.user()))
         default:
             throw APIError.invalidArguments("unknown verb \(verb)")
         }

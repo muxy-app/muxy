@@ -80,6 +80,7 @@ flowchart TB
 | --- | --- |
 | [Events](extensions/events.md) | Workspace events plus extension-local emit/subscribe |
 | [Git](extensions/git.md) | `muxy.git` verbs against the active worktree |
+| [GitHub](extensions/gh.md) | `muxy.gh.user` — the authenticated GitHub CLI user |
 | [Files](extensions/files.md) | `muxy.files` reads/writes relative to the worktree root |
 | [Settings](extensions/settings.md) | Typed settings with their own Settings sidebar row |
 | [Remote Methods](extensions/remote-methods.md) | Serve named API methods to the Muxy mobile app |

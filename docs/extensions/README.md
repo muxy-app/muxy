@@ -97,6 +97,7 @@ flowchart TD
 | --- | --- |
 | [Events](events.md) | Identify/subscribe handshake, event list, wire format |
 | [Git](git.md) | Repository access: status, diff, log, branches, PRs, worktrees |
+| [GitHub](gh.md) | Authenticated GitHub CLI user: login, name, avatar |
 | [Files](files.md) | Workspace filesystem access: list, read, stat, write, mkdir, rename, move, delete |
 | [HTTP](http.md) | Call external HTTP(S) APIs from native code without CORS; host-keyed consent |
 | [Settings](settings.md) | Declare typed settings and read/write them at runtime |

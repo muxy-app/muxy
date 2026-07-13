@@ -419,7 +419,7 @@ enum ExtensionWebBridge {
                     list() { return send('agents.list', {}); },
                 },
                 gh: {
-                    user(o) { return send('gh.user', { project: gitProject(o) }); },
+                    user() { return send('gh.user', {}); },
                 },
                 git: {
                     status(o) { return send('git.status', {

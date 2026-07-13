@@ -504,9 +504,8 @@ public enum ExtensionBridgeJS {
     """
 
     private static let ghBlock = """
-            const ghProject = (o) => (o && o.project != null ? String(o.project) : null);
             muxy.gh = {
-                user: (o) => dispatch('gh.user', { project: ghProject(o) }),
+                user: () => dispatch('gh.user', {}),
             };
     """
 

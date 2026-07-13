@@ -426,20 +426,9 @@ struct GitRepositoryService {
         let avatarURL: URL?
     }
 
-    func currentGitHubUser(repoPath: String) async -> GitHubUser? {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
-        let result = try? await runCommand(
-            executable: ghPath,
-            arguments: ["api", "user", "--jq", "{login: .login, avatar_url: .avatar_url}"],
-            workingDirectory: repoPath
-        )
-        guard let result, result.status == 0,
-              let data = result.stdout.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let login = object["login"] as? String
-        else { return nil }
-        let avatarURL = (object["avatar_url"] as? String).flatMap(URL.init(string:))
-        return GitHubUser(login: login, avatarURL: avatarURL)
+    func currentGitHubUser(repoPath _: String) async -> GitHubUser? {
+        guard case let .success(user) = await GhUserService.shared.user() else { return nil }
+        return GitHubUser(login: user.login, avatarURL: URL(string: user.avatarUrl))
     }
 
     struct PRCommentRequest {
