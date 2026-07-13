@@ -69,6 +69,43 @@ struct WorktreeStoreTests {
         #expect(!store.isRemovalInProgress(worktreeID: worktree.id))
     }
 
+    @Test("removal preparation is cleared when the worktree leaves the list")
+    func removalPreparationClearsWhenWorktreeDisappears() {
+        let projectID = UUID()
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+        let worktree = Worktree(
+            name: "feature",
+            path: "/tmp/repo-feature",
+            isPrimary: false
+        )
+        store.add(worktree, to: projectID)
+
+        #expect(store.beginRemovalPreparation(worktree: worktree))
+        #expect(store.isPreparingRemoval(worktreeID: worktree.id))
+
+        store.remove(worktreeID: worktree.id, from: projectID)
+
+        #expect(!store.isPreparingRemoval(worktreeID: worktree.id))
+        #expect(!store.hasRemovalPreparation)
+    }
+
+    @Test("removal preparation is cleared when the project is removed")
+    func removalPreparationClearsWhenProjectRemoved() {
+        let projectID = UUID()
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+        let worktree = Worktree(
+            name: "feature",
+            path: "/tmp/repo-feature",
+            isPrimary: false
+        )
+        store.add(worktree, to: projectID)
+        _ = store.beginRemovalPreparation(worktree: worktree)
+
+        store.removeProject(projectID)
+
+        #expect(!store.hasRemovalPreparation)
+    }
+
     @Test("refreshFromGit imports missing external worktrees and preserves existing IDs by path")
     func refreshFromGitImportsAndPreservesIDs() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")

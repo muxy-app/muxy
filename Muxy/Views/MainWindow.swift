@@ -1191,7 +1191,7 @@ struct MainWindow: View {
               ),
               WorktreeRemovalRequestPolicy.canStartInspection(
                   hasPendingConfirmation: pendingWorktreeRemoval != nil,
-                  isInspecting: worktreeStore.hasRemovalPreparation,
+                  isInspecting: worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
                   isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id)
               ),
               worktreeStore.beginRemovalPreparation(worktree: worktree)

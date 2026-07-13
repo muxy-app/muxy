@@ -413,6 +413,7 @@ final class WorktreeStore {
             }
         }
         worktrees.removeValue(forKey: projectID)
+        pruneRemovalState()
         do {
             try persistence.removeWorktrees(projectID: projectID)
         } catch {
@@ -430,6 +431,13 @@ final class WorktreeStore {
             projectIDByPath[worktree.path] = projectID
         }
         worktrees[projectID] = list
+        pruneRemovalState()
+    }
+
+    private func pruneRemovalState() {
+        let liveIDs = Set(worktrees.values.flatMap(\.self).map(\.id))
+        preparingRemovalWorktreeIDs.formIntersection(liveIDs)
+        removingWorktreeIDs.formIntersection(liveIDs)
     }
 
     private func makePrimary(for project: Project) -> Worktree {
