@@ -4,11 +4,9 @@ struct TabFocusedBranchPopover: View {
     let summary: GitRepositorySummary
     let branches: [String]
     let isLoadingBranches: Bool
-    let isRefreshing: Bool
     let isSwitching: Bool
     let isRepositoryInteractionDisabled: Bool
     let onSwitch: (String) -> Void
-    let onRefresh: () -> Void
 
     private struct BranchItem: Identifiable {
         let name: String
@@ -20,51 +18,9 @@ struct TabFocusedBranchPopover: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            summaryHeader
-            Divider().overlay(MuxyTheme.border)
-            branchPicker
-        }
-        .frame(width: UIMetrics.scaled(320), height: UIMetrics.scaled(420))
-        .background(MuxyTheme.bg)
-    }
-
-    private var summaryHeader: some View {
-        VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
-            HStack(spacing: UIMetrics.spacing4) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.accent)
-                VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                    Text(summary.displayBranch)
-                        .font(.system(size: UIMetrics.fontBody, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(MuxyTheme.fg)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text(summary.isDetached ? "Detached HEAD" : "Current branch")
-                        .font(.system(size: UIMetrics.fontCaption))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                }
-                Spacer(minLength: UIMetrics.spacing3)
-                Button(action: onRefresh) {
-                    Group {
-                        if isRefreshing {
-                            ProgressView().controlSize(.mini)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                        }
-                    }
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
-                }
-                .buttonStyle(.plain)
-                .disabled(isRefreshing || isRepositoryInteractionDisabled)
-                .help("Refresh branches")
-                .accessibilityLabel("Refresh branches")
-            }
-        }
-        .padding(UIMetrics.spacing6)
+        branchPicker
+            .frame(width: UIMetrics.scaled(320), height: UIMetrics.scaled(420))
+            .background(MuxyTheme.bg)
     }
 
     @ViewBuilder

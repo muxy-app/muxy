@@ -18,10 +18,22 @@ struct RepositoryChangesPresentationTests {
         let both = file(path: "both.swift", xStatus: "M", yStatus: "M")
         let conflict = file(path: "conflict.swift", xStatus: "U", yStatus: "U")
         let files = [staged, unstaged, both, conflict]
+        let snapshot = RepositoryChangesPresentation.makeSnapshot(files)
 
-        #expect(RepositoryChangesPresentation.stagedFiles(files).map(\.path) == ["staged.swift", "both.swift"])
-        #expect(RepositoryChangesPresentation.unstagedFiles(files).map(\.path) == ["unstaged.swift", "both.swift"])
-        #expect(RepositoryChangesPresentation.conflictedFiles(files).map(\.path) == ["conflict.swift"])
+        #expect(snapshot.fileCount == files.count)
+        #expect(snapshot.stagedFiles.map(\.path) == ["staged.swift", "both.swift"])
+        #expect(snapshot.unstagedFiles.map(\.path) == ["unstaged.swift", "both.swift"])
+        #expect(snapshot.conflictedFiles.map(\.path) == ["conflict.swift"])
+    }
+
+    @Test("groups staged and unstaged file-type changes")
+    func groupsTypeChanges() {
+        let staged = file(path: "staged-link", xStatus: "T")
+        let unstaged = file(path: "unstaged-link", yStatus: "T")
+        let snapshot = RepositoryChangesPresentation.makeSnapshot([staged, unstaged])
+
+        #expect(snapshot.stagedFiles.map(\.path) == ["staged-link"])
+        #expect(snapshot.unstagedFiles.map(\.path) == ["unstaged-link"])
     }
 
     @Test("line stats use the selected side of a both-sided file")
@@ -51,6 +63,22 @@ struct RepositoryChangesPresentationTests {
             hasKnownValues: true
         ))
         #expect(RepositoryChangesPresentation.lineStats([file], staged: false) == RepositoryChangesLineStats(
+            additions: 9,
+            deletions: 5,
+            hasKnownValues: true
+        ))
+        let snapshot = RepositoryChangesPresentation.makeSnapshot([file])
+        #expect(snapshot.totalLineStats == RepositoryChangesLineStats(
+            additions: 12,
+            deletions: 7,
+            hasKnownValues: true
+        ))
+        #expect(snapshot.stagedLineStats == RepositoryChangesLineStats(
+            additions: 3,
+            deletions: 2,
+            hasKnownValues: true
+        ))
+        #expect(snapshot.unstagedLineStats == RepositoryChangesLineStats(
             additions: 9,
             deletions: 5,
             hasKnownValues: true

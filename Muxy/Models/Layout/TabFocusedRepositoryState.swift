@@ -24,7 +24,10 @@ final class TabFocusedRepositoryState {
 
     private(set) var summary: GitRepositorySummary?
     private(set) var branches: [String] = []
-    private(set) var changedFiles: [GitStatusFile] = []
+    private(set) var changesSnapshot = RepositoryChangesSnapshot.empty
+    private(set) var untrackedLineStats: [String: Int] = [:]
+    private(set) var untrackedLineStatsSummary = RepositoryChangesSnapshot.empty.totalLineStats
+    private(set) var hasLoadedChanges = false
     private(set) var pullRequestState: PullRequestFetchState = .loading
     private(set) var isLoadingSummary = false
     private(set) var isLoadingBranches = false
@@ -45,9 +48,12 @@ final class TabFocusedRepositoryState {
     @ObservationIgnored private var summaryRevision = 0
     @ObservationIgnored private var branchesRevision = 0
     @ObservationIgnored private var changesRevision = 0
+    @ObservationIgnored private var workingTreeRefreshRevision = 0
     @ObservationIgnored private var pullRequestRevision = 0
     @ObservationIgnored private var pullRequestIdentity: PullRequestIdentity?
     @ObservationIgnored private var isChangesMonitoringEnabled = false
+    @ObservationIgnored private var loadedUntrackedLineStats: Set<String> = []
+    @ObservationIgnored private var loadingUntrackedLineStats: Set<String> = []
 
     var pullRequest: GitRepositoryService.PRInfo? {
         guard case let .found(info) = pullRequestState else { return nil }
@@ -72,10 +78,11 @@ final class TabFocusedRepositoryState {
         summaryRevision += 1
         branchesRevision += 1
         changesRevision += 1
+        workingTreeRefreshRevision += 1
         pullRequestRevision += 1
         summary = nil
         branches = []
-        changedFiles = []
+        resetChangesPresentation(hasLoaded: false)
         pullRequestState = .loading
         pullRequestIdentity = nil
         summaryError = nil
@@ -90,8 +97,23 @@ final class TabFocusedRepositoryState {
     }
 
     func refreshWorkingTreeDetails() async {
+        workingTreeRefreshRevision += 1
+        let refreshRevision = workingTreeRefreshRevision
+        changesRevision += 1
+        let invalidatedChangesRevision = changesRevision
+        let requestedSummaryRevision = summaryRevision + 1
         isChangesMonitoringEnabled = true
-        guard await refreshSummary() else { return }
+        isLoadingChanges = true
+        guard await refreshSummary(), !Task.isCancelled else {
+            if refreshRevision == workingTreeRefreshRevision,
+               invalidatedChangesRevision == changesRevision,
+               requestedSummaryRevision == summaryRevision
+            {
+                isLoadingChanges = false
+            }
+            return
+        }
+        guard refreshRevision == workingTreeRefreshRevision else { return }
         await loadChanges()
     }
 
@@ -124,7 +146,7 @@ final class TabFocusedRepositoryState {
         changesRevision += 1
         let revision = changesRevision
         guard let repository = activeRepository, summary?.isDirty == true else {
-            changedFiles = []
+            resetChangesPresentation(hasLoaded: true)
             changesError = nil
             isLoadingChanges = false
             return
@@ -137,14 +159,67 @@ final class TabFocusedRepositoryState {
             }
         }
         do {
-            let files = try await repository.service.changedFiles(repoPath: repository.path)
-            guard repository == activeRepository, revision == changesRevision else { return }
-            changedFiles = files
+            let files = try await repository.service.changedFiles(
+                repoPath: repository.path,
+                includeUntrackedLineCounts: false
+            )
+            let snapshot = await RepositoryChangesPresentation.loadSnapshot(files)
+            guard !Task.isCancelled,
+                  repository == activeRepository,
+                  revision == changesRevision
+            else { return }
+            loadedUntrackedLineStats = []
+            loadingUntrackedLineStats = []
+            changesSnapshot = snapshot
+            untrackedLineStats = [:]
+            untrackedLineStatsSummary = RepositoryChangesSnapshot.empty.totalLineStats
+            hasLoadedChanges = true
         } catch {
+            guard !Task.isCancelled else { return }
             guard repository == activeRepository, revision == changesRevision else { return }
-            changedFiles = []
+            resetChangesPresentation(hasLoaded: false)
             changesError = error.localizedDescription
             ToastState.shared.show(title: "Failed to load changes", body: error.localizedDescription)
+        }
+    }
+
+    func loadUntrackedLineStats(for file: GitStatusFile) async {
+        guard file.isUntracked,
+              file.additions == nil,
+              let repository = activeRepository,
+              !loadedUntrackedLineStats.contains(file.path),
+              loadingUntrackedLineStats.insert(file.path).inserted
+        else { return }
+        let revision = changesRevision
+        defer {
+            if revision == changesRevision {
+                loadingUntrackedLineStats.remove(file.path)
+            }
+        }
+        do {
+            let lineCount = try await repository.service.untrackedFileLineCount(
+                repoPath: repository.path,
+                path: file.path
+            )
+            guard !Task.isCancelled,
+                  repository == activeRepository,
+                  revision == changesRevision
+            else { return }
+            loadedUntrackedLineStats.insert(file.path)
+            guard let lineCount else { return }
+            let previousLineCount = untrackedLineStats.updateValue(lineCount, forKey: file.path) ?? 0
+            untrackedLineStatsSummary = RepositoryChangesLineStats(
+                additions: untrackedLineStatsSummary.additions + lineCount - previousLineCount,
+                deletions: 0,
+                hasKnownValues: true
+            )
+        } catch {
+            guard !Task.isCancelled,
+                  repository == activeRepository,
+                  revision == changesRevision
+            else { return }
+            loadedUntrackedLineStats.insert(file.path)
+            logger.debug("Failed to load line stats for \(file.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -403,7 +478,7 @@ final class TabFocusedRepositoryState {
         activeRepository = repository
         summary = nil
         branches = []
-        changedFiles = []
+        resetChangesPresentation(hasLoaded: false)
         pullRequestState = .loading
         pullRequestIdentity = nil
         summaryError = nil
@@ -413,6 +488,7 @@ final class TabFocusedRepositoryState {
         summaryRevision += 1
         branchesRevision += 1
         changesRevision += 1
+        workingTreeRefreshRevision += 1
         pullRequestRevision += 1
         fileRefreshTask?.cancel()
         fileRefreshTask = nil
@@ -463,9 +539,11 @@ final class TabFocusedRepositoryState {
             summary = loaded
             if !loaded.isDirty {
                 changesRevision += 1
-                changedFiles = []
+                resetChangesPresentation(hasLoaded: true)
                 changesError = nil
                 isLoadingChanges = false
+            } else if previous?.isDirty != true {
+                resetChangesPresentation(hasLoaded: false)
             }
             let pullRequestIdentityChanged = previous.map {
                 $0.branch != loaded.branch || $0.headOID != loaded.headOID
@@ -481,13 +559,14 @@ final class TabFocusedRepositoryState {
             }
             return true
         } catch {
+            guard !Task.isCancelled else { return false }
             guard repository == activeRepository, revision == summaryRevision else { return false }
             logger
                 .error("Repository status failed for \(repository.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
             pullRequestRevision += 1
             summary = nil
             branches = []
-            changedFiles = []
+            resetChangesPresentation(hasLoaded: false)
             pullRequestState = .unavailable
             pullRequestIdentity = nil
             isRefreshingPullRequest = false
@@ -507,6 +586,15 @@ final class TabFocusedRepositoryState {
         isMergingPullRequest = false
         isClosingPullRequest = false
         isUpdatingPullRequestBranch = false
+    }
+
+    private func resetChangesPresentation(hasLoaded: Bool) {
+        changesSnapshot = .empty
+        untrackedLineStats = [:]
+        untrackedLineStatsSummary = RepositoryChangesSnapshot.empty.totalLineStats
+        hasLoadedChanges = hasLoaded
+        loadedUntrackedLineStats = []
+        loadingUntrackedLineStats = []
     }
 
     private var isPerformingPullRequestAction: Bool {

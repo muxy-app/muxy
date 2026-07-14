@@ -177,16 +177,12 @@ struct TabFocusedRepositoryToolbar: View {
                     summary: repositoryState.summary ?? summary,
                     branches: repositoryState.branches,
                     isLoadingBranches: repositoryState.isLoadingBranches,
-                    isRefreshing: repositoryState.isLoadingSummary || repositoryState.isLoadingBranches,
                     isSwitching: repositoryState.isSwitchingBranch,
                     isRepositoryInteractionDisabled: repositoryState.isMutatingChanges
                         || isPerformingPullRequestAction
                         || hasRunningAIWorkflow,
                     onSwitch: { branch in
                         switchBranch(branch)
-                    },
-                    onRefresh: {
-                        Task { await repositoryState.refreshRepositoryDetails() }
                     }
                 )
             }
@@ -198,7 +194,6 @@ struct TabFocusedRepositoryToolbar: View {
             isOpen: showChangesPopover,
             action: {
                 showChangesPopover = true
-                Task { await repositoryState.refreshWorkingTreeDetails() }
             },
             content: {
                 HStack(spacing: UIMetrics.spacing2) {
@@ -228,7 +223,10 @@ struct TabFocusedRepositoryToolbar: View {
             if let summary {
                 TabFocusedChangesPopover(
                     summary: repositoryState.summary ?? summary,
-                    files: repositoryState.changedFiles,
+                    changes: repositoryState.changesSnapshot,
+                    untrackedLineStats: repositoryState.untrackedLineStats,
+                    untrackedLineStatsSummary: repositoryState.untrackedLineStatsSummary,
+                    hasLoadedChanges: repositoryState.hasLoadedChanges,
                     error: repositoryState.changesError,
                     isLoading: repositoryState.isLoadingChanges,
                     isMutating: repositoryState.isMutatingChanges,
@@ -241,24 +239,27 @@ struct TabFocusedRepositoryToolbar: View {
                         worktreeRemovalHelp($0, state: worktreeRemovalState)
                     },
                     onRefresh: {
-                        Task { await repositoryState.refreshWorkingTreeDetails() }
+                        await repositoryState.refreshWorkingTreeDetails()
                     },
                     onStage: { file in
                         modifyChanges { await repositoryState.stage(file) }
                     },
                     onStageAll: {
-                        let files = RepositoryChangesPresentation.unstagedFiles(repositoryState.changedFiles)
+                        let files = repositoryState.changesSnapshot.unstagedFiles
                         modifyChanges { await repositoryState.stage(files) }
                     },
                     onUnstage: { file in
                         modifyChanges { await repositoryState.unstage(file) }
                     },
                     onUnstageAll: {
-                        let files = RepositoryChangesPresentation.stagedFiles(repositoryState.changedFiles)
+                        let files = repositoryState.changesSnapshot.stagedFiles
                         modifyChanges { await repositoryState.unstage(files) }
                     },
                     onDiscard: { file in
                         modifyChanges { await repositoryState.discard(file) }
+                    },
+                    onLoadLineStats: { file in
+                        await repositoryState.loadUntrackedLineStats(for: file)
                     },
                     onRemoveWorktree: {
                         showChangesPopover = false

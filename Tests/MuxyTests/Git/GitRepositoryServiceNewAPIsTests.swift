@@ -221,6 +221,61 @@ struct GitRepositoryServiceNewAPIsTests {
         #expect(file.deletions == 0)
     }
 
+    @Test("untracked line counts can load after the initial status")
+    func untrackedLineCountsLoadOnDemand() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        try "one\ntwo\n".write(
+            to: URL(fileURLWithPath: repo.path).appendingPathComponent("new.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let service = GitRepositoryService()
+        let initialFile = try #require(
+            try await service.changedFiles(
+                repoPath: repo.path,
+                includeUntrackedLineCounts: false
+            ).first { $0.path == "new.txt" }
+        )
+
+        #expect(initialFile.additions == nil)
+        #expect(try await service.untrackedFileLineCount(repoPath: repo.path, path: "new.txt") == 2)
+    }
+
+    @Test("untracked line counting is bounded for large files")
+    func untrackedLineCountingIsBounded() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        let largeFile = URL(fileURLWithPath: repo.path).appendingPathComponent("large.txt")
+        try Data(repeating: 0x61, count: 1_048_577).write(to: largeFile)
+
+        let lineCount = try await GitRepositoryService().untrackedFileLineCount(
+            repoPath: repo.path,
+            path: "large.txt"
+        )
+
+        #expect(lineCount == nil)
+    }
+
+    @Test("untracked line counting rejects invalid UTF-8")
+    func untrackedLineCountingRejectsInvalidUTF8() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        let invalidFile = URL(fileURLWithPath: repo.path).appendingPathComponent("invalid.txt")
+        try Data([0xFF, 0x0A]).write(to: invalidFile)
+
+        let lineCount = try await GitRepositoryService().untrackedFileLineCount(
+            repoPath: repo.path,
+            path: "invalid.txt"
+        )
+
+        #expect(lineCount == nil)
+    }
+
     @discardableResult
     private static func runGit(at workingDir: String, args: [String]) throws -> String {
         let process = Process()

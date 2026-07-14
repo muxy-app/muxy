@@ -2,35 +2,28 @@ import SwiftUI
 
 struct TabFocusedChangesPopover: View {
     let summary: GitRepositorySummary
-    let files: [GitStatusFile]
+    let changes: RepositoryChangesSnapshot
+    let untrackedLineStats: [String: Int]
+    let untrackedLineStatsSummary: RepositoryChangesLineStats
+    let hasLoadedChanges: Bool
     let error: String?
     let isLoading: Bool
     let isMutating: Bool
     let isRepositoryInteractionDisabled: Bool
     let worktreeRemovalState: RepositoryToolbarPresentation.WorktreeRemovalState
     let worktreeRemovalHelp: String?
-    let onRefresh: () -> Void
+    let onRefresh: () async -> Void
     let onStage: (GitStatusFile) -> Void
     let onStageAll: () -> Void
     let onUnstage: (GitStatusFile) -> Void
     let onUnstageAll: () -> Void
     let onDiscard: (GitStatusFile) -> Void
+    let onLoadLineStats: (GitStatusFile) async -> Void
     let onRemoveWorktree: () -> Void
 
     @State private var pendingDiscard: GitStatusFile?
     @State private var isRemoveWorktreeHovered = false
-
-    private var stagedFiles: [GitStatusFile] {
-        RepositoryChangesPresentation.stagedFiles(files)
-    }
-
-    private var unstagedFiles: [GitStatusFile] {
-        RepositoryChangesPresentation.unstagedFiles(files)
-    }
-
-    private var conflictedFiles: [GitStatusFile] {
-        RepositoryChangesPresentation.conflictedFiles(files)
-    }
+    @State private var refreshGeneration = 0
 
     private var isInteractionDisabled: Bool {
         isLoading || isMutating || isRepositoryInteractionDisabled
@@ -43,7 +36,7 @@ struct TabFocusedChangesPopover: View {
             content
             worktreeRemovalFooter
         }
-        .frame(width: UIMetrics.scaled(440), height: UIMetrics.scaled(500))
+        .frame(width: UIMetrics.scaled(500), height: UIMetrics.scaled(520))
         .background(MuxyTheme.bg)
         .alert(item: $pendingDiscard) { file in
             Alert(
@@ -55,34 +48,39 @@ struct TabFocusedChangesPopover: View {
                 secondaryButton: .cancel()
             )
         }
+        .task(id: refreshGeneration) {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            await onRefresh()
+        }
     }
 
     private var header: some View {
         HStack(spacing: UIMetrics.spacing4) {
             Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                .font(.system(size: UIMetrics.iconLG, weight: .semibold))
                 .foregroundStyle(summary.isDirty ? MuxyTheme.warning : MuxyTheme.diffAddFg)
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 Text("Changes")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
                 Text(workingTreeDescription)
-                    .font(.system(size: UIMetrics.fontCaption))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
             Spacer(minLength: UIMetrics.spacing3)
-            lineStats(RepositoryChangesPresentation.lineStats(files))
-            Button(action: onRefresh) {
+            lineStats(changes.totalLineStats.merging(untrackedLineStatsSummary))
+            Button(action: requestRefresh) {
                 Group {
                     if isLoading {
                         ProgressView().controlSize(.mini)
                     } else {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                            .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     }
                 }
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
+                .frame(width: UIMetrics.controlLarge, height: UIMetrics.controlLarge)
             }
             .buttonStyle(.plain)
             .disabled(isInteractionDisabled)
@@ -94,43 +92,46 @@ struct TabFocusedChangesPopover: View {
 
     @ViewBuilder
     private var content: some View {
-        if isLoading, files.isEmpty {
+        if let error, changes.isEmpty {
+            errorState(error)
+        } else if changes.isEmpty, isLoading || (summary.isDirty && !hasLoadedChanges) {
             ProgressView()
                 .controlSize(.small)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let error, files.isEmpty {
-            errorState(error)
-        } else if files.isEmpty {
+        } else if changes.isEmpty {
             cleanState
         } else {
             ScrollView {
-                LazyVStack(spacing: UIMetrics.spacing4) {
-                    if !conflictedFiles.isEmpty {
+                LazyVStack(spacing: UIMetrics.spacing1) {
+                    if !changes.conflictedFiles.isEmpty {
                         section(
                             title: "Conflicts",
-                            files: conflictedFiles,
+                            files: changes.conflictedFiles,
+                            lineStats: changes.conflictedLineStats,
                             side: .conflicted,
                             batchAction: nil
                         )
                     }
-                    if !stagedFiles.isEmpty {
+                    if !changes.stagedFiles.isEmpty {
                         section(
                             title: "Staged",
-                            files: stagedFiles,
+                            files: changes.stagedFiles,
+                            lineStats: changes.stagedLineStats,
                             side: .staged,
                             batchAction: ("Unstage All", onUnstageAll)
                         )
                     }
-                    if !unstagedFiles.isEmpty {
+                    if !changes.unstagedFiles.isEmpty {
                         section(
                             title: "Changes",
-                            files: unstagedFiles,
+                            files: changes.unstagedFiles,
+                            lineStats: changes.unstagedLineStats.merging(untrackedLineStatsSummary),
                             side: .unstaged,
                             batchAction: ("Stage All", onStageAll)
                         )
                     }
                 }
-                .padding(.vertical, UIMetrics.spacing4)
+                .padding(.bottom, UIMetrics.spacing4)
             }
         }
     }
@@ -138,52 +139,54 @@ struct TabFocusedChangesPopover: View {
     private func section(
         title: String,
         files: [GitStatusFile],
+        lineStats sectionLineStats: RepositoryChangesLineStats,
         side: ChangeSide,
         batchAction: (title: String, action: () -> Void)?
     ) -> some View {
-        VStack(spacing: UIMetrics.spacing2) {
+        Section {
+            ForEach(files) { file in
+                fileRow(file, side: side)
+            }
+        } header: {
             HStack(spacing: UIMetrics.spacing3) {
                 Text(title)
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(side == .conflicted ? MuxyTheme.warning : MuxyTheme.fgMuted)
                 Text("\(files.count)")
-                    .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .rounded))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .bold, design: .rounded))
                     .foregroundStyle(MuxyTheme.fgDim)
-                lineStats(RepositoryChangesPresentation.lineStats(files, staged: side.stagedValue))
+                lineStats(sectionLineStats)
                 Spacer(minLength: UIMetrics.spacing3)
                 if let batchAction {
                     Button(batchAction.title, action: batchAction.action)
                         .buttonStyle(.plain)
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                         .foregroundStyle(MuxyTheme.accent)
                         .disabled(isInteractionDisabled)
                 }
             }
-            .padding(.horizontal, UIMetrics.spacing5)
-
-            VStack(spacing: UIMetrics.spacing1) {
-                ForEach(files) { file in
-                    fileRow(file, side: side)
-                }
-            }
+            .padding(.horizontal, UIMetrics.spacing6)
+            .padding(.top, UIMetrics.spacing5)
+            .padding(.bottom, UIMetrics.spacing2)
+            .background(MuxyTheme.bg)
         }
     }
 
     private func fileRow(_ file: GitStatusFile, side: ChangeSide) -> some View {
-        HStack(spacing: UIMetrics.spacing3) {
+        HStack(spacing: UIMetrics.spacing4) {
             Text(file.displayStatusText(isStaged: side == .staged))
-                .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .monospaced))
+                .font(.system(size: UIMetrics.fontCaption, weight: .bold, design: .monospaced))
                 .foregroundStyle(statusColor(file, side: side))
-                .frame(width: UIMetrics.scaled(20), height: UIMetrics.scaled(20))
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
 
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 Text((file.path as NSString).lastPathComponent)
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
                 Text(fileDetail(file))
-                    .font(.system(size: UIMetrics.fontXS, design: .monospaced))
+                    .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -191,11 +194,19 @@ struct TabFocusedChangesPopover: View {
 
             Spacer(minLength: UIMetrics.spacing2)
             fileLineStats(file, side: side)
+                .frame(minWidth: UIMetrics.scaled(68), alignment: .trailing)
             rowActions(file, side: side)
         }
-        .padding(.horizontal, UIMetrics.spacing5)
-        .frame(height: UIMetrics.scaled(44))
+        .padding(.horizontal, UIMetrics.spacing6)
+        .frame(height: UIMetrics.scaled(52))
         .contentShape(Rectangle())
+        .task {
+            guard side == .unstaged,
+                  file.isUntracked,
+                  file.additions == nil
+            else { return }
+            await onLoadLineStats(file)
+        }
     }
 
     @ViewBuilder
@@ -241,7 +252,7 @@ struct TabFocusedChangesPopover: View {
                 Text("−\(stats.deletions)")
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
             }
-            .font(.system(size: UIMetrics.fontXS, weight: .semibold, design: .monospaced))
+            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold, design: .monospaced))
             .fixedSize()
             .accessibilityLabel("\(stats.additions) additions, \(stats.deletions) deletions")
         }
@@ -249,17 +260,23 @@ struct TabFocusedChangesPopover: View {
 
     @ViewBuilder
     private func fileLineStats(_ file: GitStatusFile, side: ChangeSide) -> some View {
-        if file.isBinary {
+        if let untrackedLineCount = untrackedLineStats[file.path] {
+            lineStats(RepositoryChangesLineStats(
+                additions: untrackedLineCount,
+                deletions: 0,
+                hasKnownValues: true
+            ))
+        } else if file.isBinary {
             Text("Binary")
-                .font(.system(size: UIMetrics.fontXS, weight: .medium))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
         } else {
-            let stats = RepositoryChangesPresentation.lineStats([file], staged: side.stagedValue)
+            let stats = RepositoryChangesPresentation.lineStats(file, staged: side.stagedValue)
             if stats.hasKnownValues {
                 lineStats(stats)
             } else {
                 Text("—")
-                    .font(.system(size: UIMetrics.fontXS, weight: .medium))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .foregroundStyle(MuxyTheme.fgDim)
                     .accessibilityLabel("Line counts unavailable")
             }
@@ -291,7 +308,7 @@ struct TabFocusedChangesPopover: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
-            Button("Retry", action: onRefresh)
+            Button("Retry", action: requestRefresh)
                 .disabled(isInteractionDisabled)
         }
         .padding(UIMetrics.spacing6)
@@ -365,6 +382,10 @@ struct TabFocusedChangesPopover: View {
         return "Unstaged changes to this file will be permanently discarded."
     }
 
+    private func requestRefresh() {
+        refreshGeneration &+= 1
+    }
+
     private func statusColor(_ file: GitStatusFile, side: ChangeSide) -> Color {
         if side == .conflicted { return MuxyTheme.warning }
         return switch file.displayStatusText(isStaged: side == .staged) {
@@ -403,9 +424,9 @@ private struct ChangesPopoverActionButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                .font(.system(size: UIMetrics.iconSM, weight: .bold))
                 .foregroundStyle(foreground)
-                .frame(width: UIMetrics.scaled(24), height: UIMetrics.scaled(24))
+                .frame(width: UIMetrics.controlLarge, height: UIMetrics.controlLarge)
                 .background(isHovered && !isDisabled ? MuxyTheme.hover : .clear, in: RoundedRectangle(
                     cornerRadius: UIMetrics.radiusSM
                 ))

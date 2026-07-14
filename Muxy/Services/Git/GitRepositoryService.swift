@@ -1018,6 +1018,10 @@ struct GitRepositoryService {
     }
 
     func changedFiles(repoPath: String) async throws -> [GitStatusFile] {
+        try await changedFiles(repoPath: repoPath, includeUntrackedLineCounts: true)
+    }
+
+    func changedFiles(repoPath: String, includeUntrackedLineCounts: Bool) async throws -> [GitStatusFile] {
         let signpostID = GitSignpost.begin("changedFiles")
         defer { GitSignpost.end("changedFiles", signpostID) }
 
@@ -1082,7 +1086,10 @@ struct GitRepositoryService {
                 unstagedDeletions: unstaged?.deletions,
                 isBinary: file.isBinary || staged?.isBinary == true || unstaged?.isBinary == true
             )
-            guard file.additions == nil, file.xStatus == "?" || file.xStatus == "A" else { return file }
+            guard includeUntrackedLineCounts,
+                  file.additions == nil,
+                  file.xStatus == "?" || file.xStatus == "A"
+            else { return file }
             let lineCount = countLines(repoPath: repoPath, relativePath: file.path)
             return GitStatusFile(
                 path: file.path,
@@ -1098,6 +1105,11 @@ struct GitRepositoryService {
                 isBinary: file.isBinary
             )
         }
+    }
+
+    func untrackedFileLineCount(repoPath: String, path: String) async throws -> Int? {
+        try validatePath(repoPath: repoPath, relativePath: path)
+        return countLines(repoPath: repoPath, relativePath: path)
     }
 
     func changedFiles(repoPath: String, range: DiffRange) async throws -> [GitStatusFile] {
@@ -1132,16 +1144,28 @@ struct GitRepositoryService {
     private func countLines(repoPath: String, relativePath: String) -> Int? {
         guard !context.isRemote else { return nil }
         let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
-        guard let data = FileManager.default.contents(atPath: fullPath),
-              String(data: data, encoding: .utf8) != nil
-        else {
+        guard let handle = FileHandle(forReadingAtPath: fullPath) else { return nil }
+        defer { try? handle.close() }
+
+        var contents = Data()
+        do {
+            while contents.count <= Self.limitedDiffByteCount {
+                let remaining = Self.limitedDiffByteCount + 1 - contents.count
+                guard let data = try handle.read(upToCount: min(64 * 1024, remaining)),
+                      !data.isEmpty
+                else { break }
+                contents.append(data)
+                guard contents.count <= Self.limitedDiffByteCount else { return nil }
+            }
+        } catch {
             return nil
         }
-        guard !data.isEmpty else { return 0 }
-        let newlineCount = data.reduce(0) { count, byte in
+        guard String(data: contents, encoding: .utf8) != nil else { return nil }
+        guard !contents.isEmpty else { return 0 }
+        let newlineCount = contents.reduce(0) { count, byte in
             byte == 0x0A ? count + 1 : count
         }
-        return newlineCount + (data.last == 0x0A ? 0 : 1)
+        return newlineCount + (contents.last == 0x0A ? 0 : 1)
     }
 
     func patchAndCompare(

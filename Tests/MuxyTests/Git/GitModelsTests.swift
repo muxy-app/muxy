@@ -22,7 +22,7 @@ struct GitModelsTests {
         )
     }
 
-    @Test("isStaged returns true for staged statuses", arguments: ["A", "M", "D", "R", "C"] as [Character])
+    @Test("isStaged returns true for staged statuses", arguments: ["A", "M", "D", "R", "C", "T"] as [Character])
     func isStagedTrue(status: Character) {
         let file = makeStatusFile(xStatus: status)
         #expect(file.isStaged)
@@ -36,7 +36,7 @@ struct GitModelsTests {
 
     @Test(
         "isUnstaged returns true for every porcelain working-tree status",
-        arguments: ["A", "C", "D", "M", "R", "U", "?"] as [Character]
+        arguments: ["A", "C", "D", "M", "R", "T", "U", "?"] as [Character]
     )
     func isUnstagedTrue(status: Character) {
         let file = makeStatusFile(yStatus: status)
