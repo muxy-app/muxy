@@ -89,11 +89,11 @@ enum GitStatusParser {
             let path = String(token.dropFirst(3))
 
             if xStatus == "R" || xStatus == "C" || yStatus == "R" || yStatus == "C" {
-                let newPath = index + 1 < tokens.count ? tokens[index + 1] : path
-                let stat = stats[newPath]
+                let oldPath = index + 1 < tokens.count ? tokens[index + 1] : path
+                let stat = stats[path]
                 files.append(GitStatusFile(
-                    path: newPath,
-                    oldPath: path,
+                    path: path,
+                    oldPath: oldPath,
                     xStatus: xStatus,
                     yStatus: yStatus,
                     additions: stat?.additions,

@@ -155,6 +155,72 @@ struct GitRepositoryServiceNewAPIsTests {
         #expect(before != after)
     }
 
+    @Test("stage and unstage rename include both repository paths")
+    func stageAndUnstageRename() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "old.txt", contents: "content\n", message: "init")
+        try FileManager.default.moveItem(
+            atPath: URL(fileURLWithPath: repo.path).appendingPathComponent("old.txt").path,
+            toPath: URL(fileURLWithPath: repo.path).appendingPathComponent("new.txt").path
+        )
+        try repo.run("add", "-A")
+
+        let service = GitRepositoryService()
+        let stagedRename = try #require(try await service.changedFiles(repoPath: repo.path).first {
+            $0.oldPath == "old.txt" && $0.path == "new.txt" && $0.isStaged
+        })
+        try await service.unstageFiles(repoPath: repo.path, paths: stagedRename.relatedPaths)
+
+        #expect(try await service.changedFiles(repoPath: repo.path).allSatisfy { !$0.isStaged })
+
+        try await service.stageFiles(repoPath: repo.path, paths: stagedRename.relatedPaths)
+
+        #expect(try await service.changedFiles(repoPath: repo.path).contains {
+            $0.oldPath == "old.txt" && $0.path == "new.txt" && $0.isStaged
+        })
+    }
+
+    @Test("discard request permanently removes an untracked file")
+    func discardUntrackedFile() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        let newFile = URL(fileURLWithPath: repo.path).appendingPathComponent("new.txt")
+        try "new\n".write(to: newFile, atomically: true, encoding: .utf8)
+
+        let service = GitRepositoryService()
+        let file = try #require(try await service.changedFiles(repoPath: repo.path).first { $0.path == "new.txt" })
+        let request = try #require(RepositoryChangesPresentation.discardRequest(file))
+        try await service.discardFiles(
+            repoPath: repo.path,
+            paths: request.paths,
+            untrackedPaths: request.untrackedPaths
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: newFile.path))
+        #expect(try await service.changedFiles(repoPath: repo.path).isEmpty)
+    }
+
+    @Test("untracked line count does not add a line after a trailing newline")
+    func untrackedLineCountWithTrailingNewline() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        try "new\n".write(
+            to: URL(fileURLWithPath: repo.path).appendingPathComponent("new.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let file = try #require(
+            try await GitRepositoryService().changedFiles(repoPath: repo.path).first { $0.path == "new.txt" }
+        )
+
+        #expect(file.additions == 1)
+        #expect(file.deletions == 0)
+    }
+
     @discardableResult
     private static func runGit(at workingDir: String, args: [String]) throws -> String {
         let process = Process()

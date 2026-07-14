@@ -6,15 +6,9 @@ struct TabFocusedBranchPopover: View {
     let isLoadingBranches: Bool
     let isRefreshing: Bool
     let isSwitching: Bool
-    let isWorktreeRemovalInProgress: Bool
     let isRepositoryInteractionDisabled: Bool
-    let worktreeRemovalState: RepositoryToolbarPresentation.WorktreeRemovalState
-    let worktreeRemovalHelp: String?
     let onSwitch: (String) -> Void
     let onRefresh: () -> Void
-    let onRemoveWorktree: () -> Void
-
-    @State private var isRemoveWorktreeHovered = false
 
     private struct BranchItem: Identifiable {
         let name: String
@@ -30,7 +24,6 @@ struct TabFocusedBranchPopover: View {
             summaryHeader
             Divider().overlay(MuxyTheme.border)
             branchPicker
-            worktreeRemovalFooter
         }
         .frame(width: UIMetrics.scaled(320), height: UIMetrics.scaled(420))
         .background(MuxyTheme.bg)
@@ -53,7 +46,6 @@ struct TabFocusedBranchPopover: View {
                         .foregroundStyle(MuxyTheme.fgMuted)
                 }
                 Spacer(minLength: UIMetrics.spacing3)
-                statusBadge
                 Button(action: onRefresh) {
                     Group {
                         if isRefreshing {
@@ -67,25 +59,12 @@ struct TabFocusedBranchPopover: View {
                     .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                 }
                 .buttonStyle(.plain)
-                .disabled(isRefreshing || isWorktreeRemovalInProgress || isRepositoryInteractionDisabled)
-                .help("Refresh repository status")
+                .disabled(isRefreshing || isRepositoryInteractionDisabled)
+                .help("Refresh branches")
+                .accessibilityLabel("Refresh branches")
             }
         }
         .padding(UIMetrics.spacing6)
-    }
-
-    private var statusBadge: some View {
-        HStack(spacing: UIMetrics.spacing2) {
-            Circle()
-                .fill(summary.isDirty ? MuxyTheme.warning : MuxyTheme.diffAddFg)
-                .frame(width: UIMetrics.spacing2, height: UIMetrics.spacing2)
-            Text(summary.isDirty ? "Dirty" : "Clean")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-        }
-        .foregroundStyle(summary.isDirty ? MuxyTheme.warning : MuxyTheme.diffAddFg)
-        .padding(.horizontal, UIMetrics.spacing3)
-        .padding(.vertical, UIMetrics.spacing2)
-        .background(MuxyTheme.surface, in: Capsule())
     }
 
     @ViewBuilder
@@ -105,7 +84,7 @@ struct TabFocusedBranchPopover: View {
                     row(item, isHighlighted: isHighlighted)
                 }
             )
-            .disabled(isSwitching || isWorktreeRemovalInProgress || isRepositoryInteractionDisabled)
+            .disabled(isSwitching || isRepositoryInteractionDisabled)
         }
     }
 
@@ -143,59 +122,5 @@ struct TabFocusedBranchPopover: View {
         if selected { return AnyShapeStyle(MuxyTheme.accentSoft) }
         if isHighlighted { return AnyShapeStyle(MuxyTheme.surface) }
         return AnyShapeStyle(Color.clear)
-    }
-
-    @ViewBuilder
-    private var worktreeRemovalFooter: some View {
-        if worktreeRemovalState != .hidden {
-            Divider().overlay(MuxyTheme.border)
-            Button(role: .destructive, action: onRemoveWorktree) {
-                HStack(spacing: UIMetrics.spacing3) {
-                    Image(systemName: "trash")
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                        .frame(width: UIMetrics.scaled(14))
-                    Text(worktreeRemovalLabel)
-                        .font(.system(size: UIMetrics.fontBody, weight: .medium))
-                    Spacer(minLength: UIMetrics.spacing3)
-                }
-                .foregroundStyle(worktreeRemovalForeground)
-                .padding(.horizontal, UIMetrics.spacing3)
-                .frame(height: UIMetrics.controlMedium)
-                .background(
-                    isRemoveWorktreeHovered && !isWorktreeRemovalDisabled ? MuxyTheme.hover : .clear,
-                    in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(isWorktreeRemovalDisabled)
-            .onHover { isRemoveWorktreeHovered = $0 }
-            .help(worktreeRemovalHelp ?? worktreeRemovalLabel)
-            .accessibilityLabel(worktreeRemovalHelp ?? worktreeRemovalLabel)
-            .padding(UIMetrics.spacing3)
-        }
-    }
-
-    private var isWorktreeRemovalDisabled: Bool {
-        worktreeRemovalState != .available
-            || isSwitching
-            || isWorktreeRemovalInProgress
-            || isRepositoryInteractionDisabled
-    }
-
-    private var worktreeRemovalLabel: String {
-        switch worktreeRemovalState {
-        case .hidden,
-             .available:
-            "Remove worktree"
-        case .preparing:
-            "Checking…"
-        case .removing:
-            "Removing…"
-        }
-    }
-
-    private var worktreeRemovalForeground: Color {
-        isWorktreeRemovalDisabled ? MuxyTheme.fgMuted : MuxyTheme.diffRemoveFg
     }
 }

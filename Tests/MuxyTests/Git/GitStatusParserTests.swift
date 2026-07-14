@@ -96,7 +96,7 @@ struct GitStatusParserTests {
 
     @Test("parseStatusPorcelain parses renamed file")
     func parseRenamed() {
-        let raw = "R  old.swift\0new.swift\0"
+        let raw = "R  new.swift\0old.swift\0"
         let data = Data(raw.utf8)
         let result = GitStatusParser.parseStatusPorcelain(data, stats: [:])
 
@@ -108,7 +108,7 @@ struct GitStatusParserTests {
 
     @Test("parseStatusPorcelain parses unstaged renamed file")
     func parseUnstagedRenamed() {
-        let raw = " R old.swift\0new.swift\0"
+        let raw = " R new.swift\0old.swift\0"
         let data = Data(raw.utf8)
         let result = GitStatusParser.parseStatusPorcelain(data, stats: [:])
 

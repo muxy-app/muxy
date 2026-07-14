@@ -72,8 +72,21 @@ struct GitStatusFile: Identifiable, Hashable {
     }
 
     var isUnstaged: Bool {
-        let unstaged: Set<Character> = ["M", "D", "?"]
-        return unstaged.contains(yStatus) || (xStatus == "?" && yStatus == "?")
+        let unstaged: Set<Character> = ["A", "C", "D", "M", "R", "U", "?"]
+        return unstaged.contains(yStatus)
+    }
+
+    var isUntracked: Bool {
+        xStatus == "?" && yStatus == "?"
+    }
+
+    var isConflicted: Bool {
+        let conflictStatuses: Set = ["DD", "AU", "UD", "UA", "DU", "AA", "UU"]
+        return conflictStatuses.contains(String([xStatus, yStatus]))
+    }
+
+    var relatedPaths: [String] {
+        Array(Set([oldPath, path].compactMap(\.self))).sorted()
     }
 
     func additions(isStaged: Bool) -> Int? {

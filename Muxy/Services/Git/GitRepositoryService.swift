@@ -1133,11 +1133,15 @@ struct GitRepositoryService {
         guard !context.isRemote else { return nil }
         let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
         guard let data = FileManager.default.contents(atPath: fullPath),
-              let content = String(data: data, encoding: .utf8)
+              String(data: data, encoding: .utf8) != nil
         else {
             return nil
         }
-        return content.isEmpty ? 0 : content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
+        guard !data.isEmpty else { return 0 }
+        let newlineCount = data.reduce(0) { count, byte in
+            byte == 0x0A ? count + 1 : count
+        }
+        return newlineCount + (data.last == 0x0A ? 0 : 1)
     }
 
     func patchAndCompare(

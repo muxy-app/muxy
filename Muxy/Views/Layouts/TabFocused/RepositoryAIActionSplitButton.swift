@@ -59,16 +59,8 @@ struct RepositoryAIActionSplitButton: View {
     private var primaryButton: some View {
         Button(action: onRun) {
             HStack(spacing: UIMetrics.spacing2) {
-                if let selectedProvider {
-                    ProviderIconView(
-                        iconName: selectedProvider.iconName,
-                        size: UIMetrics.iconSM,
-                        monochromeTint: primaryForeground
-                    )
-                } else {
-                    Image(systemName: action.symbolName)
-                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
-                }
+                Image(systemName: action.symbolName)
+                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
                 Text(isRunning ? action.runningTitle : action.title)
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
             }

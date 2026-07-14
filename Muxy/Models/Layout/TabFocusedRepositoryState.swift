@@ -24,15 +24,19 @@ final class TabFocusedRepositoryState {
 
     private(set) var summary: GitRepositorySummary?
     private(set) var branches: [String] = []
+    private(set) var changedFiles: [GitStatusFile] = []
     private(set) var pullRequestState: PullRequestFetchState = .loading
     private(set) var isLoadingSummary = false
     private(set) var isLoadingBranches = false
+    private(set) var isLoadingChanges = false
+    private(set) var isMutatingChanges = false
     private(set) var isRefreshingPullRequest = false
     private(set) var isSwitchingBranch = false
     private(set) var isMergingPullRequest = false
     private(set) var isClosingPullRequest = false
     private(set) var isUpdatingPullRequestBranch = false
     private(set) var summaryError: String?
+    private(set) var changesError: String?
 
     @ObservationIgnored private var activeRepository: ActiveRepository?
     @ObservationIgnored private var fileSystemWatcher: FileSystemWatcher?
@@ -40,8 +44,10 @@ final class TabFocusedRepositoryState {
     @ObservationIgnored private var fileRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var summaryRevision = 0
     @ObservationIgnored private var branchesRevision = 0
+    @ObservationIgnored private var changesRevision = 0
     @ObservationIgnored private var pullRequestRevision = 0
     @ObservationIgnored private var pullRequestIdentity: PullRequestIdentity?
+    @ObservationIgnored private var isChangesMonitoringEnabled = false
 
     var pullRequest: GitRepositoryService.PRInfo? {
         guard case let .found(info) = pullRequestState else { return nil }
@@ -65,18 +71,32 @@ final class TabFocusedRepositoryState {
         fileRefreshTask = nil
         summaryRevision += 1
         branchesRevision += 1
+        changesRevision += 1
         pullRequestRevision += 1
         summary = nil
         branches = []
+        changedFiles = []
         pullRequestState = .loading
         pullRequestIdentity = nil
         summaryError = nil
+        changesError = nil
+        isChangesMonitoringEnabled = false
         resetTransientState()
     }
 
     func refreshRepositoryDetails() async {
         guard await refreshSummary() else { return }
         await loadBranches()
+    }
+
+    func refreshWorkingTreeDetails() async {
+        isChangesMonitoringEnabled = true
+        guard await refreshSummary() else { return }
+        await loadChanges()
+    }
+
+    func setChangesMonitoring(_ isEnabled: Bool) {
+        isChangesMonitoringEnabled = isEnabled
     }
 
     func retryRepository() async {
@@ -86,12 +106,83 @@ final class TabFocusedRepositoryState {
 
     func refreshAfterAppActivation() async {
         guard await refreshSummary(refreshPullRequestOnHeadChange: false) else { return }
+        if isChangesMonitoringEnabled {
+            await loadChanges()
+        }
         await refreshPullRequest(forceFresh: false)
     }
 
     func refreshFromExternalChange() async {
         guard await refreshSummary(refreshPullRequestOnHeadChange: false) else { return }
+        if isChangesMonitoringEnabled {
+            await loadChanges()
+        }
         await refreshPullRequest(forceFresh: true)
+    }
+
+    func loadChanges() async {
+        changesRevision += 1
+        let revision = changesRevision
+        guard let repository = activeRepository, summary?.isDirty == true else {
+            changedFiles = []
+            changesError = nil
+            isLoadingChanges = false
+            return
+        }
+        isLoadingChanges = true
+        changesError = nil
+        defer {
+            if revision == changesRevision {
+                isLoadingChanges = false
+            }
+        }
+        do {
+            let files = try await repository.service.changedFiles(repoPath: repository.path)
+            guard repository == activeRepository, revision == changesRevision else { return }
+            changedFiles = files
+        } catch {
+            guard repository == activeRepository, revision == changesRevision else { return }
+            changedFiles = []
+            changesError = error.localizedDescription
+            ToastState.shared.show(title: "Failed to load changes", body: error.localizedDescription)
+        }
+    }
+
+    func stage(_ file: GitStatusFile) async {
+        await stage([file])
+    }
+
+    func stage(_ files: [GitStatusFile]) async {
+        let paths = Array(Set(files.flatMap(\.relatedPaths))).sorted()
+        guard !paths.isEmpty else { return }
+        let failureTitle = files.count == 1 ? "Failed to stage \(files[0].path)" : "Failed to stage changes"
+        await mutateChanges(failureTitle: failureTitle) { repository in
+            try await repository.service.stageFiles(repoPath: repository.path, paths: paths)
+        }
+    }
+
+    func unstage(_ file: GitStatusFile) async {
+        await unstage([file])
+    }
+
+    func unstage(_ files: [GitStatusFile]) async {
+        let paths = Array(Set(files.flatMap(\.relatedPaths))).sorted()
+        guard !paths.isEmpty else { return }
+        let failureTitle = files.count == 1 ? "Failed to unstage \(files[0].path)" : "Failed to unstage changes"
+        await mutateChanges(failureTitle: failureTitle) { repository in
+            try await repository.service.unstageFiles(repoPath: repository.path, paths: paths)
+        }
+    }
+
+    func discard(_ file: GitStatusFile) async {
+        guard let request = RepositoryChangesPresentation.discardRequest(file) else { return }
+        await mutateChanges(failureTitle: "Failed to discard changes to \(file.path)") { repository in
+            try await repository.service.discardFiles(
+                repoPath: repository.path,
+                paths: request.paths,
+                untrackedPaths: request.untrackedPaths
+            )
+        }
     }
 
     func loadBranches() async {
@@ -119,6 +210,7 @@ final class TabFocusedRepositoryState {
         guard let repository = activeRepository,
               branch != summary?.branch,
               !isSwitchingBranch,
+              !isMutatingChanges,
               !isPerformingPullRequestAction
         else { return }
         isSwitchingBranch = true
@@ -198,6 +290,7 @@ final class TabFocusedRepositoryState {
     ) async {
         guard let repository = activeRepository,
               !isSwitchingBranch,
+              !isMutatingChanges,
               pullRequest == info,
               !isPerformingPullRequestAction
         else { return }
@@ -246,6 +339,7 @@ final class TabFocusedRepositoryState {
     func closePullRequest(_ info: GitRepositoryService.PRInfo) async {
         guard let repository = activeRepository,
               !isSwitchingBranch,
+              !isMutatingChanges,
               pullRequest == info,
               !isPerformingPullRequestAction
         else { return }
@@ -270,6 +364,7 @@ final class TabFocusedRepositoryState {
     func updatePullRequestBranch(_ info: GitRepositoryService.PRInfo) async {
         guard let repository = activeRepository,
               !isSwitchingBranch,
+              !isMutatingChanges,
               pullRequest == info,
               !isPerformingPullRequestAction
         else { return }
@@ -308,12 +403,16 @@ final class TabFocusedRepositoryState {
         activeRepository = repository
         summary = nil
         branches = []
+        changedFiles = []
         pullRequestState = .loading
         pullRequestIdentity = nil
         summaryError = nil
+        changesError = nil
+        isChangesMonitoringEnabled = false
         resetTransientState()
         summaryRevision += 1
         branchesRevision += 1
+        changesRevision += 1
         pullRequestRevision += 1
         fileRefreshTask?.cancel()
         fileRefreshTask = nil
@@ -362,6 +461,12 @@ final class TabFocusedRepositoryState {
             guard repository == activeRepository, revision == summaryRevision else { return false }
             let previous = summary
             summary = loaded
+            if !loaded.isDirty {
+                changesRevision += 1
+                changedFiles = []
+                changesError = nil
+                isLoadingChanges = false
+            }
             let pullRequestIdentityChanged = previous.map {
                 $0.branch != loaded.branch || $0.headOID != loaded.headOID
             } ?? false
@@ -382,10 +487,12 @@ final class TabFocusedRepositoryState {
             pullRequestRevision += 1
             summary = nil
             branches = []
+            changedFiles = []
             pullRequestState = .unavailable
             pullRequestIdentity = nil
             isRefreshingPullRequest = false
             summaryError = error.localizedDescription
+            changesError = nil
             return false
         }
     }
@@ -393,6 +500,8 @@ final class TabFocusedRepositoryState {
     private func resetTransientState() {
         isLoadingSummary = false
         isLoadingBranches = false
+        isLoadingChanges = false
+        isMutatingChanges = false
         isRefreshingPullRequest = false
         isSwitchingBranch = false
         isMergingPullRequest = false
@@ -418,7 +527,37 @@ final class TabFocusedRepositoryState {
         fileRefreshTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled, let self, repositoryKey == activeRepository?.key else { return }
-            _ = await refreshSummary()
+            guard await refreshSummary() else { return }
+            if isChangesMonitoringEnabled {
+                await loadChanges()
+            }
+        }
+    }
+
+    private func mutateChanges(
+        failureTitle: String,
+        operation: (ActiveRepository) async throws -> Void
+    ) async {
+        guard let repository = activeRepository,
+              !isMutatingChanges,
+              !isSwitchingBranch,
+              !isPerformingPullRequestAction
+        else { return }
+        isMutatingChanges = true
+        defer {
+            if repository == activeRepository {
+                isMutatingChanges = false
+            }
+        }
+        do {
+            try await operation(repository)
+            guard repository == activeRepository else { return }
+            _ = await refreshSummary(refreshPullRequestOnHeadChange: false)
+            await loadChanges()
+            postRepositoryChange(repository)
+        } catch {
+            guard repository == activeRepository else { return }
+            ToastState.shared.show(title: failureTitle, body: error.localizedDescription)
         }
     }
 
