@@ -64,7 +64,7 @@ struct GitRepositoryServiceNewAPIsTests {
         #expect(info.currentBranch == "feature")
     }
 
-    @Test("deleteLocalBranch removes a merged branch and rejects unmerged without force")
+    @Test("deleteLocalBranch protects checked-out branches and force deletes unmerged branches")
     func deleteLocalBranch() async throws {
         let repo = try TempGitRepo()
         defer { repo.cleanup() }
@@ -72,6 +72,9 @@ struct GitRepositoryServiceNewAPIsTests {
         try repo.run("branch", "merged")
 
         let service = GitRepositoryService()
+        await #expect(throws: Error.self) {
+            try await service.deleteLocalBranch(repoPath: repo.path, branch: "main", force: true)
+        }
         try await service.deleteLocalBranch(repoPath: repo.path, branch: "merged", force: false)
         let branches = try await service.listBranches(repoPath: repo.path)
         #expect(!branches.contains("merged"))
@@ -84,6 +87,42 @@ struct GitRepositoryServiceNewAPIsTests {
         }
         try await service.deleteLocalBranch(repoPath: repo.path, branch: "unmerged", force: true)
         #expect(!(try await service.listBranches(repoPath: repo.path)).contains("unmerged"))
+    }
+
+    @Test("deleteLocalBranch rejects a branch checked out in another worktree")
+    func deleteBranchCheckedOutInAnotherWorktree() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "init")
+        let worktreePath = repo.sibling("linked")
+        try repo.run("worktree", "add", "-b", "linked-branch", worktreePath)
+
+        let service = GitRepositoryService()
+        await #expect(throws: Error.self) {
+            try await service.deleteLocalBranch(repoPath: repo.path, branch: "linked-branch", force: true)
+        }
+
+        #expect(try await service.listBranches(repoPath: repo.path).contains("linked-branch"))
+    }
+
+    @Test("createAndSwitchBranch creates from HEAD and keeps failures on the current branch")
+    func createAndSwitchBranch() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "init")
+        let service = GitRepositoryService()
+
+        try await service.createAndSwitchBranch(repoPath: repo.path, name: "feature/inline-branches")
+
+        #expect(try await service.currentBranch(repoPath: repo.path) == "feature/inline-branches")
+        #expect(try await service.listBranches(repoPath: repo.path) == ["feature/inline-branches", "main"])
+        await #expect(throws: Error.self) {
+            try await service.createAndSwitchBranch(repoPath: repo.path, name: "feature/inline-branches")
+        }
+        await #expect(throws: Error.self) {
+            try await service.createAndSwitchBranch(repoPath: repo.path, name: "invalid..branch")
+        }
+        #expect(try await service.currentBranch(repoPath: repo.path) == "feature/inline-branches")
     }
 
     @Test("initRepository turns a plain folder into a git repo")

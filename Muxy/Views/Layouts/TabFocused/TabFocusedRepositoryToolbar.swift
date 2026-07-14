@@ -163,7 +163,7 @@ struct TabFocusedRepositoryToolbar: View {
         )
         .disabled(
             summary == nil
-                || repositoryState.isSwitchingBranch
+                || repositoryState.isMutatingBranches
                 || repositoryState.isMutatingChanges
                 || isPerformingPullRequestAction
                 || isWorktreeRemovalInProgress
@@ -177,12 +177,19 @@ struct TabFocusedRepositoryToolbar: View {
                     summary: repositoryState.summary ?? summary,
                     branches: repositoryState.branches,
                     isLoadingBranches: repositoryState.isLoadingBranches,
-                    isSwitching: repositoryState.isSwitchingBranch,
+                    isMutatingBranches: repositoryState.isMutatingBranches,
+                    branchBeingDeleted: repositoryState.branchBeingDeleted,
                     isRepositoryInteractionDisabled: repositoryState.isMutatingChanges
                         || isPerformingPullRequestAction
                         || hasRunningAIWorkflow,
                     onSwitch: { branch in
                         switchBranch(branch)
+                    },
+                    onCreate: { branch in
+                        await repositoryState.createAndSwitchBranch(branch)
+                    },
+                    onDelete: { branch in
+                        await repositoryState.deleteBranch(branch)
                     }
                 )
             }
@@ -211,7 +218,7 @@ struct TabFocusedRepositoryToolbar: View {
         )
         .disabled(
             summary == nil
-                || repositoryState.isSwitchingBranch
+                || repositoryState.isMutatingBranches
                 || isPerformingPullRequestAction
                 || repositoryState.isMutatingChanges
                 || isWorktreeRemovalInProgress
@@ -230,7 +237,7 @@ struct TabFocusedRepositoryToolbar: View {
                     error: repositoryState.changesError,
                     isLoading: repositoryState.isLoadingChanges,
                     isMutating: repositoryState.isMutatingChanges,
-                    isRepositoryInteractionDisabled: repositoryState.isSwitchingBranch
+                    isRepositoryInteractionDisabled: repositoryState.isMutatingBranches
                         || isPerformingPullRequestAction
                         || isWorktreeRemovalInProgress
                         || hasRunningAIWorkflow,
@@ -285,7 +292,7 @@ struct TabFocusedRepositoryToolbar: View {
         )
         .disabled(
             repositoryState.isRefreshingPullRequest
-                || repositoryState.isSwitchingBranch
+                || repositoryState.isMutatingBranches
                 || repositoryState.isMutatingChanges
                 || isWorktreeRemovalInProgress
                 || hasRunningAIWorkflow
@@ -319,7 +326,7 @@ struct TabFocusedRepositoryToolbar: View {
             }
         )
         .disabled(
-            repositoryState.isSwitchingBranch
+            repositoryState.isMutatingBranches
                 || repositoryState.isMutatingChanges
                 || isWorktreeRemovalInProgress
                 || hasRunningAIWorkflow
@@ -503,6 +510,7 @@ struct TabFocusedRepositoryToolbar: View {
 
     private func switchBranch(_ branch: String) {
         guard !isWorktreeRemovalInProgress,
+              !repositoryState.isMutatingBranches,
               !repositoryState.isMutatingChanges,
               !isPerformingPullRequestAction,
               !hasRunningAIWorkflow
@@ -513,7 +521,7 @@ struct TabFocusedRepositoryToolbar: View {
 
     private func updatePullRequestBranch(_ info: GitRepositoryService.PRInfo) {
         guard !isWorktreeRemovalInProgress,
-              !repositoryState.isSwitchingBranch,
+              !repositoryState.isMutatingBranches,
               !repositoryState.isMutatingChanges,
               !isPerformingPullRequestAction,
               !hasRunningAIWorkflow
@@ -522,7 +530,7 @@ struct TabFocusedRepositoryToolbar: View {
     }
 
     private func requestWorktreeRemoval(_ worktree: Worktree) {
-        guard !repositoryState.isSwitchingBranch,
+        guard !repositoryState.isMutatingBranches,
               !repositoryState.isMutatingChanges,
               !isPerformingPullRequestAction,
               !hasRunningAIWorkflow,
@@ -558,7 +566,7 @@ struct TabFocusedRepositoryToolbar: View {
         _ action: PullRequestActionConfirmation.Kind,
         expected context: PullRequestActionConfirmation.Context
     ) {
-        guard !repositoryState.isSwitchingBranch,
+        guard !repositoryState.isMutatingBranches,
               !repositoryState.isMutatingChanges,
               !repositoryState.isRefreshingPullRequest,
               !isWorktreeRemovalInProgress,
@@ -609,7 +617,7 @@ struct TabFocusedRepositoryToolbar: View {
     }
 
     private var isRepositoryBusy: Bool {
-        repositoryState.isSwitchingBranch
+        repositoryState.isMutatingBranches
             || repositoryState.isMutatingChanges
             || isPerformingPullRequestAction
             || isWorktreeRemovalInProgress

@@ -36,7 +36,7 @@ struct TabFocusedChangesPopover: View {
             content
             worktreeRemovalFooter
         }
-        .frame(width: UIMetrics.scaled(500), height: UIMetrics.scaled(520))
+        .frame(width: UIMetrics.scaled(420), height: UIMetrics.scaled(420))
         .background(MuxyTheme.bg)
         .alert(item: $pendingDiscard) { file in
             Alert(
@@ -67,7 +67,9 @@ struct TabFocusedChangesPopover: View {
                 Text(workingTreeDescription)
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgMuted)
+                    .lineLimit(1)
             }
+            .layoutPriority(1)
             Spacer(minLength: UIMetrics.spacing3)
             lineStats(changes.totalLineStats.merging(untrackedLineStatsSummary))
             Button(action: requestRefresh) {
@@ -80,14 +82,14 @@ struct TabFocusedChangesPopover: View {
                     }
                 }
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: UIMetrics.controlLarge, height: UIMetrics.controlLarge)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
             }
             .buttonStyle(.plain)
             .disabled(isInteractionDisabled)
             .help("Refresh working tree changes")
             .accessibilityLabel("Refresh working tree changes")
         }
-        .padding(UIMetrics.spacing5)
+        .padding(UIMetrics.spacing4)
     }
 
     @ViewBuilder
@@ -165,41 +167,40 @@ struct TabFocusedChangesPopover: View {
                         .disabled(isInteractionDisabled)
                 }
             }
-            .padding(.horizontal, UIMetrics.spacing6)
-            .padding(.top, UIMetrics.spacing5)
+            .padding(.horizontal, UIMetrics.spacing4)
+            .padding(.top, UIMetrics.spacing3)
             .padding(.bottom, UIMetrics.spacing2)
             .background(MuxyTheme.bg)
         }
     }
 
     private func fileRow(_ file: GitStatusFile, side: ChangeSide) -> some View {
-        HStack(spacing: UIMetrics.spacing4) {
-            Text(file.displayStatusText(isStaged: side == .staged))
-                .font(.system(size: UIMetrics.fontCaption, weight: .bold, design: .monospaced))
-                .foregroundStyle(statusColor(file, side: side))
-                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+        ChangesPopoverFileRow {
+            HStack(spacing: UIMetrics.spacing3) {
+                Text(file.displayStatusText(isStaged: side == .staged))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .bold, design: .monospaced))
+                    .foregroundStyle(statusColor(file, side: side))
+                    .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
 
-            VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                Text((file.path as NSString).lastPathComponent)
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fg)
-                    .lineLimit(1)
-                Text(fileDetail(file))
-                    .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                    Text((file.path as NSString).lastPathComponent)
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                        .foregroundStyle(MuxyTheme.fg)
+                        .lineLimit(1)
+                    Text(fileDetail(file))
+                        .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: UIMetrics.spacing2)
+                fileLineStats(file, side: side)
+                    .frame(minWidth: UIMetrics.scaled(68), alignment: .trailing)
+                rowActions(file, side: side)
             }
-
-            Spacer(minLength: UIMetrics.spacing2)
-            fileLineStats(file, side: side)
-                .frame(minWidth: UIMetrics.scaled(68), alignment: .trailing)
-            rowActions(file, side: side)
         }
-        .padding(.horizontal, UIMetrics.spacing6)
-        .frame(height: UIMetrics.scaled(52))
-        .contentShape(Rectangle())
         .task {
             guard side == .unstaged,
                   file.isUntracked,
@@ -426,7 +427,7 @@ private struct ChangesPopoverActionButton: View {
             Image(systemName: symbol)
                 .font(.system(size: UIMetrics.iconSM, weight: .bold))
                 .foregroundStyle(foreground)
-                .frame(width: UIMetrics.controlLarge, height: UIMetrics.controlLarge)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .background(isHovered && !isDisabled ? MuxyTheme.hover : .clear, in: RoundedRectangle(
                     cornerRadius: UIMetrics.radiusSM
                 ))
@@ -442,5 +443,28 @@ private struct ChangesPopoverActionButton: View {
     private var foreground: Color {
         if isDisabled { return MuxyTheme.fgDim }
         return isDestructive ? MuxyTheme.diffRemoveFg : MuxyTheme.fgMuted
+    }
+}
+
+private struct ChangesPopoverFileRow<Content: View>: View {
+    let content: Content
+
+    @State private var isHovered = false
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(.horizontal, UIMetrics.spacing4)
+            .frame(height: UIMetrics.scaled(40))
+            .background(
+                isHovered ? MuxyTheme.hover : .clear,
+                in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+            )
+            .padding(.horizontal, UIMetrics.spacing2)
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
     }
 }

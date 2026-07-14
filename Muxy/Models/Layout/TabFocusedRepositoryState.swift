@@ -35,6 +35,7 @@ final class TabFocusedRepositoryState {
     private(set) var isMutatingChanges = false
     private(set) var isRefreshingPullRequest = false
     private(set) var isSwitchingBranch = false
+    private(set) var branchBeingDeleted: String?
     private(set) var isMergingPullRequest = false
     private(set) var isClosingPullRequest = false
     private(set) var isUpdatingPullRequestBranch = false
@@ -58,6 +59,10 @@ final class TabFocusedRepositoryState {
     var pullRequest: GitRepositoryService.PRInfo? {
         guard case let .found(info) = pullRequestState else { return nil }
         return info
+    }
+
+    var isMutatingBranches: Bool {
+        isSwitchingBranch || branchBeingDeleted != nil
     }
 
     func activate(repoPath: String, context: WorkspaceContext) async {
@@ -282,12 +287,60 @@ final class TabFocusedRepositoryState {
     }
 
     func switchBranch(_ branch: String) async {
+        guard branch != summary?.branch else { return }
+        _ = await switchCurrentBranch(failureTitle: "Failed to switch branch") { repository in
+            try await repository.service.switchBranch(repoPath: repository.path, branch: branch)
+        }
+    }
+
+    func createAndSwitchBranch(_ name: String) async -> Bool {
+        let branch = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !branch.isEmpty else { return false }
+        let created = await switchCurrentBranch(failureTitle: "Failed to create branch") { repository in
+            try await repository.service.createAndSwitchBranch(repoPath: repository.path, name: branch)
+        }
+        if created {
+            ToastState.shared.show("Created branch \(branch)")
+        }
+        return created
+    }
+
+    func deleteBranch(_ branch: String) async -> Bool {
         guard let repository = activeRepository,
               branch != summary?.branch,
-              !isSwitchingBranch,
+              !isMutatingBranches,
               !isMutatingChanges,
               !isPerformingPullRequestAction
-        else { return }
+        else { return false }
+        branchBeingDeleted = branch
+        defer {
+            if repository == activeRepository {
+                branchBeingDeleted = nil
+            }
+        }
+        do {
+            try await repository.service.deleteLocalBranch(repoPath: repository.path, branch: branch, force: true)
+            guard repository == activeRepository else { return false }
+            await loadBranches()
+            ToastState.shared.show("Deleted branch \(branch)")
+            postRepositoryChange(repository)
+            return true
+        } catch {
+            guard repository == activeRepository else { return false }
+            ToastState.shared.show(title: "Failed to delete branch \(branch)", body: error.localizedDescription)
+            return false
+        }
+    }
+
+    private func switchCurrentBranch(
+        failureTitle: String,
+        operation: (ActiveRepository) async throws -> Void
+    ) async -> Bool {
+        guard let repository = activeRepository,
+              !isMutatingBranches,
+              !isMutatingChanges,
+              !isPerformingPullRequestAction
+        else { return false }
         isSwitchingBranch = true
         defer {
             if repository == activeRepository {
@@ -295,15 +348,17 @@ final class TabFocusedRepositoryState {
             }
         }
         do {
-            try await repository.service.switchBranch(repoPath: repository.path, branch: branch)
-            guard repository == activeRepository else { return }
+            try await operation(repository)
+            guard repository == activeRepository else { return false }
             _ = await refreshSummary(refreshPullRequestOnHeadChange: false)
             await loadBranches()
             await refreshPullRequest(forceFresh: true)
             postRepositoryChange(repository)
+            return true
         } catch {
-            guard repository == activeRepository else { return }
-            ToastState.shared.show(title: "Failed to switch branch", body: error.localizedDescription)
+            guard repository == activeRepository else { return false }
+            ToastState.shared.show(title: failureTitle, body: error.localizedDescription)
+            return false
         }
     }
 
@@ -364,7 +419,7 @@ final class TabFocusedRepositoryState {
         method: GitRepositoryService.PRMergeMethod
     ) async {
         guard let repository = activeRepository,
-              !isSwitchingBranch,
+              !isMutatingBranches,
               !isMutatingChanges,
               pullRequest == info,
               !isPerformingPullRequestAction
@@ -413,7 +468,7 @@ final class TabFocusedRepositoryState {
 
     func closePullRequest(_ info: GitRepositoryService.PRInfo) async {
         guard let repository = activeRepository,
-              !isSwitchingBranch,
+              !isMutatingBranches,
               !isMutatingChanges,
               pullRequest == info,
               !isPerformingPullRequestAction
@@ -438,7 +493,7 @@ final class TabFocusedRepositoryState {
 
     func updatePullRequestBranch(_ info: GitRepositoryService.PRInfo) async {
         guard let repository = activeRepository,
-              !isSwitchingBranch,
+              !isMutatingBranches,
               !isMutatingChanges,
               pullRequest == info,
               !isPerformingPullRequestAction
@@ -583,6 +638,7 @@ final class TabFocusedRepositoryState {
         isMutatingChanges = false
         isRefreshingPullRequest = false
         isSwitchingBranch = false
+        branchBeingDeleted = nil
         isMergingPullRequest = false
         isClosingPullRequest = false
         isUpdatingPullRequestBranch = false
@@ -628,7 +684,7 @@ final class TabFocusedRepositoryState {
     ) async {
         guard let repository = activeRepository,
               !isMutatingChanges,
-              !isSwitchingBranch,
+              !isMutatingBranches,
               !isPerformingPullRequestAction
         else { return }
         isMutatingChanges = true
