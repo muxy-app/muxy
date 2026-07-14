@@ -83,6 +83,7 @@ Download the latest release from the [releases page](https://github.com/muxy-app
 scripts/setup.sh          # downloads GhosttyKit.xcframework
 swift build               # debug build
 swift run Muxy             # run
+scripts/checks.sh         # format, lint, build, and test in isolated app storage
 ```
 
 ## License

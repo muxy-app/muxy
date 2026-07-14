@@ -16,6 +16,8 @@ swiftlint lint --strict       # Check linting only
 
 Run `scripts/checks.sh --fix` after every task.
 
+Test processes use isolated Application Support storage.
+
 ## Top Level Rules
 
 - Security first
