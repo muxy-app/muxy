@@ -107,7 +107,7 @@ The bar's height tracks the user's interface scale (Settings → Interface), so 
 
 Because the topbar is your own HTML, you control its contents — put a title and icon on the left and as many action buttons or icons on either side as you need. To render edge-to-edge content instead (a canvas, a custom layout that owns the whole tab), simply omit the topbar; nothing in Muxy forces one.
 
-See [theming](README.md) and the SKILL for the full `--muxy-*` variable list and copy-paste CSS.
+See the SKILL for the full `--muxy-*` variable list and copy-paste CSS.
 
 ## window.muxy
 
