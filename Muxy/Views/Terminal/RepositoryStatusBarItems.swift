@@ -14,12 +14,14 @@ struct RepositoryStatusBarItems: View {
     @State private var installedProviderIDs: Set<String> = []
     @State private var aiActions = RepositoryAIActionsService.shared
     @State private var preparingPullRequestRepositoryID: String?
+    @State private var pendingAIAction: RepositoryAIActionConfirmation?
     @AppStorage(RepositoryAIAction.commit.providerKey) private var commitProviderID = RepositoryAIActionPreferences.automaticProviderID
     @AppStorage(RepositoryAIAction.createPullRequest.providerKey) private var pullRequestProviderID = RepositoryAIActionPreferences
         .automaticProviderID
 
     var body: some View {
         let context = repositoryContext
+        let confirmationContext = aiRepositoryActionContext(for: context)
         return content(hasRepository: context != nil)
             .frame(maxHeight: .infinity)
             .task(id: context?.id ?? "no-repository") {
@@ -62,6 +64,37 @@ struct RepositoryStatusBarItems: View {
             .onChange(of: showChangesPopover) { _, isShowing in
                 repositoryState.setChangesMonitoring(isShowing)
             }
+            .onChange(of: confirmationContext) { _, _ in
+                pendingAIAction = nil
+            }
+            .alert(
+                pendingAIAction?.title ?? "",
+                isPresented: aiRepositoryActionAlertBinding,
+                presenting: pendingAIAction
+            ) { confirmation in
+                Button(confirmation.confirmTitle) {
+                    pendingAIAction = nil
+                    confirmAIRepositoryAction(confirmation)
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Cancel", role: .cancel) {
+                    pendingAIAction = nil
+                }
+                .keyboardShortcut(.cancelAction)
+            } message: { confirmation in
+                Text(confirmation.message)
+            }
+    }
+
+    private var aiRepositoryActionAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingAIAction != nil },
+            set: { newValue in
+                if !newValue {
+                    pendingAIAction = nil
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -380,7 +413,7 @@ struct RepositoryStatusBarItems: View {
             menuDisabled: hasRunningAIWorkflow,
             configuredProviderID: providerID,
             projectPrompt: projectPromptConfiguration(for: action),
-            onRun: { runAIRepositoryAction(action, availability: availability) }
+            onRun: { requestAIRepositoryAction(action, availability: availability) }
         )
     }
 
@@ -634,6 +667,47 @@ struct RepositoryStatusBarItems: View {
     private func refreshInstalledProviders() async {
         await LoginShellPath.hydrate()
         installedProviderIDs = Set(agentLaunchProviders.filter { $0.isAgentCLIInstalled() }.map(\.id))
+    }
+
+    private func aiRepositoryActionContext(
+        for context: RepositoryContext?
+    ) -> RepositoryAIActionConfirmation.Context? {
+        guard let context,
+              let summary = repositoryState.summary
+        else { return nil }
+        return RepositoryAIActionConfirmation.Context(
+            repositoryID: context.id,
+            branch: summary.branch
+        )
+    }
+
+    private func requestAIRepositoryAction(
+        _ action: RepositoryAIAction,
+        availability: RepositoryAIActionAvailability
+    ) {
+        guard availability == .available,
+              !hasRunningAIWorkflow,
+              let context = aiRepositoryActionContext(for: repositoryContext),
+              let provider = selectedProvider(for: action)
+        else { return }
+        pendingAIAction = RepositoryAIActionConfirmation(
+            action: action,
+            context: context,
+            providerName: provider.displayName
+        )
+    }
+
+    private func confirmAIRepositoryAction(_ confirmation: RepositoryAIActionConfirmation) {
+        let action = confirmation.action
+        let availability = aiRepositoryActionAvailability(action, summary: repositoryState.summary)
+        guard availability == .available,
+              !hasRunningAIWorkflow,
+              aiRepositoryActionContext(for: repositoryContext) == confirmation.context
+        else {
+            ToastState.shared.show("\(action.settingsTitle) is no longer available. Try again.")
+            return
+        }
+        runAIRepositoryAction(action, availability: availability)
     }
 
     private func runAIRepositoryAction(
