@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 struct ProjectsSettingsView: View {
+    @AppStorage(GeneralSettingsKeys.defaultWorktreePathTemplate)
+    private var defaultWorktreePathTemplate = ""
     @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
     private var defaultWorktreeParentPath = ""
     @AppStorage(ProjectLifecyclePreferences.keepOpenWhenNoTabsKey)
@@ -79,8 +81,8 @@ struct ProjectsSettingsView: View {
 
             SettingsSection(
                 "Worktrees",
-                footer: "Muxy creates a project-named subfolder inside this folder. "
-                    + "Projects can still override this from the new worktree dialog.",
+                footer: "Use {project-name}, {base-dir}, and {branch} in a path template. Relative templates start "
+                    + "from the project folder. Choose Folder keeps the existing project and worktree subfolder layout.",
                 showsDivider: false
             ) {
                 worktreeLocationControl
@@ -111,13 +113,28 @@ struct ProjectsSettingsView: View {
         return "Muxy Picker can use Finder or Muxy's picker. Projects can stay in the sidebar after closing their last tab."
     }
 
-    private var defaultWorktreeLocationText: String {
-        defaultWorktreeParentPath.isEmpty ? "Muxy App Support" : defaultWorktreeParentPath
+    private var defaultWorktreeLocation: Binding<String> {
+        Binding(
+            get: {
+                if !defaultWorktreePathTemplate.isEmpty {
+                    return defaultWorktreePathTemplate
+                }
+                return defaultWorktreeParentPath
+            },
+            set: { value in
+                defaultWorktreePathTemplate = value
+                defaultWorktreeParentPath = ""
+            }
+        )
+    }
+
+    private var usesAppDefaultWorktreeLocation: Bool {
+        defaultWorktreePathTemplate.isEmpty && defaultWorktreeParentPath.isEmpty
     }
 
     private var worktreeLocationControl: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("Default path for new worktrees")
+            Text("Default path template for new worktrees")
                 .font(.system(size: SettingsMetrics.labelFontSize))
 
             HStack(alignment: .center, spacing: 8) {
@@ -130,10 +147,11 @@ struct ProjectsSettingsView: View {
                 .fixedSize(horizontal: true, vertical: false)
 
                 Button("Use App Default") {
+                    defaultWorktreePathTemplate = ""
                     defaultWorktreeParentPath = ""
                 }
                 .fixedSize(horizontal: true, vertical: false)
-                .disabled(defaultWorktreeParentPath.isEmpty)
+                .disabled(usesAppDefaultWorktreeLocation)
             }
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
@@ -141,28 +159,10 @@ struct ProjectsSettingsView: View {
     }
 
     private var pathDisplay: some View {
-        HStack(spacing: 7) {
-            Image(systemName: defaultWorktreeParentPath.isEmpty ? "internaldrive" : "folder")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(SettingsStyle.mutedForeground)
-                .frame(width: 15)
-
-            Text(defaultWorktreeLocationText)
-                .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
-                .foregroundStyle(defaultWorktreeParentPath.isEmpty ? SettingsStyle.mutedForeground : SettingsStyle.foreground)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 9)
-        .frame(minWidth: 170, maxWidth: .infinity, alignment: .leading)
-        .frame(height: 22)
-        .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(SettingsStyle.border, lineWidth: 1)
-        )
+        TextField("Muxy App Support", text: defaultWorktreeLocation)
+            .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
+            .settingsTextInput(maxWidth: .infinity, minHeight: 22)
+            .frame(minWidth: 170)
     }
 
     private func chooseDefaultWorktreeParentPath() {
@@ -171,10 +171,11 @@ struct ProjectsSettingsView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.message = "Select the default folder for new worktrees"
-        if let path = WorktreeLocationResolver.normalizedPath(defaultWorktreeParentPath) {
+        if let path = WorktreeLocationResolver.normalizedLocation(defaultWorktreeParentPath) {
             panel.directoryURL = URL(fileURLWithPath: path, isDirectory: true)
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        defaultWorktreePathTemplate = ""
         defaultWorktreeParentPath = url.path
     }
 }

@@ -38,6 +38,7 @@ public struct ProjectDTO: Identifiable, Codable, Hashable, Sendable {
     public var icon: String?
     public var logo: String?
     public var iconColor: String?
+    public var preferredWorktreePathTemplate: String?
     public var preferredWorktreeParentPath: String?
     public var worktreesEnabled: Bool
     public var workspaceID: UUID?
@@ -53,6 +54,7 @@ public struct ProjectDTO: Identifiable, Codable, Hashable, Sendable {
         icon: String? = nil,
         logo: String? = nil,
         iconColor: String? = nil,
+        preferredWorktreePathTemplate: String? = nil,
         preferredWorktreeParentPath: String? = nil,
         worktreesEnabled: Bool = false,
         workspaceID: UUID? = nil,
@@ -67,6 +69,7 @@ public struct ProjectDTO: Identifiable, Codable, Hashable, Sendable {
         self.icon = icon
         self.logo = logo
         self.iconColor = iconColor
+        self.preferredWorktreePathTemplate = preferredWorktreePathTemplate
         self.preferredWorktreeParentPath = preferredWorktreeParentPath
         self.worktreesEnabled = worktreesEnabled
         self.workspaceID = workspaceID

@@ -61,6 +61,16 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func worktreePathTemplateIsRegisteredAndSearchable() {
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == GeneralSettingsKeys.defaultWorktreePathTemplate
+        })
+        #expect(SettingsCatalog.matchingItems(query: "relative branch").contains {
+            $0.key == GeneralSettingsKeys.defaultWorktreePathTemplate
+        })
+    }
+
+    @Test
     func repositoryAIActionsAreRegisteredAndSearchable() {
         for action in RepositoryAIAction.allCases {
             let provider = SettingsCatalog.items.first { $0.key == action.providerKey }

@@ -242,13 +242,22 @@ enum SettingsCatalog {
             aliases: ["file opener", "open in ide", "editor", "extension opener"]
         ),
         SettingsCatalogItem(
-            key: GeneralSettingsKeys.defaultWorktreeParentPath,
-            title: "Default Worktree Path",
-            description: "Sets the parent folder for new worktrees.",
+            key: GeneralSettingsKeys.defaultWorktreePathTemplate,
+            title: "Default Worktree Path Template",
+            description: "Builds new worktree paths with project, checkout directory, and branch variables.",
             category: .projects,
             section: "Worktrees",
             defaultValue: "",
-            aliases: ["folder", "path"]
+            aliases: ["relative", "branch", "project name", "base dir"]
+        ),
+        SettingsCatalogItem(
+            key: GeneralSettingsKeys.defaultWorktreeParentPath,
+            title: "Default Worktree Parent Folder",
+            description: "Keeps the legacy project and worktree subfolder layout inside a selected folder.",
+            category: .projects,
+            section: "Worktrees",
+            defaultValue: "",
+            aliases: ["folder", "path", "legacy"]
         ),
         SettingsCatalogItem(
             key: GeneralSettingsKeys.autoCopyTerminalSelection,

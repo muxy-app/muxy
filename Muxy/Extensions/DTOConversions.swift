@@ -16,6 +16,7 @@ extension Project {
             icon: icon,
             logo: logo,
             iconColor: iconColor,
+            preferredWorktreePathTemplate: preferredWorktreePathTemplate,
             preferredWorktreeParentPath: preferredWorktreeParentPath,
             worktreesEnabled: worktreesEnabled,
             workspaceID: workspaceID,

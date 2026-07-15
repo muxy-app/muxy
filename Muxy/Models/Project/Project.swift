@@ -10,6 +10,7 @@ struct Project: Identifiable, Codable, Hashable {
     var icon: String?
     var logo: String?
     var iconColor: String?
+    var preferredWorktreePathTemplate: String?
     var preferredWorktreeParentPath: String?
     var pullRequestPrompt: String?
     var worktreesEnabled: Bool
@@ -34,6 +35,7 @@ struct Project: Identifiable, Codable, Hashable {
         self.icon = nil
         self.logo = nil
         self.iconColor = nil
+        self.preferredWorktreePathTemplate = nil
         self.preferredWorktreeParentPath = nil
         self.pullRequestPrompt = nil
         self.worktreesEnabled = false
@@ -55,6 +57,7 @@ struct Project: Identifiable, Codable, Hashable {
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
         logo = try container.decodeIfPresent(String.self, forKey: .logo)
         iconColor = try container.decodeIfPresent(String.self, forKey: .iconColor)
+        preferredWorktreePathTemplate = try container.decodeIfPresent(String.self, forKey: .preferredWorktreePathTemplate)
         preferredWorktreeParentPath = try container.decodeIfPresent(String.self, forKey: .preferredWorktreeParentPath)
         pullRequestPrompt = try container.decodeIfPresent(String.self, forKey: .pullRequestPrompt)
         worktreesEnabled = try container.decodeIfPresent(Bool.self, forKey: .worktreesEnabled) ?? false

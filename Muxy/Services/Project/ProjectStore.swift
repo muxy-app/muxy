@@ -80,9 +80,10 @@ final class ProjectStore {
         save()
     }
 
-    func setPreferredWorktreeParentPath(id: UUID, to path: String?) {
+    func setPreferredWorktreeLocation(id: UUID, pathTemplate: String?, parentPath: String?) {
         guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
-        storedProjects[index].preferredWorktreeParentPath = WorktreeLocationResolver.normalizedPath(path)
+        storedProjects[index].preferredWorktreePathTemplate = WorktreeLocationResolver.normalizedLocation(pathTemplate)
+        storedProjects[index].preferredWorktreeParentPath = WorktreeLocationResolver.normalizedLocation(parentPath)
         save()
     }
 
