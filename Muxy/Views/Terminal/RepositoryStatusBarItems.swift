@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct TabFocusedRepositoryToolbar: View {
+struct RepositoryStatusBarItems: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -21,7 +21,7 @@ struct TabFocusedRepositoryToolbar: View {
     var body: some View {
         let context = repositoryContext
         return content(hasRepository: context != nil)
-            .frame(height: UIMetrics.scaled(32))
+            .frame(maxHeight: .infinity)
             .task(id: context?.id ?? "no-repository") {
                 guard let context else {
                     repositoryState.deactivate()
@@ -67,15 +67,14 @@ struct TabFocusedRepositoryToolbar: View {
     @ViewBuilder
     private func content(hasRepository: Bool) -> some View {
         if hasRepository {
-            HStack(spacing: UIMetrics.spacing3) {
+            HStack(spacing: UIMetrics.spacing4) {
                 branchChip(repositoryState.summary)
-                toolbarSeparator
+                statusBarSeparator
                 changesChip(repositoryState.summary)
-                toolbarSeparator
+                statusBarSeparator
                 aiRepositoryAction(.commit, summary: repositoryState.summary, providerID: $commitProviderID)
                 repositoryResultContent
             }
-            .padding(.leading, UIMetrics.spacing6)
         }
     }
 
@@ -86,29 +85,27 @@ struct TabFocusedRepositoryToolbar: View {
             case .loading:
                 EmptyView()
             case .noPullRequest:
-                toolbarSeparator
+                statusBarSeparator
                 aiRepositoryAction(
                     .createPullRequest,
                     summary: summary,
                     providerID: $pullRequestProviderID
                 )
             case .unavailable:
-                toolbarSeparator
+                statusBarSeparator
                 pullRequestUnavailableChip
             case let .found(info):
-                toolbarSeparator
+                statusBarSeparator
                 pullRequestChip(info)
             }
         } else if let error = repositoryState.summaryError {
-            toolbarSeparator
+            statusBarSeparator
             repositoryUnavailableChip(error)
         }
     }
 
-    private var toolbarSeparator: some View {
-        Divider()
-            .overlay(MuxyTheme.border)
-            .frame(height: UIMetrics.scaled(16))
+    private var statusBarSeparator: some View {
+        StatusBarSeparator()
     }
 
     private func repositoryUnavailableChip(_ error: String) -> some View {
@@ -171,7 +168,7 @@ struct TabFocusedRepositoryToolbar: View {
         )
         .help(summary.map(branchHelp) ?? "Loading repository status")
         .accessibilityLabel(summary.map(branchHelp) ?? "Loading repository status")
-        .popover(isPresented: $showBranchPopover, arrowEdge: .top) {
+        .popover(isPresented: $showBranchPopover, arrowEdge: .bottom) {
             if let summary {
                 TabFocusedBranchPopover(
                     summary: repositoryState.summary ?? summary,
@@ -226,7 +223,7 @@ struct TabFocusedRepositoryToolbar: View {
         )
         .help(summary.map(workingTreeHelp) ?? "Loading working tree status")
         .accessibilityLabel(summary.map(workingTreeHelp) ?? "Loading working tree status")
-        .popover(isPresented: $showChangesPopover, arrowEdge: .top) {
+        .popover(isPresented: $showChangesPopover, arrowEdge: .bottom) {
             if let summary {
                 TabFocusedChangesPopover(
                     summary: repositoryState.summary ?? summary,
@@ -333,7 +330,7 @@ struct TabFocusedRepositoryToolbar: View {
         )
         .help("Pull request #\(info.number) · \(PullRequestPresentation.stateLabel(for: info))")
         .accessibilityLabel("Pull request #\(info.number), \(PullRequestPresentation.stateLabel(for: info))")
-        .popover(isPresented: $showPullRequestPopover, arrowEdge: .top) {
+        .popover(isPresented: $showPullRequestPopover, arrowEdge: .bottom) {
             if let context = pullRequestActionContext(for: repositoryState.pullRequest ?? info) {
                 TabFocusedPullRequestPopover(
                     confirmationContext: context,

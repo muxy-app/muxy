@@ -1,6 +1,6 @@
 # Status Bar Items
 
-A status bar item is an icon (with optional text) Muxy adds to either side of the footer status bar — the row that shows the active path, extension output, resource usage, and rich-input controls. Clicking it runs one of the extension's declared [commands](palette-commands.md).
+A status bar item is an icon (with optional text) Muxy adds to either side of the footer status bar — the row that shows the active path, repository controls, extension output, resource usage, and rich-input controls. Clicking it runs one of the extension's declared [commands](palette-commands.md).
 
 ```json
 {

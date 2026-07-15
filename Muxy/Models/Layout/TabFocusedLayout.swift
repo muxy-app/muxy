@@ -2,5 +2,5 @@ import Foundation
 
 struct TabFocusedLayout: AppLayoutProviding {
     var sidebars: [LayoutSidebar] { [.tabList] }
-    var topbar: LayoutTopbar { .repositoryStatus }
+    var topbar: LayoutTopbar { .projectTitle }
 }

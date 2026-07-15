@@ -27,7 +27,6 @@ struct PaneTabStrip: View {
     var isWindowTitleBar: Bool = false
     var showDevelopmentBadge = false
     var openInIDEProjectPath: String?
-    var leadingAccessory: AnyView?
     let projectID: UUID
     var shortcutIndexOffset: Int = 0
     let onSelectTab: (UUID) -> Void
@@ -144,9 +143,6 @@ struct PaneTabStrip: View {
         let perTabWidth = max(TabCell.minWidth, cappedWidth)
 
         return HStack(spacing: 0) {
-            if let leadingAccessory {
-                leadingAccessory
-            }
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                 let globalIndex = shortcutIndexOffset + index
                 TabCell(

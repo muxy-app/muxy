@@ -16,6 +16,16 @@ struct AppLayoutTests {
         #expect(AppLayout.tabFocused.provider is TabFocusedLayout)
     }
 
+    @Test("project focused keeps tabs in the title bar")
+    func projectFocusedTitleBar() {
+        #expect(ProjectFocusedLayout().topbar == .tabStrip)
+    }
+
+    @Test("tab focused uses the project title")
+    func tabFocusedTitleBar() {
+        #expect(TabFocusedLayout().topbar == .projectTitle)
+    }
+
     @Test("default value is project focused")
     func defaultValueIsProjectFocused() {
         #expect(AppLayout.defaultValue == .projectFocused)

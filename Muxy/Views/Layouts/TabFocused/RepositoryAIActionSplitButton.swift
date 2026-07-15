@@ -32,12 +32,11 @@ struct RepositoryAIActionSplitButton: View {
             menuButton
         }
         .fixedSize(horizontal: true, vertical: false)
-        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
-        .overlay {
-            RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
-                .stroke(MuxyTheme.border, lineWidth: 1)
-        }
-        .popover(isPresented: $showingMenu, arrowEdge: .top) {
+        .background(
+            showingMenu ? MuxyTheme.surface : Color.clear,
+            in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
+        )
+        .popover(isPresented: $showingMenu, arrowEdge: .bottom) {
             popoverContent
         }
         .onChange(of: showingMenu) { _, isShowing in

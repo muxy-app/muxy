@@ -73,7 +73,7 @@ See [Terminal](../features/terminal.md#custom-command-shortcuts).
 ## AI
 
 - **Commit and Push** — choose the provider CLI and edit the instructions used to generate the commit message. Muxy always stages all changes, commits, and pushes; the prompt cannot change that workflow.
-- **Create Pull Request** — choose the provider CLI and edit the global instructions used to generate the pull request title, summary, new branch name, and target branch. The Create PR dropdown in the Tab Focused top bar can override this prompt for the current project. Muxy validates the response before creating the branch, commit, push, and pull request.
+- **Create Pull Request** — choose the provider CLI and edit the global instructions used to generate the pull request title, summary, new branch name, and target branch. The Create PR dropdown in the status bar can override this prompt for the current project. Muxy validates the response before creating the branch, commit, push, and pull request.
 - **Auto** selects the first available supported provider CLI. Claude Code, Codex, Cursor Agent, Droid, Grok, OpenCode, and Pi are supported.
 - Provider CLIs run non-interactively in the active worktree and return metadata without opening a terminal tab. Muxy disables provider write tools and performs every Git and GitHub mutation through its native services.
 - Global prompts are stored as settings, while Create PR project overrides are stored with their project. Repository context such as changed paths and capped diffs is sent to the selected provider CLI. Do not put credentials or other secrets in prompts or changes sent to a remote provider.

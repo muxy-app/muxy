@@ -1,6 +1,6 @@
 # Topbar Items
 
-A topbar item is an icon Muxy adds to the right-hand cluster of the tab strip, just before the built-in split and new-tab controls. Clicking it runs one of the extension's declared [commands](palette-commands.md).
+A topbar item is an icon Muxy adds to the right-hand cluster of the window title bar. In a single-pane Project Focused workspace it appears just before the built-in split and new-tab controls; in split workspaces those pane controls live in each pane's tab strip. Clicking the item runs one of the extension's declared [commands](palette-commands.md).
 
 ```json
 {
@@ -58,7 +58,7 @@ Needs `panels:write`. The override is in-memory for the session; disabling or re
 
 ## Placement and order
 
-Items sit in the right-hand cluster, just before the built-in **Split / New Tab** group. Among themselves they are ordered by extension directory name, then by their order in the `topbarItems` array.
+Items sit in the window title bar's right-hand cluster. In a single-pane Project Focused workspace they precede the built-in **Split / New Tab** group. Among themselves they are ordered by extension directory name, then by their order in the `topbarItems` array.
 
 ## Limits
 

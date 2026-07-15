@@ -9,7 +9,7 @@ enum LayoutSidebar: Identifiable {
 
 enum LayoutTopbar {
     case tabStrip
-    case repositoryStatus
+    case projectTitle
 }
 
 protocol AppLayoutProviding {

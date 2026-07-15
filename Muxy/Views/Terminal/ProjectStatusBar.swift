@@ -29,9 +29,12 @@ struct ProjectStatusBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            leftSide
-            Spacer(minLength: 8)
+            ScrollView(.horizontal, showsIndicators: false) {
+                leftSide
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             rightSide
+                .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 10)
         .frame(height: UIMetrics.statusBarHeight)
@@ -50,6 +53,7 @@ struct ProjectStatusBar: View {
                 pathButton(statusContext.path)
                 separator
             }
+            RepositoryStatusBarItems()
             ForEach(extensionStore.statusBarItems(side: .left)) { binding in
                 extensionItem(binding: binding)
                 separator
@@ -137,11 +141,7 @@ struct ProjectStatusBar: View {
     }
 
     private var separator: some View {
-        Rectangle()
-            .fill(MuxyTheme.border)
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .accessibilityHidden(true)
+        StatusBarSeparator()
     }
 
     private func extensionItem(binding: ExtensionStore.StatusBarItemBinding) -> some View {
@@ -323,5 +323,15 @@ struct ProjectStatusBar: View {
         guard path.count > maxCharacters, maxCharacters > 1 else { return path }
         let suffix = path.suffix(maxCharacters - 1)
         return "…" + suffix
+    }
+}
+
+struct StatusBarSeparator: View {
+    var body: some View {
+        Rectangle()
+            .fill(MuxyTheme.border)
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .accessibilityHidden(true)
     }
 }

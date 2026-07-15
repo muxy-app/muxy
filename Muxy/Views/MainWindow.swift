@@ -113,7 +113,7 @@ struct MainWindow: View {
     private var appBackgroundStyle: AppBackgroundStyle { AppBackgroundStyle.resolve(appBackgroundStyleRaw) }
     private var isTabFocused: Bool { layoutStore.layout == .tabFocused && !isExtensionSidebarActive }
 
-    private var showsRepositoryStatus: Bool { layout.topbar == .repositoryStatus && !isExtensionSidebarActive }
+    private var showsTabsInTitleBar: Bool { layout.topbar == .tabStrip || isExtensionSidebarActive }
 
     var body: some View {
         windowColumns
@@ -547,19 +547,19 @@ struct MainWindow: View {
 
     @ViewBuilder
     private var topBarContent: some View {
-        if let project = activeProject,
+        if showsTabsInTitleBar,
+           let project = activeProject,
            let root = appState.workspaceRoot(for: project.id),
            case let .tabArea(area) = root
         {
             PaneTabStrip(
                 areaID: area.id,
-                tabs: showsRepositoryStatus ? [] : PaneTabStrip.snapshots(from: area.tabs),
+                tabs: PaneTabStrip.snapshots(from: area.tabs),
                 activeTabID: area.activeTabID,
                 isFocused: true,
                 isWindowTitleBar: true,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
                 openInIDEProjectPath: project.isRemote ? nil : activeWorktreePath(for: project),
-                leadingAccessory: showsRepositoryStatus ? AnyView(TabFocusedRepositoryToolbar()) : nil,
                 projectID: project.id,
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -628,31 +628,27 @@ struct MainWindow: View {
             )
         } else {
             HStack(spacing: 0) {
-                if showsRepositoryStatus {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        TabFocusedRepositoryToolbar()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .background(WindowDragRepresentable(alwaysEnabled: true))
-                } else {
-                    WindowDragRepresentable(alwaysEnabled: true)
-                        .overlay {
-                            HStack {
-                                if let project = activeProject {
-                                    Text(project.name)
-                                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-                                        .foregroundStyle(MuxyTheme.fgMuted)
-                                        .padding(.leading, UIMetrics.spacing6)
-                                }
-                                Spacer(minLength: 0)
-                            }
-                            .allowsHitTesting(false)
+                WindowDragRepresentable(alwaysEnabled: true)
+                    .overlay(alignment: .leading) {
+                        if let project = activeProject {
+                            projectTitle(project)
+                                .allowsHitTesting(false)
                         }
-                }
+                    }
                 fallbackTopbarActions
             }
             .frame(height: UIMetrics.scaled(32))
         }
+    }
+
+    private func projectTitle(_ project: Project) -> some View {
+        Text(project.name)
+            .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            .foregroundStyle(MuxyTheme.fgMuted)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.leading, UIMetrics.spacing6)
+            .padding(.trailing, UIMetrics.spacing4)
     }
 
     private var fallbackTopbarActions: some View {
