@@ -1050,13 +1050,20 @@ enum MuxyAPI {
 
             let workspaceContext = ActiveWorkspaceContext.shared.current
             let expandedPath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
-            let path = trimmedPath.isEmpty
-                ? WorktreeLocationResolver.worktreeDirectory(
-                    for: project,
-                    slug: WorktreeLocationResolver.slug(from: trimmedName),
-                    branch: trimmedBranch
-                )
-                : expandedPath
+            let path: String
+            if trimmedPath.isEmpty {
+                do {
+                    path = try WorktreeLocationResolver.worktreeDirectory(
+                        for: project,
+                        slug: WorktreeLocationResolver.slug(from: trimmedName),
+                        branch: trimmedBranch
+                    )
+                } catch {
+                    return .failure(.invalidArguments(error.localizedDescription))
+                }
+            } else {
+                path = expandedPath
+            }
             guard await !workspaceContext.fileOps.exists(at: path) else {
                 return .failure(.worktreePathExists)
             }

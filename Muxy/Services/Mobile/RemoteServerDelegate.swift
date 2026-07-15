@@ -744,11 +744,16 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         let trimmedBase = baseBranch?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedBase: String? = (createBranch && trimmedBase?.isEmpty == false) ? trimmedBase : nil
         let slug = WorktreeLocationResolver.slug(from: trimmedName)
-        let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(
-            for: project,
-            slug: slug,
-            branch: trimmedBranch
-        )
+        let worktreeDirectory: String
+        do {
+            worktreeDirectory = try WorktreeLocationResolver.worktreeDirectory(
+                for: project,
+                slug: slug,
+                branch: trimmedBranch
+            )
+        } catch let error as WorktreeLocationError {
+            throw RemoteVCSError.invalidInput(error.localizedDescription)
+        }
         let context = projectGroupStore.workspaceContext(for: project)
 
         if await context.fileOps.exists(at: worktreeDirectory) {

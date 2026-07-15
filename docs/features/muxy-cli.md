@@ -113,7 +113,8 @@ Options:
 - `--project <name|id|path>` — target a project other than the active one
 
 When `--path` is omitted, Muxy uses the project's worktree path template or folder setting. Template variables use the
-requested `--branch`, including when the branch differs from the worktree name. An explicit `--path` always wins.
+requested `--branch`, including when the branch differs from the worktree name. Templates must include `{branch}`. An
+explicit `--path` always wins.
 
 ```bash
 muxy create-worktree login --branch feature/login --base main

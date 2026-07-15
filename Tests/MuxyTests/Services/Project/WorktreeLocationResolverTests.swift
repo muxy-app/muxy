@@ -6,11 +6,11 @@ import Testing
 @Suite("WorktreeLocationResolver")
 struct WorktreeLocationResolverTests {
     @Test("project location wins over global default")
-    func projectLocationWins() {
+    func projectLocationWins() throws {
         var project = Project(name: "Repo", path: "/tmp/repo")
         project.preferredWorktreeParentPath = "/tmp/project-worktrees"
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "feature-a",
             branch: "feature/a",
@@ -22,10 +22,10 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("global default groups worktrees by project name")
-    func globalDefaultGroupsByProjectName() {
+    func globalDefaultGroupsByProjectName() throws {
         let project = Project(name: "My Repo", path: "/tmp/repo")
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "feature-a",
             branch: "feature/a",
@@ -37,10 +37,10 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("missing settings fall back to app support")
-    func missingSettingsFallback() {
+    func missingSettingsFallback() throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "feature-a",
             branch: "feature/a",
@@ -55,11 +55,11 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("relative template replaces project and branch variables")
-    func relativeProjectAndBranchTemplate() {
+    func relativeProjectAndBranchTemplate() throws {
         var project = Project(name: "My Repo", path: "/tmp/checkouts/my-app")
         project.preferredWorktreePathTemplate = "../{project-name}.{branch}"
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "ignored-name",
             branch: "feature/auth",
@@ -71,11 +71,11 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("base directory variable uses the checkout folder instead of project name")
-    func baseDirectoryTemplate() {
+    func baseDirectoryTemplate() throws {
         var project = Project(name: "Renamed", path: "/tmp/checkouts/my-app")
         project.preferredWorktreePathTemplate = "../{base-dir}.{branch}"
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "ignored-name",
             branch: "fix-header",
@@ -87,11 +87,11 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("relative template supports a sibling worktrees folder")
-    func siblingWorktreesTemplate() {
+    func siblingWorktreesTemplate() throws {
         var project = Project(name: "My App", path: "/tmp/checkouts/my-app")
         project.preferredWorktreePathTemplate = "../worktrees/{project-name}{branch}"
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "ignored-name",
             branch: "fix/header",
@@ -103,17 +103,17 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("absolute and home-relative templates remain rooted outside the project")
-    func rootedTemplates() {
+    func rootedTemplates() throws {
         let project = Project(name: "Repo", path: "/tmp/checkouts/repo")
 
-        let absolutePath = WorktreeLocationResolver.worktreeDirectory(
+        let absolutePath = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "ignored-name",
             branch: "feature/a",
             defaultPathTemplate: "/var/tmp/{base-dir}.{branch}",
             defaultParentPath: nil
         )
-        let homePath = WorktreeLocationResolver.worktreeDirectory(
+        let homePath = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "ignored-name",
             branch: "feature/a",
@@ -126,12 +126,12 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("project template wins over every global and legacy location")
-    func projectTemplateWins() {
+    func projectTemplateWins() throws {
         var project = Project(name: "Repo", path: "/tmp/checkouts/repo")
         project.preferredWorktreePathTemplate = "../project-{branch}"
         project.preferredWorktreeParentPath = "/tmp/project-parent"
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "feature-a",
             branch: "feature/a",
@@ -143,10 +143,10 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("global template wins over legacy global parent folder")
-    func globalTemplateWins() {
+    func globalTemplateWins() throws {
         let project = Project(name: "Repo", path: "/tmp/checkouts/repo")
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "feature-a",
             branch: "feature/a",
@@ -158,11 +158,11 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("template variables cannot add path separators or traversal components")
-    func templateVariablesAreSafePathComponents() {
+    func templateVariablesAreSafePathComponents() throws {
         var project = Project(name: "My/Repo", path: "/tmp/checkouts/repo")
         project.preferredWorktreePathTemplate = "../{project-name}/{branch}"
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "ignored-name",
             branch: "feature/auth",
@@ -175,7 +175,7 @@ struct WorktreeLocationResolverTests {
     }
 
     @Test("remote projects keep their fixed remote worktree layout")
-    func remoteProjectKeepsExistingLayout() {
+    func remoteProjectKeepsExistingLayout() throws {
         var project = Project(
             name: "My Repo",
             path: "/srv/my-repo",
@@ -183,7 +183,7 @@ struct WorktreeLocationResolverTests {
         )
         project.preferredWorktreePathTemplate = "../{base-dir}.{branch}"
 
-        let path = WorktreeLocationResolver.worktreeDirectory(
+        let path = try WorktreeLocationResolver.worktreeDirectory(
             for: project,
             slug: "feature-a",
             branch: "feature/a",
@@ -192,5 +192,57 @@ struct WorktreeLocationResolverTests {
         )
 
         #expect(path == "/srv/.muxy-worktrees/My-Repo/feature-a")
+    }
+
+    @Test("template requires the branch variable")
+    func templateRequiresBranchVariable() {
+        var project = Project(name: "Repo", path: "/tmp/checkouts/repo")
+        project.preferredWorktreePathTemplate = "/tmp/worktrees"
+
+        #expect(throws: WorktreeLocationError.branchVariableRequired) {
+            try WorktreeLocationResolver.worktreeDirectory(
+                for: project,
+                slug: "feature-a",
+                branch: "feature/a",
+                defaultPathTemplate: nil,
+                defaultParentPath: nil
+            )
+        }
+    }
+
+    @Test("branch variable must remain in the standardized path")
+    func branchVariableMustAffectPath() {
+        var project = Project(name: "Repo", path: "/tmp/checkouts/repo")
+        project.preferredWorktreePathTemplate = "/tmp/{branch}/.."
+
+        #expect(throws: WorktreeLocationError.branchVariableMustAffectPath) {
+            try WorktreeLocationResolver.worktreeDirectory(
+                for: project,
+                slug: "feature-a",
+                branch: "feature/a",
+                defaultPathTemplate: nil,
+                defaultParentPath: nil
+            )
+        }
+    }
+
+    @Test("remote projects ignore invalid local templates")
+    func remoteProjectIgnoresInvalidTemplate() throws {
+        var project = Project(
+            name: "Repo",
+            path: "/srv/repo",
+            remoteWorkspaceID: UUID()
+        )
+        project.preferredWorktreePathTemplate = "/tmp/worktrees"
+
+        let path = try WorktreeLocationResolver.worktreeDirectory(
+            for: project,
+            slug: "feature-a",
+            branch: "feature/a",
+            defaultPathTemplate: "/tmp/global",
+            defaultParentPath: nil
+        )
+
+        #expect(path == "/srv/.muxy-worktrees/Repo/feature-a")
     }
 }

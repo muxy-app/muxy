@@ -21,7 +21,7 @@ struct CreateWorktreeSheet: View {
     @State private var branchNameEdited = false
     @State private var createNewBranch = true
     @State private var selectedExistingBranch: String = ""
-    @State private var localLocationSelection = LocalWorktreeLocation.defaultLocation
+    @State private var localLocationSelection = WorktreeLocationSelection()
     @State private var availableBranches: [String] = []
     @State private var selectedBaseBranch: String = ""
     @State private var setupCommands: [String] = []
@@ -150,31 +150,51 @@ struct CreateWorktreeSheet: View {
 
     private var localLocationRow: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-            HStack(spacing: UIMetrics.spacing4) {
-                TextField(defaultLocationPlaceholder, text: localLocationText)
+            SegmentedPicker(
+                selection: localLocationMode,
+                options: [
+                    (.defaultLocation, "Default"),
+                    (.pathTemplate, "Template"),
+                    (.parentFolder, "Folder"),
+                ]
+            )
+
+            switch localLocationSelection.mode {
+            case .defaultLocation:
+                Text(defaultLocationDescription)
+                    .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+            case .pathTemplate:
+                TextField(WorktreeLocationResolver.suggestedPathTemplate, text: localLocationText)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+            case .parentFolder:
+                HStack(spacing: UIMetrics.spacing4) {
+                    TextField("/path/to/worktrees", text: localLocationText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
 
-                Button("Choose Folder...") {
-                    chooseParentDirectory()
+                    Button("Choose Folder...") {
+                        chooseParentDirectory()
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
-                .fixedSize(horizontal: true, vertical: false)
-
-                Button("Use Default") {
-                    localLocationSelection = .defaultLocation
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                .disabled(localLocationSelection == .defaultLocation)
             }
 
-            Text(worktreeDirectoryPath)
-                .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
+            if let message = localLocationValidationMessage {
+                Text(message)
+                    .font(.system(size: UIMetrics.fontCaption))
+                    .foregroundStyle(MuxyTheme.diffRemoveFg)
+            } else {
+                Text(worktreeDirectoryPath)
+                    .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            }
 
-            Text("Use {project-name}, {base-dir}, and {branch}. Relative paths start from the project folder.")
+            Text("Templates must include {branch}. Relative paths start from the project folder.")
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
         }
@@ -260,11 +280,11 @@ struct CreateWorktreeSheet: View {
             return
         }
         if let template = WorktreeLocationResolver.normalizedLocation(project.preferredWorktreePathTemplate) {
-            localLocationSelection = .pathTemplate(template)
+            localLocationSelection = WorktreeLocationSelection(pathTemplate: template)
             return
         }
         guard let path = WorktreeLocationResolver.normalizedLocation(project.preferredWorktreeParentPath) else { return }
-        localLocationSelection = .parentPath(path)
+        localLocationSelection = WorktreeLocationSelection(parentPath: path)
     }
 
     private func syncRemotePath() {
@@ -274,28 +294,45 @@ struct CreateWorktreeSheet: View {
 
     private var resolvedProject: Project {
         var resolved = project
-        resolved.preferredWorktreePathTemplate = localLocationSelection.pathTemplate
-        resolved.preferredWorktreeParentPath = localLocationSelection.parentPath
+        resolved.preferredWorktreePathTemplate = localLocationSelection.selectedPathTemplate
+        resolved.preferredWorktreeParentPath = localLocationSelection.selectedParentPath
         return resolved
     }
 
-    private var localLocationText: Binding<String> {
+    private var localLocationMode: Binding<WorktreeLocationMode> {
         Binding(
-            get: { localLocationSelection.value ?? "" },
-            set: { value in
-                localLocationSelection = value.isEmpty ? .defaultLocation : .pathTemplate(value)
+            get: { localLocationSelection.mode },
+            set: { mode in
+                localLocationSelection.select(mode)
             }
         )
     }
 
-    private var defaultLocationPlaceholder: String {
-        if !defaultWorktreePathTemplate.isEmpty {
-            return defaultWorktreePathTemplate
+    private var localLocationText: Binding<String> {
+        Binding(
+            get: { localLocationSelection.value },
+            set: { localLocationSelection.value = $0 }
+        )
+    }
+
+    private var defaultLocationDescription: String {
+        if let template = WorktreeLocationResolver.normalizedLocation(defaultWorktreePathTemplate) {
+            return "Global template: \(template)"
         }
-        if !defaultWorktreeParentPath.isEmpty {
-            return defaultWorktreeParentPath
+        if let folder = WorktreeLocationResolver.normalizedLocation(defaultWorktreeParentPath) {
+            return "Global folder: \(folder)"
         }
         return "Muxy App Support"
+    }
+
+    private var localLocationValidationMessage: String? {
+        do {
+            try validateLocalLocationSelection()
+            _ = try resolvedLocalWorktreeDirectory(slug: displaySlug, branch: displayBranch)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     private var displaySlug: String {
@@ -313,13 +350,7 @@ struct CreateWorktreeSheet: View {
         guard !project.isRemote else {
             return WorktreeLocationResolver.remoteWorktreeDirectory(for: project, slug: displaySlug)
         }
-        return WorktreeLocationResolver.worktreeDirectory(
-            for: resolvedProject,
-            slug: displaySlug,
-            branch: displayBranch,
-            defaultPathTemplate: defaultWorktreePathTemplate,
-            defaultParentPath: defaultWorktreeParentPath
-        )
+        return (try? resolvedLocalWorktreeDirectory(slug: displaySlug, branch: displayBranch)) ?? ""
     }
 
     private func chooseParentDirectory() {
@@ -328,14 +359,17 @@ struct CreateWorktreeSheet: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.message = "Select where new worktrees for this project should be created"
-        panel.directoryURL = URL(fileURLWithPath: worktreeDirectoryPath, isDirectory: true).deletingLastPathComponent()
+        let initialPath = worktreeDirectoryPath.isEmpty ? project.path : worktreeDirectoryPath
+        panel.directoryURL = URL(fileURLWithPath: initialPath, isDirectory: true).deletingLastPathComponent()
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        localLocationSelection = .parentPath(url.path)
+        localLocationSelection.select(.parentFolder)
+        localLocationSelection.value = url.path
     }
 
     private var canCreate: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         if project.isRemote, remotePath.trimmingCharacters(in: .whitespaces).isEmpty { return false }
+        if !project.isRemote, localLocationValidationMessage != nil { return false }
         if createNewBranch {
             return !branchName.trimmingCharacters(in: .whitespaces).isEmpty
         }
@@ -378,7 +412,15 @@ struct CreateWorktreeSheet: View {
             : selectedExistingBranch
 
         let slug = WorktreeLocationResolver.slug(from: trimmedName)
-        let worktreeDirectory = resolvedWorktreeDirectory(slug: slug, branch: branch)
+        let worktreeDirectory: String
+        do {
+            try validateLocalLocationSelection()
+            worktreeDirectory = try resolvedWorktreeDirectory(slug: slug, branch: branch)
+        } catch {
+            inProgress = false
+            errorMessage = error.localizedDescription
+            return
+        }
 
         if await workspaceContext.fileOps.exists(at: worktreeDirectory) {
             inProgress = false
@@ -404,10 +446,10 @@ struct CreateWorktreeSheet: View {
                 context: workspaceContext
             )
             if !project.isRemote {
-                projectStore.setPreferredWorktreeLocation(
+                try projectStore.setPreferredWorktreeLocation(
                     id: project.id,
-                    pathTemplate: localLocationSelection.pathTemplate,
-                    parentPath: localLocationSelection.parentPath
+                    pathTemplate: localLocationSelection.selectedPathTemplate,
+                    parentPath: localLocationSelection.selectedParentPath
                 )
             }
             inProgress = false
@@ -418,14 +460,18 @@ struct CreateWorktreeSheet: View {
         }
     }
 
-    private func resolvedWorktreeDirectory(slug: String, branch: String) -> String {
+    private func resolvedWorktreeDirectory(slug: String, branch: String) throws -> String {
         guard !project.isRemote else {
             let trimmed = remotePath.trimmingCharacters(in: .whitespaces)
             return trimmed.isEmpty
                 ? WorktreeLocationResolver.remoteWorktreeDirectory(for: project, slug: slug)
                 : trimmed
         }
-        return WorktreeLocationResolver.worktreeDirectory(
+        return try resolvedLocalWorktreeDirectory(slug: slug, branch: branch)
+    }
+
+    private func resolvedLocalWorktreeDirectory(slug: String, branch: String) throws -> String {
+        try WorktreeLocationResolver.worktreeDirectory(
             for: resolvedProject,
             slug: slug,
             branch: branch,
@@ -433,28 +479,17 @@ struct CreateWorktreeSheet: View {
             defaultParentPath: defaultWorktreeParentPath
         )
     }
-}
 
-private enum LocalWorktreeLocation: Equatable {
-    case defaultLocation
-    case pathTemplate(String)
-    case parentPath(String)
-
-    var value: String? {
-        switch self {
-        case .defaultLocation: nil
-        case let .pathTemplate(template): template
-        case let .parentPath(path): path
+    private func validateLocalLocationSelection() throws {
+        switch localLocationSelection.mode {
+        case .defaultLocation:
+            return
+        case .pathTemplate:
+            _ = try WorktreeLocationResolver.validatedPathTemplate(localLocationSelection.value)
+        case .parentFolder:
+            guard WorktreeLocationResolver.normalizedLocation(localLocationSelection.value) != nil else {
+                throw WorktreeLocationError.parentFolderRequired
+            }
         }
-    }
-
-    var pathTemplate: String? {
-        guard case let .pathTemplate(template) = self else { return nil }
-        return template
-    }
-
-    var parentPath: String? {
-        guard case let .parentPath(path) = self else { return nil }
-        return path
     }
 }

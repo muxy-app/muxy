@@ -54,12 +54,12 @@ struct ProjectStoreTests {
     }
 
     @Test("setPreferredWorktreeLocation persists normalized parent path")
-    func setPreferredWorktreeLocationParentPath() {
+    func setPreferredWorktreeLocationParentPath() throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let persistence = ProjectPersistenceStub(initial: [project])
         let store = ProjectStore(persistence: persistence)
 
-        store.setPreferredWorktreeLocation(id: project.id, pathTemplate: nil, parentPath: " ~/worktrees ")
+        try store.setPreferredWorktreeLocation(id: project.id, pathTemplate: nil, parentPath: " ~/worktrees ")
 
         let stored = store.storedProjects.first { $0.id == project.id }
         #expect(stored?.preferredWorktreeParentPath == NSString(string: "~/worktrees").expandingTildeInPath)
@@ -67,13 +67,13 @@ struct ProjectStoreTests {
     }
 
     @Test("setPreferredWorktreeLocation clears empty location")
-    func clearPreferredWorktreeParentPath() {
+    func clearPreferredWorktreeParentPath() throws {
         var project = Project(name: "Repo", path: "/tmp/repo")
         project.preferredWorktreeParentPath = "/tmp/worktrees"
         let persistence = ProjectPersistenceStub(initial: [project])
         let store = ProjectStore(persistence: persistence)
 
-        store.setPreferredWorktreeLocation(id: project.id, pathTemplate: " ", parentPath: " ")
+        try store.setPreferredWorktreeLocation(id: project.id, pathTemplate: " ", parentPath: " ")
 
         let stored = store.storedProjects.first { $0.id == project.id }
         #expect(stored?.preferredWorktreeParentPath == nil)
@@ -81,12 +81,12 @@ struct ProjectStoreTests {
     }
 
     @Test("setPreferredWorktreeLocation persists normalized template")
-    func setPreferredWorktreePathTemplate() {
+    func setPreferredWorktreePathTemplate() throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let persistence = ProjectPersistenceStub(initial: [project])
         let store = ProjectStore(persistence: persistence)
 
-        store.setPreferredWorktreeLocation(
+        try store.setPreferredWorktreeLocation(
             id: project.id,
             pathTemplate: " ../{base-dir}.{branch} ",
             parentPath: nil
@@ -98,13 +98,13 @@ struct ProjectStoreTests {
     }
 
     @Test("setPreferredWorktreeLocation replaces both location values atomically")
-    func setPreferredWorktreeLocation() {
+    func setPreferredWorktreeLocation() throws {
         var project = Project(name: "Repo", path: "/tmp/repo")
         project.preferredWorktreeParentPath = "/tmp/worktrees"
         let persistence = ProjectPersistenceStub(initial: [project])
         let store = ProjectStore(persistence: persistence)
 
-        store.setPreferredWorktreeLocation(
+        try store.setPreferredWorktreeLocation(
             id: project.id,
             pathTemplate: " ../{project-name}.{branch} ",
             parentPath: nil
@@ -114,6 +114,26 @@ struct ProjectStoreTests {
         #expect(stored?.preferredWorktreePathTemplate == "../{project-name}.{branch}")
         #expect(stored?.preferredWorktreeParentPath == nil)
         #expect(persistence.projects.first == stored)
+    }
+
+    @Test("setPreferredWorktreeLocation rejects a static template without changing persistence")
+    func setPreferredWorktreeLocationRejectsStaticTemplate() {
+        var project = Project(name: "Repo", path: "/tmp/repo")
+        project.preferredWorktreeParentPath = "/tmp/original"
+        let persistence = ProjectPersistenceStub(initial: [project])
+        let store = ProjectStore(persistence: persistence)
+
+        #expect(throws: WorktreeLocationError.branchVariableRequired) {
+            try store.setPreferredWorktreeLocation(
+                id: project.id,
+                pathTemplate: "/tmp/worktrees",
+                parentPath: nil
+            )
+        }
+
+        #expect(store.storedProjects.first?.preferredWorktreePathTemplate == nil)
+        #expect(store.storedProjects.first?.preferredWorktreeParentPath == "/tmp/original")
+        #expect(persistence.projects.first == project)
     }
 
     @Test("setPullRequestPrompt persists and clears the project override")

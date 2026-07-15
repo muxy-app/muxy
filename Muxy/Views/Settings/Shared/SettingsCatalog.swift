@@ -244,7 +244,7 @@ enum SettingsCatalog {
         SettingsCatalogItem(
             key: GeneralSettingsKeys.defaultWorktreePathTemplate,
             title: "Default Worktree Path Template",
-            description: "Builds new worktree paths with project, checkout directory, and branch variables.",
+            description: "Builds new worktree paths with the required branch variable and optional project variables.",
             category: .projects,
             section: "Worktrees",
             defaultValue: "",

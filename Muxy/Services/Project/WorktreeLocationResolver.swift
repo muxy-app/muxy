@@ -1,8 +1,30 @@
 import Foundation
 
+enum WorktreeLocationError: LocalizedError, Equatable {
+    case pathTemplateRequired
+    case branchVariableRequired
+    case branchVariableMustAffectPath
+    case parentFolderRequired
+
+    var errorDescription: String? {
+        switch self {
+        case .pathTemplateRequired:
+            "Path template is required."
+        case .branchVariableRequired:
+            "Path template must include {branch}."
+        case .branchVariableMustAffectPath:
+            "Path template must keep {branch} in the resolved path."
+        case .parentFolderRequired:
+            "Folder is required."
+        }
+    }
+}
+
 enum WorktreeLocationResolver {
-    static func worktreeDirectory(for project: Project, slug: String, branch: String) -> String {
-        worktreeDirectory(
+    static let suggestedPathTemplate = "../{base-dir}.{branch}"
+
+    static func worktreeDirectory(for project: Project, slug: String, branch: String) throws -> String {
+        try worktreeDirectory(
             for: project,
             slug: slug,
             branch: branch,
@@ -17,13 +39,13 @@ enum WorktreeLocationResolver {
         branch: String,
         defaultPathTemplate: String?,
         defaultParentPath: String?
-    ) -> String {
+    ) throws -> String {
         guard !project.isRemote else {
             return remoteWorktreeDirectory(for: project, slug: slug)
         }
 
         if let template = normalizedLocation(project.preferredWorktreePathTemplate) {
-            return resolve(template: template, for: project, branch: branch)
+            return try resolve(template: template, for: project, branch: branch)
         }
 
         if let parent = normalizedLocation(project.preferredWorktreeParentPath) {
@@ -34,7 +56,7 @@ enum WorktreeLocationResolver {
         }
 
         if let template = normalizedLocation(defaultPathTemplate) {
-            return resolve(template: template, for: project, branch: branch)
+            return try resolve(template: template, for: project, branch: branch)
         }
 
         if let parent = normalizedLocation(defaultParentPath) {
@@ -75,7 +97,33 @@ enum WorktreeLocationResolver {
         sanitizedPathComponent(from: name) ?? "project"
     }
 
-    private static func resolve(template: String, for project: Project, branch: String) -> String {
+    static func validatedPathTemplate(_ template: String?) throws -> String {
+        guard let template = normalizedLocation(template) else {
+            throw WorktreeLocationError.pathTemplateRequired
+        }
+        guard template.contains("{branch}") else {
+            throw WorktreeLocationError.branchVariableRequired
+        }
+
+        let firstPath = validationPath(for: template, branch: "muxy-validation-a")
+        let secondPath = validationPath(for: template, branch: "muxy-validation-b")
+        guard firstPath != secondPath else {
+            throw WorktreeLocationError.branchVariableMustAffectPath
+        }
+        return template
+    }
+
+    static func pathTemplateValidationMessage(_ template: String?) -> String? {
+        do {
+            _ = try validatedPathTemplate(template)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private static func resolve(template: String, for project: Project, branch: String) throws -> String {
+        let template = try validatedPathTemplate(template)
         let baseDirectoryName = URL(fileURLWithPath: project.path, isDirectory: true).lastPathComponent
         let replacements = [
             "{project-name}": sanitizedDirectoryName(from: project.name),
@@ -86,6 +134,21 @@ enum WorktreeLocationResolver {
             value.replacingOccurrences(of: replacement.key, with: replacement.value)
         }
         return directoryURL(for: resolved, relativeTo: project).standardizedFileURL.path
+    }
+
+    private static func validationPath(for template: String, branch: String) -> String {
+        let replacements = [
+            "{project-name}": "project",
+            "{base-dir}": "base",
+            "{branch}": branch,
+        ]
+        let resolved = replacements.reduce(template) { value, replacement in
+            value.replacingOccurrences(of: replacement.key, with: replacement.value)
+        }
+        let baseURL = URL(fileURLWithPath: "/muxy/project", isDirectory: true)
+        return URL(fileURLWithPath: resolved, isDirectory: true, relativeTo: baseURL)
+            .standardizedFileURL
+            .path
     }
 
     private static func directoryURL(for location: String, relativeTo project: Project) -> URL {

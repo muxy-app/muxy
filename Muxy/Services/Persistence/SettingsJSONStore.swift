@@ -198,6 +198,13 @@ enum SettingsJSONStore {
     }
 
     private static func validateAllowedString(_ value: String, key: String) throws {
+        if key == GeneralSettingsKeys.defaultWorktreePathTemplate {
+            guard WorktreeLocationResolver.normalizedLocation(value) != nil else { return }
+            guard WorktreeLocationResolver.pathTemplateValidationMessage(value) == nil else {
+                throw SettingsJSONError.invalidValue(key)
+            }
+            return
+        }
         if RepositoryAIAction.allCases.contains(where: { $0.providerKey == key }) {
             let providerIDs = Set(AIProviderRegistry.shared.agentLaunchProviders.map(\.id))
             guard value.isEmpty || providerIDs.contains(value) else {

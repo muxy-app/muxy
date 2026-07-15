@@ -59,6 +59,46 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func staticWorktreeTemplateDoesNotWriteOrApplySettings() throws {
+        let key = GeneralSettingsKeys.defaultWorktreePathTemplate
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+        let originalTemplate = "../{base-dir}.{branch}"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+        UserDefaults.standard.set(originalTemplate, forKey: key)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(key)": "/tmp/worktrees"
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+        #expect(UserDefaults.standard.string(forKey: key) == originalTemplate)
+    }
+
+    @Test
+    func emptyWorktreeTemplateRemainsUnset() throws {
+        let key = GeneralSettingsKeys.defaultWorktreePathTemplate
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(key)": ""
+        }
+        """)
+
+        #expect(UserDefaults.standard.string(forKey: key) == "")
+    }
+
+    @Test
     func invalidSpecialValueDoesNotWriteSettings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
         defer { snapshot.restore() }
