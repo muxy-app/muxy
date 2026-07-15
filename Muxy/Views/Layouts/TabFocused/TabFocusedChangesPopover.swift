@@ -36,7 +36,7 @@ struct TabFocusedChangesPopover: View {
             content
             worktreeRemovalFooter
         }
-        .frame(width: UIMetrics.scaled(420), height: UIMetrics.scaled(420))
+        .frame(width: UIMetrics.scaled(360), height: UIMetrics.scaled(380))
         .background(MuxyTheme.bg)
         .alert(item: $pendingDiscard) { file in
             Alert(
@@ -58,14 +58,14 @@ struct TabFocusedChangesPopover: View {
     private var header: some View {
         HStack(spacing: UIMetrics.spacing4) {
             Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: UIMetrics.iconLG, weight: .semibold))
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(summary.isDirty ? MuxyTheme.warning : MuxyTheme.diffAddFg)
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 Text("Changes")
-                    .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
                 Text(workingTreeDescription)
-                    .font(.system(size: UIMetrics.fontFootnote))
+                    .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .lineLimit(1)
             }
@@ -78,11 +78,11 @@ struct TabFocusedChangesPopover: View {
                         ProgressView().controlSize(.mini)
                     } else {
                         Image(systemName: "arrow.clockwise")
-                            .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     }
                 }
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
             }
             .buttonStyle(.plain)
             .disabled(isInteractionDisabled)
@@ -152,17 +152,17 @@ struct TabFocusedChangesPopover: View {
         } header: {
             HStack(spacing: UIMetrics.spacing3) {
                 Text(title)
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(side == .conflicted ? MuxyTheme.warning : MuxyTheme.fgMuted)
                 Text("\(files.count)")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .bold, design: .rounded))
+                    .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .rounded))
                     .foregroundStyle(MuxyTheme.fgDim)
                 lineStats(sectionLineStats)
                 Spacer(minLength: UIMetrics.spacing3)
                 if let batchAction {
                     Button(batchAction.title, action: batchAction.action)
                         .buttonStyle(.plain)
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.accent)
                         .disabled(isInteractionDisabled)
                 }
@@ -178,18 +178,18 @@ struct TabFocusedChangesPopover: View {
         ChangesPopoverFileRow {
             HStack(spacing: UIMetrics.spacing3) {
                 Text(file.displayStatusText(isStaged: side == .staged))
-                    .font(.system(size: UIMetrics.fontCaption, weight: .bold, design: .monospaced))
+                    .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .monospaced))
                     .foregroundStyle(statusColor(file, side: side))
-                    .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                    .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                     .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
 
                 VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                     Text((file.path as NSString).lastPathComponent)
-                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fg)
                         .lineLimit(1)
                     Text(fileDetail(file))
-                        .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontXS, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -197,7 +197,7 @@ struct TabFocusedChangesPopover: View {
 
                 Spacer(minLength: UIMetrics.spacing2)
                 fileLineStats(file, side: side)
-                    .frame(minWidth: UIMetrics.scaled(68), alignment: .trailing)
+                    .frame(minWidth: UIMetrics.scaled(56), alignment: .trailing)
                 rowActions(file, side: side)
             }
         }
@@ -253,7 +253,7 @@ struct TabFocusedChangesPopover: View {
                 Text("−\(stats.deletions)")
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
             }
-            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold, design: .monospaced))
+            .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
             .fixedSize()
             .accessibilityLabel("\(stats.additions) additions, \(stats.deletions) deletions")
         }
@@ -269,7 +269,7 @@ struct TabFocusedChangesPopover: View {
             ))
         } else if file.isBinary {
             Text("Binary")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
         } else {
             let stats = RepositoryChangesPresentation.lineStats(file, staged: side.stagedValue)
@@ -277,7 +277,7 @@ struct TabFocusedChangesPopover: View {
                 lineStats(stats)
             } else {
                 Text("—")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .foregroundStyle(MuxyTheme.fgDim)
                     .accessibilityLabel("Line counts unavailable")
             }
@@ -287,10 +287,10 @@ struct TabFocusedChangesPopover: View {
     private var cleanState: some View {
         VStack(spacing: UIMetrics.spacing3) {
             Image(systemName: "checkmark.circle")
-                .font(.system(size: UIMetrics.scaled(28), weight: .medium))
+                .font(.system(size: UIMetrics.fontDisplay, weight: .medium))
                 .foregroundStyle(MuxyTheme.diffAddFg)
             Text("Working tree is clean")
-                .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fg)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -299,17 +299,20 @@ struct TabFocusedChangesPopover: View {
     private func errorState(_ error: String) -> some View {
         VStack(spacing: UIMetrics.spacing3) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: UIMetrics.scaled(24), weight: .medium))
+                .font(.system(size: UIMetrics.fontDisplay, weight: .medium))
                 .foregroundStyle(MuxyTheme.warning)
             Text("Changes unavailable")
-                .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fg)
             Text(error)
-                .font(.system(size: UIMetrics.fontCaption))
+                .font(.system(size: UIMetrics.fontXS))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
             Button("Retry", action: requestRefresh)
+                .buttonStyle(.plain)
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(isInteractionDisabled ? MuxyTheme.fgDim : MuxyTheme.accent)
                 .disabled(isInteractionDisabled)
         }
         .padding(UIMetrics.spacing6)
@@ -323,10 +326,10 @@ struct TabFocusedChangesPopover: View {
             Button(role: .destructive, action: onRemoveWorktree) {
                 HStack(spacing: UIMetrics.spacing3) {
                     Image(systemName: "trash")
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                        .frame(width: UIMetrics.scaled(14))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                        .frame(width: UIMetrics.iconSM)
                     Text(worktreeRemovalLabel)
-                        .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     Spacer(minLength: UIMetrics.spacing3)
                 }
                 .foregroundStyle(isWorktreeRemovalDisabled ? MuxyTheme.fgMuted : MuxyTheme.diffRemoveFg)
@@ -425,9 +428,9 @@ private struct ChangesPopoverActionButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: UIMetrics.iconSM, weight: .bold))
+                .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                 .foregroundStyle(foreground)
-                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                 .background(isHovered && !isDisabled ? MuxyTheme.hover : .clear, in: RoundedRectangle(
                     cornerRadius: UIMetrics.radiusSM
                 ))
@@ -458,7 +461,7 @@ private struct ChangesPopoverFileRow<Content: View>: View {
     var body: some View {
         content
             .padding(.horizontal, UIMetrics.spacing4)
-            .frame(height: UIMetrics.scaled(40))
+            .frame(height: UIMetrics.scaled(34))
             .background(
                 isHovered ? MuxyTheme.hover : .clear,
                 in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)

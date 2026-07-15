@@ -50,7 +50,7 @@ struct TabFocusedBranchPopover: View {
             Divider().overlay(MuxyTheme.border)
             branchCreationFooter
         }
-        .frame(width: UIMetrics.scaled(340), height: UIMetrics.scaled(440))
+        .frame(width: UIMetrics.scaled(300), height: UIMetrics.scaled(400))
         .background(MuxyTheme.bg)
         .onChange(of: branches) { _, branches in
             if let pendingDeletion, !branches.contains(pendingDeletion) {
@@ -106,19 +106,19 @@ struct TabFocusedBranchPopover: View {
             VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                 HStack(spacing: UIMetrics.spacing2) {
                     Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.accent)
                     Text("New branch")
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fg)
                 }
                 HStack(spacing: UIMetrics.spacing2) {
                     TextField("feature/name", text: $newBranchName)
                         .textFieldStyle(.plain)
-                        .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fg)
                         .padding(.horizontal, UIMetrics.spacing3)
-                        .frame(height: UIMetrics.controlMedium)
+                        .frame(height: UIMetrics.controlSmall)
                         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
                         .focused($isNewBranchFieldFocused)
                         .disabled(isInteractionDisabled || isSubmittingNewBranch)
@@ -126,7 +126,7 @@ struct TabFocusedBranchPopover: View {
                         .onExitCommand(perform: cancelBranchCreation)
                     Button("Cancel", action: cancelBranchCreation)
                         .buttonStyle(.plain)
-                        .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                        .font(.system(size: UIMetrics.fontXS, weight: .medium))
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .disabled(isSubmittingNewBranch)
                         .keyboardShortcut(.cancelAction)
@@ -138,7 +138,7 @@ struct TabFocusedBranchPopover: View {
                                 Text("Create")
                             }
                         }
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                         .foregroundStyle(canCreateBranch ? MuxyTheme.accent : MuxyTheme.fgDim)
                     }
                     .buttonStyle(.plain)
@@ -153,15 +153,15 @@ struct TabFocusedBranchPopover: View {
             Button(action: beginBranchCreation) {
                 HStack(spacing: UIMetrics.spacing3) {
                     Image(systemName: "plus")
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .bold))
-                        .frame(width: UIMetrics.scaled(14))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+                        .frame(width: UIMetrics.iconSM)
                     Text("New branch")
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     Spacer(minLength: UIMetrics.spacing3)
                 }
                 .foregroundStyle(isInteractionDisabled ? MuxyTheme.fgDim : MuxyTheme.accent)
                 .padding(.horizontal, UIMetrics.spacing4)
-                .frame(height: UIMetrics.controlLarge)
+                .frame(height: UIMetrics.controlMedium)
                 .background(
                     isNewBranchButtonHovered && !isInteractionDisabled ? MuxyTheme.hover : .clear,
                     in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
@@ -274,7 +274,7 @@ private struct BranchPopoverRow: View {
             }
         }
         .padding(.horizontal, UIMetrics.spacing3)
-        .frame(height: isDeletionPending ? UIMetrics.scaled(40) : UIMetrics.controlLarge)
+        .frame(height: isDeletionPending ? UIMetrics.scaled(34) : UIMetrics.controlMedium)
         .background(rowBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         .padding(.horizontal, UIMetrics.spacing3)
         .padding(.vertical, UIMetrics.spacing1)
@@ -286,12 +286,12 @@ private struct BranchPopoverRow: View {
             Button(action: onSelect) {
                 HStack(spacing: UIMetrics.spacing3) {
                     Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                         .foregroundStyle(isSelected ? MuxyTheme.accent : MuxyTheme.fgMuted)
-                        .frame(width: UIMetrics.scaled(14))
+                        .frame(width: UIMetrics.iconSM)
                     Text(name)
                         .font(.system(
-                            size: UIMetrics.fontBody,
+                            size: UIMetrics.fontFootnote,
                             weight: isSelected ? .semibold : .regular,
                             design: .monospaced
                         ))
@@ -322,7 +322,7 @@ private struct BranchPopoverRow: View {
         } else {
             Button(action: onRequestDelete) {
                 Image(systemName: "trash")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
                     .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                     .contentShape(Rectangle())
