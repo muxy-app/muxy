@@ -37,6 +37,7 @@ enum BackupArchive {
     static let exportableFiles = [
         "settings.json",
         "projects.json",
+        "recently-removed-projects.json",
         "project-groups.json",
         "remote-devices.json",
         "workspaces.json",

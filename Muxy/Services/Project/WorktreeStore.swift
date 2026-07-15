@@ -3,6 +3,14 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "WorktreeStore")
 
+enum WorktreeMutationError: LocalizedError {
+    case projectRemovalInProgress
+
+    var errorDescription: String? {
+        "This project is being removed."
+    }
+}
+
 struct WorktreeCreationRequest {
     let name: String
     let path: String
@@ -18,6 +26,9 @@ final class WorktreeStore {
     private(set) var preparingRemovalWorktreeIDs: Set<UUID> = []
     private(set) var removingWorktreeIDs: Set<UUID> = []
     private var projectIDByPath: [String: UUID] = [:]
+    private var projectsBeingRemoved: Set<UUID> = []
+    private var activeProjectMutationCounts: [UUID: Int] = [:]
+    private var projectMutationWaiters: [UUID: [CheckedContinuation<Void, Never>]] = [:]
     private let persistence: any WorktreePersisting
     private let listGitWorktrees: @Sendable (String) async throws -> [GitWorktreeRecord]
     private let addGitWorktree: @Sendable (String, String, String, Bool, String?) async throws -> Void
@@ -47,6 +58,7 @@ final class WorktreeStore {
 
     func loadAll(projects: [Project]) {
         for project in projects {
+            guard !projectsBeingRemoved.contains(project.id) else { continue }
             do {
                 var loaded = try persistence.loadWorktrees(projectID: project.id)
                 if !loaded.contains(where: \.isPrimary) {
@@ -63,6 +75,7 @@ final class WorktreeStore {
     }
 
     func ensurePrimary(for project: Project) {
+        guard !projectsBeingRemoved.contains(project.id) else { return }
         var list = worktrees[project.id] ?? []
         if list.contains(where: \.isPrimary) { return }
         list.insert(makePrimary(for: project), at: 0)
@@ -94,6 +107,11 @@ final class WorktreeStore {
     }
 
     func add(_ worktree: Worktree, to projectID: UUID, context: WorkspaceContext = .local) {
+        guard !projectsBeingRemoved.contains(projectID) else { return }
+        store(worktree, for: projectID, context: context)
+    }
+
+    private func store(_ worktree: Worktree, for projectID: UUID, context: WorkspaceContext) {
         var list = worktrees[projectID] ?? []
         let key = GitWorktreeService.canonicalPath(worktree.path, context: context)
         if let index = list.firstIndex(where: {
@@ -112,6 +130,10 @@ final class WorktreeStore {
         request: WorktreeCreationRequest,
         context: WorkspaceContext = .local
     ) async throws -> Worktree {
+        guard beginProjectMutation(project.id) else {
+            throw WorktreeMutationError.projectRemovalInProgress
+        }
+        defer { endProjectMutation(project.id) }
         let parentPath = parentDirectory(of: request.path, context: context)
         try await context.fileOps.makeDirectory(at: parentPath)
 
@@ -122,7 +144,7 @@ final class WorktreeStore {
             branch: request.branch,
             isPrimary: false
         )
-        add(worktree, to: project.id, context: context)
+        store(worktree, for: project.id, context: context)
         return worktree
     }
 
@@ -161,6 +183,11 @@ final class WorktreeStore {
     }
 
     func remove(worktreeID: UUID, from projectID: UUID) {
+        guard !projectsBeingRemoved.contains(projectID) else { return }
+        removeWorktree(worktreeID, from: projectID)
+    }
+
+    private func removeWorktree(_ worktreeID: UUID, from projectID: UUID) {
         guard var list = worktrees[projectID] else { return }
         list.removeAll { $0.id == worktreeID && $0.canBeRemoved }
         setWorktrees(list, for: projectID)
@@ -184,6 +211,9 @@ final class WorktreeStore {
     }
 
     func beginRemovalPreparation(worktree: Worktree) -> Bool {
+        if let projectID = projectIDByPath[worktree.path], projectsBeingRemoved.contains(projectID) {
+            return false
+        }
         guard worktree.canBeRemoved, !isRemoving(worktreeID: worktree.id) else { return false }
         return preparingRemovalWorktreeIDs.insert(worktree.id).inserted
     }
@@ -194,6 +224,7 @@ final class WorktreeStore {
 
     func beginRemoval(
         worktree: Worktree,
+        projectID: UUID,
         repoPath: String,
         context: WorkspaceContext,
         onSuccess: @escaping @MainActor () -> Void
@@ -202,7 +233,12 @@ final class WorktreeStore {
               !isPreparingRemoval(worktreeID: worktree.id),
               removingWorktreeIDs.insert(worktree.id).inserted
         else { return }
+        guard beginProjectMutation(projectID) else {
+            removingWorktreeIDs.remove(worktree.id)
+            return
+        }
         Task { [weak self] in
+            defer { self?.endProjectMutation(projectID) }
             do {
                 try await WorktreeStore.cleanupOnDisk(
                     worktree: worktree,
@@ -210,6 +246,7 @@ final class WorktreeStore {
                     context: context
                 )
                 self?.removingWorktreeIDs.remove(worktree.id)
+                self?.removeWorktree(worktree.id, from: projectID)
                 onSuccess()
             } catch {
                 self?.removingWorktreeIDs.remove(worktree.id)
@@ -222,6 +259,10 @@ final class WorktreeStore {
     }
 
     func refreshFromGit(project: Project, context: WorkspaceContext = .local) async throws -> [Worktree] {
+        guard beginProjectMutation(project.id) else {
+            throw WorktreeMutationError.projectRemovalInProgress
+        }
+        defer { endProjectMutation(project.id) }
         ensurePrimary(for: project)
         let records = try await listWorktreesForContext(project: project, context: context)
             .filter { !$0.isBare && !$0.isPrunable }
@@ -389,6 +430,7 @@ final class WorktreeStore {
     }
 
     func rename(worktreeID: UUID, in projectID: UUID, to newName: String) {
+        guard !projectsBeingRemoved.contains(projectID) else { return }
         guard var list = worktrees[projectID],
               let index = list.firstIndex(where: { $0.id == worktreeID })
         else { return }
@@ -398,6 +440,7 @@ final class WorktreeStore {
     }
 
     func updateBranch(worktreeID: UUID, in projectID: UUID, branch: String?) {
+        guard !projectsBeingRemoved.contains(projectID) else { return }
         guard var list = worktrees[projectID],
               let index = list.firstIndex(where: { $0.id == worktreeID })
         else { return }
@@ -407,18 +450,54 @@ final class WorktreeStore {
     }
 
     func removeProject(_ projectID: UUID) {
+        guard !projectsBeingRemoved.contains(projectID) else { return }
+        removeProjectState(projectID)
+    }
+
+    func completeProjectRemoval(_ projectID: UUID) {
+        removeProjectState(projectID)
+    }
+
+    private func removeProjectState(_ projectID: UUID) {
         if let existing = worktrees[projectID] {
             for worktree in existing where projectIDByPath[worktree.path] == projectID {
                 projectIDByPath.removeValue(forKey: worktree.path)
             }
         }
         worktrees.removeValue(forKey: projectID)
+        projectsBeingRemoved.remove(projectID)
         pruneRemovalState()
         do {
             try persistence.removeWorktrees(projectID: projectID)
         } catch {
             logger.error("Failed to remove worktrees file for project \(projectID): \(error)")
         }
+    }
+
+    func beginProjectRemoval(_ projectID: UUID) async -> Bool {
+        guard projectsBeingRemoved.insert(projectID).inserted else { return false }
+        guard activeProjectMutationCounts[projectID, default: 0] > 0 else { return true }
+        await withCheckedContinuation { continuation in
+            projectMutationWaiters[projectID, default: []].append(continuation)
+        }
+        return true
+    }
+
+    func cancelProjectRemoval(_ projectID: UUID) {
+        projectsBeingRemoved.remove(projectID)
+    }
+
+    func isProjectRemovalInProgress(_ projectID: UUID) -> Bool {
+        projectsBeingRemoved.contains(projectID)
+    }
+
+    func restoreProjectWorktrees(_ list: [Worktree], for projectID: UUID) {
+        guard !list.isEmpty else {
+            removeProject(projectID)
+            return
+        }
+        setWorktrees(list, for: projectID)
+        save(projectID: projectID)
     }
 
     private func setWorktrees(_ list: [Worktree], for projectID: UUID) {
@@ -462,6 +541,25 @@ final class WorktreeStore {
             try persistence.saveWorktrees(list, projectID: projectID)
         } catch {
             logger.error("Failed to save worktrees for project \(projectID): \(error)")
+        }
+    }
+
+    private func beginProjectMutation(_ projectID: UUID) -> Bool {
+        guard !projectsBeingRemoved.contains(projectID) else { return false }
+        activeProjectMutationCounts[projectID, default: 0] += 1
+        return true
+    }
+
+    private func endProjectMutation(_ projectID: UUID) {
+        guard let count = activeProjectMutationCounts[projectID] else { return }
+        guard count == 1 else {
+            activeProjectMutationCounts[projectID] = count - 1
+            return
+        }
+        activeProjectMutationCounts.removeValue(forKey: projectID)
+        let waiters = projectMutationWaiters.removeValue(forKey: projectID) ?? []
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 

@@ -18,3 +18,5 @@ A project is just a directory you've added to Muxy.
 2. Click **+** at the bottom of the sidebar — or **File → Open Project…** (`⌘O`).
 3. Type the folder name, choose the matching path, and press Return. Add parent names with a space or `/` to narrow results, such as `muxy Projects`. You can also type an explicit path such as `~/Projects/muxy`.
 4. Right-click the project to rename, recolor, change its icon, or copy its absolute path.
+
+Removing a project keeps its files on disk. To add it back with its name, icon, and settings intact, open **Add Project** and choose it under **Recently Removed**. You can assign **Recently Removed Projects** in **Settings → Keyboard Shortcuts** to open the chooser; it is unassigned by default.

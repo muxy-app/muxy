@@ -146,15 +146,13 @@ struct MuxyApp: App {
                                 worktreeStore.removeProject(id)
                                 continue
                             }
-                            let knownWorktrees = worktreeStore.list(for: id)
                             Task {
                                 do {
-                                    try await WorktreeStore.cleanupOnDisk(
-                                        for: project,
-                                        knownWorktrees: knownWorktrees
+                                    try await ProjectRemovalService.removeLocalProjectData(
+                                        project,
+                                        projectStore: projectStore,
+                                        worktreeStore: worktreeStore
                                     )
-                                    projectStore.remove(id: id)
-                                    worktreeStore.removeProject(id)
                                 } catch {
                                     ToastState.shared.show("Could not remove \(project.name): \(error.localizedDescription)")
                                 }

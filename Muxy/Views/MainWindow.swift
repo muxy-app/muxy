@@ -721,6 +721,7 @@ struct MainWindow: View {
         if showTerminalOmnibox {
             TerminalOmniboxOverlay(
                 projects: terminalOmniboxProjects,
+                recentlyRemovedProjects: terminalOmniboxRecentlyRemovedProjects,
                 worktrees: terminalOmniboxWorktrees,
                 workspaces: terminalOmniboxWorkspaces,
                 openTabs: terminalOmniboxOpenTabs,
@@ -797,6 +798,18 @@ struct MainWindow: View {
         switch item {
         case let .project(project):
             _ = selectOmniboxProject(project.projectID)
+        case let .recentlyRemovedProject(project):
+            do {
+                try ProjectOpenService.restoreRecentlyRemovedProject(
+                    id: project.projectID,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
+                )
+            } catch {
+                ToastState.shared.show(title: "Could not restore project", body: error.localizedDescription)
+            }
         case let .worktree(worktree):
             _ = selectOmniboxProject(worktree.projectID, worktreeID: worktree.worktreeID)
         case let .workspace(workspace):
@@ -850,6 +863,18 @@ struct MainWindow: View {
     private var terminalOmniboxProjects: [TerminalOmniboxProjectItem] {
         omniboxProjects.map {
             TerminalOmniboxProjectItem(projectID: $0.id, name: $0.name, path: $0.path)
+        }
+    }
+
+    private var terminalOmniboxRecentlyRemovedProjects: [TerminalOmniboxRecentlyRemovedProjectItem] {
+        guard !projectGroupStore.isRemoteWorkspaceActive else { return [] }
+        return projectStore.recentlyRemovedProjects.map { entry in
+            TerminalOmniboxRecentlyRemovedProjectItem(
+                projectID: entry.project.id,
+                name: entry.project.name,
+                path: entry.project.path,
+                icon: entry.project.icon
+            )
         }
     }
 
@@ -1265,6 +1290,7 @@ struct MainWindow: View {
         worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
         worktreeStore.beginRemoval(
             worktree: worktree,
+            projectID: project.id,
             repoPath: project.path,
             context: projectGroupStore.workspaceContext(for: project),
             onSuccess: {

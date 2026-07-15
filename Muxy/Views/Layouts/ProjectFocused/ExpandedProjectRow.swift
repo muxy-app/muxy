@@ -16,6 +16,7 @@ struct ExpandedProjectRow: View {
     let onSetPinned: (Bool) -> Void
 
     @Environment(AppState.self) private var appState
+    @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
 
@@ -148,11 +149,7 @@ struct ExpandedProjectRow: View {
                 sourceImage: item.image,
                 onConfirm: { cropped in
                     logoCropImage = nil
-                    let logoPath = ProjectLogoStorage.save(
-                        croppedImage: cropped,
-                        forProjectID: project.id
-                    )
-                    onSetLogo(logoPath)
+                    projectStore.setLogo(id: project.id, croppedImage: cropped)
                 },
                 onCancel: { logoCropImage = nil }
             )
@@ -539,6 +536,7 @@ struct ExpandedProjectRow: View {
             ?? remaining.first
         worktreeStore.beginRemoval(
             worktree: worktree,
+            projectID: project.id,
             repoPath: project.path,
             context: projectGroupStore.workspaceContext(for: project),
             onSuccess: {
