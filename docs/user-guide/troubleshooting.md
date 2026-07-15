@@ -50,6 +50,7 @@ After authenticating, restart Muxy so it picks up the new credentials.
 - For an SSH workspace, the selected provider CLI and `gh` must be installed and authenticated on the remote host. If **Auto** selects a CLI that is unavailable remotely, choose the installed provider explicitly from the action dropdown.
 - Provider CLIs run headlessly and cannot show interactive authentication or permission prompts. Authenticate the chosen CLI in a terminal first, then retry the button; failures are shown in a toast.
 - AI only generates metadata. Muxy always owns staging, branch creation, commits, pushes, and pull request creation. Update the prompt when the provider returns invalid JSON or unsuitable metadata, not to change the native Git sequence.
+- **Add Prompt** appends one-time instructions after the configured global or project prompt for the current action without changing Settings.
 
 ## Mobile server won't start
 

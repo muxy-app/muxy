@@ -64,6 +64,51 @@ struct RepositoryAIActionPreferencesTests {
         ) == "Global commit prompt")
     }
 
+    @Test("additional prompt follows the resolved action prompt")
+    func additionalPromptOrder() {
+        let defaults = makeDefaults()
+        defaults.set("Global commit prompt", forKey: RepositoryAIAction.commit.promptKey)
+        defaults.set("Global PR prompt", forKey: RepositoryAIAction.createPullRequest.promptKey)
+
+        #expect(RepositoryAIActionPreferences.instructions(
+            for: .commit,
+            additionalPrompt: "Mention the migration",
+            defaults: defaults
+        ) == "Global commit prompt\n\nMention the migration")
+        #expect(RepositoryAIActionPreferences.instructions(
+            for: .createPullRequest,
+            projectPrompt: "Project PR prompt",
+            additionalPrompt: "Call out the rollback plan",
+            defaults: defaults
+        ) == "Project PR prompt\n\nCall out the rollback plan")
+    }
+
+    @Test("blank additional prompt leaves the resolved prompt unchanged")
+    func blankAdditionalPrompt() {
+        let defaults = makeDefaults()
+        defaults.set("Configured prompt", forKey: RepositoryAIAction.commit.promptKey)
+
+        #expect(RepositoryAIActionPreferences.instructions(
+            for: .commit,
+            additionalPrompt: " \n ",
+            defaults: defaults
+        ) == "Configured prompt")
+    }
+
+    @Test("additional prompt is bounded")
+    func boundedAdditionalPrompt() {
+        let maximumLength = RepositoryAIActionPreferences.maximumAdditionalPromptLength
+        let additionalPrompt = String(repeating: "a", count: maximumLength + 1)
+        let instructions = RepositoryAIActionPreferences.instructions(
+            for: .commit,
+            additionalPrompt: additionalPrompt,
+            defaults: makeDefaults()
+        )
+
+        #expect(instructions == RepositoryAIAction.commit.defaultPrompt + "\n\n"
+            + String(repeating: "a", count: maximumLength))
+    }
+
     @Test("commit presentation protects repository state")
     func commitPresentation() {
         #expect(RepositoryAIActionPresentation.commit(

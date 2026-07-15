@@ -67,26 +67,23 @@ struct RepositoryStatusBarItems: View {
             .onChange(of: confirmationContext) { _, _ in
                 pendingAIAction = nil
             }
-            .alert(
-                pendingAIAction?.title ?? "",
-                isPresented: aiRepositoryActionAlertBinding,
-                presenting: pendingAIAction
-            ) { confirmation in
-                Button(confirmation.confirmTitle) {
-                    pendingAIAction = nil
-                    confirmAIRepositoryAction(confirmation)
+            .sheet(isPresented: aiRepositoryActionConfirmationBinding) {
+                if let confirmation = pendingAIAction {
+                    RepositoryAIActionConfirmationSheet(
+                        confirmation: confirmation,
+                        onCancel: {
+                            pendingAIAction = nil
+                        },
+                        onConfirm: { additionalPrompt in
+                            pendingAIAction = nil
+                            confirmAIRepositoryAction(confirmation, additionalPrompt: additionalPrompt)
+                        }
+                    )
                 }
-                .keyboardShortcut(.defaultAction)
-                Button("Cancel", role: .cancel) {
-                    pendingAIAction = nil
-                }
-                .keyboardShortcut(.cancelAction)
-            } message: { confirmation in
-                Text(confirmation.message)
             }
     }
 
-    private var aiRepositoryActionAlertBinding: Binding<Bool> {
+    private var aiRepositoryActionConfirmationBinding: Binding<Bool> {
         Binding(
             get: { pendingAIAction != nil },
             set: { newValue in
@@ -697,7 +694,10 @@ struct RepositoryStatusBarItems: View {
         )
     }
 
-    private func confirmAIRepositoryAction(_ confirmation: RepositoryAIActionConfirmation) {
+    private func confirmAIRepositoryAction(
+        _ confirmation: RepositoryAIActionConfirmation,
+        additionalPrompt: String?
+    ) {
         let action = confirmation.action
         let availability = aiRepositoryActionAvailability(action, summary: repositoryState.summary)
         guard availability == .available,
@@ -707,12 +707,18 @@ struct RepositoryStatusBarItems: View {
             ToastState.shared.show("\(action.settingsTitle) is no longer available. Try again.")
             return
         }
-        runAIRepositoryAction(action, availability: availability)
+        let instructions = RepositoryAIActionPreferences.instructions(
+            for: action,
+            projectPrompt: action == .createPullRequest ? activeProject?.pullRequestPrompt : nil,
+            additionalPrompt: additionalPrompt
+        )
+        runAIRepositoryAction(action, availability: availability, instructions: instructions)
     }
 
     private func runAIRepositoryAction(
         _ action: RepositoryAIAction,
-        availability: RepositoryAIActionAvailability
+        availability: RepositoryAIActionAvailability,
+        instructions: String
     ) {
         guard availability == .available,
               !hasRunningAIWorkflow,
@@ -736,17 +742,18 @@ struct RepositoryStatusBarItems: View {
                     }
                     return
                 }
-                startAIRepositoryAction(action, context: context)
+                startAIRepositoryAction(action, context: context, instructions: instructions)
             }
             return
         }
 
-        startAIRepositoryAction(action, context: context)
+        startAIRepositoryAction(action, context: context, instructions: instructions)
     }
 
     private func startAIRepositoryAction(
         _ action: RepositoryAIAction,
-        context: RepositoryContext
+        context: RepositoryContext,
+        instructions: String
     ) {
         guard let summary = repositoryState.summary else { return }
         let serviceContext = RepositoryAIActionsService.Context(
@@ -763,10 +770,7 @@ struct RepositoryStatusBarItems: View {
                 context: serviceContext,
                 providers: agentLaunchProviders,
                 installedProviderIDs: installedProviderIDs,
-                instructions: RepositoryAIActionPreferences.prompt(
-                    for: action,
-                    projectPrompt: action == .createPullRequest ? activeProject?.pullRequestPrompt : nil
-                )
+                instructions: instructions
             )
         } catch {
             ToastState.shared.show(title: "Could not start \(action.settingsTitle)", body: error.localizedDescription)
