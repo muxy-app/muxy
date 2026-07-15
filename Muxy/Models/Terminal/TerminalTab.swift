@@ -13,12 +13,14 @@ final class TerminalTab: Identifiable {
         case terminal(TerminalPaneState)
         case extensionWebView(ExtensionTabState)
         case browser(BrowserTabState)
+        case remotePlaceholder(RemoteTabPlaceholder)
 
         var kind: Kind {
             switch self {
             case .terminal: .terminal
             case .extensionWebView: .extensionWebView
             case .browser: .browser
+            case let .remotePlaceholder(placeholder): placeholder.kind
             }
         }
 
@@ -42,6 +44,7 @@ final class TerminalTab: Identifiable {
             case let .terminal(pane): pane.projectPath
             case let .extensionWebView(state): state.projectPath
             case let .browser(state): state.projectPath
+            case let .remotePlaceholder(placeholder): placeholder.projectPath
             }
         }
     }
@@ -66,6 +69,8 @@ final class TerminalTab: Identifiable {
             return state.displayTitle
         case let .browser(state):
             return state.displayTitle
+        case let .remotePlaceholder(placeholder):
+            return placeholder.title
         }
     }
 
@@ -82,6 +87,28 @@ final class TerminalTab: Identifiable {
     init(browserState: BrowserTabState) {
         id = UUID()
         content = .browser(browserState)
+    }
+
+    init(
+        id: UUID,
+        title: String,
+        isPinned: Bool,
+        projectPath: String,
+        kind: Kind,
+        pane: TerminalPaneState?
+    ) {
+        self.id = id
+        self.isPinned = isPinned
+        if let pane {
+            content = .terminal(pane)
+        } else {
+            content = .remotePlaceholder(RemoteTabPlaceholder(
+                title: title,
+                projectPath: projectPath,
+                kind: kind
+            ))
+        }
+        customTitle = title
     }
 
     init(restoring snapshot: TerminalTabSnapshot) {
@@ -160,4 +187,10 @@ final class TerminalTab: Identifiable {
         }
         return path
     }
+}
+
+struct RemoteTabPlaceholder {
+    let title: String
+    let projectPath: String
+    let kind: TerminalTab.Kind
 }

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import MuxyShared
 import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "PairingRequestCoordinator")
@@ -9,6 +10,7 @@ struct PairingRequest: Identifiable, Equatable {
     let deviceID: UUID
     let deviceName: String
     let token: String
+    let clientKind: RemoteClientKindDTO
     let receivedAt: Date
 }
 
@@ -24,11 +26,17 @@ final class PairingRequestCoordinator {
 
     private init() {}
 
-    func requestApproval(deviceID: UUID, deviceName: String, token: String) async -> Bool {
+    func requestApproval(
+        deviceID: UUID,
+        deviceName: String,
+        token: String,
+        clientKind: RemoteClientKindDTO
+    ) async -> Bool {
         let request = PairingRequest(
             deviceID: deviceID,
             deviceName: deviceName,
             token: token,
+            clientKind: clientKind,
             receivedAt: Date()
         )
         return await withCheckedContinuation { continuation in
@@ -45,7 +53,8 @@ final class PairingRequestCoordinator {
         ApprovedDevicesStore.shared.approve(
             deviceID: request.deviceID,
             name: request.deviceName,
-            token: request.token
+            token: request.token,
+            clientKind: request.clientKind
         )
         finish(request, approved: true)
     }
@@ -81,7 +90,8 @@ final class PairingRequestCoordinator {
 
         let alert = NSAlert()
         alert.messageText = "Allow \(request.deviceName) to connect?"
-        alert.informativeText = "This device is requesting access to Muxy. Only approve devices you recognize."
+        let clientKind = request.clientKind.displayName.lowercased()
+        alert.informativeText = "This \(clientKind) is requesting access to Muxy. Only approve devices you recognize."
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: "Approve")
@@ -96,6 +106,15 @@ final class PairingRequestCoordinator {
             approve(request)
         } else {
             deny(request)
+        }
+    }
+}
+
+private extension RemoteClientKindDTO {
+    var displayName: String {
+        switch self {
+        case .mobile: "Mobile device"
+        case .desktop: "Mac"
         }
     }
 }

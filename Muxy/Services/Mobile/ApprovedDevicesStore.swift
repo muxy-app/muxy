@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import MuxyShared
 import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "ApprovedDevicesStore")
@@ -10,6 +11,33 @@ struct ApprovedDevice: Codable, Identifiable, Equatable {
     let tokenHash: String
     let approvedAt: Date
     var lastSeenAt: Date?
+    var clientKind: RemoteClientKindDTO
+
+    init(
+        id: UUID,
+        name: String,
+        tokenHash: String,
+        approvedAt: Date,
+        lastSeenAt: Date?,
+        clientKind: RemoteClientKindDTO = .mobile
+    ) {
+        self.id = id
+        self.name = name
+        self.tokenHash = tokenHash
+        self.approvedAt = approvedAt
+        self.lastSeenAt = lastSeenAt
+        self.clientKind = clientKind
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        tokenHash = try container.decode(String.self, forKey: .tokenHash)
+        approvedAt = try container.decode(Date.self, forKey: .approvedAt)
+        lastSeenAt = try container.decodeIfPresent(Date.self, forKey: .lastSeenAt)
+        clientKind = try container.decodeIfPresent(RemoteClientKindDTO.self, forKey: .clientKind) ?? .mobile
+    }
 }
 
 @MainActor
@@ -31,7 +59,12 @@ final class ApprovedDevicesStore {
         }
     }
 
-    func approve(deviceID: UUID, name: String, token: String) {
+    func approve(
+        deviceID: UUID,
+        name: String,
+        token: String,
+        clientKind: RemoteClientKindDTO = .mobile
+    ) {
         let hash = Self.hash(token)
         let now = Date()
         if let index = devices.firstIndex(where: { $0.id == deviceID }) {
@@ -40,7 +73,8 @@ final class ApprovedDevicesStore {
                 name: name,
                 tokenHash: hash,
                 approvedAt: devices[index].approvedAt,
-                lastSeenAt: now
+                lastSeenAt: now,
+                clientKind: clientKind
             )
         } else {
             devices.append(ApprovedDevice(
@@ -48,14 +82,16 @@ final class ApprovedDevicesStore {
                 name: name,
                 tokenHash: hash,
                 approvedAt: now,
-                lastSeenAt: now
+                lastSeenAt: now,
+                clientKind: clientKind
             ))
         }
         save()
     }
 
-    func validate(deviceID: UUID, token: String) -> ApprovedDevice? {
+    func validate(deviceID: UUID, token: String, clientKind: RemoteClientKindDTO) -> ApprovedDevice? {
         guard let device = devices.first(where: { $0.id == deviceID }) else { return nil }
+        guard device.clientKind == clientKind else { return nil }
         let provided = Self.hash(token)
         guard Self.constantTimeEquals(device.tokenHash, provided) else { return nil }
         return device

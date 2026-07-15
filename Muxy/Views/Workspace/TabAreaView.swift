@@ -7,18 +7,11 @@ struct TabAreaView: View {
     let showTabStrip: Bool
     let projectID: UUID
     let shortcutIndexOffset: Int
-    let onFocus: () -> Void
-    let onSelectTab: (UUID) -> Void
-    let onCreateTab: () -> Void
-    let onCloseTab: (UUID) -> Void
-    let onForceCloseTab: (UUID) -> Void
-    let onSplit: (SplitDirection) -> Void
-    let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    let actions: WorkspaceViewActions
     var showMaximizeButton = false
     var isMaximized = false
     var onToggleMaximize: (() -> Void)?
     @Environment(TabDragCoordinator.self) private var dragCoordinator
-    @Environment(AppState.self) private var appState
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
     @State private var isExternalDragHovering = false
     @State private var externalDragHideTask: Task<Void, any Error>?
@@ -27,7 +20,7 @@ struct TabAreaView: View {
 
     private func closeTabs(_ tabIDs: [UUID]) {
         for tabID in tabIDs {
-            onCloseTab(tabID)
+            actions.closeTab(area.id, tabID)
         }
     }
 
@@ -41,17 +34,12 @@ struct TabAreaView: View {
                     isFocused: isFocused,
                     projectID: projectID,
                     shortcutIndexOffset: shortcutIndexOffset,
-                    onSelectTab: onSelectTab,
-                    onCreateTab: onCreateTab,
-                    onOpenBrowser: browserEnabled ? {
-                        appState.dispatch(.createBrowserTab(
-                            projectID: projectID,
-                            areaID: area.id,
-                            url: BrowserURL.homeURL,
-                            profileID: BrowserPreferences.defaultProfileID
-                        ))
+                    onSelectTab: { actions.selectTab(area.id, $0) },
+                    onCreateTab: { actions.createTab(area.id) },
+                    onOpenBrowser: browserEnabled ? actions.createBrowserTab.map { create in
+                        { create(area.id) }
                     } : nil,
-                    onCloseTab: onCloseTab,
+                    onCloseTab: { actions.closeTab(area.id, $0) },
                     onCloseOtherTabs: { tabID in
                         closeTabs(area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id))
                     },
@@ -63,32 +51,25 @@ struct TabAreaView: View {
                         guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
                         closeTabs(area.tabs.suffix(from: index + 1).filter { !$0.isPinned }.map(\.id))
                     },
-                    onSplit: onSplit,
-                    onDropAction: onDropAction,
+                    onSplit: { actions.splitArea(area.id, $0, .second) },
+                    onDropAction: actions.dropTab,
                     showMaximizeButton: showMaximizeButton,
                     isMaximized: isMaximized,
                     onToggleMaximize: onToggleMaximize,
-                    onCreateTabAdjacent: { tabID, side in
-                        appState.dispatch(.createTabAdjacent(
-                            projectID: projectID,
-                            areaID: area.id,
-                            tabID: tabID,
-                            side: side
-                        ))
+                    onCreateTabAdjacent: actions.createTabAdjacent.map { create in
+                        { tabID, side in create(area.id, tabID, side) }
                     },
-                    onTogglePin: { tabID in
-                        area.togglePin(tabID)
+                    onTogglePin: actions.togglePin.map { toggle in
+                        { tabID in toggle(area.id, tabID) }
                     },
-                    onSetCustomTitle: { tabID, title in
-                        area.setCustomTitle(tabID, title: title)
-                        appState.saveWorkspaces()
+                    onSetCustomTitle: actions.setCustomTitle.map { setTitle in
+                        { tabID, title in setTitle(area.id, tabID, title) }
                     },
-                    onSetColorID: { tabID, colorID in
-                        area.setColorID(tabID, colorID: colorID)
-                        appState.saveWorkspaces()
+                    onSetColorID: actions.setColorID.map { setColor in
+                        { tabID, colorID in setColor(area.id, tabID, colorID) }
                     },
-                    onReorderTab: { fromOffsets, toOffset in
-                        area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
+                    onReorderTab: actions.reorderTab.map { reorder in
+                        { source, destination in reorder(area.id, source, destination) }
                     }
                 )
                 Rectangle().fill(MuxyTheme.border).frame(height: 1)
@@ -102,15 +83,10 @@ struct TabAreaView: View {
                         focused: isActive && isFocused && isActiveProject,
                         visible: isActive && isActiveProject,
                         areaID: area.id,
-                        onFocus: onFocus,
-                        onProcessExit: { onForceCloseTab(tab.id) },
+                        onFocus: { actions.focusArea(area.id) },
+                        onProcessExit: { actions.forceCloseTab(area.id, tab.id) },
                         onSplitRequest: { direction, position in
-                            appState.dispatch(.splitArea(.init(
-                                projectID: projectID,
-                                areaID: area.id,
-                                direction: direction,
-                                position: position
-                            )))
+                            actions.splitArea(area.id, direction, position)
                         }
                     )
                     .zIndex(isActive ? 1 : 0)
@@ -225,6 +201,37 @@ private struct TabContentView: View {
                     .contentShape(Rectangle())
                     .onTapGesture { onFocus() }
             }
+        case let .remotePlaceholder(placeholder):
+            RemoteTabUnavailableView(placeholder: placeholder)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onFocus)
+        }
+    }
+}
+
+private struct RemoteTabUnavailableView: View {
+    let placeholder: RemoteTabPlaceholder
+
+    var body: some View {
+        VStack(spacing: UIMetrics.spacing4) {
+            Image(systemName: icon)
+                .font(.system(size: UIMetrics.iconXXL))
+            Text("\(placeholder.title) is open on the remote Mac")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            Text("This tab type cannot be streamed yet.")
+                .font(.system(size: UIMetrics.fontFootnote))
+        }
+        .foregroundStyle(MuxyTheme.fgMuted)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MuxyTheme.bg)
+    }
+
+    private var icon: String {
+        switch placeholder.kind {
+        case .terminal: "terminal"
+        case .extensionWebView: "puzzlepiece.extension"
+        case .browser: "globe"
         }
     }
 }

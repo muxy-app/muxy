@@ -38,6 +38,7 @@ struct MainWindow: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(RemoteDeviceStore.self) private var remoteDeviceStore
+    @Environment(RemoteMacWorkspaceStore.self) private var remoteMacWorkspace
     @Environment(BrowserProfileStore.self) private var browserProfileStore
     @Environment(GhosttyService.self) private var ghostty
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
@@ -452,9 +453,20 @@ struct MainWindow: View {
             HStack(spacing: 0) {
                 ZStack {
                     MuxyTheme.bg
-                    if let project = activeProject,
-                       !appState.hasTabs(for: project.id),
-                       let worktree = resolvedActiveWorktree(for: project)
+                    if let presentation = remoteMacWorkspace.presentedWorkspace,
+                       let project = remoteMacWorkspace.presentedProject,
+                       let actions = remoteMacWorkspace.workspaceActions()
+                    {
+                        RemoteWorkspaceArea(
+                            project: project,
+                            presentation: presentation,
+                            actions: actions
+                        )
+                    } else if remoteMacWorkspace.activeDeviceID != nil {
+                        remoteWorkspaceStatus
+                    } else if let project = activeProject,
+                              !appState.hasTabs(for: project.id),
+                              let worktree = resolvedActiveWorktree(for: project)
                     {
                         EmptyProjectPlaceholder(project: project) {
                             appState.openInitialTab(projectID: project.id, worktree: worktree)
@@ -491,11 +503,12 @@ struct MainWindow: View {
             if showStatusBar {
                 ProjectStatusBar(
                     activePane: activeTerminalPane,
-                    activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
+                    activeWorktree: activeProject.flatMap { project in
+                        project.isRemoteMac ? nil : resolvedActiveWorktree(for: project)
+                    },
                     fallbackProjectPath: activeProject.map { activeWorktreePath(for: $0) },
-                    isRemoteWorkspace: activeProject.map {
-                        projectGroupStore.workspaceContext(for: $0).isRemote
-                    } ?? false,
+                    isRemoteWorkspace: activeProject?.isRemote ?? false,
+                    supportsLocalActions: remoteMacWorkspace.activeDeviceID == nil,
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
                     richInputVisible: richInputPanelVisible,
                     richInputFontSize: $richInputFontSize,
@@ -518,18 +531,42 @@ struct MainWindow: View {
         }
     }
 
+    @ViewBuilder
+    private var remoteWorkspaceStatus: some View {
+        switch remoteMacWorkspace.state {
+        case .connecting:
+            ProgressView("Connecting…")
+        case .awaitingApproval:
+            ProgressView("Approve this Mac on the remote device…")
+        case let .failed(message):
+            ContentUnavailableView(
+                "Connection Failed",
+                systemImage: "exclamationmark.triangle.fill",
+                description: Text(message)
+            )
+        case .connected:
+            if remoteMacWorkspace.projects.isEmpty {
+                ContentUnavailableView("No Projects", systemImage: "folder")
+            } else {
+                ProgressView("Loading Workspace…")
+            }
+        case .disconnected:
+            ContentUnavailableView("Disconnected", systemImage: "network.slash")
+        }
+    }
+
     private var navigationArrows: some View {
         HStack(spacing: UIMetrics.spacing1) {
             NavigationArrowButton(
                 symbol: "chevron.left",
-                isEnabled: appState.navigation.canGoBack,
+                isEnabled: remoteMacWorkspace.activeDeviceID == nil && appState.navigation.canGoBack,
                 label: "Back (\(KeyBindingStore.shared.combo(for: .navigateBack).displayString))"
             ) {
                 appState.goBack()
             }
             NavigationArrowButton(
                 symbol: "chevron.right",
-                isEnabled: appState.navigation.canGoForward,
+                isEnabled: remoteMacWorkspace.activeDeviceID == nil && appState.navigation.canGoForward,
                 label: "Forward (\(KeyBindingStore.shared.combo(for: .navigateForward).displayString))"
             ) {
                 appState.goForward()
@@ -549,8 +586,8 @@ struct MainWindow: View {
     private var topBarContent: some View {
         if showsTabsInTitleBar,
            let project = activeProject,
-           let root = appState.workspaceRoot(for: project.id),
-           case let .tabArea(area) = root
+           let titleBarWorkspace,
+           case let .tabArea(area) = titleBarWorkspace.root
         {
             PaneTabStrip(
                 areaID: area.id,
@@ -560,70 +597,52 @@ struct MainWindow: View {
                 isWindowTitleBar: true,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
                 openInIDEProjectPath: project.isRemote ? nil : activeWorktreePath(for: project),
+                showsWorkspaceControls: !project.isRemoteMac,
                 projectID: project.id,
                 onSelectTab: { tabID in
-                    appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
+                    titleBarWorkspace.actions.selectTab(area.id, tabID)
                 },
                 onCreateTab: {
-                    appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
+                    titleBarWorkspace.actions.createTab(area.id)
                 },
-                onOpenBrowser: browserEnabled ? {
-                    appState.dispatch(.createBrowserTab(
-                        projectID: project.id,
-                        areaID: area.id,
-                        url: BrowserURL.homeURL,
-                        profileID: browserProfileStore.defaultProfileID
-                    ))
+                onOpenBrowser: browserEnabled ? titleBarWorkspace.actions.createBrowserTab.map { create in
+                    { create(area.id) }
                 } : nil,
                 onCloseTab: { tabID in
-                    appState.closeTab(tabID, areaID: area.id, projectID: project.id)
+                    titleBarWorkspace.actions.closeTab(area.id, tabID)
                 },
                 onCloseOtherTabs: { tabID in
                     let ids = area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id)
-                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
+                    ids.forEach { titleBarWorkspace.actions.closeTab(area.id, $0) }
                 },
                 onCloseTabsToLeft: { tabID in
                     guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
                     let ids = area.tabs.prefix(index).filter { !$0.isPinned }.map(\.id)
-                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
+                    ids.forEach { titleBarWorkspace.actions.closeTab(area.id, $0) }
                 },
                 onCloseTabsToRight: { tabID in
                     guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
                     let ids = area.tabs.suffix(from: index + 1).filter { !$0.isPinned }.map(\.id)
-                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
+                    ids.forEach { titleBarWorkspace.actions.closeTab(area.id, $0) }
                 },
                 onSplit: { dir in
-                    appState.dispatch(.splitArea(.init(
-                        projectID: project.id,
-                        areaID: area.id,
-                        direction: dir,
-                        position: .second
-                    )))
+                    titleBarWorkspace.actions.splitArea(area.id, dir, .second)
                 },
-                onDropAction: { result in
-                    appState.dispatch(result.action(projectID: project.id))
+                onDropAction: titleBarWorkspace.actions.dropTab,
+                onCreateTabAdjacent: titleBarWorkspace.actions.createTabAdjacent.map { create in
+                    { tabID, side in create(area.id, tabID, side) }
                 },
-                onCreateTabAdjacent: { tabID, side in
-                    appState.dispatch(.createTabAdjacent(
-                        projectID: project.id,
-                        areaID: area.id,
-                        tabID: tabID,
-                        side: side
-                    ))
+                onTogglePin: titleBarWorkspace.actions.togglePin.map { toggle in
+                    { tabID in toggle(area.id, tabID) }
                 },
-                onTogglePin: { tabID in
-                    area.togglePin(tabID)
+                onSetCustomTitle: titleBarWorkspace.actions.setCustomTitle.map { setTitle in
+                    { tabID, title in setTitle(area.id, tabID, title) }
                 },
-                onSetCustomTitle: { tabID, title in
-                    area.setCustomTitle(tabID, title: title)
-                    appState.saveWorkspaces()
+                onSetColorID: titleBarWorkspace.actions.setColorID.map { setColor in
+                    { tabID, colorID in setColor(area.id, tabID, colorID) }
                 },
-                onSetColorID: { tabID, colorID in
-                    area.setColorID(tabID, colorID: colorID)
-                    appState.saveWorkspaces()
-                },
-                onReorderTab: { fromOffsets, toOffset in
-                    area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
+                onReorderTab: titleBarWorkspace.actions.reorderTab.map { reorder in
+                    { source, destination in reorder(area.id, source, destination) }
                 }
             )
         } else {
@@ -666,10 +685,12 @@ struct MainWindow: View {
             if let project = activeProject {
                 if !project.isRemote {
                     OpenInIDEControl(projectPath: activeWorktreePath(for: project), projectID: project.id)
+                    LayoutPickerMenu(projectID: project.id)
                 }
-                LayoutPickerMenu(projectID: project.id)
             }
-            ExtensionTopbarItems()
+            if remoteMacWorkspace.activeDeviceID == nil {
+                ExtensionTopbarItems()
+            }
         }
         .padding(.trailing, UIMetrics.spacing2)
         .fixedSize(horizontal: true, vertical: false)
@@ -1126,16 +1147,35 @@ struct MainWindow: View {
     }
 
     private var activeProject: Project? {
+        if remoteMacWorkspace.activeDeviceID != nil {
+            return remoteMacWorkspace.presentedProject
+        }
         guard let pid = appState.activeProjectID else { return nil }
         return allActiveProjects.first { $0.id == pid }
     }
 
     private var windowTitle: String {
         guard let project = activeProject else { return "Muxy" }
-        guard let tabTitle = appState.activeTab(for: project.id)?.title,
+        let activeTab = project.isRemoteMac
+            ? remoteMacWorkspace.presentedWorkspace?.activeTab
+            : appState.activeTab(for: project.id)
+        guard let tabTitle = activeTab?.title,
               !tabTitle.isEmpty
         else { return project.name }
         return "\(project.name) — \(tabTitle)"
+    }
+
+    private var titleBarWorkspace: (root: SplitNode, actions: WorkspaceViewActions)? {
+        if remoteMacWorkspace.activeDeviceID != nil {
+            guard let presentation = remoteMacWorkspace.presentedWorkspace,
+                  let actions = remoteMacWorkspace.workspaceActions()
+            else { return nil }
+            return (presentation.root, actions)
+        }
+        guard let project = activeProject,
+              let root = appState.workspaceRoot(for: project.id)
+        else { return nil }
+        return (root, .local(projectID: project.id, appState: appState))
     }
 
     private var activeProjectWithWorkspace: Project? {
@@ -1308,6 +1348,7 @@ struct MainWindow: View {
     }
 
     private var isTerminalPaneFocused: Bool {
+        if remoteMacWorkspace.activeConnection != nil { return true }
         guard let projectID = appState.activeProjectID else { return false }
         return appState.activeTab(for: projectID)?.content.pane != nil
     }
@@ -1323,6 +1364,9 @@ struct MainWindow: View {
         if action == .toggleVoiceRecording {
             return openVoiceRecorder()
         }
+        if remoteMacWorkspace.performShortcutAction(action) {
+            return true
+        }
         return shortcutDispatcher.perform(action, activeProject: activeProject)
     }
 
@@ -1336,6 +1380,7 @@ struct MainWindow: View {
     }
 
     private func handleCommandShortcut(_ shortcut: CommandShortcut) -> Bool {
+        guard remoteMacWorkspace.activeDeviceID == nil else { return true }
         guard let projectID = appState.activeProjectID,
               appState.workspaceRoot(for: projectID) != nil,
               !shortcut.trimmedCommand.isEmpty
@@ -1345,6 +1390,7 @@ struct MainWindow: View {
     }
 
     private func handleExtensionShortcut(_ shortcut: ExtensionShortcut) -> Bool {
+        guard remoteMacWorkspace.activeDeviceID == nil else { return true }
         if shortcut.source == .runtime {
             ExtensionStore.shared.triggerRuntimeShortcut(
                 extensionID: shortcut.extensionID,
@@ -1560,6 +1606,9 @@ struct MainWindow: View {
 
     private var activeTerminalPane: TerminalPaneState? {
         guard let project = activeProject else { return nil }
+        if project.isRemoteMac {
+            return remoteMacWorkspace.presentedWorkspace?.activeTab?.content.pane
+        }
         return appState.activeTab(for: project.id)?.content.pane
     }
 

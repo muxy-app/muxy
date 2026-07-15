@@ -6,11 +6,14 @@ struct TabFocusedProjectRow: View {
     let project: Project
     var worktree: Worktree?
     let shortcutNumbers: [UUID: Int]
+    var remotePresentation: RemoteWorkspacePresentation?
+    var remoteActions: WorkspaceViewActions?
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
+    @Environment(RemoteMacWorkspaceStore.self) private var remoteMacWorkspace
     @State private var expansionStore = TabFocusedSidebarState.shared
     @State private var notificationStore = NotificationStore.shared
     @State private var progressStore = TerminalProgressStore.shared
@@ -25,6 +28,7 @@ struct TabFocusedProjectRow: View {
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableProjectImage?
     @State private var projectPendingRemoval = false
+    @State private var remoteExpanded = false
     @FocusState private var renameFieldFocused: Bool
 
     private var isWorktreeRow: Bool { worktree != nil }
@@ -36,10 +40,14 @@ struct TabFocusedProjectRow: View {
     }
 
     private var listWorktree: Worktree? {
-        worktree ?? worktreeStore.primary(for: project.id)
+        guard !project.isRemoteMac else { return nil }
+        return worktree ?? worktreeStore.primary(for: project.id)
     }
 
     private var isActive: Bool {
+        if project.isRemoteMac {
+            return remoteMacWorkspace.presentedProject?.id == project.id
+        }
         guard appState.activeProjectID == project.id else { return false }
         guard let worktree else { return isActiveWorktreePrimary }
         return appState.activeWorktreeID[project.id] == worktree.id
@@ -51,6 +59,7 @@ struct TabFocusedProjectRow: View {
     }
 
     private var rowActivity: TerminalActivity? {
+        guard !project.isRemoteMac else { return nil }
         let agentStore = AgentStatusStore.shared
         let hasProgress: Bool
         let agentStatus: AgentStatus?
@@ -80,13 +89,24 @@ struct TabFocusedProjectRow: View {
     }
 
     private var isExpanded: Bool {
-        expansionStore.isExpanded(rowID, default: false)
+        if project.isRemoteMac {
+            return remoteExpanded
+        }
+        return expansionStore.isExpanded(rowID, default: false)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            if isExpanded, let listWorktree {
+            if isExpanded, let remotePresentation, let remoteActions {
+                TabFocusedTabsList(
+                    project: project,
+                    worktree: nil,
+                    shortcutNumbers: shortcutNumbers,
+                    remotePresentation: remotePresentation,
+                    remoteActions: remoteActions
+                )
+            } else if isExpanded, let listWorktree {
                 TabFocusedTabsList(project: project, worktree: listWorktree, shortcutNumbers: shortcutNumbers)
             }
         }
@@ -94,10 +114,16 @@ struct TabFocusedProjectRow: View {
         .onChange(of: isActive) { _, active in
             guard active, !isExpanded else { return }
             withAnimation(.easeInOut(duration: 0.15)) {
-                expansionStore.set(rowID, expanded: true)
+                setExpanded(true)
             }
         }
-        .task(id: project.path) { await checkGitRepo() }
+        .task(id: project.path) {
+            guard !project.isRemoteMac else {
+                isCheckingGitRepo = false
+                return
+            }
+            await checkGitRepo()
+        }
     }
 
     private var header: some View {
@@ -133,9 +159,16 @@ struct TabFocusedProjectRow: View {
         .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
-        .onTapGesture { toggle() }
+        .onTapGesture {
+            if project.isRemoteMac, !isActive {
+                Task { await remoteMacWorkspace.selectPresentedProject(project.id) }
+            }
+            toggle()
+        }
         .contextMenu {
-            if let worktree {
+            if project.isRemoteMac {
+                EmptyView()
+            } else if let worktree {
                 worktreeContextMenu(worktree)
             } else if project.isHome {
                 Button("Hide Home") { HomeProjectPreferences.isVisible = false }
@@ -311,7 +344,15 @@ struct TabFocusedProjectRow: View {
 
     @ViewBuilder
     private var actions: some View {
-        TabFocusedTabActions(project: project, worktree: worktree)
+        if project.isRemoteMac {
+            if let remotePresentation, let remoteActions, let area = remotePresentation.focusedArea {
+                SidebarActionButton(symbol: "plus", label: "New Terminal Tab") {
+                    remoteActions.createTab(area.id)
+                }
+            }
+        } else {
+            TabFocusedTabActions(project: project, worktree: worktree)
+        }
         if !isWorktreeRow, !project.isHome, !isFocused {
             focusModeButton
         }
@@ -340,6 +381,12 @@ struct TabFocusedProjectRow: View {
     }
 
     private func activateProjectIfNeeded() {
+        guard !project.isRemoteMac else {
+            if !isActive {
+                Task { await remoteMacWorkspace.selectPresentedProject(project.id) }
+            }
+            return
+        }
         guard !isActive else { return }
         worktreeStore.ensurePrimary(for: project)
         guard let target = worktreeStore.preferred(
@@ -384,14 +431,26 @@ struct TabFocusedProjectRow: View {
 
     private func toggle() {
         withAnimation(.easeInOut(duration: 0.15)) {
-            expansionStore.set(rowID, expanded: !isExpanded)
+            setExpanded(!isExpanded)
         }
     }
 
     private func applyDefaultExpansion() {
+        if project.isRemoteMac {
+            remoteExpanded = isActive
+            return
+        }
         let key = TabFocusedSidebarPreferences.projectExpandedKey(rowID)
         guard UserDefaults.standard.object(forKey: key) == nil, isActive, !isExpanded else { return }
         expansionStore.set(rowID, expanded: true)
+    }
+
+    private func setExpanded(_ expanded: Bool) {
+        if project.isRemoteMac {
+            remoteExpanded = expanded
+            return
+        }
+        expansionStore.set(rowID, expanded: expanded)
     }
 
     private func checkGitRepo() async {

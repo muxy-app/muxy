@@ -5,16 +5,8 @@ struct SplitContainer: View {
     let branch: SplitBranch
     let focusedAreaID: UUID?
     let isActiveProject: Bool
-    let projectID: UUID
     let shortcutOffsets: [UUID: Int]
-    let onFocusArea: (UUID) -> Void
-    let onSelectTab: (UUID, UUID) -> Void
-    let onCreateTab: (UUID) -> Void
-    let onCloseTab: (UUID, UUID) -> Void
-    let onForceCloseTab: (UUID, UUID) -> Void
-    let onSplit: (UUID, SplitDirection) -> Void
-    let onCloseArea: (UUID) -> Void
-    let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    let actions: WorkspaceViewActions
     var showMaximizeButton = false
     var onToggleMaximize: ((UUID) -> Void)?
 
@@ -31,31 +23,43 @@ struct SplitContainer: View {
                 child(branch.first)
                     .frame(width: h ? first : nil, height: h ? nil : first)
 
-                AnchoredResizeHandle(
-                    axis: h ? .horizontal : .vertical,
-                    captureAnchor: { branch.ratio },
-                    onTranslate: { start, delta in
-                        guard total > 0 else { return }
-                        branch.ratio = min(max(start + delta / total, 0.15), 0.85)
-                    }
-                )
-                .accessibilityLabel(h ? "Horizontal Split Divider" : "Vertical Split Divider")
-                .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
-                .accessibilityAdjustableAction { direction in
-                    let step: CGFloat = 0.05
-                    switch direction {
-                    case .increment:
-                        branch.ratio = min(branch.ratio + step, 0.85)
-                    case .decrement:
-                        branch.ratio = max(branch.ratio - step, 0.15)
-                    @unknown default:
-                        break
-                    }
-                }
+                divider(horizontal: h, total: total)
 
                 child(branch.second)
                     .frame(width: h ? second : nil, height: h ? nil : second)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func divider(horizontal: Bool, total: CGFloat) -> some View {
+        if let resizeSplit = actions.resizeSplit {
+            AnchoredResizeHandle(
+                axis: horizontal ? .horizontal : .vertical,
+                captureAnchor: { branch.ratio },
+                onTranslate: { start, delta in
+                    guard total > 0 else { return }
+                    resizeSplit(branch.id, min(max(start + delta / total, 0.15), 0.85))
+                }
+            )
+            .accessibilityLabel(horizontal ? "Horizontal Split Divider" : "Vertical Split Divider")
+            .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
+            .accessibilityAdjustableAction { direction in
+                let step: CGFloat = 0.05
+                switch direction {
+                case .increment:
+                    resizeSplit(branch.id, min(branch.ratio + step, 0.85))
+                case .decrement:
+                    resizeSplit(branch.id, max(branch.ratio - step, 0.15))
+                @unknown default:
+                    break
+                }
+            }
+        } else {
+            Rectangle()
+                .fill(MuxyTheme.border)
+                .frame(width: horizontal ? 1 : nil, height: horizontal ? nil : 1)
+                .accessibilityHidden(true)
         }
     }
 
@@ -64,16 +68,8 @@ struct SplitContainer: View {
             node: node,
             focusedAreaID: focusedAreaID,
             isActiveProject: isActiveProject,
-            projectID: projectID,
             shortcutOffsets: shortcutOffsets,
-            onFocusArea: onFocusArea,
-            onSelectTab: onSelectTab,
-            onCreateTab: onCreateTab,
-            onCloseTab: onCloseTab,
-            onForceCloseTab: onForceCloseTab,
-            onSplit: onSplit,
-            onCloseArea: onCloseArea,
-            onDropAction: onDropAction,
+            actions: actions,
             showMaximizeButton: showMaximizeButton,
             onToggleMaximize: onToggleMaximize
         )

@@ -1,5 +1,10 @@
 import Foundation
 
+enum TerminalPaneBackend: Equatable {
+    case local
+    case remoteMac(paneID: UUID)
+}
+
 struct TerminalPaneLaunch: Equatable {
     let command: String?
     let interactive: Bool
@@ -17,6 +22,7 @@ final class TerminalPaneState: Identifiable {
     let startupCommandInteractive: Bool
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
+    let backend: TerminalPaneBackend
     var isOffline = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
@@ -29,7 +35,8 @@ final class TerminalPaneState: Identifiable {
         startupCommand: String? = nil,
         startupCommandInteractive: Bool = false,
         closesOnStartupCommandExit: Bool = true,
-        externalEditorFilePath: String? = nil
+        externalEditorFilePath: String? = nil,
+        backend: TerminalPaneBackend = .local
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -39,6 +46,7 @@ final class TerminalPaneState: Identifiable {
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
+        self.backend = backend
     }
 
     func consumeRestoredLaunch() -> TerminalPaneLaunch {

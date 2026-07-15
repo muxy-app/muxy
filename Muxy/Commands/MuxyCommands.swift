@@ -6,6 +6,7 @@ struct MuxyCommands: Commands {
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
 
     let appState: AppState
+    let remoteMacWorkspace: RemoteMacWorkspaceStore
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
     let projectGroupStore: ProjectGroupStore
@@ -20,6 +21,7 @@ struct MuxyCommands: Commands {
     }
 
     private var activeProject: Project? {
+        guard remoteMacWorkspace.activeDeviceID == nil else { return nil }
         guard let projectID = appState.activeProjectID else { return nil }
         return projectStore.projects.first { $0.id == projectID }
     }
@@ -58,11 +60,15 @@ struct MuxyCommands: Commands {
     }
 
     private func performShortcutAction(_ action: ShortcutAction) {
+        if remoteMacWorkspace.performShortcutAction(action) {
+            return
+        }
         _ = shortcutDispatcher.perform(action, activeProject: activeProject)
     }
 
     private func performCommandShortcut(_ shortcut: CommandShortcut) {
         guard isMainWindowFocused,
+              remoteMacWorkspace.activeDeviceID == nil,
               let projectID = appState.activeProjectID,
               appState.workspaceRoot(for: projectID) != nil,
               !shortcut.trimmedCommand.isEmpty

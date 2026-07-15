@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 struct BackupSettingsView: View {
     private static let exportFooter = """
     Saves your settings, projects, remote devices, shortcuts and customizations to a single .muxy file. \
-    Credentials such as SSH keys, passwords and paired mobile devices are never included.
+    Credentials such as SSH keys, passwords and paired remote-access devices are never included.
     """
 
     private static let importFooter = """

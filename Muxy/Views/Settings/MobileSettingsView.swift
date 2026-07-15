@@ -1,4 +1,5 @@
 import AppKit
+import MuxyShared
 import Network
 import SwiftUI
 
@@ -22,12 +23,22 @@ struct MobileSettingsView: View {
     @State private var selectedNetwork: MobilePairingNetwork = .local
     @State private var pathMonitor: NWPathMonitor?
 
-    private var enabledBinding: Binding<Bool> {
+    private var mobileEnabledBinding: Binding<Bool> {
         Binding(
-            get: { service.isEnabled },
+            get: { service.allowsMobileConnections },
             set: { newValue in
                 if newValue, !commitPort() { return }
-                service.setEnabled(newValue)
+                service.setMobileConnectionsEnabled(newValue)
+            }
+        )
+    }
+
+    private var desktopEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { service.allowsDesktopConnections },
+            set: { newValue in
+                if newValue, !commitPort() { return }
+                service.setDesktopConnectionsEnabled(newValue)
             }
         )
     }
@@ -35,10 +46,11 @@ struct MobileSettingsView: View {
     var body: some View {
         SettingsContainer {
             SettingsSection(
-                "Mobile",
-                footer: "Muxy listens on the configured port for the iOS app over your local network or a private VPN such as Tailscale."
+                "Remote Access",
+                footer: "Muxy listens on the configured port over your trusted local network or a private VPN such as Tailscale."
             ) {
-                SettingsToggleRow(label: "Allow mobile device connections", isOn: enabledBinding)
+                SettingsToggleRow(label: "Allow mobile device connections", isOn: mobileEnabledBinding)
+                SettingsToggleRow(label: "Allow desktop connections", isOn: desktopEnabledBinding)
 
                 SettingsRow("Port") {
                     TextField("\(MobileServerService.defaultPort)", text: $portText)
@@ -48,7 +60,7 @@ struct MobileSettingsView: View {
                             guard portText != String(service.port) else { return }
                             portValidationError = nil
                             if service.isEnabled {
-                                service.setEnabled(false)
+                                service.disableAllConnections()
                             }
                         }
                         .onSubmit { _ = commitPort() }
@@ -74,7 +86,7 @@ struct MobileSettingsView: View {
                 }
             }
 
-            if service.isEnabled, let selectedHost, let uri = pairingURI(for: selectedHost) {
+            if service.allowsMobileConnections, let selectedHost, let uri = pairingURI(for: selectedHost) {
                 SettingsSection(
                     "Pair Mobile Device",
                     footer: Self.pairingFooter
@@ -358,7 +370,7 @@ struct MobileSettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.name)
                     .font(.system(size: SettingsMetrics.labelFontSize))
-                Text(lastSeenText(device))
+                Text("\(device.clientKind.displayName) · \(lastSeenText(device))")
                     .font(.system(size: SettingsMetrics.footnoteFontSize))
                     .foregroundStyle(SettingsStyle.mutedForeground)
             }
@@ -391,5 +403,14 @@ struct MobileSettingsView: View {
             return "Last seen \(formatter.localizedString(for: seen, relativeTo: Date()))"
         }
         return "Approved \(formatter.localizedString(for: device.approvedAt, relativeTo: Date()))"
+    }
+}
+
+private extension RemoteClientKindDTO {
+    var displayName: String {
+        switch self {
+        case .mobile: "Mobile"
+        case .desktop: "Mac"
+        }
     }
 }

@@ -16,6 +16,7 @@ struct Project: Identifiable, Codable, Hashable {
     var isPinned: Bool
     var remoteWorkspaceID: UUID?
     var remoteDeviceID: UUID?
+    var remoteMacDeviceID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -23,7 +24,8 @@ struct Project: Identifiable, Codable, Hashable {
         path: String,
         sortOrder: Int = 0,
         remoteWorkspaceID: UUID? = nil,
-        remoteDeviceID: UUID? = nil
+        remoteDeviceID: UUID? = nil,
+        remoteMacDeviceID: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -40,9 +42,12 @@ struct Project: Identifiable, Codable, Hashable {
         self.isPinned = false
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteDeviceID = remoteDeviceID
+        self.remoteMacDeviceID = remoteMacDeviceID
     }
 
-    var isRemote: Bool { remoteWorkspaceID != nil || remoteDeviceID != nil }
+    var isRemote: Bool { remoteWorkspaceID != nil || remoteDeviceID != nil || remoteMacDeviceID != nil }
+
+    var isRemoteMac: Bool { remoteMacDeviceID != nil }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -61,6 +66,7 @@ struct Project: Identifiable, Codable, Hashable {
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         remoteWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .remoteWorkspaceID)
         remoteDeviceID = try container.decodeIfPresent(UUID.self, forKey: .remoteDeviceID)
+        remoteMacDeviceID = try container.decodeIfPresent(UUID.self, forKey: .remoteMacDeviceID)
     }
 
     var pathExists: Bool {

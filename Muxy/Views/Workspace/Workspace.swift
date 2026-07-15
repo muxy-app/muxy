@@ -26,6 +26,10 @@ struct TerminalArea: View {
         return false
     }
 
+    private var actions: WorkspaceViewActions {
+        .local(projectID: project.id, appState: appState)
+    }
+
     private var maximizedArea: TabArea? {
         guard let areaID = appState.maximizedAreaID[worktreeKey] else { return nil }
         return root?.findArea(id: areaID)
@@ -51,31 +55,9 @@ struct TerminalArea: View {
                 area: area,
                 isActiveProject: isActiveProject,
                 projectID: project.id,
+                actions: actions,
                 onToggleMaximize: {
                     appState.toggleMaximize(areaID: area.id, for: project.id)
-                },
-                onSelectTab: { tabID in
-                    appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
-                },
-                onCreateTab: {
-                    appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
-                },
-                onCloseTab: { tabID in
-                    appState.closeTab(tabID, areaID: area.id, projectID: project.id)
-                },
-                onForceCloseTab: { tabID in
-                    appState.forceCloseTab(tabID, areaID: area.id, projectID: project.id)
-                },
-                onSplit: { dir in
-                    appState.dispatch(.splitArea(.init(
-                        projectID: project.id,
-                        areaID: area.id,
-                        direction: dir,
-                        position: .second
-                    )))
-                },
-                onDropAction: { result in
-                    appState.dispatch(result.action(projectID: project.id))
                 }
             )
             .padding(16)
@@ -85,37 +67,8 @@ struct TerminalArea: View {
                 focusedAreaID: focusedAreaID,
                 isActiveProject: isActiveProject,
                 showTabStrip: !rootIsTabArea,
-                projectID: project.id,
                 shortcutOffsets: appState.shortcutOffsets(for: project.id),
-                onFocusArea: { areaID in
-                    appState.dispatch(.focusArea(projectID: project.id, areaID: areaID))
-                },
-                onSelectTab: { areaID, tabID in
-                    appState.dispatch(.selectTab(projectID: project.id, areaID: areaID, tabID: tabID))
-                },
-                onCreateTab: { areaID in
-                    appState.dispatch(.createTab(projectID: project.id, areaID: areaID))
-                },
-                onCloseTab: { areaID, tabID in
-                    appState.closeTab(tabID, areaID: areaID, projectID: project.id)
-                },
-                onForceCloseTab: { areaID, tabID in
-                    appState.forceCloseTab(tabID, areaID: areaID, projectID: project.id)
-                },
-                onSplit: { areaID, dir in
-                    appState.dispatch(.splitArea(.init(
-                        projectID: project.id,
-                        areaID: areaID,
-                        direction: dir,
-                        position: .second
-                    )))
-                },
-                onCloseArea: { areaID in
-                    appState.dispatch(.closeArea(projectID: project.id, areaID: areaID))
-                },
-                onDropAction: { result in
-                    appState.dispatch(result.action(projectID: project.id))
-                },
+                actions: actions,
                 showMaximizeButton: !rootIsTabArea,
                 onToggleMaximize: { areaID in
                     appState.toggleMaximize(areaID: areaID, for: project.id)
@@ -125,17 +78,64 @@ struct TerminalArea: View {
     }
 }
 
-private struct MaximizedAreaView: View {
+struct RemoteWorkspaceArea: View {
+    let project: Project
+    let presentation: RemoteWorkspacePresentation
+    let actions: WorkspaceViewActions
+
+    @State private var maximizedAreaID: UUID?
+
+    private var rootIsTabArea: Bool {
+        if case .tabArea = presentation.root { return true }
+        return false
+    }
+
+    private var maximizedArea: TabArea? {
+        guard let maximizedAreaID else { return nil }
+        return presentation.root.findArea(id: maximizedAreaID)
+    }
+
+    private var shortcutOffsets: [UUID: Int] {
+        var offset = 0
+        var result: [UUID: Int] = [:]
+        for area in presentation.root.allAreas() {
+            result[area.id] = offset
+            offset += area.tabs.count
+        }
+        return result
+    }
+
+    var body: some View {
+        if let area = maximizedArea {
+            MaximizedAreaView(
+                area: area,
+                isActiveProject: true,
+                projectID: project.id,
+                actions: actions,
+                onToggleMaximize: { maximizedAreaID = nil }
+            )
+            .padding(16)
+        } else {
+            PaneNode(
+                node: presentation.root,
+                focusedAreaID: presentation.focusedAreaID,
+                isActiveProject: true,
+                showTabStrip: !rootIsTabArea,
+                shortcutOffsets: shortcutOffsets,
+                actions: actions,
+                showMaximizeButton: !rootIsTabArea,
+                onToggleMaximize: { maximizedAreaID = $0 }
+            )
+        }
+    }
+}
+
+struct MaximizedAreaView: View {
     let area: TabArea
     let isActiveProject: Bool
     let projectID: UUID
+    let actions: WorkspaceViewActions
     let onToggleMaximize: () -> Void
-    let onSelectTab: (UUID) -> Void
-    let onCreateTab: () -> Void
-    let onCloseTab: (UUID) -> Void
-    let onForceCloseTab: (UUID) -> Void
-    let onSplit: (SplitDirection) -> Void
-    let onDropAction: (TabDragCoordinator.DropResult) -> Void
 
     var body: some View {
         TabAreaView(
@@ -145,13 +145,7 @@ private struct MaximizedAreaView: View {
             showTabStrip: true,
             projectID: projectID,
             shortcutIndexOffset: 0,
-            onFocus: {},
-            onSelectTab: onSelectTab,
-            onCreateTab: onCreateTab,
-            onCloseTab: onCloseTab,
-            onForceCloseTab: onForceCloseTab,
-            onSplit: onSplit,
-            onDropAction: onDropAction,
+            actions: actions,
             showMaximizeButton: true,
             isMaximized: true,
             onToggleMaximize: onToggleMaximize

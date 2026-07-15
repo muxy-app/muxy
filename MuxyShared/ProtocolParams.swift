@@ -153,17 +153,32 @@ public struct RegisterDeviceParams: Codable, Sendable {
     }
 }
 
+public enum RemoteClientKindDTO: String, Codable, Sendable {
+    case mobile
+    case desktop
+}
+
 public struct PairDeviceParams: Codable, Sendable {
     public let deviceID: UUID
     public let deviceName: String
     public let token: String
     public let theme: ClientThemeDTO?
-    public init(deviceID: UUID, deviceName: String, token: String, theme: ClientThemeDTO? = nil) {
+    public let clientKind: RemoteClientKindDTO?
+    public init(
+        deviceID: UUID,
+        deviceName: String,
+        token: String,
+        theme: ClientThemeDTO? = nil,
+        clientKind: RemoteClientKindDTO? = nil
+    ) {
         self.deviceID = deviceID
         self.deviceName = deviceName
         self.token = token
         self.theme = theme
+        self.clientKind = clientKind
     }
+
+    public var resolvedClientKind: RemoteClientKindDTO { clientKind ?? .mobile }
 }
 
 public struct AuthenticateDeviceParams: Codable, Sendable {
@@ -171,12 +186,22 @@ public struct AuthenticateDeviceParams: Codable, Sendable {
     public let deviceName: String
     public let token: String
     public let theme: ClientThemeDTO?
-    public init(deviceID: UUID, deviceName: String, token: String, theme: ClientThemeDTO? = nil) {
+    public let clientKind: RemoteClientKindDTO?
+    public init(
+        deviceID: UUID,
+        deviceName: String,
+        token: String,
+        theme: ClientThemeDTO? = nil,
+        clientKind: RemoteClientKindDTO? = nil
+    ) {
         self.deviceID = deviceID
         self.deviceName = deviceName
         self.token = token
         self.theme = theme
+        self.clientKind = clientKind
     }
+
+    public var resolvedClientKind: RemoteClientKindDTO { clientKind ?? .mobile }
 }
 
 public struct PairingResultDTO: Codable, Sendable {

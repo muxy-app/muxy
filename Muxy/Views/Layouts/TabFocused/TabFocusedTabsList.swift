@@ -43,8 +43,10 @@ struct TabFocusedTabActions: View {
 
 struct TabFocusedTabsList: View {
     let project: Project
-    let worktree: Worktree
+    let worktree: Worktree?
     let shortcutNumbers: [UUID: Int]
+    var remotePresentation: RemoteWorkspacePresentation?
+    var remoteActions: WorkspaceViewActions?
 
     @Environment(AppState.self) private var appState
     @State private var dragState = TabFocusedDragState()
@@ -52,21 +54,31 @@ struct TabFocusedTabsList: View {
     private struct AreaTab: Identifiable {
         let area: TabArea
         let tab: TerminalTab
-        let worktree: Worktree
+        let worktree: Worktree?
         var id: UUID { tab.id }
     }
 
     private var worktreeKey: WorktreeKey {
-        WorktreeKey(projectID: project.id, worktreeID: worktree.id)
+        WorktreeKey(projectID: project.id, worktreeID: worktree?.id ?? UUID())
     }
 
     private var areaTabs: [AreaTab] {
-        appState.areas(for: worktreeKey).flatMap { area in
+        if let remotePresentation {
+            return remotePresentation.root.allAreas().flatMap { area in
+                area.tabs.map { AreaTab(area: area, tab: $0, worktree: nil) }
+            }
+        }
+        guard let worktree else { return [] }
+        return appState.areas(for: worktreeKey).flatMap { area in
             area.tabs.map { AreaTab(area: area, tab: $0, worktree: worktree) }
         }
     }
 
     private var activeTabID: UUID? {
+        if let remotePresentation {
+            return remotePresentation.activeTab?.id
+        }
+        guard let worktree else { return nil }
         guard appState.activeProjectID == project.id,
               appState.activeWorktreeID[project.id] == worktree.id
         else { return nil }
@@ -92,7 +104,8 @@ struct TabFocusedTabsList: View {
                 tab: item.tab,
                 active: item.tab.id == activeTabID,
                 worktree: item.worktree,
-                shortcutNumber: numbers[item.tab.id]
+                shortcutNumber: numbers[item.tab.id],
+                actions: remoteActions
             )
             .opacity(dragState.draggedID == item.tab.id ? 0.5 : 1)
             .background {
@@ -112,7 +125,8 @@ struct TabFocusedTabsList: View {
                     }
                     .onEnded { _ in
                         handleDragEnded()
-                    }
+                    },
+                including: remoteActions == nil ? .all : .none
             )
         }
     }
@@ -184,6 +198,7 @@ private struct TabFocusedTabRow: View {
     let active: Bool
     var worktree: Worktree?
     var shortcutNumber: Int?
+    var actions: WorkspaceViewActions?
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -357,8 +372,10 @@ private struct TabFocusedTabRow: View {
             }
         }
         .overlay {
-            DoubleClickView { startRename() }
-                .accessibilityHidden(true)
+            if actions == nil || actions?.setCustomTitle != nil {
+                DoubleClickView { startRename() }
+                    .accessibilityHidden(true)
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(tab.title)
@@ -366,42 +383,44 @@ private struct TabFocusedTabRow: View {
         .contextMenu { contextMenu }
         .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
             ProjectIconColorPicker(title: "Tab Color", selectedID: tab.colorID) { id in
-                area.setColorID(tab.id, colorID: id)
-                appState.saveWorkspaces()
+                if let setColorID = actions?.setColorID {
+                    setColorID(area.id, tab.id, id)
+                } else {
+                    area.setColorID(tab.id, colorID: id)
+                    appState.saveWorkspaces()
+                }
                 showColorPicker = false
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .renameActiveTab)) { _ in
-            guard active else { return }
+            guard active, actions == nil || actions?.setCustomTitle != nil else { return }
             startRename()
         }
     }
 
     @ViewBuilder
     private var contextMenu: some View {
-        Button("New Tab to the Left") {
-            appState.dispatch(.createTabAdjacent(projectID: projectID, areaID: area.id, tabID: tab.id, side: .left))
+        if actions == nil || actions?.createTabAdjacent != nil {
+            Button("New Tab to the Left") { createAdjacent(.left) }
+            Button("New Tab to the Right") { createAdjacent(.right) }
+            Divider()
         }
-        Button("New Tab to the Right") {
-            appState.dispatch(.createTabAdjacent(projectID: projectID, areaID: area.id, tabID: tab.id, side: .right))
-        }
-        Divider()
-        Button("Rename Tab") { startRename() }
-        if tab.customTitle != nil {
-            Button("Reset Title") {
-                area.setCustomTitle(tab.id, title: nil)
-                appState.saveWorkspaces()
+        if actions == nil || actions?.setCustomTitle != nil {
+            Button("Rename Tab") { startRename() }
+            if tab.customTitle != nil {
+                Button("Reset Title") { setCustomTitle(nil) }
             }
         }
-        Button("Set Tab Color…") { showColorPicker = true }
-        if tab.colorID != nil {
-            Button("Reset Tab Color") {
-                area.setColorID(tab.id, colorID: nil)
-                appState.saveWorkspaces()
+        if actions == nil || actions?.setColorID != nil {
+            Button("Set Tab Color…") { showColorPicker = true }
+            if tab.colorID != nil {
+                Button("Reset Tab Color") { setColorID(nil) }
             }
         }
-        Divider()
-        Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") { area.togglePin(tab.id) }
+        if actions == nil || actions?.togglePin != nil {
+            Divider()
+            Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") { togglePin() }
+        }
         if !tab.isPinned || hasClosableSiblings {
             Divider()
             if !tab.isPinned {
@@ -524,6 +543,11 @@ private struct TabFocusedTabRow: View {
     }
 
     private func select() {
+        if let actions {
+            actions.focusArea(area.id)
+            actions.selectTab(area.id, tab.id)
+            return
+        }
         activateProjectIfNeeded()
         if let worktree, appState.activeWorktreeID[projectID] != worktree.id {
             appState.selectWorktree(projectID: projectID, worktree: worktree)
@@ -543,23 +567,39 @@ private struct TabFocusedTabRow: View {
     }
 
     private func close() {
+        if let actions {
+            actions.closeTab(area.id, tab.id)
+            return
+        }
         appState.closeTab(tab.id, areaID: area.id, projectID: projectID)
     }
 
     private func closeOthers() {
         let ids = area.tabs.filter { $0.id != tab.id && !$0.isPinned }.map(\.id)
+        if let actions {
+            ids.forEach { actions.closeTab(area.id, $0) }
+            return
+        }
         appState.closeTabs(ids, areaID: area.id, projectID: projectID)
     }
 
     private func closeLeft() {
         guard let currentIndex else { return }
         let ids = area.tabs.prefix(currentIndex).filter { !$0.isPinned }.map(\.id)
+        if let actions {
+            ids.forEach { actions.closeTab(area.id, $0) }
+            return
+        }
         appState.closeTabs(ids, areaID: area.id, projectID: projectID)
     }
 
     private func closeRight() {
         guard let currentIndex else { return }
         let ids = area.tabs.suffix(from: currentIndex + 1).filter { !$0.isPinned }.map(\.id)
+        if let actions {
+            ids.forEach { actions.closeTab(area.id, $0) }
+            return
+        }
         appState.closeTabs(ids, areaID: area.id, projectID: projectID)
     }
 
@@ -571,9 +611,42 @@ private struct TabFocusedTabRow: View {
 
     private func commitRename() {
         let trimmed = renameText.trimmingCharacters(in: .whitespaces)
-        area.setCustomTitle(tab.id, title: trimmed.isEmpty ? nil : trimmed)
-        appState.saveWorkspaces()
+        setCustomTitle(trimmed.isEmpty ? nil : trimmed)
         isRenaming = false
+    }
+
+    private func createAdjacent(_ side: TabArea.InsertSide) {
+        if let createTabAdjacent = actions?.createTabAdjacent {
+            createTabAdjacent(area.id, tab.id, side)
+            return
+        }
+        appState.dispatch(.createTabAdjacent(projectID: projectID, areaID: area.id, tabID: tab.id, side: side))
+    }
+
+    private func setCustomTitle(_ title: String?) {
+        if let setCustomTitle = actions?.setCustomTitle {
+            setCustomTitle(area.id, tab.id, title)
+            return
+        }
+        area.setCustomTitle(tab.id, title: title)
+        appState.saveWorkspaces()
+    }
+
+    private func setColorID(_ colorID: String?) {
+        if let setColorID = actions?.setColorID {
+            setColorID(area.id, tab.id, colorID)
+            return
+        }
+        area.setColorID(tab.id, colorID: colorID)
+        appState.saveWorkspaces()
+    }
+
+    private func togglePin() {
+        if let togglePin = actions?.togglePin {
+            togglePin(area.id, tab.id)
+            return
+        }
+        area.togglePin(tab.id)
     }
 
     private func cancelRename() {

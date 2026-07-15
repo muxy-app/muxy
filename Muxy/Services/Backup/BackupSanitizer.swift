@@ -5,6 +5,7 @@ enum BackupSanitizer {
         let devices = try JSONDecoder().decode([RemoteDevice].self, from: Data(contentsOf: url))
         let sanitized = devices.map { device -> RemoteDevice in
             var copy = device
+            guard copy.kind == .ssh else { return copy }
             copy.ssh.environment = SSHEnvironmentVariables.default
             return copy
         }

@@ -39,9 +39,24 @@ struct RemoteDeviceStoreTests {
     @Test("sshDevices returns only ssh-kind devices")
     func sshDevicesFilter() {
         let ssh = RemoteDevice(name: "Prod", kind: .ssh, ssh: SSHWorkspaceData(host: "example.com"))
-        let (store, _) = makeStore([ssh])
+        let muxy = RemoteDevice(name: "Studio", muxy: MuxyRemoteServerData(host: "studio.local"))
+        let (store, _) = makeStore([ssh, muxy])
 
         #expect(store.sshDevices().map(\.id) == [ssh.id])
+        #expect(store.muxyDevices().map(\.id) == [muxy.id])
+    }
+
+    @Test("adding a Muxy Mac with an existing ID updates it")
+    func muxyDeviceUpdate() {
+        let (store, _) = makeStore()
+        let id = UUID()
+        store.add(id: id, name: "Old", muxy: MuxyRemoteServerData(host: "old.local"))
+
+        store.add(id: id, name: "New", muxy: MuxyRemoteServerData(host: "new.local", port: 5000))
+
+        #expect(store.devices.count == 1)
+        #expect(store.device(id: id)?.name == "New")
+        #expect(store.device(id: id)?.muxy == MuxyRemoteServerData(host: "new.local", port: 5000))
     }
 
     @Test("update mutates the device and persists")
@@ -93,13 +108,20 @@ struct RemoteDeviceStoreTests {
                 environment: ["TERM": "screen-256color", "LANG": "C.UTF-8"]
             )
         )
+        let remoteMac = store.add(
+            name: "Studio Mac",
+            muxy: MuxyRemoteServerData(host: "studio.local", port: 4865, serviceName: "Studio")
+        )
 
         let reloaded = RemoteDeviceStore(persistence: persistence)
 
-        #expect(reloaded.devices.count == 1)
+        #expect(reloaded.devices.count == 2)
         #expect(reloaded.devices.first?.ssh.port == 2222)
         #expect(reloaded.devices.first?.ssh.user == "deploy")
         #expect(reloaded.devices.first?.ssh.environment["TERM"] == "screen-256color")
+        #expect(reloaded.device(id: remoteMac.id)?.kind == .muxy)
+        #expect(reloaded.device(id: remoteMac.id)?.muxy?.host == "studio.local")
+        #expect(reloaded.device(id: remoteMac.id)?.muxy?.serviceName == "Studio")
     }
 
     @Test("file persistence round-trips environment")

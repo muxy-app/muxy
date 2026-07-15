@@ -384,11 +384,22 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         PaneOwnershipStore.shared.registerDevice(clientID: clientID, name: name)
     }
 
-    func authenticateDevice(deviceID: UUID, token: String, name: String) -> DeviceAuthDecision {
+    func authenticateDevice(
+        deviceID: UUID,
+        token: String,
+        name: String,
+        clientKind: RemoteClientKindDTO
+    ) -> DeviceAuthDecision {
+        guard MobileServerService.shared.allows(clientKind) else { return .denied }
         guard ApprovedDevicesStore.shared.devices.contains(where: { $0.id == deviceID }) else {
             return .unknown
         }
-        guard let device = ApprovedDevicesStore.shared.validate(deviceID: deviceID, token: token) else {
+        guard let device = ApprovedDevicesStore.shared.validate(
+            deviceID: deviceID,
+            token: token,
+            clientKind: clientKind
+        )
+        else {
             return .denied
         }
         if device.name != name {
@@ -398,14 +409,21 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         return .approved(deviceName: name)
     }
 
-    func requestPairing(deviceID: UUID, token: String, name: String) async -> DeviceAuthDecision {
+    func requestPairing(
+        deviceID: UUID,
+        token: String,
+        name: String,
+        clientKind: RemoteClientKindDTO
+    ) async -> DeviceAuthDecision {
+        guard MobileServerService.shared.allows(clientKind) else { return .denied }
         if ApprovedDevicesStore.shared.devices.contains(where: { $0.id == deviceID }) {
             return .denied
         }
         let approved = await PairingRequestCoordinator.shared.requestApproval(
             deviceID: deviceID,
             deviceName: name,
-            token: token
+            token: token,
+            clientKind: clientKind
         )
         guard approved else { return .denied }
         return .approved(deviceName: name)

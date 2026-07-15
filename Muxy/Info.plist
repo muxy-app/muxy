@@ -45,7 +45,16 @@
 	<key>NSContactsUsageDescription</key>
 	<string>A process running in Muxy's terminal would like to access your contacts.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>A process running in Muxy's terminal would like to access the local network.</string>
+	<string>Muxy uses the local network to discover and connect to your other Macs and to support terminal processes.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_muxy._tcp</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSLocationUsageDescription</key>
 	<string>A process running in Muxy's terminal would like to access your location information.</string>
 	<key>NSMicrophoneUsageDescription</key>

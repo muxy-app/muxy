@@ -38,6 +38,13 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
+    init(id: UUID, projectPath: String, tabs: [TerminalTab], activeTabID: UUID?) {
+        self.id = id
+        self.projectPath = projectPath
+        self.tabs = tabs
+        self.activeTabID = tabs.contains(where: { $0.id == activeTabID }) ? activeTabID : tabs.first?.id
+    }
+
     init(restoring snapshot: TabAreaSnapshot) {
         id = snapshot.id
         projectPath = snapshot.projectPath

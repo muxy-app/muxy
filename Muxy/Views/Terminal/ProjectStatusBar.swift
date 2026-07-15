@@ -10,6 +10,7 @@ struct ProjectStatusBar: View {
     let activeWorktree: Worktree?
     let fallbackProjectPath: String?
     let isRemoteWorkspace: Bool
+    let supportsLocalActions: Bool
     let isInteractive: Bool
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
@@ -53,37 +54,41 @@ struct ProjectStatusBar: View {
                 pathButton(statusContext.path)
                 separator
             }
-            RepositoryStatusBarItems()
-            ForEach(extensionStore.statusBarItems(side: .left)) { binding in
-                extensionItem(binding: binding)
-                separator
+            if supportsLocalActions {
+                RepositoryStatusBarItems()
+                ForEach(extensionStore.statusBarItems(side: .left)) { binding in
+                    extensionItem(binding: binding)
+                    separator
+                }
             }
         }
     }
 
     private var rightSide: some View {
         HStack(spacing: 8) {
-            separator
-            extensionOutputChip
-            ForEach(extensionStore.statusBarItems(side: .right)) { binding in
+            if supportsLocalActions {
                 separator
-                extensionItem(binding: binding)
-            }
-            if richInputVisible {
-                separator
-                zoomControls
-                separator
-                shortcutHints
-            }
-            if activePane != nil {
-                separator
-                richInputToggleButton
-                separator
-                voiceRecordingButton
-            }
-            if showResourceUsage {
-                separator
-                ResourceUsageButton()
+                extensionOutputChip
+                ForEach(extensionStore.statusBarItems(side: .right)) { binding in
+                    separator
+                    extensionItem(binding: binding)
+                }
+                if richInputVisible {
+                    separator
+                    zoomControls
+                    separator
+                    shortcutHints
+                }
+                if activePane != nil {
+                    separator
+                    richInputToggleButton
+                    separator
+                    voiceRecordingButton
+                }
+                if showResourceUsage {
+                    separator
+                    ResourceUsageButton()
+                }
             }
         }
     }

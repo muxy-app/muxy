@@ -25,18 +25,20 @@ enum SplitNode: Identifiable {
 
 @Observable
 final class SplitBranch: Identifiable {
-    let id = UUID()
+    let id: UUID
     var direction: SplitDirection
     var ratio: CGFloat
     var first: SplitNode
     var second: SplitNode
 
     init(
+        id: UUID = UUID(),
         direction: SplitDirection,
         ratio: CGFloat = 0.5,
         first: SplitNode,
         second: SplitNode
     ) {
+        self.id = id
         self.direction = direction
         self.ratio = ratio
         self.first = first
@@ -164,6 +166,16 @@ extension SplitNode {
         case let .tabArea(area): area.id == id ? area : nil
         case let .split(branch):
             branch.first.findArea(id: id) ?? branch.second.findArea(id: id)
+        }
+    }
+
+    func findBranch(id: UUID) -> SplitBranch? {
+        switch self {
+        case .tabArea:
+            return nil
+        case let .split(branch):
+            if branch.id == id { return branch }
+            return branch.first.findBranch(id: id) ?? branch.second.findBranch(id: id)
         }
     }
 

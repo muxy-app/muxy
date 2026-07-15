@@ -57,6 +57,24 @@ struct MuxyProtocolVariantTests {
         #expect(PaneOwnerDTO.remote(deviceID: deviceID, deviceName: "iPad").displayName == "iPad")
     }
 
+    @Test("desktop client kind round-trips and legacy clients default to mobile")
+    func remoteClientKindCompatibility() throws {
+        let params = PairDeviceParams(
+            deviceID: deviceID,
+            deviceName: "Mac",
+            token: "token",
+            clientKind: .desktop
+        )
+        let decoded = try roundTrip(params, as: PairDeviceParams.self)
+        let legacy = try JSONDecoder().decode(
+            AuthenticateDeviceParams.self,
+            from: Data(#"{"deviceID":"00000000-0000-0000-0000-000000000006","deviceName":"Phone","token":"token"}"#.utf8)
+        )
+
+        #expect(decoded.resolvedClientKind == .desktop)
+        #expect(legacy.resolvedClientKind == .mobile)
+    }
+
     @Test("terminal cell flags remain stable bit masks")
     func terminalCellFlags() {
         #expect(TerminalCellFlag.bold == 1)

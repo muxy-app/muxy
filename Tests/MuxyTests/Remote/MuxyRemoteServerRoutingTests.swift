@@ -14,6 +14,8 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     var setClientThemeCalls: [(theme: ClientThemeDTO?, clientID: UUID)] = []
     var registerDeviceCalls: [(clientID: UUID, name: String)] = []
     var clientDisconnectedCalls: [UUID] = []
+    var authenticationKinds: [RemoteClientKindDTO] = []
+    var pairingKinds: [RemoteClientKindDTO] = []
     var markNotificationReadCalls: [UUID] = []
     var vcsPushCalls: [UUID] = []
     var vcsPullCalls: [UUID] = []
@@ -94,12 +96,24 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
         registerDeviceCalls.append((clientID, name))
     }
 
-    func authenticateDevice(deviceID _: UUID, token _: String, name: String) -> DeviceAuthDecision {
-        .approved(deviceName: name)
+    func authenticateDevice(
+        deviceID _: UUID,
+        token _: String,
+        name: String,
+        clientKind: RemoteClientKindDTO
+    ) -> DeviceAuthDecision {
+        authenticationKinds.append(clientKind)
+        return .approved(deviceName: name)
     }
 
-    func requestPairing(deviceID _: UUID, token _: String, name: String) async -> DeviceAuthDecision {
-        .approved(deviceName: name)
+    func requestPairing(
+        deviceID _: UUID,
+        token _: String,
+        name: String,
+        clientKind: RemoteClientKindDTO
+    ) async -> DeviceAuthDecision {
+        pairingKinds.append(clientKind)
+        return .approved(deviceName: name)
     }
 
     func getDeviceTheme() -> DeviceThemeEventDTO? { nil }
@@ -489,6 +503,27 @@ struct MuxyRemoteServerRoutingTests {
         )
 
         #expect(delegate.setClientThemeCalls.first?.theme == theme)
+    }
+
+    @Test("authenticateDevice forwards desktop client kind")
+    func authenticateDeviceForwardsDesktopKind() async {
+        let (server, delegate) = makeServer()
+
+        _ = await server.processRequest(
+            MuxyRequest(
+                id: "auth-desktop",
+                method: .authenticateDevice,
+                params: .authenticateDevice(AuthenticateDeviceParams(
+                    deviceID: UUID(),
+                    deviceName: "Mac",
+                    token: "token",
+                    clientKind: .desktop
+                ))
+            ),
+            clientID: UUID()
+        )
+
+        #expect(delegate.authenticationKinds == [.desktop])
     }
 
     @Test("registerDevice returns device info with clientID")

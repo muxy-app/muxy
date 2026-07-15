@@ -1,9 +1,10 @@
 import Foundation
 import MuxyServer
+import MuxyShared
 import Network
 import os
 
-private let logger = Logger(subsystem: "app.muxy", category: "MobileServerService")
+private let logger = Logger(subsystem: "app.muxy", category: "RemoteServerService")
 
 @MainActor
 @Observable
@@ -22,24 +23,38 @@ final class MobileServerService {
             : "app.muxy.mobile.serverEnabled"
     }
 
+    static var desktopEnabledKey: String {
+        AppEnvironment.isDevelopment
+            ? "app.muxy.desktop.serverEnabled.dev"
+            : "app.muxy.desktop.serverEnabled"
+    }
+
     static var portKey: String {
         AppEnvironment.isDevelopment
             ? "app.muxy.mobile.serverPort.dev"
             : "app.muxy.mobile.serverPort"
     }
 
-    private(set) var isEnabled: Bool {
+    private(set) var allowsMobileConnections: Bool {
         didSet {
-            UserDefaults.standard.set(isEnabled, forKey: Self.enabledKey)
+            UserDefaults.standard.set(allowsMobileConnections, forKey: Self.enabledKey)
         }
     }
+
+    private(set) var allowsDesktopConnections: Bool {
+        didSet {
+            UserDefaults.standard.set(allowsDesktopConnections, forKey: Self.desktopEnabledKey)
+        }
+    }
+
+    var isEnabled: Bool { allowsMobileConnections || allowsDesktopConnections }
 
     var port: UInt16 {
         didSet {
             guard port != oldValue else { return }
             UserDefaults.standard.set(Int(port), forKey: Self.portKey)
             if isEnabled {
-                setEnabled(false)
+                disableAllConnections()
             }
             lastError = nil
         }
@@ -55,10 +70,12 @@ final class MobileServerService {
 
     private init() {
         if AppEnvironment.isDevelopment {
-            isEnabled = true
+            allowsMobileConnections = true
+            allowsDesktopConnections = true
             port = Self.defaultPort
         } else {
-            isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+            allowsMobileConnections = UserDefaults.standard.bool(forKey: Self.enabledKey)
+            allowsDesktopConnections = UserDefaults.standard.bool(forKey: Self.desktopEnabledKey)
             let storedPort = UserDefaults.standard.object(forKey: Self.portKey) as? Int
             if let storedPort, let value = UInt16(exactly: storedPort), Self.isValid(port: value) {
                 port = value
@@ -79,10 +96,44 @@ final class MobileServerService {
     }
 
     func setEnabled(_ enabled: Bool) {
-        if enabled, isEnabled, server != nil { return }
-        if !enabled, !isEnabled { return }
-        isEnabled = enabled
-        if enabled {
+        setMobileConnectionsEnabled(enabled)
+    }
+
+    func setMobileConnectionsEnabled(_ enabled: Bool) {
+        guard allowsMobileConnections != enabled else { return }
+        allowsMobileConnections = enabled
+        updateServerState()
+    }
+
+    func setDesktopConnectionsEnabled(_ enabled: Bool) {
+        guard allowsDesktopConnections != enabled else { return }
+        allowsDesktopConnections = enabled
+        updateServerState()
+    }
+
+    func allows(_ clientKind: RemoteClientKindDTO) -> Bool {
+        Self.allows(
+            clientKind,
+            mobileConnections: allowsMobileConnections,
+            desktopConnections: allowsDesktopConnections
+        )
+    }
+
+    static func allows(
+        _ clientKind: RemoteClientKindDTO,
+        mobileConnections: Bool,
+        desktopConnections: Bool
+    ) -> Bool {
+        switch clientKind {
+        case .mobile:
+            mobileConnections
+        case .desktop:
+            desktopConnections
+        }
+    }
+
+    private func updateServerState() {
+        if isEnabled {
             start()
         } else {
             retireCurrentServer()
@@ -92,7 +143,13 @@ final class MobileServerService {
     }
 
     func stop() {
-        setEnabled(false)
+        disableAllConnections()
+    }
+
+    func disableAllConnections() {
+        allowsMobileConnections = false
+        allowsDesktopConnections = false
+        updateServerState()
     }
 
     func stopForTermination() {
@@ -143,7 +200,7 @@ final class MobileServerService {
                 self.handleStartResult(result, port: port, server: newServer)
             }
         }
-        logger.info("Mobile server starting on port \(port)")
+        logger.info("Remote server starting on port \(port)")
     }
 
     private func handleStartResult(_ result: Result<Void, Error>, port: UInt16, server: MuxyRemoteServer) {
@@ -151,9 +208,9 @@ final class MobileServerService {
         case .success:
             lastError = nil
             isPortInUse = false
-            logger.info("Mobile server started on port \(port)")
+            logger.info("Remote server started on port \(port)")
         case let .failure(error):
-            logger.error("Mobile server failed to start on port \(port): \(error.localizedDescription)")
+            logger.error("Remote server failed to start on port \(port): \(error.localizedDescription)")
             isPortInUse = Self.isAddressInUseError(error)
             retireCurrentServer()
             lastError = friendlyMessage(for: error, port: port)
@@ -193,7 +250,7 @@ final class MobileServerService {
                 } else {
                     self.lastError = nil
                     self.isPortInUse = false
-                    self.setEnabled(true)
+                    self.start()
                 }
             }
         }

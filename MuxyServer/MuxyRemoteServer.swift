@@ -48,8 +48,18 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func releasePane(paneID: UUID, clientID: UUID)
     func setClientTheme(_ theme: ClientThemeDTO?, clientID: UUID)
     func registerDevice(clientID: UUID, name: String)
-    func authenticateDevice(deviceID: UUID, token: String, name: String) -> DeviceAuthDecision
-    func requestPairing(deviceID: UUID, token: String, name: String) async -> DeviceAuthDecision
+    func authenticateDevice(
+        deviceID: UUID,
+        token: String,
+        name: String,
+        clientKind: RemoteClientKindDTO
+    ) -> DeviceAuthDecision
+    func requestPairing(
+        deviceID: UUID,
+        token: String,
+        name: String,
+        clientKind: RemoteClientKindDTO
+    ) async -> DeviceAuthDecision
     func getDeviceTheme() -> DeviceThemeEventDTO?
     func clientDisconnected(clientID: UUID)
     func getPaneOwner(paneID: UUID) -> PaneOwnerDTO?
@@ -291,7 +301,8 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             let decision = await delegate.requestPairing(
                 deviceID: params.deviceID,
                 token: params.token,
-                name: params.deviceName
+                name: params.deviceName,
+                clientKind: params.resolvedClientKind
             )
             return finalizeAuth(
                 requestID: request.id,
@@ -308,7 +319,8 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             let decision = delegate.authenticateDevice(
                 deviceID: params.deviceID,
                 token: params.token,
-                name: params.deviceName
+                name: params.deviceName,
+                clientKind: params.resolvedClientKind
             )
             return finalizeAuth(
                 requestID: request.id,

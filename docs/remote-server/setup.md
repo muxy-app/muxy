@@ -2,11 +2,12 @@
 
 ## Enabling the server
 
-The Mobile server is **disabled by default in release builds**. Development builds start enabled on port `4866` so a debug build can run alongside a release build. Toggle it from **Settings -> Mobile** on macOS.
+Remote access is **disabled by default in release builds**. Development builds start enabled on port `4866` so a debug build can run alongside a release build. Configure it from **Settings -> Remote Access** on macOS.
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Allow mobile device connections | off in release, on in development | Starts/stops the WebSocket listener. |
+| Allow mobile device connections | off in release, on in development | Accepts clients that identify as `mobile`. |
+| Allow desktop connections | off in release, on in development | Accepts Muxy Mac clients that identify as `desktop`. |
 | Port | `4865` in release, `4866` in development | Stored in `UserDefaults`. Changing it stops the server and turns the toggle off; re-enable it to start on the new port. A bind failure retires the listener and surfaces the error; the setting remains enabled until the user turns it off or fixes the port. |
 | Approved devices | empty | List of paired clients, each with a **Revoke** button. |
 
@@ -59,10 +60,10 @@ For production integrations, treat the connection as local-network only unless y
 
 ## Integration recommendations
 
-- Persist `deviceID` and `token` securely.
+- Persist `deviceID` and `token` securely. Muxy Mac clients keep them in Keychain, scoped to the remote-device record and endpoint.
 - Re-authenticate after reconnecting; the `clientID` is per-connection and changes.
 - Treat `workspaceChanged` as authoritative for layout and tab state.
 - Cache project logos after decoding the Base64 payload.
 - Call `takeOverPane` before any interactive terminal control; input from a non-owner is dropped.
-- Handle a `401` on `authenticateDevice` by falling back to `pairDevice`; a `403` means a wrong token — re-pair.
+- Handle a `401` on `authenticateDevice` by falling back to `pairDevice`; a `403` means access was denied or the credential is wrong and must not automatically fall back to pairing.
 - Do not rely on `subscribe`/`unsubscribe` for filtering — every event reaches every authenticated client.

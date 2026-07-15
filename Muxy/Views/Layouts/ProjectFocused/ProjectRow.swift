@@ -14,6 +14,8 @@ struct ProjectRow: View {
     let onSetIconColor: (String?) -> Void
     let onSetWorktreesEnabled: (Bool) -> Void
     let onSetPinned: (Bool) -> Void
+    var activeOverride: Bool?
+    var allowsManagement = true
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -32,10 +34,11 @@ struct ProjectRow: View {
     @State private var showSymbolPicker = false
 
     private var isActive: Bool {
-        appState.activeProjectID == project.id
+        activeOverride ?? (appState.activeProjectID == project.id)
     }
 
     private var projectActivity: TerminalActivity? {
+        guard !project.isRemoteMac else { return nil }
         let progressStore = TerminalProgressStore.shared
         let agentStore = AgentStatusStore.shared
         let hasProgress = progressStore.hasActiveProgress(for: project.id)
@@ -92,6 +95,10 @@ struct ProjectRow: View {
                 onSelect()
             }
             .task(id: project.path) {
+                guard !project.isRemoteMac else {
+                    isCheckingGitRepo = false
+                    return
+                }
                 guard !project.isHome else {
                     isCheckingGitRepo = false
                     return
@@ -111,7 +118,9 @@ struct ProjectRow: View {
                 GitRepoStatusCache.shared.update(path: project.path, context: context, isGitRepo: isGitRepo)
             }
             .contextMenu {
-                if project.isHome {
+                if !allowsManagement {
+                    EmptyView()
+                } else if project.isHome {
                     Button("Hide Home") { hideHome() }
                 } else {
                     projectContextMenu

@@ -5,13 +5,15 @@ struct RemoteDevicesSettingsView: View {
     @Environment(RemoteDeviceStore.self) private var deviceStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(SSHConnectionService.self) private var sshConnections
+    @Environment(RemoteMacWorkspaceStore.self) private var remoteMacWorkspace
 
-    @State private var editorMode: RemoteDeviceEditorMode?
+    @State private var sshEditorMode: RemoteDeviceEditorMode?
+    @State private var remoteMacEditorMode: RemoteMacDeviceEditorMode?
     @State private var devicePendingDelete: RemoteDevice?
 
     private static let footerText = """
-    Remote devices are reusable SSH connections. Workspaces connect through a device, \
-    so you can reuse the same server without re-entering its details.
+    SSH devices provide remote shells. Muxy Macs expose their projects and live terminal workspaces. \
+    Connect only over a trusted local network or VPN.
     """
 
     var body: some View {
@@ -26,8 +28,8 @@ struct RemoteDevicesSettingsView: View {
                     ForEach(deviceStore.devices) { device in
                         RemoteDeviceRow(
                             device: device,
-                            connectionState: sshConnections.state(for: device.destination),
-                            onEdit: { editorMode = .edit(device) },
+                            connectionState: connectionState(for: device),
+                            onEdit: { edit(device) },
                             onDelete: { devicePendingDelete = device }
                         )
                     }
@@ -35,14 +37,24 @@ struct RemoteDevicesSettingsView: View {
                 addButton
             }
         }
-        .sheet(item: $editorMode) { mode in
+        .sheet(item: $sshEditorMode) { mode in
             RemoteDeviceEditorSheet(
                 mode: mode,
                 onSave: { name, ssh in
                     save(mode: mode, name: name, ssh: ssh)
-                    editorMode = nil
+                    sshEditorMode = nil
                 },
-                onCancel: { editorMode = nil }
+                onCancel: { sshEditorMode = nil }
+            )
+        }
+        .sheet(item: $remoteMacEditorMode) { mode in
+            RemoteMacDeviceEditorSheet(
+                mode: mode,
+                onSave: { id, name, connection in
+                    saveRemoteMac(mode: mode, id: id, name: name, connection: connection)
+                    remoteMacEditorMode = nil
+                },
+                onCancel: { remoteMacEditorMode = nil }
             )
         }
         .alert(
@@ -73,8 +85,17 @@ struct RemoteDevicesSettingsView: View {
     }
 
     private var addButton: some View {
-        Button {
-            editorMode = .create
+        Menu {
+            Button {
+                remoteMacEditorMode = .create
+            } label: {
+                Label("Muxy Mac", systemImage: "desktopcomputer")
+            }
+            Button {
+                sshEditorMode = .create
+            } label: {
+                Label("SSH Server", systemImage: "network")
+            }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "plus")
@@ -88,6 +109,7 @@ struct RemoteDevicesSettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .menuIndicator(.hidden)
     }
 
     private var deleteAlertBinding: Binding<Bool> {
@@ -98,6 +120,9 @@ struct RemoteDevicesSettingsView: View {
     }
 
     private func deleteMessage(for device: RemoteDevice) -> String {
+        if device.kind == .muxy {
+            return "This removes the saved connection and credentials from this Mac. Revoke it separately on the host Mac."
+        }
         let names = projectGroupStore.workspaceNames(usingDevice: device.id)
         guard !names.isEmpty else {
             return "This device is not used by any workspace."
@@ -118,15 +143,57 @@ struct RemoteDevicesSettingsView: View {
         }
     }
 
+    private func saveRemoteMac(
+        mode: RemoteMacDeviceEditorMode,
+        id: UUID,
+        name: String,
+        connection: MuxyRemoteServerData
+    ) {
+        let wasActive = remoteMacWorkspace.activeDeviceID == id
+        let device = deviceStore.add(id: id, name: name, muxy: connection)
+        let previousScope = mode.existingCredentialScope
+        let retiredScope = previousScope == connection.credentialScope ? nil : previousScope
+        remoteMacWorkspace.resetConnection(for: id, retiringCredentialScope: retiredScope)
+        if wasActive {
+            Task { await remoteMacWorkspace.activate(device) }
+        }
+    }
+
+    private func edit(_ device: RemoteDevice) {
+        switch device.kind {
+        case .ssh:
+            sshEditorMode = .edit(device)
+        case .muxy:
+            remoteMacEditorMode = .edit(device)
+        }
+    }
+
+    private func connectionState(for device: RemoteDevice) -> RemoteDeviceConnectionDisplayState {
+        switch device.kind {
+        case .ssh:
+            .ssh(sshConnections.state(for: device.destination))
+        case .muxy:
+            .muxy(remoteMacWorkspace.connectionState(for: device.id))
+        }
+    }
+
     private func deleteDevice(_ device: RemoteDevice) {
         projectGroupStore.removeWorkspaces(usingDevice: device.id)
+        if device.kind == .muxy {
+            remoteMacWorkspace.removeDevice(device.id)
+        }
         deviceStore.remove(id: device.id)
     }
 }
 
+private enum RemoteDeviceConnectionDisplayState {
+    case ssh(SSHConnectionState)
+    case muxy(RemoteMacConnectionState)
+}
+
 private struct RemoteDeviceRow: View {
     let device: RemoteDevice
-    let connectionState: SSHConnectionState
+    let connectionState: RemoteDeviceConnectionDisplayState
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -139,7 +206,7 @@ private struct RemoteDeviceRow: View {
                 Text(device.displayName)
                     .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
                     .foregroundStyle(SettingsStyle.foreground)
-                Text(device.destination.target)
+                Text(connectionDetails)
                     .font(.system(size: SettingsMetrics.footnoteFontSize))
                     .foregroundStyle(SettingsStyle.mutedForeground)
             }
@@ -169,15 +236,29 @@ private struct RemoteDeviceRow: View {
     @ViewBuilder
     private var connectionDot: some View {
         switch connectionState {
-        case .testing,
-             .connecting:
+        case .ssh(.testing),
+             .ssh(.connecting),
+             .muxy(.connecting),
+             .muxy(.awaitingApproval):
             ProgressView().controlSize(.mini)
-        case .connected:
+        case .ssh(.connected),
+             .muxy(.connected):
             Circle().fill(.green).frame(width: 6, height: 6)
-        case .failed:
+        case .ssh(.failed),
+             .muxy(.failed):
             Circle().fill(SettingsStyle.warning).frame(width: 6, height: 6)
-        case .disconnected:
+        case .ssh(.disconnected),
+             .muxy(.disconnected):
             Circle().fill(SettingsStyle.mutedForeground.opacity(0.4)).frame(width: 6, height: 6)
+        }
+    }
+
+    private var connectionDetails: String {
+        switch device.kind {
+        case .ssh:
+            device.destination.target
+        case .muxy:
+            device.muxy?.displayAddress ?? "Invalid address"
         }
     }
 }

@@ -6,6 +6,7 @@ struct WorkspaceSwitcher: View {
 
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(RemoteDeviceStore.self) private var deviceStore
+    @Environment(RemoteMacWorkspaceStore.self) private var remoteMacWorkspace
     @Environment(SSHConnectionService.self) private var sshConnections
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -15,6 +16,7 @@ struct WorkspaceSwitcher: View {
     @State private var isTriggerHovered = false
     @State private var editorMode: WorkspaceEditorMode?
     @State private var remoteEditor: RemoteWorkspaceEditorMode?
+    @State private var remoteMacEditor: RemoteMacDeviceEditorMode?
     @State private var groupPendingDelete: ProjectGroup?
 
     private var activeGroup: ProjectGroup? {
@@ -23,7 +25,10 @@ struct WorkspaceSwitcher: View {
     }
 
     private var activeLabel: String {
-        activeGroup?.name ?? "All Projects"
+        if let device = deviceStore.device(id: remoteMacWorkspace.activeDeviceID) {
+            return device.displayName
+        }
+        return activeGroup?.name ?? "All Projects"
     }
 
     var body: some View {
@@ -54,6 +59,23 @@ struct WorkspaceSwitcher: View {
                 onCancel: { remoteEditor = nil }
             )
         }
+        .sheet(item: $remoteMacEditor) { mode in
+            RemoteMacDeviceEditorSheet(
+                mode: mode,
+                onSave: { id, name, connection in
+                    let device = deviceStore.add(id: id, name: name, muxy: connection)
+                    let previousScope = mode.existingCredentialScope
+                    let retiredScope = previousScope == connection.credentialScope ? nil : previousScope
+                    remoteMacWorkspace.resetConnection(
+                        for: device.id,
+                        retiringCredentialScope: retiredScope
+                    )
+                    remoteMacEditor = nil
+                    select(device)
+                },
+                onCancel: { remoteMacEditor = nil }
+            )
+        }
         .alert(
             "Delete “\(groupPendingDelete?.name ?? "")”?",
             isPresented: deleteAlertBinding,
@@ -77,8 +99,8 @@ struct WorkspaceSwitcher: View {
             isShowingPopover.toggle()
         } label: {
             HStack(spacing: UIMetrics.spacing2) {
-                if activeGroup?.type == .ssh {
-                    Image(systemName: "network")
+                if activeGroup?.type == .ssh || remoteMacWorkspace.activeDeviceID != nil {
+                    Image(systemName: remoteMacWorkspace.activeDeviceID == nil ? "network" : "desktopcomputer")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.accent)
                 }
@@ -151,7 +173,19 @@ struct WorkspaceSwitcher: View {
                     }
                 )
             }
-            if !projectGroupStore.groups.isEmpty {
+            ForEach(deviceStore.muxyDevices()) { device in
+                RemoteMacWorkspaceRow(
+                    device: device,
+                    isActive: remoteMacWorkspace.activeDeviceID == device.id,
+                    state: remoteMacWorkspace.connectionState(for: device.id),
+                    onSelect: { select(device) },
+                    onEdit: {
+                        isShowingPopover = false
+                        remoteMacEditor = .edit(device)
+                    }
+                )
+            }
+            if !projectGroupStore.groups.isEmpty || !deviceStore.muxyDevices().isEmpty {
                 Divider()
                     .padding(.vertical, UIMetrics.spacing1)
             }
@@ -163,12 +197,13 @@ struct WorkspaceSwitcher: View {
 
     private var allProjectsRow: some View {
         Button {
+            remoteMacWorkspace.deactivate()
             projectGroupStore.clearGroupSelection()
             selectFirstProject()
             isShowingPopover = false
         } label: {
             HStack(spacing: UIMetrics.spacing2) {
-                Image(systemName: projectGroupStore.activeGroupID == nil ? "checkmark" : "")
+                Image(systemName: projectGroupStore.activeGroupID == nil && remoteMacWorkspace.activeDeviceID == nil ? "checkmark" : "")
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     .foregroundStyle(MuxyTheme.accent)
                     .frame(width: UIMetrics.fontCaption)
@@ -201,6 +236,12 @@ struct WorkspaceSwitcher: View {
                 remoteEditor = .create
             } label: {
                 Label("Remote (SSH)", systemImage: "network")
+            }
+            Button {
+                isShowingPopover = false
+                remoteMacEditor = .create
+            } label: {
+                Label("Muxy Mac", systemImage: "desktopcomputer")
             }
         } label: {
             HStack(spacing: UIMetrics.spacing2) {
@@ -265,6 +306,7 @@ struct WorkspaceSwitcher: View {
     }
 
     private func select(_ group: ProjectGroup) {
+        remoteMacWorkspace.deactivate()
         guard group.type == .ssh, let destination = destination(for: group) else {
             projectGroupStore.selectGroup(id: group.id)
             selectFirstProject()
@@ -280,6 +322,18 @@ struct WorkspaceSwitcher: View {
             }
             projectGroupStore.selectGroup(id: group.id)
             selectFirstProject()
+        }
+    }
+
+    private func select(_ device: RemoteDevice) {
+        guard device.kind == .muxy else { return }
+        isShowingPopover = false
+        projectGroupStore.clearGroupSelection()
+        Task {
+            await remoteMacWorkspace.activate(device)
+            if case let .failed(message) = remoteMacWorkspace.state {
+                ToastState.shared.show("Could not connect to \(device.displayName): \(message)")
+            }
         }
     }
 
@@ -467,6 +521,69 @@ private struct WorkspaceRow: View {
 
     private var connectionHelp: String {
         guard case let .failed(message) = connectionState else { return "" }
+        return message
+    }
+}
+
+private struct RemoteMacWorkspaceRow: View {
+    let device: RemoteDevice
+    let isActive: Bool
+    let state: RemoteMacConnectionState
+    let onSelect: () -> Void
+    let onEdit: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: UIMetrics.spacing2) {
+                Image(systemName: isActive ? "checkmark" : "")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.accent)
+                    .frame(width: UIMetrics.fontCaption)
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: UIMetrics.fontBody)
+                Text(device.displayName)
+                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                    .foregroundStyle(MuxyTheme.fg)
+                    .lineLimit(1)
+                Spacer()
+                connectionIndicator
+            }
+            .padding(.horizontal, UIMetrics.spacing3)
+            .padding(.vertical, UIMetrics.spacing2)
+            .background(isHovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(connectionHelp)
+        .contextMenu {
+            Button("Edit Connection", action: onEdit)
+        }
+    }
+
+    @ViewBuilder
+    private var connectionIndicator: some View {
+        switch state {
+        case .connecting,
+             .awaitingApproval:
+            ProgressView().controlSize(.mini)
+        case .connected:
+            Circle().fill(.green).frame(width: UIMetrics.spacing2, height: UIMetrics.spacing2)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: UIMetrics.fontCaption))
+                .foregroundStyle(.orange)
+        case .disconnected:
+            EmptyView()
+        }
+    }
+
+    private var connectionHelp: String {
+        guard case let .failed(message) = state else { return "" }
         return message
     }
 }

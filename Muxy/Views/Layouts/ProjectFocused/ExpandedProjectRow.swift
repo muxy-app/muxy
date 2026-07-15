@@ -14,6 +14,8 @@ struct ExpandedProjectRow: View {
     let onSetIconColor: (String?) -> Void
     let onSetWorktreesEnabled: (Bool) -> Void
     let onSetPinned: (Bool) -> Void
+    var activeOverride: Bool?
+    var allowsManagement = true
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -36,7 +38,7 @@ struct ExpandedProjectRow: View {
     @State private var pendingWorktreeRemoval: WorktreeRemovalConfirmation?
 
     private var isActive: Bool {
-        appState.activeProjectID == project.id
+        activeOverride ?? (appState.activeProjectID == project.id)
     }
 
     private var worktrees: [Worktree] {
@@ -52,6 +54,7 @@ struct ExpandedProjectRow: View {
     }
 
     private var projectActivity: TerminalActivity? {
+        guard !project.isRemoteMac else { return nil }
         let progressStore = TerminalProgressStore.shared
         let agentStore = AgentStatusStore.shared
         let hasProgress = progressStore.hasActiveProgress(for: project.id)
@@ -94,6 +97,10 @@ struct ExpandedProjectRow: View {
             }
         }
         .task(id: project.path) {
+            guard !project.isRemoteMac else {
+                isCheckingGitRepo = false
+                return
+            }
             guard !project.isHome else {
                 isCheckingGitRepo = false
                 return
@@ -125,7 +132,9 @@ struct ExpandedProjectRow: View {
             }
         }
         .contextMenu {
-            if project.isHome {
+            if !allowsManagement {
+                EmptyView()
+            } else if project.isHome {
                 Button("Hide Home") { hideHome() }
             } else {
                 projectContextMenu

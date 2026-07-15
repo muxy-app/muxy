@@ -23,9 +23,26 @@ final class RemoteDeviceStore {
         devices.filter { $0.kind == .ssh }
     }
 
+    func muxyDevices() -> [RemoteDevice] {
+        devices.filter { $0.kind == .muxy }
+    }
+
     @discardableResult
     func add(name: String, kind: RemoteDeviceKind = .ssh, ssh: SSHWorkspaceData) -> RemoteDevice {
         let device = RemoteDevice(name: name, kind: kind, ssh: ssh)
+        devices.append(device)
+        save()
+        return device
+    }
+
+    @discardableResult
+    func add(id: UUID = UUID(), name: String, muxy: MuxyRemoteServerData) -> RemoteDevice {
+        let device = RemoteDevice(id: id, name: name, muxy: muxy)
+        if let index = devices.firstIndex(where: { $0.id == id }) {
+            devices[index] = device
+            save()
+            return device
+        }
         devices.append(device)
         save()
         return device

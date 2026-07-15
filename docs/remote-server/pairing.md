@@ -6,7 +6,7 @@ Each client should generate and persist:
 - `deviceName` — a user-friendly label
 - `token` — a random secret persisted securely on the client
 
-The desktop stores approved mobile clients in `approved-devices.json`, keeping only a SHA-256 hash of each token (never the token itself) plus the device name and last-seen time.
+The host stores approved clients in `approved-devices.json`, keeping only a SHA-256 hash of each token (never the token itself) plus the device name, client kind, and last-seen time.
 
 ## Connection flow
 
@@ -49,12 +49,13 @@ Authenticates a previously approved device.
     "deviceID": "2f8d1f9f-e065-4f62-af30-8c4b3d0bfc53",
     "deviceName": "Pixel 9",
     "token": "random-secret-token",
-    "theme": null
+    "theme": null,
+    "clientKind": "desktop"
   }
 }
 ```
 
-`theme` is an optional [`clientTheme`](data-objects.md#client-theme). When present, the colors are stored for this connection and applied to every pane the client takes over (see [`setClientTheme`](methods.md)). It is the client→server counterpart to the `theme*` fields the server returns below, and may be omitted entirely. `pairDevice` accepts the same optional field.
+`theme` is an optional [`clientTheme`](data-objects.md#client-theme). When present, the colors are stored for this connection and applied to every pane the client takes over (see [`setClientTheme`](methods.md)). It is the client→server counterpart to the `theme*` fields the server returns below, and may be omitted entirely. `clientKind` is `"mobile"` or `"desktop"`; omitting it defaults to `"mobile"` for compatibility. `pairDevice` accepts the same optional fields.
 
 Outcomes:
 
@@ -111,4 +112,4 @@ A token mismatch on a **known** device returns `403 Pairing denied`, not `401`, 
 
 ## Revocation
 
-The Mac's **Settings -> Mobile** lists approved devices. Revoking removes the device from `approved-devices.json` and immediately disconnects any active connection for that `deviceID`.
+The Mac's **Settings -> Remote Access** lists approved devices. Revoking removes the device from `approved-devices.json` and immediately disconnects any active connection for that `deviceID`.

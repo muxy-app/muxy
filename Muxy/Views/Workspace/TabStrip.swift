@@ -27,6 +27,7 @@ struct PaneTabStrip: View {
     var isWindowTitleBar: Bool = false
     var showDevelopmentBadge = false
     var openInIDEProjectPath: String?
+    var showsWorkspaceControls = true
     let projectID: UUID
     var shortcutIndexOffset: Int = 0
     let onSelectTab: (UUID) -> Void
@@ -37,15 +38,15 @@ struct PaneTabStrip: View {
     let onCloseTabsToLeft: (UUID) -> Void
     let onCloseTabsToRight: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
-    let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    var onDropAction: ((TabDragCoordinator.DropResult) -> Void)?
     var showMaximizeButton = false
     var isMaximized = false
     var onToggleMaximize: (() -> Void)?
-    let onCreateTabAdjacent: (UUID, TabArea.InsertSide) -> Void
-    let onTogglePin: (UUID) -> Void
-    let onSetCustomTitle: (UUID, String?) -> Void
-    let onSetColorID: (UUID, String?) -> Void
-    let onReorderTab: (IndexSet, Int) -> Void
+    var onCreateTabAdjacent: ((UUID, TabArea.InsertSide) -> Void)?
+    var onTogglePin: ((UUID) -> Void)?
+    var onSetCustomTitle: ((UUID, String?) -> Void)?
+    var onSetColorID: ((UUID, String?) -> Void)?
+    var onReorderTab: ((IndexSet, Int) -> Void)?
     @AppStorage(TabWidthPreferences.maxWidthKey) private var maxTabWidth = TabWidthPreferences.defaultMaxWidth
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @State private var dragState = TabDragState()
@@ -99,8 +100,10 @@ struct PaneTabStrip: View {
                     if let openInIDEProjectPath {
                         OpenInIDEControl(projectPath: openInIDEProjectPath, projectID: projectID, areaID: areaID)
                     }
-                    LayoutPickerMenu(projectID: projectID)
-                    ExtensionTopbarItems()
+                    if showsWorkspaceControls {
+                        LayoutPickerMenu(projectID: projectID)
+                        ExtensionTopbarItems()
+                    }
                 }
                 if showMaximizeButton || isMaximized, let onToggleMaximize {
                     let symbol = isMaximized
@@ -161,11 +164,11 @@ struct PaneTabStrip: View {
                     onCloseOthers: { onCloseOtherTabs(tab.id) },
                     onCloseLeft: { onCloseTabsToLeft(tab.id) },
                     onCloseRight: { onCloseTabsToRight(tab.id) },
-                    onCreateLeft: { onCreateTabAdjacent(tab.id, .left) },
-                    onCreateRight: { onCreateTabAdjacent(tab.id, .right) },
-                    onTogglePin: { onTogglePin(tab.id) },
-                    onSetCustomTitle: { onSetCustomTitle(tab.id, $0) },
-                    onSetColorID: { onSetColorID(tab.id, $0) }
+                    onCreateLeft: onCreateTabAdjacent.map { create in { create(tab.id, .left) } },
+                    onCreateRight: onCreateTabAdjacent.map { create in { create(tab.id, .right) } },
+                    onTogglePin: onTogglePin.map { toggle in { toggle(tab.id) } },
+                    onSetCustomTitle: onSetCustomTitle.map { setTitle in { setTitle(tab.id, $0) } },
+                    onSetColorID: onSetColorID.map { setColor in { setColor(tab.id, $0) } }
                 )
                 .frame(width: perTabWidth)
                 .background {
@@ -193,7 +196,8 @@ struct PaneTabStrip: View {
                                 globalLocation: value.location,
                                 dragStartGlobalLocation: value.startLocation
                             )
-                        }
+                        },
+                    including: supportsTabDrag ? .all : .none
                 )
             }
         }
@@ -220,6 +224,10 @@ struct PaneTabStrip: View {
     }
 
     private static let dragActivationDistance: CGFloat = 4
+
+    private var supportsTabDrag: Bool {
+        onReorderTab != nil || onDropAction != nil
+    }
 
     private func handleDragChanged(
         tab: TabSnapshot,
@@ -265,7 +273,7 @@ struct PaneTabStrip: View {
             onSelectTab(tab.id)
         }
         if dragState.isInSplitMode {
-            if let result = dragCoordinator.endDrag() {
+            if let result = dragCoordinator.endDrag(), let onDropAction {
                 onDropAction(result)
             }
         }
@@ -279,7 +287,7 @@ struct PaneTabStrip: View {
     }
 
     private func reorderIfNeeded(at location: CGPoint) {
-        guard let draggedID = dragState.draggedID else { return }
+        guard let draggedID = dragState.draggedID, let onReorderTab else { return }
         var hoveredTargetID: UUID?
 
         for (id, frame) in dragState.frames where id != draggedID {
@@ -342,11 +350,11 @@ private struct TabCell: View {
     let onCloseOthers: () -> Void
     let onCloseLeft: () -> Void
     let onCloseRight: () -> Void
-    let onCreateLeft: () -> Void
-    let onCreateRight: () -> Void
-    let onTogglePin: () -> Void
-    let onSetCustomTitle: (String?) -> Void
-    let onSetColorID: (String?) -> Void
+    var onCreateLeft: (() -> Void)?
+    var onCreateRight: (() -> Void)?
+    var onTogglePin: (() -> Void)?
+    var onSetCustomTitle: ((String?) -> Void)?
+    var onSetColorID: ((String?) -> Void)?
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
@@ -502,28 +510,36 @@ private struct TabCell: View {
                 }
             }
             .overlay {
-                DoubleClickView(action: startRename)
-                    .accessibilityHidden(true)
+                if onSetCustomTitle != nil {
+                    DoubleClickView(action: startRename)
+                        .accessibilityHidden(true)
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(tabAccessibilityLabel)
             .accessibilityAddTraits(active ? .isSelected : [])
             .accessibilityAddTraits(.isButton)
             .contextMenu {
-                Button("New Tab to the Left") { onCreateLeft() }
-                Button("New Tab to the Right") { onCreateRight() }
-                Divider()
-                Button("Rename Tab") { startRename() }
-                if tab.hasCustomTitle {
-                    Button("Reset Title") { onSetCustomTitle(nil) }
+                if let onCreateLeft, let onCreateRight {
+                    Button("New Tab to the Left", action: onCreateLeft)
+                    Button("New Tab to the Right", action: onCreateRight)
+                    Divider()
                 }
-                Button("Set Tab Color…") { showColorPicker = true }
-                if tab.colorID != nil {
-                    Button("Reset Tab Color") { onSetColorID(nil) }
+                if let onSetCustomTitle {
+                    Button("Rename Tab") { startRename() }
+                    if tab.hasCustomTitle {
+                        Button("Reset Title") { onSetCustomTitle(nil) }
+                    }
                 }
-                Divider()
-                Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
-                    onTogglePin()
+                if onSetColorID != nil {
+                    Button("Set Tab Color…") { showColorPicker = true }
+                    if tab.colorID != nil {
+                        Button("Reset Tab Color") { onSetColorID?(nil) }
+                    }
+                }
+                if let onTogglePin {
+                    Divider()
+                    Button(tab.isPinned ? "Unpin Tab" : "Pin Tab", action: onTogglePin)
                 }
                 if !tab.isPinned || hasClosableSiblings {
                     Divider()
@@ -540,7 +556,7 @@ private struct TabCell: View {
             }
             .popover(isPresented: $showColorPicker, arrowEdge: .bottom) {
                 ProjectIconColorPicker(title: "Tab Color", selectedID: tab.colorID) { id in
-                    onSetColorID(id)
+                    onSetColorID?(id)
                     showColorPicker = false
                 }
             }
@@ -548,7 +564,7 @@ private struct TabCell: View {
             Rectangle().fill(MuxyTheme.border).frame(width: 1)
         }
         .onReceive(NotificationCenter.default.publisher(for: .renameActiveTab)) { _ in
-            guard active else { return }
+            guard active, onSetCustomTitle != nil else { return }
             startRename()
         }
         .onDrop(of: [.fileURL], isTargeted: $externalDragOverCell) { _, _ in false }
@@ -631,7 +647,7 @@ private struct TabCell: View {
 
     private func commitRename() {
         let trimmed = renameText.trimmingCharacters(in: .whitespaces)
-        onSetCustomTitle(trimmed.isEmpty ? nil : trimmed)
+        onSetCustomTitle?(trimmed.isEmpty ? nil : trimmed)
         isRenaming = false
     }
 

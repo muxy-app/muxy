@@ -5,6 +5,7 @@ struct TabFocusedSidebar: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
+    @Environment(RemoteMacWorkspaceStore.self) private var remoteMacWorkspace
     @State private var expansionStore = TabFocusedSidebarState.shared
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
@@ -14,6 +15,7 @@ struct TabFocusedSidebar: View {
     }
 
     private var homeProject: Project? {
+        guard remoteMacWorkspace.activeDeviceID == nil else { return nil }
         guard showHomeProject else { return nil }
         guard !projectGroupStore.isRemoteWorkspaceActive else {
             return projectGroupStore.activeRemoteHomeProject
@@ -22,12 +24,16 @@ struct TabFocusedSidebar: View {
     }
 
     private var projects: [Project] {
-        let stored = projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
+        let stored = if remoteMacWorkspace.activeDeviceID != nil {
+            remoteMacWorkspace.presentedProjects
+        } else {
+            projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
+        }
         let all = homeProject.map { [$0] + stored } ?? stored
         return TabFocusedSidebarProjectSelection.resolve(
             projects: all,
             focusMode: expansionStore.focusMode,
-            activeProjectID: appState.activeProjectID
+            activeProjectID: remoteMacWorkspace.presentedProject?.id ?? appState.activeProjectID
         )
     }
 
@@ -45,6 +51,13 @@ struct TabFocusedSidebar: View {
     }
 
     private var shortcutNumbers: [UUID: Int] {
+        if let presentation = remoteMacWorkspace.presentedWorkspace {
+            var map: [UUID: Int] = [:]
+            for (index, tab) in presentation.root.allAreas().flatMap(\.tabs).prefix(9).enumerated() {
+                map[tab.id] = index + 1
+            }
+            return map
+        }
         let entries = TabFocusedTabOrder.entries(
             appState: appState,
             projectStore: projectStore,
@@ -59,6 +72,10 @@ struct TabFocusedSidebar: View {
     }
 
     var body: some View {
+        localSidebar
+    }
+
+    private var localSidebar: some View {
         let numbers = shortcutNumbers
         return VStack(spacing: 0) {
             ScrollView {
@@ -67,10 +84,16 @@ struct TabFocusedSidebar: View {
                         TabFocusedProjectRow(
                             project: row.project,
                             worktree: row.worktree,
-                            shortcutNumbers: numbers
+                            shortcutNumbers: numbers,
+                            remotePresentation: row.project.id == remoteMacWorkspace.presentedProject?.id
+                                ? remoteMacWorkspace.presentedWorkspace
+                                : nil,
+                            remoteActions: row.project.id == remoteMacWorkspace.presentedProject?.id
+                                ? remoteMacWorkspace.workspaceActions()
+                                : nil
                         )
                     }
-                    if !expansionStore.focusMode {
+                    if !expansionStore.focusMode, remoteMacWorkspace.activeDeviceID == nil {
                         TabFocusedAddProjectRow(action: openProjectPicker)
                     }
                 }

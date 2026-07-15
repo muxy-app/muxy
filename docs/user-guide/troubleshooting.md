@@ -51,10 +51,10 @@ After authenticating, restart Muxy so it picks up the new credentials.
 - Provider CLIs run headlessly and cannot show interactive authentication or permission prompts. Authenticate the chosen CLI in a terminal first, then retry the button; failures are shown in a toast.
 - AI only generates metadata. Muxy always owns staging, branch creation, commits, pushes, and pull request creation. Update the prompt when the provider returns invalid JSON or unsuitable metadata, not to change the native Git sequence.
 
-## Mobile server won't start
+## Remote access server won't start
 
 - Make sure the port (default 4865) isn't in use: `lsof -i :4865`.
-- Check **Settings → Mobile** for an error message — port conflicts and bind failures are surfaced there.
+- Check **Settings → Remote Access** for an error message — port conflicts and bind failures are surfaced there.
 
 ## Notifications aren't showing
 
@@ -70,7 +70,7 @@ If you want to start fresh, quit Muxy and remove:
 ~/Library/Application Support/Muxy/
 ```
 
-This wipes projects, worktrees, notifications, approved mobile devices, and Muxy's Ghostty config at `~/Library/Application Support/Muxy/ghostty.conf`. Your system Ghostty config at `~/.config/ghostty/config` is left alone.
+This wipes projects, worktrees, notifications, approved remote-access devices, and Muxy's Ghostty config at `~/Library/Application Support/Muxy/ghostty.conf`. Your system Ghostty config at `~/.config/ghostty/config` is left alone.
 
 ## Reporting a bug
 

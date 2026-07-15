@@ -54,6 +54,7 @@ struct ProjectFocusedSidebar: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(RemoteDeviceStore.self) private var remoteDeviceStore
+    @Environment(RemoteMacWorkspaceStore.self) private var remoteMacWorkspace
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
     @State private var isExternalDropTargeted = false
@@ -124,7 +125,9 @@ struct ProjectFocusedSidebar: View {
     }
 
     @ViewBuilder private var addButton: some View {
-        if projectGroupStore.isRemoteWorkspaceActive {
+        if remoteMacWorkspace.activeDeviceID != nil {
+            EmptyView()
+        } else if projectGroupStore.isRemoteWorkspaceActive {
             AddProjectButton(expanded: isWide, action: openLocalProjectPicker)
                 .help(shortcutTooltip("Add Project", for: .openProject))
         } else {
@@ -203,6 +206,7 @@ struct ProjectFocusedSidebar: View {
     }
 
     private var homeProject: Project? {
+        guard remoteMacWorkspace.activeDeviceID == nil else { return nil }
         guard showHomeProject else { return nil }
         guard !projectGroupStore.isRemoteWorkspaceActive else {
             return projectGroupStore.activeRemoteHomeProject
@@ -215,7 +219,10 @@ struct ProjectFocusedSidebar: View {
     }
 
     private var displayedProjects: [Project] {
-        projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
+        if remoteMacWorkspace.activeDeviceID != nil {
+            return remoteMacWorkspace.presentedProjects
+        }
+        return projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
     }
 
     private var pinnedBoundaryIndex: Int? {
@@ -243,7 +250,7 @@ struct ProjectFocusedSidebar: View {
     }
 
     private var showSortMenu: Bool {
-        isWide && !projectGroupStore.isRemoteWorkspaceActive && !displayedProjects.isEmpty
+        isWide && remoteMacWorkspace.activeDeviceID == nil && !projectGroupStore.isRemoteWorkspaceActive && !displayedProjects.isEmpty
     }
 
     private var projectList: some View {
@@ -275,7 +282,10 @@ struct ProjectFocusedSidebar: View {
                                 }
                             }
                         }
-                        .gesture(projectDragGesture(for: project))
+                        .gesture(
+                            projectDragGesture(for: project),
+                            including: remoteMacWorkspace.activeDeviceID == nil ? .all : .none
+                        )
                         .overlay(alignment: .bottom) {
                             PinnedProjectsDivider()
                                 .offset(y: pinnedDividerOffset)
@@ -301,7 +311,8 @@ struct ProjectFocusedSidebar: View {
         }
         .animation(.easeInOut(duration: 0.15), value: isExternalDropTargeted)
         .onDrop(of: [.fileURL], isTargeted: $isExternalDropTargeted) { providers in
-            ProjectSidebarDropHandler.handle(providers: providers) { path in
+            guard remoteMacWorkspace.activeDeviceID == nil else { return false }
+            return ProjectSidebarDropHandler.handle(providers: providers) { path in
                 ProjectOpenService.confirmProjectPathResult(
                     path,
                     appState: appState,
@@ -327,7 +338,9 @@ struct ProjectFocusedSidebar: View {
                 onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
                 onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) },
                 onSetWorktreesEnabled: { setWorktreesEnabled(project, to: $0) },
-                onSetPinned: { projectStore.setPinned(id: project.id, to: $0) }
+                onSetPinned: { projectStore.setPinned(id: project.id, to: $0) },
+                activeOverride: project.isRemoteMac ? remoteMacWorkspace.presentedProject?.id == project.id : nil,
+                allowsManagement: !project.isRemoteMac
             )
         } else {
             ProjectRow(
@@ -341,7 +354,9 @@ struct ProjectFocusedSidebar: View {
                 onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
                 onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) },
                 onSetWorktreesEnabled: { setWorktreesEnabled(project, to: $0) },
-                onSetPinned: { projectStore.setPinned(id: project.id, to: $0) }
+                onSetPinned: { projectStore.setPinned(id: project.id, to: $0) },
+                activeOverride: project.isRemoteMac ? remoteMacWorkspace.presentedProject?.id == project.id : nil,
+                allowsManagement: !project.isRemoteMac
             )
         }
     }
@@ -391,6 +406,10 @@ struct ProjectFocusedSidebar: View {
     }
 
     private func select(_ project: Project) {
+        if project.isRemoteMac {
+            Task { await remoteMacWorkspace.selectPresentedProject(project.id) }
+            return
+        }
         worktreeStore.ensurePrimary(for: project)
         guard let worktree = worktreeStore.preferred(
             for: project.id,

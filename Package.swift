@@ -14,6 +14,10 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
         .package(url: "https://github.com/jpsim/Yams", from: "5.1.0"),
         .package(url: "https://github.com/getsentry/sentry-cocoa", from: "8.40.0"),
+        .package(
+            url: "https://github.com/muxy-app/SwiftTerm.git",
+            revision: "9adb62463d2264e7403feb7a1471aaf27eaab2f4"
+        ),
     ],
     targets: [
         .target(
@@ -52,6 +56,7 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
+                .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
             path: "Muxy",
             exclude: ["Info.plist", "Muxy.entitlements"],

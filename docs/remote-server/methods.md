@@ -174,7 +174,8 @@ Result shapes: [`vcsStatus`](#vcsstatus-shape) and [`vcsBranches`](#vcsbranches-
       "value": {
         "deviceID": "2f8d1f9f-e065-4f62-af30-8c4b3d0bfc53",
         "deviceName": "Android Client",
-        "token": "random-secret-token"
+        "token": "random-secret-token",
+        "clientKind": "desktop"
       }
     }
   }

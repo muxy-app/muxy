@@ -14,6 +14,7 @@ struct MuxyApp: App {
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
     @State private var remoteDeviceStore: RemoteDeviceStore
+    @State private var remoteMacWorkspaceStore: RemoteMacWorkspaceStore
     @State private var browserProfileStore: BrowserProfileStore
     @State private var browserHistoryStore: BrowserHistoryStore
     @State private var worktreeAutoRefresher: VCSWorktreeAutoRefresher?
@@ -58,6 +59,7 @@ struct MuxyApp: App {
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
         _remoteDeviceStore = State(initialValue: remoteDeviceStore)
+        _remoteMacWorkspaceStore = State(initialValue: RemoteMacWorkspaceStore())
         _browserProfileStore = State(initialValue: browserProfileStore)
         _browserHistoryStore = State(initialValue: browserHistoryStore)
     }
@@ -70,6 +72,7 @@ struct MuxyApp: App {
                 .environment(worktreeStore)
                 .environment(projectGroupStore)
                 .environment(remoteDeviceStore)
+                .environment(remoteMacWorkspaceStore)
                 .environment(browserProfileStore)
                 .environment(browserHistoryStore)
                 .environment(SSHConnectionService.shared)
@@ -93,11 +96,12 @@ struct MuxyApp: App {
                         browserHistoryStore.saveImmediately()
                     }
                     appDelegate.settingsContent = {
-                        [projectGroupStore, remoteDeviceStore, browserProfileStore, browserHistoryStore] in
+                        [projectGroupStore, remoteDeviceStore, remoteMacWorkspaceStore, browserProfileStore, browserHistoryStore] in
                         AnyView(
                             SettingsView()
                                 .environment(projectGroupStore)
                                 .environment(remoteDeviceStore)
+                                .environment(remoteMacWorkspaceStore)
                                 .environment(browserProfileStore)
                                 .environment(browserHistoryStore)
                                 .environment(SSHConnectionService.shared)
@@ -180,6 +184,7 @@ struct MuxyApp: App {
         .commands {
             MuxyCommands(
                 appState: appState,
+                remoteMacWorkspace: remoteMacWorkspaceStore,
                 projectStore: projectStore,
                 worktreeStore: worktreeStore,
                 projectGroupStore: projectGroupStore,

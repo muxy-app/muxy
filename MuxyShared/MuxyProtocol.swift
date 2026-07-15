@@ -40,7 +40,7 @@ public struct MuxyEvent: Codable, Sendable {
     }
 }
 
-public struct MuxyError: Codable, Sendable, Error {
+public struct MuxyError: Codable, Sendable, LocalizedError {
     public let code: Int
     public let message: String
 
@@ -48,6 +48,8 @@ public struct MuxyError: Codable, Sendable, Error {
         self.code = code
         self.message = message
     }
+
+    public var errorDescription: String? { message }
 
     public static let notFound = MuxyError(code: 404, message: "Not found")
     public static let invalidParams = MuxyError(code: 400, message: "Invalid parameters")

@@ -14,7 +14,9 @@ struct TerminalPane: View {
     @Environment(\.overlayActive) private var overlayActive
 
     private var remoteOwnerName: String? {
-        if case let .remote(_, name) = ownership.owner(for: state.id) { name } else { nil }
+        guard state.backend == .local else { return nil }
+        guard case let .remote(_, name) = ownership.owner(for: state.id) else { return nil }
+        return name
     }
 
     private var showsSleepingPlaceholder: Bool {
@@ -43,20 +45,12 @@ struct TerminalPane: View {
 
     private var terminalLayer: some View {
         ZStack(alignment: .topTrailing) {
-            TerminalBridge(
-                state: state,
-                focused: focused,
-                visible: visible,
-                areaID: areaID,
-                onFocus: onFocus,
-                onProcessExit: onProcessExit,
-                onSplitRequest: onSplitRequest
-            )
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Terminal")
-            .accessibilityAddTraits(.allowsDirectInteraction)
-            .opacity(remoteOwnerName == nil ? 1 : 0)
-            .allowsHitTesting(remoteOwnerName == nil)
+            terminalContent
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Terminal")
+                .accessibilityAddTraits(.allowsDirectInteraction)
+                .opacity(remoteOwnerName == nil ? 1 : 0)
+                .allowsHitTesting(remoteOwnerName == nil)
 
             if let name = remoteOwnerName {
                 RemoteControlledPlaceholder(deviceName: name) {
@@ -91,6 +85,29 @@ struct TerminalPane: View {
                 SleepingTabPlaceholder(isFocused: focused, onWake: wakePane)
                     .transition(.opacity)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var terminalContent: some View {
+        switch state.backend {
+        case .local:
+            TerminalBridge(
+                state: state,
+                focused: focused,
+                visible: visible,
+                areaID: areaID,
+                onFocus: onFocus,
+                onProcessExit: onProcessExit,
+                onSplitRequest: onSplitRequest
+            )
+        case let .remoteMac(paneID):
+            RemoteTerminalBridge(
+                paneID: paneID,
+                focused: focused,
+                visible: visible,
+                onFocus: onFocus
+            )
         }
     }
 }

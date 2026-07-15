@@ -1,5 +1,5 @@
 {
-  "originHash" : "066ab307b4a0e89ca1cb729d2423eb57ebcd8a19de8762c00940d2cb612c1569",
+  "originHash" : "498281a2f5570e88781bc918eec63c1643bebf350ba61730dc2094cbd4bfd793",
   "pins" : [
     {
       "identity" : "sentry-cocoa",
@@ -17,6 +17,23 @@
       "state" : {
         "revision" : "066e75a8b3e99962685d6a90cdd5293ebffd9261",
         "version" : "2.9.1"
+      }
+    },
+    {
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser",
+      "state" : {
+        "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+        "version" : "1.8.2"
+      }
+    },
+    {
+      "identity" : "swiftterm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/muxy-app/SwiftTerm.git",
+      "state" : {
+        "revision" : "9adb62463d2264e7403feb7a1471aaf27eaab2f4"
       }
     },
     {

@@ -34,7 +34,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .ai: "AI"
         case .voice: "Voice"
         case .notifications: "Notifications"
-        case .mobile: "Mobile"
+        case .mobile: "Remote Access"
         case .backup: "Backup"
         case .json: "JSON"
         }
@@ -54,7 +54,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .ai: "sparkles"
         case .voice: "mic"
         case .notifications: "bell"
-        case .mobile: "iphone"
+        case .mobile: "network"
         case .backup: "externaldrive"
         case .json: "curlybraces"
         }
@@ -210,10 +210,10 @@ enum SettingsCatalog {
         SettingsCatalogItem(
             key: "muxy.remoteDevices.manage",
             title: "Remote Devices",
-            description: "Adds and manages reusable SSH connections used by remote workspaces.",
+            description: "Adds and manages SSH servers and Muxy Macs used by remote workspaces.",
             category: .remoteDevices,
             section: "Remote Devices",
-            aliases: ["ssh", "server", "host", "remote", "connection", "device"]
+            aliases: ["ssh", "server", "host", "remote", "connection", "device", "mac"]
         ),
         SettingsCatalogItem(
             key: ProjectPickerDefaultLocation.storageKey,
@@ -546,15 +546,23 @@ enum SettingsCatalog {
             title: "Allow Mobile Connections",
             description: "Allows mobile devices to connect to this Mac.",
             category: .mobile,
-            section: "Mobile",
+            section: "Remote Access",
+            defaultValue: false
+        ),
+        SettingsCatalogItem(
+            key: MobileServerService.desktopEnabledKey,
+            title: "Allow Desktop Connections",
+            description: "Allows other Muxy Macs to connect to this Mac.",
+            category: .mobile,
+            section: "Remote Access",
             defaultValue: false
         ),
         SettingsCatalogItem(
             key: MobileServerService.portKey,
-            title: "Mobile Port",
-            description: "Controls the local server port for mobile pairing.",
+            title: "Remote Access Port",
+            description: "Controls the local server port for remote clients.",
             category: .mobile,
-            section: "Mobile",
+            section: "Remote Access",
             defaultValue: MobileServerService.defaultPort
         ),
         SettingsCatalogItem(
@@ -567,7 +575,7 @@ enum SettingsCatalog {
         SettingsCatalogItem(
             key: "mobile.approvedDevices",
             title: "Approved Devices",
-            description: "Manages mobile devices that can connect.",
+            description: "Manages mobile devices and Macs that can connect.",
             category: .mobile,
             section: "Approved Devices"
         ),
