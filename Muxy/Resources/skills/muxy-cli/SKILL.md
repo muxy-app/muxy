@@ -9,7 +9,7 @@ The `muxy` command lets an agent or script control a running Muxy workspace: ope
 
 **This skill is the usage layer — when to reach for the CLI and how to use it safely.** For the full command reference, output formats, and security model, read the docs page (append `/plain` for raw Markdown):
 
-> **<https://muxy.app/docs/features/muxy-cli/plain>**
+> **<https://muxy.app/docs/cli/README/plain>**
 
 The LLM-friendly index lists every Muxy docs page: **<https://muxy.app/llms.txt>**.
 

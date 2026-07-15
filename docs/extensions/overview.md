@@ -1,45 +1,46 @@
 # Extensions Overview
 
-> **New here?** Start with [Get started](get-started.md) to build and run an extension first; this page explains how they work under the hood.
+> **New here?** Start with [Get started](get-started.md) to build and run an extension first.
 
-Extensions are npm + [Vite](https://vitejs.dev) projects that Muxy loads on launch. Authors build them with any framework; `npm run build` emits a `dist/` directory, and that build output is what is published and installed. Extensions react to workspace events, coordinate webviews with background scripts, register palette commands, add UI (tabs, panels, popovers, topbar/status-bar items), and — with permission — drive the same verbs the `muxy` CLI exposes.
+Extensions are npm + Vite projects. Muxy installs the built `dist/` directory and reads its `package.json` to register UI, commands, permissions, and optional background behavior.
 
-## Architecture
+## Runtime model
 
-Muxy's main process (`ExtensionStore`) scans the extensions directory, loads the enabled ones, and gives each two surfaces:
+| Surface | Runtime | Use it for |
+| --- | --- | --- |
+| Tabs, panels, popovers, sidebars, and webview modals | `WKWebView` in the main app | Visible UI with the full `window.muxy` bridge |
+| `runScript` commands | JavaScriptCore in the main app | One-shot work launched from a command or shortcut |
+| `background.js` | `MuxyExtensionHost` subprocess | Durable events, shared webview coordination, and headless commands |
 
-- **Declared UI** — panels, tabs, popovers, topbar/status-bar items render in-process as WKWebViews. Their pages talk to Muxy through the injected `window.muxy` bridge, which exposes workspace APIs (`tabs`, basic `browser`, `panes`, `projects`, `worktrees`, `agents`, `files`, `git`, `events`, `exec`, `http`, `toast`/`notifications`, `dialog`, `modal`, `panels`, `popover`, `topbar`, `statusbar`). No subprocess. See the per-feature pages for each. A [`runScript`](scripts.md) palette command gets an in-process JavaScriptCore bridge with full browser automation but without page-only parts (no `panels`, `popover`, `http`, `events`, theme/data).
-- **Background script** — if the manifest declares a `muxy.background` script, Muxy runs it in a small bundled host process (`MuxyExtensionHost`). This is where durable event listeners (`muxy.events.subscribe`), webview coordination over `extension.*` events, `muxy.exec`, and `muxy.tabs.open` live. `setTimeout`/`setInterval` (and their `clear*` counterparts) are available for polling or scheduled work. Most extensions don't need one.
+Declared UI talks directly to the main process through `window.muxy`; it does not use the extension socket. Background scripts connect through Muxy's authenticated Unix-socket bridge. Workspace events and same-extension `extension.*` messages are brokered by the main process.
 
-Workspace events originate in the main process (`ExtensionEventEmitter` diffs workspace state) and are delivered to the host. Extension-local `extension.*` events are scoped to one extension and pass between that extension's open webviews and background script. `muxy.exec` is gated by a permission check and a runtime consent prompt before it runs.
+Most extensions need only declared UI or `runScript` commands. Add a background script only when work must continue without an open webview.
 
-## Pages
+## Installation
 
-| Page | What's in it |
-| --- | --- |
-| [Manifest](manifest.md) | `package.json` `muxy` fields and examples |
-| [Permissions](permissions.md) | Permission grants and runtime consent |
-| [Events](events.md) | Subscribable events and payloads |
-| [Palette Commands](palette-commands.md) | Commands that appear in the command palette |
-
-## Where extensions live
-
-Each installed extension is the `dist/` produced by `npm run build`, with its `package.json` at the root. The publish pipeline ships **only** `dist/`, so the `build` script must copy `package.json` into it (see [Manifest](manifest.md)) — otherwise the install has no manifest:
+Each installed extension is the output of `npm run build`:
 
 ```
-~/.config/muxy/extensions/
-  <name>/
-    package.json      # copied into dist/ by the build script
-    background.js     # optional; pushed events / extension.* bus / background exec
-    …                 # the rest of the build output
+~/.config/muxy/extensions/<name>/
+  package.json
+  …
 ```
 
-`ExtensionStore` scans this directory at app start, reads each `package.json` (top-level `name`/`version` plus the `muxy` object), validates it, and runs the `background.js` of each enabled extension that declares one. Settings → Extensions lists every loaded extension with a toggle, its permissions, and recent log output.
+The build must copy `package.json` and any referenced background script into `dist/`. Muxy validates the manifest and referenced files before loading the extension. See [Manifest](manifest.md) for the complete contract.
 
-## Security model
+## Security
 
-- **Manifest-declared permissions.** Every state-changing verb requires a matching `muxy.permissions` entry. See [Permissions](permissions.md).
-- **Subscription allowlist.** An extension may subscribe only to events declared in its `muxy.events` array, to its own `command.<id>` events, or to same-extension `extension.*` events.
-- **Runtime consent.** Verbs that run code or read terminal contents prompt the user even when the permission is granted.
-- **Process isolation.** The background process runs out-of-process; a crash is surfaced in Settings and can't take down Muxy. `console.*` output is captured to an in-app rolling log.
-- **Loaded-from-disk only.** Muxy only runs the `background.js` of an extension it actually loaded.
+- Manifest permissions limit access to gated API calls.
+- Sensitive operations also require runtime consent.
+- Event subscriptions are limited to declared workspace events, extension commands, and same-extension messages.
+- Background scripts run out of process, and their logs are captured separately.
+- Muxy runs background code only from an extension it loaded and identified.
+
+See [Permissions](permissions.md) for permission and consent behavior.
+
+## Next steps
+
+- [Get started](get-started.md) — scaffold and run an extension.
+- [Manifest](manifest.md) — declare surfaces and capabilities.
+- [Events](events.md) — react to workspace changes.
+- [Contributing](contributing.md) — validate and publish an extension.

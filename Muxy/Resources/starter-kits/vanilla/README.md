@@ -18,4 +18,4 @@ After rebuilding, click **Reload** in the Muxy Extensions modal to pick up chang
 - `src/lib/` — tiny `dom` and `icon` helpers.
 - `src/styles/global.css` — Tailwind, with `--color-*` mapped to the app's `--muxy-*` theme tokens so utilities like `bg-primary` and `text-muted-foreground` follow the active theme.
 
-See the [extension docs](https://github.com/muxy-app/muxy/tree/main/docs/extensions).
+See the [extension docs](https://muxy.app/docs/extensions/overview).
