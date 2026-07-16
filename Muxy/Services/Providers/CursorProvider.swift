@@ -104,7 +104,7 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private static func hookCommand(hookScript: String, argument: String) -> String {
-        "'\(hookScript)' \(argument) # \(muxyMarker)"
+        "\(ShellEscaper.quote(hookScript)) \(argument) # \(muxyMarker)"
     }
 
     private static func muxyHookMatches(entries: [[String: Any]]?, expectedCommand: String) -> Bool {

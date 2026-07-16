@@ -107,12 +107,10 @@ final class AIProviderRegistry {
 
     func installAll() async {
         #if DEBUG
-        let installMissingHooks = shouldInstallHooksInDebug()
-        if !installMissingHooks {
-            logger.info("Reconciling installed AI hooks in dev mode (set FF_AI_HOOKS=true to install missing hooks)")
+        guard shouldInstallHooksInDebug() else {
+            logger.info("Skipping AI hook reconciliation in dev mode (set FF_AI_HOOKS=true to enable)")
+            return
         }
-        #else
-        let installMissingHooks = true
         #endif
 
         for provider in providers {
@@ -126,7 +124,6 @@ final class AIProviderRegistry {
                 continue
             }
 
-            guard installMissingHooks else { continue }
             await loginShellPathHydrationTask().value
 
             guard provider.isToolInstalled() else {

@@ -116,7 +116,7 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     static func hookCommand(hookScript: String, event: String) -> String {
-        "'\(hookScript)' \(event) # \(muxyMarker)"
+        "\(ShellEscaper.quote(hookScript)) \(event) # \(muxyMarker)"
     }
 
     private static func buildHookEntry(command: String) -> [String: Any] {

@@ -66,6 +66,65 @@ struct MuxyNotificationHooksTests {
         #expect(found == rootFile.path)
     }
 
+    @Test("staged shell hooks survive source bundle removal and refresh in place")
+    func stagedShellHooksSurviveSourceRemovalAndRefreshInPlace() throws {
+        let bundleDirectory = try temporaryBundle()
+        let destinationRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Muxy Application Support \(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: bundleDirectory)
+            try? FileManager.default.removeItem(at: destinationRoot)
+        }
+
+        let scriptsDirectory = bundleDirectory.appendingPathComponent("scripts", isDirectory: true)
+        try FileManager.default.createDirectory(at: scriptsDirectory, withIntermediateDirectories: true)
+        let hookSource = scriptsDirectory.appendingPathComponent("muxy-claude-hook.sh")
+        let runtimeSource = scriptsDirectory.appendingPathComponent("muxy-agent-hook.sh")
+        try Data(
+            """
+            #!/bin/bash
+            script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+            exec /bin/bash "$script_dir/muxy-agent-hook.sh"
+            """.utf8
+        ).write(to: hookSource)
+        try Data("#!/bin/bash\nprintf first".utf8).write(to: runtimeSource)
+
+        let bundle = try #require(Bundle(url: bundleDirectory))
+        let destinationDirectory = destinationRoot.appendingPathComponent("hooks", isDirectory: true)
+        let firstPath = try #require(MuxyNotificationHooks.stageScript(
+            named: "muxy-claude-hook",
+            extension: "sh",
+            bundle: bundle,
+            destinationDirectory: destinationDirectory
+        ))
+        let runtimeDestination = destinationDirectory.appendingPathComponent("muxy-agent-hook.sh")
+
+        #expect(firstPath == destinationDirectory.appendingPathComponent("muxy-claude-hook.sh").path)
+        #expect(FileManager.default.isExecutableFile(atPath: firstPath))
+        #expect(FileManager.default.isExecutableFile(atPath: runtimeDestination.path))
+
+        try Data("#!/bin/bash\nprintf second".utf8).write(to: runtimeSource)
+        let refreshedPath = try #require(MuxyNotificationHooks.stageScript(
+            named: "muxy-claude-hook",
+            extension: "sh",
+            bundle: bundle,
+            destinationDirectory: destinationDirectory
+        ))
+        #expect(refreshedPath == firstPath)
+
+        try FileManager.default.removeItem(at: bundleDirectory)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", ShellEscaper.quote(firstPath)]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self) == "second")
+    }
+
     @Test("shell hooks delegate to one normalized lifecycle runtime")
     func shellHooksUseSharedRuntime() throws {
         for scriptName in [

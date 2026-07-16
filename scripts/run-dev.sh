@@ -10,7 +10,7 @@ for arg in "$@"; do
   case "$arg" in
     --hooks | -H)
       export FF_AI_HOOKS=1
-      print -P "%F{yellow}AI hooks enabled%f — this dev build now owns the ~/.<provider> hook configs (pointing at .build/debug). Relaunch the release app to restore its hooks."
+      print -P "%F{yellow}AI hooks enabled%f — this dev build now owns the ~/.<provider> hook configs and stages hook scripts in Muxy Application Support. Relaunch the release app to restore its hook versions."
       ;;
     *)
       args+=("$arg")

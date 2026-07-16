@@ -131,7 +131,7 @@ struct AIProviderRegistryTests {
         let registry = AIProviderRegistry(
             providers: [provider],
             hydrateLoginShellPath: {},
-            shouldInstallHooksInDebug: { false }
+            shouldInstallHooksInDebug: { true }
         )
 
         await registry.installAll()
@@ -140,8 +140,8 @@ struct AIProviderRegistryTests {
         #expect(provider.toolCheckCount == 0)
     }
 
-    @Test("installAll refreshes only providers whose hook is already installed in dev")
-    func installAllRefreshesInstalledHooksInDev() async {
+    @Test("installAll does not reconcile hooks in dev without explicit opt-in")
+    func installAllDoesNotReconcileHooksInDevWithoutExplicitOptIn() async {
         let installed = RefreshRecordingProvider()
         let notInstalled = RefreshRecordingProvider()
         defer {
@@ -164,11 +164,31 @@ struct AIProviderRegistryTests {
 
         await registry.installAll()
 
-        #expect(installed.hookInstalledCheckCount >= 1)
-        #expect(installed.installAttempted)
+        #expect(installed.hookInstalledCheckCount == 0)
+        #expect(!installed.installAttempted)
         #expect(!notInstalled.installAttempted)
         #expect(notInstalled.toolCheckCount == 0)
         #expect(!gate.started)
+    }
+
+    @Test("installAll refreshes installed hooks in dev with explicit opt-in")
+    func installAllRefreshesInstalledHooksInDevWithExplicitOptIn() async {
+        let provider = RefreshRecordingProvider()
+        defer { provider.resetSettings() }
+        provider.isEnabled = true
+        provider.hookInstalled = true
+        let registry = AIProviderRegistry(
+            providers: [provider],
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { true },
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" }
+        )
+
+        await registry.installAll()
+
+        #expect(provider.hookInstalledCheckCount >= 1)
+        #expect(provider.installAttempted)
+        #expect(provider.toolCheckCount == 0)
     }
 
     @Test("installAll installs missing hooks in dev only with the explicit opt-in")

@@ -37,6 +37,16 @@ struct ClaudeCodeProviderTests {
         #expect((result["Stop"] as? [[String: Any]])?.count == 2)
     }
 
+    @Test("hook commands safely quote spaces and apostrophes")
+    func hookCommandSafelyQuotesScriptPath() {
+        let command = ClaudeCodeProvider.hookCommand(
+            hookScript: "/tmp/Muxy's Hook.sh",
+            event: "stop"
+        )
+
+        #expect(command == "'/tmp/Muxy'\\''s Hook.sh' stop # muxy-notification-hook")
+    }
+
     @Test("reinstall with a new script path replaces the stale entry without duplicating")
     func reinstallReplacesStaleEntry() {
         let installed = ClaudeCodeProvider.hooks(installing: commands(script: "/old/hook.sh"), into: [:])!

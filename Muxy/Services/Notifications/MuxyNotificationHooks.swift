@@ -5,31 +5,26 @@ private let logger = Logger(subsystem: "app.muxy", category: "MuxyNotificationHo
 
 enum MuxyNotificationHooks {
     private static let hookScriptName = "muxy-claude-hook"
+    private static let sharedShellRuntimeName = "muxy-agent-hook"
+    private static let scriptsDirectoryName = "hooks"
 
     static var hookScriptPath: String? {
-        if let bundled = findBundledScript(hookScriptName, extension: "sh") {
-            return bundled
-        }
-
-        let devPath = findDevScriptPath(hookScriptName + ".sh")
-        if let devPath, FileManager.default.isExecutableFile(atPath: devPath) {
-            return devPath
-        }
-
-        return nil
+        sourceScriptURL(
+            named: hookScriptName,
+            extension: "sh",
+            bundle: Bundle.appResources,
+            searchDevelopmentDirectory: true
+        )?.path
     }
 
     static func scriptPath(named name: String, extension ext: String) -> String? {
-        if let bundled = findBundledScript(name, extension: ext) {
-            return bundled
-        }
-
-        let devPath = findDevScriptPath(name + "." + ext)
-        if let devPath, FileManager.default.fileExists(atPath: devPath) {
-            return devPath
-        }
-
-        return nil
+        stageScript(
+            named: name,
+            extension: ext,
+            destinationDirectory: MuxyFileStorage.appSupportDirectory()
+                .appendingPathComponent(scriptsDirectoryName, isDirectory: true),
+            searchDevelopmentDirectory: true
+        )
     }
 
     static func findBundledScript(_ name: String, extension ext: String, bundle: Bundle = Bundle.appResources) -> String? {
@@ -44,20 +39,94 @@ enum MuxyNotificationHooks {
         let path = url.path
         guard FileManager.default.fileExists(atPath: path) else { return nil }
 
-        if ext == "sh" || ext == "js" {
-            if !FileManager.default.isExecutableFile(atPath: path) {
-                do {
-                    try FileManager.default.setAttributes(
-                        [.posixPermissions: FilePermissions.executable],
-                        ofItemAtPath: path
-                    )
-                } catch {
-                    logger.error("Failed to set executable permission on \(path): \(error.localizedDescription)")
-                }
-            }
+        return path
+    }
+
+    static func stageScript(
+        named name: String,
+        extension ext: String,
+        bundle: Bundle = Bundle.appResources,
+        destinationDirectory: URL,
+        searchDevelopmentDirectory: Bool = false
+    ) -> String? {
+        guard let sourceURL = sourceScriptURL(
+            named: name,
+            extension: ext,
+            bundle: bundle,
+            searchDevelopmentDirectory: searchDevelopmentDirectory
+        )
+        else {
+            return nil
         }
 
-        return path
+        do {
+            try prepareDestinationDirectory(destinationDirectory)
+            if ext == "sh", name != sharedShellRuntimeName {
+                guard let runtimeURL = sourceScriptURL(
+                    named: sharedShellRuntimeName,
+                    extension: "sh",
+                    bundle: bundle,
+                    searchDevelopmentDirectory: searchDevelopmentDirectory
+                )
+                else {
+                    logger.error("Shared shell hook runtime not found")
+                    return nil
+                }
+                _ = try stageFile(
+                    from: runtimeURL,
+                    to: destinationDirectory,
+                    permissions: FilePermissions.privateExecutable
+                )
+            }
+            let permissions = ext == "sh" ? FilePermissions.privateExecutable : FilePermissions.privateFile
+            return try stageFile(from: sourceURL, to: destinationDirectory, permissions: permissions).path
+        } catch {
+            logger.error("Failed to stage \(name).\(ext): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private static func sourceScriptURL(
+        named name: String,
+        extension ext: String,
+        bundle: Bundle,
+        searchDevelopmentDirectory: Bool
+    ) -> URL? {
+        if let bundled = findBundledScript(name, extension: ext, bundle: bundle) {
+            return URL(fileURLWithPath: bundled)
+        }
+        guard searchDevelopmentDirectory,
+              let devPath = findDevScriptPath(name + "." + ext)
+        else {
+            return nil
+        }
+        return URL(fileURLWithPath: devPath)
+    }
+
+    private static func prepareDestinationDirectory(_ directory: URL) throws {
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: FilePermissions.privateDirectory]
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateDirectory],
+            ofItemAtPath: directory.path
+        )
+    }
+
+    private static func stageFile(from source: URL, to directory: URL, permissions: Int) throws -> URL {
+        let destination = directory.appendingPathComponent(source.lastPathComponent)
+        let sourceData = try Data(contentsOf: source)
+        let existingData = try? Data(contentsOf: destination)
+        if existingData != sourceData {
+            try sourceData.write(to: destination, options: .atomic)
+        }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: permissions],
+            ofItemAtPath: destination.path
+        )
+        return destination
     }
 
     private static func findDevScriptPath(_ fileName: String) -> String? {
