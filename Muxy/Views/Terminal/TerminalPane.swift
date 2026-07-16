@@ -34,8 +34,8 @@ struct TerminalPane: View {
         terminalLayer
             .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
                 guard focused, visible else { return }
-                let view = TerminalViewRegistry.shared.existingView(for: state.id)
-                DispatchQueue.main.async { [weak view] in
+                DispatchQueue.main.async {
+                    let view = TerminalViewRegistry.shared.existingView(for: state.id)
                     view?.window?.makeFirstResponder(view)
                 }
             }
@@ -244,6 +244,7 @@ struct TerminalBridge: NSViewRepresentable {
         configureFileOpenCallback(view)
         configureProgressCallback(view)
         context.coordinator.wasFocused = focused
+        context.coordinator.wasOverlayActive = overlayActive
         if focused, !overlayActive {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak view] in
                 guard let view else { return }
@@ -306,7 +307,11 @@ struct TerminalBridge: NSViewRepresentable {
             if !wasOverlayActive {
                 nsView.notifySurfaceUnfocused()
             }
-        } else if focused, !wasFocused || wasOverlayActive {
+        } else if TerminalFocusRestorationPolicy.shouldClaimFocus(
+            focused: focused,
+            wasFocused: wasFocused,
+            wasOverlayActive: wasOverlayActive
+        ) {
             DispatchQueue.main.async { [weak nsView] in
                 guard let nsView else { return }
                 nsView.window?.makeFirstResponder(nsView)
@@ -585,5 +590,15 @@ struct TerminalBridge: NSViewRepresentable {
         view.onSearchSelected = { [weak state] selected in
             state?.searchState.selected = selected
         }
+    }
+}
+
+enum TerminalFocusRestorationPolicy {
+    static func shouldClaimFocus(
+        focused: Bool,
+        wasFocused: Bool,
+        wasOverlayActive: Bool
+    ) -> Bool {
+        focused && (!wasFocused || wasOverlayActive)
     }
 }

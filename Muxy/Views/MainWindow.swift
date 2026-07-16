@@ -87,6 +87,7 @@ struct MainWindow: View {
     @State private var showProjectPicker = false
     @State private var remoteProjectDevice: RemoteDevice?
     @State private var overlayAnimatingOut = false
+    @State private var projectPickerTerminalFocusRestoration = ProjectPickerTerminalFocusRestoration()
     @State private var isFullScreen = false
     @AppStorage(AppBackgroundStyle.storageKey)
     private var appBackgroundStyleRaw = AppBackgroundStyle.defaultValue.rawValue
@@ -157,7 +158,10 @@ struct MainWindow: View {
             overlayExitTracker: OverlayExitTracker(
                 showTerminalOmnibox: showTerminalOmnibox,
                 showProjectPicker: showProjectPicker,
-                onAnimatingOut: { overlayAnimatingOut = $0 }
+                onAnimatingOut: { overlayAnimatingOut = $0 },
+                onExitCompleted: {
+                    projectPickerTerminalFocusRestoration.overlayExitCompleted()
+                }
             ),
             shortcutInterceptor: MainWindowShortcutInterceptor(
                 isTerminalFocused: { isTerminalPaneFocused },
@@ -752,26 +756,28 @@ struct MainWindow: View {
                 projectPaths: projectPickerPaths,
                 context: projectPickerContext,
                 onConfirm: { path, createIfMissing in
-                    if let device = remoteProjectDevice {
-                        return RemoteDeviceProjectConfirmationService(
+                    let result = if let device = remoteProjectDevice {
+                        RemoteDeviceProjectConfirmationService(
                             appState: appState,
                             projectStore: projectStore,
                             worktreeStore: worktreeStore,
                             projectGroupStore: projectGroupStore
                         )
                         .confirm(path: path, device: device)
+                    } else if projectGroupStore.isRemoteWorkspaceActive {
+                        confirmRemoteProjectPath(path)
+                    } else {
+                        ProjectOpenService.confirmProjectPathResult(
+                            path,
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore,
+                            createIfMissing: createIfMissing
+                        )
                     }
-                    if projectGroupStore.isRemoteWorkspaceActive {
-                        return confirmRemoteProjectPath(path)
-                    }
-                    return ProjectOpenService.confirmProjectPathResult(
-                        path,
-                        appState: appState,
-                        projectStore: projectStore,
-                        worktreeStore: worktreeStore,
-                        projectGroupStore: projectGroupStore,
-                        createIfMissing: createIfMissing
-                    )
+                    projectPickerTerminalFocusRestoration.record(result)
+                    return result
                 },
                 onChooseFinder: {
                     ProjectOpenService.openProject(
@@ -2289,6 +2295,7 @@ private struct OverlayExitTracker: ViewModifier {
     let showTerminalOmnibox: Bool
     let showProjectPicker: Bool
     let onAnimatingOut: (Bool) -> Void
+    let onExitCompleted: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -2301,6 +2308,9 @@ private struct OverlayExitTracker: ViewModifier {
         onAnimatingOut(true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             onAnimatingOut(false)
+            DispatchQueue.main.async {
+                onExitCompleted()
+            }
         }
     }
 }
