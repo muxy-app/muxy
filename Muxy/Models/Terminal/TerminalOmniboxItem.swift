@@ -2,6 +2,7 @@ import Foundation
 
 enum TerminalOmniboxLaunchScope: String {
     case projects
+    case recentlyRemovedProjects
     case worktrees
     case workspaces
     case openTabs
@@ -47,6 +48,19 @@ struct TerminalOmniboxProjectItem: Identifiable, Equatable {
     }
 }
 
+struct TerminalOmniboxRecentlyRemovedProjectItem: Identifiable, Equatable {
+    let projectID: UUID
+    let name: String
+    let path: String
+    let icon: String?
+
+    var id: String { "recent-project-\(projectID.uuidString)" }
+
+    var searchKey: String {
+        [name, path, "recently removed project"].joined(separator: " ")
+    }
+}
+
 struct TerminalOmniboxWorktreeItem: Identifiable, Equatable {
     let projectID: UUID
     let worktreeID: UUID
@@ -88,6 +102,7 @@ struct ExtensionPaletteItem: Identifiable, Equatable {
 
 enum TerminalOmniboxItem: Identifiable, Equatable {
     case project(TerminalOmniboxProjectItem)
+    case recentlyRemovedProject(TerminalOmniboxRecentlyRemovedProjectItem)
     case worktree(TerminalOmniboxWorktreeItem)
     case workspace(TerminalOmniboxWorkspaceItem)
     case openTab(OpenTerminalTabItem)
@@ -97,6 +112,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
     var id: String {
         switch self {
         case let .project(project):
+            project.id
+        case let .recentlyRemovedProject(project):
             project.id
         case let .worktree(wt):
             wt.id
@@ -115,6 +132,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
         switch self {
         case let .project(project):
             project.name
+        case let .recentlyRemovedProject(project):
+            project.name
         case let .worktree(wt):
             wt.name
         case let .workspace(workspace):
@@ -131,6 +150,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
     var subtitle: String? {
         switch self {
         case let .project(project):
+            project.path
+        case let .recentlyRemovedProject(project):
             project.path
         case let .worktree(wt):
             wt.branch.map { "(\($0)) \(wt.path)" } ?? wt.path
@@ -151,6 +172,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
         switch self {
         case .project:
             "Projects"
+        case .recentlyRemovedProject:
+            "Recently Removed"
         case .worktree:
             "Worktrees"
         case .workspace:
@@ -168,6 +191,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
         switch self {
         case .project:
             "folder"
+        case let .recentlyRemovedProject(project):
+            project.icon ?? "folder"
         case let .worktree(wt):
             wt.isPrimary ? "folder.badge.gearshape" : "arrow.triangle.branch"
         case let .workspace(workspace):
@@ -185,6 +210,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
         switch self {
         case let .project(project):
             project.searchKey
+        case let .recentlyRemovedProject(project):
+            project.searchKey
         case let .worktree(wt):
             wt.searchKey
         case let .workspace(workspace):
@@ -201,6 +228,7 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
 
 struct TerminalOmniboxItemContext {
     let projects: [TerminalOmniboxProjectItem]
+    let recentlyRemovedProjects: [TerminalOmniboxRecentlyRemovedProjectItem]
     let worktrees: [TerminalOmniboxWorktreeItem]
     let workspaces: [TerminalOmniboxWorkspaceItem]
     let openTabs: [OpenTerminalTabItem]
@@ -212,6 +240,7 @@ struct TerminalOmniboxItemContext {
 
     init(
         projects: [TerminalOmniboxProjectItem],
+        recentlyRemovedProjects: [TerminalOmniboxRecentlyRemovedProjectItem] = [],
         worktrees: [TerminalOmniboxWorktreeItem],
         workspaces: [TerminalOmniboxWorkspaceItem] = [],
         openTabs: [OpenTerminalTabItem],
@@ -222,6 +251,7 @@ struct TerminalOmniboxItemContext {
         commandProjectIDs: Set<UUID>
     ) {
         self.projects = projects
+        self.recentlyRemovedProjects = recentlyRemovedProjects
         self.worktrees = worktrees
         self.workspaces = workspaces
         self.openTabs = openTabs
@@ -245,6 +275,8 @@ enum TerminalOmniboxItemResolver {
         switch launchScope {
         case .projects:
             return context.projects.map(TerminalOmniboxItem.project)
+        case .recentlyRemovedProjects:
+            return context.recentlyRemovedProjects.map(TerminalOmniboxItem.recentlyRemovedProject)
         case .worktrees:
             guard let activeProjectID = context.activeProjectID else { return [] }
             return context.worktrees

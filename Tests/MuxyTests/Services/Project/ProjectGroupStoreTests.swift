@@ -112,6 +112,18 @@ struct ProjectGroupStoreTests {
         #expect(store.groups.first?.projectIDs.count == 1)
     }
 
+    @Test("addProject never adds a local project to an SSH workspace")
+    func addProjectIgnoresSSHWorkspace() {
+        let group = ProjectGroup(name: "Remote", type: .ssh)
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = makeStore(persistence: persistence)
+
+        store.addProject(projectID: UUID(), toGroup: group.id)
+
+        #expect(store.groups.first?.projectIDs.isEmpty == true)
+        #expect(persistence.savedGroups == nil)
+    }
+
     @Test("addProjectToActiveGroup adds project to selected group and persists")
     func addProjectToActiveGroup() {
         let group = ProjectGroup(name: "Work")

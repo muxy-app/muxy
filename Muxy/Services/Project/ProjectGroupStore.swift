@@ -267,6 +267,7 @@ final class ProjectGroupStore {
     func addProject(projectID: UUID, toGroup groupID: UUID) {
         guard projectID != Project.homeID else { return }
         guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
+        guard groups[index].type == .local else { return }
         for otherIndex in groups.indices where otherIndex != index {
             groups[otherIndex].projectIDs.removeAll { $0 == projectID }
         }

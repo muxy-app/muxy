@@ -10,32 +10,16 @@ enum CLIAccessor {
         worktreeStore: WorktreeStore,
         projectGroupStore: ProjectGroupStore
     ) {
-        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: standardizedPath, isDirectory: &isDirectory),
-              isDirectory.boolValue
-        else { return }
-
-        if let existing = projectStore.projects.first(where: { $0.path == standardizedPath }),
-           let primary = worktreeStore.primary(for: existing.id)
-        {
-            projectGroupStore.addProjectToActiveGroup(projectID: existing.id)
-            appState.selectProject(existing, worktree: primary)
-            activateApp()
+        guard ProjectOpenService.confirmProjectPath(
+            path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+        else {
             return
         }
-
-        let url = URL(fileURLWithPath: standardizedPath)
-        let project = Project(
-            name: url.lastPathComponent,
-            path: standardizedPath,
-            sortOrder: projectStore.projects.count
-        )
-        projectStore.add(project)
-        projectGroupStore.addProjectToActiveGroup(projectID: project.id)
-        worktreeStore.ensurePrimary(for: project)
-        guard let primary = worktreeStore.primary(for: project.id) else { return }
-        appState.selectProject(project, worktree: primary)
         activateApp()
     }
 

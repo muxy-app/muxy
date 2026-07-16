@@ -28,6 +28,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case toggleThemePicker
     case newProject
     case openProject
+    case recentlyRemovedProjects
     case reloadConfig
     case refreshWorktrees
     case createWorktree
@@ -91,6 +92,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .previousTab,
         .toggleThemePicker,
         .openProject,
+        .recentlyRemovedProjects,
         .reloadConfig,
         .refreshWorktrees,
         .createWorktree,
@@ -225,6 +227,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
+        case .recentlyRemovedProjects: ShortcutMetadata(
+                displayName: "Recently Removed Projects",
+                category: "App",
+                scope: .mainWindow
+            )
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
         case .refreshWorktrees: ShortcutMetadata(displayName: "Refresh Worktrees", category: "App", scope: .mainWindow)
         case .createWorktree: ShortcutMetadata(displayName: "New Worktree", category: "App", scope: .mainWindow)
@@ -336,6 +343,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
+        Self(action: .recentlyRemovedProjects, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
         Self(action: .refreshWorktrees, combo: KeyCombo(key: "r", command: true, option: true)),
         Self(action: .createWorktree, combo: KeyCombo(key: "n", command: true, option: true)),

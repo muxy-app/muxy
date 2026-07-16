@@ -71,7 +71,11 @@ struct TabFocusedSidebar: View {
                         )
                     }
                     if !expansionStore.focusMode {
-                        TabFocusedAddProjectRow(action: openProjectPicker)
+                        TabFocusedAddProjectRow(
+                            recentlyRemovedProjects: displayedRecentlyRemovedProjects,
+                            openProject: openProjectPicker,
+                            restoreProject: restoreRecentlyRemovedProject
+                        )
                     }
                 }
                 .padding(.top, UIMetrics.spacing5)
@@ -91,6 +95,25 @@ struct TabFocusedSidebar: View {
             worktreeStore: worktreeStore,
             projectGroupStore: projectGroupStore
         )
+    }
+
+    private var displayedRecentlyRemovedProjects: [RecentlyRemovedProject] {
+        guard !projectGroupStore.isRemoteWorkspaceActive else { return [] }
+        return projectStore.recentlyRemovedProjects
+    }
+
+    private func restoreRecentlyRemovedProject(id: UUID) {
+        do {
+            try ProjectOpenService.restoreRecentlyRemovedProject(
+                id: id,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
+            )
+        } catch {
+            ToastState.shared.show(title: "Could not restore project", body: error.localizedDescription)
+        }
     }
 }
 
@@ -131,38 +154,68 @@ enum TabFocusedSidebarRowItem: Identifiable {
 }
 
 private struct TabFocusedAddProjectRow: View {
-    let action: () -> Void
+    let recentlyRemovedProjects: [RecentlyRemovedProject]
+    let openProject: () -> Void
+    let restoreProject: (UUID) -> Void
     @State private var hovered = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: TabFocusedSidebarMetrics.iconTitleGap) {
-                Image(systemName: "plus")
-                    .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
-                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
-                    .frame(
-                        width: TabFocusedSidebarMetrics.folderIconSize,
-                        height: TabFocusedSidebarMetrics.folderIconSize
-                    )
-                Text("Add Project")
-                    .font(.system(size: UIMetrics.fontHeadline, weight: .medium))
-                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
-                Spacer(minLength: 0)
+        if recentlyRemovedProjects.isEmpty {
+            Button(action: openProject) {
+                label
             }
-            .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
-            .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
-            .background {
-                RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
-                    .fill(hovered ? MuxyTheme.hover : Color.clear)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add Project")
+        } else {
+            Menu {
+                Button(action: openProject) {
+                    Label("Choose Folder…", systemImage: "folder")
+                }
+                Divider()
+                Section("Recently Removed") {
+                    ForEach(recentlyRemovedProjects) { entry in
+                        Button {
+                            restoreProject(entry.id)
+                        } label: {
+                            Label(entry.project.name, systemImage: entry.project.icon ?? "folder")
+                        }
+                    }
+                }
+            } label: {
+                label
             }
-            .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add Project")
         }
+    }
+
+    private var label: some View {
+        HStack(spacing: TabFocusedSidebarMetrics.iconTitleGap) {
+            Image(systemName: "plus")
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                .frame(
+                    width: TabFocusedSidebarMetrics.folderIconSize,
+                    height: TabFocusedSidebarMetrics.folderIconSize
+                )
+            Text("Add Project")
+                .font(.system(size: UIMetrics.fontHeadline, weight: .medium))
+                .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
+        .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
+        .background {
+            RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
+                .fill(hovered ? MuxyTheme.hover : Color.clear)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
         .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
-        .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .help(shortcutTooltip)
-        .accessibilityLabel("Add Project")
     }
 
     private var shortcutTooltip: String {
