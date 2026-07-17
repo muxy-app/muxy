@@ -72,6 +72,7 @@ struct TerminalOmniboxOverlay: View {
         .onChange(of: openTabs.count) {
             highlightedIndex = displayList.isEmpty ? nil : min(highlightedIndex ?? 0, displayList.count - 1)
         }
+        .overlayEscapeKeyMonitor { onDismiss() }
     }
 
     private var searchField: some View {
