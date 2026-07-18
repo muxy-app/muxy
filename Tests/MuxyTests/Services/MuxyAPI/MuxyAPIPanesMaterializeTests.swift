@@ -3,15 +3,7 @@ import Testing
 
 @testable import Muxy
 
-@Suite(
-    "MuxyAPI.Panes background materialization",
-    .serialized,
-    .enabled("requires Ghostty surface support") {
-        await MainActor.run {
-            muxyGhosttySurfaceAvailable()
-        }
-    }
-)
+@Suite("MuxyAPI.Panes background materialization", .serialized)
 @MainActor
 struct MuxyAPIPanesMaterializeTests {
     private let testPath = "/tmp/test"
@@ -162,13 +154,4 @@ private final class SelectionStoreStub: ActiveProjectSelectionStoring {
 private final class TerminalViewRemovingStub: TerminalViewRemoving {
     func removeView(for _: UUID) {}
     func needsConfirmQuit(for _: UUID) -> Bool { false }
-}
-
-@MainActor
-private func muxyGhosttySurfaceAvailable() -> Bool {
-    guard GhosttyService.shared.app != nil else { return false }
-    let view = GhosttyTerminalNSView(workingDirectory: NSTemporaryDirectory())
-    defer { view.tearDown() }
-    view.materializeHeadless()
-    return view.surface != nil
 }

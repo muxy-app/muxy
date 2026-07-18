@@ -135,6 +135,7 @@ Differences from the webview API:
 
 - All calls are **synchronous** — they return values directly, not Promises. Muxy blocks the script's own dispatch queue while the work runs on the main actor, so the UI stays responsive.
 - `muxy.execAsync` is the exception: it returns `{ id, result, cancel() }`, where `result` is a Promise resolving to the same shape as `muxy.exec` (`stdout`, `stderr`, `exitCode`, `timedOut`, `truncated`). Cancellation rejects with `error.code === "cancelled"` and `error.cancelled === true`.
+- An extension may have at most **32 commands running at once** across `muxy.exec` and `muxy.execAsync`. Starting a 33rd rejects with `exec: too many concurrent commands (limit 32)`. Cancel or await work you no longer need instead of fanning out without bound.
 - No rendering/tab surface: no `muxy.data`, `muxy.theme`, `muxy.onDataChange`, `muxy.onThemeChange`, `muxy.focused`, `muxy.onFocus`, or `muxy.tabInstanceID`.
 - No page-only APIs: no `muxy.panels`, `muxy.popover`, `muxy.http`, or `muxy.tabs.setTitle`/`setIcon` (those need a tab instance).
 - No `muxy.events` and no `muxy.remote` — those are background-script APIs ([events](events.md), [remote methods](remote-methods.md)).

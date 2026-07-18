@@ -320,7 +320,10 @@ private final class ScriptBridge: @unchecked Sendable {
 
     private func installExecAsync(into context: JSContext) {
         let start: @convention(block) (JSValue, JSValue, JSValue) -> String = { [weak self] payload, resolve, reject in
-            guard let self else { return "" }
+            guard let self else {
+                Self.rejectExecAsync(reject, message: "extension stopped", cancelled: true)
+                return ""
+            }
             return self.startExecAsync(payload: payload, resolve: resolve, reject: reject)
         }
         context.setObject(start, forKeyedSubscript: "__muxyStartExecAsync" as NSString)
@@ -335,7 +338,7 @@ private final class ScriptBridge: @unchecked Sendable {
     private func startExecAsync(payload: JSValue, resolve: JSValue, reject: JSValue) -> String {
         let jobID = UUID().uuidString
         guard !cancelFlag.isCancelled else {
-            rejectExecAsync(reject, message: "extension stopped", cancelled: true)
+            Self.rejectExecAsync(reject, message: "extension stopped", cancelled: true)
             return jobID
         }
         let dict = (payload.toDictionary() as? [String: Any]) ?? [:]
@@ -348,17 +351,20 @@ private final class ScriptBridge: @unchecked Sendable {
                     appState: self.appState,
                     worktreeStore: self.stores.worktreeStore
                 )
-                return ExecAsyncPreparation(request: request, defaultCwd: defaultCwd)
+                let completion = PendingDeliveryCompletion(self.pendingChanged)
+                completion.start()
+                return ExecAsyncPreparation(request: request, defaultCwd: defaultCwd, completion: completion)
             }
         } catch {
-            rejectExecAsync(reject, message: error.localizedDescription, cancelled: cancelFlag.isCancelled)
+            Self.rejectExecAsync(reject, message: error.localizedDescription, cancelled: cancelFlag.isCancelled)
             return jobID
         }
-        let completion = PendingDeliveryCompletion(pendingChanged)
-        DispatchQueue.main.sync {
-            completion.start()
-        }
-        let callback = ExecAsyncCallbackBox(executor: executor, resolve: resolve, reject: reject, completion: completion)
+        let callback = ExecAsyncCallbackBox(
+            executor: executor,
+            resolve: resolve,
+            reject: reject,
+            completion: preparation.completion
+        )
         _ = ExtensionCommandExecutor.startCancelableExec(
             jobID: jobID,
             request: preparation.request,
@@ -372,7 +378,7 @@ private final class ScriptBridge: @unchecked Sendable {
         return jobID
     }
 
-    private func rejectExecAsync(_ reject: JSValue, message: String, cancelled: Bool) {
+    private static func rejectExecAsync(_ reject: JSValue, message: String, cancelled: Bool) {
         let payload: [String: Any] = [
             "message": message,
             "code": cancelled ? "cancelled" : "error",
@@ -548,6 +554,7 @@ private struct AnyBox<T>: @unchecked Sendable {
 private struct ExecAsyncPreparation {
     let request: ExecRequest
     let defaultCwd: String?
+    let completion: PendingDeliveryCompletion
 }
 
 private final class ExecAsyncCallbackBox: @unchecked Sendable {

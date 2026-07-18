@@ -57,11 +57,7 @@ final class CancellableProcess: @unchecked Sendable {
         )
         if let cwd = configuredProcess.currentDirectoryURL?.path {
             let result = cwd.withCString { path in
-                if #available(macOS 26, *) {
-                    posix_spawn_file_actions_addchdir(&actions, path)
-                } else {
-                    posix_spawn_file_actions_addchdir_np(&actions, path)
-                }
+                posix_spawn_file_actions_addchdir_np(&actions, path)
             }
             try check(result, operation: "configure working directory")
         }

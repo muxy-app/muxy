@@ -1875,16 +1875,8 @@ private func waitForView(
     guard appState.locatePane(paneID: paneID) != nil else {
         return .notFound
     }
-    let deadline = ContinuousClock.now + timeout
-    while ContinuousClock.now < deadline {
-        if let view = TerminalSurfaceMaterializer.materialize(paneID: paneID, appState: appState) {
-            return .view(view)
-        }
-        do {
-            try await Task.sleep(for: .milliseconds(50))
-        } catch {
-            return .surfaceNotReady(waited: ContinuousClock.now - start)
-        }
+    if let view = TerminalSurfaceMaterializer.materialize(paneID: paneID, appState: appState) {
+        return .view(view)
     }
     return .surfaceNotReady(waited: ContinuousClock.now - start)
 }

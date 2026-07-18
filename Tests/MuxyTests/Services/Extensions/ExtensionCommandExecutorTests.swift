@@ -130,7 +130,7 @@ struct ExtensionCommandExecutorTests {
         ) { result in
             box.complete(result)
         }
-        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "test") }
         let cancellable = try await box.wait().get()
 
         #expect(cancellable.stdout == synchronous.stdout)
@@ -161,10 +161,10 @@ struct ExtensionCommandExecutorTests {
         ) { result in
             box.complete(result)
         }
-        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "test") }
 
         try await waitForFile(at: marker)
-        #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID))
+        #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "test"))
 
         do {
             _ = try await box.wait().get()
@@ -195,11 +195,11 @@ struct ExtensionCommandExecutorTests {
         ) { result in
             box.complete(result)
         }
-        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "test") }
 
         try await waitForFile(at: childPIDFile)
         let childPID = try #require(Int32(String(contentsOf: childPIDFile).trimmingCharacters(in: .whitespacesAndNewlines)))
-        #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID))
+        #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "test"))
 
         let result = await box.wait(milliseconds: 500)
         if case .failure(ExecError.cancelled) = result {
@@ -239,7 +239,7 @@ struct ExtensionCommandExecutorTests {
         ) { result in
             evictedBox.complete(result)
         }
-        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: evictedJobID) }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: evictedJobID, extensionID: "evicted-ext") }
         let survivorJobID = ExtensionCommandExecutor.startCancelableUnchecked(
             request: ExecRequest(
                 argv: nil,
@@ -254,7 +254,7 @@ struct ExtensionCommandExecutorTests {
         ) { result in
             survivorBox.complete(result)
         }
-        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: survivorJobID) }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: survivorJobID, extensionID: "survivor-ext") }
 
         try await waitForFile(at: evictedMarker)
         try await waitForFile(at: survivorMarker)
@@ -295,7 +295,7 @@ struct ExtensionCommandExecutorTests {
         }
 
         _ = try await box.wait().get()
-        #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID))
+        #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "test"))
     }
 
     @Test("normal process exit wins before its callback is delivered")
@@ -353,13 +353,13 @@ struct ExtensionCommandExecutorTests {
         ) { result in
             box.complete(result)
         }
-        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "cancelled-owner") }
 
         if case .failure(ExecError.cancelled) = await box.wait() {
         } else {
             Issue.record("expected cancellation before authorization")
         }
-        #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID))
+        #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "cancelled-owner"))
     }
 
     @Test("accepted cancellation wins an authorization failure race")
@@ -390,7 +390,7 @@ struct ExtensionCommandExecutorTests {
 
         await gate.waitUntilStarted()
         let cancellation = Task.detached {
-            ExtensionCommandExecutor.cancelExec(jobID: jobID)
+            ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "test-extension")
         }
         await Task.detached {
             cancellationGate.waitUntilClaimed()
@@ -471,7 +471,7 @@ struct ExtensionCommandExecutorTests {
         ) { result in
             box.complete(result)
         }
-        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "owner") }
 
         try await waitForFile(at: marker)
         #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "other"))
@@ -511,7 +511,7 @@ struct ExtensionCommandExecutorTests {
 
         try await waitForFile(at: marker)
         try await waitForFile(at: timeoutMarker)
-        #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID))
+        #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "test"))
         let result = try await box.wait().get()
         #expect(result.timedOut)
         #expect(result.exitCode != 0)
@@ -585,6 +585,96 @@ struct ExtensionCommandExecutorTests {
         #expect(normalized == expected)
     }
 
+    @Test("concurrent jobs beyond the per-extension limit are rejected")
+    func concurrentJobLimitIsEnforced() async throws {
+        let limit = ExtensionCommandExecutor.maxConcurrentJobsPerExtension
+        let request = ExecRequest(
+            argv: ["/bin/sleep", "30"],
+            shell: nil,
+            cwd: nil,
+            env: nil,
+            stdin: nil,
+            timeoutMs: 10000
+        )
+        var jobIDs: [String] = []
+        defer {
+            for jobID in jobIDs {
+                _ = ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "capped")
+            }
+        }
+        for _ in 0 ..< limit {
+            jobIDs.append(ExtensionCommandExecutor.startCancelableUnchecked(
+                request: request,
+                extensionID: "capped",
+                defaultCwd: nil
+            ) { _ in })
+        }
+
+        let rejected = ExecCompletionBox()
+        _ = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: request,
+            extensionID: "capped",
+            defaultCwd: nil
+        ) { result in
+            rejected.complete(result)
+        }
+
+        if case let .failure(ExecError.tooManyConcurrentCommands(reported)) = await rejected.wait() {
+            #expect(reported == limit)
+        } else {
+            Issue.record("expected the concurrency limit to reject the extra job")
+        }
+
+        #expect(ExtensionCommandExecutor.cancelExec(jobID: jobIDs.removeLast(), extensionID: "capped"))
+        #expect(try await slotIsReleased(extensionID: "capped"))
+    }
+
+    @Test("a different extension is unaffected by another extension's limit")
+    func concurrentJobLimitIsPerExtension() async throws {
+        let limit = ExtensionCommandExecutor.maxConcurrentJobsPerExtension
+        let blocking = ExecRequest(
+            argv: ["/bin/sleep", "30"],
+            shell: nil,
+            cwd: nil,
+            env: nil,
+            stdin: nil,
+            timeoutMs: 10000
+        )
+        var jobIDs: [String] = []
+        defer {
+            for jobID in jobIDs {
+                _ = ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "noisy")
+            }
+        }
+        for _ in 0 ..< limit {
+            jobIDs.append(ExtensionCommandExecutor.startCancelableUnchecked(
+                request: blocking,
+                extensionID: "noisy",
+                defaultCwd: nil
+            ) { _ in })
+        }
+
+        let quiet = ExecCompletionBox()
+        _ = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: ExecRequest(
+                argv: ["/bin/echo", "quiet"],
+                shell: nil,
+                cwd: nil,
+                env: nil,
+                stdin: nil,
+                timeoutMs: nil
+            ),
+            extensionID: "quiet",
+            defaultCwd: nil
+        ) { result in
+            quiet.complete(result)
+        }
+
+        let result = try await quiet.wait().get()
+        #expect(result.exitCode == 0)
+        #expect(result.stdout.contains("quiet"))
+    }
+
     @Test("invalid request rejects with ExecError")
     func invalidRequest() async {
         let request = ExecRequest(
@@ -607,6 +697,29 @@ struct ExtensionCommandExecutorTests {
             Issue.record("expected ExecError, got \(error)")
         }
     }
+}
+
+private func slotIsReleased(extensionID: String) async throws -> Bool {
+    for _ in 0 ..< 100 {
+        let box = ExecCompletionBox()
+        _ = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: ExecRequest(
+                argv: ["/usr/bin/true"],
+                shell: nil,
+                cwd: nil,
+                env: nil,
+                stdin: nil,
+                timeoutMs: nil
+            ),
+            extensionID: extensionID,
+            defaultCwd: nil
+        ) { result in
+            box.complete(result)
+        }
+        guard case .failure(ExecError.tooManyConcurrentCommands) = await box.wait() else { return true }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    return false
 }
 
 private func waitForFile(at url: URL) async throws {

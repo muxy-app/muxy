@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 struct ExecRequest {
@@ -22,12 +21,14 @@ enum ExecError: Error, LocalizedError {
     case invalidArguments(String)
     case launchFailed(String)
     case cancelled
+    case tooManyConcurrentCommands(Int)
 
     var errorDescription: String? {
         switch self {
         case let .invalidArguments(detail): "exec: \(detail)"
         case let .launchFailed(detail): "exec failed to launch: \(detail)"
         case .cancelled: "exec cancelled"
+        case let .tooManyConcurrentCommands(limit): "exec: too many concurrent commands (limit \(limit))"
         }
     }
 }
@@ -35,7 +36,8 @@ enum ExecError: Error, LocalizedError {
 enum ExtensionCommandExecutor {
     static let defaultTimeoutMs = 30000
     static let maxOutputBytes = 10 * 1024 * 1024
-    private static let jobs = ExecJobRegistry()
+    static let maxConcurrentJobsPerExtension = 32
+    private static let jobs = ExecJobRegistry(maxJobsPerExtension: maxConcurrentJobsPerExtension)
 
     @MainActor
     static func exec(
@@ -60,7 +62,7 @@ enum ExtensionCommandExecutor {
         isCancelled: @escaping @Sendable () -> Bool = { false },
         onCancellationClaimed: @escaping @Sendable () -> Void = {},
         authorize: @escaping ExecJob.Authorizer = { request, extensionID in
-            try await ExtensionCommandExecutor.authorizeCancelableExec(
+            try await ExtensionCommandExecutor.authorizeExec(
                 request: request,
                 extensionID: extensionID
             )
@@ -77,9 +79,12 @@ enum ExtensionCommandExecutor {
             completion: completion,
             onRemove: { id in jobs.remove(id: id) }
         )
-        jobs.insert(job)
+        guard jobs.insert(job) else {
+            job.fail(.tooManyConcurrentCommands(maxConcurrentJobsPerExtension))
+            return job.id
+        }
         guard !isCancelled() else {
-            _ = jobs.cancel(id: job.id)
+            _ = jobs.cancel(id: job.id, extensionID: extensionID)
             return job.id
         }
         job.authorizeAndRun()
@@ -104,13 +109,12 @@ enum ExtensionCommandExecutor {
             completion: completion,
             onRemove: { id in jobs.remove(id: id) }
         )
-        jobs.insert(job)
+        guard jobs.insert(job) else {
+            job.fail(.tooManyConcurrentCommands(maxConcurrentJobsPerExtension))
+            return job.id
+        }
         job.run(context: context)
         return job.id
-    }
-
-    static func cancelExec(jobID: String) -> Bool {
-        jobs.cancel(id: jobID)
     }
 
     static func cancelExec(jobID: String, extensionID: String) -> Bool {
@@ -127,66 +131,20 @@ enum ExtensionCommandExecutor {
         defaultCwd: String?,
         context: WorkspaceContext = .local
     ) async throws -> ExecResult {
-        let process = Process()
-        try configureLaunch(
-            process,
-            request: request,
-            extensionID: extensionID,
-            defaultCwd: defaultCwd,
-            context: context
-        )
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        process.standardInput = stdinPipe
-
-        let stdoutBox = OutputBox()
-        let stderrBox = OutputBox()
-        let stdoutReader = OutputReader(pipe: stdoutPipe, box: stdoutBox)
-        let stderrReader = OutputReader(pipe: stderrPipe, box: stderrBox)
-        let timeoutFlag = TimeoutFlag()
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            stdoutReader.start()
-            stderrReader.start()
-
-            let resumeBox = ResumeBox(continuation: continuation)
-            process.terminationHandler = { _ in
-                resumeBox.resume()
+        try await withCheckedThrowingContinuation { continuation in
+            _ = startCancelableUnchecked(
+                request: request,
+                extensionID: extensionID,
+                defaultCwd: defaultCwd,
+                context: context
+            ) { result in
+                continuation.resume(with: result)
             }
-
-            do {
-                try process.run()
-            } catch {
-                resumeBox.resume(throwing: ExecError.launchFailed(error.localizedDescription))
-                return
-            }
-
-            writeStdin(request.stdin, into: stdinPipe)
-
-            let timeoutMs = request.timeoutMs ?? defaultTimeoutMs
-            if timeoutMs > 0 {
-                scheduleTimeout(process: process, after: timeoutMs, flag: timeoutFlag)
-            }
-        } as Void
-
-        stdoutReader.finish()
-        stderrReader.finish()
-
-        return ExecResult(
-            stdout: stdoutBox.string(),
-            stderr: stderrBox.string(),
-            exitCode: process.terminationStatus,
-            timedOut: timeoutFlag.fired,
-            truncated: stdoutBox.overflow || stderrBox.overflow
-        )
+        }
     }
 
     @MainActor
-    private static func authorizeExec(request: ExecRequest, extensionID: String) async throws -> WorkspaceContext {
+    static func authorizeExec(request: ExecRequest, extensionID: String) async throws -> WorkspaceContext {
         guard ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: .commandsExec) else {
             throw ExecError.invalidArguments("permission denied (\(ExtensionPermission.commandsExec.rawValue))")
         }
@@ -201,10 +159,6 @@ enum ExtensionCommandExecutor {
             throw ExecError.invalidArguments("user denied consent for exec")
         }
         return ActiveWorkspaceContext.shared.current
-    }
-
-    static func authorizeCancelableExec(request: ExecRequest, extensionID: String) async throws -> WorkspaceContext {
-        try await authorizeExec(request: request, extensionID: extensionID)
     }
 
     static func configureLaunch(
@@ -303,66 +257,5 @@ enum ExtensionCommandExecutor {
             }
         }
         throw ExecError.launchFailed("command not found: \(command)")
-    }
-
-    static func writeStdin(_ text: String?, into pipe: Pipe) {
-        let handle = pipe.fileHandleForWriting
-        defer {
-            try? handle.close()
-        }
-        guard let text, !text.isEmpty else { return }
-        _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
-        try? handle.write(contentsOf: Data(text.utf8))
-    }
-
-    fileprivate static func scheduleTimeout(process: Process, after milliseconds: Int, flag: TimeoutFlag) {
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(milliseconds)) {
-            guard process.isRunning else { return }
-            flag.fired = true
-            process.terminate()
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .seconds(2)) {
-                guard process.isRunning else { return }
-                kill(process.processIdentifier, SIGKILL)
-            }
-        }
-    }
-}
-
-private final class TimeoutFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var didFire = false
-
-    var fired: Bool {
-        get { lock.lock()
-            defer { lock.unlock() }
-            return didFire
-        }
-        set { lock.lock()
-            defer { lock.unlock() }
-            didFire = newValue
-        }
-    }
-}
-
-private final class ResumeBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, Error>?
-
-    init(continuation: CheckedContinuation<Void, Error>) {
-        self.continuation = continuation
-    }
-
-    func resume() {
-        lock.lock()
-        defer { lock.unlock() }
-        continuation?.resume()
-        continuation = nil
-    }
-
-    func resume(throwing error: Error) {
-        lock.lock()
-        defer { lock.unlock() }
-        continuation?.resume(throwing: error)
-        continuation = nil
     }
 }

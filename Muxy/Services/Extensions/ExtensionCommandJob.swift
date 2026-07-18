@@ -1,34 +1,40 @@
+import Darwin
 import Foundation
 
 final class ExecJobRegistry: @unchecked Sendable {
+    private let maxJobsPerExtension: Int
     private let lock = NSLock()
     private var jobs: [String: ExecJob] = [:]
+    private var activeCounts: [String: Int] = [:]
 
-    func insert(_ job: ExecJob) {
+    init(maxJobsPerExtension: Int) {
+        self.maxJobsPerExtension = maxJobsPerExtension
+    }
+
+    func insert(_ job: ExecJob) -> Bool {
         lock.lock()
+        defer { lock.unlock() }
+        let active = activeCounts[job.extensionID, default: 0]
+        guard active < maxJobsPerExtension, jobs[job.id] == nil else { return false }
         jobs[job.id] = job
-        lock.unlock()
+        activeCounts[job.extensionID] = active + 1
+        return true
     }
 
     func remove(id: String) {
         lock.lock()
-        jobs[id] = nil
-        lock.unlock()
-    }
-
-    func cancel(id: String) -> Bool {
-        lock.lock()
-        let job = jobs[id]
-        lock.unlock()
-        return job?.cancel() ?? false
+        defer { lock.unlock() }
+        guard let job = jobs.removeValue(forKey: id) else { return }
+        let remaining = activeCounts[job.extensionID, default: 1] - 1
+        activeCounts[job.extensionID] = remaining > 0 ? remaining : nil
     }
 
     func cancel(id: String, extensionID: String) -> Bool {
         lock.lock()
         let job = jobs[id]
         lock.unlock()
-        guard job?.extensionID == extensionID else { return false }
-        return job?.cancel() ?? false
+        guard let job, job.extensionID == extensionID else { return false }
+        return job.cancel()
     }
 
     func cancelAll(extensionID: String) {
@@ -184,7 +190,14 @@ final class ExecJob: @unchecked Sendable {
             scheduleTimeout(after: timeoutMs)
         }
 
-        ExtensionCommandExecutor.writeStdin(request.stdin, into: stdinPipe)
+        let stdinWrite = StdinWrite(pipe: stdinPipe, text: request.stdin)
+        DispatchQueue.global(qos: .utility).async {
+            stdinWrite.perform()
+        }
+    }
+
+    func fail(_ error: ExecError) {
+        finish(.failure(error))
     }
 
     func cancel() -> Bool {
@@ -287,5 +300,20 @@ final class ExecJob: @unchecked Sendable {
 
         onRemove(id)
         callback?(deliveredResult)
+    }
+}
+
+private struct StdinWrite: @unchecked Sendable {
+    let pipe: Pipe
+    let text: String?
+
+    func perform() {
+        let handle = pipe.fileHandleForWriting
+        defer {
+            try? handle.close()
+        }
+        guard let text, !text.isEmpty else { return }
+        _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
+        try? handle.write(contentsOf: Data(text.utf8))
     }
 }

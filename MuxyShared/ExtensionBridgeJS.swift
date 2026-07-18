@@ -65,13 +65,7 @@ public enum ExtensionBridgeJS {
                 }
                 return payload;
             };
-            const makeExecError = (raw) => {
-                const message = String((raw && raw.message) || raw || 'exec failed');
-                const error = new Error(message);
-                error.code = String((raw && raw.code) || 'error');
-                error.cancelled = !!(raw && raw.cancelled);
-                return error;
-            };
+            \(surface == .inProcess ? execAsyncErrorFactory : "")
             const modalResultHandlers = {};
             const modalWebviewResultHandlers = {};
             const modalQueryHandlers = {};
@@ -580,6 +574,16 @@ public enum ExtensionBridgeJS {
                     if (!isExtensionLocalEvent(key)) throw new Error('extension events must start with extension.');
                     return dispatch('events.emit', { event: key, payload: payload === undefined ? null : payload });
                 },
+            };
+    """
+
+    private static let execAsyncErrorFactory = """
+            const makeExecError = (raw) => {
+                const message = String((raw && raw.message) || raw || 'exec failed');
+                const error = new Error(message);
+                error.code = String((raw && raw.code) || 'error');
+                error.cancelled = !!(raw && raw.cancelled);
+                return error;
             };
     """
 
