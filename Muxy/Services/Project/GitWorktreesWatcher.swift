@@ -75,6 +75,17 @@ final class GitWorktreesWatcher: @unchecked Sendable {
     }
 
     static func resolveGitDirectory(forRepoPath repoPath: String) -> String? {
+        guard let worktreeGitDirectory = resolveWorktreeGitDirectory(forRepoPath: repoPath) else { return nil }
+        let dotGitDirectory = URL(fileURLWithPath: repoPath)
+            .appendingPathComponent(".git")
+            .standardizedFileURL
+            .path
+        guard worktreeGitDirectory != dotGitDirectory else { return worktreeGitDirectory }
+        guard let range = worktreeGitDirectory.range(of: "/worktrees/") else { return worktreeGitDirectory }
+        return String(worktreeGitDirectory[..<range.lowerBound])
+    }
+
+    static func resolveWorktreeGitDirectory(forRepoPath repoPath: String) -> String? {
         let manager = FileManager.default
         let repoURL = URL(fileURLWithPath: repoPath).standardizedFileURL
         let dotGitURL = repoURL.appendingPathComponent(".git")
@@ -92,9 +103,7 @@ final class GitWorktreesWatcher: @unchecked Sendable {
 
         let target = line.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespaces)
         let targetURL = URL(fileURLWithPath: target, relativeTo: repoURL).standardizedFileURL
-        let targetPath = targetURL.path
-        guard let range = targetPath.range(of: "/worktrees/") else { return nil }
-        return String(targetPath[..<range.lowerBound])
+        return targetURL.path
     }
 
     private func scheduleRefresh() {

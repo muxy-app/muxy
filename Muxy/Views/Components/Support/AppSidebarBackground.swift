@@ -5,7 +5,7 @@ enum AppSidebarVibrancy {
     static let material = NSVisualEffectView.Material.sidebar
     static let blendingMode = NSVisualEffectView.BlendingMode.behindWindow
     static let state = NSVisualEffectView.State.active
-    static let themeOverlayOpacity = 0.8
+    static let themeOverlayOpacity = 0.6
 }
 
 struct AppSidebarBackground: View {

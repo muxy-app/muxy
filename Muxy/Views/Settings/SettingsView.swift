@@ -137,6 +137,8 @@ struct SettingsView: View {
             KeyboardShortcutsSettingsView()
         case .commands:
             CommandsSettingsView()
+        case .ai:
+            AISettingsView()
         case .voice:
             RecordingSettingsView()
         case .notifications:

@@ -57,6 +57,53 @@ struct AgentStatusTests {
         #expect(NotificationSocketServer.parseAgentStatusMessage("agent_status||\(UUID().uuidString)|idle") == nil)
     }
 
+    @Test("parses every normalized lifecycle phase")
+    func parsesEveryLifecyclePhase() {
+        let paneID = UUID()
+        for phase in [AgentLifecyclePhase.working, .waiting, .finished] {
+            let parsed = NotificationSocketServer.parseAgentLifecycleMessage(
+                "agent_event|codex_hook|\(paneID.uuidString)|\(phase.rawValue)|Codex|Body"
+            )
+            #expect(parsed == NotificationSocketServer.AgentLifecycleMessage(
+                socketType: "codex_hook",
+                paneID: paneID,
+                phase: phase,
+                title: "Codex",
+                body: "Body"
+            ))
+        }
+    }
+
+    @Test("lifecycle parser preserves an empty notification and body pipes")
+    func lifecycleParserPreservesPayload() {
+        let paneID = UUID()
+        let parsed = NotificationSocketServer.parseAgentLifecycleMessage(
+            "agent_event|opencode|\(paneID.uuidString)|working||part one|part two"
+        )
+        #expect(parsed?.title == "")
+        #expect(parsed?.body == "part one|part two")
+    }
+
+    @Test("lifecycle parser rejects malformed messages")
+    func rejectsMalformedLifecycleMessages() {
+        #expect(NotificationSocketServer.parseAgentLifecycleMessage("agent_event|codex_hook|bad|working||") == nil)
+        #expect(NotificationSocketServer.parseAgentLifecycleMessage(
+            "agent_event|codex_hook|\(UUID().uuidString)|idle||"
+        ) == nil)
+        #expect(NotificationSocketServer.parseAgentLifecycleMessage(
+            "agent_event||\(UUID().uuidString)|finished||"
+        ) == nil)
+    }
+
+    @Test("only active to idle transitions mark completion")
+    func completionTransitions() {
+        #expect(AgentStatusStore.marksCompletion(from: .working, to: .idle))
+        #expect(AgentStatusStore.marksCompletion(from: .waiting, to: .idle))
+        #expect(!AgentStatusStore.marksCompletion(from: nil, to: .idle))
+        #expect(!AgentStatusStore.marksCompletion(from: .idle, to: .idle))
+        #expect(!AgentStatusStore.marksCompletion(from: .waiting, to: .working))
+    }
+
     @Test("event payload carries the full status context")
     func eventPayloadKeys() {
         let worktreeID = UUID()

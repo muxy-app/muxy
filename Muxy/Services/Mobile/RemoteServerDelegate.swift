@@ -743,8 +743,17 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         }
         let trimmedBase = baseBranch?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedBase: String? = (createBranch && trimmedBase?.isEmpty == false) ? trimmedBase : nil
-        let slug = Self.worktreeSlug(from: trimmedName)
-        let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug)
+        let slug = WorktreeLocationResolver.slug(from: trimmedName)
+        let worktreeDirectory: String
+        do {
+            worktreeDirectory = try WorktreeLocationResolver.worktreeDirectory(
+                for: project,
+                slug: slug,
+                branch: trimmedBranch
+            )
+        } catch let error as WorktreeLocationError {
+            throw RemoteVCSError.invalidInput(error.localizedDescription)
+        }
         let context = projectGroupStore.workspaceContext(for: project)
 
         if await context.fileOps.exists(at: worktreeDirectory) {
@@ -865,15 +874,6 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             }
         }
         return GitFileDTO(path: file.path, status: status, isUntracked: isUntracked)
-    }
-
-    private static func worktreeSlug(from name: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let scalars = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
-        let collapsed = String(scalars)
-            .split(separator: "-", omittingEmptySubsequences: true)
-            .joined(separator: "-")
-        return collapsed.isEmpty ? UUID().uuidString : collapsed
     }
 
     enum RemoteVCSError: LocalizedError {

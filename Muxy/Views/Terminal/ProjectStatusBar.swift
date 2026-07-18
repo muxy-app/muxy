@@ -29,12 +29,15 @@ struct ProjectStatusBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            leftSide
-            Spacer(minLength: 8)
+            ScrollView(.horizontal, showsIndicators: false) {
+                leftSide
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             rightSide
+                .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 10)
-        .frame(height: 28)
+        .frame(height: UIMetrics.statusBarHeight)
         .background(MuxyTheme.bg)
         .overlay(
             Rectangle().fill(MuxyTheme.border).frame(height: 1),
@@ -50,6 +53,7 @@ struct ProjectStatusBar: View {
                 pathButton(statusContext.path)
                 separator
             }
+            RepositoryStatusBarItems()
             ForEach(extensionStore.statusBarItems(side: .left)) { binding in
                 extensionItem(binding: binding)
                 separator
@@ -111,16 +115,16 @@ struct ProjectStatusBar: View {
         let remote = isRemoteWorkspace
         return Button {
             if remote {
-                copyToPasteboard(fullPath)
+                PathClipboard.copy(fullPath)
             } else {
                 revealInFinder(fullPath)
             }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: remote ? "network" : "folder")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 Text(truncated)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .lineLimit(1)
             }
             .foregroundStyle(MuxyTheme.fgMuted)
@@ -129,7 +133,7 @@ struct ProjectStatusBar: View {
         .help(fullPath)
         .accessibilityLabel(remote ? "Copy \(fullPath)" : "Reveal \(fullPath) in Finder")
         .contextMenu {
-            Button("Copy Path") { copyToPasteboard(fullPath) }
+            Button("Copy Path") { PathClipboard.copy(fullPath) }
             if !remote {
                 Button("Reveal in Finder") { revealInFinder(fullPath) }
             }
@@ -137,11 +141,7 @@ struct ProjectStatusBar: View {
     }
 
     private var separator: some View {
-        Rectangle()
-            .fill(MuxyTheme.border)
-            .frame(width: 1)
-            .frame(maxHeight: .infinity)
-            .accessibilityHidden(true)
+        StatusBarSeparator()
     }
 
     private func extensionItem(binding: ExtensionStore.StatusBarItemBinding) -> some View {
@@ -162,11 +162,11 @@ struct ProjectStatusBar: View {
                 ExtensionIconView(
                     icon: binding.displayIcon,
                     muxyExtension: binding.muxyExtension,
-                    size: 10
+                    size: UIMetrics.iconXS
                 )
                 if let text = binding.displayText, !text.isEmpty {
                     Text(text)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                         .lineLimit(1)
                 }
             }
@@ -187,7 +187,7 @@ struct ProjectStatusBar: View {
             extensionOutputVisible.toggle()
         } label: {
             Image(systemName: "ladybug")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(extensionOutputVisible ? MuxyTheme.accent : MuxyTheme.fgMuted)
         }
         .buttonStyle(.plain)
@@ -199,9 +199,9 @@ struct ProjectStatusBar: View {
         Button(action: handleToggleRichInput) {
             HStack(spacing: 4) {
                 Image(systemName: "keyboard")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 Text(richInputShortcutLabel)
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
         }
@@ -215,9 +215,9 @@ struct ProjectStatusBar: View {
         Button(action: handleToggleVoiceRecording) {
             HStack(spacing: 4) {
                 Image(systemName: "mic")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 Text(voiceShortcutLabel)
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
         }
@@ -231,7 +231,7 @@ struct ProjectStatusBar: View {
         HStack(spacing: 2) {
             Button(action: decreaseFontSize) {
                 Image(systemName: "textformat.size.smaller")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
             }
             .buttonStyle(RichInputToolbarButtonStyle())
             .disabled(richInputFontSize <= RichInputPreferences.minFontSize)
@@ -239,14 +239,14 @@ struct ProjectStatusBar: View {
             .help("Decrease font size")
 
             Text("\(Int(clampedFontSize))")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(minWidth: 18)
                 .accessibilityLabel("Editor font size \(Int(clampedFontSize))")
 
             Button(action: increaseFontSize) {
                 Image(systemName: "textformat.size.larger")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
             }
             .buttonStyle(RichInputToolbarButtonStyle())
             .disabled(richInputFontSize >= RichInputPreferences.maxFontSize)
@@ -270,10 +270,10 @@ struct ProjectStatusBar: View {
     private func shortcutHint(keys: String, label: String) -> some View {
         HStack(spacing: 4) {
             Text(keys)
-                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text(label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
         }
     }
@@ -305,12 +305,6 @@ struct ProjectStatusBar: View {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    private func copyToPasteboard(_ string: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(string, forType: .string)
-    }
-
     private func abbreviatePath(_ path: String) -> String {
         let home = NSHomeDirectory()
         guard !home.isEmpty, path.hasPrefix(home) else { return path }
@@ -323,5 +317,15 @@ struct ProjectStatusBar: View {
         guard path.count > maxCharacters, maxCharacters > 1 else { return path }
         let suffix = path.suffix(maxCharacters - 1)
         return "…" + suffix
+    }
+}
+
+struct StatusBarSeparator: View {
+    var body: some View {
+        Rectangle()
+            .fill(MuxyTheme.border)
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+            .accessibilityHidden(true)
     }
 }

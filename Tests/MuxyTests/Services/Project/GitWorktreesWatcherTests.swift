@@ -79,6 +79,19 @@ struct GitWorktreesWatcherTests {
 
         let resolved = GitWorktreesWatcher.resolveGitDirectory(forRepoPath: repo.path)
         #expect(resolved == repo.appendingPathComponent(".git").path)
+        #expect(GitWorktreesWatcher.resolveWorktreeGitDirectory(forRepoPath: repo.path) == resolved)
+    }
+
+    @Test("does not truncate a primary repo path containing a worktrees directory")
+    func preservesPrimaryRepoPathContainingWorktrees() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GitWorktreesWatcherTests-\(UUID().uuidString)", isDirectory: true)
+        let repo = root.appendingPathComponent("worktrees/project", isDirectory: true)
+        let gitDirectory = repo.appendingPathComponent(".git", isDirectory: true)
+        try? FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        #expect(GitWorktreesWatcher.resolveGitDirectory(forRepoPath: repo.path) == gitDirectory.path)
     }
 
     @Test("resolves the common .git directory when .git is a linked-worktree gitfile")
@@ -93,6 +106,10 @@ struct GitWorktreesWatcherTests {
 
         let resolved = GitWorktreesWatcher.resolveGitDirectory(forRepoPath: dir.path)
         #expect(resolved == "/main/checkout/.git")
+        #expect(
+            GitWorktreesWatcher.resolveWorktreeGitDirectory(forRepoPath: dir.path)
+                == "/main/checkout/.git/worktrees/feature"
+        )
     }
 
     @Test("resolves relative linked-worktree gitfile targets")
@@ -110,6 +127,10 @@ struct GitWorktreesWatcherTests {
 
         let resolved = GitWorktreesWatcher.resolveGitDirectory(forRepoPath: worktree.path)
         #expect(resolved == mainGit.path)
+        #expect(
+            GitWorktreesWatcher.resolveWorktreeGitDirectory(forRepoPath: worktree.path)
+                == mainGit.appendingPathComponent("worktrees/feature").path
+        )
     }
 
     @Test("returns nil when there is no git directory")
@@ -120,6 +141,7 @@ struct GitWorktreesWatcherTests {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         #expect(GitWorktreesWatcher.resolveGitDirectory(forRepoPath: dir.path) == nil)
+        #expect(GitWorktreesWatcher.resolveWorktreeGitDirectory(forRepoPath: dir.path) == nil)
     }
 
     @Test("fires when a worktree admin directory is created")

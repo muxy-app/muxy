@@ -1,12 +1,30 @@
 import Foundation
 
-struct GrokProvider: AIProviderIntegration {
+struct GrokProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "grok"
     let displayName = "Grok"
     let socketTypeKey = "grok_hook"
     let iconName = "grok"
     let executableNames = ["grok"]
     let hookScriptName = "muxy-grok-hook"
+
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "grok",
+            headlessArguments: [
+                "--no-auto-update",
+                "--sandbox",
+                "workspace",
+                "--permission-mode",
+                "dontAsk",
+                "--no-subagents",
+                "--disable-web-search",
+                "--output-format",
+                "text",
+                "-p",
+            ]
+        )
+    }
 
     private static let muxyMarker = "muxy-notification-hook"
     private static let hookFileName = "muxy-notify.json"
@@ -40,8 +58,12 @@ struct GrokProvider: AIProviderIntegration {
     private var hookFilePath: String { hooksDir + "/" + Self.hookFileName }
 
     func isToolInstalled() -> Bool {
-        ProviderExecutableLocator.isInstalled(
-            names: executableNames,
+        agentCLIExecutablePath() != nil
+    }
+
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
             homeDirectory: homeDirectory,
             pathEnvironment: pathEnvironment(),
             includeSystemWide: homeDirectory == NSHomeDirectory()
@@ -69,6 +91,7 @@ struct GrokProvider: AIProviderIntegration {
 
     func uninstall() throws {
         guard FileManager.default.fileExists(atPath: hookFilePath) else { return }
+        guard isHookInstalled() else { return }
         var settings = try Self.readHooksFile(at: hookFilePath)
         guard let hooks = settings["hooks"] as? [String: Any] else { return }
 

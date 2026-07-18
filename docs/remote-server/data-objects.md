@@ -16,6 +16,7 @@ The shared protocol still contains legacy/internal result variants such as `term
   "icon": "hammer",
   "logo": "a1b2c3d4",
   "iconColor": "#7C3AED",
+  "preferredWorktreePathTemplate": "../{base-dir}.{branch}",
   "preferredWorktreeParentPath": "/Users/example",
   "worktreesEnabled": false,
   "workspaceKind": "local",
@@ -24,7 +25,7 @@ The shared protocol still contains legacy/internal result variants such as `term
 }
 ```
 
-`icon`, `logo`, `iconColor`, and `preferredWorktreeParentPath` are optional and omitted when unset. `icon` is an SF Symbol name. `logo` is an opaque storage identifier — fetch the image with [`getProjectLogo`](methods.md). `iconColor` is a hex string or a palette id (`red`, `blue`, `violet`, …). `worktreesEnabled` indicates whether the project exposes its worktrees in the sidebar; it defaults to `false`.
+`icon`, `logo`, `iconColor`, `preferredWorktreePathTemplate`, and `preferredWorktreeParentPath` are optional and omitted when unset. The template must include `{branch}`, can also use `{project-name}` and `{base-dir}`, and resolves relative to the local project path. The parent path is the legacy folder-based location. `icon` is an SF Symbol name. `logo` is an opaque storage identifier — fetch the image with [`getProjectLogo`](methods.md). `iconColor` is a hex string or a palette id (`red`, `blue`, `violet`, …). `worktreesEnabled` indicates whether the project exposes its worktrees in the sidebar; it defaults to `false`.
 
 `listProjects` returns projects from **all** workspaces — local projects plus every remote (SSH) workspace's projects. `workspaceKind` is `"local"` or `"ssh"`; `workspaceID`/`workspaceName` identify the owning workspace. Ungrouped local projects and Home belong to the implicit **Local** workspace and carry its `workspaceID`. Selecting an `ssh` project via [`selectProject`](methods.md) makes the Mac activate that workspace and connect over SSH, so the mobile client drives the remote server transparently — terminals, git, and exec all run on the remote host while the Mac brokers the connection. `path` for an `ssh` project is a remote path.
 

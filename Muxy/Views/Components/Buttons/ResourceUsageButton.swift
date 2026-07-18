@@ -10,7 +10,7 @@ struct ResourceUsageButton: View {
             showingPopover.toggle()
         } label: {
             Image(systemName: "cpu")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
                 .padding(.horizontal, 4)
                 .frame(maxHeight: .infinity)

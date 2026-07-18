@@ -5,6 +5,64 @@ import Testing
 
 @Suite("GitStatusParser")
 struct GitStatusParserTests {
+    @Test("repository summary parses clean branch and upstream")
+    func parseCleanRepositorySummary() throws {
+        let output = """
+        # branch.oid abcdef1234567890
+        # branch.head feature/topbar
+        # branch.upstream origin/feature/topbar
+        # branch.ab +2 -1
+        """
+
+        let summary = try #require(GitStatusParser.parseRepositorySummary(output))
+
+        #expect(summary.branch == "feature/topbar")
+        #expect(summary.displayBranch == "feature/topbar")
+        #expect(summary.headOID == "abcdef1234567890")
+        #expect(summary.aheadBehind == GitRepositoryService.AheadBehind(ahead: 2, behind: 1, hasUpstream: true))
+        #expect(!summary.isDirty)
+    }
+
+    @Test("repository summary counts staged, unstaged, untracked, and conflicted files")
+    func parseDirtyRepositorySummary() throws {
+        let output = """
+        # branch.oid abcdef1234567890
+        # branch.head main
+        1 M. N... 100644 100644 100644 abc abc staged.swift
+        1 .M N... 100644 100644 100644 abc abc unstaged.swift
+        1 MM N... 100644 100644 100644 abc abc both.swift
+        ? new.swift
+        u UU N... 100644 100644 100644 100644 abc abc abc conflict.swift
+        """
+
+        let summary = try #require(GitStatusParser.parseRepositorySummary(output))
+
+        #expect(summary.changedCount == 5)
+        #expect(summary.stagedCount == 3)
+        #expect(summary.unstagedCount == 3)
+        #expect(summary.untrackedCount == 1)
+        #expect(summary.isDirty)
+        #expect(!summary.aheadBehind.hasUpstream)
+    }
+
+    @Test("repository summary presents detached head with a short commit")
+    func parseDetachedRepositorySummary() throws {
+        let output = """
+        # branch.oid abcdef1234567890
+        # branch.head (detached)
+        """
+
+        let summary = try #require(GitStatusParser.parseRepositorySummary(output))
+
+        #expect(summary.isDetached)
+        #expect(summary.displayBranch == "Detached abcdef1")
+    }
+
+    @Test("repository summary requires branch metadata")
+    func parseRepositorySummaryWithoutBranch() {
+        #expect(GitStatusParser.parseRepositorySummary("? file.swift") == nil)
+    }
+
     @Test("parseStatusPorcelain with empty data returns empty array")
     func parseEmpty() {
         let result = GitStatusParser.parseStatusPorcelain(Data(), stats: [:])
@@ -38,7 +96,7 @@ struct GitStatusParserTests {
 
     @Test("parseStatusPorcelain parses renamed file")
     func parseRenamed() {
-        let raw = "R  old.swift\0new.swift\0"
+        let raw = "R  new.swift\0old.swift\0"
         let data = Data(raw.utf8)
         let result = GitStatusParser.parseStatusPorcelain(data, stats: [:])
 
@@ -50,7 +108,7 @@ struct GitStatusParserTests {
 
     @Test("parseStatusPorcelain parses unstaged renamed file")
     func parseUnstagedRenamed() {
-        let raw = " R old.swift\0new.swift\0"
+        let raw = " R new.swift\0old.swift\0"
         let data = Data(raw.utf8)
         let result = GitStatusParser.parseStatusPorcelain(data, stats: [:])
 

@@ -149,7 +149,7 @@ if [ "$failed" -eq 0 ]; then
 fi
 
 if [ "$failed" -eq 0 ]; then
-  run_step "Test" swift test --quiet || failed=1
+  run_step "Test" "$SCRIPT_DIR/run-tests-isolated.sh" swift test --quiet || failed=1
 fi
 
 if [ "$failed" -eq 0 ] && [ "$COVERAGE" -eq 1 ]; then

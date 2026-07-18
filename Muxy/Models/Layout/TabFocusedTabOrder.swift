@@ -36,19 +36,24 @@ enum TabFocusedTabOrder {
                 }
                 return true
             }
-            .filter { expansionStore.isExpandedPersisted($0.id) }
             .flatMap { project -> [Entry] in
-                guard expansionStore.isGroupedByWorktree(project.id) else {
-                    return appState.allAreas(for: project.id).flatMap { area in
-                        area.tabs.map { Entry(projectID: project.id, worktreeID: nil, areaID: area.id, tabID: $0.id) }
+                worktreeRows(for: project, worktreeStore: worktreeStore).flatMap { worktree -> [Entry] in
+                    guard expansionStore.isExpandedPersisted(worktree.isPrimary ? project.id : worktree.id) else {
+                        return []
                     }
-                }
-                return worktreeStore.list(for: project.id).flatMap { worktree -> [Entry] in
                     let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
                     return appState.areas(for: key).flatMap { area in
                         area.tabs.map { Entry(projectID: project.id, worktreeID: worktree.id, areaID: area.id, tabID: $0.id) }
                     }
                 }
             }
+    }
+
+    private static func worktreeRows(for project: Project, worktreeStore: WorktreeStore) -> [Worktree] {
+        let worktrees = worktreeStore.list(for: project.id)
+        guard project.worktreesEnabled, !project.isHome else {
+            return worktrees.filter(\.isPrimary)
+        }
+        return worktrees
     }
 }

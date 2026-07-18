@@ -153,6 +153,7 @@
         "agents:read",
         "git:read",
         "git:write",
+        "gh:read",
         "files:read",
         "files:write",
         "storage:read",

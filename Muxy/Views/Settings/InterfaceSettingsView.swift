@@ -85,7 +85,6 @@ struct InterfaceSettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: SettingsMetrics.controlWidth)
                 }
 
                 TabHeaderWidthSettingRow()

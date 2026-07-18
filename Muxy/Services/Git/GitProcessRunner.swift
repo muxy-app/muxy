@@ -49,6 +49,7 @@ enum GitProcessRunner {
         let arguments: [String]
         let workingDirectory: String?
         let lineLimit: Int?
+        var outputByteLimit: Int?
         let signpostName: StaticString
         var stdinData: Data?
     }
@@ -57,6 +58,7 @@ enum GitProcessRunner {
         repoPath: String,
         arguments: [String],
         lineLimit: Int? = nil,
+        outputByteLimit: Int? = nil,
         context: WorkspaceContext = .local
     ) async throws -> GitProcessResult {
         guard case let .ssh(destination) = context else {
@@ -66,6 +68,7 @@ enum GitProcessRunner {
                     arguments: ["git"] + gitHubCredentialHelperArgs() + ["-C", repoPath] + arguments,
                     workingDirectory: nil,
                     lineLimit: lineLimit,
+                    outputByteLimit: outputByteLimit,
                     signpostName: "git"
                 )
             )
@@ -83,6 +86,7 @@ enum GitProcessRunner {
                     arguments: resolved.arguments,
                     workingDirectory: resolved.workingDirectory,
                     lineLimit: lineLimit,
+                    outputByteLimit: outputByteLimit,
                     signpostName: "git"
                 )
             )
@@ -134,7 +138,8 @@ enum GitProcessRunner {
     static func runResolved(
         _ resolved: ResolvedLaunch,
         lineLimit: Int? = nil,
-        stdinData: Data? = nil
+        stdinData: Data? = nil,
+        outputByteLimit: Int? = nil
     ) async throws -> GitProcessResult {
         try await runProcess(
             ProcessSpec(
@@ -142,6 +147,7 @@ enum GitProcessRunner {
                 arguments: resolved.arguments,
                 workingDirectory: resolved.workingDirectory,
                 lineLimit: lineLimit,
+                outputByteLimit: outputByteLimit,
                 signpostName: "command",
                 stdinData: stdinData
             )
@@ -245,14 +251,19 @@ enum GitProcessRunner {
         defer { handle.detach() }
 
         let stderrCollector = AsyncDataCollector()
-        stderrCollector.start(reading: stderrPipe.fileHandleForReading, on: stderrDrainQueue)
+        stderrCollector.start(
+            reading: stderrPipe.fileHandleForReading,
+            on: stderrDrainQueue,
+            byteLimit: spec.outputByteLimit
+        )
 
-        let stdoutData: Data
+        let stdoutRead: OutputRead
         do {
-            stdoutData = try readStdout(
+            stdoutRead = try readStdout(
                 handle: stdoutPipe.fileHandleForReading,
                 process: process,
-                lineLimit: spec.lineLimit
+                lineLimit: spec.lineLimit,
+                byteLimit: spec.outputByteLimit
             )
         } catch {
             handle.terminate()
@@ -262,15 +273,17 @@ enum GitProcessRunner {
         }
 
         process.waitUntilExit()
-        let stderrData = stderrCollector.wait()
+        let stderrRead = stderrCollector.wait()
 
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-        let truncated = process.terminationReason == .uncaughtSignal
+        let stdout = String(data: stdoutRead.data, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrRead.data, encoding: .utf8) ?? ""
+        let truncated = stdoutRead.truncated
+            || stderrRead.truncated
+            || process.terminationReason == .uncaughtSignal
         return GitProcessResult(
             status: process.terminationStatus,
             stdout: stdout,
-            stdoutData: stdoutData,
+            stdoutData: stdoutRead.data,
             stderr: stderr,
             truncated: truncated
         )
@@ -279,19 +292,54 @@ enum GitProcessRunner {
     private static func readStdout(
         handle: FileHandle,
         process: Process,
-        lineLimit: Int?
-    ) throws -> Data {
+        lineLimit: Int?,
+        byteLimit: Int?
+    ) throws -> OutputRead {
         guard let lineLimit else {
-            return handle.readDataToEndOfFile()
+            return try readWithByteLimit(handle: handle, process: process, byteLimit: byteLimit)
         }
-        return try readWithLineLimit(handle: handle, process: process, lineLimit: lineLimit)
+        return try readWithLineLimit(
+            handle: handle,
+            process: process,
+            lineLimit: lineLimit,
+            byteLimit: byteLimit
+        )
+    }
+
+    private static func readWithByteLimit(
+        handle: FileHandle,
+        process: Process,
+        byteLimit: Int?
+    ) throws -> OutputRead {
+        guard let byteLimit else {
+            return OutputRead(data: handle.readDataToEndOfFile(), truncated: false)
+        }
+
+        var collected = Data()
+        let chunkSize = 65536
+        while true {
+            let chunk = try handle.read(upToCount: chunkSize) ?? Data()
+            if chunk.isEmpty {
+                return OutputRead(data: collected, truncated: false)
+            }
+            let remaining = byteLimit - collected.count
+            guard chunk.count <= remaining else {
+                if remaining > 0 {
+                    collected.append(chunk.prefix(remaining))
+                }
+                process.terminate()
+                return OutputRead(data: collected, truncated: true)
+            }
+            collected.append(chunk)
+        }
     }
 
     private static func readWithLineLimit(
         handle: FileHandle,
         process: Process,
-        lineLimit: Int
-    ) throws -> Data {
+        lineLimit: Int,
+        byteLimit: Int?
+    ) throws -> OutputRead {
         var collected = Data()
         var currentLineCount = 0
         let chunkSize = 65536
@@ -299,9 +347,19 @@ enum GitProcessRunner {
         while true {
             let chunk = try handle.read(upToCount: chunkSize) ?? Data()
             if chunk.isEmpty {
-                return collected
+                return OutputRead(data: collected, truncated: false)
             }
 
+            if let byteLimit {
+                let remaining = byteLimit - collected.count
+                guard chunk.count <= remaining else {
+                    if remaining > 0 {
+                        collected.append(chunk.prefix(remaining))
+                    }
+                    process.terminate()
+                    return OutputRead(data: collected, truncated: true)
+                }
+            }
             collected.append(chunk)
             currentLineCount += chunk.reduce(into: 0) { count, byte in
                 if byte == 0x0A { count += 1 }
@@ -309,10 +367,15 @@ enum GitProcessRunner {
 
             if currentLineCount >= lineLimit {
                 process.terminate()
-                return collected
+                return OutputRead(data: collected, truncated: true)
             }
         }
     }
+}
+
+private struct OutputRead {
+    let data: Data
+    let truncated: Bool
 }
 
 private final class ProcessHandle: @unchecked Sendable {
@@ -354,22 +417,43 @@ private final class ProcessHandle: @unchecked Sendable {
 private final class AsyncDataCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
+    private var truncated = false
     private let semaphore = DispatchSemaphore(value: 0)
 
-    func start(reading handle: FileHandle, on queue: DispatchQueue) {
+    func start(reading handle: FileHandle, on queue: DispatchQueue, byteLimit: Int?) {
         queue.async { [self] in
-            let collected = handle.readDataToEndOfFile()
+            var collected = Data()
+            var didTruncate = false
+            while true {
+                let chunk = (try? handle.read(upToCount: 65536)) ?? Data()
+                if chunk.isEmpty { break }
+                guard !didTruncate else { continue }
+                guard let byteLimit else {
+                    collected.append(chunk)
+                    continue
+                }
+                let remaining = byteLimit - collected.count
+                if chunk.count <= remaining {
+                    collected.append(chunk)
+                    continue
+                }
+                if remaining > 0 {
+                    collected.append(chunk.prefix(remaining))
+                }
+                didTruncate = true
+            }
             lock.lock()
             data = collected
+            truncated = didTruncate
             lock.unlock()
             semaphore.signal()
         }
     }
 
-    func wait() -> Data {
+    func wait() -> OutputRead {
         semaphore.wait()
         lock.lock()
         defer { lock.unlock() }
-        return data
+        return OutputRead(data: data, truncated: truncated)
     }
 }

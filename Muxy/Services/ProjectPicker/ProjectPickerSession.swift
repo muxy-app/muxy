@@ -1,14 +1,46 @@
 import Foundation
 
+enum ProjectPickerInputMode: Equatable {
+    case folderSearch
+    case path
+
+    static func resolve(input: String, allowsFolderSearch: Bool) -> ProjectPickerInputMode {
+        guard allowsFolderSearch else { return .path }
+        let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isExplicitPath = value.hasPrefix("/")
+            || value == "~"
+            || value.hasPrefix("~/")
+            || value == "."
+            || value.hasPrefix("./")
+            || value == ".."
+            || value.hasPrefix("../")
+        guard !isExplicitPath else { return .path }
+        return .folderSearch
+    }
+}
+
 struct ProjectPickerSession {
     private(set) var input: String
+    private(set) var searchResults: [ProjectPickerFolderSearchResult] = []
+    private(set) var folderSearchIsTruncated = false
+    private(set) var folderSearchHasMoreResults = false
     private(set) var rows: [ProjectPickerDirectoryItem] = []
     private(set) var highlightedIndex: Int?
     private(set) var directoryLoadState = ProjectPickerDirectoryLoadState.loading(showsMessage: false)
 
     let homeDirectory: String
     let pathService: ProjectPickerPathService
+    let searchRootPath: String
+    let allowsFolderSearch: Bool
     var projectPaths: [String]
+
+    var inputMode: ProjectPickerInputMode {
+        ProjectPickerInputMode.resolve(input: input, allowsFolderSearch: allowsFolderSearch)
+    }
+
+    var searchQuery: String {
+        input.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var pathState: ProjectPickerPathState {
         pathService.state(for: input)
@@ -19,8 +51,15 @@ struct ProjectPickerSession {
     }
 
     var highlightedItem: ProjectPickerDirectoryItem? {
+        guard inputMode == .path else { return nil }
         guard let highlightedIndex, highlightedIndex < rows.count else { return nil }
         return rows[highlightedIndex]
+    }
+
+    var highlightedSearchResult: ProjectPickerFolderSearchResult? {
+        guard inputMode == .folderSearch else { return nil }
+        guard let highlightedIndex, highlightedIndex < searchResults.count else { return nil }
+        return searchResults[highlightedIndex]
     }
 
     var highlightedRow: String? {
@@ -31,26 +70,39 @@ struct ProjectPickerSession {
         pathState.standardizedConfirmPath
     }
 
+    var confirmationPath: String? {
+        switch inputMode {
+        case .folderSearch:
+            highlightedSearchResult?.path
+        case .path:
+            standardizedTypedPath
+        }
+    }
+
     var typedPathState: ProjectPickerTypedPathState {
         pathService.typedPathState(path: standardizedTypedPath)
     }
 
     var isExistingProject: Bool {
-        projectPaths.contains(standardizedTypedPath)
+        guard let confirmationPath else { return false }
+        return projectPaths.contains { pathService.standardize($0) == confirmationPath }
     }
 
     var actionTitle: String {
         if isExistingProject { return "Open" }
+        if inputMode == .folderSearch { return "Add" }
         return typedPathState == .missing ? "Create & Add" : "Add"
     }
 
     var topRightActionTitle: String {
         if isExistingProject { return "Open Project" }
+        if inputMode == .folderSearch { return "Add Project" }
         return typedPathState == .missing ? "Create & Add Project" : "Add Project"
     }
 
     var ghostText: String {
-        navigator.ghostText(highlightedRow: highlightedRow)
+        guard inputMode == .path else { return "" }
+        return navigator.ghostText(highlightedRow: highlightedRow)
     }
 
     var projectRows: [ProjectPickerDirectoryItem] {
@@ -58,23 +110,33 @@ struct ProjectPickerSession {
     }
 
     var hasParentRow: Bool {
-        rows.contains(where: \.isParent)
+        guard inputMode == .path else { return false }
+        return rows.contains(where: \.isParent)
     }
 
     var showsUnavailableProjectState: Bool {
-        directoryLoadState.readFailed || projectRows.isEmpty
+        switch inputMode {
+        case .folderSearch:
+            searchResults.isEmpty
+        case .path:
+            directoryLoadState.readFailed || projectRows.isEmpty
+        }
     }
 
     init(
         defaultDisplayPath: String,
         homeDirectory: String = NSHomeDirectory(),
         projectPaths: [String],
-        pathService: ProjectPickerPathService? = nil
+        pathService: ProjectPickerPathService? = nil,
+        allowsFolderSearch: Bool = true
     ) {
-        input = defaultDisplayPath
+        let pathService = pathService ?? ProjectPickerPathService(homeDirectory: homeDirectory)
+        input = allowsFolderSearch ? "" : defaultDisplayPath
         self.homeDirectory = homeDirectory
         self.projectPaths = projectPaths
-        self.pathService = pathService ?? ProjectPickerPathService(homeDirectory: homeDirectory)
+        self.pathService = pathService
+        searchRootPath = pathService.standardize(pathService.expandedPath(defaultDisplayPath))
+        self.allowsFolderSearch = allowsFolderSearch
     }
 
     init(
@@ -99,7 +161,8 @@ struct ProjectPickerSession {
             defaultDisplayPath: displayPath,
             homeDirectory: remoteHome,
             projectPaths: projectPaths,
-            pathService: service
+            pathService: service,
+            allowsFolderSearch: false
         )
     }
 
@@ -118,8 +181,16 @@ struct ProjectPickerSession {
     }
 
     mutating func selectRow(at index: Int) {
-        guard rows.indices.contains(index) else { return }
+        guard (0 ..< activeRowCount).contains(index) else { return }
         highlightedIndex = index
+    }
+
+    mutating func applyFolderSearchSnapshot(_ snapshot: ProjectPickerFolderSearchSnapshot) {
+        directoryLoadState = snapshot.readFailed ? .failed : .loaded
+        searchResults = snapshot.results
+        folderSearchIsTruncated = snapshot.isTruncated
+        folderSearchHasMoreResults = snapshot.hasMoreResults
+        highlightedIndex = searchResults.isEmpty ? nil : 0
     }
 
     mutating func applyDirectorySnapshot(_ snapshot: ProjectPickerDirectorySnapshot) {
@@ -135,15 +206,21 @@ struct ProjectPickerSession {
         case .moveHighlightDown:
             moveHighlight(1)
         case .openHighlighted:
+            guard inputMode == .path else { return }
             guard let highlightedItem else { return }
             descend(highlightedItem)
         case .confirmTypedPath:
             return
         case .goBack:
+            guard inputMode == .path else { return }
             goUp()
         case .dismiss:
             return
         case .completeHighlighted:
+            if let highlightedSearchResult {
+                setInput(pathService.directoryDisplayPath(highlightedSearchResult.path))
+                return
+            }
             guard let highlightedRow else { return }
             setInput(navigator.completedPath(highlightedRow: highlightedRow))
         }
@@ -162,12 +239,12 @@ struct ProjectPickerSession {
     }
 
     private mutating func moveHighlight(_ delta: Int) {
-        guard !rows.isEmpty else { return }
+        guard activeRowCount > 0 else { return }
         guard let current = highlightedIndex else {
-            highlightedIndex = delta > 0 ? 0 : rows.count - 1
+            highlightedIndex = delta > 0 ? 0 : activeRowCount - 1
             return
         }
-        highlightedIndex = max(0, min(rows.count - 1, current + delta))
+        highlightedIndex = max(0, min(activeRowCount - 1, current + delta))
     }
 
     private mutating func descend(_ row: ProjectPickerDirectoryItem) {
@@ -188,6 +265,15 @@ struct ProjectPickerSession {
         guard !rows.isEmpty else { return nil }
         guard rows.first?.isParent == true, rows.count > 1 else { return 0 }
         return 1
+    }
+
+    private var activeRowCount: Int {
+        switch inputMode {
+        case .folderSearch:
+            searchResults.count
+        case .path:
+            rows.count
+        }
     }
 }
 

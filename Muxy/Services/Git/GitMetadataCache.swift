@@ -4,6 +4,7 @@ final class GitMetadataCache: @unchecked Sendable {
     static let shared = GitMetadataCache()
 
     struct PRKey: Hashable {
+        let context: WorkspaceContext
         let repoPath: String
         let branch: String
         let headSha: String
@@ -78,10 +79,15 @@ final class GitMetadataCache: @unchecked Sendable {
         readOrder.removeAll { $0 == key }
     }
 
-    func cachedPRInfo(repoPath: String, branch: String, headSha: String) -> GitRepositoryService.PRInfo?? {
+    func cachedPRInfo(
+        context: WorkspaceContext,
+        repoPath: String,
+        branch: String,
+        headSha: String
+    ) -> GitRepositoryService.PRInfo?? {
         lock.lock()
         defer { lock.unlock() }
-        let key = PRKey(repoPath: repoPath, branch: branch, headSha: headSha)
+        let key = PRKey(context: context, repoPath: repoPath, branch: branch, headSha: headSha)
         guard let entry = prInfo[key] else { return nil }
         if Date().timeIntervalSince(entry.storedAt) > prTTL {
             prInfo.removeValue(forKey: key)
@@ -90,25 +96,31 @@ final class GitMetadataCache: @unchecked Sendable {
         return .some(entry.info)
     }
 
-    func storePRInfo(_ info: GitRepositoryService.PRInfo?, repoPath: String, branch: String, headSha: String) {
+    func storePRInfo(
+        _ info: GitRepositoryService.PRInfo?,
+        context: WorkspaceContext,
+        repoPath: String,
+        branch: String,
+        headSha: String
+    ) {
         lock.lock()
         defer { lock.unlock() }
-        let key = PRKey(repoPath: repoPath, branch: branch, headSha: headSha)
+        let key = PRKey(context: context, repoPath: repoPath, branch: branch, headSha: headSha)
         prInfo[key] = PREntry(info: info, storedAt: Date())
     }
 
-    func invalidatePRInfo(repoPath: String, branch: String) {
+    func invalidatePRInfo(context: WorkspaceContext, repoPath: String, branch: String) {
         lock.lock()
         defer { lock.unlock() }
         prInfo = prInfo.filter { key, _ in
-            !(key.repoPath == repoPath && key.branch == branch)
+            !(key.context == context && key.repoPath == repoPath && key.branch == branch)
         }
     }
 
-    func invalidatePRInfo(repoPath: String) {
+    func invalidatePRInfo(context: WorkspaceContext, repoPath: String) {
         lock.lock()
         defer { lock.unlock() }
-        prInfo = prInfo.filter { key, _ in key.repoPath != repoPath }
+        prInfo = prInfo.filter { key, _ in key.context != context || key.repoPath != repoPath }
     }
 
     func cachedDefaultBranch(repoPath: String) -> String?? {

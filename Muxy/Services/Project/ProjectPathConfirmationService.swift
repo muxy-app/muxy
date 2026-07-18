@@ -74,7 +74,7 @@ struct ProjectPathConfirmationService {
             return failure
         }
 
-        let project = project(at: standardizedPath)
+        guard let project = project(at: standardizedPath) else { return .failed }
         projectGroupStore.addProjectToActiveGroup(projectID: project.id)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return .failed }
@@ -102,11 +102,16 @@ struct ProjectPathConfirmationService {
         }
     }
 
-    private func project(at standardizedPath: String) -> Project {
+    private func project(at standardizedPath: String) -> Project? {
         if let existing = projectStore.projects.first(where: {
             ProjectPickerPathService.standardizedPath($0.path) == standardizedPath
         }) {
             return existing
+        }
+        if let recentlyRemoved = projectStore.recentlyRemovedProjects.first(where: {
+            ProjectPickerPathService.standardizedPath($0.project.path) == standardizedPath
+        }) {
+            return projectStore.restoreRecentlyRemovedProject(id: recentlyRemoved.id)
         }
 
         let url = URL(fileURLWithPath: standardizedPath)
@@ -115,8 +120,7 @@ struct ProjectPathConfirmationService {
             path: standardizedPath,
             sortOrder: projectStore.projects.count
         )
-        projectStore.add(project)
-        return project
+        return projectStore.add(project) ? project : nil
     }
 }
 
@@ -134,7 +138,9 @@ struct RemoteDeviceProjectConfirmationService {
             return .failed
         }
 
-        let project = project(at: path, standardizedPath: standardizedPath, device: device)
+        guard let project = project(at: path, standardizedPath: standardizedPath, device: device) else {
+            return .failed
+        }
         projectGroupStore.addProjectToActiveGroup(projectID: project.id)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return .failed }
@@ -142,7 +148,7 @@ struct RemoteDeviceProjectConfirmationService {
         return .success
     }
 
-    private func project(at path: String, standardizedPath: String, device: RemoteDevice) -> Project {
+    private func project(at path: String, standardizedPath: String, device: RemoteDevice) -> Project? {
         if let existing = projectStore.storedProjects.first(where: {
             $0.remoteDeviceID == device.id
                 && ProjectPickerPathService.standardizedRemotePath($0.path) == standardizedPath
@@ -157,7 +163,6 @@ struct RemoteDeviceProjectConfirmationService {
             sortOrder: projectStore.storedProjects.count,
             remoteDeviceID: device.id
         )
-        projectStore.add(project)
-        return project
+        return projectStore.add(project) ? project : nil
     }
 }

@@ -87,6 +87,7 @@ struct MainWindow: View {
     @State private var showProjectPicker = false
     @State private var remoteProjectDevice: RemoteDevice?
     @State private var overlayAnimatingOut = false
+    @State private var projectPickerTerminalFocusRestoration = ProjectPickerTerminalFocusRestoration()
     @State private var isFullScreen = false
     @AppStorage(AppBackgroundStyle.storageKey)
     private var appBackgroundStyleRaw = AppBackgroundStyle.defaultValue.rawValue
@@ -113,7 +114,7 @@ struct MainWindow: View {
     private var appBackgroundStyle: AppBackgroundStyle { AppBackgroundStyle.resolve(appBackgroundStyleRaw) }
     private var isTabFocused: Bool { layoutStore.layout == .tabFocused && !isExtensionSidebarActive }
 
-    private var showsBreadcrumb: Bool { layout.topbar == .breadcrumb && !isExtensionSidebarActive }
+    private var showsTabsInTitleBar: Bool { layout.topbar == .tabStrip || isExtensionSidebarActive }
 
     var body: some View {
         windowColumns
@@ -148,7 +149,7 @@ struct MainWindow: View {
         MainWindowChrome(
             worktreeActions: WorktreeActionsModifier(
                 creationProject: $worktreeCreationProject,
-                pendingRemoval: $pendingWorktreeRemoval,
+                pendingRemoval: pendingWorktreeRemovalBinding,
                 onCreateRequested: beginCreateWorktree,
                 onRemoveCurrentRequested: requestRemoveCurrentWorktree,
                 onCreateResult: handleCreateWorktreeResult,
@@ -157,7 +158,10 @@ struct MainWindow: View {
             overlayExitTracker: OverlayExitTracker(
                 showTerminalOmnibox: showTerminalOmnibox,
                 showProjectPicker: showProjectPicker,
-                onAnimatingOut: { overlayAnimatingOut = $0 }
+                onAnimatingOut: { overlayAnimatingOut = $0 },
+                onExitCompleted: {
+                    projectPickerTerminalFocusRestoration.overlayExitCompleted()
+                }
             ),
             shortcutInterceptor: MainWindowShortcutInterceptor(
                 isTerminalFocused: { isTerminalPaneFocused },
@@ -176,6 +180,20 @@ struct MainWindow: View {
             dragCoordinator: dragCoordinator,
             showTerminalOmnibox: showTerminalOmnibox,
             showProjectPicker: showProjectPicker
+        )
+    }
+
+    private var pendingWorktreeRemovalBinding: Binding<PendingWorktreeRemoval?> {
+        Binding(
+            get: { pendingWorktreeRemoval },
+            set: { removal in
+                let previousRemoval = pendingWorktreeRemoval
+                pendingWorktreeRemoval = removal
+                guard removal == nil, let previousRemoval else { return }
+                worktreeStore.endRemovalPreparation(
+                    worktreeID: previousRemoval.confirmation.worktree.id
+                )
+            }
         )
     }
 
@@ -396,11 +414,6 @@ struct MainWindow: View {
             }
 
             topBarContent
-                .overlay(alignment: .leading) {
-                    if showsBreadcrumb {
-                        TabFocusedBreadcrumb()
-                    }
-                }
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
@@ -538,13 +551,14 @@ struct MainWindow: View {
 
     @ViewBuilder
     private var topBarContent: some View {
-        if let project = activeProject,
+        if showsTabsInTitleBar,
+           let project = activeProject,
            let root = appState.workspaceRoot(for: project.id),
            case let .tabArea(area) = root
         {
             PaneTabStrip(
                 areaID: area.id,
-                tabs: showsBreadcrumb ? [] : PaneTabStrip.snapshots(from: area.tabs),
+                tabs: PaneTabStrip.snapshots(from: area.tabs),
                 activeTabID: area.activeTabID,
                 isFocused: true,
                 isWindowTitleBar: true,
@@ -617,42 +631,53 @@ struct MainWindow: View {
                 }
             )
         } else {
-            WindowDragRepresentable(alwaysEnabled: true)
-                .overlay {
-                    HStack {
-                        if let project = activeProject, !showsBreadcrumb {
-                            Text(project.name)
-                                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-                                .foregroundStyle(MuxyTheme.fgMuted)
-                                .padding(.leading, UIMetrics.spacing6)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .allowsHitTesting(false)
-                }
-                .overlay(alignment: .trailing) {
-                    HStack(spacing: 0) {
-                        if let version = UpdateService.shared.availableUpdateVersion {
-                            UpdateBadge(version: version) {
-                                UpdateService.shared.checkForUpdates()
-                            }
-                            .padding(.trailing, UIMetrics.spacing2)
-                        }
-                        if AppEnvironment.isDevelopment {
-                            devModeBadge
-                                .padding(.trailing, UIMetrics.spacing3)
-                        }
+            HStack(spacing: 0) {
+                WindowDragRepresentable(alwaysEnabled: true)
+                    .overlay(alignment: .leading) {
                         if let project = activeProject {
-                            if !project.isRemote {
-                                OpenInIDEControl(projectPath: activeWorktreePath(for: project), projectID: project.id)
-                            }
-                            LayoutPickerMenu(projectID: project.id)
+                            projectTitle(project)
+                                .allowsHitTesting(false)
                         }
-                        ExtensionTopbarItems()
                     }
-                    .padding(.trailing, UIMetrics.spacing2)
-                }
+                fallbackTopbarActions
+            }
+            .frame(height: UIMetrics.scaled(32))
         }
+    }
+
+    private func projectTitle(_ project: Project) -> some View {
+        Text(project.name)
+            .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            .foregroundStyle(MuxyTheme.fgMuted)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.leading, UIMetrics.spacing6)
+            .padding(.trailing, UIMetrics.spacing4)
+    }
+
+    private var fallbackTopbarActions: some View {
+        HStack(spacing: 0) {
+            if let version = UpdateService.shared.availableUpdateVersion {
+                UpdateBadge(version: version) {
+                    UpdateService.shared.checkForUpdates()
+                }
+                .padding(.trailing, UIMetrics.spacing2)
+            }
+            if AppEnvironment.isDevelopment {
+                devModeBadge
+                    .padding(.trailing, UIMetrics.spacing3)
+            }
+            if let project = activeProject {
+                if !project.isRemote {
+                    OpenInIDEControl(projectPath: activeWorktreePath(for: project), projectID: project.id)
+                }
+                LayoutPickerMenu(projectID: project.id)
+            }
+            ExtensionTopbarItems()
+        }
+        .padding(.trailing, UIMetrics.spacing2)
+        .fixedSize(horizontal: true, vertical: false)
+        .background(WindowDragRepresentable(alwaysEnabled: true))
     }
 
     private var overlayActive: Bool {
@@ -700,6 +725,7 @@ struct MainWindow: View {
         if showTerminalOmnibox {
             TerminalOmniboxOverlay(
                 projects: terminalOmniboxProjects,
+                recentlyRemovedProjects: terminalOmniboxRecentlyRemovedProjects,
                 worktrees: terminalOmniboxWorktrees,
                 workspaces: terminalOmniboxWorkspaces,
                 openTabs: terminalOmniboxOpenTabs,
@@ -730,26 +756,28 @@ struct MainWindow: View {
                 projectPaths: projectPickerPaths,
                 context: projectPickerContext,
                 onConfirm: { path, createIfMissing in
-                    if let device = remoteProjectDevice {
-                        return RemoteDeviceProjectConfirmationService(
+                    let result = if let device = remoteProjectDevice {
+                        RemoteDeviceProjectConfirmationService(
                             appState: appState,
                             projectStore: projectStore,
                             worktreeStore: worktreeStore,
                             projectGroupStore: projectGroupStore
                         )
                         .confirm(path: path, device: device)
+                    } else if projectGroupStore.isRemoteWorkspaceActive {
+                        confirmRemoteProjectPath(path)
+                    } else {
+                        ProjectOpenService.confirmProjectPathResult(
+                            path,
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore,
+                            createIfMissing: createIfMissing
+                        )
                     }
-                    if projectGroupStore.isRemoteWorkspaceActive {
-                        return confirmRemoteProjectPath(path)
-                    }
-                    return ProjectOpenService.confirmProjectPathResult(
-                        path,
-                        appState: appState,
-                        projectStore: projectStore,
-                        worktreeStore: worktreeStore,
-                        projectGroupStore: projectGroupStore,
-                        createIfMissing: createIfMissing
-                    )
+                    projectPickerTerminalFocusRestoration.record(result)
+                    return result
                 },
                 onChooseFinder: {
                     ProjectOpenService.openProject(
@@ -776,6 +804,18 @@ struct MainWindow: View {
         switch item {
         case let .project(project):
             _ = selectOmniboxProject(project.projectID)
+        case let .recentlyRemovedProject(project):
+            do {
+                try ProjectOpenService.restoreRecentlyRemovedProject(
+                    id: project.projectID,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
+                )
+            } catch {
+                ToastState.shared.show(title: "Could not restore project", body: error.localizedDescription)
+            }
         case let .worktree(worktree):
             _ = selectOmniboxProject(worktree.projectID, worktreeID: worktree.worktreeID)
         case let .workspace(workspace):
@@ -829,6 +869,18 @@ struct MainWindow: View {
     private var terminalOmniboxProjects: [TerminalOmniboxProjectItem] {
         omniboxProjects.map {
             TerminalOmniboxProjectItem(projectID: $0.id, name: $0.name, path: $0.path)
+        }
+    }
+
+    private var terminalOmniboxRecentlyRemovedProjects: [TerminalOmniboxRecentlyRemovedProjectItem] {
+        guard !projectGroupStore.isRemoteWorkspaceActive else { return [] }
+        return projectStore.recentlyRemovedProjects.map { entry in
+            TerminalOmniboxRecentlyRemovedProjectItem(
+                projectID: entry.project.id,
+                name: entry.project.name,
+                path: entry.project.path,
+                icon: entry.project.icon
+            )
         }
     }
 
@@ -1163,32 +1215,88 @@ struct MainWindow: View {
                   project: project,
                   appState: appState,
                   worktreeStore: worktreeStore
-              )
+              ),
+              WorktreeRemovalRequestPolicy.canStartInspection(
+                  hasPendingConfirmation: pendingWorktreeRemoval != nil,
+                  isInspecting: worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
+                  isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id)
+              ),
+              worktreeStore.beginRemovalPreparation(worktree: worktree)
         else { return }
-        Task { await requestRemoveWorktree(worktree, in: project) }
+        let request = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
+        Task { await requestRemoveWorktree(worktree, in: project, request: request) }
     }
 
     @MainActor
-    private func requestRemoveWorktree(_ worktree: Worktree, in project: Project) async {
+    private func requestRemoveWorktree(
+        _ worktree: Worktree,
+        in project: Project,
+        request: WorktreeKey
+    ) async {
+        var keepsRemovalPreparation = false
+        defer {
+            if !keepsRemovalPreparation {
+                worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
+            }
+        }
         let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
             worktreePath: worktree.path,
             context: projectGroupStore.workspaceContext(for: project)
         )
+        let currentProject = activeProject
+        let currentWorktree = WorktreeActionEligibility.removableCurrentWorktree(
+            project: currentProject,
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+        let currentRequest = currentProject.flatMap { currentProject in
+            currentWorktree.map {
+                WorktreeKey(projectID: currentProject.id, worktreeID: $0.id)
+            }
+        }
+        let confirmationConditions = WorktreeRemovalRequestPolicy.ConfirmationConditions(
+            expected: request,
+            current: currentRequest,
+            isRegistered: worktreeStore.worktree(
+                projectID: project.id,
+                worktreeID: worktree.id
+            ) == worktree,
+            isPreparing: worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
+            isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id),
+            hasPendingConfirmation: pendingWorktreeRemoval != nil
+        )
+        guard WorktreeRemovalRequestPolicy.canPresentConfirmation(confirmationConditions)
+        else { return }
         pendingWorktreeRemoval = PendingWorktreeRemoval(
             project: project,
             confirmation: WorktreeRemovalConfirmation(worktree: worktree, hasUncommittedChanges: hasChanges)
         )
+        keepsRemovalPreparation = true
     }
 
     private func performRemoveWorktree(_ pending: PendingWorktreeRemoval) {
         let project = pending.project
-        let worktree = pending.confirmation.worktree
+        guard activeProject?.id == project.id,
+              let worktree = worktreeStore.worktree(
+                  projectID: project.id,
+                  worktreeID: pending.confirmation.worktree.id
+              ),
+              WorktreeActionEligibility.removableCurrentWorktree(
+                  project: project,
+                  appState: appState,
+                  worktreeStore: worktreeStore
+              )?.id == worktree.id,
+              worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
+              !worktreeStore.isRemoving(worktreeID: worktree.id)
+        else { return }
         let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.id == appState.activeWorktreeID[project.id] })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
+        worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
         worktreeStore.beginRemoval(
             worktree: worktree,
+            projectID: project.id,
             repoPath: project.path,
             context: projectGroupStore.workspaceContext(for: project),
             onSuccess: {
@@ -2187,6 +2295,7 @@ private struct OverlayExitTracker: ViewModifier {
     let showTerminalOmnibox: Bool
     let showProjectPicker: Bool
     let onAnimatingOut: (Bool) -> Void
+    let onExitCompleted: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -2199,6 +2308,9 @@ private struct OverlayExitTracker: ViewModifier {
         onAnimatingOut(true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             onAnimatingOut(false)
+            DispatchQueue.main.async {
+                onExitCompleted()
+            }
         }
     }
 }

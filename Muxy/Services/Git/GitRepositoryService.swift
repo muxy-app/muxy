@@ -1,21 +1,37 @@
 import Foundation
 
 struct GitRepositoryService {
+    private static let limitedDiffByteCount = 1_048_576
+
     let context: WorkspaceContext
 
     init(context: WorkspaceContext = .local) {
         self.context = context
     }
 
+    private var ghExecutable: String? {
+        Self.resolveGhExecutable(context: context)
+    }
+
+    static func resolveGhExecutable(
+        context: WorkspaceContext,
+        localResolver: (String) -> String? = GitProcessRunner.resolveExecutable
+    ) -> String? {
+        guard !context.isRemote else { return "gh" }
+        return localResolver("gh")
+    }
+
     private func runGit(
         repoPath: String,
         arguments: [String],
-        lineLimit: Int? = nil
+        lineLimit: Int? = nil,
+        outputByteLimit: Int? = nil
     ) async throws -> GitProcessResult {
         try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: arguments,
             lineLimit: lineLimit,
+            outputByteLimit: outputByteLimit,
             context: context
         )
     }
@@ -223,6 +239,24 @@ struct GitRepositoryService {
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    func repositorySummary(repoPath: String) async throws -> GitRepositorySummary {
+        let result = try await runGit(
+            repoPath: repoPath,
+            arguments: ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"]
+        )
+        guard result.status == 0 else {
+            let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            if message.localizedCaseInsensitiveContains("not a git repository") {
+                throw GitError.notGitRepository
+            }
+            throw GitError.commandFailed(message.isEmpty ? "Failed to read repository status." : message)
+        }
+        guard let summary = GitStatusParser.parseRepositorySummary(result.stdout) else {
+            throw GitError.commandFailed("Failed to parse repository status.")
+        }
+        return summary
+    }
+
     func headSha(repoPath: String) async -> String? {
         let result = try? await runGit(
             repoPath: repoPath,
@@ -251,10 +285,20 @@ struct GitRepositoryService {
     }
 
     func isGhInstalled() async -> Bool {
+        if context.isRemote {
+            let resolved = CommandTransform.resolve(
+                executable: "gh",
+                arguments: ["--version"],
+                workingDirectory: nil,
+                in: context
+            )
+            let result = try? await GitProcessRunner.runResolved(resolved)
+            return result?.status == 0
+        }
         if let cached = GitMetadataCache.shared.cachedGhInstalled() {
             return cached
         }
-        let installed = GitProcessRunner.resolveExecutable("gh") != nil
+        let installed = ghExecutable != nil
         GitMetadataCache.shared.storeGhInstalled(installed)
         return installed
     }
@@ -272,6 +316,7 @@ struct GitRepositoryService {
         forceFresh: Bool
     ) async -> PRFetchResult {
         if !forceFresh, let cached = GitMetadataCache.shared.cachedPRInfo(
+            context: context,
             repoPath: repoPath,
             branch: branch,
             headSha: headSha
@@ -281,9 +326,21 @@ struct GitRepositoryService {
         let result = await pullRequestInfoResult(repoPath: repoPath, branch: branch, headSha: headSha)
         switch result {
         case let .found(info):
-            GitMetadataCache.shared.storePRInfo(info, repoPath: repoPath, branch: branch, headSha: headSha)
+            GitMetadataCache.shared.storePRInfo(
+                info,
+                context: context,
+                repoPath: repoPath,
+                branch: branch,
+                headSha: headSha
+            )
         case .noPR:
-            GitMetadataCache.shared.storePRInfo(nil, repoPath: repoPath, branch: branch, headSha: headSha)
+            GitMetadataCache.shared.storePRInfo(
+                nil,
+                context: context,
+                repoPath: repoPath,
+                branch: branch,
+                headSha: headSha
+            )
         case .failed:
             break
         }
@@ -309,7 +366,7 @@ struct GitRepositoryService {
         branch: String,
         headSha: String? = nil
     ) async -> PRFetchResult {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return .failed }
+        guard let ghPath = ghExecutable else { return .failed }
 
         if let number = await configuredPullRequestNumber(repoPath: repoPath, branch: branch) {
             let configuredResult = await ghPRView(
@@ -426,20 +483,9 @@ struct GitRepositoryService {
         let avatarURL: URL?
     }
 
-    func currentGitHubUser(repoPath: String) async -> GitHubUser? {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
-        let result = try? await runCommand(
-            executable: ghPath,
-            arguments: ["api", "user", "--jq", "{login: .login, avatar_url: .avatar_url}"],
-            workingDirectory: repoPath
-        )
-        guard let result, result.status == 0,
-              let data = result.stdout.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let login = object["login"] as? String
-        else { return nil }
-        let avatarURL = (object["avatar_url"] as? String).flatMap(URL.init(string:))
-        return GitHubUser(login: login, avatarURL: avatarURL)
+    func currentGitHubUser(repoPath _: String) async -> GitHubUser? {
+        guard case let .success(user) = await GhUserService.shared.user() else { return nil }
+        return GitHubUser(login: user.login, avatarURL: URL(string: user.avatarUrl))
     }
 
     struct PRCommentRequest {
@@ -453,7 +499,7 @@ struct GitRepositoryService {
     }
 
     func postPullRequestReviewComment(_ request: PRCommentRequest) async -> PostCommentResult {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+        guard let ghPath = ghExecutable else {
             return .failure("GitHub CLI (gh) is not installed.")
         }
         guard let commitSha = await resolveCommitSha(repoPath: request.repoPath, ref: request.commit) else {
@@ -523,7 +569,7 @@ struct GitRepositoryService {
         limit: Int = 100,
         includeChecks: Bool = true
     ) async throws -> [PRListItem] {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+        guard let ghPath = ghExecutable else {
             throw PRCreateError.ghNotInstalled
         }
         let jsonFields = Self.pullRequestListJSONFields(includeChecks: includeChecks)
@@ -550,7 +596,7 @@ struct GitRepositoryService {
     }
 
     func checkoutPullRequest(repoPath: String, number: Int, headBranch _: String? = nil) async throws {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+        guard let ghPath = ghExecutable else {
             throw PRCreateError.ghNotInstalled
         }
         let checkout = try await pullRequestCheckoutInfo(ghPath: ghPath, repoPath: repoPath, number: number)
@@ -563,7 +609,7 @@ struct GitRepositoryService {
     }
 
     func createPullRequestWorktree(repoPath: String, path: String, number: Int) async throws -> String {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+        guard let ghPath = ghExecutable else {
             throw PRCreateError.ghNotInstalled
         }
         let checkout = try await pullRequestCheckoutInfo(ghPath: ghPath, repoPath: repoPath, number: number)
@@ -759,7 +805,7 @@ struct GitRepositoryService {
     }
 
     func githubRemoteName(repoPath: String) async -> String? {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
+        guard let ghPath = ghExecutable else { return nil }
         let repoResult = try? await runCommand(
             executable: ghPath,
             arguments: ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
@@ -828,7 +874,7 @@ struct GitRepositoryService {
             if !value.isEmpty { return value }
         }
 
-        if let ghPath = GitProcessRunner.resolveExecutable("gh") {
+        if let ghPath = ghExecutable {
             let result = try? await runCommand(
                 executable: ghPath,
                 arguments: ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
@@ -851,7 +897,7 @@ struct GitRepositoryService {
         body: String,
         draft: Bool = false
     ) async throws -> PRInfo {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+        guard let ghPath = ghExecutable else {
             throw PRCreateError.ghNotInstalled
         }
 
@@ -881,7 +927,7 @@ struct GitRepositoryService {
             )
         }
 
-        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath, branch: branch)
+        GitMetadataCache.shared.invalidatePRInfo(context: context, repoPath: repoPath, branch: branch)
 
         let createdURL = createResult.stdout
             .split(whereSeparator: { $0.isNewline || $0.isWhitespace })
@@ -916,7 +962,7 @@ struct GitRepositoryService {
         method: PRMergeMethod = .merge,
         deleteBranch: Bool = true
     ) async throws {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+        guard let ghPath = ghExecutable else {
             throw PRCreateError.ghNotInstalled
         }
         var arguments = ["pr", "merge", String(number), method.ghFlag]
@@ -936,7 +982,7 @@ struct GitRepositoryService {
                     : message.trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
-        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+        GitMetadataCache.shared.invalidatePRInfo(context: context, repoPath: repoPath)
     }
 
     func deleteRemoteBranch(repoPath: String, branch: String, remote: String = "origin") async throws {
@@ -952,7 +998,7 @@ struct GitRepositoryService {
     }
 
     func closePullRequest(repoPath: String, number: Int) async throws {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+        guard let ghPath = ghExecutable else {
             throw PRCreateError.ghNotInstalled
         }
         let result = try await runCommand(
@@ -968,10 +1014,14 @@ struct GitRepositoryService {
                     : message.trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
-        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+        GitMetadataCache.shared.invalidatePRInfo(context: context, repoPath: repoPath)
     }
 
     func changedFiles(repoPath: String) async throws -> [GitStatusFile] {
+        try await changedFiles(repoPath: repoPath, includeUntrackedLineCounts: true)
+    }
+
+    func changedFiles(repoPath: String, includeUntrackedLineCounts: Bool) async throws -> [GitStatusFile] {
         let signpostID = GitSignpost.begin("changedFiles")
         defer { GitSignpost.end("changedFiles", signpostID) }
 
@@ -1036,7 +1086,10 @@ struct GitRepositoryService {
                 unstagedDeletions: unstaged?.deletions,
                 isBinary: file.isBinary || staged?.isBinary == true || unstaged?.isBinary == true
             )
-            guard file.additions == nil, file.xStatus == "?" || file.xStatus == "A" else { return file }
+            guard includeUntrackedLineCounts,
+                  file.additions == nil,
+                  file.xStatus == "?" || file.xStatus == "A"
+            else { return file }
             let lineCount = countLines(repoPath: repoPath, relativePath: file.path)
             return GitStatusFile(
                 path: file.path,
@@ -1052,6 +1105,11 @@ struct GitRepositoryService {
                 isBinary: file.isBinary
             )
         }
+    }
+
+    func untrackedFileLineCount(repoPath: String, path: String) async throws -> Int? {
+        try validatePath(repoPath: repoPath, relativePath: path)
+        return countLines(repoPath: repoPath, relativePath: path)
     }
 
     func changedFiles(repoPath: String, range: DiffRange) async throws -> [GitStatusFile] {
@@ -1086,12 +1144,28 @@ struct GitRepositoryService {
     private func countLines(repoPath: String, relativePath: String) -> Int? {
         guard !context.isRemote else { return nil }
         let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
-        guard let data = FileManager.default.contents(atPath: fullPath),
-              let content = String(data: data, encoding: .utf8)
-        else {
+        guard let handle = FileHandle(forReadingAtPath: fullPath) else { return nil }
+        defer { try? handle.close() }
+
+        var contents = Data()
+        do {
+            while contents.count <= Self.limitedDiffByteCount {
+                let remaining = Self.limitedDiffByteCount + 1 - contents.count
+                guard let data = try handle.read(upToCount: min(64 * 1024, remaining)),
+                      !data.isEmpty
+                else { break }
+                contents.append(data)
+                guard contents.count <= Self.limitedDiffByteCount else { return nil }
+            }
+        } catch {
             return nil
         }
-        return content.isEmpty ? 0 : content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
+        guard String(data: contents, encoding: .utf8) != nil else { return nil }
+        guard !contents.isEmpty else { return 0 }
+        let newlineCount = contents.reduce(0) { count, byte in
+            byte == 0x0A ? count + 1 : count
+        }
+        return newlineCount + (contents.last == 0x0A ? 0 : 1)
     }
 
     func patchAndCompare(
@@ -1506,7 +1580,7 @@ struct GitRepositoryService {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to commit." : result.stderr)
         }
 
-        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+        GitMetadataCache.shared.invalidatePRInfo(context: context, repoPath: repoPath)
 
         let hashResult = try await runGit(repoPath: repoPath, arguments: ["rev-parse", "--short", "HEAD"])
         guard hashResult.status == 0 else { return "" }
@@ -1518,7 +1592,7 @@ struct GitRepositoryService {
             guard result.status == 0 else {
                 throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to push." : result.stderr)
             }
-            GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+            GitMetadataCache.shared.invalidatePRInfo(context: context, repoPath: repoPath)
             return
         }
 
@@ -1529,7 +1603,7 @@ struct GitRepositoryService {
             }
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to push." : result.stderr)
         }
-        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+        GitMetadataCache.shared.invalidatePRInfo(context: context, repoPath: repoPath)
     }
 
     private func pushPullRequestBranch(repoPath: String) async throws -> GitProcessResult? {
@@ -1556,7 +1630,7 @@ struct GitRepositoryService {
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to push." : result.stderr)
         }
-        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath, branch: branch)
+        GitMetadataCache.shared.invalidatePRInfo(context: context, repoPath: repoPath, branch: branch)
     }
 
     func pull(repoPath: String) async throws {
@@ -1564,7 +1638,7 @@ struct GitRepositoryService {
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to pull." : result.stderr)
         }
-        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+        GitMetadataCache.shared.invalidatePRInfo(context: context, repoPath: repoPath)
     }
 
     func mergeBaseIntoCurrentBranch(repoPath: String, baseBranch: String) async throws {
@@ -1616,7 +1690,7 @@ struct GitRepositoryService {
                 pushResult.stderr.isEmpty ? "Merged locally but failed to push." : pushResult.stderr
             )
         }
-        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+        GitMetadataCache.shared.invalidatePRInfo(context: context, repoPath: repoPath)
     }
 
     @discardableResult
@@ -1640,7 +1714,11 @@ struct GitRepositoryService {
             success = await fastForwardInactiveBranch(repoPath: repoPath, branch: trimmed)
         }
         if success {
-            GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath, branch: trimmed)
+            GitMetadataCache.shared.invalidatePRInfo(
+                context: context,
+                repoPath: repoPath,
+                branch: trimmed
+            )
         }
         return success
     }
@@ -1863,7 +1941,7 @@ struct GitRepositoryService {
         if let number = await configuredPullRequestNumber(repoPath: repoPath, branch: branch) {
             return number
         }
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
+        guard let ghPath = ghExecutable else { return nil }
         let result = try? await runCommand(
             executable: ghPath,
             arguments: ["pr", "view", "--json", "number", "--jq", ".number"],
@@ -1894,8 +1972,14 @@ struct GitRepositoryService {
         if let filePath, !filePath.isEmpty {
             arguments.append(contentsOf: ["--", filePath])
         }
-        let result = try await runGit(repoPath: repoPath, arguments: arguments, lineLimit: lineLimit)
-        guard result.status == 0 else {
+        let result = try await runGit(
+            repoPath: repoPath,
+            arguments: arguments,
+            lineLimit: lineLimit,
+            outputByteLimit: lineLimit == nil ? nil : Self.limitedDiffByteCount
+        )
+        try Task.checkCancellation()
+        guard result.status == 0 || result.truncated else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load diff." : result.stderr)
         }
         return RawDiffResult(diff: result.stdout, truncated: result.truncated)
@@ -1913,9 +1997,11 @@ struct GitRepositoryService {
         let result = try await runGit(
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "\(base)...\(localRef)"],
-            lineLimit: lineLimit
+            lineLimit: lineLimit,
+            outputByteLimit: lineLimit == nil ? nil : Self.limitedDiffByteCount
         )
-        guard result.status == 0 else {
+        try Task.checkCancellation()
+        guard result.status == 0 || result.truncated else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load pull request diff." : result.stderr)
         }
         return RawDiffResult(diff: result.stdout, truncated: result.truncated)
@@ -1945,5 +2031,21 @@ struct GitRepositoryService {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to initialize repository." : result.stderr)
         }
         GitMetadataCache.shared.markVerifiedGitRepo(repoPath: repoPath)
+    }
+}
+
+extension GitRepositoryService: RepositoryAIGitOperating {
+    func createPullRequest(
+        repoPath: String,
+        request: RepositoryAIPullRequestRequest
+    ) async throws -> PRInfo {
+        try await createPullRequest(
+            repoPath: repoPath,
+            branch: request.branch,
+            baseBranch: request.baseBranch,
+            title: request.title,
+            body: request.body,
+            draft: request.draft
+        )
     }
 }

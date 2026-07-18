@@ -1,28 +1,49 @@
 import Foundation
 
-struct ClaudeCodeProvider: AIProviderIntegration {
+struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "claude"
     let displayName = "Claude Code"
     let socketTypeKey = "claude_hook"
     let iconName = "claude"
     let executableNames = ["claude"]
 
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "claude",
+            headlessArguments: [
+                "--print",
+                "--output-format",
+                "text",
+                "--permission-mode",
+                "dontAsk",
+                "--no-session-persistence",
+                "--tools=",
+            ]
+        )
+    }
+
     private static let settingsPath = NSHomeDirectory() + "/.claude/settings.json"
     private static let muxyMarker = "muxy-notification-hook"
 
     func isToolInstalled() -> Bool {
-        let home = NSHomeDirectory()
-        let paths = [
-            "\(home)/.local/bin/claude",
-            "/usr/local/bin/claude",
-            "/opt/homebrew/bin/claude",
-        ]
-        return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
+        agentCLIExecutablePath() != nil
+    }
+
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
+            homeDirectory: NSHomeDirectory(),
+            pathEnvironment: LoginShellPath.current,
+            includeSystemWide: true
+        )
     }
 
     static let hookEvents: [(settingsKey: String, event: String)] = [
         ("Stop", "stop"),
+        ("StopFailure", "stop-failure"),
+        ("SessionEnd", "session-end"),
         ("Notification", "notification"),
+        ("PermissionRequest", "permission-request"),
         ("UserPromptSubmit", "user-prompt-submit"),
         ("PreToolUse", "pre-tool-use"),
     ]
@@ -53,6 +74,7 @@ struct ClaudeCodeProvider: AIProviderIntegration {
 
     func uninstall() throws {
         guard FileManager.default.fileExists(atPath: Self.settingsPath) else { return }
+        guard isHookInstalled() else { return }
         var settings = try Self.readSettings()
         guard let hooks = settings["hooks"] as? [String: Any] else { return }
 

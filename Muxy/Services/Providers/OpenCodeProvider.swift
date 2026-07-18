@@ -1,11 +1,19 @@
 import Foundation
 
-struct OpenCodeProvider: AIProviderIntegration {
+struct OpenCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "opencode"
     let displayName = "OpenCode"
     let socketTypeKey = "opencode"
     let iconName = "opencode"
     let executableNames = ["opencode"]
+
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "opencode",
+            headlessArguments: ["run", "--pure"],
+            environment: ["OPENCODE_PERMISSION": #"{"*":"deny"}"#]
+        )
+    }
 
     private static let pluginsDir = NSHomeDirectory() + "/.opencode/plugins"
     private static let pluginFileName = "muxy-notify.js"
@@ -13,14 +21,17 @@ struct OpenCodeProvider: AIProviderIntegration {
     private static let pluginScriptName = "opencode-muxy-plugin.js"
 
     func isToolInstalled() -> Bool {
-        let home = NSHomeDirectory()
-        let paths = [
-            "\(home)/.opencode/bin/opencode",
-            "\(home)/.local/bin/opencode",
-            "/usr/local/bin/opencode",
-            "/opt/homebrew/bin/opencode",
-        ]
-        return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
+        agentCLIExecutablePath() != nil
+    }
+
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
+            homeDirectory: NSHomeDirectory(),
+            pathEnvironment: LoginShellPath.current,
+            includeSystemWide: true,
+            homeRelativeBins: [".opencode/bin", ".local/bin"]
+        )
     }
 
     func isHookInstalled() -> Bool {

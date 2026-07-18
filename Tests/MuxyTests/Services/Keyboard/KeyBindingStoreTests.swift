@@ -108,6 +108,26 @@ struct KeyBindingStoreTests {
 
         #expect(store.combo(for: .openProject) == customOpenProject.combo)
         #expect(store.combo(for: .refreshWorktrees) == KeyCombo(key: "r", command: true, option: true))
+        #expect(store.combo(for: .recentlyRemovedProjects).isAssigned == false)
+    }
+
+    @Test("Recently Removed Projects can be assigned by the user")
+    func recentlyRemovedProjectsCanBeAssigned() throws {
+        let store = KeyBindingStore(persistence: StubKeyBindingPersistence(bindings: KeyBinding.defaults))
+        let combo = KeyCombo(key: "u", command: true, shift: true, option: true)
+        let keyCode = try #require(KeyCombo.keyCode(for: "u"))
+        let event = try keyEvent(
+            characters: "U",
+            charactersIgnoringModifiers: "u",
+            keyCode: keyCode,
+            modifiers: [.command, .option, .shift]
+        )
+
+        #expect(store.action(for: event, scopes: [.mainWindow]) == nil)
+
+        store.updateBinding(action: .recentlyRemovedProjects, combo: combo)
+
+        #expect(store.action(for: event, scopes: [.mainWindow]) == .recentlyRemovedProjects)
     }
 
     @Test("new default shortcuts do not shadow saved custom bindings")

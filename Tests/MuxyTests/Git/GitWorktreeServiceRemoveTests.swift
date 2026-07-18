@@ -49,6 +49,30 @@ struct GitWorktreeServiceRemoveTests {
         #expect(!records.contains { $0.path == worktreePath })
     }
 
+    @Test("throws when git leaves the worktree registered")
+    func throwsWhenWorktreeSurvivesRemoval() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("locked-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        try repo.run("worktree", "lock", worktreePath)
+
+        await #expect(throws: Error.self) {
+            try await GitWorktreeService.shared.removeWorktree(repoPath: repo.path, path: worktreePath, force: false)
+        }
+        let target = GitWorktreeService.canonicalPath(worktreePath)
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        #expect(records.contains { GitWorktreeService.canonicalPath($0.path) == target })
+    }
+
     @Test("cleanupOnDisk removes the worktree but keeps its branch")
     func cleanupKeepsBranch() async throws {
         let repo = try TempGitRepo()

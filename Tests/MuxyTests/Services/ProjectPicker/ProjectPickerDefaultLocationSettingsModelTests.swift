@@ -47,7 +47,7 @@ struct ProjectPickerDefaultLocationSettingsModelTests {
         #expect(context.panel.requests == [
             ProjectPickerDefaultLocationPanelRequest(
                 initialPath: "/Users/alice",
-                message: "Select the default location for the project picker"
+                message: "Select where Muxy searches for project folders"
             ),
         ])
         #expect(ProjectPickerDefaultLocation.path(defaults: context.defaults, pathService: context.pathService) == "/Users/alice/Picked")
@@ -80,7 +80,7 @@ struct ProjectPickerDefaultLocationSettingsModelTests {
 
         #expect(context.panel.requests.first?.initialPath == "/Users/alice")
         #expect(model.state.status == .missing)
-        #expect(model.state.warning == "Default location no longer exists. Choose another folder or use the app default.")
+        #expect(model.state.warning == "Search location no longer exists. Choose another folder or use the app default.")
     }
 
     @Test("cancel leaves state and storage unchanged")
@@ -110,7 +110,7 @@ struct ProjectPickerDefaultLocationSettingsModelTests {
         model.handleAppActivation()
 
         #expect(model.state.status == .missing)
-        #expect(model.state.warning == "Default location no longer exists. Choose another folder or use the app default.")
+        #expect(model.state.warning == "Search location no longer exists. Choose another folder or use the app default.")
     }
 
     @Test("focus request is consumed once")

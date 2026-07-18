@@ -43,7 +43,7 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 
 ## Rich Input
 
-`Cmd+I` opens a multiline composer for prompts, files, images, and broadcast sends. See [Rich Input](rich-input.md).
+`Cmd+I` opens a multiline composer for prompts, files, images, and broadcast sends.
 
 ## Right-click menu
 
@@ -51,7 +51,7 @@ Inside a terminal pane: **Paste**, **Split Right**, **Split Down**, **Close Pane
 
 ## Notifications from the terminal
 
-OSC 9 and OSC 777 notification escape sequences are routed into Muxy's notification panel and (optionally) macOS notifications. See [Notifications](notifications.md).
+OSC 9 and OSC 777 notification escape sequences are routed into Muxy's notification panel and (optionally) macOS notifications.
 
 ## Quick-select labels
 

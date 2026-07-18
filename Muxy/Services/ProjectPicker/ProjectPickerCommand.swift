@@ -13,15 +13,56 @@ enum ProjectPickerCommand: Hashable {
         Set(allCases)
     }
 
-    static func footerShortcuts(actionTitle: String) -> [ProjectPickerFooterShortcut] {
-        [
-            ProjectPickerFooterShortcut(intents: [.moveHighlightUp, .moveHighlightDown], keycap: .navigate, label: "Navigate"),
-            ProjectPickerFooterShortcut(intents: [.completeHighlighted], keycap: .tab, label: "Autocomplete"),
-            ProjectPickerFooterShortcut(intents: [.openHighlighted], keycap: .returnKey, label: "Open"),
-            ProjectPickerFooterShortcut(intents: [.confirmTypedPath], keycap: .commandReturn, label: actionTitle),
-            ProjectPickerFooterShortcut(intents: [.goBack], keycap: .optionDelete, label: "Go back"),
-            ProjectPickerFooterShortcut(intents: [.dismiss], keycap: .escape, label: "Close"),
-        ]
+    static func footerShortcuts(
+        inputMode: ProjectPickerInputMode,
+        actionTitle: String
+    ) -> [ProjectPickerFooterShortcut] {
+        switch inputMode {
+        case .folderSearch:
+            [
+                ProjectPickerFooterShortcut(
+                    intents: [.moveHighlightUp, .moveHighlightDown],
+                    keycap: .navigate,
+                    label: "Navigate"
+                ),
+                ProjectPickerFooterShortcut(
+                    intents: [.openHighlighted],
+                    keycap: .returnKey,
+                    label: actionTitle
+                ),
+                ProjectPickerFooterShortcut(
+                    intents: [.completeHighlighted],
+                    keycap: .tab,
+                    label: "Use Path"
+                ),
+                ProjectPickerFooterShortcut(intents: [.dismiss], keycap: .escape, label: "Close"),
+            ]
+        case .path:
+            [
+                ProjectPickerFooterShortcut(
+                    intents: [.moveHighlightUp, .moveHighlightDown],
+                    keycap: .navigate,
+                    label: "Navigate"
+                ),
+                ProjectPickerFooterShortcut(
+                    intents: [.completeHighlighted],
+                    keycap: .tab,
+                    label: "Autocomplete"
+                ),
+                ProjectPickerFooterShortcut(intents: [.openHighlighted], keycap: .returnKey, label: "Open"),
+                ProjectPickerFooterShortcut(
+                    intents: [.confirmTypedPath],
+                    keycap: .commandReturn,
+                    label: actionTitle
+                ),
+                ProjectPickerFooterShortcut(
+                    intents: [.goBack],
+                    keycap: .optionDelete,
+                    label: "Go back"
+                ),
+                ProjectPickerFooterShortcut(intents: [.dismiss], keycap: .escape, label: "Close"),
+            ]
+        }
     }
 }
 
@@ -32,8 +73,11 @@ struct ProjectPickerFooterShortcut: Hashable {
     let keycap: ProjectPickerShortcutKeycap
     let label: String
 
-    static func ordered(actionTitle: String) -> [ProjectPickerFooterShortcut] {
-        ProjectPickerCommand.footerShortcuts(actionTitle: actionTitle)
+    static func ordered(
+        inputMode: ProjectPickerInputMode,
+        actionTitle: String
+    ) -> [ProjectPickerFooterShortcut] {
+        ProjectPickerCommand.footerShortcuts(inputMode: inputMode, actionTitle: actionTitle)
     }
 }
 

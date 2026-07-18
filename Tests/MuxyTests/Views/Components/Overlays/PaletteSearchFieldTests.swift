@@ -44,6 +44,36 @@ struct PaletteSearchFieldTests {
         window.orderOut(nil)
     }
 
+    @Test("responds to focus and enabled state requests")
+    func respondsToFocusAndEnabledStateRequests() async throws {
+        let model = PaletteSearchFieldFocusModel()
+        let view = PaletteSearchFieldFocusHarness(model: model)
+            .frame(width: 240, height: 28)
+        let hostingView = NSHostingView(rootView: view)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 240, height: 28)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        hostingView.layoutSubtreeIfNeeded()
+
+        let field = try #require(textField(in: hostingView))
+        try await waitForFocus(field)
+        window.makeFirstResponder(nil)
+        #expect(field.currentEditor() == nil)
+
+        model.focusRequest += 1
+        try await waitForFocus(field)
+
+        model.isEnabled = false
+        try await waitForDisabled(field)
+        window.orderOut(nil)
+    }
+
     @Test("invokes onEscape when field editor cancels")
     func invokesOnEscapeWhenFieldEditorCancels() {
         let escaped = PaletteSearchFieldFlag()
@@ -319,6 +349,16 @@ struct PaletteSearchFieldTests {
         #expect(field.currentEditor() != nil)
     }
 
+    private func waitForDisabled(_ field: NSTextField) async throws {
+        for _ in 0..<40 {
+            if !field.isEnabled {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(!field.isEnabled)
+    }
+
     private func textField(in view: NSView) -> NSTextField? {
         if let field = view as? NSTextField {
             return field
@@ -329,6 +369,30 @@ struct PaletteSearchFieldTests {
             }
         }
         return nil
+    }
+}
+
+@MainActor
+private final class PaletteSearchFieldFocusModel: ObservableObject {
+    @Published var text = ""
+    @Published var focusRequest = 0
+    @Published var isEnabled = true
+}
+
+private struct PaletteSearchFieldFocusHarness: View {
+    @ObservedObject var model: PaletteSearchFieldFocusModel
+
+    var body: some View {
+        PaletteSearchField(
+            text: $model.text,
+            placeholder: "Search",
+            focusRequest: model.focusRequest,
+            isEnabled: model.isEnabled,
+            onSubmit: {},
+            onEscape: {},
+            onArrowUp: {},
+            onArrowDown: {}
+        )
     }
 }
 
