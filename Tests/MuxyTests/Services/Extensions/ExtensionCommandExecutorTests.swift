@@ -3,7 +3,7 @@ import Testing
 
 @testable import Muxy
 
-@Suite("ExtensionCommandExecutor")
+@Suite("ExtensionCommandExecutor", .serialized)
 struct ExtensionCommandExecutorTests {
     @Test("argv form captures stdout")
     func argvCapturesStdout() async throws {
@@ -107,6 +107,39 @@ struct ExtensionCommandExecutorTests {
         #expect(result.timedOut == false)
     }
 
+    @Test("cancellable exec matches synchronous result shape")
+    func cancellableExecMatchesSynchronousResult() async throws {
+        let request = ExecRequest(
+            argv: nil,
+            shell: "read value; printf 'out:%s' \"$value\"; printf 'err:%s' \"$value\" >&2; exit 7",
+            cwd: nil,
+            env: nil,
+            stdin: "same",
+            timeoutMs: 10000
+        )
+        let synchronous = try await ExtensionCommandExecutor.runUnchecked(
+            request: request,
+            extensionID: "test",
+            defaultCwd: nil
+        )
+        let box = ExecCompletionBox()
+        let jobID = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: request,
+            extensionID: "test",
+            defaultCwd: nil
+        ) { result in
+            box.complete(result)
+        }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
+        let cancellable = try await box.wait().get()
+
+        #expect(cancellable.stdout == synchronous.stdout)
+        #expect(cancellable.stderr == synchronous.stderr)
+        #expect(cancellable.exitCode == synchronous.exitCode)
+        #expect(cancellable.timedOut == synchronous.timedOut)
+        #expect(cancellable.truncated == synchronous.truncated)
+    }
+
     @Test("cancelExec terminates long-running process")
     func cancelExecTerminatesLongRunningProcess() async throws {
         let box = ExecCompletionBox()
@@ -119,7 +152,7 @@ struct ExtensionCommandExecutorTests {
             cwd: nil,
             env: nil,
             stdin: nil,
-            timeoutMs: 0
+            timeoutMs: 10000
         )
         let jobID = ExtensionCommandExecutor.startCancelableUnchecked(
             request: request,
@@ -128,6 +161,7 @@ struct ExtensionCommandExecutorTests {
         ) { result in
             box.complete(result)
         }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
 
         try await waitForFile(at: marker)
         #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID))
@@ -141,6 +175,40 @@ struct ExtensionCommandExecutorTests {
         }
     }
 
+    @Test("cancelExec terminates descendants that inherit output pipes")
+    func cancelExecTerminatesDescendants() async throws {
+        let box = ExecCompletionBox()
+        let childPIDFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-exec-child-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: childPIDFile) }
+        let jobID = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: ExecRequest(
+                argv: nil,
+                shell: "/usr/bin/perl -e '$p=fork; if ($p == 0) { $SIG{TERM}=\"IGNORE\"; open O, \">\", $ARGV[0]; print O $$; close O; sleep 30; exit; } while (!-e $ARGV[0]) { select undef, undef, undef, 0.01; } sleep 30' \(childPIDFile.path)",
+                cwd: nil,
+                env: nil,
+                stdin: nil,
+                timeoutMs: 10000
+            ),
+            extensionID: "test",
+            defaultCwd: nil
+        ) { result in
+            box.complete(result)
+        }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
+
+        try await waitForFile(at: childPIDFile)
+        let childPID = try #require(Int32(String(contentsOf: childPIDFile).trimmingCharacters(in: .whitespacesAndNewlines)))
+        #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID))
+
+        let result = await box.wait(milliseconds: 500)
+        if case .failure(ExecError.cancelled) = result {
+        } else {
+            Issue.record("expected prompt cancellation, got \(result)")
+        }
+        #expect(await waitForProcessExit(childPID, milliseconds: 3000))
+    }
+
     @Test("cancelExec by extension terminates its running jobs and leaves others running")
     func cancelExecByExtensionTerminatesMatchingJobs() async throws {
         let evictedBox = ExecCompletionBox()
@@ -149,9 +217,12 @@ struct ExtensionCommandExecutorTests {
             .appendingPathComponent("muxy-exec-evicted-\(UUID().uuidString)")
         let survivorMarker = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-exec-survivor-\(UUID().uuidString)")
+        let survivorRelease = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-exec-survivor-release-\(UUID().uuidString)")
         defer {
             try? FileManager.default.removeItem(at: evictedMarker)
             try? FileManager.default.removeItem(at: survivorMarker)
+            try? FileManager.default.removeItem(at: survivorRelease)
         }
 
         let evictedJobID = ExtensionCommandExecutor.startCancelableUnchecked(
@@ -161,21 +232,22 @@ struct ExtensionCommandExecutorTests {
                 cwd: nil,
                 env: nil,
                 stdin: nil,
-                timeoutMs: 0
+                timeoutMs: 10000
             ),
             extensionID: "evicted-ext",
             defaultCwd: nil
         ) { result in
             evictedBox.complete(result)
         }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: evictedJobID) }
         let survivorJobID = ExtensionCommandExecutor.startCancelableUnchecked(
             request: ExecRequest(
                 argv: nil,
-                shell: "printf started > \(survivorMarker.path); while true; do sleep 1; done",
+                shell: "printf started > \(survivorMarker.path); while [ ! -f \(survivorRelease.path) ]; do sleep 0.02; done; printf survived",
                 cwd: nil,
                 env: nil,
                 stdin: nil,
-                timeoutMs: 0
+                timeoutMs: 10000
             ),
             extensionID: "survivor-ext",
             defaultCwd: nil
@@ -197,7 +269,10 @@ struct ExtensionCommandExecutorTests {
             Issue.record("expected ExecError.cancelled, got \(error)")
         }
         #expect(!evictedJobID.isEmpty)
-        #expect(survivorBox.count == 0)
+        try Data().write(to: survivorRelease)
+        let survivor = try await survivorBox.wait().get()
+        #expect(survivor.stdout == "survived")
+        #expect(survivor.exitCode == 0)
     }
 
     @Test("cancel after completion is a no-op")
@@ -223,21 +298,142 @@ struct ExtensionCommandExecutorTests {
         #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID))
     }
 
-    @Test("cancel does not finish twice")
-    func cancelDoesNotFinishTwice() async throws {
+    @Test("normal process exit wins before its callback is delivered")
+    func normalExitWinsBeforeCallbackDelivery() async throws {
+        let monitoringQueue = DispatchQueue(label: "muxy.exec.test.suspended-monitor")
+        monitoringQueue.suspend()
+        var monitoringQueueIsSuspended = true
+        defer {
+            if monitoringQueueIsSuspended {
+                monitoringQueue.resume()
+            }
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let completion = ProcessCompletionBox()
+        let runningProcess = try CancellableProcess.launch(
+            configuredProcess: process,
+            stdinPipe: stdinPipe,
+            stdoutPipe: stdoutPipe,
+            stderrPipe: stderrPipe,
+            monitoringQueue: monitoringQueue
+        ) {
+            completion.complete()
+        }
+        try? stdinPipe.fileHandleForWriting.close()
+
+        try await waitForUnreapedProcessExit(runningProcess.processIdentifier)
+        #expect(!runningProcess.terminate())
+        #expect(await completion.wait())
+        #expect(runningProcess.terminationStatus == 0)
+
+        monitoringQueue.resume()
+        monitoringQueueIsSuspended = false
+    }
+
+    @Test("cancelled owner state prevents authorization and launch")
+    func cancelledOwnerStatePreventsStart() async {
         let box = ExecCompletionBox()
-        let marker = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muxy-exec-started-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: marker) }
+        let jobID = ExtensionCommandExecutor.startCancelableExec(
+            request: ExecRequest(
+                argv: ["/bin/sleep", "30"],
+                shell: nil,
+                cwd: nil,
+                env: nil,
+                stdin: nil,
+                timeoutMs: 10000
+            ),
+            extensionID: "cancelled-owner",
+            defaultCwd: nil,
+            isCancelled: { true }
+        ) { result in
+            box.complete(result)
+        }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
+
+        if case .failure(ExecError.cancelled) = await box.wait() {
+        } else {
+            Issue.record("expected cancellation before authorization")
+        }
+        #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID))
+    }
+
+    @Test("accepted cancellation wins an authorization failure race")
+    func acceptedCancellationWinsAuthorizationFailureRace() async {
+        let box = ExecCompletionBox()
+        let gate = AuthorizationFailureGate()
+        let cancellationGate = CancellationClaimGate()
+        let jobID = ExtensionCommandExecutor.startCancelableExec(
+            request: ExecRequest(
+                argv: ["/bin/echo", "never-runs"],
+                shell: nil,
+                cwd: nil,
+                env: nil,
+                stdin: nil,
+                timeoutMs: nil
+            ),
+            extensionID: "test-extension",
+            defaultCwd: nil,
+            onCancellationClaimed: {
+                cancellationGate.claimAndWait()
+            },
+            authorize: { _, _ in
+                try await gate.authorize()
+            }
+        ) { result in
+            box.complete(result)
+        }
+
+        await gate.waitUntilStarted()
+        let cancellation = Task.detached {
+            ExtensionCommandExecutor.cancelExec(jobID: jobID)
+        }
+        await Task.detached {
+            cancellationGate.waitUntilClaimed()
+        }.value
+        await gate.release()
+        await gate.waitUntilFinished()
+
+        let result = await box.wait()
+        cancellationGate.release()
+        #expect(await cancellation.value)
+
+        if case .failure(ExecError.cancelled) = result {
+        } else {
+            Issue.record("accepted cancellation must produce ExecError.cancelled")
+        }
+        #expect(box.count == 1)
+    }
+
+    @Test("cancellable exec rejects a cwd containing null bytes")
+    func cancellableExecRejectsNullCwd() async {
         let request = ExecRequest(
-            argv: nil,
-            shell: "printf started > \(marker.path); while true; do sleep 1; done",
-            cwd: nil,
+            argv: ["/usr/bin/true"],
+            shell: nil,
+            cwd: "/tmp\0/ignored",
             env: nil,
             stdin: nil,
-            timeoutMs: 0
+            timeoutMs: nil
         )
-        let jobID = ExtensionCommandExecutor.startCancelableUnchecked(
+        do {
+            _ = try await ExtensionCommandExecutor.runUnchecked(
+                request: request,
+                extensionID: "test",
+                defaultCwd: nil
+            )
+            Issue.record("expected synchronous invalid cwd rejection")
+        } catch let ExecError.invalidArguments(message) {
+            #expect(message.contains("cwd"))
+        } catch {
+            Issue.record("expected synchronous ExecError.invalidArguments, got \(error)")
+        }
+
+        let box = ExecCompletionBox()
+        _ = ExtensionCommandExecutor.startCancelableUnchecked(
             request: request,
             extensionID: "test",
             defaultCwd: nil
@@ -245,11 +441,107 @@ struct ExtensionCommandExecutorTests {
             box.complete(result)
         }
 
+        do {
+            _ = try await box.wait().get()
+            Issue.record("expected invalid cwd rejection")
+        } catch let ExecError.invalidArguments(message) {
+            #expect(message.contains("cwd"))
+        } catch {
+            Issue.record("expected ExecError.invalidArguments, got \(error)")
+        }
+    }
+
+    @Test("cancelExec rejects a job owned by another extension")
+    func cancelExecChecksOwnership() async throws {
+        let box = ExecCompletionBox()
+        let marker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-exec-owned-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let jobID = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: ExecRequest(
+                argv: nil,
+                shell: "printf started > \(marker.path); while true; do sleep 1; done",
+                cwd: nil,
+                env: nil,
+                stdin: nil,
+                timeoutMs: 10000
+            ),
+            extensionID: "owner",
+            defaultCwd: nil
+        ) { result in
+            box.complete(result)
+        }
+        defer { _ = ExtensionCommandExecutor.cancelExec(jobID: jobID) }
+
         try await waitForFile(at: marker)
-        #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID))
-        _ = await box.wait()
-        try await Task.sleep(for: .milliseconds(200))
+        #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "other"))
+        #expect(box.count == 0)
+        #expect(ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: "owner"))
+        if case .failure(ExecError.cancelled) = await box.wait() {
+        } else {
+            Issue.record("expected owner cancellation")
+        }
+    }
+
+    @Test("cancel after timeout does not replace the timeout result")
+    func cancelAfterTimeoutDoesNotReplaceResult() async throws {
+        let box = ExecCompletionBox()
+        let marker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-exec-timeout-started-\(UUID().uuidString)")
+        let timeoutMarker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-exec-timeout-fired-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: marker)
+            try? FileManager.default.removeItem(at: timeoutMarker)
+        }
+        let jobID = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: ExecRequest(
+                argv: nil,
+                shell: "trap 'printf timeout > \(timeoutMarker.path)' TERM; printf started > \(marker.path); while true; do sleep 1; done",
+                cwd: nil,
+                env: nil,
+                stdin: nil,
+                timeoutMs: 200
+            ),
+            extensionID: "test",
+            defaultCwd: nil
+        ) { result in
+            box.complete(result)
+        }
+
+        try await waitForFile(at: marker)
+        try await waitForFile(at: timeoutMarker)
+        #expect(!ExtensionCommandExecutor.cancelExec(jobID: jobID))
+        let result = try await box.wait().get()
+        #expect(result.timedOut)
+        #expect(result.exitCode != 0)
         #expect(box.count == 1)
+    }
+
+    @Test("timeout remains active while writing stdin")
+    func timeoutWhileWritingStdin() async throws {
+        let box = ExecCompletionBox()
+        let clock = ContinuousClock()
+        let started = clock.now
+        _ = ExtensionCommandExecutor.startCancelableUnchecked(
+            request: ExecRequest(
+                argv: ["/bin/sleep", "15"],
+                shell: nil,
+                cwd: nil,
+                env: nil,
+                stdin: String(repeating: "x", count: 10 * 1024 * 1024),
+                timeoutMs: 100
+            ),
+            extensionID: "test",
+            defaultCwd: nil
+        ) { result in
+            box.complete(result)
+        }
+
+        let result = try await box.wait(milliseconds: 10000).get()
+        #expect(result.timedOut)
+        #expect(result.exitCode != 0)
+        #expect(clock.now - started < .seconds(10))
     }
 
     @Test("stdin is piped to the child")
@@ -327,6 +619,117 @@ private func waitForFile(at url: URL) async throws {
     Issue.record("expected marker file at \(url.path)")
 }
 
+private func waitForProcessExit(_ pid: pid_t, milliseconds: Int = 1000) async -> Bool {
+    for _ in 0 ..< max(1, milliseconds / 20) {
+        if kill(pid, 0) == -1, errno == ESRCH {
+            return true
+        }
+        var info = proc_bsdinfo()
+        let infoSize = Int32(MemoryLayout.size(ofValue: info))
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, infoSize) == infoSize,
+           info.pbi_status == SZOMB
+        {
+            return true
+        }
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+    return false
+}
+
+private func waitForUnreapedProcessExit(_ pid: pid_t) async throws {
+    for _ in 0 ..< 100 {
+        var info = siginfo_t()
+        if waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0,
+           info.si_pid == pid
+        {
+            return
+        }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    throw ExecWaitError.timedOut
+}
+
+private final class ProcessCompletionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+
+    func complete() {
+        lock.lock()
+        completed = true
+        lock.unlock()
+    }
+
+    func wait() async -> Bool {
+        for _ in 0 ..< 100 {
+            if isCompleted() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return false
+    }
+
+    private func isCompleted() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return completed
+    }
+}
+
+private actor AuthorizationFailureGate {
+    private var started = false
+    private var released = false
+    private var finished = false
+    private var startedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+    private var finishedWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func authorize() async throws -> WorkspaceContext {
+        started = true
+        startedWaiters.forEach { $0.resume() }
+        startedWaiters.removeAll()
+        if !released {
+            await withCheckedContinuation { releaseWaiters.append($0) }
+        }
+        finished = true
+        finishedWaiters.forEach { $0.resume() }
+        finishedWaiters.removeAll()
+        throw ExecError.invalidArguments("forced authorization failure")
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { startedWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        releaseWaiters.forEach { $0.resume() }
+        releaseWaiters.removeAll()
+    }
+
+    func waitUntilFinished() async {
+        guard !finished else { return }
+        await withCheckedContinuation { finishedWaiters.append($0) }
+    }
+}
+
+private final class CancellationClaimGate: @unchecked Sendable {
+    private let claimed = DispatchSemaphore(value: 0)
+    private let released = DispatchSemaphore(value: 0)
+
+    func claimAndWait() {
+        claimed.signal()
+        released.wait()
+    }
+
+    func waitUntilClaimed() {
+        claimed.wait()
+    }
+
+    func release() {
+        released.signal()
+    }
+}
+
 private final class ExecCompletionBox: @unchecked Sendable {
     private let lock = NSLock()
     private var stored: Result<ExecResult, Error>?
@@ -347,8 +750,8 @@ private final class ExecCompletionBox: @unchecked Sendable {
         lock.unlock()
     }
 
-    func wait() async -> Result<ExecResult, Error> {
-        for _ in 0 ..< 100 {
+    func wait(milliseconds: Int = 2000) async -> Result<ExecResult, Error> {
+        for _ in 0 ..< max(1, milliseconds / 20) {
             let result = currentResult()
             if let result {
                 return result

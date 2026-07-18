@@ -88,6 +88,37 @@ struct ExtensionConsentServiceTests {
         #expect(grantStore.rules.isEmpty)
     }
 
+    @Test("cancelling a gate removes its pending prompt")
+    func cancellingGateRemovesPrompt() async {
+        let auditURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-consent-cancel-audit-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: auditURL) }
+        let service = ExtensionConsentService(
+            grantStore: makeGrantStore(),
+            auditLog: ExtensionAuditLog(fileURL: auditURL)
+        )
+        let request = ExtensionConsentRequestBuilder.make(
+            extensionID: "ext",
+            verb: .exec,
+            payload: .exec(argv: ["sleep", "30"], shell: nil),
+            source: "test"
+        )
+        let task = Task { await service.gate(request) }
+        await waitUntil { service.pendingPrompt?.id == request.id }
+
+        task.cancel()
+        let decision = await task.value
+        await waitUntil { service.pendingPrompt == nil }
+        await waitUntil {
+            (try? String(contentsOf: auditURL, encoding: .utf8))?.contains("[cancelled]") == true
+        }
+
+        #expect(decision == .deny)
+        #expect(service.pendingPrompt == nil)
+        #expect(service.queuedPrompts.isEmpty)
+        #expect((try? String(contentsOf: auditURL, encoding: .utf8))?.contains("[cancelled]") == true)
+    }
+
     @Test("blockKind overrides existing allow rules and silences future prompts")
     func blockKindBlocksWholeVerb() async {
         let grantStore = makeGrantStore()

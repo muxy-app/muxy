@@ -136,35 +136,7 @@ public enum ExtensionBridgeJS {
                 exec(argvOrOptions, maybeOptions) {
                     return dispatch('exec', buildExecPayload(argvOrOptions, maybeOptions));
                 },
-                execAsync(argvOrOptions, maybeOptions) {
-                    if (typeof __muxyStartExecAsync !== 'function' || typeof __muxyCancelExec !== 'function') {
-                        throw new Error('muxy.execAsync is not available on this surface');
-                    }
-                    const payload = buildExecPayload(argvOrOptions, maybeOptions);
-                    let jobID = '';
-                    let settled = false;
-                    const result = new Promise((resolve, reject) => {
-                        jobID = __muxyStartExecAsync(
-                            payload,
-                            (value) => {
-                                settled = true;
-                                resolve(value);
-                            },
-                            (error) => {
-                                settled = true;
-                                reject(makeExecError(error));
-                            }
-                        );
-                    });
-                    return Object.freeze({
-                        id: jobID,
-                        result,
-                        cancel() {
-                            if (settled) return false;
-                            return __muxyCancelExec(jobID);
-                        },
-                    });
-                },
+                \(surface == .inProcess ? execAsyncMethod : "")
                 dialog: {
                     confirm(opts) {
                         const o = opts || {};
@@ -609,6 +581,35 @@ public enum ExtensionBridgeJS {
                     return dispatch('events.emit', { event: key, payload: payload === undefined ? null : payload });
                 },
             };
+    """
+
+    private static let execAsyncMethod = """
+                execAsync(argvOrOptions, maybeOptions) {
+                    const payload = buildExecPayload(argvOrOptions, maybeOptions);
+                    let jobID = '';
+                    let settled = false;
+                    const result = new Promise((resolve, reject) => {
+                        jobID = __muxyStartExecAsync(
+                            payload,
+                            (value) => {
+                                settled = true;
+                                resolve(value);
+                            },
+                            (error) => {
+                                settled = true;
+                                reject(makeExecError(error));
+                            }
+                        );
+                    });
+                    return Object.freeze({
+                        id: jobID,
+                        result,
+                        cancel() {
+                            if (settled) return false;
+                            return __muxyCancelExec(jobID);
+                        },
+                    });
+                },
     """
 
     private static let remoteBlock = """

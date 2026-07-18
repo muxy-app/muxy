@@ -112,7 +112,7 @@ final class ExtensionScriptRunner {
         let executor: JSExecutor
         let cancelFlag: ScriptCancelFlag
         var bridge: AnyObject?
-        var pendingModals = 0
+        var pendingDeliveries = 0
         var scriptFinished = false
 
         init(context: JSContext, executor: JSExecutor, cancelFlag: ScriptCancelFlag) {
@@ -121,7 +121,7 @@ final class ExtensionScriptRunner {
             self.cancelFlag = cancelFlag
         }
 
-        var canEvict: Bool { scriptFinished && pendingModals <= 0 }
+        var canEvict: Bool { scriptFinished && pendingDeliveries <= 0 }
     }
 
     private var contexts: [String: ContextHandle] = [:]
@@ -131,7 +131,6 @@ final class ExtensionScriptRunner {
     func evict(extensionID: String) {
         if let handle = contexts.removeValue(forKey: extensionID) {
             handle.cancelFlag.cancel()
-            (handle.bridge as? ScriptBridge)?.cancelTimers()
             handle.executor.stop()
         }
         ExtensionCommandExecutor.cancelExec(extensionID: extensionID)
@@ -166,9 +165,9 @@ final class ExtensionScriptRunner {
         )
         handle.bridge = bridge
         bridge.executor = handle.executor
-        bridge.modalPendingChanged = { [weak self, weak handle] delta in
+        bridge.pendingChanged = { [weak self, weak handle] delta in
             guard let self, let handle else { return }
-            handle.pendingModals += delta
+            handle.pendingDeliveries += delta
             self.evictIfIdle(extensionID: extensionID, handle: handle)
         }
 
@@ -205,7 +204,6 @@ final class ExtensionScriptRunner {
     private func evictIfIdle(extensionID: String, handle: ContextHandle) {
         guard handle.canEvict, contexts[extensionID] === handle else { return }
         contexts.removeValue(forKey: extensionID)
-        (handle.bridge as? ScriptBridge)?.cancelTimers()
         ExtensionCommandExecutor.cancelExec(extensionID: extensionID)
     }
 
@@ -286,9 +284,6 @@ private final class ScriptBridge: @unchecked Sendable {
     private weak var appState: AppState?
     private let stores: ExtensionAPIStores
     private let cancelFlag: ScriptCancelFlag
-    private let timerLock = NSLock()
-    private var timers: [Int: DispatchSourceTimer] = [:]
-    private var nextTimerID = 1
 
     @MainActor
     init(
@@ -307,7 +302,6 @@ private final class ScriptBridge: @unchecked Sendable {
 
     func install(into context: JSContext) {
         self.context = context
-        installTimers(into: context)
         installExecAsync(into: context)
         let dispatcher: @convention(block) (String, JSValue?) -> Any = { [weak self] verb, args in
             guard let self else { return Self.errorObject("bridge released") }
@@ -324,25 +318,6 @@ private final class ScriptBridge: @unchecked Sendable {
         context.evaluateScript(ExtensionBridgeJS.script(extensionID: extensionID, surface: .inProcess))
     }
 
-    private func installTimers(into context: JSContext) {
-        let setTimer: @convention(block) (JSValue, Double, Bool) -> Int = { [weak self] callback, delayMs, repeats in
-            self?.scheduleTimer(callback: callback, delayMs: delayMs, repeats: repeats) ?? 0
-        }
-        context.setObject(setTimer, forKeyedSubscript: "__muxySetTimer" as NSString)
-
-        let clearTimer: @convention(block) (Int) -> Void = { [weak self] id in
-            self?.cancelTimer(id: id)
-        }
-        context.setObject(clearTimer, forKeyedSubscript: "__muxyClearTimer" as NSString)
-
-        context.evaluateScript("""
-        globalThis.setTimeout = (fn, delay) => __muxySetTimer(fn, Number(delay) || 0, false);
-        globalThis.setInterval = (fn, delay) => __muxySetTimer(fn, Number(delay) || 0, true);
-        globalThis.clearTimeout = (id) => __muxyClearTimer(Number(id) || 0);
-        globalThis.clearInterval = (id) => __muxyClearTimer(Number(id) || 0);
-        """)
-    }
-
     private func installExecAsync(into context: JSContext) {
         let start: @convention(block) (JSValue, JSValue, JSValue) -> String = { [weak self] payload, resolve, reject in
             guard let self else { return "" }
@@ -350,60 +325,11 @@ private final class ScriptBridge: @unchecked Sendable {
         }
         context.setObject(start, forKeyedSubscript: "__muxyStartExecAsync" as NSString)
 
-        let cancel: @convention(block) (String) -> Bool = { jobID in
-            ExtensionCommandExecutor.cancelExec(jobID: jobID)
+        let cancel: @convention(block) (String) -> Bool = { [weak self] jobID in
+            guard let self else { return false }
+            return ExtensionCommandExecutor.cancelExec(jobID: jobID, extensionID: extensionID)
         }
         context.setObject(cancel, forKeyedSubscript: "__muxyCancelExec" as NSString)
-    }
-
-    private func scheduleTimer(callback: JSValue, delayMs: Double, repeats: Bool) -> Int {
-        timerLock.lock()
-        let id = nextTimerID
-        nextTimerID += 1
-        timerLock.unlock()
-        let callbackBox = JSValueBox(callback)
-
-        let interval = max(0, delayMs) / 1000
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
-        if repeats {
-            timer.schedule(deadline: .now() + interval, repeating: interval)
-        } else {
-            timer.schedule(deadline: .now() + interval)
-        }
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            let enqueued = executor?.async {
-                callbackBox.value.call(withArguments: [])
-                if !repeats { self.cancelTimer(id: id) }
-            } ?? false
-            if !enqueued {
-                self.cancelTimer(id: id)
-            }
-        }
-
-        timerLock.lock()
-        timers[id] = timer
-        timerLock.unlock()
-
-        timer.resume()
-        return id
-    }
-
-    private func cancelTimer(id: Int) {
-        timerLock.lock()
-        let timer = timers.removeValue(forKey: id)
-        timerLock.unlock()
-        timer?.cancel()
-    }
-
-    func cancelTimers() {
-        timerLock.lock()
-        let activeTimers = Array(timers.values)
-        timers.removeAll()
-        timerLock.unlock()
-        for timer in activeTimers {
-            timer.cancel()
-        }
     }
 
     private func startExecAsync(payload: JSValue, resolve: JSValue, reject: JSValue) -> String {
@@ -425,20 +351,24 @@ private final class ScriptBridge: @unchecked Sendable {
                 return ExecAsyncPreparation(request: request, defaultCwd: defaultCwd)
             }
         } catch {
-            rejectExecAsync(reject, message: error.localizedDescription, cancelled: false)
+            rejectExecAsync(reject, message: error.localizedDescription, cancelled: cancelFlag.isCancelled)
             return jobID
         }
-        let completion = ModalDeliveryCompletion(modalPendingChanged)
-        completion.start()
+        let completion = PendingDeliveryCompletion(pendingChanged)
+        DispatchQueue.main.sync {
+            completion.start()
+        }
         let callback = ExecAsyncCallbackBox(executor: executor, resolve: resolve, reject: reject, completion: completion)
         _ = ExtensionCommandExecutor.startCancelableExec(
             jobID: jobID,
             request: preparation.request,
             extensionID: extensionID,
-            defaultCwd: preparation.defaultCwd
-        ) { result in
-            callback.complete(result)
-        }
+            defaultCwd: preparation.defaultCwd,
+            isCancelled: { [cancelFlag] in cancelFlag.isCancelled },
+            completion: { result in
+                callback.complete(result)
+            }
+        )
         return jobID
     }
 
@@ -476,9 +406,9 @@ private final class ScriptBridge: @unchecked Sendable {
 
     @MainActor
     private func registerModalDelivery(requestID: String) {
-        let onPending = modalPendingChanged
+        let onPending = pendingChanged
         onPending?(1)
-        let completion = ModalDeliveryCompletion(onPending)
+        let completion = PendingDeliveryCompletion(onPending)
         ExtensionModalService.shared.onResult(requestID: requestID) { [weak self] item in
             guard let self else {
                 completion.finish()
@@ -492,7 +422,7 @@ private final class ScriptBridge: @unchecked Sendable {
     private func deliverModalResult(
         requestID: String,
         item: ExtensionModalService.Item?,
-        completion: ModalDeliveryCompletion
+        completion: PendingDeliveryCompletion
     ) {
         guard let executor, let context else {
             completion.finish()
@@ -549,7 +479,7 @@ private final class ScriptBridge: @unchecked Sendable {
     }
 
     var executor: JSExecutor?
-    var modalPendingChanged: ((Int) -> Void)?
+    var pendingChanged: ((Int) -> Void)?
     private let modalQueryStamp = ModalQueryStamp()
 
     private static func errorObject(_ message: String) -> [String: Any] {
@@ -615,13 +545,6 @@ private struct AnyBox<T>: @unchecked Sendable {
     }
 }
 
-private struct JSValueBox: @unchecked Sendable {
-    let value: JSValue
-    init(_ value: JSValue) {
-        self.value = value
-    }
-}
-
 private struct ExecAsyncPreparation {
     let request: ExecRequest
     let defaultCwd: String?
@@ -631,9 +554,9 @@ private final class ExecAsyncCallbackBox: @unchecked Sendable {
     private weak var executor: JSExecutor?
     private let resolve: JSValue
     private let reject: JSValue
-    private let completion: ModalDeliveryCompletion
+    private let completion: PendingDeliveryCompletion
 
-    init(executor: JSExecutor?, resolve: JSValue, reject: JSValue, completion: ModalDeliveryCompletion) {
+    init(executor: JSExecutor?, resolve: JSValue, reject: JSValue, completion: PendingDeliveryCompletion) {
         self.executor = executor
         self.resolve = resolve
         self.reject = reject
@@ -644,7 +567,7 @@ private final class ExecAsyncCallbackBox: @unchecked Sendable {
         guard executor?.async({ [self] in
             switch result {
             case let .success(value):
-                resolve.call(withArguments: [Self.encode(value)])
+                resolve.call(withArguments: [ExtensionBridgeShared.encodeExecResult(value)])
             case let .failure(error):
                 reject.call(withArguments: [Self.encode(error)])
             }
@@ -654,16 +577,6 @@ private final class ExecAsyncCallbackBox: @unchecked Sendable {
             completion.finish()
             return
         }
-    }
-
-    private static func encode(_ result: ExecResult) -> [String: Any] {
-        [
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exitCode": Int(result.exitCode),
-            "timedOut": result.timedOut,
-            "truncated": result.truncated,
-        ]
     }
 
     private static func encode(_ error: Error) -> [String: Any] {
@@ -701,17 +614,16 @@ private struct ModalQueryDeliveryBox: @unchecked Sendable {
     let options: [String: Bool]
 }
 
-private final class ModalDeliveryCompletion: @unchecked Sendable {
+private final class PendingDeliveryCompletion: @unchecked Sendable {
     private let onPending: ((Int) -> Void)?
 
     init(_ onPending: ((Int) -> Void)?) {
         self.onPending = onPending
     }
 
+    @MainActor
     func start() {
-        DispatchQueue.main.async { [self] in
-            onPending?(1)
-        }
+        onPending?(1)
     }
 
     func finish() {

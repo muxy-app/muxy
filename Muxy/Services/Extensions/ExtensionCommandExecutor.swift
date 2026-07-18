@@ -57,6 +57,14 @@ enum ExtensionCommandExecutor {
         request: ExecRequest,
         extensionID: String,
         defaultCwd: String?,
+        isCancelled: @escaping @Sendable () -> Bool = { false },
+        onCancellationClaimed: @escaping @Sendable () -> Void = {},
+        authorize: @escaping ExecJob.Authorizer = { request, extensionID in
+            try await ExtensionCommandExecutor.authorizeCancelableExec(
+                request: request,
+                extensionID: extensionID
+            )
+        },
         completion: @escaping @Sendable (Result<ExecResult, Error>) -> Void
     ) -> String {
         let job = ExecJob(
@@ -64,11 +72,16 @@ enum ExtensionCommandExecutor {
             request: request,
             extensionID: extensionID,
             defaultCwd: defaultCwd,
-            completion: completion
-        ) { id in
-            jobs.remove(id: id)
-        }
+            authorizer: authorize,
+            onCancellationClaimed: onCancellationClaimed,
+            completion: completion,
+            onRemove: { id in jobs.remove(id: id) }
+        )
         jobs.insert(job)
+        guard !isCancelled() else {
+            _ = jobs.cancel(id: job.id)
+            return job.id
+        }
         job.authorizeAndRun()
         return job.id
     }
@@ -86,10 +99,11 @@ enum ExtensionCommandExecutor {
             request: request,
             extensionID: extensionID,
             defaultCwd: defaultCwd,
-            completion: completion
-        ) { id in
-            jobs.remove(id: id)
-        }
+            authorizer: nil,
+            onCancellationClaimed: {},
+            completion: completion,
+            onRemove: { id in jobs.remove(id: id) }
+        )
         jobs.insert(job)
         job.run(context: context)
         return job.id
@@ -97,6 +111,10 @@ enum ExtensionCommandExecutor {
 
     static func cancelExec(jobID: String) -> Bool {
         jobs.cancel(id: jobID)
+    }
+
+    static func cancelExec(jobID: String, extensionID: String) -> Bool {
+        jobs.cancel(id: jobID, extensionID: extensionID)
     }
 
     static func cancelExec(extensionID: String) {
@@ -127,11 +145,13 @@ enum ExtensionCommandExecutor {
 
         let stdoutBox = OutputBox()
         let stderrBox = OutputBox()
+        let stdoutReader = OutputReader(pipe: stdoutPipe, box: stdoutBox)
+        let stderrReader = OutputReader(pipe: stderrPipe, box: stderrBox)
         let timeoutFlag = TimeoutFlag()
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            attachReader(pipe: stdoutPipe, box: stdoutBox)
-            attachReader(pipe: stderrPipe, box: stderrBox)
+            stdoutReader.start()
+            stderrReader.start()
 
             let resumeBox = ResumeBox(continuation: continuation)
             process.terminationHandler = { _ in
@@ -153,8 +173,8 @@ enum ExtensionCommandExecutor {
             }
         } as Void
 
-        drain(pipe: stdoutPipe, into: stdoutBox)
-        drain(pipe: stderrPipe, into: stderrBox)
+        stdoutReader.finish()
+        stderrReader.finish()
 
         return ExecResult(
             stdout: stdoutBox.string(),
@@ -183,11 +203,11 @@ enum ExtensionCommandExecutor {
         return ActiveWorkspaceContext.shared.current
     }
 
-    fileprivate static func authorizeCancelableExec(request: ExecRequest, extensionID: String) async throws -> WorkspaceContext {
+    static func authorizeCancelableExec(request: ExecRequest, extensionID: String) async throws -> WorkspaceContext {
         try await authorizeExec(request: request, extensionID: extensionID)
     }
 
-    fileprivate static func configureLaunch(
+    static func configureLaunch(
         _ process: Process,
         request: ExecRequest,
         extensionID: String,
@@ -195,6 +215,9 @@ enum ExtensionCommandExecutor {
         context: WorkspaceContext
     ) throws {
         let cwdValue = request.cwd ?? defaultCwd
+        guard cwdValue?.contains("\0") != true else {
+            throw ExecError.invalidArguments("cwd cannot contain null bytes")
+        }
         guard !context.isRemote else {
             try configureRemoteLaunch(process, request: request, cwdValue: cwdValue, context: context)
             return
@@ -282,33 +305,14 @@ enum ExtensionCommandExecutor {
         throw ExecError.launchFailed("command not found: \(command)")
     }
 
-    fileprivate static func attachReader(pipe: Pipe, box: OutputBox) {
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                return
-            }
-            box.append(data)
-        }
-    }
-
-    fileprivate static func drain(pipe: Pipe?, into box: OutputBox?) {
-        guard let pipe, let box else { return }
-        let handle = pipe.fileHandleForReading
-        handle.readabilityHandler = nil
-        let data = handle.readDataToEndOfFile()
-        if !data.isEmpty {
-            box.append(data)
-        }
-    }
-
-    fileprivate static func writeStdin(_ text: String?, into pipe: Pipe) {
+    static func writeStdin(_ text: String?, into pipe: Pipe) {
+        let handle = pipe.fileHandleForWriting
         defer {
-            try? pipe.fileHandleForWriting.close()
+            try? handle.close()
         }
         guard let text, !text.isEmpty else { return }
-        try? pipe.fileHandleForWriting.write(contentsOf: Data(text.utf8))
+        _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
+        try? handle.write(contentsOf: Data(text.utf8))
     }
 
     fileprivate static func scheduleTimeout(process: Process, after milliseconds: Int, flag: TimeoutFlag) {
@@ -321,251 +325,6 @@ enum ExtensionCommandExecutor {
                 kill(process.processIdentifier, SIGKILL)
             }
         }
-    }
-}
-
-private final class ExecJobRegistry: @unchecked Sendable {
-    private let lock = NSLock()
-    private var jobs: [String: ExecJob] = [:]
-
-    func insert(_ job: ExecJob) {
-        lock.lock()
-        jobs[job.id] = job
-        lock.unlock()
-    }
-
-    func remove(id: String) {
-        lock.lock()
-        jobs[id] = nil
-        lock.unlock()
-    }
-
-    func cancel(id: String) -> Bool {
-        lock.lock()
-        let job = jobs[id]
-        lock.unlock()
-        return job?.cancel() ?? false
-    }
-
-    func cancelAll(extensionID: String) {
-        lock.lock()
-        let matching = jobs.values.filter { $0.extensionID == extensionID }
-        lock.unlock()
-        for job in matching {
-            _ = job.cancel()
-        }
-    }
-}
-
-private final class ExecJob: @unchecked Sendable {
-    let id: String
-    let extensionID: String
-    private let request: ExecRequest
-    private let defaultCwd: String?
-    private let onRemove: @Sendable (String) -> Void
-    private let lock = NSLock()
-    private var completion: (@Sendable (Result<ExecResult, Error>) -> Void)?
-    private var process: Process?
-    private var stdoutPipe: Pipe?
-    private var stderrPipe: Pipe?
-    private var stdoutBox: OutputBox?
-    private var stderrBox: OutputBox?
-    private var timedOut = false
-    private var cancelled = false
-    private var finished = false
-
-    init(
-        id: String,
-        request: ExecRequest,
-        extensionID: String,
-        defaultCwd: String?,
-        completion: @escaping @Sendable (Result<ExecResult, Error>) -> Void,
-        onRemove: @escaping @Sendable (String) -> Void
-    ) {
-        self.id = id
-        self.request = request
-        self.extensionID = extensionID
-        self.defaultCwd = defaultCwd
-        self.completion = completion
-        self.onRemove = onRemove
-    }
-
-    func authorizeAndRun() {
-        Task {
-            do {
-                let context = try await ExtensionCommandExecutor.authorizeCancelableExec(
-                    request: request,
-                    extensionID: extensionID
-                )
-                run(context: context)
-            } catch {
-                finish(.failure(error))
-            }
-        }
-    }
-
-    func run(context: WorkspaceContext) {
-        lock.lock()
-        let shouldSkip = finished || cancelled
-        lock.unlock()
-        guard !shouldSkip else {
-            finish(.failure(ExecError.cancelled))
-            return
-        }
-
-        let process = Process()
-        do {
-            try ExtensionCommandExecutor.configureLaunch(
-                process,
-                request: request,
-                extensionID: extensionID,
-                defaultCwd: defaultCwd,
-                context: context
-            )
-        } catch {
-            finish(.failure(error))
-            return
-        }
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        process.standardInput = stdinPipe
-
-        let stdoutBox = OutputBox()
-        let stderrBox = OutputBox()
-        ExtensionCommandExecutor.attachReader(pipe: stdoutPipe, box: stdoutBox)
-        ExtensionCommandExecutor.attachReader(pipe: stderrPipe, box: stderrBox)
-
-        process.terminationHandler = { [weak self] _ in
-            self?.processDidTerminate()
-        }
-
-        lock.lock()
-        if finished || cancelled {
-            lock.unlock()
-            finish(.failure(ExecError.cancelled))
-            return
-        }
-        self.process = process
-        self.stdoutPipe = stdoutPipe
-        self.stderrPipe = stderrPipe
-        self.stdoutBox = stdoutBox
-        self.stderrBox = stderrBox
-        do {
-            try process.run()
-        } catch {
-            self.process = nil
-            self.stdoutPipe = nil
-            self.stderrPipe = nil
-            self.stdoutBox = nil
-            self.stderrBox = nil
-            lock.unlock()
-            finish(.failure(ExecError.launchFailed(error.localizedDescription)))
-            return
-        }
-        lock.unlock()
-
-        ExtensionCommandExecutor.writeStdin(request.stdin, into: stdinPipe)
-
-        let timeoutMs = request.timeoutMs ?? ExtensionCommandExecutor.defaultTimeoutMs
-        if timeoutMs > 0 {
-            scheduleTimeout(after: timeoutMs)
-        }
-    }
-
-    func cancel() -> Bool {
-        lock.lock()
-        guard !finished, !cancelled else {
-            lock.unlock()
-            return false
-        }
-        cancelled = true
-        let runningProcess = process
-        lock.unlock()
-
-        if let runningProcess, runningProcess.isRunning {
-            runningProcess.terminate()
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .seconds(2)) {
-                guard runningProcess.isRunning else { return }
-                kill(runningProcess.processIdentifier, SIGKILL)
-            }
-        } else {
-            finish(.failure(ExecError.cancelled))
-        }
-        return true
-    }
-
-    private func scheduleTimeout(after milliseconds: Int) {
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(milliseconds)) { [weak self] in
-            self?.timeout()
-        }
-    }
-
-    private func timeout() {
-        lock.lock()
-        guard !finished, !cancelled, let runningProcess = process, runningProcess.isRunning else {
-            lock.unlock()
-            return
-        }
-        timedOut = true
-        lock.unlock()
-
-        runningProcess.terminate()
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .seconds(2)) {
-            guard runningProcess.isRunning else { return }
-            kill(runningProcess.processIdentifier, SIGKILL)
-        }
-    }
-
-    private func processDidTerminate() {
-        lock.lock()
-        let wasCancelled = cancelled
-        let didTimeOut = timedOut
-        let status = process?.terminationStatus ?? -1
-        let outputPipes = (stdoutPipe, stderrPipe)
-        let stdout = stdoutBox
-        let stderr = stderrBox
-        lock.unlock()
-
-        ExtensionCommandExecutor.drain(pipe: outputPipes.0, into: stdout)
-        ExtensionCommandExecutor.drain(pipe: outputPipes.1, into: stderr)
-
-        if wasCancelled {
-            finish(.failure(ExecError.cancelled))
-            return
-        }
-
-        finish(.success(ExecResult(
-            stdout: stdout?.string() ?? "",
-            stderr: stderr?.string() ?? "",
-            exitCode: status,
-            timedOut: didTimeOut,
-            truncated: (stdout?.overflow ?? false) || (stderr?.overflow ?? false)
-        )))
-    }
-
-    private func finish(_ result: Result<ExecResult, Error>) {
-        let callback: (@Sendable (Result<ExecResult, Error>) -> Void)?
-        lock.lock()
-        guard !finished else {
-            lock.unlock()
-            return
-        }
-        finished = true
-        callback = completion
-        completion = nil
-        process = nil
-        stdoutPipe = nil
-        stderrPipe = nil
-        stdoutBox = nil
-        stderrBox = nil
-        lock.unlock()
-
-        onRemove(id)
-        callback?(result)
     }
 }
 
@@ -582,33 +341,6 @@ private final class TimeoutFlag: @unchecked Sendable {
             defer { lock.unlock() }
             didFire = newValue
         }
-    }
-}
-
-private final class OutputBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var data = Data()
-    private(set) var overflow = false
-
-    func append(_ chunk: Data) {
-        lock.lock()
-        defer { lock.unlock() }
-        if overflow { return }
-        let remaining = ExtensionCommandExecutor.maxOutputBytes - data.count
-        if chunk.count <= remaining {
-            data.append(chunk)
-            return
-        }
-        if remaining > 0 {
-            data.append(chunk.prefix(remaining))
-        }
-        overflow = true
-    }
-
-    func string() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        return String(data: data, encoding: .utf8) ?? ""
     }
 }
 

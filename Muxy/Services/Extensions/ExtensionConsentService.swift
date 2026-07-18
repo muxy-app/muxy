@@ -62,7 +62,18 @@ final class ExtensionConsentService {
             recordAudit(request: request, decision: .deny, ruleID: ruleID)
             return .deny
         case .ask:
-            return await prompt(request: request)
+            let requestID = request.id
+            return await withTaskCancellationHandler {
+                guard !Task.isCancelled else {
+                    recordAudit(request: request, decision: .deny, ruleID: nil, reason: "cancelled")
+                    return .deny
+                }
+                return await prompt(request: request)
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.cancelPrompt(requestID: requestID)
+                }
+            }
         }
     }
 
@@ -77,6 +88,18 @@ final class ExtensionConsentService {
         }
         advanceQueue(removing: requestID)
         continuation.resume(returning: choice)
+    }
+
+    private func cancelPrompt(requestID: UUID) {
+        guard let continuation = continuations.removeValue(forKey: requestID) else { return }
+        timeoutTasks.removeValue(forKey: requestID)?.cancel()
+        let request = (pendingPrompt?.id == requestID ? pendingPrompt : nil)
+            ?? queuedPrompts.first { $0.id == requestID }
+        if let request {
+            recordAudit(request: request, decision: .deny, ruleID: nil, reason: "cancelled")
+        }
+        advanceQueue(removing: requestID)
+        continuation.resume(returning: .denyOnce)
     }
 
     private func prompt(request: ExtensionConsentRequest) async -> ExtensionGrantDecision {
