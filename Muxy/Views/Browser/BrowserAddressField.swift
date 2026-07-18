@@ -234,7 +234,9 @@ struct BrowserAddressField: NSViewRepresentable {
 
         private func handleGlobalClick(_ event: NSEvent) {
             guard let panel, panel.isVisible else { return }
-            if event.window == field?.window || event.window?.parent == field?.window { return }
+            if event.window == field?.window || event.window?.parent == field?.window {
+                return
+            }
             dismissSuggestions()
         }
 

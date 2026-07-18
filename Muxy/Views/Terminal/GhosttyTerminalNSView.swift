@@ -469,7 +469,9 @@ final class GhosttyTerminalNSView: NSView {
 
     func isTerminalIdle() -> Bool {
         guard let surface else { return true }
-        if ghostty_surface_needs_confirm_quit(surface) { return false }
+        if ghostty_surface_needs_confirm_quit(surface) {
+            return false
+        }
         return !isAlternateScreenActive(surface: surface)
     }
 
@@ -679,7 +681,9 @@ final class GhosttyTerminalNSView: NSView {
     private var currentTrackingArea: NSTrackingArea?
 
     private func setupTrackingArea() {
-        if let existing = currentTrackingArea { removeTrackingArea(existing) }
+        if let existing = currentTrackingArea {
+            removeTrackingArea(existing)
+        }
         let area = NSTrackingArea(
             rect: bounds,
             options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
@@ -695,7 +699,9 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if overlayActive { return }
+        if overlayActive {
+            return
+        }
         guard let surface else { super.keyDown(with: event)
             return
         }
@@ -705,7 +711,9 @@ final class GhosttyTerminalNSView: NSView {
         let optionAsAlt = translatedOptionAsAlt(for: event)
 
         if flags.contains(.control), !flags.contains(.command), !flags.contains(.option), !hasMarkedText() {
-            if isAppShortcut(event) { return }
+            if isAppShortcut(event) {
+                return
+            }
             var keyEvent = buildKeyEvent(from: event, action: action)
             let text = shortcutText(from: event)
             if text.isEmpty {
@@ -722,7 +730,9 @@ final class GhosttyTerminalNSView: NSView {
         }
 
         if flags.contains(.command) {
-            if isAppShortcut(event) { return }
+            if isAppShortcut(event) {
+                return
+            }
             var keyEvent = buildKeyEvent(from: event, action: action)
             keyEvent.text = nil
             _ = ghostty_surface_key(surface, keyEvent)
@@ -787,7 +797,9 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func keyUp(with event: NSEvent) {
-        if overlayActive { return }
+        if overlayActive {
+            return
+        }
         guard let surface else { return }
         var keyEvent = buildKeyEvent(from: event, action: GHOSTTY_ACTION_RELEASE)
         keyEvent.text = nil
@@ -795,9 +807,13 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        if overlayActive { return }
+        if overlayActive {
+            return
+        }
         guard let surface else { return }
-        if hasMarkedText() { return }
+        if hasMarkedText() {
+            return
+        }
         let action: ghostty_input_action_e = isFlagPress(event) ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
         var keyEvent = buildKeyEvent(from: event, action: action)
         keyEvent.text = nil
@@ -806,8 +822,12 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if isAppShortcut(event) { return false }
-        if overlayActive { return false }
+        if isAppShortcut(event) {
+            return false
+        }
+        if overlayActive {
+            return false
+        }
         guard window?.firstResponder === self || window?.firstResponder === inputContext else { return false }
         guard event.type == .keyDown, let surface else { return false }
 
@@ -835,7 +855,9 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if overlayActive { return }
+        if overlayActive {
+            return
+        }
         guard let surface else { return }
         let alreadyFirstResponder = window?.firstResponder === self
         window?.makeFirstResponder(self)
@@ -855,7 +877,9 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        if overlayActive { return }
+        if overlayActive {
+            return
+        }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
@@ -1203,7 +1227,9 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        if overlayActive { return }
+        if overlayActive {
+            return
+        }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
@@ -1214,7 +1240,9 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func rightMouseUp(with event: NSEvent) {
-        if overlayActive { return }
+        if overlayActive {
+            return
+        }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
@@ -1266,7 +1294,9 @@ final class GhosttyTerminalNSView: NSView {
 
     private func pasteboardHasImage() -> Bool {
         let pb = NSPasteboard.general
-        if pb.string(forType: .string) != nil { return false }
+        if pb.string(forType: .string) != nil {
+            return false
+        }
         return pb.canReadObject(forClasses: [NSImage.self], options: nil)
     }
 
@@ -1278,7 +1308,9 @@ final class GhosttyTerminalNSView: NSView {
     override func scrollWheel(with event: NSEvent) {
         guard let surface else { return }
         var mods: ghostty_input_scroll_mods_t = 0
-        if event.hasPreciseScrollingDeltas { mods |= 1 }
+        if event.hasPreciseScrollingDeltas {
+            mods |= 1
+        }
         ghostty_surface_mouse_scroll(surface, event.scrollingDeltaX, event.scrollingDeltaY, mods)
         scrollbarOverlay.flash()
     }
@@ -1333,8 +1365,12 @@ final class GhosttyTerminalNSView: NSView {
         consumeOption: Bool = true
     ) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
-        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if consumeOption, flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.shift) {
+            mods |= GHOSTTY_MODS_SHIFT.rawValue
+        }
+        if consumeOption, flags.contains(.option) {
+            mods |= GHOSTTY_MODS_ALT.rawValue
+        }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
@@ -1349,15 +1385,33 @@ final class GhosttyTerminalNSView: NSView {
         var mods = GHOSTTY_MODS_NONE.rawValue
         let flags = event.modifierFlags
         let raw = flags.rawValue
-        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
-        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
-        if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
-        if flags.contains(.capsLock) { mods |= GHOSTTY_MODS_CAPS.rawValue }
-        if raw & RightModifierMask.shift != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
-        if raw & RightModifierMask.control != 0 { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
-        if raw & RightModifierMask.option != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
-        if raw & RightModifierMask.command != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
+        if flags.contains(.shift) {
+            mods |= GHOSTTY_MODS_SHIFT.rawValue
+        }
+        if flags.contains(.control) {
+            mods |= GHOSTTY_MODS_CTRL.rawValue
+        }
+        if flags.contains(.option) {
+            mods |= GHOSTTY_MODS_ALT.rawValue
+        }
+        if flags.contains(.command) {
+            mods |= GHOSTTY_MODS_SUPER.rawValue
+        }
+        if flags.contains(.capsLock) {
+            mods |= GHOSTTY_MODS_CAPS.rawValue
+        }
+        if raw & RightModifierMask.shift != 0 {
+            mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue
+        }
+        if raw & RightModifierMask.control != 0 {
+            mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue
+        }
+        if raw & RightModifierMask.option != 0 {
+            mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue
+        }
+        if raw & RightModifierMask.command != 0 {
+            mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue
+        }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
@@ -1419,7 +1473,9 @@ final class GhosttyTerminalNSView: NSView {
     private func filterSpecialCharacters(_ text: String) -> String {
         guard let scalar = text.unicodeScalars.first else { return "" }
         let value = scalar.value
-        if value < 0x20 || (0xF700 ... 0xF8FF).contains(value) { return "" }
+        if value < 0x20 || (0xF700 ... 0xF8FF).contains(value) {
+            return ""
+        }
         return text
     }
 

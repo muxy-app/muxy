@@ -88,7 +88,9 @@ final class ProjectGroupStore {
     var activeRemoteProjectIDs: Set<UUID> {
         guard isRemoteWorkspaceActive else { return [] }
         var ids = Set(activeRemoteProjects.map(\.id))
-        if let homeID = activeRemoteHomeProject?.id { ids.insert(homeID) }
+        if let homeID = activeRemoteHomeProject?.id {
+            ids.insert(homeID)
+        }
         return ids
     }
 

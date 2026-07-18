@@ -73,7 +73,9 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
         for binding in Self.bindings {
             let command = Self.hookCommand(hookScript: hookScriptPath, argument: binding.argument)
             let existing = hooks[binding.event] as? [[String: Any]]
-            if Self.muxyHookMatches(entries: existing, expectedCommand: command) { continue }
+            if Self.muxyHookMatches(entries: existing, expectedCommand: command) {
+                continue
+            }
             hooks[binding.event] = Self.mergeHookArray(existing: existing, command: command)
             changed = true
         }

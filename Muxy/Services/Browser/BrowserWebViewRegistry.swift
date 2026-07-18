@@ -25,7 +25,9 @@ final class BrowserWebViewRegistry {
     }
 
     func unregister(_ tabID: UUID, ifMatches webView: WKWebView? = nil) {
-        if let webView, entries[tabID]?.webView !== webView { return }
+        if let webView, entries[tabID]?.webView !== webView {
+            return
+        }
         entries[tabID] = nil
     }
 

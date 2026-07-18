@@ -291,10 +291,14 @@ final class ProjectStore {
             try persistence.saveProjects(storedProjects)
         } catch {
             logger.error("Failed to save projects: \(error)")
-            if notify { onProjectsChanged?() }
+            if notify {
+                onProjectsChanged?()
+            }
             return false
         }
-        if notify { onProjectsChanged?() }
+        if notify {
+            onProjectsChanged?()
+        }
         return true
     }
 
@@ -333,7 +337,9 @@ final class ProjectStore {
     }
 
     private func projectsMatch(_ lhs: Project, _ rhs: Project) -> Bool {
-        if lhs.id == rhs.id { return true }
+        if lhs.id == rhs.id {
+            return true
+        }
         guard !lhs.isRemote, !rhs.isRemote else { return false }
         return ProjectPickerPathService.standardizedPath(lhs.path)
             == ProjectPickerPathService.standardizedPath(rhs.path)

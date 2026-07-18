@@ -95,7 +95,9 @@ enum FileSystemOperations {
         let name = try sanitize(rawName)
         let parent = (absolutePath as NSString).deletingLastPathComponent
         let currentName = (absolutePath as NSString).lastPathComponent
-        if name == currentName { return absolutePath }
+        if name == currentName {
+            return absolutePath
+        }
         let candidate = URL(fileURLWithPath: parent).appendingPathComponent(name).path
         if FileManager.default.fileExists(atPath: candidate) {
             throw FileSystemOperationError.destinationExists(candidate)

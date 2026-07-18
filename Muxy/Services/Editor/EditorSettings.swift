@@ -27,7 +27,9 @@ final class EditorSettings {
     @ObservationIgnored private var isBatchLoading = false
 
     static var availableMonospacedFonts: [String] {
-        if let cached = cachedMonospacedFonts { return cached }
+        if let cached = cachedMonospacedFonts {
+            return cached
+        }
         let result = NSFontManager.shared
             .availableFontFamilies
             .filter { family in

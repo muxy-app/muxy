@@ -290,7 +290,9 @@ enum TerminalOmniboxItemResolver {
                 .sorted { lhs, rhs in
                     let lhsActive = context.isActiveWorktree(lhs.element)
                     let rhsActive = context.isActiveWorktree(rhs.element)
-                    if lhsActive != rhsActive { return lhsActive }
+                    if lhsActive != rhsActive {
+                        return lhsActive
+                    }
                     return lhs.offset < rhs.offset
                 }
                 .map { TerminalOmniboxItem.openTab($0.element) }

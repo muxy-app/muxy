@@ -77,7 +77,9 @@ final class WorktreeStore {
     func ensurePrimary(for project: Project) {
         guard !projectsBeingRemoved.contains(project.id) else { return }
         var list = worktrees[project.id] ?? []
-        if list.contains(where: \.isPrimary) { return }
+        if list.contains(where: \.isPrimary) {
+            return
+        }
         list.insert(makePrimary(for: project), at: 0)
         setWorktrees(sortPrimaryFirst(list), for: project.id)
         save(projectID: project.id)

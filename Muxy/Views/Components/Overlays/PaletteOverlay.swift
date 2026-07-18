@@ -171,7 +171,9 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                                     .onTapGesture { onSelect(item) }
                                     .id(item.id)
                                     .onAppear {
-                                        if index >= results.count - 1 { scheduleLoadMore() }
+                                        if index >= results.count - 1 {
+                                            scheduleLoadMore()
+                                        }
                                     }
                             }
                         }
@@ -657,7 +659,9 @@ final class PaletteNSTextField: NSTextField {
     }
 
     override func keyDown(with event: NSEvent) {
-        if handleControlKey(event) { return }
+        if handleControlKey(event) {
+            return
+        }
         if Self.isReturnKey(event),
            let editor = currentEditor() as? NSTextView,
            editor.hasMarkedText()

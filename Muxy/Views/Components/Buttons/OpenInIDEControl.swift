@@ -208,7 +208,9 @@ struct OpenInIDEControl: View {
     }
 
     private var defaultTargetIDE: IDEIntegrationService.IDEApplication? {
-        if defaultFileOpener != nil { return nil }
+        if defaultFileOpener != nil {
+            return nil
+        }
         return defaultIDE
     }
 

@@ -179,7 +179,9 @@ final class AIProviderRegistry {
     }
 
     private func loginShellPathHydrationTask() -> Task<Void, Never> {
-        if let loginShellPathHydration { return loginShellPathHydration }
+        if let loginShellPathHydration {
+            return loginShellPathHydration
+        }
         let hydrateLoginShellPath = hydrateLoginShellPath
         let task = Task.detached(priority: .utility) {
             await hydrateLoginShellPath()

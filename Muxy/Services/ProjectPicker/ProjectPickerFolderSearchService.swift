@@ -313,7 +313,9 @@ actor ProjectPickerFolderSearchService {
                 homeDirectory: homeDirectory
             ), ProjectPickerFolderSearchPath.isInside(changedPath, root: rootPath)
             else { return false }
-            if changedPath == rootPath { return true }
+            if changedPath == rootPath {
+                return true
+            }
             return fileSystem.itemState(atPath: changedPath) != .file
         }
         guard shouldInvalidate else { return }
@@ -630,7 +632,9 @@ private struct SearchMatch: Comparable {
     }
 
     static func < (lhs: SearchMatch, rhs: SearchMatch) -> Bool {
-        if lhs.kind != rhs.kind { return lhs.kind < rhs.kind }
+        if lhs.kind != rhs.kind {
+            return lhs.kind < rhs.kind
+        }
         return lhs.pathScore < rhs.pathScore
     }
 }
@@ -643,11 +647,19 @@ private struct SearchCandidate {
     let depth: Int
 
     static func precedes(_ lhs: SearchCandidate, _ rhs: SearchCandidate) -> Bool {
-        if lhs.match != rhs.match { return lhs.match < rhs.match }
-        if lhs.isExistingProject != rhs.isExistingProject { return lhs.isExistingProject }
-        if lhs.depth != rhs.depth { return lhs.depth < rhs.depth }
+        if lhs.match != rhs.match {
+            return lhs.match < rhs.match
+        }
+        if lhs.isExistingProject != rhs.isExistingProject {
+            return lhs.isExistingProject
+        }
+        if lhs.depth != rhs.depth {
+            return lhs.depth < rhs.depth
+        }
         let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
-        if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+        if nameOrder != .orderedSame {
+            return nameOrder == .orderedAscending
+        }
         return lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending
     }
 }
@@ -680,7 +692,9 @@ private enum ProjectPickerFolderSearchPath {
     }
 
     static func isInside(_ path: String, root: String) -> Bool {
-        if root == "/" { return path.hasPrefix("/") }
+        if root == "/" {
+            return path.hasPrefix("/")
+        }
         return path == root || path.hasPrefix(root + "/")
     }
 
@@ -707,7 +721,9 @@ private enum ProjectPickerFolderSearchPath {
         } else {
             path
         }
-        if displayPath == "/" || displayPath.hasSuffix("/") { return displayPath }
+        if displayPath == "/" || displayPath.hasSuffix("/") {
+            return displayPath
+        }
         return displayPath + "/"
     }
 

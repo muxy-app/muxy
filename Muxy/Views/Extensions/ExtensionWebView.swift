@@ -146,7 +146,9 @@ struct ExtensionWebView: NSViewRepresentable {
             guard focusChanged || overlayChanged else { return }
             self.focused = focused
             self.overlayActive = overlayActive
-            if focusChanged { pushFocusUpdate(in: webView) }
+            if focusChanged {
+                pushFocusUpdate(in: webView)
+            }
             updateFirstResponder(for: webView)
         }
 

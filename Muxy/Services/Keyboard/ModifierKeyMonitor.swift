@@ -61,10 +61,18 @@ final class ModifierKeyMonitor {
     func isHolding(modifiers: UInt) -> Bool {
         guard showHints else { return false }
         let flags = NSEvent.ModifierFlags(rawValue: modifiers).intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command), !commandHeld { return false }
-        if flags.contains(.control), !controlHeld { return false }
-        if flags.contains(.shift), !shiftHeld { return false }
-        if flags.contains(.option), !optionHeld { return false }
+        if flags.contains(.command), !commandHeld {
+            return false
+        }
+        if flags.contains(.control), !controlHeld {
+            return false
+        }
+        if flags.contains(.shift), !shiftHeld {
+            return false
+        }
+        if flags.contains(.option), !optionHeld {
+            return false
+        }
         guard !flags.isEmpty else { return false }
         return true
     }

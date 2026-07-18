@@ -293,7 +293,9 @@ struct WorkspaceSwitcher: View {
     }
 
     private func failureMessage(for destination: SSHDestination) -> String {
-        if case let .failed(message) = sshConnections.state(for: destination) { return message }
+        if case let .failed(message) = sshConnections.state(for: destination) {
+            return message
+        }
         return "Connection failed."
     }
 }
@@ -583,7 +585,11 @@ struct RemoteWorkspaceEditorSheet: View {
             TextField(selectedDevice?.displayName ?? "Production", text: $name)
                 .textFieldStyle(.roundedBorder)
                 .focused($nameFocused)
-                .onSubmit { if canSubmit { submit() } }
+                .onSubmit {
+                    if canSubmit {
+                        submit()
+                    }
+                }
         }
     }
 
@@ -621,7 +627,11 @@ struct WorkspaceEditorSheet: View {
                 TextField("Personal", text: $name)
                     .textFieldStyle(.roundedBorder)
                     .focused($nameFocused)
-                    .onSubmit { if canSubmit { onSubmit(trimmed) } }
+                    .onSubmit {
+                        if canSubmit {
+                            onSubmit(trimmed)
+                        }
+                    }
             }
 
             HStack {

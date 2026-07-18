@@ -835,8 +835,12 @@ private struct RepositoryToolbarChip<Content: View>: View {
     }
 
     private var background: Color {
-        if isOpen { return MuxyTheme.surface }
-        if hovered { return MuxyTheme.hover }
+        if isOpen {
+            return MuxyTheme.surface
+        }
+        if hovered {
+            return MuxyTheme.hover
+        }
         return .clear
     }
 }

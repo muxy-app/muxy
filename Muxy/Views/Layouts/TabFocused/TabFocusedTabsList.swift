@@ -251,8 +251,12 @@ private struct TabFocusedTabRow: View {
     }
 
     private var rowBackground: AnyShapeStyle {
-        if active { return AnyShapeStyle(MuxyTheme.surface) }
-        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        if active {
+            return AnyShapeStyle(MuxyTheme.surface)
+        }
+        if hovered {
+            return AnyShapeStyle(MuxyTheme.hover)
+        }
         return AnyShapeStyle(Color.clear)
     }
 
@@ -303,7 +307,9 @@ private struct TabFocusedTabRow: View {
                     .onSubmit { commitRename() }
                     .onExitCommand { cancelRename() }
                     .onChange(of: renameFieldFocused) { _, focused in
-                        if !focused, isRenaming { commitRename() }
+                        if !focused, isRenaming {
+                            commitRename()
+                        }
                     }
             } else {
                 Text(tab.title)

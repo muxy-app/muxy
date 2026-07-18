@@ -253,13 +253,17 @@ final class VoicePanelFocusTrapView: NSView {
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
-        if result { onFocusChange?(true) }
+        if result {
+            onFocusChange?(true)
+        }
         return result
     }
 
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
-        if result { onFocusChange?(false) }
+        if result {
+            onFocusChange?(false)
+        }
         return result
     }
 

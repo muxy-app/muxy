@@ -40,7 +40,9 @@ public enum ProjectIconColor {
 
     public static func swatch(for identifier: String?) -> Swatch? {
         guard let identifier else { return nil }
-        if let direct = byID[identifier] { return direct }
+        if let direct = byID[identifier] {
+            return direct
+        }
         return palette.first { $0.hex.caseInsensitiveCompare(identifier) == .orderedSame }
     }
 
@@ -52,7 +54,9 @@ public enum ProjectIconColor {
 
     public static func rgb(fromHex hex: String) -> (Double, Double, Double)? {
         var normalized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalized.hasPrefix("#") { normalized.removeFirst() }
+        if normalized.hasPrefix("#") {
+            normalized.removeFirst()
+        }
         guard normalized.count == 6,
               let value = UInt32(normalized, radix: 16)
         else { return nil }

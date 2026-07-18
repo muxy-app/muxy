@@ -170,9 +170,15 @@ private final class HTTPRedirectGuard: NSObject, URLSessionTaskDelegate {
 enum HostSecurityPolicy {
     static func isBlocked(_ host: String) -> Bool {
         let normalized = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        if normalized.isEmpty { return true }
-        if normalized == "localhost" || normalized.hasSuffix(".localhost") { return true }
-        if normalized.hasSuffix(".local") { return true }
+        if normalized.isEmpty {
+            return true
+        }
+        if normalized == "localhost" || normalized.hasSuffix(".localhost") {
+            return true
+        }
+        if normalized.hasSuffix(".local") {
+            return true
+        }
 
         guard let addresses = resolvedAddresses(for: normalized) else { return true }
         return addresses.contains(where: isPrivateAddress)
@@ -246,11 +252,17 @@ enum HostSecurityPolicy {
     }
 
     private static func isPrivateIPv6(_ host: String) -> Bool {
-        if host == "::1" || host == "::" { return true }
-        if host.hasPrefix("fe80") || host.hasPrefix("fc") || host.hasPrefix("fd") { return true }
+        if host == "::1" || host == "::" {
+            return true
+        }
+        if host.hasPrefix("fe80") || host.hasPrefix("fc") || host.hasPrefix("fd") {
+            return true
+        }
         if host.hasPrefix("::ffff:") {
             let mapped = String(host.dropFirst("::ffff:".count))
-            if let v4 = ipv4Octets(mapped) { return isPrivateIPv4(v4) }
+            if let v4 = ipv4Octets(mapped) {
+                return isPrivateIPv4(v4)
+            }
         }
         return false
     }

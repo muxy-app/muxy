@@ -194,14 +194,22 @@ struct BrowserSettingsView: View {
     private var deleteAlertBinding: Binding<Bool> {
         Binding(
             get: { profilePendingDelete != nil },
-            set: { if !$0 { profilePendingDelete = nil } }
+            set: {
+                if !$0 {
+                    profilePendingDelete = nil
+                }
+            }
         )
     }
 
     private var clearAlertBinding: Binding<Bool> {
         Binding(
             get: { profilePendingClear != nil },
-            set: { if !$0 { profilePendingClear = nil } }
+            set: {
+                if !$0 {
+                    profilePendingClear = nil
+                }
+            }
         )
     }
 

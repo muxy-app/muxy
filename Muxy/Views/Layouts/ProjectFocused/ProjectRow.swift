@@ -86,7 +86,9 @@ struct ProjectRow: View {
                 hovered = hovering
             }
             .onChange(of: isAnyDragging) { _, dragging in
-                if dragging { hovered = false }
+                if dragging {
+                    hovered = false
+                }
             }
             .onTapGesture {
                 guard !isAnyDragging else { return }
@@ -299,11 +301,15 @@ struct ProjectRow: View {
         if project.isHome {
             return AnyShapeStyle(hovered ? MuxyTheme.accent.opacity(0.85) : MuxyTheme.accent)
         }
-        if hasLogo { return AnyShapeStyle(Color.clear) }
+        if hasLogo {
+            return AnyShapeStyle(Color.clear)
+        }
         if let tint = ProjectIconColor.color(for: project.iconColor) {
             return AnyShapeStyle(hovered ? tint.opacity(0.85) : tint)
         }
-        if hovered { return AnyShapeStyle(MuxyTheme.fg.opacity(0.22)) }
+        if hovered {
+            return AnyShapeStyle(MuxyTheme.fg.opacity(0.22))
+        }
         return AnyShapeStyle(MuxyTheme.fg.opacity(0.18))
     }
 

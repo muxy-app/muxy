@@ -172,7 +172,9 @@ enum SettingsJSONStore {
             return double
         }
         guard let defaultValue = item.defaultValue?.base else { throw SettingsJSONError.unsupportedValue(item.key) }
-        if defaultValue is Bool, value is Bool { return value }
+        if defaultValue is Bool, value is Bool {
+            return value
+        }
         if defaultValue is String, let string = value as? String {
             try validateAllowedString(string, key: item.key)
             return string
@@ -193,7 +195,9 @@ enum SettingsJSONStore {
             try validateAllowedDouble(double, key: item.key)
             return double
         }
-        if defaultValue is [String], let strings = value as? [String] { return strings }
+        if defaultValue is [String], let strings = value as? [String] {
+            return strings
+        }
         throw SettingsJSONError.invalidValue(item.key)
     }
 
@@ -367,9 +371,15 @@ enum SettingsJSONStore {
     }
 
     private static func doubleValue(_ value: Any) -> Double? {
-        if let value = value as? Double { return value }
-        if let value = value as? Int { return Double(value) }
-        if let value = value as? NSNumber { return value.doubleValue }
+        if let value = value as? Double {
+            return value
+        }
+        if let value = value as? Int {
+            return Double(value)
+        }
+        if let value = value as? NSNumber {
+            return value.doubleValue
+        }
         return nil
     }
 
@@ -438,8 +448,12 @@ enum SettingsJSONStore {
     }
 
     private static func jsonValue(_ value: AnyHashable) -> Any {
-        if let array = value.base as? [String] { return array }
-        if let value = value.base as? UInt16 { return Int(value) }
+        if let array = value.base as? [String] {
+            return array
+        }
+        if let value = value.base as? UInt16 {
+            return Int(value)
+        }
         return value.base
     }
 

@@ -16,7 +16,9 @@ final class MuxyNotification: Identifiable, @preconcurrency Codable {
         }
 
         var isAIProvider: Bool {
-            if case .aiProvider = self { return true }
+            if case .aiProvider = self {
+                return true
+            }
             return false
         }
     }

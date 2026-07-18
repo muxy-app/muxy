@@ -2075,7 +2075,9 @@ private func tab(at index: Int, in root: SplitNode) -> TerminalTab? {
     var currentIndex = 0
     for area in root.allAreas() {
         for tab in area.tabs {
-            if currentIndex == index { return tab }
+            if currentIndex == index {
+                return tab
+            }
             currentIndex += 1
         }
     }

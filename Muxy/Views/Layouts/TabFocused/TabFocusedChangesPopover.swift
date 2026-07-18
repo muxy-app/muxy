@@ -391,7 +391,9 @@ struct TabFocusedChangesPopover: View {
     }
 
     private func statusColor(_ file: GitStatusFile, side: ChangeSide) -> Color {
-        if side == .conflicted { return MuxyTheme.warning }
+        if side == .conflicted {
+            return MuxyTheme.warning
+        }
         return switch file.displayStatusText(isStaged: side == .staged) {
         case "A",
              "C": MuxyTheme.diffAddFg
@@ -444,7 +446,9 @@ private struct ChangesPopoverActionButton: View {
     }
 
     private var foreground: Color {
-        if isDisabled { return MuxyTheme.fgDim }
+        if isDisabled {
+            return MuxyTheme.fgDim
+        }
         return isDestructive ? MuxyTheme.diffRemoveFg : MuxyTheme.fgMuted
     }
 }

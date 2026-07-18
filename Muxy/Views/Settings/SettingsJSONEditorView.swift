@@ -461,11 +461,21 @@ private enum JSONSyntaxHighlighter {
 
     @MainActor
     private static func attributesForMatch(_ match: NSTextCheckingResult) -> [NSAttributedString.Key: Any] {
-        if match.range(at: 1).location != NSNotFound { return [.foregroundColor: NSColor(MuxyTheme.accent)] }
-        if match.range(at: 2).location != NSNotFound { return [.foregroundColor: NSColor.systemGreen] }
-        if match.range(at: 3).location != NSNotFound { return [.foregroundColor: NSColor.systemOrange] }
-        if match.range(at: 4).location != NSNotFound { return [.foregroundColor: NSColor.systemPurple] }
-        if match.range(at: 5).location != NSNotFound { return [.foregroundColor: NSColor.systemBlue] }
+        if match.range(at: 1).location != NSNotFound {
+            return [.foregroundColor: NSColor(MuxyTheme.accent)]
+        }
+        if match.range(at: 2).location != NSNotFound {
+            return [.foregroundColor: NSColor.systemGreen]
+        }
+        if match.range(at: 3).location != NSNotFound {
+            return [.foregroundColor: NSColor.systemOrange]
+        }
+        if match.range(at: 4).location != NSNotFound {
+            return [.foregroundColor: NSColor.systemPurple]
+        }
+        if match.range(at: 5).location != NSNotFound {
+            return [.foregroundColor: NSColor.systemBlue]
+        }
         return [.foregroundColor: SettingsStyle.mutedNSForeground]
     }
 }

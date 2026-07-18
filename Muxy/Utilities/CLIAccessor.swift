@@ -47,7 +47,9 @@ enum CLIAccessor {
                     showInstalledAlert(label: "/usr/local/bin/muxy", pathNote: "")
                     return
                 }
-                if tryFallbackInstalls(wrapper: wrapper) { return }
+                if tryFallbackInstalls(wrapper: wrapper) {
+                    return
+                }
                 alert(
                     title: "CLI Installation Failed",
                     body: """

@@ -79,7 +79,9 @@ enum ProcessTree {
         var current: pid_t? = pid
         var visited: Set<pid_t> = []
         while let value = current, value != rootPID, visited.insert(value).inserted {
-            if knownHostPIDs.contains(value) { return true }
+            if knownHostPIDs.contains(value) {
+                return true
+            }
             current = byPID[value]?.ppid
         }
         return false

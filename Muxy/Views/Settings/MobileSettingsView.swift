@@ -26,7 +26,9 @@ struct MobileSettingsView: View {
         Binding(
             get: { service.isEnabled },
             set: { newValue in
-                if newValue, !commitPort() { return }
+                if newValue, !commitPort() {
+                    return
+                }
                 service.setEnabled(newValue)
             }
         )
@@ -110,7 +112,9 @@ struct MobileSettingsView: View {
         .onDisappear { stopPathMonitor() }
         .onChange(of: service.port) { _, newValue in
             let text = String(newValue)
-            if portText != text { portText = text }
+            if portText != text {
+                portText = text
+            }
         }
         .onChange(of: service.isEnabled) { _, _ in
             refreshPairingHosts()
@@ -136,7 +140,11 @@ struct MobileSettingsView: View {
             "Revoke \(deviceToRevoke?.name ?? "device")?",
             isPresented: Binding(
                 get: { deviceToRevoke != nil },
-                set: { if !$0 { deviceToRevoke = nil } }
+                set: {
+                    if !$0 {
+                        deviceToRevoke = nil
+                    }
+                }
             ),
             presenting: deviceToRevoke
         ) { device in
