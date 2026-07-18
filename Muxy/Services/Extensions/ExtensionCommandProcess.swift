@@ -346,7 +346,9 @@ final class OutputBox: @unchecked Sendable {
     func append(_ chunk: Data) {
         lock.lock()
         defer { lock.unlock() }
-        if overflow { return }
+        if overflow {
+            return
+        }
         let remaining = ExtensionCommandExecutor.maxOutputBytes - data.count
         if chunk.count <= remaining {
             data.append(chunk)
