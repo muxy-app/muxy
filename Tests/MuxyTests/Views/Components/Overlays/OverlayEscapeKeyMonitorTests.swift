@@ -5,8 +5,8 @@ import Testing
 @testable import Muxy
 
 @MainActor
-@Suite("OverlayEscapeKeyHandler")
-struct OverlayEscapeKeyHandlerTests {
+@Suite("OverlayEscapeKeyMonitor")
+struct OverlayEscapeKeyMonitorTests {
     @Test("consumes escape and invokes action")
     func consumesEscape() throws {
         var fired = false
