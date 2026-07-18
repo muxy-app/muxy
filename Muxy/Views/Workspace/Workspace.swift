@@ -22,7 +22,9 @@ struct TerminalArea: View {
 
     private var rootIsTabArea: Bool {
         guard let root else { return false }
-        if case .tabArea = root { return true }
+        if case .tabArea = root {
+            return true
+        }
         return false
     }
 

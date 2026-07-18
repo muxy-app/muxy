@@ -9,7 +9,9 @@ enum RepositoryToolbarPresentation {
     }
 
     static func branchLabel(summary: GitRepositorySummary?, worktree: Worktree?) -> String {
-        if let summary { return summary.displayBranch }
+        if let summary {
+            return summary.displayBranch
+        }
         guard let branch = worktree?.branch, !branch.isEmpty else { return "Branch" }
         return branch
     }
@@ -20,7 +22,9 @@ enum RepositoryToolbarPresentation {
         isRemoving: Bool
     ) -> WorktreeRemovalState {
         guard let worktree, worktree.canBeRemoved else { return .hidden }
-        if isRemoving { return .removing }
+        if isRemoving {
+            return .removing
+        }
         return isPreparing ? .preparing : .available
     }
 }

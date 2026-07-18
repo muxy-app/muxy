@@ -220,7 +220,9 @@ struct TerminalOmniboxOverlay: View {
 
     private func shouldShowSectionHeader(at index: Int) -> Bool {
         guard index < displayList.count else { return false }
-        if index == 0 { return true }
+        if index == 0 {
+            return true
+        }
         return displayList[index].sectionTitle != displayList[index - 1].sectionTitle
     }
 

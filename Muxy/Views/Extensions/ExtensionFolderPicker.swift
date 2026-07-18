@@ -11,7 +11,9 @@ enum ExtensionFolderPicker {
         panel.prompt = "Select"
         panel.title = title
         panel.message = message
-        if let directory { panel.directoryURL = directory }
+        if let directory {
+            panel.directoryURL = directory
+        }
         guard panel.runModal() == .OK else { return nil }
         return panel.url
     }

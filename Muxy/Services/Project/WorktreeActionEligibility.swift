@@ -9,7 +9,9 @@ enum WorktreeActionEligibility {
         allowUnknownGitStatus: Bool
     ) -> Bool {
         guard let project, !project.isHome, project.worktreesEnabled else { return false }
-        if worktreeStore.list(for: project.id).count > 1 { return true }
+        if worktreeStore.list(for: project.id).count > 1 {
+            return true
+        }
         let context = projectGroupStore.workspaceContext(for: project)
         return GitRepoStatusCache.shared.cachedStatus(for: project.path, context: context) ?? allowUnknownGitStatus
     }
@@ -20,7 +22,9 @@ enum WorktreeActionEligibility {
         projectGroupStore: ProjectGroupStore
     ) async -> Bool {
         guard !project.isHome, project.worktreesEnabled else { return false }
-        if worktreeStore.list(for: project.id).count > 1 { return true }
+        if worktreeStore.list(for: project.id).count > 1 {
+            return true
+        }
         let context = projectGroupStore.workspaceContext(for: project)
         if let cached = GitRepoStatusCache.shared.cachedStatus(for: project.path, context: context) {
             return cached

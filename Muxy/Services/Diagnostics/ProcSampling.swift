@@ -73,7 +73,9 @@ enum ProcSampling {
         let length = proc_name(Int32(pid), &buffer, UInt32(buffer.count))
         if length > 0 {
             let bytes = Array(buffer.prefix { $0 != 0 })
-            if let name = String(bytes: bytes, encoding: .utf8), !name.isEmpty { return name }
+            if let name = String(bytes: bytes, encoding: .utf8), !name.isEmpty {
+                return name
+            }
         }
         return fallback.isEmpty ? "pid \(pid)" : fallback
     }

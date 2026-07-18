@@ -26,7 +26,9 @@ final class NavigationHistory {
 
     func record(_ entry: NavigationEntry) {
         guard !isRecordingSuppressed else { return }
-        if let current, current == entry { return }
+        if let current, current == entry {
+            return
+        }
         if cursor < entries.count - 1 {
             entries.removeSubrange((cursor + 1)...)
         }
@@ -66,7 +68,9 @@ final class NavigationHistory {
         var kept: [NavigationEntry] = []
         var cursorAtOrBefore: Int = -1
         for (index, entry) in entries.enumerated() {
-            if predicate(entry) { continue }
+            if predicate(entry) {
+                continue
+            }
             kept.append(entry)
             if index <= previousCursor {
                 cursorAtOrBefore = kept.count - 1

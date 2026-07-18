@@ -341,7 +341,9 @@ struct ProjectPickerOverlay: View {
 
     private var unavailableProjectTitle: String {
         guard workflow.session.inputMode == .folderSearch else { return "No project folders found" }
-        if workflow.session.directoryLoadState.readFailed { return "Folder search unavailable" }
+        if workflow.session.directoryLoadState.readFailed {
+            return "Folder search unavailable"
+        }
         return workflow.session.searchQuery.isEmpty ? "Find a project folder" : "No matching folders"
     }
 

@@ -314,7 +314,9 @@ struct TabFocusedPullRequestPopover: View {
     }
 
     private var mergeButtonLabel: String {
-        if isMerging { return "Merging…" }
+        if isMerging {
+            return "Merging…"
+        }
         if pendingConfirmation?.kind == .merge(mergeMethod) {
             return "\(mergeMethod.shortLabel) in \(remainingSeconds)s · click again"
         }
@@ -322,19 +324,27 @@ struct TabFocusedPullRequestPopover: View {
     }
 
     private var mergeButtonHelp: String {
-        if isRefreshing { return "Wait for the pull request refresh to finish." }
+        if isRefreshing {
+            return "Wait for the pull request refresh to finish."
+        }
         guard pendingConfirmation?.kind == .merge(mergeMethod) else { return mergeAvailability.help }
         return "Click again to merge now. Otherwise it will merge automatically after five seconds."
     }
 
     private var closeButtonLabel: String {
-        if isClosing { return "Closing…" }
-        if pendingConfirmation?.kind == .close { return "Close in \(remainingSeconds)s · click again" }
+        if isClosing {
+            return "Closing…"
+        }
+        if pendingConfirmation?.kind == .close {
+            return "Close in \(remainingSeconds)s · click again"
+        }
         return "Close PR"
     }
 
     private var closeButtonHelp: String {
-        if isRefreshing { return "Wait for the pull request refresh to finish." }
+        if isRefreshing {
+            return "Wait for the pull request refresh to finish."
+        }
         guard pendingConfirmation?.kind == .close else { return "Close this pull request without merging it." }
         return "Click again to close now. Otherwise it will close automatically after five seconds."
     }

@@ -11,32 +11,30 @@ struct ExtensionWebViewPane: View {
     @Environment(ProjectGroupStore.self) private var projectGroupStore
 
     var body: some View {
-        Group {
-            if let muxyExtension = ExtensionStore.shared.loadedExtension(id: state.extensionID),
-               let tabType = muxyExtension.manifest.tabType(id: state.tabTypeID),
-               let entryURL = ExtensionWebView.entryURL(for: muxyExtension, entry: tabType.entry)
-            {
-                ExtensionWebView(
-                    extensionID: muxyExtension.id,
-                    instanceID: state.id.uuidString,
-                    surfaceKind: .tab,
-                    entryURL: entryURL,
-                    initialData: state.data,
-                    appState: appState,
-                    projectStore: projectStore,
-                    worktreeStore: worktreeStore,
-                    projectGroupStore: projectGroupStore,
-                    focused: focused,
-                    onFocus: onFocus
-                )
+        if let muxyExtension = ExtensionStore.shared.loadedExtension(id: state.extensionID),
+           let tabType = muxyExtension.manifest.tabType(id: state.tabTypeID),
+           let entryURL = ExtensionWebView.entryURL(for: muxyExtension, entry: tabType.entry)
+        {
+            ExtensionWebView(
+                extensionID: muxyExtension.id,
+                instanceID: state.id.uuidString,
+                surfaceKind: .tab,
+                entryURL: entryURL,
+                initialData: state.data,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
+                focused: focused,
+                onFocus: onFocus
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { onFocus() }
+        } else {
+            placeholder
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture { onFocus() }
-            } else {
-                placeholder
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onFocus() }
-            }
         }
     }
 

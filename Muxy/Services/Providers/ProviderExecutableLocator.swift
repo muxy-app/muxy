@@ -59,7 +59,9 @@ enum ProviderExecutableLocator {
         for name in names {
             for directory in directories {
                 let path = URL(fileURLWithPath: directory).appendingPathComponent(name).path
-                if isExecutable(path) { return path }
+                if isExecutable(path) {
+                    return path
+                }
             }
         }
         return nil

@@ -248,7 +248,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func selectProject(_ projectID: UUID) {
         if let project = projectStore.projects.first(where: { $0.id == projectID }) {
-            if projectGroupStore.isRemoteWorkspaceActive { projectGroupStore.clearGroupSelection() }
+            if projectGroupStore.isRemoteWorkspaceActive {
+                projectGroupStore.clearGroupSelection()
+            }
             selectLoadedProject(project)
             return
         }
@@ -259,7 +261,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func selectLoadedProject(_ project: Project) {
-        if appState.activeProjectID == project.id { return }
+        if appState.activeProjectID == project.id {
+            return
+        }
         let worktreeList = worktreeStore.list(for: project.id)
         guard let worktree = worktreeList.first(where: \.isPrimary) ?? worktreeList.first else { return }
         appState.selectProject(project, worktree: worktree)

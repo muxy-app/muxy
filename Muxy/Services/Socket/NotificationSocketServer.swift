@@ -457,7 +457,9 @@ final class NotificationSocketServer: @unchecked Sendable {
         while serverFD >= 0 {
             let clientFD = accept(serverFD, nil, nil)
             guard clientFD >= 0 else {
-                if errno == EINTR { continue }
+                if errno == EINTR {
+                    continue
+                }
                 return
             }
 

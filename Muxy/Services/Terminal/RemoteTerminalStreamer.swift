@@ -16,7 +16,9 @@ final class RemoteTerminalStreamer {
     private init() {}
 
     func attach(paneID: UUID, surface: ghostty_surface_t) {
-        if tokenByPane[paneID] != nil { return }
+        if tokenByPane[paneID] != nil {
+            return
+        }
         let token = nextToken
         nextToken += 1
         tokenByPane[paneID] = token

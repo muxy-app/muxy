@@ -37,7 +37,9 @@ final class ExtensionFileEventEmitter: @unchecked Sendable {
         var fresh: [String] = []
         for path in paths {
             let key = "\(projectPath)\u{0}\(path)"
-            if let last = lastEmitted[key], now - last < window { continue }
+            if let last = lastEmitted[key], now - last < window {
+                continue
+            }
             lastEmitted[key] = now
             fresh.append(path)
         }

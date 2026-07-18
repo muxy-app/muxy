@@ -377,7 +377,13 @@ private struct TabCell: View {
         guard let tabColor else {
             return active ? MuxyTheme.surface : .clear
         }
-        let opacity = if active { 0.18 } else if hovered { 0.08 } else { 0.04 }
+        let opacity = if active {
+            0.18
+        } else if hovered {
+            0.08
+        } else {
+            0.04
+        }
         return tabColor.opacity(opacity)
     }
 
@@ -447,7 +453,9 @@ private struct TabCell: View {
                         .onSubmit { commitRename() }
                         .onExitCommand { cancelRename() }
                         .onChange(of: renameFieldFocused) { _, focused in
-                            if !focused, isRenaming { commitRename() }
+                            if !focused, isRenaming {
+                                commitRename()
+                            }
                         }
                 } else if !titleHidden {
                     Text(tab.title)
@@ -493,7 +501,9 @@ private struct TabCell: View {
                 hovered = hovering
             }
             .onChange(of: isAnyDragging) { _, dragging in
-                if dragging { hovered = false }
+                if dragging {
+                    hovered = false
+                }
             }
             .overlay {
                 if !tab.isPinned {
@@ -646,9 +656,15 @@ private struct TabCell: View {
         case .extensionWebView: label += ", Extension"
         case .browser: label += ", Browser"
         }
-        if tab.isPinned { label += ", Pinned" }
-        if tab.isOffline, !active { label += ", Idle" }
-        if hasUnread { label += ", Unread" }
+        if tab.isPinned {
+            label += ", Pinned"
+        }
+        if tab.isOffline, !active {
+            label += ", Idle"
+        }
+        if hasUnread {
+            label += ", Unread"
+        }
         return label
     }
 

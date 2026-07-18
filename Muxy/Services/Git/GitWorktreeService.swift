@@ -135,7 +135,9 @@ actor GitWorktreeService: GitWorktreeListing {
         context: WorkspaceContext = .local
     ) async throws {
         var args: [String] = ["worktree", "remove"]
-        if force { args.append("--force") }
+        if force {
+            args.append("--force")
+        }
         args += ["--", path]
         let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args, context: context)
 

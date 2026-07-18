@@ -206,7 +206,9 @@ struct ExtensionInstallPage: View {
     }
 
     private var installButtonTitle: String {
-        if isInstalling { return isInstalled ? "Reinstalling…" : "Installing…" }
+        if isInstalling {
+            return isInstalled ? "Reinstalling…" : "Installing…"
+        }
         return isInstalled ? "Reinstall" : "Install"
     }
 

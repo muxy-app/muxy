@@ -123,9 +123,13 @@ struct NotificationPanel: View {
 
     private func notificationAccessibilityLabel(for item: NotificationPanelItem) -> String {
         var label = item.title
-        if !item.body.isEmpty { label += ": \(item.body)" }
+        if !item.body.isEmpty {
+            label += ": \(item.body)"
+        }
         label += ", \(item.relativeTimestamp)"
-        if !item.isRead { label += ", unread" }
+        if !item.isRead {
+            label += ", unread"
+        }
         return label
     }
 

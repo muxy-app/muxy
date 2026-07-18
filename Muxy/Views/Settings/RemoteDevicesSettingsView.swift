@@ -93,7 +93,11 @@ struct RemoteDevicesSettingsView: View {
     private var deleteAlertBinding: Binding<Bool> {
         Binding(
             get: { devicePendingDelete != nil },
-            set: { if !$0 { devicePendingDelete = nil } }
+            set: {
+                if !$0 {
+                    devicePendingDelete = nil
+                }
+            }
         )
     }
 

@@ -16,7 +16,9 @@ final class DiagnosticsMenuController {
 
     private func ensureInstalled() {
         guard let mainMenu = NSApp.mainMenu else { return }
-        if mainMenu.indexOfItem(withTitle: "Diagnostics") >= 0 { return }
+        if mainMenu.indexOfItem(withTitle: "Diagnostics") >= 0 {
+            return
+        }
 
         let menu = NSMenu(title: "Diagnostics")
         menu.autoenablesItems = false

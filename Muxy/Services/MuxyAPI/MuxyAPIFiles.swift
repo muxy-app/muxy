@@ -214,7 +214,9 @@ extension MuxyAPI {
         nonisolated private static func canonicalize(base: URL, relativePath: String) -> URL {
             var current = base
             for component in relativePath.split(separator: "/", omittingEmptySubsequences: true).map(String.init) {
-                if component == "." { continue }
+                if component == "." {
+                    continue
+                }
                 if component == ".." {
                     current = current.deletingLastPathComponent()
                     continue

@@ -159,7 +159,9 @@ private final class BoundedPipeReader: @unchecked Sendable {
             var collected = Data()
             while true {
                 let chunk = (try? handle.read(upToCount: 65536)) ?? Data()
-                if chunk.isEmpty { break }
+                if chunk.isEmpty {
+                    break
+                }
                 if chunk.count >= byteLimit {
                     collected = Data(chunk.suffix(byteLimit))
                     continue

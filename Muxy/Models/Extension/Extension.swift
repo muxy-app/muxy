@@ -448,7 +448,9 @@ enum ExtensionCommandAction: Codable, Equatable {
     case runScript(script: String)
 
     var isAnchored: Bool {
-        if case .openPopover = self { return true }
+        if case .openPopover = self {
+            return true
+        }
         return false
     }
 

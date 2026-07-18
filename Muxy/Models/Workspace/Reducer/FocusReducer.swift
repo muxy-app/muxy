@@ -41,7 +41,9 @@ enum FocusReducer {
         let frames = root.areaFrames()
         let sortedAreas = root.allAreas().sorted { lhs, rhs in
             guard let lhsFrame = frames[lhs.id], let rhsFrame = frames[rhs.id] else { return false }
-            if lhsFrame.minY != rhsFrame.minY { return lhsFrame.minY < rhsFrame.minY }
+            if lhsFrame.minY != rhsFrame.minY {
+                return lhsFrame.minY < rhsFrame.minY
+            }
             return lhsFrame.minX < rhsFrame.minX
         }
         let entries = sortedAreas.flatMap { area in
@@ -100,9 +102,15 @@ enum FocusReducer {
         let centerDistance: CGFloat
 
         static func < (lhs: PaneFocusScore, rhs: PaneFocusScore) -> Bool {
-            if lhs.overlapPenalty != rhs.overlapPenalty { return lhs.overlapPenalty < rhs.overlapPenalty }
-            if lhs.axisGap != rhs.axisGap { return lhs.axisGap < rhs.axisGap }
-            if lhs.crossDistance != rhs.crossDistance { return lhs.crossDistance < rhs.crossDistance }
+            if lhs.overlapPenalty != rhs.overlapPenalty {
+                return lhs.overlapPenalty < rhs.overlapPenalty
+            }
+            if lhs.axisGap != rhs.axisGap {
+                return lhs.axisGap < rhs.axisGap
+            }
+            if lhs.crossDistance != rhs.crossDistance {
+                return lhs.crossDistance < rhs.crossDistance
+            }
             return lhs.centerDistance < rhs.centerDistance
         }
     }

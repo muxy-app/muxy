@@ -368,8 +368,12 @@ struct CreateWorktreeSheet: View {
 
     private var canCreate: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
-        if project.isRemote, remotePath.trimmingCharacters(in: .whitespaces).isEmpty { return false }
-        if !project.isRemote, localLocationValidationMessage != nil { return false }
+        if project.isRemote, remotePath.trimmingCharacters(in: .whitespaces).isEmpty {
+            return false
+        }
+        if !project.isRemote, localLocationValidationMessage != nil {
+            return false
+        }
         if createNewBranch {
             return !branchName.trimmingCharacters(in: .whitespaces).isEmpty
         }

@@ -229,12 +229,11 @@ struct MainWindow: View {
         )
     }
 
+    @ViewBuilder
     private var voiceRecordingPanel: some View {
-        Group {
-            if voiceRecording.isPanelVisible {
-                VoiceRecordingPanel(state: voiceRecording, autoSend: recordingAutoSend)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+        if voiceRecording.isPanelVisible {
+            VoiceRecordingPanel(state: voiceRecording, autoSend: recordingAutoSend)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -905,7 +904,9 @@ struct MainWindow: View {
         return items.enumerated().sorted { lhs, rhs in
             let lhsRank = mruRank[WorktreeKey(projectID: lhs.element.projectID, worktreeID: lhs.element.worktreeID)] ?? Int.max
             let rhsRank = mruRank[WorktreeKey(projectID: rhs.element.projectID, worktreeID: rhs.element.worktreeID)] ?? Int.max
-            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            if lhsRank != rhsRank {
+                return lhsRank < rhsRank
+            }
             return lhs.offset < rhs.offset
         }.map(\.element)
     }
@@ -948,7 +949,9 @@ struct MainWindow: View {
 
     private func selectOmniboxProject(_ projectID: UUID, worktreeID: UUID? = nil) -> Bool {
         guard let project = resolveOmniboxProject(projectID) else { return false }
-        if project.isRemote { worktreeStore.ensurePrimary(for: project) }
+        if project.isRemote {
+            worktreeStore.ensurePrimary(for: project)
+        }
         let worktree = if let worktreeID {
             worktreeStore.list(for: project.id).first { $0.id == worktreeID }
         } else {
@@ -1577,7 +1580,9 @@ struct MainWindow: View {
         guard let project = activeProject,
               let key = appState.activeWorktreeKey(for: project.id)
         else { return nil }
-        if let existing = richInputStates[key] { return existing }
+        if let existing = richInputStates[key] {
+            return existing
+        }
         let new = RichInputState()
         if let draft = RichInputDraftStore.shared.draft(for: key) {
             new.apply(draft)
@@ -2364,7 +2369,9 @@ private struct WorktreeActionsModifier: ViewModifier {
         Binding(
             get: { pendingRemoval != nil },
             set: { newValue in
-                if !newValue { pendingRemoval = nil }
+                if !newValue {
+                    pendingRemoval = nil
+                }
             }
         )
     }

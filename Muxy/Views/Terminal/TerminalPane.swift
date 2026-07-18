@@ -14,7 +14,11 @@ struct TerminalPane: View {
     @Environment(\.overlayActive) private var overlayActive
 
     private var remoteOwnerName: String? {
-        if case let .remote(_, name) = ownership.owner(for: state.id) { name } else { nil }
+        if case let .remote(_, name) = ownership.owner(for: state.id) {
+            name
+        } else {
+            nil
+        }
     }
 
     private var showsSleepingPlaceholder: Bool {

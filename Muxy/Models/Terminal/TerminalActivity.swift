@@ -7,7 +7,9 @@ enum TerminalActivity: Equatable {
     case finished
 
     var isUnread: Bool {
-        if case .unread = self { return true }
+        if case .unread = self {
+            return true
+        }
         return false
     }
 

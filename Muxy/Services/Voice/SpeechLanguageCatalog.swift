@@ -13,7 +13,9 @@ enum SpeechLanguageCatalog {
     private static var cachedLanguages: [SpeechLanguage]?
 
     static func onDeviceLanguages() -> [SpeechLanguage] {
-        if let cachedLanguages { return cachedLanguages }
+        if let cachedLanguages {
+            return cachedLanguages
+        }
         let computed = computeOnDeviceLanguages()
         cachedLanguages = computed
         return computed
@@ -22,7 +24,9 @@ enum SpeechLanguageCatalog {
     static func defaultIdentifier() -> String? {
         let supported = onDeviceLanguages()
         let current = Locale.current.identifier
-        if supported.contains(where: { $0.identifier == current }) { return current }
+        if supported.contains(where: { $0.identifier == current }) {
+            return current
+        }
         let language = Locale.current.language.languageCode?.identifier
         if let language, let match = supported.first(where: { $0.identifier.hasPrefix(language) }) {
             return match.identifier

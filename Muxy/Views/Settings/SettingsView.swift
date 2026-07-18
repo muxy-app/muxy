@@ -17,7 +17,9 @@ struct SettingsView: View {
             .filter { status in
                 guard !query.isEmpty else { return true }
                 let displayName = status.muxyExtension.displayName.lowercased()
-                if displayName.contains(query) { return true }
+                if displayName.contains(query) {
+                    return true
+                }
                 return status.muxyExtension.manifest.settings.contains { entry in
                     entry.key.lowercased().contains(query)
                         || entry.title.lowercased().contains(query)
@@ -78,7 +80,9 @@ struct SettingsView: View {
     }
 
     private var selectedBuiltinCategory: SettingsCategory? {
-        if case let .builtin(category) = selectedRoute { return category }
+        if case let .builtin(category) = selectedRoute {
+            return category
+        }
         return nil
     }
 
