@@ -38,6 +38,25 @@ struct ShortcutActionDispatcherTests {
         #expect(capture.contains(.removeCurrentWorktreeRequested))
     }
 
+    @Test("recently removed projects opens its omnibox scope")
+    func recentlyRemovedProjectsOpensOmniboxScope() {
+        let center = NotificationCenter()
+        let capture = NotificationCapture()
+        let token = center.addObserver(forName: .terminalOmnibox, object: nil, queue: nil) { notification in
+            capture.record(notification)
+        }
+        defer { center.removeObserver(token) }
+
+        let performed = makeDispatcher(notificationCenter: center).perform(
+            .recentlyRemovedProjects,
+            activeProject: nil
+        )
+
+        #expect(performed)
+        #expect(capture.contains(.terminalOmnibox))
+        #expect(capture.containsLaunchScope(.recentlyRemovedProjects))
+    }
+
     @Test("worktree requests return false without an active project")
     func worktreeRequestsReturnFalseWithoutActiveProject() {
         let dispatcher = makeDispatcher(notificationCenter: NotificationCenter())
@@ -73,6 +92,7 @@ struct ShortcutActionDispatcherTests {
 private final class NotificationCapture: @unchecked Sendable {
     private let lock = NSLock()
     private var names: [Notification.Name] = []
+    private var launchScopes: [String] = []
 
     func record(_ name: Notification.Name) {
         lock.lock()
@@ -80,9 +100,25 @@ private final class NotificationCapture: @unchecked Sendable {
         lock.unlock()
     }
 
+    func record(_ notification: Notification) {
+        lock.lock()
+        names.append(notification.name)
+        if let launchScope = notification.userInfo?["launchScope"] as? String {
+            launchScopes.append(launchScope)
+        }
+        lock.unlock()
+    }
+
     func contains(_ name: Notification.Name) -> Bool {
         lock.lock()
         let result = names.contains(name)
+        lock.unlock()
+        return result
+    }
+
+    func containsLaunchScope(_ scope: TerminalOmniboxLaunchScope) -> Bool {
+        lock.lock()
+        let result = launchScopes.contains(scope.rawValue)
         lock.unlock()
         return result
     }

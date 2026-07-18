@@ -58,7 +58,9 @@ private final class RemoteDirectoryCache: @unchecked Sendable {
     func directoryState(forPath path: String) -> ProjectPickerFileSystemDirectoryState {
         lock.lock()
         defer { lock.unlock() }
-        if entriesByDirectory[path] != nil { return .directory }
+        if entriesByDirectory[path] != nil {
+            return .directory
+        }
         let parent = (path as NSString).deletingLastPathComponent
         let name = (path as NSString).lastPathComponent
         guard let siblings = entriesByDirectory[parent] else { return .directory }

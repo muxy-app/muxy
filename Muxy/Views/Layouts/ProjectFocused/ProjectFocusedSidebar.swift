@@ -134,6 +134,19 @@ struct ProjectFocusedSidebar: View {
                 } label: {
                     Label("Local", systemImage: "folder")
                 }
+                if !projectStore.recentlyRemovedProjects.isEmpty {
+                    Divider()
+                    Section("Recently Removed") {
+                        ForEach(projectStore.recentlyRemovedProjects) { entry in
+                            Button {
+                                restoreRecentlyRemovedProject(id: entry.id)
+                            } label: {
+                                Label(entry.project.name, systemImage: entry.project.icon ?? "folder")
+                            }
+                        }
+                    }
+                    Divider()
+                }
                 remoteProjectMenu
             } label: {
                 AddProjectButton.Label(expanded: isWide)
@@ -200,6 +213,20 @@ struct ProjectFocusedSidebar: View {
             worktreeStore: worktreeStore,
             projectGroupStore: projectGroupStore
         )
+    }
+
+    private func restoreRecentlyRemovedProject(id: UUID) {
+        do {
+            try ProjectOpenService.restoreRecentlyRemovedProject(
+                id: id,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
+            )
+        } catch {
+            ToastState.shared.show(title: "Could not restore project", body: error.localizedDescription)
+        }
     }
 
     private var homeProject: Project? {

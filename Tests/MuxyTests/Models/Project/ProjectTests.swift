@@ -23,7 +23,9 @@ struct ProjectTests {
         decoder.dateDecodingStrategy = .iso8601
         let project = try decoder.decode(Project.self, from: Data(json.utf8))
 
+        #expect(project.preferredWorktreePathTemplate == nil)
         #expect(project.preferredWorktreeParentPath == nil)
+        #expect(project.pullRequestPrompt == nil)
         #expect(!project.worktreesEnabled)
         #expect(!project.isPinned)
     }
@@ -61,6 +63,34 @@ struct ProjectTests {
         let decoded = try decoder.decode(Project.self, from: encoder.encode(project))
 
         #expect(decoded.worktreesEnabled)
+    }
+
+    @Test("worktree path template survives an encode/decode round-trip")
+    func preferredWorktreePathTemplateRoundTrips() throws {
+        var project = Project(name: "Repo", path: "/tmp/repo")
+        project.preferredWorktreePathTemplate = "../{base-dir}.{branch}"
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(Project.self, from: encoder.encode(project))
+
+        #expect(decoded.preferredWorktreePathTemplate == "../{base-dir}.{branch}")
+    }
+
+    @Test("Create PR prompt survives an encode/decode round-trip")
+    func pullRequestPromptRoundTrips() throws {
+        var project = Project(name: "Repo", path: "/tmp/repo")
+        project.pullRequestPrompt = "Keep the PR summary concise"
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(Project.self, from: encoder.encode(project))
+
+        #expect(decoded.pullRequestPrompt == "Keep the PR summary concise")
     }
 
     @Test("home uses the reserved id, home name and expanded home path")

@@ -72,29 +72,57 @@ struct ProjectPickerWorkflowTests {
         #expect(fastWorkflow.session.directoryLoadState == .loaded)
     }
 
-    @Test("cancel ignores pending directory snapshot")
-    func cancelStopsPendingReloadWork() async {
-        let loader = ProjectPickerWorkflowTestDirectoryLoader()
+    @Test("folder search applies only the latest query and confirms the selected absolute path")
+    func latestFolderSearchWins() async {
+        let loader = ProjectPickerWorkflowTestFolderSearchLoader()
         let workflow = ProjectPickerWorkflow(
-            defaultDisplayPath: "~/Canceled",
+            defaultDisplayPath: "~/Projects/",
             homeDirectory: "/Users/alice",
             projectPaths: [],
-            directoryLoader: { await loader.load($0) },
+            folderSearchPreparer: { _ in },
+            folderSearchLoader: { query, _, _, _ in await loader.load(query) },
             reloadDelay: .zero,
             loadingMessageDelay: .seconds(5)
         )
+        let secondResult = ProjectPickerFolderSearchResult(
+            name: "muxy",
+            path: "/Users/alice/Projects/muxy",
+            displayPath: "~/Projects/muxy/"
+        )
 
-        _ = workflow.setInput("~/Canceled")
-        await waitUntil { await loader.hasRequest(for: "~/Canceled") }
-        workflow.cancel()
+        _ = workflow.setInput("mu")
+        await waitUntil { await loader.hasRequest(for: "mu") }
+        _ = workflow.setInput("muxy")
+        await waitUntil { await loader.hasRequest(for: "muxy") }
+
         await loader.resolve(
-            input: "~/Canceled",
-            snapshot: ProjectPickerDirectorySnapshot(rows: ["Canceled"], readFailed: false)
+            query: "muxy",
+            snapshot: ProjectPickerFolderSearchSnapshot(results: [secondResult], readFailed: false)
+        )
+        await waitUntil { workflow.session.searchResults == [secondResult] }
+
+        await loader.resolve(
+            query: "mu",
+            snapshot: ProjectPickerFolderSearchSnapshot(
+                results: [
+                    ProjectPickerFolderSearchResult(
+                        name: "music",
+                        path: "/Users/alice/Music",
+                        displayPath: "~/Music/"
+                    ),
+                ],
+                readFailed: false
+            )
         )
         try? await Task.sleep(for: .milliseconds(20))
 
-        #expect(workflow.session.rows.isEmpty)
-        #expect(workflow.session.directoryLoadState == .loading(showsMessage: false))
+        #expect(workflow.session.searchResults == [secondResult])
+        #expect(workflow.handle(.openHighlighted) == [
+            .confirmProjectPath(path: secondResult.path, createIfMissing: false),
+        ])
+        #expect(workflow.handle(.confirmTypedPath) == [
+            .confirmProjectPath(path: secondResult.path, createIfMissing: false),
+        ])
     }
 
     @Test("typed path confirmation emits external requests")
@@ -106,6 +134,7 @@ struct ProjectPickerWorkflowTests {
         defer { try? FileManager.default.removeItem(at: existingPath) }
 
         let existingWorkflow = ProjectPickerWorkflow(defaultDisplayPath: existingPath.path, projectPaths: [])
+        _ = existingWorkflow.setInput(existingPath.path)
         #expect(existingWorkflow.handle(.confirmTypedPath) == [
             .confirmProjectPath(path: existingPath.path, createIfMissing: false),
         ])
@@ -115,6 +144,7 @@ struct ProjectPickerWorkflowTests {
             .standardizedFileURL
             .path
         let workflow = ProjectPickerWorkflow(defaultDisplayPath: missingPath, projectPaths: [])
+        _ = workflow.setInput(missingPath)
 
         #expect(workflow.handle(.confirmTypedPath) == [.askCreateDirectory(path: missingPath)])
         #expect(workflow.handleCreateDirectoryDecision(path: missingPath, accepted: false) == [])
@@ -170,5 +200,25 @@ private actor ProjectPickerWorkflowTestDirectoryLoader {
 
     func resolve(input: String, snapshot: ProjectPickerDirectorySnapshot) {
         continuations.removeValue(forKey: input)?.resume(returning: snapshot)
+    }
+}
+
+private actor ProjectPickerWorkflowTestFolderSearchLoader {
+    private var requests: Set<String> = []
+    private var continuations: [String: CheckedContinuation<ProjectPickerFolderSearchSnapshot, Never>] = [:]
+
+    func load(_ query: String) async -> ProjectPickerFolderSearchSnapshot {
+        requests.insert(query)
+        return await withCheckedContinuation { continuation in
+            continuations[query] = continuation
+        }
+    }
+
+    func hasRequest(for query: String) -> Bool {
+        requests.contains(query)
+    }
+
+    func resolve(query: String, snapshot: ProjectPickerFolderSearchSnapshot) {
+        continuations.removeValue(forKey: query)?.resume(returning: snapshot)
     }
 }

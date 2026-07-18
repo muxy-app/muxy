@@ -88,7 +88,9 @@ final class ProjectGroupStore {
     var activeRemoteProjectIDs: Set<UUID> {
         guard isRemoteWorkspaceActive else { return [] }
         var ids = Set(activeRemoteProjects.map(\.id))
-        if let homeID = activeRemoteHomeProject?.id { ids.insert(homeID) }
+        if let homeID = activeRemoteHomeProject?.id {
+            ids.insert(homeID)
+        }
         return ids
     }
 
@@ -267,6 +269,7 @@ final class ProjectGroupStore {
     func addProject(projectID: UUID, toGroup groupID: UUID) {
         guard projectID != Project.homeID else { return }
         guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
+        guard groups[index].type == .local else { return }
         for otherIndex in groups.indices where otherIndex != index {
             groups[otherIndex].projectIDs.removeAll { $0 == projectID }
         }

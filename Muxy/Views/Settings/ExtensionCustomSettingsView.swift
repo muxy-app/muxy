@@ -83,7 +83,9 @@ private struct ExtensionSettingRow: View {
         Binding(
             get: {
                 guard let value = settingsStore.effectiveValue(extensionID: extensionID, entry: entry) else { return false }
-                if case let .bool(value) = value { return value }
+                if case let .bool(value) = value {
+                    return value
+                }
                 return false
             },
             set: { newValue in
@@ -96,7 +98,9 @@ private struct ExtensionSettingRow: View {
         Binding(
             get: {
                 guard let value = settingsStore.effectiveValue(extensionID: extensionID, entry: entry) else { return "" }
-                if case let .string(value) = value { return value }
+                if case let .string(value) = value {
+                    return value
+                }
                 return ""
             },
             set: { newValue in

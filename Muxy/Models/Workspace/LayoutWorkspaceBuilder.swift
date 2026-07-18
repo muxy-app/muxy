@@ -21,7 +21,9 @@ enum LayoutWorkspaceBuilder {
         case let .branch(layout, panes):
             let children = panes.compactMap { buildNode(from: $0, projectPath: projectPath) }
             guard let first = children.first else { return nil }
-            if children.count == 1 { return first }
+            if children.count == 1 {
+                return first
+            }
             let direction: SplitDirection = layout == .horizontal ? .horizontal : .vertical
             return children.dropFirst().reduce(first) { partial, next in
                 .split(SplitBranch(direction: direction, first: partial, second: next))

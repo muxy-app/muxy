@@ -2,12 +2,16 @@ import AppKit
 import SwiftUI
 
 struct ResizeHandle: View {
-    enum Axis {
+    enum Axis: Equatable {
         case horizontal
         case vertical
+
+        var cursor: NSCursor {
+            self == .horizontal ? .resizeLeftRight : .resizeUpDown
+        }
     }
 
-    enum HitAreaBias {
+    enum HitAreaBias: Equatable {
         case centered
         case leading
         case trailing
@@ -18,54 +22,47 @@ struct ResizeHandle: View {
     var onEnd: (() -> Void)?
     let onDrag: (DragGesture.Value) -> Void
     @State private var hovering = false
-    @State private var cursorPushed = false
+    @State private var dragCursorPushed = false
     @GestureState private var dragging = false
 
     private var active: Bool { hovering || dragging }
 
     var body: some View {
-        ZStack(alignment: handleAlignment) {
-            Rectangle()
-                .fill(active ? MuxyTheme.accent : MuxyTheme.border)
-                .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
-            Rectangle()
-                .fill(Color.black.opacity(0.001))
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                        .updating($dragging) { _, state, _ in state = true }
-                        .onChanged { value in
-                            activateCursor()
-                            onDrag(value)
-                        }
-                        .onEnded { _ in
-                            onEnd?()
-                            if !hovering {
-                                releaseCursor()
-                            }
-                        }
-                )
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active:
-                        hovering = true
-                        activateCursor()
-                    case .ended:
-                        hovering = false
-                        if !dragging {
-                            releaseCursor()
-                        }
+        Rectangle()
+            .fill(active ? MuxyTheme.accent : MuxyTheme.border)
+            .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
+            .overlay(alignment: handleAlignment) {
+                Rectangle()
+                    .fill(Color.black.opacity(0.001))
+                    .frame(
+                        width: axis == .horizontal ? UIMetrics.resizeHandleHitArea : nil,
+                        height: axis == .vertical ? UIMetrics.resizeHandleHitArea : nil
+                    )
+                    .background {
+                        ResizeCursorRegion(axis: axis) { hovering = $0 }
                     }
-                }
-        }
-        .frame(
-            width: axis == .horizontal ? UIMetrics.resizeHandleHitArea : nil,
-            height: axis == .vertical ? UIMetrics.resizeHandleHitArea : nil
-        )
-        .zIndex(1)
-        .onDisappear {
-            releaseCursor()
-        }
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .updating($dragging) { _, state, _ in state = true }
+                            .onChanged { value in
+                                activateDragCursor()
+                                onDrag(value)
+                            }
+                            .onEnded { _ in
+                                onEnd?()
+                                releaseDragCursor()
+                            }
+                    )
+            }
+            .zIndex(1)
+            .onChange(of: dragging) { _, isDragging in
+                guard !isDragging else { return }
+                releaseDragCursor()
+            }
+            .onDisappear {
+                releaseDragCursor()
+            }
     }
 
     private var handleAlignment: Alignment {
@@ -79,23 +76,89 @@ struct ResizeHandle: View {
         }
     }
 
-    private var cursor: NSCursor {
-        axis == .horizontal ? .resizeLeftRight : .resizeUpDown
-    }
-
-    private func activateCursor() {
-        if cursorPushed {
-            cursor.set()
+    private func activateDragCursor() {
+        if dragCursorPushed {
+            axis.cursor.set()
         } else {
-            cursor.push()
-            cursorPushed = true
+            axis.cursor.push()
+            dragCursorPushed = true
         }
     }
 
-    private func releaseCursor() {
-        guard cursorPushed else { return }
+    private func releaseDragCursor() {
+        guard dragCursorPushed else { return }
         NSCursor.pop()
-        cursorPushed = false
+        dragCursorPushed = false
+    }
+}
+
+struct ResizeCursorRegion: NSViewRepresentable {
+    let axis: ResizeHandle.Axis
+    let onHoverChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> ResizeCursorNSView {
+        let view = ResizeCursorNSView(axis: axis)
+        view.onHoverChange = onHoverChange
+        return view
+    }
+
+    func updateNSView(_ nsView: ResizeCursorNSView, context: Context) {
+        nsView.axis = axis
+        nsView.onHoverChange = onHoverChange
+    }
+}
+
+final class ResizeCursorNSView: NSView {
+    var onHoverChange: ((Bool) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
+    var axis: ResizeHandle.Axis {
+        didSet {
+            guard oldValue != axis else { return }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    var cursor: NSCursor {
+        axis.cursor
+    }
+
+    init(axis: ResizeHandle.Axis) {
+        self.axis = axis
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: cursor)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let nextTrackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(nextTrackingArea)
+        hoverTrackingArea = nextTrackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onHoverChange?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHoverChange?(false)
     }
 }
 
@@ -127,6 +190,17 @@ struct PanelResizeHandle: View {
         case trailing
         case top
         case bottom
+
+        var hitAreaBias: ResizeHandle.HitAreaBias {
+            switch self {
+            case .leading,
+                 .top:
+                .leading
+            case .trailing,
+                 .bottom:
+                .trailing
+            }
+        }
     }
 
     let axis: ResizeHandle.Axis
@@ -137,7 +211,7 @@ struct PanelResizeHandle: View {
     var body: some View {
         AnchoredResizeHandle(
             axis: axis,
-            hitAreaBias: hitAreaBias,
+            hitAreaBias: edge.hitAreaBias,
             captureAnchor: current,
             onTranslate: { start, delta in
                 let signed = (edge == .leading || edge == .top) ? -delta : delta
@@ -145,16 +219,5 @@ struct PanelResizeHandle: View {
             }
         )
         .accessibilityHidden(true)
-    }
-
-    private var hitAreaBias: ResizeHandle.HitAreaBias {
-        switch edge {
-        case .leading,
-             .top:
-            .leading
-        case .trailing,
-             .bottom:
-            .trailing
-        }
     }
 }

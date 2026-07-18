@@ -252,6 +252,196 @@ struct ProjectOpenServiceTests {
         #expect(projectStore.storedProjects.first?.path == dir.standardizedFileURL.path)
     }
 
+    @Test("recently removed path restores project metadata and selects a fresh primary worktree")
+    func recentlyRemovedPathRestoresProject() throws {
+        let (appState, projectStore, worktreeStore, _) = makeStores()
+        let group = ProjectGroup(name: "Work")
+        let groupPersistence = ProjectGroupPersistenceStub(initial: [group])
+        let projectGroupStore = ProjectGroupStore(
+            persistence: groupPersistence,
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        projectGroupStore.selectGroup(id: group.id)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-recent-project-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var project = Project(name: "Custom Name", path: directory.path, sortOrder: 0)
+        project.icon = "star.fill"
+        project.logo = "stored-logo.png"
+        project.iconColor = "purple"
+        project.worktreesEnabled = true
+        project.isPinned = true
+        projectStore.add(project)
+        projectStore.remove(id: project.id)
+        worktreeStore.removeProject(project.id)
+
+        let result = ProjectOpenService.confirmProjectPathResult(
+            directory.path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+
+        let restored = try #require(projectStore.storedProjects.first)
+        #expect(result == .success)
+        #expect(restored.id == project.id)
+        #expect(restored.name == "Custom Name")
+        #expect(restored.icon == "star.fill")
+        #expect(restored.logo == "stored-logo.png")
+        #expect(restored.iconColor == "purple")
+        #expect(restored.worktreesEnabled)
+        #expect(restored.isPinned)
+        #expect(projectStore.recentlyRemovedProjects.isEmpty)
+        #expect(worktreeStore.primary(for: project.id) != nil)
+        #expect(appState.activeProjectID == project.id)
+        #expect(groupPersistence.savedGroups?.first?.projectIDs == [project.id])
+    }
+
+    @Test("missing recently removed path stays archived")
+    func missingRecentlyRemovedPathStaysArchived() {
+        let (appState, projectStore, worktreeStore, projectGroupStore) = makeStores()
+        let project = Project(name: "Missing", path: "/tmp/missing-recent-project")
+        projectStore.add(project)
+        projectStore.remove(id: project.id)
+
+        #expect(throws: ProjectOpenService.RestoreError.missingDirectory(project.path)) {
+            try ProjectOpenService.restoreRecentlyRemovedProject(
+                id: project.id,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
+                fileSystem: ProjectPathConfirmationFileSystemStub(state: .missing)
+            )
+        }
+        #expect(projectStore.storedProjects.isEmpty)
+        #expect(projectStore.recentlyRemovedProjects.first?.id == project.id)
+        #expect(worktreeStore.primary(for: project.id) == nil)
+        #expect(appState.activeProjectID == nil)
+    }
+
+    @Test("failed recent restore stays archived and is not selected")
+    func failedRecentlyRemovedRestoreStaysArchived() {
+        let persistence = ProjectPersistenceStub()
+        let projectStore = ProjectStore(persistence: persistence)
+        let worktreeStore = WorktreeStore(persistence: WorktreePersistenceStub(), projects: [])
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        let group = ProjectGroup(name: "Work")
+        let groupPersistence = ProjectGroupPersistenceStub(initial: [group])
+        let projectGroupStore = ProjectGroupStore(
+            persistence: groupPersistence,
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        projectGroupStore.selectGroup(id: group.id)
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        projectStore.add(project)
+        projectStore.remove(id: project.id)
+        persistence.projectSaveError = ProjectPersistenceStub.SaveError()
+
+        #expect(throws: ProjectOpenService.RestoreError.persistenceFailed) {
+            try ProjectOpenService.restoreRecentlyRemovedProject(
+                id: project.id,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
+                fileSystem: ProjectPathConfirmationFileSystemStub(state: .directory)
+            )
+        }
+        #expect(projectStore.storedProjects.isEmpty)
+        #expect(projectStore.recentlyRemovedProjects.first?.id == project.id)
+        #expect(worktreeStore.primary(for: project.id) == nil)
+        #expect(appState.activeProjectID == nil)
+        #expect(groupPersistence.savedGroups == nil)
+    }
+
+    @Test("failed recent restore preserves pre-existing worktrees")
+    func failedRecentlyRemovedRestorePreservesExistingWorktrees() {
+        let persistence = ProjectPersistenceStub()
+        let projectStore = ProjectStore(persistence: persistence)
+        let worktreeStore = WorktreeStore(persistence: WorktreePersistenceStub(), projects: [])
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        let projectGroupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        projectStore.add(project)
+        projectStore.remove(id: project.id)
+        let secondary = Worktree(
+            name: "Feature",
+            path: "/tmp/repo-feature",
+            branch: "feature",
+            isPrimary: false
+        )
+        worktreeStore.add(secondary, to: project.id)
+        let existingWorktrees = worktreeStore.list(for: project.id)
+        persistence.projectSaveError = ProjectPersistenceStub.SaveError()
+
+        #expect(throws: ProjectOpenService.RestoreError.persistenceFailed) {
+            try ProjectOpenService.restoreRecentlyRemovedProject(
+                id: project.id,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
+                fileSystem: ProjectPathConfirmationFileSystemStub(state: .directory)
+            )
+        }
+
+        #expect(worktreeStore.list(for: project.id) == existingWorktrees)
+        #expect(worktreeStore.primary(for: project.id) == nil)
+        #expect(worktreeStore.worktree(projectID: project.id, worktreeID: secondary.id) == secondary)
+        #expect(projectStore.storedProjects.isEmpty)
+        #expect(projectStore.recentlyRemovedProjects.first?.id == project.id)
+    }
+
+    @Test("recent restore is rejected while an SSH workspace is active")
+    func recentlyRemovedRestoreRejectsActiveSSHWorkspace() {
+        let (appState, projectStore, worktreeStore, _) = makeStores()
+        let remoteGroup = ProjectGroup(name: "Remote", type: .ssh)
+        let groupPersistence = ProjectGroupPersistenceStub(initial: [remoteGroup])
+        let projectGroupStore = ProjectGroupStore(
+            persistence: groupPersistence,
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        projectGroupStore.selectGroup(id: remoteGroup.id)
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        projectStore.add(project)
+        projectStore.remove(id: project.id)
+
+        #expect(throws: ProjectOpenService.RestoreError.remoteWorkspaceActive) {
+            try ProjectOpenService.restoreRecentlyRemovedProject(
+                id: project.id,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
+                fileSystem: ProjectPathConfirmationFileSystemStub(state: .directory)
+            )
+        }
+        #expect(projectStore.storedProjects.isEmpty)
+        #expect(projectStore.recentlyRemovedProjects.first?.id == project.id)
+        #expect(worktreeStore.primary(for: project.id) == nil)
+        #expect(appState.activeProjectID == nil)
+        #expect(projectGroupStore.groups.first?.projectIDs.isEmpty == true)
+        #expect(groupPersistence.savedGroups == nil)
+    }
+
     @Test("create failure returns create failed without adding a project")
     func createFailureReturnsCreateFailedWithoutAddingProject() {
         let (appState, projectStore, worktreeStore, projectGroupStore) = makeStores()
@@ -457,9 +647,25 @@ private struct ProjectPathConfirmationFileSystemStub: ProjectPathConfirmationFil
 }
 
 private final class ProjectPersistenceStub: ProjectPersisting {
+    struct SaveError: Error {}
+
     private var projects: [Project] = []
+    private var recentlyRemovedProjects: [RecentlyRemovedProject] = []
+    var projectSaveError: Error?
+
     func loadProjects() throws -> [Project] { projects }
-    func saveProjects(_ projects: [Project]) throws { self.projects = projects }
+    func saveProjects(_ projects: [Project]) throws {
+        if let projectSaveError { throw projectSaveError }
+        self.projects = projects
+    }
+
+    func loadRecentlyRemovedProjects() throws -> [RecentlyRemovedProject] {
+        recentlyRemovedProjects
+    }
+
+    func saveRecentlyRemovedProjects(_ projects: [RecentlyRemovedProject]) throws {
+        recentlyRemovedProjects = projects
+    }
 }
 
 private final class WorktreePersistenceStub: WorktreePersisting {

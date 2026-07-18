@@ -49,7 +49,7 @@ enum ExtensionBridgeShared {
         )
     }
 
-    static func encodeExecResult(_ result: ExecResult) -> [String: Any] {
+    nonisolated static func encodeExecResult(_ result: ExecResult) -> [String: Any] {
         [
             "stdout": result.stdout,
             "stderr": result.stderr,

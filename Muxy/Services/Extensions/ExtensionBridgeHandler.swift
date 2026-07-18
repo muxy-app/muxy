@@ -370,7 +370,9 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
     }
 
     private func stringArg(_ args: [String: Any], _ key: String) throws -> String {
-        if let value = args[key] as? String { return value }
+        if let value = args[key] as? String {
+            return value
+        }
         throw APIError.invalidArguments("missing argument '\(key)'")
     }
 }

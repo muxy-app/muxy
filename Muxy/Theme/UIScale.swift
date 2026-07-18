@@ -12,6 +12,7 @@ final class UIScale {
         case regular
         case large
         case extraLarge
+        case huge
 
         var id: String { rawValue }
 
@@ -20,6 +21,7 @@ final class UIScale {
             case .regular: 1.00
             case .large: 1.12
             case .extraLarge: 1.24
+            case .huge: 1.40
             }
         }
 
@@ -28,6 +30,7 @@ final class UIScale {
             case .regular: "Default"
             case .large: "Large"
             case .extraLarge: "Extra Large"
+            case .huge: "Huge"
             }
         }
     }

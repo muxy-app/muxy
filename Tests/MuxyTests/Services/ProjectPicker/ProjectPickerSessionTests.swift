@@ -18,6 +18,7 @@ struct ProjectPickerSessionTests {
     @Test("snapshot application chooses first real row after parent row")
     func snapshotApplicationChoosesInitialHighlight() {
         var session = ProjectPickerSession(defaultDisplayPath: "~/", homeDirectory: "/Users/alice", projectPaths: [])
+        session.setInput("~/")
 
         session.applyDirectorySnapshot(ProjectPickerDirectorySnapshot(rows: ["..", "Code", "Documents"], readFailed: false))
 
@@ -29,6 +30,7 @@ struct ProjectPickerSessionTests {
     @Test("navigation, completion, and parent commands update state")
     func commandStateTransitions() {
         var session = ProjectPickerSession(defaultDisplayPath: "~/Projects/mu", homeDirectory: "/Users/alice", projectPaths: [])
+        session.setInput("~/Projects/mu")
         session.applyDirectorySnapshot(ProjectPickerDirectorySnapshot(rows: ["muxy", "sample"], readFailed: false))
 
         session.handle(.moveHighlightDown)
@@ -44,6 +46,7 @@ struct ProjectPickerSessionTests {
     @Test("return descends into selected folder and parent row goes up")
     func returnDescendsAndParentGoesUp() {
         var session = ProjectPickerSession(defaultDisplayPath: "~/Projects/", homeDirectory: "/Users/alice", projectPaths: [])
+        session.setInput("~/Projects/")
         session.applyDirectorySnapshot(ProjectPickerDirectorySnapshot(rows: ["..", "muxy"], readFailed: false))
 
         session.handle(.openHighlighted)
@@ -66,20 +69,22 @@ struct ProjectPickerSessionTests {
             ])
         )
 
-        let existingSession = ProjectPickerSession(
+        var existingSession = ProjectPickerSession(
             defaultDisplayPath: "/tmp/existing",
             projectPaths: [],
             pathService: pathService
         )
+        existingSession.setInput("/tmp/existing")
         #expect(existingSession.typedPathState == .directory)
         #expect(existingSession.actionTitle == "Add")
         #expect(existingSession.topRightActionTitle == "Add Project")
 
-        let missingSession = ProjectPickerSession(
+        var missingSession = ProjectPickerSession(
             defaultDisplayPath: "/tmp/existing/missing",
             projectPaths: [],
             pathService: pathService
         )
+        missingSession.setInput("/tmp/existing/missing")
         #expect(missingSession.typedPathState == .missing)
         #expect(missingSession.actionTitle == "Create & Add")
         #expect(missingSession.topRightActionTitle == "Create & Add Project")
@@ -92,10 +97,79 @@ struct ProjectPickerSessionTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let session = ProjectPickerSession(defaultDisplayPath: root.path, projectPaths: [root.standardizedFileURL.path])
+        var session = ProjectPickerSession(defaultDisplayPath: root.path, projectPaths: [root.standardizedFileURL.path])
+        session.setInput(root.path)
 
         #expect(session.actionTitle == "Open")
         #expect(session.topRightActionTitle == "Open Project")
+    }
+
+    @Test("local input defaults to folder search and explicit paths retain path mode")
+    func inputModeSelection() {
+        var session = ProjectPickerSession(defaultDisplayPath: "~/Projects/", homeDirectory: "/Users/alice", projectPaths: [])
+
+        #expect(session.input.isEmpty)
+        #expect(session.searchRootPath == "/Users/alice/Projects")
+        #expect(session.inputMode == .folderSearch)
+
+        for input in ["muxy", "Projects/muxy", "Projects muxy", "muxy/"] {
+            session.setInput(input)
+            #expect(session.inputMode == .folderSearch)
+        }
+
+        for input in ["~/Projects", "/Users/alice/Projects", "./Projects", "../Projects", "~", ".", ".."] {
+            session.setInput(input)
+            #expect(session.inputMode == .path)
+        }
+    }
+
+    @Test("remote sessions stay in path mode without recursive folder search")
+    func remoteSessionUsesPathMode() {
+        let session = ProjectPickerSession(
+            projectPaths: [],
+            context: .ssh(SSHDestination(host: "server", remoteRoot: "~/code"))
+        )
+
+        #expect(!session.allowsFolderSearch)
+        #expect(session.input == "~/code/")
+        #expect(session.inputMode == .path)
+    }
+
+    @Test("folder search results keep full path identity and can switch to path mode")
+    func folderSearchResultState() {
+        let first = ProjectPickerFolderSearchResult(
+            name: "muxy",
+            path: "/Users/alice/Code/muxy",
+            displayPath: "~/Code/muxy/"
+        )
+        let existing = ProjectPickerFolderSearchResult(
+            name: "muxy",
+            path: "/Users/alice/Work/muxy",
+            displayPath: "~/Work/muxy/"
+        )
+        var session = ProjectPickerSession(
+            defaultDisplayPath: "~/",
+            homeDirectory: "/Users/alice",
+            projectPaths: [existing.path]
+        )
+        session.setInput("muxy")
+        session.applyFolderSearchSnapshot(ProjectPickerFolderSearchSnapshot(
+            results: [first, existing],
+            readFailed: false
+        ))
+
+        #expect(session.highlightedSearchResult == first)
+        #expect(session.actionTitle == "Add")
+
+        session.handle(.moveHighlightDown)
+
+        #expect(session.highlightedSearchResult == existing)
+        #expect(session.actionTitle == "Open")
+
+        session.handle(.completeHighlighted)
+
+        #expect(session.input == "~/Work/muxy/")
+        #expect(session.inputMode == .path)
     }
 }
 

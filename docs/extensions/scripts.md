@@ -1,6 +1,6 @@
 # Inline Scripts (`runScript` Commands)
 
-A palette command with `action.kind = "runScript"` runs a JavaScript file in an in-process JavaScriptCore context when the user picks it. The script gets a **synchronous** `muxy.*` API: it can read and act on workspace state (tabs, panes, projects, worktrees, agents, files, git), run shell commands, and present native UI (dialogs, modals, toasts, notifications, topbar/status-bar items) — all without a rendering surface. Requires the `commands:run-script` permission.
+A palette command with `action.kind = "runScript"` runs a JavaScript file in an in-process JavaScriptCore context when the user picks it. The script gets a mostly **synchronous** `muxy.*` API, with Promise-based `muxy.execAsync` as the exception: it can read and act on workspace state (tabs, panes, projects, worktrees, agents, files, git), run shell commands, and present native UI (dialogs, modals, toasts, notifications, topbar/status-bar items) — all without a rendering surface. Requires the `commands:run-script` permission.
 
 ```json
 {
@@ -72,12 +72,12 @@ Note there is **no `await`** — see [API surface](#api-surface).
 ## Lifecycle
 
 - Each run gets a fresh `JSContext`. Globals from one run are not visible to the next.
-- A context may remain alive only while pending modal callbacks from that run need it, and it is evicted when the extension is disabled or reloaded (Settings -> Extensions -> Reload Extensions).
+- A context remains alive while pending modal callbacks or `muxy.execAsync` results from that run need it, and it is evicted when the extension is disabled or reloaded (Settings -> Extensions -> Reload Extensions).
 - The script **source is re-read from disk on every run**, so edits apply on the next palette trigger with no restart.
 
 ## API surface
 
-`muxy.extensionID` plus the following methods. They are **synchronous** — they return values directly, no `await` (unlike the Promise-based webview bridge):
+`muxy.extensionID` plus the following methods. Most are **synchronous** and return values directly; `muxy.execAsync` is the cancellable Promise-based exception:
 
 ```
 muxy.notifications.notify(opts)      // alias: muxy.toast(opts)
@@ -94,6 +94,7 @@ muxy.agents.list()                                              // requires agen
 muxy.files.{list, read, stat, write, mkdir, rename, move, delete}
 muxy.git.{status, diff, log, branches, commit, push, pull, …}   // full git surface, incl. git.pr.*, git.branch.*, git.worktree.*, git.tag.*
 muxy.exec(argv, options?) / muxy.exec({ shell, ... })           // requires commands:exec
+muxy.execAsync(argv, options?) / muxy.execAsync({ shell, ... }) // cancellable job; requires commands:exec
 ```
 
 ```js
@@ -101,22 +102,55 @@ const status = muxy.exec(['git', 'status', '--short']);
 console.log(status.stdout);
 ```
 
+For long-running commands in dynamic UI callbacks, use `execAsync` so the JavaScript queue stays free and superseded work can be cancelled:
+
+```js
+let activeSearch = null;
+
+muxy.modal.open({
+  placeholder: 'Find in files',
+  items: [],
+  onQuery(query, emit) {
+    activeSearch?.cancel();
+    if (!query.trim()) return [];
+
+    const job = muxy.execAsync(['rg', '--json', query]);
+    activeSearch = job;
+
+    return job.result.then(
+      (result) => {
+        if (activeSearch !== job) return [];
+        return parseRipgrepRows(result.stdout);
+      },
+      (error) => {
+        if (error.cancelled) return [];
+        throw error;
+      }
+    );
+  },
+});
+```
+
 Differences from the webview API:
 
 - All calls are **synchronous** — they return values directly, not Promises. Muxy blocks the script's own dispatch queue while the work runs on the main actor, so the UI stays responsive.
+- `muxy.execAsync` is the exception: it returns `{ id, result, cancel() }`, where `result` is a Promise resolving to the same shape as `muxy.exec` (`stdout`, `stderr`, `exitCode`, `timedOut`, `truncated`). Cancellation rejects with `error.code === "cancelled"` and `error.cancelled === true`.
+- An extension may have at most **32 commands running at once** across `muxy.exec` and `muxy.execAsync`. Starting a 33rd rejects with `exec: too many concurrent commands (limit 32)`. Cancel or await work you no longer need instead of fanning out without bound.
 - No rendering/tab surface: no `muxy.data`, `muxy.theme`, `muxy.onDataChange`, `muxy.onThemeChange`, `muxy.focused`, `muxy.onFocus`, or `muxy.tabInstanceID`.
 - No page-only APIs: no `muxy.panels`, `muxy.popover`, `muxy.http`, or `muxy.tabs.setTitle`/`setIcon` (those need a tab instance).
 - No `muxy.events` and no `muxy.remote` — those are background-script APIs ([events](events.md), [remote methods](remote-methods.md)).
 
 ## Remote workspaces
 
-When the active workspace is a remote (SSH) workspace, `muxy.exec`, `muxy.git.*`, and worktree operations execute **on the remote server**, not the Mac. Paths (`cwd`, project/worktree paths) are remote paths. Muxy brokers the SSH connection for you using your system SSH config, keys, and agent — the extension code is unchanged whether the active workspace is local or remote.
+When the active workspace is a remote (SSH) workspace, `muxy.exec`, `muxy.execAsync`, `muxy.git.*`, and worktree operations execute **on the remote server**, not the Mac. Paths (`cwd`, project/worktree paths) are remote paths. Muxy brokers the SSH connection for you using your system SSH config, keys, and agent — the extension code is unchanged whether the active workspace is local or remote.
 
 Remote commands inherit the selected SSH device's environment. New SSH devices default to `TERM=xterm-256color`; users can edit these variables in Settings -> Remote Devices.
 
+For local workspaces, cancellation signals the command's process group with TERM then KILL and reaps the command leader before rejecting `job.result`. For remote workspaces, cancellation closes the SSH command channel; a remote process that detaches or ignores channel termination may continue running and must manage its own lifecycle.
+
 ## Permissions
 
-Each verb is gated by its own permission, as on every surface (see [Permissions](permissions.md)). Calling a method without its permission throws `Error("permission denied (<perm>)")`, which the script can catch.
+Each verb is gated by its own permission, as on every surface (see [Permissions](permissions.md)). Calling a synchronous method without its permission throws `Error("permission denied (<perm>)")`, which the script can catch. For `execAsync`, the permission error rejects `job.result`.
 
 ## Errors and logging
 

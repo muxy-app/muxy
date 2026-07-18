@@ -171,7 +171,9 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                                     .onTapGesture { onSelect(item) }
                                     .id(item.id)
                                     .onAppear {
-                                        if index >= results.count - 1 { scheduleLoadMore() }
+                                        if index >= results.count - 1 {
+                                            scheduleLoadMore()
+                                        }
                                     }
                             }
                         }
@@ -409,6 +411,8 @@ struct PaletteSearchField: NSViewRepresentable {
 
     @Binding var text: String
     let placeholder: String
+    var focusRequest = 0
+    var isEnabled = true
     var fontSize: CGFloat = UIMetrics.fontEmphasis
     let onSubmit: () -> Void
     var onSubmitText: ((String) -> Void)?
@@ -437,6 +441,7 @@ struct PaletteSearchField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
+        field.isEnabled = isEnabled
         field.font = .systemFont(ofSize: fontSize)
         field.textColor = NSColor(MuxyTheme.fg)
         field.placeholderString = placeholder
@@ -473,6 +478,10 @@ struct PaletteSearchField: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
         context.coordinator.parent = self
+        if context.coordinator.lastFocusRequest != focusRequest {
+            context.coordinator.lastFocusRequest = focusRequest
+            claimFocus(for: nsView, attempt: 0)
+        }
         if let editor = nsView.currentEditor() as? NSTextView {
             if editor.string != text {
                 editor.string = text
@@ -484,6 +493,9 @@ struct PaletteSearchField: NSViewRepresentable {
         if nsView.placeholderString != placeholder {
             nsView.placeholderString = placeholder
         }
+        if nsView.isEnabled != isEnabled {
+            nsView.isEnabled = isEnabled
+        }
         if let field = nsView as? PaletteNSTextField {
             field.onEscape = onEscape
             field.onControlKey = onControlKey
@@ -494,10 +506,12 @@ struct PaletteSearchField: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: PaletteSearchField
+        var lastFocusRequest: Int
         private weak var lastNotifiedWindow: NSWindow?
 
         init(parent: PaletteSearchField) {
             self.parent = parent
+            lastFocusRequest = parent.focusRequest
         }
 
         func notifyWindowChange(_ window: NSWindow?) {
@@ -645,7 +659,9 @@ final class PaletteNSTextField: NSTextField {
     }
 
     override func keyDown(with event: NSEvent) {
-        if handleControlKey(event) { return }
+        if handleControlKey(event) {
+            return
+        }
         if Self.isReturnKey(event),
            let editor = currentEditor() as? NSTextView,
            editor.hasMarkedText()

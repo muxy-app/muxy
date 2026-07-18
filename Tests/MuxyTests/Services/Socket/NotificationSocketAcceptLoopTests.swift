@@ -21,25 +21,6 @@ struct NotificationSocketAcceptLoopTests {
         }
     }
 
-    @Test("closes the connection after a CLI reply so the client returns immediately")
-    func closesAfterReply() async throws {
-        let path = Self.temporarySocketPath()
-        let server = NotificationSocketServer(socketPath: path)
-        server.commandHandler = { _, _ in "list-tabs|ok" }
-        server.start()
-        await server.awaitReady()
-        defer { server.stop() }
-
-        let fd = try Self.connect(to: path)
-        defer { close(fd) }
-        try Self.writeLine("list-tabs", to: fd)
-        shutdown(fd, SHUT_WR)
-
-        let payload = try Self.readUntilEOF(fd)
-        #expect(payload.last == NotificationSocketServer.commandReplyTerminator)
-        #expect(String(decoding: payload.dropLast(), as: UTF8.self) == "list-tabs|ok")
-    }
-
     private static func temporarySocketPath() -> String {
         let directory = FileManager.default.temporaryDirectory
         return directory.appendingPathComponent("muxy-test-\(UUID().uuidString).sock").path
@@ -108,27 +89,6 @@ struct NotificationSocketAcceptLoopTests {
                 sent += written
             }
         }
-    }
-
-    private static func readUntilEOF(_ fd: Int32, deadline: TimeInterval = 5) throws -> Data {
-        var collected = Data()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        let end = Date().addingTimeInterval(deadline)
-        while Date() < end {
-            try waitForRead(fd, timeout: end.timeIntervalSinceNow)
-            let count = Darwin.read(fd, &buffer, buffer.count)
-            if count > 0 {
-                collected.append(contentsOf: buffer[0 ..< count])
-                continue
-            }
-            if count == 0 { return collected }
-            if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
-                usleep(2000)
-                continue
-            }
-            throw SocketError.readFailed(errno)
-        }
-        throw SocketError.timedOut
     }
 
     private static func waitForRead(_ fd: Int32, timeout: TimeInterval) throws {

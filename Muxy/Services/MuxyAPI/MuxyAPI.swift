@@ -301,7 +301,7 @@ enum MuxyAPI {
             "lifecycle.ackBeforeClose",
             "lifecycle.resolveBeforeClose",
             "lifecycle.closeSelf",
-        ]).union(gitVerbs).union(filesVerbs)
+        ]).union(gitVerbs).union(filesVerbs).union(ghVerbs)
 
         static let filesVerbs: Set<String> = [
             "files.list",
@@ -351,6 +351,10 @@ enum MuxyAPI {
             "git.tag.create",
             "git.pr.checkout",
             "git.pr.checkoutWorktree",
+        ]
+
+        static let ghVerbs: Set<String> = [
+            "gh.user",
         ]
 
         private static let cliAliases: [String: String] = [
@@ -490,6 +494,7 @@ enum MuxyAPI {
             "git.tag.create": .gitWrite,
             "git.pr.checkout": .gitWrite,
             "git.pr.checkoutWorktree": .gitWrite,
+            "gh.user": .ghRead,
             "files.list": .filesRead,
             "files.read": .filesRead,
             "files.stat": .filesRead,
@@ -1045,9 +1050,20 @@ enum MuxyAPI {
 
             let workspaceContext = ActiveWorkspaceContext.shared.current
             let expandedPath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
-            let path = trimmedPath.isEmpty
-                ? WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug(from: trimmedName))
-                : expandedPath
+            let path: String
+            if trimmedPath.isEmpty {
+                do {
+                    path = try WorktreeLocationResolver.worktreeDirectory(
+                        for: project,
+                        slug: WorktreeLocationResolver.slug(from: trimmedName),
+                        branch: trimmedBranch
+                    )
+                } catch {
+                    return .failure(.invalidArguments(error.localizedDescription))
+                }
+            } else {
+                path = expandedPath
+            }
             guard await !workspaceContext.fileOps.exists(at: path) else {
                 return .failure(.worktreePathExists)
             }
@@ -2046,15 +2062,6 @@ extension MuxyAPI {
     }
 }
 
-private func slug(from name: String) -> String {
-    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-    let scalars = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
-    let collapsed = String(scalars)
-        .split(separator: "-", omittingEmptySubsequences: true)
-        .joined(separator: "-")
-    return collapsed.isEmpty ? UUID().uuidString : collapsed
-}
-
 @MainActor
 private func tabMatches(_ tab: TerminalTab, identifier: String) -> Bool {
     tab.id.uuidString == identifier
@@ -2068,7 +2075,9 @@ private func tab(at index: Int, in root: SplitNode) -> TerminalTab? {
     var currentIndex = 0
     for area in root.allAreas() {
         for tab in area.tabs {
-            if currentIndex == index { return tab }
+            if currentIndex == index {
+                return tab
+            }
             currentIndex += 1
         }
     }

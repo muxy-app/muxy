@@ -92,7 +92,7 @@ muxy create-worktree login --branch feature/login --base main
 muxy refresh-worktrees
 ```
 
-`create-worktree <name>` defaults the branch to `<name>` and creates it; pass `--existing` to check out an existing branch, `--base <branch>` to fork from a specific base, and `--path`/`--project` to place or target it. After Git operations done outside Muxy, `refresh-worktrees` re-reads worktrees from Git.
+`create-worktree <name>` defaults the branch to `<name>` and creates it; pass `--existing` to check out an existing branch, `--base <branch>` to fork from a specific base, and `--path`/`--project` to place or target it. Without `--path`, Muxy uses the project's worktree path template or folder setting and resolves the required `{branch}` variable from the requested branch. After Git operations done outside Muxy, `refresh-worktrees` re-reads worktrees from Git.
 
 ## Tabs
 

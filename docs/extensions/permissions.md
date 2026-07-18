@@ -25,12 +25,13 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `agents:read` | `agents.list` — current AI agent status per worktree. Also required to subscribe to the `agent.status` [event](events.md). |
 | `git:read` | `git.status`, `git.diff`, `git.repoInfo`, `git.log`, `git.branches`, `git.remoteBranches`, `git.currentBranch`, `git.aheadBehind`, `git.pr.info`, `git.pr.number`, `git.pr.diff`, `git.pr.list`, `git.worktrees` — see [Git](git.md). |
 | `git:write` | `git.init`, `git.stage`, `git.unstage`, `git.discard`, `git.commit`, `git.push`, `git.pull`, `git.checkout`, `git.cherryPick`, `git.revert`, `git.tag.create`, `git.branch.*` (create/switch/delete/deleteRemote), `git.pr.*` writes (create/merge/close/checkout/checkoutWorktree), `git.worktree.*` (add/remove/switch). Each call also prompts for runtime consent. |
+| `gh:read` | `gh.user` — the authenticated GitHub CLI user (login, name, avatar). See [GitHub](gh.md). |
 | `files:read` | `files.list`, `files.read`, `files.stat` — see [Files](files.md). Also required to subscribe to the `file.changed` [event](events.md). |
 | `files:write` | `files.write`, `files.mkdir`, `files.rename`, `files.move`, `files.delete`. Each call also prompts for runtime consent. |
 | `notifications:write` | `notifications.notify` (all surfaces) and `toast` (webview pages and `runScript` only — not in `background.js`) to post a notification |
 | `panels:write` | `panel.open`, `panel.toggle`, `panel.close` for declared [panels](panels.md); `popover.resize`, `popover.close` for the extension's open [popover](popovers.md); `topbar.set` for [topbar](topbar.md) items; `statusbar.set` for [status bar](statusbar.md) items. |
 | `commands:run-script` | Execute `runScript` palette command actions in the per-extension JavaScriptCore context. |
-| `commands:exec` | Run shell commands via `muxy.exec` (subprocess execution with stdout/stderr capture). |
+| `commands:exec` | Run shell commands via `muxy.exec` or `muxy.execAsync` (subprocess execution with stdout/stderr capture). |
 | `remote:serve` | Serve [remote methods](remote-methods.md) declared in `remoteMethods` to the mobile app over the remote server. Each call also prompts for runtime consent. |
 
 `muxy.http.fetch` ([HTTP](http.md)) needs **no manifest permission** — it is gated by host consent at runtime only.

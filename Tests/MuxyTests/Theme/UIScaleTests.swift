@@ -9,14 +9,15 @@ struct UIScaleTests {
     @Test("Each preset returns a distinct, ordered multiplier")
     func presetMultipliersAreOrdered() {
         let presets = UIScale.Preset.allCases
-        #expect(presets == [.regular, .large, .extraLarge])
-        #expect(presets.map(\.id) == ["regular", "large", "extraLarge"])
-        #expect(presets.map(\.title) == ["Default", "Large", "Extra Large"])
+        #expect(presets == [.regular, .large, .extraLarge, .huge])
+        #expect(presets.map(\.id) == ["regular", "large", "extraLarge", "huge"])
+        #expect(presets.map(\.title) == ["Default", "Large", "Extra Large", "Huge"])
 
         let multipliers = presets.map(\.multiplier)
         #expect(multipliers == multipliers.sorted())
         #expect(Set(multipliers).count == multipliers.count)
         #expect(UIScale.Preset.regular.multiplier == 1.0)
+        #expect(UIScale.Preset.huge.multiplier == 1.40)
         #expect(UIScale.defaultPreset == .regular)
     }
 

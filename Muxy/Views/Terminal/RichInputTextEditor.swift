@@ -292,7 +292,9 @@ final class RichInputTextView: NSTextView {
             for url in urls {
                 onPasteFileURL?(url)
             }
-            if !urls.isEmpty { return }
+            if !urls.isEmpty {
+                return
+            }
         }
         if pasteboard.string(forType: .string) == nil,
            pasteboard.canReadObject(forClasses: [NSImage.self], options: nil),
@@ -305,8 +307,12 @@ final class RichInputTextView: NSTextView {
     }
 
     private func readImageData(from pasteboard: NSPasteboard) -> Data? {
-        if let data = pasteboard.data(forType: .png) { return data }
-        if let data = pasteboard.data(forType: .tiff) { return data }
+        if let data = pasteboard.data(forType: .png) {
+            return data
+        }
+        if let data = pasteboard.data(forType: .tiff) {
+            return data
+        }
         if let image = NSImage(pasteboard: pasteboard), let data = image.tiffRepresentation {
             return data
         }

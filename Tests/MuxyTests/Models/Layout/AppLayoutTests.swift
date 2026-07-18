@@ -16,6 +16,16 @@ struct AppLayoutTests {
         #expect(AppLayout.tabFocused.provider is TabFocusedLayout)
     }
 
+    @Test("project focused keeps tabs in the title bar")
+    func projectFocusedTitleBar() {
+        #expect(ProjectFocusedLayout().topbar == .tabStrip)
+    }
+
+    @Test("tab focused uses the project title")
+    func tabFocusedTitleBar() {
+        #expect(TabFocusedLayout().topbar == .projectTitle)
+    }
+
     @Test("default value is project focused")
     func defaultValueIsProjectFocused() {
         #expect(AppLayout.defaultValue == .projectFocused)
@@ -26,6 +36,34 @@ struct AppLayoutTests {
         for layout in AppLayout.allCases {
             #expect(AppLayout(rawValue: layout.rawValue) == layout)
         }
+    }
+
+    @Test("tab focused sidebar keeps every project visible outside focus mode")
+    func tabFocusedSidebarKeepsEveryProjectVisible() {
+        let first = Project(name: "First", path: "/tmp/first")
+        let second = Project(name: "Second", path: "/tmp/second")
+
+        let projects = TabFocusedSidebarProjectSelection.resolve(
+            projects: [first, second],
+            focusMode: false,
+            activeProjectID: first.id
+        )
+
+        #expect(projects == [first, second])
+    }
+
+    @Test("tab focused sidebar focus mode keeps only the active project")
+    func tabFocusedSidebarFocusModeKeepsActiveProject() {
+        let first = Project(name: "First", path: "/tmp/first")
+        let second = Project(name: "Second", path: "/tmp/second")
+
+        let projects = TabFocusedSidebarProjectSelection.resolve(
+            projects: [first, second],
+            focusMode: true,
+            activeProjectID: second.id
+        )
+
+        #expect(projects == [second])
     }
 }
 
@@ -117,21 +155,6 @@ struct TabFocusedSidebarStateTests {
 
         let reloaded = TabFocusedSidebarState(defaults: defaults)
         #expect(reloaded.isExpandedPersisted(projectID))
-    }
-
-    @Test("grouped by worktree defaults to false and persists when set")
-    func groupedByWorktreePersists() throws {
-        let (defaults, name) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: name) }
-        let state = TabFocusedSidebarState(defaults: defaults)
-        let projectID = UUID()
-
-        #expect(!state.isGroupedByWorktree(projectID))
-
-        state.setGroupedByWorktree(projectID, grouped: true)
-
-        #expect(state.isGroupedByWorktree(projectID))
-        #expect(TabFocusedSidebarState(defaults: defaults).isGroupedByWorktree(projectID))
     }
 
     private func makeDefaults() throws -> (UserDefaults, String) {

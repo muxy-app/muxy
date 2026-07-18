@@ -78,7 +78,7 @@ When an extension is reloaded or disabled, its subscriptions are dropped and re-
 
 `projects.changed` fires whenever the project list changes — a project is added, renamed, recolored, re-iconed, reordered, or removed — whether the change came from Muxy's own UI or from an extension verb. It carries no payload; webviews can call [`muxy.projects.list()`](permissions.md) to refetch the current list, while background scripts should notify a webview through an `extension.*` event.
 
-`agent.status` reports an AI coding agent's lifecycle per worktree, driven by the provider's hooks: `working` when a prompt is submitted or the agent runs a tool, `waiting` when the agent needs attention, `idle` when it stops. `providerID` identifies the agent (e.g. `claude`). When a worktree holds several agent panes, the reported status is the most active one (`working` > `waiting` > `idle`) and `paneID` points to the pane that owns it. It fires only when the worktree status changes, and turns `idle` once the last agent pane in the worktree closes. Pair it with [`muxy.agents.list()`](permissions.md) to hydrate current statuses on load.
+`agent.status` reports an AI coding agent's lifecycle per worktree, driven by the provider's hooks: `working` when a prompt is submitted or the agent runs a tool, `waiting` when the agent needs attention, `idle` when a turn finishes, is cancelled, or its session ends. `providerID` identifies the agent (e.g. `claude`). When a worktree holds several agent panes, the reported status is the most active one (`working` > `waiting` > `idle`) and `paneID` points to the pane that owns it. It fires only when the worktree status changes, and turns `idle` once the last agent pane in the worktree closes. The native UI keeps a separate pending-completion indicator after an active status becomes idle; `idle` remains the stable extension API value. Pair it with [`muxy.agents.list()`](permissions.md) to hydrate current statuses on load.
 
 Which states a provider reports depends on the hooks its CLI exposes:
 
@@ -89,8 +89,8 @@ Which states a provider reports depends on the hooks its CLI exposes:
 | Grok (`grok`) | ✓ | ✓ | ✓ |
 | OpenCode (`opencode`) | ✓ | ✓ | ✓ |
 | Pi (`pi`) | ✓ | — | ✓ |
-| Cursor (`cursor`) | — | ✓ | ✓ |
-| Codex (`codex`) | ✓ | — | ✓ |
+| Cursor (`cursor`) | ✓ | — | ✓ |
+| Codex (`codex`) | ✓ | ✓ | ✓ |
 
 A `—` means the CLI's hooks have no event for that transition, so the provider never emits that state.
 

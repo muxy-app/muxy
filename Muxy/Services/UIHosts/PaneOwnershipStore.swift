@@ -29,17 +29,23 @@ final class PaneOwnershipStore {
     }
 
     func isOwnedByMac(_ paneID: UUID) -> Bool {
-        if case .mac = owner(for: paneID) { return true }
+        if case .mac = owner(for: paneID) {
+            return true
+        }
         return false
     }
 
     func isOwnedBy(clientID: UUID, paneID: UUID) -> Bool {
-        if case let .remote(id, _) = owner(for: paneID), id == clientID { return true }
+        if case let .remote(id, _) = owner(for: paneID), id == clientID {
+            return true
+        }
         return false
     }
 
     func remoteOwner(for paneID: UUID) -> UUID? {
-        if case let .remote(clientID, _) = owners[paneID] { return clientID }
+        if case let .remote(clientID, _) = owners[paneID] {
+            return clientID
+        }
         return nil
     }
 

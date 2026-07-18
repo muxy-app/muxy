@@ -7,10 +7,6 @@ import Testing
 @MainActor
 @Suite("ExtensionConsentDialog")
 struct ExtensionConsentDialogTests {
-    init() {
-        UIScale.shared.preset = .regular
-    }
-
     @Test("sheet height is capped to the visible screen")
     func sheetHeightIsCappedToVisibleScreen() {
         let fitting = NSSize(width: 520, height: 1_200)

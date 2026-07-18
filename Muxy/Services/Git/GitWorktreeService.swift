@@ -135,10 +135,11 @@ actor GitWorktreeService: GitWorktreeListing {
         context: WorkspaceContext = .local
     ) async throws {
         var args: [String] = ["worktree", "remove"]
-        if force { args.append("--force") }
+        if force {
+            args.append("--force")
+        }
         args += ["--", path]
         let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args, context: context)
-        guard result.status != 0 else { return }
 
         try? await pruneWorktrees(repoPath: repoPath, context: context)
         let target = Self.canonicalPath(path, context: context)

@@ -133,9 +133,9 @@ async onQuery(query) {
   so a slow synchronous search (e.g. `muxy.exec` over a large repo) never piles up once per keystroke.
 - The initial `items` (array or producer) still supplies the list shown before the user types; `onQuery`
   takes over once the query changes, including when it is cleared back to empty.
-- On webview pages `onQuery` may be `async` (do `await muxy.http.fetch(...)`); in `runScript` and
-  background scripts it runs synchronously — call `muxy.exec`, `muxy.files.*`, etc. directly and return.
-  The spinner shows while you fetch.
+- `onQuery` may return a Promise. In `runScript`, map `muxy.execAsync(...).result` into rows, for example
+  `return job.result.then(result => parseRows(result.stdout))`, so long-running commands stay cancellable;
+  other bridge calls remain synchronous. The spinner shows while async work is pending.
 - The same caps apply: 100,000 rows; `id`/`title`/`subtitle` 200 chars each.
 
 ## Opening from a shortcut

@@ -418,6 +418,9 @@ enum ExtensionWebBridge {
                 agents: {
                     list() { return send('agents.list', {}); },
                 },
+                gh: {
+                    user() { return send('gh.user', {}); },
+                },
                 git: {
                     status(o) { return send('git.status', {
                         project: gitProject(o),
@@ -628,6 +631,7 @@ enum ExtensionWebBridge {
             Object.freeze(muxy.statusbar);
             Object.freeze(muxy.worktrees);
             Object.freeze(muxy.agents);
+            Object.freeze(muxy.gh);
             Object.freeze(muxy.git);
             Object.freeze(muxy.git.pr);
             Object.freeze(muxy.git.branch);

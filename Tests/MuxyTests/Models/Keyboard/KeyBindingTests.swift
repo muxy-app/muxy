@@ -87,6 +87,13 @@ struct KeyBindingTests {
         #expect(combos[.renameTab]?.isAssigned == false)
     }
 
+    @Test("Recently Removed Projects is available without a default shortcut")
+    func recentlyRemovedProjectsIsUnassigned() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(ShortcutAction.allCases.contains(.recentlyRemovedProjects))
+        #expect(combos[.recentlyRemovedProjects]?.isAssigned == false)
+    }
+
     @Test("KeyBinding.defaults includes cycle tab across panes shortcuts")
     func defaultsIncludesCycleTabAcrossPanesShortcuts() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })

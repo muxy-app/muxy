@@ -135,7 +135,9 @@ final class GhosttyService {
         ghostty_app_update_config(app, newConfig)
         let oldConfig = config
         config = newConfig
-        if let oldConfig { ghostty_config_free(oldConfig) }
+        if let oldConfig {
+            ghostty_config_free(oldConfig)
+        }
         configVersion += 1
         TerminalViewRegistry.shared.reapplyClientThemes()
         if postThemeChangeNotification {

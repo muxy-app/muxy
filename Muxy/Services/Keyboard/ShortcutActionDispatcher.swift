@@ -194,6 +194,9 @@ struct ShortcutActionDispatcher {
                 projectGroupStore: projectGroupStore
             )
             return true
+        case .recentlyRemovedProjects:
+            postTerminalOmnibox(scope: .recentlyRemovedProjects)
+            return true
         case .reloadConfig:
             ghostty.reloadConfig()
             return true

@@ -16,6 +16,7 @@ struct ExpandedProjectRow: View {
     let onSetPinned: (Bool) -> Void
 
     @Environment(AppState.self) private var appState
+    @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
 
@@ -51,6 +52,19 @@ struct ExpandedProjectRow: View {
         worktrees.first { $0.id == activeWorktreeID }
     }
 
+    private var projectActivity: TerminalActivity? {
+        let progressStore = TerminalProgressStore.shared
+        let agentStore = AgentStatusStore.shared
+        let hasProgress = progressStore.hasActiveProgress(for: project.id)
+        return TerminalActivity.resolve(
+            progress: hasProgress ? TerminalProgress(kind: .indeterminate, percent: nil) : nil,
+            agentStatus: agentStore.status(forProject: project.id),
+            unreadCount: NotificationStore.shared.unreadCount(for: project.id),
+            completionPending: progressStore.hasCompletionPending(for: project.id)
+                || agentStore.hasCompletionPending(forProject: project.id)
+        )
+    }
+
     private var hasWorktreeUI: Bool {
         project.worktreesEnabled && (isGitRepo || worktrees.count > 1)
     }
@@ -68,7 +82,9 @@ struct ExpandedProjectRow: View {
             get: { project.worktreesEnabled },
             set: { enabled in
                 onSetWorktreesEnabled(enabled)
-                if !enabled { worktreesExpanded = false }
+                if !enabled {
+                    worktreesExpanded = false
+                }
             }
         )
     }
@@ -113,7 +129,13 @@ struct ExpandedProjectRow: View {
         }
         .contextMenu {
             if project.isHome {
-                Button("Hide Home") { hideHome() }
+                ProjectContextMenuFooter(
+                    path: project.path,
+                    workspaceContext: projectGroupStore.workspaceContext(for: project),
+                    separatesFromPreviousActions: false
+                ) {
+                    Button("Hide Home") { hideHome() }
+                }
             } else {
                 projectContextMenu
             }
@@ -129,11 +151,7 @@ struct ExpandedProjectRow: View {
                 sourceImage: item.image,
                 onConfirm: { cropped in
                     logoCropImage = nil
-                    let logoPath = ProjectLogoStorage.save(
-                        croppedImage: cropped,
-                        forProjectID: project.id
-                    )
-                    onSetLogo(logoPath)
+                    projectStore.setLogo(id: project.id, croppedImage: cropped)
                 },
                 onCancel: { logoCropImage = nil }
             )
@@ -216,7 +234,9 @@ struct ExpandedProjectRow: View {
             hovered = hovering
         }
         .onChange(of: isAnyDragging) { _, dragging in
-            if dragging { hovered = false }
+            if dragging {
+                hovered = false
+            }
         }
         .onTapGesture {
             guard !isAnyDragging else { return }
@@ -273,21 +293,8 @@ struct ExpandedProjectRow: View {
 
     @ViewBuilder
     private var statusIndicator: some View {
-        let unread = NotificationStore.shared.unreadCount(for: project.id)
-        let isRunning = TerminalProgressStore.shared.hasActiveProgress(for: project.id)
-        let hasCompletion = TerminalProgressStore.shared.hasCompletionPending(for: project.id)
-        if isRunning {
-            ProgressView()
-                .controlSize(.mini)
-                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
-        }
-        if unread > 0 {
-            NotificationBadge(count: unread)
-                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
-        } else if hasCompletion {
-            Circle()
-                .fill(MuxyTheme.accent)
-                .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
+        if let projectActivity {
+            TerminalActivityIndicator(activity: projectActivity)
                 .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
         }
     }
@@ -420,8 +427,12 @@ struct ExpandedProjectRow: View {
             Divider()
             ProjectGroupMembershipMenu(project: project)
         }
-        Divider()
-        Button("Remove Project", role: .destructive, action: onRemove)
+        ProjectContextMenuFooter(
+            path: project.path,
+            workspaceContext: projectGroupStore.workspaceContext(for: project)
+        ) {
+            Button("Remove Project", role: .destructive, action: onRemove)
+        }
     }
 
     private var resolvedLogo: NSImage? {
@@ -435,11 +446,15 @@ struct ExpandedProjectRow: View {
         if project.isHome {
             return AnyShapeStyle(hovered ? MuxyTheme.accent.opacity(0.85) : MuxyTheme.accent)
         }
-        if hasLogo { return AnyShapeStyle(Color.clear) }
+        if hasLogo {
+            return AnyShapeStyle(Color.clear)
+        }
         if let tint = ProjectIconColor.color(for: project.iconColor) {
             return AnyShapeStyle(hovered ? tint.opacity(0.85) : tint)
         }
-        if hovered { return AnyShapeStyle(MuxyTheme.fg.opacity(0.22)) }
+        if hovered {
+            return AnyShapeStyle(MuxyTheme.fg.opacity(0.22))
+        }
         return AnyShapeStyle(MuxyTheme.fg.opacity(0.18))
     }
 
@@ -451,8 +466,12 @@ struct ExpandedProjectRow: View {
     }
 
     private var headerBackground: AnyShapeStyle {
-        if isActive { return AnyShapeStyle(MuxyTheme.surface) }
-        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        if isActive {
+            return AnyShapeStyle(MuxyTheme.surface)
+        }
+        if hovered {
+            return AnyShapeStyle(MuxyTheme.hover)
+        }
         return AnyShapeStyle(Color.clear)
     }
 
@@ -529,6 +548,7 @@ struct ExpandedProjectRow: View {
             ?? remaining.first
         worktreeStore.beginRemoval(
             worktree: worktree,
+            projectID: project.id,
             repoPath: project.path,
             context: projectGroupStore.workspaceContext(for: project),
             onSuccess: {
@@ -586,8 +606,23 @@ private struct ExpandedWorktreeRow: View {
     @FocusState private var renameFieldFocused: Bool
 
     private var displayName: String {
-        if worktree.isPrimary, worktree.name.isEmpty { return "main" }
+        if worktree.isPrimary, worktree.name.isEmpty {
+            return "main"
+        }
         return worktree.name
+    }
+
+    private var activity: TerminalActivity? {
+        let progressStore = TerminalProgressStore.shared
+        let agentStore = AgentStatusStore.shared
+        let hasProgress = progressStore.hasActiveProgress(forWorktree: worktree.id)
+        return TerminalActivity.resolve(
+            progress: hasProgress ? TerminalProgress(kind: .indeterminate, percent: nil) : nil,
+            agentStatus: agentStore.status(forWorktree: worktree.id),
+            unreadCount: NotificationStore.shared.unreadCount(for: projectID, worktreeID: worktree.id),
+            completionPending: progressStore.hasCompletionPending(forWorktree: worktree.id)
+                || agentStore.hasCompletionPending(forWorktree: worktree.id)
+        )
     }
 
     var body: some View {
@@ -656,25 +691,29 @@ private struct ExpandedWorktreeRow: View {
 
     private var worktreeAccessibilityLabel: String {
         var label = displayName
-        if worktree.isPrimary { label += ", primary" }
+        if worktree.isPrimary {
+            label += ", primary"
+        }
         return label
     }
 
     @ViewBuilder
     private var leadingIndicator: some View {
-        let unread = NotificationStore.shared.unreadCount(for: projectID, worktreeID: worktree.id)
-        ZStack {
-            if unread > 0 {
-                Circle().fill(MuxyTheme.accent).frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
-            }
+        if let activity {
+            TerminalActivityIndicator(activity: activity)
+                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+        } else {
+            Color.clear
+                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
         }
-        .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
     }
 
     private var activeStyle: Bool { selected && projectActive }
 
     private var rowBackground: AnyShapeStyle {
-        if activeStyle || hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        if activeStyle || hovered {
+            return AnyShapeStyle(MuxyTheme.hover)
+        }
         return AnyShapeStyle(Color.clear)
     }
 
@@ -686,7 +725,9 @@ private struct ExpandedWorktreeRow: View {
 
     private func commitRename() {
         let trimmed = renameText.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty { onRename(trimmed) }
+        if !trimmed.isEmpty {
+            onRename(trimmed)
+        }
         isRenaming = false
     }
 

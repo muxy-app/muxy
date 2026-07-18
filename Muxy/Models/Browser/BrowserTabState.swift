@@ -50,9 +50,15 @@ final class BrowserTabState: Identifiable {
     }
 
     var displayTitle: String {
-        if let customTitle, !customTitle.isEmpty { return customTitle }
-        if let pageTitle, !pageTitle.isEmpty { return pageTitle }
-        if let host = url?.host { return host }
+        if let customTitle, !customTitle.isEmpty {
+            return customTitle
+        }
+        if let pageTitle, !pageTitle.isEmpty {
+            return pageTitle
+        }
+        if let host = url?.host {
+            return host
+        }
         return "New Tab"
     }
 

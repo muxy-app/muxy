@@ -157,7 +157,9 @@ struct RemoteFileService {
                 )
             }
             .sorted { lhs, rhs in
-                if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory && !rhs.isDirectory }
+                if lhs.isDirectory != rhs.isDirectory {
+                    return lhs.isDirectory && !rhs.isDirectory
+                }
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
     }

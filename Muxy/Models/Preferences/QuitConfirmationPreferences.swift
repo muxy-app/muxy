@@ -6,7 +6,9 @@ enum QuitConfirmationPreferences {
     static var confirmQuit: Bool {
         get {
             let defaults = UserDefaults.standard
-            if defaults.object(forKey: confirmQuitKey) == nil { return true }
+            if defaults.object(forKey: confirmQuitKey) == nil {
+                return true
+            }
             return defaults.bool(forKey: confirmQuitKey)
         }
         set {

@@ -27,7 +27,9 @@ final class BrowserHistoryStore {
             var entry = entries.remove(at: index)
             entry.lastVisited = Date()
             entry.visitCount += 1
-            if let cleanedTitle, !cleanedTitle.isEmpty { entry.title = cleanedTitle }
+            if let cleanedTitle, !cleanedTitle.isEmpty {
+                entry.title = cleanedTitle
+            }
             entries.insert(entry, at: 0)
         } else {
             let entry = BrowserHistoryEntry(
@@ -61,7 +63,9 @@ final class BrowserHistoryStore {
         }
         let matched = scoped.filter { $0.matches(query: trimmed) }
         let ranked = matched.sorted { lhs, rhs in
-            if lhs.visitCount != rhs.visitCount { return lhs.visitCount > rhs.visitCount }
+            if lhs.visitCount != rhs.visitCount {
+                return lhs.visitCount > rhs.visitCount
+            }
             return lhs.lastVisited > rhs.lastVisited
         }
         return Array(ranked.prefix(limit))

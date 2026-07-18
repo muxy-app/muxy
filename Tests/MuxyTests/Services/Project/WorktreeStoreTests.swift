@@ -47,6 +47,65 @@ struct WorktreeStoreTests {
         #expect(worktree.canBeRemoved)
     }
 
+    @Test("removal preparation serializes a worktree removal lifecycle")
+    func removalPreparationSerializesLifecycle() {
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+        let worktree = Worktree(
+            name: "feature",
+            path: "/tmp/repo-feature",
+            isPrimary: false
+        )
+
+        #expect(store.beginRemovalPreparation(worktree: worktree))
+        #expect(!store.beginRemovalPreparation(worktree: worktree))
+        #expect(store.hasRemovalPreparation)
+        #expect(store.isPreparingRemoval(worktreeID: worktree.id))
+        #expect(store.isRemovalInProgress(worktreeID: worktree.id))
+
+        store.endRemovalPreparation(worktreeID: worktree.id)
+
+        #expect(!store.hasRemovalPreparation)
+        #expect(!store.isPreparingRemoval(worktreeID: worktree.id))
+        #expect(!store.isRemovalInProgress(worktreeID: worktree.id))
+    }
+
+    @Test("removal preparation is cleared when the worktree leaves the list")
+    func removalPreparationClearsWhenWorktreeDisappears() {
+        let projectID = UUID()
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+        let worktree = Worktree(
+            name: "feature",
+            path: "/tmp/repo-feature",
+            isPrimary: false
+        )
+        store.add(worktree, to: projectID)
+
+        #expect(store.beginRemovalPreparation(worktree: worktree))
+        #expect(store.isPreparingRemoval(worktreeID: worktree.id))
+
+        store.remove(worktreeID: worktree.id, from: projectID)
+
+        #expect(!store.isPreparingRemoval(worktreeID: worktree.id))
+        #expect(!store.hasRemovalPreparation)
+    }
+
+    @Test("removal preparation is cleared when the project is removed")
+    func removalPreparationClearsWhenProjectRemoved() {
+        let projectID = UUID()
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+        let worktree = Worktree(
+            name: "feature",
+            path: "/tmp/repo-feature",
+            isPrimary: false
+        )
+        store.add(worktree, to: projectID)
+        _ = store.beginRemovalPreparation(worktree: worktree)
+
+        store.removeProject(projectID)
+
+        #expect(!store.hasRemovalPreparation)
+    }
+
     @Test("refreshFromGit imports missing external worktrees and preserves existing IDs by path")
     func refreshFromGitImportsAndPreservesIDs() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
@@ -120,6 +179,56 @@ struct WorktreeStoreTests {
         #expect(imported.branch == "feature-b")
         #expect(imported.source == .external)
         #expect(imported.isExternallyManaged)
+    }
+
+    @Test("project removal waits for an active worktree creation and freezes later mutations")
+    func projectRemovalWaitsForActiveCreation() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-worktree-removal-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let project = Project(name: "Repo", path: root.appendingPathComponent("repo").path)
+        let gate = WorktreeMutationTestGate()
+        let store = WorktreeStore(
+            persistence: WorktreePersistenceStub(initial: [:]),
+            addGitWorktree: { _, _, _, _, _ in await gate.enterAndWait() }
+        )
+        let request = WorktreeCreationRequest(
+            name: "Feature",
+            path: root.appendingPathComponent("feature").path,
+            branch: "feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+
+        let creation = Task { @MainActor in
+            try await store.createWorktree(project: project, request: request)
+        }
+        await gate.waitUntilEntered()
+        let removal = Task { @MainActor in
+            await store.beginProjectRemoval(project.id)
+        }
+        for _ in 0 ..< 10 where !store.isProjectRemovalInProgress(project.id) {
+            await Task.yield()
+        }
+        #expect(store.isProjectRemovalInProgress(project.id))
+
+        await #expect(throws: WorktreeMutationError.self) {
+            try await store.createWorktree(project: project, request: request)
+        }
+        let lateWorktree = Worktree(
+            name: "Late",
+            path: root.appendingPathComponent("late").path,
+            branch: "late",
+            isPrimary: false
+        )
+        store.add(lateWorktree, to: project.id)
+        #expect(!store.list(for: project.id).contains(lateWorktree))
+
+        await gate.release()
+        let created = try await creation.value
+        #expect(await removal.value)
+        #expect(store.list(for: project.id).contains(created))
+        store.cancelProjectRemoval(project.id)
     }
 
     @Test("refreshFromGit re-syncs branch-derived name on branch rename but keeps custom names")
@@ -660,5 +769,34 @@ private struct GitWorktreeListingStub: GitWorktreeListing {
 
     func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord] {
         recordsByRepoPath[repoPath] ?? []
+    }
+}
+
+private actor WorktreeMutationTestGate {
+    private var entered = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+
+    func enterAndWait() async {
+        entered = true
+        for waiter in entryWaiters {
+            waiter.resume()
+        }
+        entryWaiters.removeAll()
+        await withCheckedContinuation { continuation in
+            releaseWaiter = continuation
+        }
+    }
+
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        await withCheckedContinuation { continuation in
+            entryWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        releaseWaiter?.resume()
+        releaseWaiter = nil
     }
 }

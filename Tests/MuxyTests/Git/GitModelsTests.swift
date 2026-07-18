@@ -6,12 +6,14 @@ import Testing
 @Suite("GitModels")
 struct GitModelsTests {
     private func makeStatusFile(
+        path: String = "test.swift",
+        oldPath: String? = nil,
         xStatus: Character = " ",
         yStatus: Character = " "
     ) -> GitStatusFile {
         GitStatusFile(
-            path: "test.swift",
-            oldPath: nil,
+            path: path,
+            oldPath: oldPath,
             xStatus: xStatus,
             yStatus: yStatus,
             additions: nil,
@@ -20,7 +22,7 @@ struct GitModelsTests {
         )
     }
 
-    @Test("isStaged returns true for staged statuses", arguments: ["A", "M", "D", "R", "C"] as [Character])
+    @Test("isStaged returns true for staged statuses", arguments: ["A", "M", "D", "R", "C", "T"] as [Character])
     func isStagedTrue(status: Character) {
         let file = makeStatusFile(xStatus: status)
         #expect(file.isStaged)
@@ -32,7 +34,10 @@ struct GitModelsTests {
         #expect(!file.isStaged)
     }
 
-    @Test("isUnstaged returns true for unstaged yStatus", arguments: ["M", "D", "?"] as [Character])
+    @Test(
+        "isUnstaged returns true for every porcelain working-tree status",
+        arguments: ["A", "C", "D", "M", "R", "T", "U", "?"] as [Character]
+    )
     func isUnstagedTrue(status: Character) {
         let file = makeStatusFile(yStatus: status)
         #expect(file.isUnstaged)
@@ -48,6 +53,29 @@ struct GitModelsTests {
     func isUnstagedFalse() {
         let file = makeStatusFile(xStatus: "A", yStatus: " ")
         #expect(!file.isUnstaged)
+    }
+
+    @Test("recognizes untracked files")
+    func recognizesUntrackedFiles() {
+        #expect(makeStatusFile(xStatus: "?", yStatus: "?").isUntracked)
+        #expect(!makeStatusFile(xStatus: "A", yStatus: " ").isUntracked)
+    }
+
+    @Test(
+        "recognizes every porcelain conflict pair",
+        arguments: [("D", "D"), ("A", "U"), ("U", "D"), ("U", "A"), ("D", "U"), ("A", "A"), ("U", "U")]
+            as [(Character, Character)]
+    )
+    func recognizesConflicts(statuses: (Character, Character)) {
+        #expect(makeStatusFile(xStatus: statuses.0, yStatus: statuses.1).isConflicted)
+    }
+
+    @Test("rename operations include old and new paths")
+    func renameRelatedPaths() {
+        let file = makeStatusFile(path: "new.swift", oldPath: "old.swift", xStatus: "R")
+
+        #expect(file.relatedPaths == ["new.swift", "old.swift"])
+        #expect(makeStatusFile(path: "same.swift").relatedPaths == ["same.swift"])
     }
 
     @Test("statusText returns correct priority")

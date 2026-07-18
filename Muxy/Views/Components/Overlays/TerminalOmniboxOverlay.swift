@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TerminalOmniboxOverlay: View {
     let projects: [TerminalOmniboxProjectItem]
+    let recentlyRemovedProjects: [TerminalOmniboxRecentlyRemovedProjectItem]
     let worktrees: [TerminalOmniboxWorktreeItem]
     let workspaces: [TerminalOmniboxWorkspaceItem]
     let openTabs: [OpenTerminalTabItem]
@@ -31,6 +32,7 @@ struct TerminalOmniboxOverlay: View {
         TerminalOmniboxItemResolver.items(
             in: TerminalOmniboxItemContext(
                 projects: projects,
+                recentlyRemovedProjects: recentlyRemovedProjects,
                 worktrees: worktrees,
                 workspaces: workspaces,
                 openTabs: openTabs,
@@ -102,6 +104,8 @@ struct TerminalOmniboxOverlay: View {
         switch launchScope {
         case .projects:
             "Search project..."
+        case .recentlyRemovedProjects:
+            "Search recently removed projects..."
         case .worktrees:
             "Search worktree..."
         case .workspaces:
@@ -168,6 +172,8 @@ struct TerminalOmniboxOverlay: View {
         switch launchScope {
         case .projects:
             "No projects found"
+        case .recentlyRemovedProjects:
+            "No recently removed projects"
         case .worktrees:
             "No worktrees found"
         case .workspaces:
@@ -185,6 +191,8 @@ struct TerminalOmniboxOverlay: View {
              .worktrees,
              .workspaces:
             "Switch"
+        case .recentlyRemovedProjects:
+            "Restore"
         default:
             "Open"
         }
@@ -213,7 +221,9 @@ struct TerminalOmniboxOverlay: View {
 
     private func shouldShowSectionHeader(at index: Int) -> Bool {
         guard index < displayList.count else { return false }
-        if index == 0 { return true }
+        if index == 0 {
+            return true
+        }
         return displayList[index].sectionTitle != displayList[index - 1].sectionTitle
     }
 
@@ -238,6 +248,7 @@ struct TerminalOmniboxOverlay: View {
     private func dispatchSelection(_ item: TerminalOmniboxItem) {
         switch item {
         case .project,
+             .recentlyRemovedProject,
              .worktree,
              .workspace:
             onSelect(item, nil, nil)

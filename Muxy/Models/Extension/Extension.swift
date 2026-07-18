@@ -78,6 +78,7 @@ enum ExtensionPermission: String, Codable, CaseIterable {
     case commandsExec = "commands:exec"
     case shortcutsRegister = "shortcuts:register"
     case remoteServe = "remote:serve"
+    case ghRead = "gh:read"
 
     enum Kind {
         case read
@@ -94,6 +95,7 @@ enum ExtensionPermission: String, Codable, CaseIterable {
              .worktreesRead,
              .agentsRead,
              .gitRead,
+             .ghRead,
              .filesRead,
              .storageRead:
             .read
@@ -446,7 +448,9 @@ enum ExtensionCommandAction: Codable, Equatable {
     case runScript(script: String)
 
     var isAnchored: Bool {
-        if case .openPopover = self { return true }
+        if case .openPopover = self {
+            return true
+        }
         return false
     }
 

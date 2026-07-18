@@ -11,6 +11,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case richInput
     case shortcuts
     case commands
+    case ai
     case voice
     case notifications
     case mobile
@@ -30,6 +31,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .richInput: "Rich Input"
         case .shortcuts: "Shortcuts"
         case .commands: "Commands"
+        case .ai: "AI"
         case .voice: "Voice"
         case .notifications: "Notifications"
         case .mobile: "Mobile"
@@ -49,6 +51,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .richInput: "text.cursor"
         case .shortcuts: "keyboard"
         case .commands: "command"
+        case .ai: "sparkles"
         case .voice: "mic"
         case .notifications: "bell"
         case .mobile: "iphone"
@@ -214,12 +217,12 @@ enum SettingsCatalog {
         ),
         SettingsCatalogItem(
             key: ProjectPickerDefaultLocation.storageKey,
-            title: "Project Picker Default Path",
-            description: "Sets the default folder for Muxy's project picker.",
+            title: "Project Picker Search Location",
+            description: "Sets where Muxy's project picker searches for folders.",
             category: .projects,
             section: "Projects",
             defaultValue: "",
-            aliases: ["folder", "path", "directory"]
+            aliases: ["folder", "path", "directory", "search root"]
         ),
         SettingsCatalogItem(
             key: ProjectLifecyclePreferences.keepOpenWhenNoTabsKey,
@@ -239,13 +242,22 @@ enum SettingsCatalog {
             aliases: ["file opener", "open in ide", "editor", "extension opener"]
         ),
         SettingsCatalogItem(
-            key: GeneralSettingsKeys.defaultWorktreeParentPath,
-            title: "Default Worktree Path",
-            description: "Sets the parent folder for new worktrees.",
+            key: GeneralSettingsKeys.defaultWorktreePathTemplate,
+            title: "Default Worktree Path Template",
+            description: "Builds new worktree paths with the required branch variable and optional project variables.",
             category: .projects,
             section: "Worktrees",
             defaultValue: "",
-            aliases: ["folder", "path"]
+            aliases: ["relative", "branch", "project name", "base dir"]
+        ),
+        SettingsCatalogItem(
+            key: GeneralSettingsKeys.defaultWorktreeParentPath,
+            title: "Default Worktree Parent Folder",
+            description: "Keeps the legacy project and worktree subfolder layout inside a selected folder.",
+            category: .projects,
+            section: "Worktrees",
+            defaultValue: "",
+            aliases: ["folder", "path", "legacy"]
         ),
         SettingsCatalogItem(
             key: GeneralSettingsKeys.autoCopyTerminalSelection,
@@ -445,6 +457,42 @@ enum SettingsCatalog {
             category: .commands,
             section: "Commands",
             aliases: ["command layer", "custom commands", "shortcuts"]
+        ),
+        SettingsCatalogItem(
+            key: RepositoryAIAction.commit.providerKey,
+            title: "Commit Provider",
+            description: "Chooses the AI CLI used by the Commit top-bar action.",
+            category: .ai,
+            section: RepositoryAIAction.commit.settingsTitle,
+            defaultValue: RepositoryAIActionPreferences.automaticProviderID,
+            aliases: ["agent", "git", "push"]
+        ),
+        SettingsCatalogItem(
+            key: RepositoryAIAction.commit.promptKey,
+            title: "Commit Prompt",
+            description: "Controls how the AI provider generates commit-message metadata.",
+            category: .ai,
+            section: RepositoryAIAction.commit.settingsTitle,
+            defaultValue: RepositoryAIAction.commit.defaultPrompt,
+            aliases: ["agent", "git", "push", "instructions"]
+        ),
+        SettingsCatalogItem(
+            key: RepositoryAIAction.createPullRequest.providerKey,
+            title: "Create Pull Request Provider",
+            description: "Chooses the AI CLI used by the Create PR top-bar action.",
+            category: .ai,
+            section: RepositoryAIAction.createPullRequest.settingsTitle,
+            defaultValue: RepositoryAIActionPreferences.automaticProviderID,
+            aliases: ["agent", "github", "pr"]
+        ),
+        SettingsCatalogItem(
+            key: RepositoryAIAction.createPullRequest.promptKey,
+            title: "Create Pull Request Prompt",
+            description: "Controls how the AI provider generates pull request metadata.",
+            category: .ai,
+            section: RepositoryAIAction.createPullRequest.settingsTitle,
+            defaultValue: RepositoryAIAction.createPullRequest.defaultPrompt,
+            aliases: ["agent", "github", "pr", "instructions"]
         ),
         SettingsCatalogItem(
             key: RecordingPreferences.autoSendKey,

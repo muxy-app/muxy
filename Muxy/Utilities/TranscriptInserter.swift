@@ -65,17 +65,27 @@ enum TranscriptInserter {
 
     private static func firstGhosttyView(in root: NSView?) -> GhosttyTerminalNSView? {
         guard let root else { return nil }
-        if let terminal = root as? GhosttyTerminalNSView { return terminal }
+        if let terminal = root as? GhosttyTerminalNSView {
+            return terminal
+        }
         for subview in root.subviews {
-            if let terminal = firstGhosttyView(in: subview) { return terminal }
+            if let terminal = firstGhosttyView(in: subview) {
+                return terminal
+            }
         }
         return nil
     }
 
     private static func window(for responder: NSResponder) -> NSWindow? {
-        if let view = responder as? NSView { return view.window }
-        if let viewController = responder as? NSViewController { return viewController.view.window }
-        if let window = responder as? NSWindow { return window }
+        if let view = responder as? NSView {
+            return view.window
+        }
+        if let viewController = responder as? NSViewController {
+            return viewController.view.window
+        }
+        if let window = responder as? NSWindow {
+            return window
+        }
         return NSApp.keyWindow
     }
 
@@ -83,7 +93,9 @@ enum TranscriptInserter {
         guard let view = responder as? NSView else { return nil }
         var ancestor: NSView? = view
         while let node = ancestor {
-            if let terminal = node as? GhosttyTerminalNSView { return terminal }
+            if let terminal = node as? GhosttyTerminalNSView {
+                return terminal
+            }
             ancestor = node.superview
         }
         return nil

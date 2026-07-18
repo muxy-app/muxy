@@ -116,10 +116,18 @@ struct KeyCombo: Codable, Equatable, Hashable {
     ) {
         self.key = Self.normalized(key: key)
         var flags: UInt = 0
-        if command { flags |= NSEvent.ModifierFlags.command.rawValue }
-        if shift { flags |= NSEvent.ModifierFlags.shift.rawValue }
-        if control { flags |= NSEvent.ModifierFlags.control.rawValue }
-        if option { flags |= NSEvent.ModifierFlags.option.rawValue }
+        if command {
+            flags |= NSEvent.ModifierFlags.command.rawValue
+        }
+        if shift {
+            flags |= NSEvent.ModifierFlags.shift.rawValue
+        }
+        if control {
+            flags |= NSEvent.ModifierFlags.control.rawValue
+        }
+        if option {
+            flags |= NSEvent.ModifierFlags.option.rawValue
+        }
         self.modifiers = flags
     }
 
@@ -202,10 +210,18 @@ struct KeyCombo: Codable, Equatable, Hashable {
     var swiftUIModifiers: SwiftUI.EventModifiers {
         var result: SwiftUI.EventModifiers = []
         let flags = nsModifierFlags
-        if flags.contains(.command) { result.insert(.command) }
-        if flags.contains(.shift) { result.insert(.shift) }
-        if flags.contains(.control) { result.insert(.control) }
-        if flags.contains(.option) { result.insert(.option) }
+        if flags.contains(.command) {
+            result.insert(.command)
+        }
+        if flags.contains(.shift) {
+            result.insert(.shift)
+        }
+        if flags.contains(.control) {
+            result.insert(.control)
+        }
+        if flags.contains(.option) {
+            result.insert(.option)
+        }
         return result
     }
 
@@ -214,10 +230,18 @@ struct KeyCombo: Codable, Equatable, Hashable {
 
         var parts = ""
         let flags = nsModifierFlags
-        if flags.contains(.control) { parts += "⌃" }
-        if flags.contains(.option) { parts += "⌥" }
-        if flags.contains(.shift) { parts += "⇧" }
-        if flags.contains(.command) { parts += "⌘" }
+        if flags.contains(.control) {
+            parts += "⌃"
+        }
+        if flags.contains(.option) {
+            parts += "⌥"
+        }
+        if flags.contains(.shift) {
+            parts += "⇧"
+        }
+        if flags.contains(.command) {
+            parts += "⌘"
+        }
         let keyDisplay: String = switch key {
         case Self.leftArrowKey: "←"
         case Self.rightArrowKey: "→"
@@ -235,10 +259,18 @@ struct KeyCombo: Codable, Equatable, Hashable {
         guard isAssigned else { return "" }
         var parts: [String] = []
         let flags = nsModifierFlags
-        if flags.contains(.command) { parts.append("cmd") }
-        if flags.contains(.shift) { parts.append("shift") }
-        if flags.contains(.control) { parts.append("ctrl") }
-        if flags.contains(.option) { parts.append("opt") }
+        if flags.contains(.command) {
+            parts.append("cmd")
+        }
+        if flags.contains(.shift) {
+            parts.append("shift")
+        }
+        if flags.contains(.control) {
+            parts.append("ctrl")
+        }
+        if flags.contains(.option) {
+            parts.append("opt")
+        }
         let keyToken: String = switch key {
         case Self.leftArrowKey: "left"
         case Self.rightArrowKey: "right"

@@ -159,7 +159,9 @@ enum MuxyAPIDispatcher {
             )
             ExtensionStore.shared.refreshExtensionSnapshot()
             var result: [String: Any] = ["ok": conflict == nil]
-            if let conflict { result["conflict"] = conflict }
+            if let conflict {
+                result["conflict"] = conflict
+            }
             return result
         case "shortcuts.unregister":
             try ExtensionShortcutStore.shared.unregister(
@@ -456,6 +458,9 @@ enum MuxyAPIDispatcher {
             if verb.hasPrefix("files.") {
                 return try await handleFiles(verb: verb, args: args, context: context)
             }
+            if verb.hasPrefix("gh.") {
+                return try await handleGh(verb: verb, args: args, context: context)
+            }
             throw APIError.invalidArguments("unknown verb \(verb)")
         }
     }
@@ -700,9 +705,15 @@ enum MuxyAPIDispatcher {
     }
 
     private static func doubleArgOptional(_ args: [String: Any], _ key: String) -> Double? {
-        if let value = args[key] as? Double { return value }
-        if let value = args[key] as? Int { return Double(value) }
-        if let value = args[key] as? NSNumber { return value.doubleValue }
+        if let value = args[key] as? Double {
+            return value
+        }
+        if let value = args[key] as? Int {
+            return Double(value)
+        }
+        if let value = args[key] as? NSNumber {
+            return value.doubleValue
+        }
         return nil
     }
 
@@ -776,6 +787,15 @@ enum MuxyAPIDispatcher {
                 context: files
             ))
             return NSNull()
+        default:
+            throw APIError.invalidArguments("unknown verb \(verb)")
+        }
+    }
+
+    private static func handleGh(verb: String, args _: [String: Any], context _: Context) async throws -> Any {
+        switch verb {
+        case "gh.user":
+            return try await GhDTO.user(unwrap(MuxyAPI.Gh.user()))
         default:
             throw APIError.invalidArguments("unknown verb \(verb)")
         }
@@ -1075,7 +1095,9 @@ enum MuxyAPIDispatcher {
     }
 
     private static func stringArg(_ args: [String: Any], _ key: String) throws -> String {
-        if let value = args[key] as? String { return value }
+        if let value = args[key] as? String {
+            return value
+        }
         throw APIError.invalidArguments("missing argument '\(key)'")
     }
 
@@ -1098,9 +1120,15 @@ enum MuxyAPIDispatcher {
     }
 
     private static func doubleArg(_ args: [String: Any], _ key: String) throws -> Double {
-        if let value = args[key] as? Double { return value }
-        if let value = args[key] as? Int { return Double(value) }
-        if let value = args[key] as? NSNumber { return value.doubleValue }
+        if let value = args[key] as? Double {
+            return value
+        }
+        if let value = args[key] as? Int {
+            return Double(value)
+        }
+        if let value = args[key] as? NSNumber {
+            return value.doubleValue
+        }
         throw APIError.invalidArguments("missing argument '\(key)'")
     }
 
@@ -1229,14 +1257,22 @@ enum MuxyAPIDispatcher {
     }
 
     private static func intArg(_ args: [String: Any], _ key: String) -> Int? {
-        if let value = args[key] as? Int { return value }
-        if let value = args[key] as? NSNumber { return value.intValue }
+        if let value = args[key] as? Int {
+            return value
+        }
+        if let value = args[key] as? NSNumber {
+            return value.intValue
+        }
         return nil
     }
 
     private static func boolArg(_ args: [String: Any], _ key: String) -> Bool? {
-        if let value = args[key] as? Bool { return value }
-        if let value = args[key] as? NSNumber { return value.boolValue }
+        if let value = args[key] as? Bool {
+            return value
+        }
+        if let value = args[key] as? NSNumber {
+            return value.boolValue
+        }
         return nil
     }
 

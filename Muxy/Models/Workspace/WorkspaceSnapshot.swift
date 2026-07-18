@@ -246,7 +246,9 @@ enum WorkspaceRestorer {
         var snapshots: [WorkspaceSnapshot] = []
         for (key, root) in workspaceRoots {
             let path: String? = {
-                if case let .tabArea(area) = root { return area.projectPath }
+                if case let .tabArea(area) = root {
+                    return area.projectPath
+                }
                 return root.allAreas().first?.projectPath
             }()
             snapshots.append(WorkspaceSnapshot(

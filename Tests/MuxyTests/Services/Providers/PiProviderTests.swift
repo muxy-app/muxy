@@ -59,8 +59,8 @@ struct PiProviderTests {
         defaults.removeObject(forKey: key)
     }
 
-    @Test("install creates extension file and registers settings")
-    func installCreatesFileAndRegistersSettings() throws {
+    @Test("install creates an auto-discovered extension without settings registration")
+    func installCreatesAutoDiscoveredExtension() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
@@ -76,8 +76,8 @@ struct PiProviderTests {
 
         let settings = try fixture.readSettings()
         let extensions = try #require(settings["extensions"] as? [String])
-        #expect(extensions == [destinationURL.path])
-        #expect(FileManager.default.fileExists(atPath: fixture.settingsURL.path + ".muxy-backup"))
+        #expect(extensions.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path + ".muxy-backup"))
     }
 
     @Test("install is idempotent when extension is already current")
@@ -92,11 +92,11 @@ struct PiProviderTests {
 
         let settings = try fixture.readSettings()
         let extensions = try #require(settings["extensions"] as? [String])
-        #expect(extensions.count == 1)
+        #expect(extensions.isEmpty)
     }
 
-    @Test("uninstall removes extension file and unregisters settings")
-    func uninstallRemovesFileAndUnregistersSettings() throws {
+    @Test("uninstall removes extension file without changing unrelated settings")
+    func uninstallRemovesFile() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
@@ -111,7 +111,7 @@ struct PiProviderTests {
         #expect(!FileManager.default.fileExists(atPath: destinationPath))
 
         let settings = try fixture.readSettings()
-        #expect(settings["extensions"] == nil)
+        #expect((settings["extensions"] as? [String])?.isEmpty == true)
     }
 
     @Test("uninstall does nothing when file does not exist")
@@ -119,7 +119,8 @@ struct PiProviderTests {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
-        try fixture.provider().uninstall()
+        let provider = fixture.provider()
+        try provider.uninstall()
     }
 
     @Test("isToolInstalled checks common paths")
@@ -183,8 +184,8 @@ struct PiProviderTests {
         #expect(provider.isToolInstalled())
     }
 
-    @Test("registerExtensionInSettings creates settings.json when it does not exist")
-    func registerCreatesSettingsWhenMissing() throws {
+    @Test("install does not create settings when it does not exist")
+    func installDoesNotCreateSettings() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
@@ -193,22 +194,22 @@ struct PiProviderTests {
 
         try fixture.provider().install(hookScriptPath: "")
 
-        #expect(FileManager.default.fileExists(atPath: fixture.settingsURL.path))
-        let settings = try fixture.readSettings()
-        let extensions = try #require(settings["extensions"] as? [String])
-        #expect(extensions.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
     }
 
-    @Test("registerExtensionInSettings throws invalidSettingsFile when settings.json is not valid JSON")
-    func registerThrowsWhenSettingsInvalid() throws {
+    @Test("invalid legacy settings do not block extension installation")
+    func invalidSettingsDoNotBlockInstall() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
         try Data("not json".utf8).write(to: fixture.settingsURL)
 
-        #expect(throws: PiProviderError.invalidSettingsFile(fixture.settingsURL.path)) {
-            try fixture.provider().install(hookScriptPath: "")
-        }
+        try fixture.provider().install(hookScriptPath: "")
+
+        let destinationPath = fixture.homeURL
+            .appendingPathComponent(".pi/agent/extensions/muxy-notify.ts")
+            .path
+        #expect(FileManager.default.fileExists(atPath: destinationPath))
     }
 
     @Test("unregisterExtensionFromSettings gracefully returns when settings.json is missing")
@@ -223,6 +224,28 @@ struct PiProviderTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
 
         try provider.uninstall()
+    }
+
+    @Test("uninstall removes a stale settings registration when the extension file is absent")
+    func uninstallCleansStaleSettingsRegistration() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        let destinationPath = fixture.homeURL
+            .appendingPathComponent(".pi/agent/extensions/muxy-notify.ts")
+            .path
+        let data = try JSONSerialization.data(
+            withJSONObject: ["extensions": [destinationPath]],
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: fixture.settingsURL)
+
+        let provider = fixture.provider()
+        #expect(provider.hasManagedState())
+        try provider.uninstall()
+
+        let settings = try fixture.readSettings()
+        #expect(settings["extensions"] == nil)
     }
 
     @Test("install throws when resource is missing")

@@ -288,8 +288,12 @@ final class ExtensionStore {
             return StagedExtension(manifestRoot: manifestRoot, workspace: workspace)
         } catch {
             try? fileManager.removeItem(at: workspace)
-            if error is MarketplaceError { throw error }
-            if error is ExtensionLoadError { throw MarketplaceError.invalidArchive }
+            if error is MarketplaceError {
+                throw error
+            }
+            if error is ExtensionLoadError {
+                throw MarketplaceError.invalidArchive
+            }
             throw MarketplaceError.unpackFailed(error.localizedDescription)
         }
     }
@@ -588,9 +592,15 @@ final class ExtensionStore {
         else { return false }
 
         applyOverride(to: \.statusBarOverrides, extensionID: extensionID, itemID: itemID) {
-            if let icon = update.icon { $0.icon = icon }
-            if update.clearText { $0.text = update.text }
-            if let visible = update.visible { $0.visible = visible }
+            if let icon = update.icon {
+                $0.icon = icon
+            }
+            if update.clearText {
+                $0.text = update.text
+            }
+            if let visible = update.visible {
+                $0.visible = visible
+            }
         }
         return true
     }
@@ -600,8 +610,12 @@ final class ExtensionStore {
         else { return false }
 
         applyOverride(to: \.topbarOverrides, extensionID: extensionID, itemID: itemID) {
-            if let icon { $0.icon = icon }
-            if let visible { $0.visible = visible }
+            if let icon {
+                $0.icon = icon
+            }
+            if let visible {
+                $0.visible = visible
+            }
         }
         return true
     }
@@ -1063,8 +1077,12 @@ final class ExtensionStore {
     }
 
     nonisolated static func classifyTermination(wasIntentional: Bool, terminationStatus: Int32) -> TerminationOutcome {
-        if wasIntentional { return .stopped }
-        if terminationStatus == 0 { return .exitedCleanly }
+        if wasIntentional {
+            return .stopped
+        }
+        if terminationStatus == 0 {
+            return .exitedCleanly
+        }
         return .exitedWithStatus(terminationStatus)
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-struct DroidProvider: AIProviderIntegration {
+struct DroidProvider: AIProviderIntegration, AIAgentLaunchProvider {
     let id = "droid"
     let displayName = "Droid"
     let socketTypeKey = "droid_hook"
@@ -8,25 +8,36 @@ struct DroidProvider: AIProviderIntegration {
     let executableNames = ["droid"]
     let hookScriptName = "muxy-droid-hook"
 
+    var agentLaunchConfiguration: AIAgentLaunchConfiguration {
+        AIAgentLaunchConfiguration(
+            executable: "droid",
+            headlessArguments: ["exec", "--output-format", "text"]
+        )
+    }
+
     private static let settingsPath = NSHomeDirectory() + "/.factory/settings.json"
     private static let muxyMarker = "muxy-notification-hook"
 
     static let hookEvents: [(settingsKey: String, event: String)] = [
         ("Stop", "stop"),
+        ("SessionEnd", "session-end"),
         ("Notification", "notification"),
         ("UserPromptSubmit", "user-prompt-submit"),
         ("PreToolUse", "pre-tool-use"),
     ]
 
     func isToolInstalled() -> Bool {
-        let home = NSHomeDirectory()
-        let paths = [
-            "\(home)/.factory/bin/droid",
-            "\(home)/.local/bin/droid",
-            "/usr/local/bin/droid",
-            "/opt/homebrew/bin/droid",
-        ]
-        return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
+        agentCLIExecutablePath() != nil
+    }
+
+    func agentCLIExecutablePath() -> String? {
+        ProviderExecutableLocator.executablePath(
+            names: [agentLaunchConfiguration.executable],
+            homeDirectory: NSHomeDirectory(),
+            pathEnvironment: LoginShellPath.current,
+            includeSystemWide: true,
+            homeRelativeBins: [".factory/bin", ".local/bin"]
+        )
     }
 
     func isHookInstalled() -> Bool {
@@ -50,6 +61,7 @@ struct DroidProvider: AIProviderIntegration {
 
     func uninstall() throws {
         guard FileManager.default.fileExists(atPath: Self.settingsPath) else { return }
+        guard isHookInstalled() else { return }
         var settings = try Self.readSettings()
         guard let hooks = settings["hooks"] as? [String: Any] else { return }
 

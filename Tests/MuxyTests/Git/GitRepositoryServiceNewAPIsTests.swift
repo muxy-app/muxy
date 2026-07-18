@@ -5,6 +5,37 @@ import Testing
 
 @Suite("GitRepositoryService new extension APIs")
 struct GitRepositoryServiceNewAPIsTests {
+    @Test("resolves GitHub CLI locally from the local executable search")
+    func resolvesLocalGitHubCLI() {
+        let resolved = GitRepositoryService.resolveGhExecutable(
+            context: .local,
+            localResolver: { executable in executable == "gh" ? "/local/bin/gh" : nil }
+        )
+
+        #expect(resolved == "/local/bin/gh")
+    }
+
+    @Test("reports a missing local GitHub CLI")
+    func reportsMissingLocalGitHubCLI() {
+        let resolved = GitRepositoryService.resolveGhExecutable(
+            context: .local,
+            localResolver: { _ in nil }
+        )
+
+        #expect(resolved == nil)
+    }
+
+    @Test("uses the remote GitHub CLI name for SSH workspaces")
+    func resolvesRemoteGitHubCLI() {
+        let context = WorkspaceContext.ssh(SSHDestination(host: "example.test"))
+        let resolved = GitRepositoryService.resolveGhExecutable(
+            context: context,
+            localResolver: { _ in nil }
+        )
+
+        #expect(resolved == "gh")
+    }
+
     @Test("repoInfo reports root, gitDir and current branch for a normal repo")
     func repoInfoForNormalRepo() async throws {
         let repo = try TempGitRepo()
@@ -33,7 +64,7 @@ struct GitRepositoryServiceNewAPIsTests {
         #expect(info.currentBranch == "feature")
     }
 
-    @Test("deleteLocalBranch removes a merged branch and rejects unmerged without force")
+    @Test("deleteLocalBranch protects checked-out branches and force deletes unmerged branches")
     func deleteLocalBranch() async throws {
         let repo = try TempGitRepo()
         defer { repo.cleanup() }
@@ -41,6 +72,9 @@ struct GitRepositoryServiceNewAPIsTests {
         try repo.run("branch", "merged")
 
         let service = GitRepositoryService()
+        await #expect(throws: Error.self) {
+            try await service.deleteLocalBranch(repoPath: repo.path, branch: "main", force: true)
+        }
         try await service.deleteLocalBranch(repoPath: repo.path, branch: "merged", force: false)
         let branches = try await service.listBranches(repoPath: repo.path)
         #expect(!branches.contains("merged"))
@@ -53,6 +87,42 @@ struct GitRepositoryServiceNewAPIsTests {
         }
         try await service.deleteLocalBranch(repoPath: repo.path, branch: "unmerged", force: true)
         #expect(!(try await service.listBranches(repoPath: repo.path)).contains("unmerged"))
+    }
+
+    @Test("deleteLocalBranch rejects a branch checked out in another worktree")
+    func deleteBranchCheckedOutInAnotherWorktree() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "init")
+        let worktreePath = repo.sibling("linked")
+        try repo.run("worktree", "add", "-b", "linked-branch", worktreePath)
+
+        let service = GitRepositoryService()
+        await #expect(throws: Error.self) {
+            try await service.deleteLocalBranch(repoPath: repo.path, branch: "linked-branch", force: true)
+        }
+
+        #expect(try await service.listBranches(repoPath: repo.path).contains("linked-branch"))
+    }
+
+    @Test("createAndSwitchBranch creates from HEAD and keeps failures on the current branch")
+    func createAndSwitchBranch() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "init")
+        let service = GitRepositoryService()
+
+        try await service.createAndSwitchBranch(repoPath: repo.path, name: "feature/inline-branches")
+
+        #expect(try await service.currentBranch(repoPath: repo.path) == "feature/inline-branches")
+        #expect(try await service.listBranches(repoPath: repo.path) == ["feature/inline-branches", "main"])
+        await #expect(throws: Error.self) {
+            try await service.createAndSwitchBranch(repoPath: repo.path, name: "feature/inline-branches")
+        }
+        await #expect(throws: Error.self) {
+            try await service.createAndSwitchBranch(repoPath: repo.path, name: "invalid..branch")
+        }
+        #expect(try await service.currentBranch(repoPath: repo.path) == "feature/inline-branches")
     }
 
     @Test("initRepository turns a plain folder into a git repo")
@@ -122,6 +192,127 @@ struct GitRepositoryServiceNewAPIsTests {
         let after = await service.repoSignature(repoPath: worktreePath)
 
         #expect(before != after)
+    }
+
+    @Test("stage and unstage rename include both repository paths")
+    func stageAndUnstageRename() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "old.txt", contents: "content\n", message: "init")
+        try FileManager.default.moveItem(
+            atPath: URL(fileURLWithPath: repo.path).appendingPathComponent("old.txt").path,
+            toPath: URL(fileURLWithPath: repo.path).appendingPathComponent("new.txt").path
+        )
+        try repo.run("add", "-A")
+
+        let service = GitRepositoryService()
+        let stagedRename = try #require(try await service.changedFiles(repoPath: repo.path).first {
+            $0.oldPath == "old.txt" && $0.path == "new.txt" && $0.isStaged
+        })
+        try await service.unstageFiles(repoPath: repo.path, paths: stagedRename.relatedPaths)
+
+        #expect(try await service.changedFiles(repoPath: repo.path).allSatisfy { !$0.isStaged })
+
+        try await service.stageFiles(repoPath: repo.path, paths: stagedRename.relatedPaths)
+
+        #expect(try await service.changedFiles(repoPath: repo.path).contains {
+            $0.oldPath == "old.txt" && $0.path == "new.txt" && $0.isStaged
+        })
+    }
+
+    @Test("discard request permanently removes an untracked file")
+    func discardUntrackedFile() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        let newFile = URL(fileURLWithPath: repo.path).appendingPathComponent("new.txt")
+        try "new\n".write(to: newFile, atomically: true, encoding: .utf8)
+
+        let service = GitRepositoryService()
+        let file = try #require(try await service.changedFiles(repoPath: repo.path).first { $0.path == "new.txt" })
+        let request = try #require(RepositoryChangesPresentation.discardRequest(file))
+        try await service.discardFiles(
+            repoPath: repo.path,
+            paths: request.paths,
+            untrackedPaths: request.untrackedPaths
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: newFile.path))
+        #expect(try await service.changedFiles(repoPath: repo.path).isEmpty)
+    }
+
+    @Test("untracked line count does not add a line after a trailing newline")
+    func untrackedLineCountWithTrailingNewline() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        try "new\n".write(
+            to: URL(fileURLWithPath: repo.path).appendingPathComponent("new.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let file = try #require(
+            try await GitRepositoryService().changedFiles(repoPath: repo.path).first { $0.path == "new.txt" }
+        )
+
+        #expect(file.additions == 1)
+        #expect(file.deletions == 0)
+    }
+
+    @Test("untracked line counts can load after the initial status")
+    func untrackedLineCountsLoadOnDemand() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        try "one\ntwo\n".write(
+            to: URL(fileURLWithPath: repo.path).appendingPathComponent("new.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let service = GitRepositoryService()
+        let initialFile = try #require(
+            try await service.changedFiles(
+                repoPath: repo.path,
+                includeUntrackedLineCounts: false
+            ).first { $0.path == "new.txt" }
+        )
+
+        #expect(initialFile.additions == nil)
+        #expect(try await service.untrackedFileLineCount(repoPath: repo.path, path: "new.txt") == 2)
+    }
+
+    @Test("untracked line counting is bounded for large files")
+    func untrackedLineCountingIsBounded() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        let largeFile = URL(fileURLWithPath: repo.path).appendingPathComponent("large.txt")
+        try Data(repeating: 0x61, count: 1_048_577).write(to: largeFile)
+
+        let lineCount = try await GitRepositoryService().untrackedFileLineCount(
+            repoPath: repo.path,
+            path: "large.txt"
+        )
+
+        #expect(lineCount == nil)
+    }
+
+    @Test("untracked line counting rejects invalid UTF-8")
+    func untrackedLineCountingRejectsInvalidUTF8() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "content\n", message: "init")
+        let invalidFile = URL(fileURLWithPath: repo.path).appendingPathComponent("invalid.txt")
+        try Data([0xFF, 0x0A]).write(to: invalidFile)
+
+        let lineCount = try await GitRepositoryService().untrackedFileLineCount(
+            repoPath: repo.path,
+            path: "invalid.txt"
+        )
+
+        #expect(lineCount == nil)
     }
 
     @discardableResult

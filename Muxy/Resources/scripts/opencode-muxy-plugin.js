@@ -1,6 +1,9 @@
 const childSessions = new Set()
-const sessionsWithCancelledTurnWaitingForIdle = new Set()
+const sessionsFinishedBeforeIdle = new Set()
 const replyDeadlines = new Map()
+const sessionVersions = new Map()
+const activeSessions = new Set()
+let sendQueue = Promise.resolve()
 
 const REPLY_SUPPRESSION_MS = 1500
 const MAX_BODY_LENGTH = 200
@@ -65,28 +68,67 @@ function consumeRecentReply(sessionID) {
   return Date.now() <= deadline
 }
 
-async function send(socketPath, payload) {
-  try {
-    const { createConnection } = await import("net")
-    const conn = createConnection({ path: socketPath })
-    conn.on("error", () => {})
-    conn.write(`${payload}\n`, () => conn.end())
-    await new Promise((resolve) => {
-      conn.on("close", resolve)
-      setTimeout(resolve, 3000)
-    })
-  } catch {}
+function advanceSession(sessionID) {
+  if (!sessionID) return 0
+  const version = (sessionVersions.get(sessionID) || 0) + 1
+  sessionVersions.set(sessionID, version)
+  return version
 }
 
-async function sendNotification(socketPath, paneID, body) {
-  await send(socketPath, `opencode|${paneID}|OpenCode|${sanitize(body)}`)
+function clearSession(sessionID) {
+  childSessions.delete(sessionID)
+  sessionsFinishedBeforeIdle.delete(sessionID)
+  replyDeadlines.delete(sessionID)
+  sessionVersions.delete(sessionID)
+  activeSessions.delete(sessionID)
 }
 
-async function sendStatus(socketPath, paneID, status) {
+function clearSettledSession(sessionID, version) {
+  if (sessionVersions.get(sessionID) !== version) return
+  replyDeadlines.delete(sessionID)
+  sessionVersions.delete(sessionID)
+  activeSessions.delete(sessionID)
+}
+
+function send(socketPath, payload) {
+  const transmit = async () => {
+    try {
+      const { createConnection } = await import("net")
+      const conn = createConnection({ path: socketPath })
+      conn.on("error", () => {})
+      conn.write(`${payload}\n`, () => conn.end())
+      await new Promise((resolve) => {
+        conn.on("close", resolve)
+        setTimeout(resolve, 3000)
+      })
+    } catch {}
+  }
+  sendQueue = sendQueue.then(transmit, transmit)
+  return sendQueue
+}
+
+async function sendEvent(socketPath, paneID, phase, title = "", body = "") {
+  const cleanTitle = sanitize(title)
+  const cleanBody = sanitize(body)
+  if (process.env.MUXY_AGENT_EVENT_PROTOCOL === "2") {
+    await send(
+      socketPath,
+      `agent_event|opencode|${paneID}|${phase}|${cleanTitle}|${cleanBody}`,
+    )
+    return
+  }
+  const status = phase === "finished" ? "idle" : phase
+  if (cleanTitle || cleanBody) {
+    await send(
+      socketPath,
+      `agent_status|opencode|${paneID}|${status}\nopencode|${paneID}|${cleanTitle}|${cleanBody}`,
+    )
+    return
+  }
   await send(socketPath, `agent_status|opencode|${paneID}|${status}`)
 }
 
-export const MuxyNotificationPlugin = async ({ client }) => ({
+export const MuxyNotificationPlugin = async () => ({
   event: async ({ event }) => {
     const socketPath = process.env.MUXY_SOCKET_PATH
     const paneID = process.env.MUXY_PANE_ID
@@ -94,40 +136,71 @@ export const MuxyNotificationPlugin = async ({ client }) => ({
 
     if (event.type === "session.created") {
       const info = event.properties.info
-      if (info?.parentID) childSessions.add(event.properties.sessionID)
+      const sessionID = info?.id || event.properties.sessionID
+      if (info?.parentID && sessionID) childSessions.add(sessionID)
+      return
+    }
+
+    if (event.type === "session.deleted") {
+      const sessionID = event.properties.info?.id || event.properties.sessionID
+      if (!sessionID) return
+      if (activeSessions.has(sessionID) && !childSessions.has(sessionID)) {
+        await sendEvent(socketPath, paneID, "finished")
+      }
+      clearSession(sessionID)
       return
     }
 
     if (event.type === "session.error") {
       const sessionID = event.properties.sessionID
       const err = event.properties.error
+      if (sessionID) sessionsFinishedBeforeIdle.add(sessionID)
       if (err?.name === "MessageAbortedError") {
-        if (sessionID) sessionsWithCancelledTurnWaitingForIdle.add(sessionID)
+        const version = advanceSession(sessionID)
+        if (!childSessions.has(sessionID)) await sendEvent(socketPath, paneID, "finished")
+        clearSettledSession(sessionID, version)
+        return
       }
+      const version = advanceSession(sessionID)
+      if (!childSessions.has(sessionID)) {
+        const body = firstNonEmpty(err?.data?.message, err?.message, err?.name, "Session failed")
+        await sendEvent(socketPath, paneID, "finished", "OpenCode", body)
+      }
+      clearSettledSession(sessionID, version)
       return
     }
 
     if (event.type === "permission.asked") {
       if (childSessions.has(event.properties.sessionID)) return
-      await sendStatus(socketPath, paneID, "waiting")
-      await sendNotification(socketPath, paneID, permissionBody(event.properties))
+      const sessionID = event.properties.sessionID
+      advanceSession(sessionID)
+      activeSessions.add(sessionID)
+      await sendEvent(socketPath, paneID, "waiting", "OpenCode", permissionBody(event.properties))
       return
     }
 
     if (event.type === "permission.replied") {
-      markRecentReply(event.properties.sessionID)
+      const sessionID = event.properties.sessionID
+      markRecentReply(sessionID)
+      advanceSession(sessionID)
+      if (!childSessions.has(sessionID)) await sendEvent(socketPath, paneID, "working")
       return
     }
 
     if (event.type === "question.asked") {
       if (childSessions.has(event.properties.sessionID)) return
-      await sendStatus(socketPath, paneID, "waiting")
-      await sendNotification(socketPath, paneID, questionBody(event.properties))
+      const sessionID = event.properties.sessionID
+      advanceSession(sessionID)
+      activeSessions.add(sessionID)
+      await sendEvent(socketPath, paneID, "waiting", "OpenCode", questionBody(event.properties))
       return
     }
 
     if (event.type === "question.replied" || event.type === "question.rejected") {
-      markRecentReply(event.properties.sessionID)
+      const sessionID = event.properties.sessionID
+      markRecentReply(sessionID)
+      advanceSession(sessionID)
+      if (!childSessions.has(sessionID)) await sendEvent(socketPath, paneID, "working")
       return
     }
 
@@ -135,39 +208,28 @@ export const MuxyNotificationPlugin = async ({ client }) => ({
 
     const sessionID = event.properties.sessionID
     if (event.properties.status.type !== "idle") {
-      if (!childSessions.has(sessionID)) await sendStatus(socketPath, paneID, "working")
+      advanceSession(sessionID)
+      activeSessions.add(sessionID)
+      if (!childSessions.has(sessionID)) await sendEvent(socketPath, paneID, "working")
       return
     }
 
-    if (sessionsWithCancelledTurnWaitingForIdle.has(sessionID)) {
-      sessionsWithCancelledTurnWaitingForIdle.delete(sessionID)
-      if (!childSessions.has(sessionID)) await sendStatus(socketPath, paneID, "idle")
+    if (sessionsFinishedBeforeIdle.has(sessionID)) {
+      sessionsFinishedBeforeIdle.delete(sessionID)
       return
     }
     if (childSessions.has(sessionID)) return
-    if (consumeRecentReply(sessionID)) return
-    await sendStatus(socketPath, paneID, "idle")
-
-    let body = "Session completed"
-
-    try {
-      const result = await client.session.messages({
-        path: { id: sessionID },
-        query: { limit: 3 },
-      })
-      const messages = result.data || []
-      const lastAssistant = [...messages]
-        .reverse()
-        .find((m) => m.info.role === "assistant")
-      if (lastAssistant) {
-        const textParts = (lastAssistant.parts || []).filter(
-          (p) => p.type === "text",
-        )
-        const text = textParts.map((p) => p.text || "").join("")
-        if (text) body = text
-      }
-    } catch {}
-
-    await sendNotification(socketPath, paneID, body)
+    if (consumeRecentReply(sessionID)) {
+      const version = sessionVersions.get(sessionID)
+      setTimeout(async () => {
+        if (sessionVersions.get(sessionID) !== version) return
+        await sendEvent(socketPath, paneID, "finished")
+        clearSettledSession(sessionID, version)
+      }, REPLY_SUPPRESSION_MS)
+      return
+    }
+    const version = sessionVersions.get(sessionID)
+    await sendEvent(socketPath, paneID, "finished", "OpenCode", "Session completed")
+    clearSettledSession(sessionID, version)
   },
 })

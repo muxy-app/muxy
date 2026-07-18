@@ -143,6 +143,7 @@ struct ExtensionScriptRunnerTests {
         ExtensionLogStore.shared.register(extensionID: extensionID, directory: logDirectory)
         defer {
             ExtensionScriptRunner.shared.evict(extensionID: extensionID)
+            ExtensionModalService.shared.dismiss()
             ExtensionLogStore.shared.unregister(extensionID: extensionID)
             ExtensionLogStore.shared.flush()
             try? FileManager.default.removeItem(at: logDirectory)
@@ -387,6 +388,86 @@ struct ExtensionScriptRunnerTests {
         #expect(log.contains("query-end:q3"))
         #expect(!log.contains("query-start:q1"))
         #expect(!log.contains("query-start:q2"))
+    }
+
+    @Test("execAsync returns a cancellable job before authorization finishes")
+    func execAsyncReturnsBeforeAuthorization() async throws {
+        let extensionID = "test-ext-exec-async-\(UUID().uuidString)"
+        let logDirectory = try makeExtensionDirectory()
+        ExtensionLogStore.shared.register(extensionID: extensionID, directory: logDirectory)
+        defer {
+            ExtensionScriptRunner.shared.evict(extensionID: extensionID)
+            ExtensionLogStore.shared.unregister(extensionID: extensionID)
+            ExtensionLogStore.shared.flush()
+            try? FileManager.default.removeItem(at: logDirectory)
+        }
+
+        let appState = makeAppState()
+        let scriptURL = try writeScript("""
+        const job = muxy.execAsync(['/bin/echo', 'hello']);
+        console.log('execAsync-job:' + Boolean(job.id) + ':' + typeof job.cancel);
+        console.log('execAsync-returned');
+        job.result.then(
+          () => console.log('execAsync-unexpected-success'),
+          (error) => console.log('execAsync-error:' + error.code + ':' + error.cancelled + ':' + error.message.includes('permission denied'))
+        );
+        """)
+        defer { try? FileManager.default.removeItem(at: scriptURL.deletingLastPathComponent()) }
+
+        try await ExtensionScriptRunner.shared.runScript(
+            extensionID: extensionID,
+            scriptURL: scriptURL,
+            appState: appState,
+            stores: ExtensionAPIStores()
+        )
+
+        let log = try await waitForLog(extensionID: extensionID, directory: logDirectory, contains: "execAsync-error:")
+        #expect(log.contains("execAsync-job:true:function"))
+        #expect(log.contains("execAsync-returned"))
+        #expect(log.contains("execAsync-error:error:false:true"))
+        #expect(!log.contains("execAsync-unexpected-success"))
+    }
+
+    @Test("modal onQuery can emit asynchronously from a Promise")
+    func modalOnQueryEmitsFromPromise() async throws {
+        let extensionID = "test-ext-async-query-\(UUID().uuidString)"
+        let logDirectory = try makeExtensionDirectory()
+        ExtensionLogStore.shared.register(extensionID: extensionID, directory: logDirectory)
+        defer {
+            ExtensionScriptRunner.shared.evict(extensionID: extensionID)
+            ExtensionModalService.shared.dismiss()
+            ExtensionLogStore.shared.unregister(extensionID: extensionID)
+            ExtensionLogStore.shared.flush()
+            try? FileManager.default.removeItem(at: logDirectory)
+        }
+
+        let appState = makeAppState()
+        let scriptURL = try writeScript("""
+        muxy.modal.open({
+          items: [],
+          onQuery(query) {
+            return Promise.resolve([{ id: 'hit', title: query + ':async' }]).then((rows) => {
+              console.log('async-query-fed:' + query);
+              return rows;
+            });
+          },
+        });
+        """)
+        defer { try? FileManager.default.removeItem(at: scriptURL.deletingLastPathComponent()) }
+
+        try await ExtensionScriptRunner.shared.runScript(
+            extensionID: extensionID,
+            scriptURL: scriptURL,
+            appState: appState,
+            stores: ExtensionAPIStores()
+        )
+
+        ExtensionModalService.shared.queryChanged("needle")
+
+        let log = try await waitForLog(extensionID: extensionID, directory: logDirectory, contains: "async-query-fed:")
+        #expect(log.contains("async-query-fed:needle"))
+        let page = try await waitForModalPage(query: "needle")
+        #expect(page.items.map(\.title) == ["needle:async"])
     }
 
     private func writeScript(_ source: String) throws -> URL {

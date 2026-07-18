@@ -19,6 +19,7 @@ struct BackupServiceTests {
     private func seedSource() throws -> URL {
         let source = tempDirectory()
         try write(Data("[]".utf8), named: "projects.json", in: source)
+        try write(Data("[]".utf8), named: "recently-removed-projects.json", in: source)
         try write(Data(#"{"muxy.showStatusBar":true,"mobile.approvedDevices":[{"id":"x","tokenHash":"secret"}]}"#.utf8), named: "settings.json", in: source)
 
         let device = RemoteDevice(
@@ -46,6 +47,9 @@ struct BackupServiceTests {
         try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
 
         #expect(FileManager.default.fileExists(atPath: target.appendingPathComponent("projects.json").path))
+        #expect(FileManager.default.fileExists(
+            atPath: target.appendingPathComponent("recently-removed-projects.json").path
+        ))
         let logo = target.appendingPathComponent("logos/logo.png")
         #expect(try Data(contentsOf: logo) == Data("png".utf8))
         let ghostty = target.appendingPathComponent("ghostty.conf")

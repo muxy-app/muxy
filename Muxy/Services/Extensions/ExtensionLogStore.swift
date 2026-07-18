@@ -126,7 +126,9 @@ final class ExtensionLogStore: @unchecked Sendable {
                   let size = attributes[.size] as? Int,
                   let modified = attributes[.modificationDate] as? Date
             else { continue }
-            if modified <= entry.lastTrimChecked, size <= Self.maxSize { continue }
+            if modified <= entry.lastTrimChecked, size <= Self.maxSize {
+                continue
+            }
             entries[id]?.lastTrimChecked = Date()
             guard size > Self.maxSize else { continue }
             trimFile(extensionID: id, url: url, size: size)

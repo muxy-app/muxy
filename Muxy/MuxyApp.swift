@@ -146,15 +146,13 @@ struct MuxyApp: App {
                                 worktreeStore.removeProject(id)
                                 continue
                             }
-                            let knownWorktrees = worktreeStore.list(for: id)
                             Task {
                                 do {
-                                    try await WorktreeStore.cleanupOnDisk(
-                                        for: project,
-                                        knownWorktrees: knownWorktrees
+                                    try await ProjectRemovalService.removeLocalProjectData(
+                                        project,
+                                        projectStore: projectStore,
+                                        worktreeStore: worktreeStore
                                     )
-                                    projectStore.remove(id: id)
-                                    worktreeStore.removeProject(id)
                                 } catch {
                                     ToastState.shared.show("Could not remove \(project.name): \(error.localizedDescription)")
                                 }
@@ -619,9 +617,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         let closed = notification.object as? NSWindow
-        if closed === settingsWindow { settingsWindow = nil }
-        if closed === extensionsWindow { extensionsWindow = nil }
-        if closed === whatsNewWindow { whatsNewWindow = nil }
+        if closed === settingsWindow {
+            settingsWindow = nil
+        }
+        if closed === extensionsWindow {
+            extensionsWindow = nil
+        }
+        if closed === whatsNewWindow {
+            whatsNewWindow = nil
+        }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -675,7 +679,9 @@ struct WindowConfigurator: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let w = v.window else { return }
             w.identifier = ShortcutContext.mainWindowIdentifier
-            if Self.closeDuplicateMainWindow(w) { return }
+            if Self.closeDuplicateMainWindow(w) {
+                return
+            }
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.styleMask.insert(.fullSizeContentView)
