@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+enum OverlayEscapeDecision {
+    static func shouldConsume(isOverlayActive: Bool, keyCode: UInt16) -> Bool {
+        isOverlayActive && keyCode == 53
+    }
+}
+
 enum MainWindowLayout {
     static func leftNavigationWidth(sidebarWidth: CGFloat) -> CGFloat {
         max(0, sidebarWidth)
@@ -88,6 +94,20 @@ struct MainWindow: View {
     @State private var remoteProjectDevice: RemoteDevice?
     @State private var overlayAnimatingOut = false
     @State private var projectPickerTerminalFocusRestoration = ProjectPickerTerminalFocusRestoration()
+
+    private func dismissActiveOverlay() {
+        if showTerminalOmnibox {
+            showTerminalOmnibox = false
+        } else if showProjectPicker {
+            showProjectPicker = false
+            remoteProjectDevice = nil
+        } else if let request = ExtensionWebviewModalService.shared.active {
+            ExtensionWebviewModalService.shared.dismiss(requestID: request.id)
+        } else if ExtensionModalService.shared.active != nil {
+            ExtensionModalService.shared.dismiss()
+        }
+    }
+
     @State private var isFullScreen = false
     @AppStorage(AppBackgroundStyle.storageKey)
     private var appBackgroundStyleRaw = AppBackgroundStyle.defaultValue.rawValue
@@ -166,9 +186,11 @@ struct MainWindow: View {
             shortcutInterceptor: MainWindowShortcutInterceptor(
                 isTerminalFocused: { isTerminalPaneFocused },
                 isBrowserFocused: { isBrowserPaneFocused },
+                isOverlayActive: { overlayActive },
                 onShortcut: { action in handleShortcutAction(action) },
                 onCommandShortcut: { shortcut in handleCommandShortcut(shortcut) },
                 onExtensionShortcut: { shortcut in handleExtensionShortcut(shortcut) },
+                onOverlayEscape: { dismissActiveOverlay() },
                 onMouseBack: { appState.goBack() },
                 onMouseForward: { appState.goForward() }
             ),
@@ -1825,9 +1847,11 @@ private struct NavigationArrowButton: View {
 private struct MainWindowShortcutInterceptor: NSViewRepresentable {
     let isTerminalFocused: () -> Bool
     let isBrowserFocused: () -> Bool
+    let isOverlayActive: () -> Bool
     let onShortcut: (ShortcutAction) -> Bool
     let onCommandShortcut: (CommandShortcut) -> Bool
     let onExtensionShortcut: (ExtensionShortcut) -> Bool
+    let onOverlayEscape: () -> Void
     let onMouseBack: () -> Void
     let onMouseForward: () -> Void
 
@@ -1835,9 +1859,11 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
         let view = ShortcutInterceptingView()
         view.isTerminalFocused = isTerminalFocused
         view.isBrowserFocused = isBrowserFocused
+        view.isOverlayActive = isOverlayActive
         view.onShortcut = onShortcut
         view.onCommandShortcut = onCommandShortcut
         view.onExtensionShortcut = onExtensionShortcut
+        view.onOverlayEscape = onOverlayEscape
         view.onMouseBack = onMouseBack
         view.onMouseForward = onMouseForward
         return view
@@ -1846,9 +1872,11 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
     func updateNSView(_ nsView: ShortcutInterceptingView, context: Context) {
         nsView.isTerminalFocused = isTerminalFocused
         nsView.isBrowserFocused = isBrowserFocused
+        nsView.isOverlayActive = isOverlayActive
         nsView.onShortcut = onShortcut
         nsView.onCommandShortcut = onCommandShortcut
         nsView.onExtensionShortcut = onExtensionShortcut
+        nsView.onOverlayEscape = onOverlayEscape
         nsView.onMouseBack = onMouseBack
         nsView.onMouseForward = onMouseForward
     }
@@ -1857,9 +1885,11 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
 private final class ShortcutInterceptingView: NSView {
     var isTerminalFocused: (() -> Bool)?
     var isBrowserFocused: (() -> Bool)?
+    var isOverlayActive: (() -> Bool)?
     var onShortcut: ((ShortcutAction) -> Bool)?
     var onCommandShortcut: ((CommandShortcut) -> Bool)?
     var onExtensionShortcut: ((ExtensionShortcut) -> Bool)?
+    var onOverlayEscape: (() -> Void)?
     var onMouseBack: (() -> Void)?
     var onMouseForward: (() -> Void)?
     private var mouseMonitor: Any?
@@ -1877,6 +1907,11 @@ private final class ShortcutInterceptingView: NSView {
     }
 
     private func handleShortcutEvent(_ event: NSEvent) -> Bool {
+        if OverlayEscapeDecision.shouldConsume(isOverlayActive: isOverlayActive?() ?? false, keyCode: event.keyCode) {
+            onOverlayEscape?()
+            return true
+        }
+
         let scopes = ShortcutContext.activeScopes(
             for: window,
             isTerminalFocused: isTerminalFocused?() ?? false,
