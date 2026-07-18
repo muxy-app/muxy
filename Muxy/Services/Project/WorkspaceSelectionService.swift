@@ -8,6 +8,16 @@ enum WorkspaceSelectionService {
         worktreeStore: WorktreeStore,
         projectGroupStore: ProjectGroupStore
     ) {
+        if AppLayoutStore.shared.layout == .tabFocused {
+            let expansionStore = TabFocusedSidebarState.shared
+            if expansionStore.focusMode, let activeProjectID = appState.activeProjectID {
+                if let group = projectGroupStore.activeGroup, !group.projectIDs.contains(activeProjectID) {
+                    expansionStore.focusMode = false
+                }
+                return
+            }
+        }
+
         guard let project = firstProject(
             projectStore: projectStore,
             projectGroupStore: projectGroupStore
