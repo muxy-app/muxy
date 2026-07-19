@@ -1,6 +1,17 @@
 import AppKit
 import SwiftUI
 
+enum ProjectListSearch {
+    static func filter(_ projects: [Project], matching query: String) -> [Project] {
+        projects.filter { matches($0, query: query) }
+    }
+
+    static func matches(_ project: Project, query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty || project.name.localizedCaseInsensitiveContains(query)
+    }
+}
+
 @MainActor
 enum SidebarLayout {
     static var collapsedWidth: CGFloat { UIMetrics.sidebarCollapsedWidth }
@@ -58,6 +69,7 @@ struct ProjectFocusedSidebar: View {
     @State private var dragState = ProjectDragState()
     @State private var isExternalDropTargeted = false
     @State private var projectPendingRemoval: Project?
+    @State private var projectSearchText = ""
     let expanded: Bool
     let expandedCustomWidth: CGFloat
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
@@ -245,9 +257,26 @@ struct ProjectFocusedSidebar: View {
         projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
     }
 
+    private var filteredHomeProject: Project? {
+        guard let homeProject, ProjectListSearch.matches(homeProject, query: projectSearchText) else { return nil }
+        return homeProject
+    }
+
+    private var filteredProjects: [Project] {
+        ProjectListSearch.filter(displayedProjects, matching: projectSearchText)
+    }
+
+    private var hasProjectSearchQuery: Bool {
+        !projectSearchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hasNoSearchResults: Bool {
+        hasProjectSearchQuery && filteredHomeProject == nil && filteredProjects.isEmpty
+    }
+
     private var pinnedBoundaryIndex: Int? {
-        guard let lastPinned = displayedProjects.lastIndex(where: \.isPinned),
-              lastPinned < displayedProjects.count - 1
+        guard let lastPinned = filteredProjects.lastIndex(where: \.isPinned),
+              lastPinned < filteredProjects.count - 1
         else { return nil }
         return lastPinned
     }
@@ -279,18 +308,54 @@ struct ProjectFocusedSidebar: View {
                 .padding(.horizontal, isWide ? UIMetrics.spacing3 : UIMetrics.spacing4)
                 .padding(.top, UIMetrics.spacing2)
 
+            if isWide {
+                projectSearchField
+                    .padding(.horizontal, UIMetrics.spacing3)
+            }
+
             scrollableProjects
         }
+    }
+
+    private var projectSearchField: some View {
+        HStack(spacing: UIMetrics.spacing2) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .accessibilityHidden(true)
+
+            TextField("Search projects", text: $projectSearchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: UIMetrics.fontBody))
+                .foregroundStyle(MuxyTheme.fg)
+                .accessibilityLabel("Search projects")
+        }
+        .padding(.horizontal, UIMetrics.spacing3)
+        .padding(.vertical, UIMetrics.spacing2)
+        .background(MuxyTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .overlay(
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                .strokeBorder(MuxyTheme.border, lineWidth: 1)
+        )
     }
 
     private var scrollableProjects: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: UIMetrics.spacing3) {
-                if let homeProject {
-                    projectRow(for: homeProject, shortcutIndex: 1)
+                if let filteredHomeProject {
+                    projectRow(for: filteredHomeProject, shortcutIndex: 1)
                 }
 
-                ForEach(Array(displayedProjects.enumerated()), id: \.element.id) { offset, project in
+                if hasNoSearchResults {
+                    Text("No projects match your search.")
+                        .font(.system(size: UIMetrics.fontBody))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, UIMetrics.spacing4)
+                }
+
+                ForEach(Array(filteredProjects.enumerated()), id: \.element.id) { offset, project in
                     projectRow(for: project, shortcutIndex: shortcutIndex(forRowAt: offset))
                         .background {
                             if dragState.draggedID != nil {
@@ -390,7 +455,7 @@ struct ProjectFocusedSidebar: View {
     }
 
     private func shortcutIndex(forRowAt offset: Int) -> Int? {
-        let index = homeProject == nil ? offset + 1 : offset + 2
+        let index = filteredHomeProject == nil ? offset + 1 : offset + 2
         return index <= 9 ? index : nil
     }
 
@@ -401,6 +466,7 @@ struct ProjectFocusedSidebar: View {
     private func projectDragGesture(for project: Project) -> some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .named("sidebar"))
             .onChanged { value in
+                guard !hasProjectSearchQuery else { return }
                 if dragState.draggedID == nil {
                     beginManualReorder()
                     dragState.draggedID = project.id
