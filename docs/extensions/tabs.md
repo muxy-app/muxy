@@ -36,7 +36,7 @@ The page loads at `muxy-ext://<extensionID>/<entry>` and references its own file
 
 ## File openers
 
-A tab type can register as a **file opener** so the user can pick it as their "Open in IDE" target. When selected, Muxy routes native file opens — terminal file links and the Open in IDE control — into a tab of that type instead of an external editor. Declare openers under the `fileOpeners` manifest array:
+A tab type can register as a **file opener** so the user can select it in Settings. When selected, Muxy routes terminal file links into a tab of that type instead of an external editor. Declare openers under the `fileOpeners` manifest array:
 
 ```jsonc
 "fileOpeners": [
@@ -61,11 +61,13 @@ The opened tab receives `window.muxy.data` with the file location:
   filePath: string,   // path relative to the project root
   line?: number,      // 1-based, when the source had a line suffix
   column?: number,    // 1-based, when the source had a column suffix
-  source: string,     // "terminal" or "open-control"
+  source: string,     // "terminal"
 }
 ```
 
 Only files inside the active project are routed; anything else falls back to the native IDE. With `singleton: true`, reopening pushes the new location through [`muxy.onDataChange`](#opening-another-tab).
+Fallbacks and extension reloads preserve the selected opener so it resumes handling matching files when it is available again.
+The topbar project target is independent from this setting and never lists extension file-openers.
 
 ## Topbar (recommended)
 

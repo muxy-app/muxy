@@ -26,7 +26,7 @@ struct PaneTabStrip: View {
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
     var showDevelopmentBadge = false
-    var openInIDEProjectPath: String?
+    var openProjectPath: String?
     let projectID: UUID
     var shortcutIndexOffset: Int = 0
     let onSelectTab: (UUID) -> Void
@@ -85,6 +85,9 @@ struct PaneTabStrip: View {
             .frame(height: UIMetrics.scaled(32))
 
             HStack(spacing: 0) {
+                if isWindowTitleBar, let openProjectPath {
+                    OpenProjectControl(projectPath: openProjectPath)
+                }
                 if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
                     UpdateBadge(version: version) {
                         UpdateService.shared.checkForUpdates()
@@ -96,9 +99,6 @@ struct PaneTabStrip: View {
                         .padding(.trailing, UIMetrics.spacing3)
                 }
                 if isWindowTitleBar {
-                    if let openInIDEProjectPath {
-                        OpenInIDEControl(projectPath: openInIDEProjectPath, projectID: projectID, areaID: areaID)
-                    }
                     LayoutPickerMenu(projectID: projectID)
                     ExtensionTopbarItems()
                 }

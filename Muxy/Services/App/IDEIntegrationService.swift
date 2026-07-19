@@ -77,29 +77,28 @@ final class IDEIntegrationService: ObservableObject {
     private let workspace: NSWorkspace
     private let defaults: UserDefaults
     private let fileManager: FileManager
+    private let commandLauncher: ([LaunchCommand]) -> Bool
 
     init(
         workspace: NSWorkspace = .shared,
         defaults: UserDefaults = .standard,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        commandLauncher: @escaping ([LaunchCommand]) -> Bool = IDEIntegrationService.launch
     ) {
         self.workspace = workspace
         self.defaults = defaults
         self.fileManager = fileManager
+        self.commandLauncher = commandLauncher
         self.selectedBundleIdentifier = defaults.string(forKey: Self.selectedBundleIdentifierKey)
         refreshInstalledApps()
     }
 
-    private func setSelectedBundleIdentifier(_ identifier: String) {
-        defaults.set(identifier, forKey: Self.selectedBundleIdentifierKey)
-        if selectedBundleIdentifier != identifier {
-            selectedBundleIdentifier = identifier
-        }
-        setSelectedFileOpenerValue(FileOpenerSelection.builtinValue)
-    }
-
     func selectFileOpener(extensionID: String, openerID: String) {
         setSelectedFileOpenerValue(FileOpenerSelection.value(extensionID: extensionID, openerID: openerID))
+    }
+
+    func selectProjectTarget(_ ide: IDEApplication) {
+        rememberIDE(ide)
     }
 
     func setSelectedFileOpenerValue(_ value: String) {
@@ -137,7 +136,7 @@ final class IDEIntegrationService: ObservableObject {
 
         if app.bundleIdentifier == Self.finderBundleIdentifier {
             revealInFinder(at: path)
-            setSelectedBundleIdentifier(app.bundleIdentifier)
+            rememberIDE(app)
             return true
         }
 
@@ -148,11 +147,18 @@ final class IDEIntegrationService: ObservableObject {
             availableCLICommands: availableCLICommands()
         )
 
-        let launched = Self.launch(commands: commands)
+        let launched = commandLauncher(commands)
         if launched {
-            setSelectedBundleIdentifier(app.bundleIdentifier)
+            rememberIDE(app)
         }
         return launched
+    }
+
+    private func rememberIDE(_ ide: IDEApplication) {
+        defaults.set(ide.bundleIdentifier, forKey: Self.selectedBundleIdentifierKey)
+        if selectedBundleIdentifier != ide.bundleIdentifier {
+            selectedBundleIdentifier = ide.bundleIdentifier
+        }
     }
 
     func revealInFinder(at path: String) {
@@ -267,7 +273,7 @@ final class IDEIntegrationService: ObservableObject {
         return discovered.sorted(by: compareInstalledApps)
     }
 
-    private static func launch(commands: [LaunchCommand]) -> Bool {
+    nonisolated private static func launch(commands: [LaunchCommand]) -> Bool {
         for command in commands {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: command.executablePath)

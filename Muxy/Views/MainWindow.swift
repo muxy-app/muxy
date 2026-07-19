@@ -562,7 +562,7 @@ struct MainWindow: View {
                 isFocused: true,
                 isWindowTitleBar: true,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
-                openInIDEProjectPath: project.isRemote ? nil : activeWorktreePath(for: project),
+                openProjectPath: project.isRemote ? nil : activeWorktreePath(for: project),
                 projectID: project.id,
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -656,6 +656,9 @@ struct MainWindow: View {
 
     private var fallbackTopbarActions: some View {
         HStack(spacing: 0) {
+            if let project = activeProject, !project.isRemote {
+                OpenProjectControl(projectPath: activeWorktreePath(for: project))
+            }
             if let version = UpdateService.shared.availableUpdateVersion {
                 UpdateBadge(version: version) {
                     UpdateService.shared.checkForUpdates()
@@ -667,9 +670,6 @@ struct MainWindow: View {
                     .padding(.trailing, UIMetrics.spacing3)
             }
             if let project = activeProject {
-                if !project.isRemote {
-                    OpenInIDEControl(projectPath: activeWorktreePath(for: project), projectID: project.id)
-                }
                 LayoutPickerMenu(projectID: project.id)
             }
             ExtensionTopbarItems()

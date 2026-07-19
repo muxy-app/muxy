@@ -60,8 +60,8 @@ struct ProjectsSettingsView: View {
             if !fileOpeners.isEmpty {
                 SettingsSection(
                     "Open Files With",
-                    footer: "Files opened from the terminal or the Open in IDE control go to this opener. "
-                        + "Falls back to the IDE when its patterns don't match."
+                    footer: "Terminal file links go to this opener. Falls back to the selected project target "
+                        + "when its patterns don't match."
                 ) {
                     SettingsRow("Default Opener") {
                         HStack {

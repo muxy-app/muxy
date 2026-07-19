@@ -1139,10 +1139,8 @@ enum MuxyAPIDispatcher {
         }
     }
 
-    private static func panelData(_ args: [String: Any]) -> ExtensionJSON? {
-        guard let raw = args["data"] else { return nil }
-        guard let data = try? JSONSerialization.data(withJSONObject: raw) else { return nil }
-        return try? JSONDecoder().decode(ExtensionJSON.self, from: data)
+    static func panelData(_ args: [String: Any]) -> ExtensionJSON? {
+        extensionJSON(args["data"])
     }
 
     private static func resolvedEntry(_ args: [String: Any], context: Context) throws -> String {
@@ -1157,11 +1155,20 @@ enum MuxyAPIDispatcher {
     }
 
     private static func clampedResult(_ value: Any?) -> ExtensionJSON? {
-        guard let value, !(value is NSNull) else { return nil }
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
-              data.count <= ExtensionWebviewModalService.maxResultBytes
-        else { return nil }
+        guard let data = serializedJSON(value), data.count <= ExtensionWebviewModalService.maxResultBytes else {
+            return nil
+        }
         return try? JSONDecoder().decode(ExtensionJSON.self, from: data)
+    }
+
+    private static func extensionJSON(_ value: Any?) -> ExtensionJSON? {
+        guard let data = serializedJSON(value) else { return nil }
+        return try? JSONDecoder().decode(ExtensionJSON.self, from: data)
+    }
+
+    private static func serializedJSON(_ value: Any?) -> Data? {
+        guard let value, !(value is NSNull) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
     }
 
     private static func foundationValue(_ value: ExtensionJSON?) -> Any {
