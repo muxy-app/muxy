@@ -6,8 +6,13 @@ guard let command = AgentHookCommand.parse(Array(CommandLine.arguments.dropFirst
     exit(EXIT_SUCCESS)
 }
 
-let input = AgentHookStandardInput.read()
-let result = AgentHookRuntime().run(command: command, input: input)
+let budget = AgentHookExecutionBudget()
+let input = AgentHookStandardInput.read(
+    descriptor: FileHandle.standardInput.fileDescriptor,
+    limit: AgentHookStandardInput.maximumPayloadBytes,
+    budget: budget
+)
+let result = AgentHookRuntime().run(command: command, input: input, budget: budget)
 
 switch result {
 case .success:

@@ -15,6 +15,7 @@ final class HookInstaller {
     }
 
     private let hookScriptPath: @Sendable (String, String) -> String?
+    private let stagedHookBinaryPath: @Sendable () -> String
     private let stagedFileExists: @Sendable (String) -> Bool
     private let stagedFileExecutable: @Sendable (String) -> Bool
     private let health: HookHealthStore
@@ -22,6 +23,9 @@ final class HookInstaller {
     init(
         hookScriptPath: @escaping @Sendable (String, String) -> String? = {
             MuxyNotificationHooks.scriptPath(named: $0, extension: $1)
+        },
+        stagedHookBinaryPath: @escaping @Sendable () -> String = {
+            MuxyNotificationHooks.hookBinaryPath
         },
         stagedFileExists: @escaping @Sendable (String) -> Bool = {
             FileManager.default.fileExists(atPath: $0)
@@ -32,16 +36,26 @@ final class HookInstaller {
         health: HookHealthStore = .shared
     ) {
         self.hookScriptPath = hookScriptPath
+        self.stagedHookBinaryPath = stagedHookBinaryPath
         self.stagedFileExists = stagedFileExists
         self.stagedFileExecutable = stagedFileExecutable
         self.health = health
     }
 
     @discardableResult
-    func reconcile(_ provider: AIProviderIntegration) -> Outcome {
+    func reconcile(
+        _ provider: AIProviderIntegration,
+        stagingSucceeded: Bool = true
+    ) -> Outcome {
         guard provider.isEnabled else {
             removeManagedState(provider)
             return .skippedDisabled
+        }
+
+        guard stagingSucceeded else {
+            let message = "Failed to stage AI hook resources"
+            health.noteVerified(providerID: provider.id, state: .error(message))
+            return .failed(message)
         }
 
         guard let scriptPath = stagedScriptPath(for: provider) else {
@@ -50,8 +64,7 @@ final class HookInstaller {
             return .failed(message)
         }
 
-        guard stagedResourcesReady(for: provider, scriptPath: scriptPath) else {
-            let message = "Staged hook resource is missing or not executable"
+        if let message = stagedResourceFailure(for: provider, scriptPath: scriptPath) {
             health.noteVerified(providerID: provider.id, state: .error(message))
             return .failed(message)
         }
@@ -63,6 +76,10 @@ final class HookInstaller {
     func forceReinstall(_ provider: AIProviderIntegration) -> Outcome {
         guard let scriptPath = stagedScriptPath(for: provider) else {
             let message = "Staged hook \(provider.hookScriptName) not found"
+            health.noteVerified(providerID: provider.id, state: .error(message))
+            return .failed(message)
+        }
+        if let message = stagedResourceFailure(for: provider, scriptPath: scriptPath) {
             health.noteVerified(providerID: provider.id, state: .error(message))
             return .failed(message)
         }
@@ -151,9 +168,17 @@ final class HookInstaller {
         hookScriptPath(provider.hookScriptName, provider.hookScriptExtension)
     }
 
-    private func stagedResourcesReady(for provider: AIProviderIntegration, scriptPath: String) -> Bool {
-        guard stagedFileExists(scriptPath) else { return false }
-        guard provider.hookScriptExtension == "sh" else { return true }
-        return stagedFileExecutable(scriptPath)
+    private func stagedResourceFailure(for provider: AIProviderIntegration, scriptPath: String) -> String? {
+        guard stagedFileExists(scriptPath) else {
+            return "Staged hook resource is missing"
+        }
+        if provider.hookScriptExtension == "sh", !stagedFileExecutable(scriptPath) {
+            return "Staged hook resource is not executable"
+        }
+        let binaryPath = stagedHookBinaryPath()
+        guard stagedFileExists(binaryPath), stagedFileExecutable(binaryPath) else {
+            return "Staged hook bridge is missing or not executable"
+        }
+        return nil
     }
 }

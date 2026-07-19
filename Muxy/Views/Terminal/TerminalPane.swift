@@ -236,15 +236,7 @@ struct TerminalBridge: NSViewRepresentable {
         view.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
         }
-        view.onDetectedAgentChange = { [weak state] providerID in
-            guard let paneID = state?.id else { return }
-            DetectedAgentStore.shared.setAgent(providerID, for: paneID)
-            if providerID == nil {
-                AgentStatusStore.shared.noteDetectionLost(paneID: paneID)
-                return
-            }
-            AgentStatusStore.shared.noteDetectionActive(paneID: paneID)
-        }
+        configureAgentDetectionCallback(view)
         view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
         configureFileOpenCallback(view)
@@ -290,15 +282,7 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
         }
-        nsView.onDetectedAgentChange = { [weak state] providerID in
-            guard let paneID = state?.id else { return }
-            DetectedAgentStore.shared.setAgent(providerID, for: paneID)
-            if providerID == nil {
-                AgentStatusStore.shared.noteDetectionLost(paneID: paneID)
-                return
-            }
-            AgentStatusStore.shared.noteDetectionActive(paneID: paneID)
-        }
+        configureAgentDetectionCallback(nsView)
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)
         configureProgressCallback(nsView)
@@ -341,6 +325,21 @@ struct TerminalBridge: NSViewRepresentable {
                     ExternalDragHoverUserInfoKey.isHovering: hovering,
                     ExternalDragHoverUserInfoKey.areaID: areaID,
                 ]
+            )
+        }
+    }
+
+    private func configureAgentDetectionCallback(_ view: GhosttyTerminalNSView) {
+        view.onDetectedAgentChange = { [weak state, weak view] providerID in
+            guard let paneID = state?.id else { return }
+            DetectedAgentStore.shared.setAgent(providerID, for: paneID)
+            guard providerID != nil else {
+                AgentStatusStore.shared.noteDetectionLost(paneID: paneID)
+                return
+            }
+            AgentStatusStore.shared.noteDetectionActive(
+                paneID: paneID,
+                processID: view?.foregroundProcessID
             )
         }
     }

@@ -47,13 +47,37 @@ public struct AgentHookSocketClient {
     }
 
     public func send(_ message: AgentHookEventMessage, to socketPath: String) throws {
+        try send(
+            message,
+            to: socketPath,
+            availableBudget: totalBudget
+        )
+    }
+
+    public func send(
+        _ message: AgentHookEventMessage,
+        to socketPath: String,
+        budget: AgentHookExecutionBudget
+    ) throws {
+        try send(
+            message,
+            to: socketPath,
+            availableBudget: min(totalBudget, budget.remainingDuration)
+        )
+    }
+
+    private func send(
+        _ message: AgentHookEventMessage,
+        to socketPath: String,
+        availableBudget: TimeInterval
+    ) throws {
         guard maximumAttempts > 0 else { throw AgentHookSocketError.noAttempts }
         let line = try AgentHookWireCodec.encodeEventLine(message)
         let start = elapsed()
         var lastError: (any Error)?
 
         for attempt in 0 ..< maximumAttempts {
-            let remaining = totalBudget - (elapsed() - start)
+            let remaining = availableBudget - (elapsed() - start)
             guard remaining > 0 else { break }
             do {
                 try sendAttempt(socketPath, line, remaining)
@@ -61,7 +85,7 @@ public struct AgentHookSocketClient {
             } catch {
                 lastError = error
                 guard attempt + 1 < maximumAttempts else { break }
-                let afterAttempt = totalBudget - (elapsed() - start)
+                let afterAttempt = availableBudget - (elapsed() - start)
                 guard afterAttempt > retryDelay else { break }
                 sleep(retryDelay)
             }
@@ -76,7 +100,7 @@ public struct AgentHookSocketClient {
         defer { close(descriptor) }
 
         try configure(descriptor: descriptor)
-        let deadline = MonotonicDeadline(timeout: remainingBudget)
+        let deadline = AgentHookExecutionBudget(duration: remainingBudget)
         try connect(descriptor: descriptor, socketPath: socketPath, deadline: deadline)
         try exchange(line: line, descriptor: descriptor, deadline: deadline)
     }
@@ -90,7 +114,7 @@ public struct AgentHookSocketClient {
         try exchange(
             line: line,
             descriptor: descriptor,
-            deadline: MonotonicDeadline(timeout: remainingBudget)
+            deadline: AgentHookExecutionBudget(duration: remainingBudget)
         )
     }
 
@@ -111,7 +135,7 @@ public struct AgentHookSocketClient {
         }
     }
 
-    private static func exchange(line: Data, descriptor: Int32, deadline: MonotonicDeadline) throws {
+    private static func exchange(line: Data, descriptor: Int32, deadline: AgentHookExecutionBudget) throws {
         try write(line, to: descriptor, deadline: deadline)
         let acknowledgementData = try readLine(from: descriptor, deadline: deadline)
         let acknowledgement = try AgentHookWireCodec.decodeAcknowledgementLine(acknowledgementData)
@@ -124,7 +148,7 @@ public struct AgentHookSocketClient {
     private static func connect(
         descriptor: Int32,
         socketPath: String,
-        deadline: MonotonicDeadline
+        deadline: AgentHookExecutionBudget
     ) throws {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -171,7 +195,7 @@ public struct AgentHookSocketClient {
     private static func write(
         _ data: Data,
         to descriptor: Int32,
-        deadline: MonotonicDeadline
+        deadline: AgentHookExecutionBudget
     ) throws {
         try data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else { return }
@@ -202,7 +226,7 @@ public struct AgentHookSocketClient {
         }
     }
 
-    private static func readLine(from descriptor: Int32, deadline: MonotonicDeadline) throws -> Data {
+    private static func readLine(from descriptor: Int32, deadline: AgentHookExecutionBudget) throws -> Data {
         var collected = Data()
         var buffer = [UInt8](repeating: 0, count: 512)
 
@@ -235,7 +259,7 @@ public struct AgentHookSocketClient {
     private static func waitForReadiness(
         descriptor: Int32,
         events: Int16,
-        deadline: MonotonicDeadline
+        deadline: AgentHookExecutionBudget
     ) throws {
         while true {
             guard let timeout = deadline.pollTimeoutMilliseconds else {
@@ -258,25 +282,5 @@ public struct AgentHookSocketClient {
 
     private static func socketError(_ code: Int32 = errno) -> AgentHookSocketError {
         AgentHookSocketError.socketOperation(String(cString: strerror(code)))
-    }
-
-    private struct MonotonicDeadline {
-        let uptimeNanoseconds: UInt64
-
-        init(timeout: TimeInterval) {
-            let now = DispatchTime.now().uptimeNanoseconds
-            let boundedTimeout = max(0, min(timeout, TimeInterval(Int32.max)))
-            let interval = UInt64(boundedTimeout * 1_000_000_000)
-            let addition = now.addingReportingOverflow(interval)
-            uptimeNanoseconds = addition.overflow ? UInt64.max : addition.partialValue
-        }
-
-        var pollTimeoutMilliseconds: Int32? {
-            let now = DispatchTime.now().uptimeNanoseconds
-            guard uptimeNanoseconds > now else { return nil }
-            let remaining = uptimeNanoseconds - now
-            let milliseconds = remaining / 1_000_000 + (remaining % 1_000_000 == 0 ? 0 : 1)
-            return Int32(min(max(milliseconds, 1), UInt64(Int32.max)))
-        }
     }
 }

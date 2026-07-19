@@ -566,10 +566,9 @@ final class NotificationSocketServer: @unchecked Sendable {
            let agentHookEvent = Self.parseAgentHookEventMessage(Data(trimmed.utf8))
         {
             acknowledgeAgentHookEvent(session: session)
-            let isFirstDelivery = appliedAgentHookEventIDs
-                .registerAndCheckIsFirstDelivery(agentHookEvent.id)
+            guard appliedAgentHookEventIDs.registerAndCheckIsFirstDelivery(agentHookEvent.id) else { return }
             DispatchQueue.main.async { [weak self] in
-                self?.dispatchAgentHookEvent(agentHookEvent, suppressNotification: !isFirstDelivery)
+                self?.dispatchAgentHookEvent(agentHookEvent)
             }
             return
         }
@@ -828,7 +827,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func dispatchAgentLifecycle(_ message: AgentLifecycleMessage, suppressNotification: Bool = false) {
+    private func dispatchAgentLifecycle(_ message: AgentLifecycleMessage) {
         guard let appState = NotificationStore.shared.appState else { return }
         guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.socketType) else {
             return
@@ -841,7 +840,6 @@ final class NotificationSocketServer: @unchecked Sendable {
             sequence: AgentStatusStore.shared.nextSequence(),
             appState: appState
         )
-        guard !suppressNotification else { return }
         guard !message.title.isEmpty || !message.body.isEmpty else { return }
         dispatchNotification(
             type: message.socketType,
@@ -852,9 +850,9 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func dispatchAgentHookEvent(_ message: AgentHookEventMessage, suppressNotification: Bool = false) {
+    private func dispatchAgentHookEvent(_ message: AgentHookEventMessage) {
         if message.test {
-            dispatchAgentHookTest(message, suppressNotification: suppressNotification)
+            dispatchAgentHookTest(message)
             return
         }
         let paneID: UUID
@@ -875,15 +873,14 @@ final class NotificationSocketServer: @unchecked Sendable {
             phase: phase,
             title: message.title,
             body: message.body
-        ), suppressNotification: suppressNotification)
+        ))
     }
 
     @MainActor
-    private func dispatchAgentHookTest(_ message: AgentHookEventMessage, suppressNotification: Bool) {
+    private func dispatchAgentHookTest(_ message: AgentHookEventMessage) {
         guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.provider)
         else { return }
         HookHealthStore.shared.noteEvent(providerID: providerID)
-        guard !suppressNotification else { return }
 
         let title = message.title.isEmpty ? "Notifications" : message.title
         let paneIDString = message.paneID.flatMap { UUID(uuidString: $0) }?.uuidString

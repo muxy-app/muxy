@@ -17,7 +17,7 @@ enum HookConfigWriter {
             attributes: [.posixPermissions: FilePermissions.privateDirectory]
         )
 
-        writeBackupIfNeeded(path: path)
+        try writeBackupIfNeeded(path: path)
 
         let fileURL = URL(fileURLWithPath: path)
         try data.write(to: fileURL, options: .atomic)
@@ -32,11 +32,16 @@ enum HookConfigWriter {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func writeBackupIfNeeded(path: String) {
+    private static func writeBackupIfNeeded(path: String) throws {
         let backupPath = path + backupSuffix
         guard FileManager.default.fileExists(atPath: path) else { return }
-        guard !FileManager.default.fileExists(atPath: backupPath) else { return }
-        try? FileManager.default.copyItem(atPath: path, toPath: backupPath)
+        if !FileManager.default.fileExists(atPath: backupPath) {
+            try FileManager.default.copyItem(atPath: path, toPath: backupPath)
+        }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateFile],
+            ofItemAtPath: backupPath
+        )
     }
 }
 

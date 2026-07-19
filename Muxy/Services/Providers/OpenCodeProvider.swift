@@ -61,33 +61,42 @@ struct OpenCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         guard FileManager.default.contentsEqual(atPath: hookScriptPath, andPath: pluginPath) else {
             return .needsRepair
         }
+        guard installedPluginHasPrivatePermissions() else { return .needsRepair }
         return .satisfied
     }
 
     func install(hookScriptPath: String) throws {
         let sourceData = try Data(contentsOf: URL(fileURLWithPath: hookScriptPath))
 
-        if FileManager.default.fileExists(atPath: pluginPath),
-           let existingData = try? Data(contentsOf: URL(fileURLWithPath: pluginPath)),
-           existingData == sourceData
-        {
-            return
-        }
-
         try FileManager.default.createDirectory(
             atPath: pluginsDirectory,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: FilePermissions.privateDirectory]
         )
-        try sourceData.write(to: URL(fileURLWithPath: pluginPath), options: .atomic)
+        let pluginURL = URL(fileURLWithPath: pluginPath)
+        let existingData = try? Data(contentsOf: pluginURL)
+        let contentChanged = existingData != sourceData
+        if contentChanged {
+            try sourceData.write(to: pluginURL, options: .atomic)
+        }
         try FileManager.default.setAttributes(
             [.posixPermissions: FilePermissions.privateFile],
             ofItemAtPath: pluginPath
         )
+        if contentChanged {
+            HookConfigWriteLedger.shared.recordWrite(path: pluginPath, contents: sourceData)
+        }
     }
 
     func uninstall() throws {
         guard FileManager.default.fileExists(atPath: pluginPath) else { return }
         try FileManager.default.removeItem(atPath: pluginPath)
+    }
+
+    private func installedPluginHasPrivatePermissions() -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: pluginPath),
+              let permissions = attributes[.posixPermissions] as? NSNumber
+        else { return false }
+        return permissions.intValue == FilePermissions.privateFile
     }
 }

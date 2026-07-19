@@ -121,7 +121,10 @@ struct GrokProvider: AIProviderIntegration, AIAgentLaunchProvider {
         into hooks: [String: Any]
     ) -> [String: Any]? {
         let alreadyInstalled = commands.allSatisfy {
-            muxyHookMatches(entries: hooks[$0.settingsKey] as? [[String: Any]], expectedCommand: $0.command)
+            ClaudeCodeProvider.hasSingleMuxyHook(
+                entries: hooks[$0.settingsKey] as? [[String: Any]],
+                expectedCommand: $0.command
+            )
         }
         guard !alreadyInstalled else { return nil }
 
@@ -138,8 +141,8 @@ struct GrokProvider: AIProviderIntegration, AIAgentLaunchProvider {
     static func hooks(uninstallingFrom hooks: [String: Any]) -> [String: Any] {
         var result = hooks
         for key in hookEvents.map(\.settingsKey) {
-            guard var entries = result[key] as? [[String: Any]] else { continue }
-            entries.removeAll { isMuxyHookEntry($0) }
+            guard let existing = result[key] as? [[String: Any]] else { continue }
+            let entries = ClaudeCodeProvider.removingMuxyHooks(fromNested: existing)
             if entries.isEmpty {
                 result.removeValue(forKey: key)
             } else {
@@ -166,33 +169,13 @@ struct GrokProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ]
     }
 
-    private static func muxyHookMatches(entries: [[String: Any]]?, expectedCommand: String) -> Bool {
-        guard let entries else { return false }
-        return entries.contains { entry in
-            guard let hooks = entry["hooks"] as? [[String: Any]] else { return false }
-            return hooks.contains { hook in
-                guard let command = hook["command"] as? String else { return false }
-                return command == expectedCommand
-            }
-        }
-    }
-
     private static func mergeHookArray(
         existing: [[String: Any]]?,
         muxyHook: [String: Any]
     ) -> [[String: Any]] {
-        var entries = existing ?? []
-        entries.removeAll { isMuxyHookEntry($0) }
+        var entries = ClaudeCodeProvider.removingMuxyHooks(fromNested: existing ?? [])
         entries.append(muxyHook)
         return entries
-    }
-
-    private static func isMuxyHookEntry(_ entry: [String: Any]) -> Bool {
-        guard let hooks = entry["hooks"] as? [[String: Any]] else { return false }
-        return hooks.contains { hook in
-            guard let command = hook["command"] as? String else { return false }
-            return command.contains(muxyMarker)
-        }
     }
 
     private static func readHooksFile(at path: String) throws -> [String: Any] {

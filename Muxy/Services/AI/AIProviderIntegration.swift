@@ -124,7 +124,7 @@ final class AIProviderRegistry {
     }
 
     func prepareForInstallation() {
-        stageHookResourcesIfNeeded()
+        _ = stageHookResourcesIfNeeded()
         #if DEBUG
         guard shouldInstallHooksInDebug() else { return }
         #endif
@@ -139,7 +139,17 @@ final class AIProviderRegistry {
         }
         #endif
 
-        stageHookResourcesIfNeeded()
+        let stagingSucceeded = stageHookResourcesIfNeeded()
+
+        guard stagingSucceeded else {
+            for provider in providers {
+                installer.reconcile(provider, stagingSucceeded: false)
+                if !provider.isEnabled {
+                    updateConfigWatcher(for: provider)
+                }
+            }
+            return
+        }
 
         let hasDisabledManagedOnly = providers.allSatisfy { !$0.isEnabled }
         if !hasDisabledManagedOnly {
@@ -153,15 +163,20 @@ final class AIProviderRegistry {
     }
 
     func forceInstall(_ provider: AIProviderIntegration) async {
-        guard stageHookResourcesNow() else { return }
+        guard stageHookResourcesNow() else {
+            installer.reconcile(provider, stagingSucceeded: false)
+            return
+        }
         await loginShellPathHydrationTask().value
         installer.forceReinstall(provider)
         updateConfigWatcher(for: provider)
     }
 
     func reconcile(_ provider: AIProviderIntegration) {
-        installer.reconcile(provider)
-        updateConfigWatcher(for: provider)
+        installer.reconcile(provider, stagingSucceeded: hookResourcesStaged)
+        if hookResourcesStaged || !provider.isEnabled {
+            updateConfigWatcher(for: provider)
+        }
     }
 
     private func updateConfigWatcher(for provider: AIProviderIntegration) {
@@ -192,7 +207,7 @@ final class AIProviderRegistry {
             return
         }
 
-        installer.reconcile(provider)
+        installer.reconcile(provider, stagingSucceeded: hookResourcesStaged)
     }
 
     private func loginShellPathHydrationTask() -> Task<Void, Never> {
@@ -207,13 +222,14 @@ final class AIProviderRegistry {
         return task
     }
 
-    private func stageHookResourcesIfNeeded() {
-        guard !hookResourcesStaged else { return }
-        _ = stageHookResourcesNow()
+    private func stageHookResourcesIfNeeded() -> Bool {
+        guard !hookResourcesStaged else { return true }
+        return stageHookResourcesNow()
     }
 
     private func stageHookResourcesNow() -> Bool {
         guard stageHookResources() else {
+            hookResourcesStaged = false
             logger.error("Failed to stage AI hook resources")
             return false
         }

@@ -70,6 +70,7 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
         guard FileManager.default.contentsEqual(atPath: hookScriptPath, andPath: destinationPath) else {
             return .needsRepair
         }
+        guard installedExtensionHasPrivatePermissions() else { return .needsRepair }
         guard !isRegisteredInSettings() else { return .needsRepair }
         return .satisfied
     }
@@ -83,6 +84,7 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
            let existingData = try? Data(contentsOf: URL(fileURLWithPath: destinationPath)),
            existingData == sourceData
         {
+            try setPrivatePermissionsOnInstalledExtension()
             try unregisterExtensionFromSettings()
             return
         }
@@ -99,6 +101,8 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
         }
 
         try sourceData.write(to: destURL, options: .atomic)
+        try setPrivatePermissionsOnInstalledExtension()
+        HookConfigWriteLedger.shared.recordWrite(path: destinationPath, contents: sourceData)
         try unregisterExtensionFromSettings()
     }
 
@@ -140,6 +144,20 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
               let extensions = json["extensions"] as? [String]
         else { return false }
         return extensions.contains(destinationPath)
+    }
+
+    private func setPrivatePermissionsOnInstalledExtension() throws {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateFile],
+            ofItemAtPath: destinationPath
+        )
+    }
+
+    private func installedExtensionHasPrivatePermissions() -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: destinationPath),
+              let permissions = attributes[.posixPermissions] as? NSNumber
+        else { return false }
+        return permissions.intValue == FilePermissions.privateFile
     }
 }
 

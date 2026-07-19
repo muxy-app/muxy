@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 enum AgentStatus: String, Equatable, Codable {
@@ -84,25 +85,32 @@ final class AgentStatusStore {
     private var appliedSequence: [UUID: UInt64] = [:]
     private var pendingGrace: [UUID: AgentGraceCancellable] = [:]
     private var detectionLost: Set<UUID> = []
+    private var detectedAgentProcessIDs: [UUID: Int32] = [:]
     private var sequenceCounter: UInt64 = 0
 
     private let scheduler: AgentGraceScheduler
     private let graceDelay: TimeInterval
     private let waitingGraceDelay: TimeInterval
-    private let isAgentProcessAlive: @MainActor (UUID) -> Bool
+    private let foregroundProcessID: @MainActor (UUID) -> Int32?
+    private let processIsAlive: @MainActor (Int32) -> Bool
+    private let agentProcessLivenessOverride: (@MainActor (UUID) -> Bool)?
 
     init(
         scheduler: AgentGraceScheduler = DispatchAgentGraceScheduler(),
         graceDelay: TimeInterval = AgentStatusStore.detectionLossGrace,
         waitingGraceDelay: TimeInterval = AgentStatusStore.waitingDetectionLossGrace,
-        isAgentProcessAlive: @escaping @MainActor (UUID) -> Bool = { paneID in
-            DetectedAgentStore.shared.agent(for: paneID) != nil
-        }
+        foregroundProcessID: @escaping @MainActor (UUID) -> Int32? = { paneID in
+            TerminalViewRegistry.shared.existingView(for: paneID)?.foregroundProcessID
+        },
+        processIsAlive: @escaping @MainActor (Int32) -> Bool = AgentStatusStore.processIsAlive,
+        isAgentProcessAlive: (@MainActor (UUID) -> Bool)? = nil
     ) {
         self.scheduler = scheduler
         self.graceDelay = graceDelay
         self.waitingGraceDelay = waitingGraceDelay
-        self.isAgentProcessAlive = isAgentProcessAlive
+        self.foregroundProcessID = foregroundProcessID
+        self.processIsAlive = processIsAlive
+        agentProcessLivenessOverride = isAgentProcessAlive
     }
 
     func nextSequence() -> UInt64 {
@@ -116,9 +124,8 @@ final class AgentStatusStore {
         }
         appliedSequence[paneID] = sequence
 
-        cancelGrace(for: paneID)
-
         if let existing = panes[paneID], existing.status == status, existing.providerID == providerID {
+            resetGraceIfNeeded(for: paneID, status: status)
             return
         }
 
@@ -130,6 +137,7 @@ final class AgentStatusStore {
               )
         else { return }
 
+        cancelGrace(for: paneID)
         applyEntry(Entry(
             worktreeID: context.worktreeID,
             projectID: context.projectID,
@@ -139,30 +147,37 @@ final class AgentStatusStore {
             updatedAt: Date(),
             sequence: sequence
         ))
+        scheduleGraceIfNeeded(for: paneID, status: status)
     }
 
     func removePane(_ paneID: UUID) {
         cancelGrace(for: paneID)
         detectionLost.remove(paneID)
+        detectedAgentProcessIDs.removeValue(forKey: paneID)
         appliedSequence.removeValue(forKey: paneID)
         completionPending.remove(paneID)
         guard let removed = panes.removeValue(forKey: paneID) else { return }
         recompute(worktreeID: removed.worktreeID)
     }
 
-    func noteDetectionActive(paneID: UUID) {
+    func noteDetectionActive(paneID: UUID, processID: Int32?) {
         detectionLost.remove(paneID)
         cancelGrace(for: paneID)
+        if let processID {
+            detectedAgentProcessIDs[paneID] = processID
+            return
+        }
+        detectedAgentProcessIDs.removeValue(forKey: paneID)
+    }
+
+    func noteDetectionActive(paneID: UUID) {
+        noteDetectionActive(paneID: paneID, processID: foregroundProcessID(paneID))
     }
 
     func noteDetectionLost(paneID: UUID) {
         detectionLost.insert(paneID)
         guard let existing = panes[paneID], existing.status != .idle else { return }
-        guard pendingGrace[paneID] == nil else { return }
-        let delay = existing.status == .waiting ? waitingGraceDelay : graceDelay
-        pendingGrace[paneID] = scheduler.schedule(after: delay) { [weak self] in
-            self?.resolveGrace(for: paneID)
-        }
+        scheduleGraceIfNeeded(for: paneID, status: existing.status)
     }
 
     func clearCompletion(for paneID: UUID) {
@@ -211,7 +226,8 @@ final class AgentStatusStore {
         pendingGrace.removeValue(forKey: paneID)
         guard detectionLost.contains(paneID) else { return }
         guard let existing = panes[paneID], existing.status != .idle else { return }
-        if existing.status == .waiting, isAgentProcessAlive(paneID) {
+        if existing.status == .waiting, isDetectedAgentProcessAlive(paneID: paneID) {
+            scheduleGraceIfNeeded(for: paneID, status: existing.status)
             return
         }
         let sequence = nextSequence()
@@ -227,8 +243,39 @@ final class AgentStatusStore {
         ))
     }
 
+    private func isDetectedAgentProcessAlive(paneID: UUID) -> Bool {
+        if let agentProcessLivenessOverride {
+            return agentProcessLivenessOverride(paneID)
+        }
+        guard let detectedProcessID = detectedAgentProcessIDs[paneID] else { return false }
+        return processIsAlive(detectedProcessID)
+    }
+
+    private func resetGraceIfNeeded(for paneID: UUID, status: AgentStatus) {
+        cancelGrace(for: paneID)
+        guard detectedAgentProcessIDs[paneID] != nil else { return }
+        scheduleGraceIfNeeded(for: paneID, status: status)
+    }
+
+    private func scheduleGraceIfNeeded(for paneID: UUID, status: AgentStatus) {
+        guard detectionLost.contains(paneID), status != .idle else { return }
+        guard pendingGrace[paneID] == nil else { return }
+        let delay = status == .waiting ? waitingGraceDelay : graceDelay
+        pendingGrace[paneID] = scheduler.schedule(after: delay) { [weak self] in
+            self?.resolveGrace(for: paneID)
+        }
+    }
+
     private func cancelGrace(for paneID: UUID) {
         pendingGrace.removeValue(forKey: paneID)?.cancel()
+    }
+
+    nonisolated private static func processIsAlive(_ processID: Int32) -> Bool {
+        guard processID > 0 else { return false }
+        if Darwin.kill(processID, 0) == 0 {
+            return true
+        }
+        return errno == EPERM
     }
 
     private func applyEntry(_ entry: Entry) {

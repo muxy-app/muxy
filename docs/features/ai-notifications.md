@@ -11,7 +11,7 @@ There are two independent sources of truth, and hooks are authoritative.
 
 When detection reports that a working agent is no longer active, Muxy waits a short grace window (4 seconds) for a hook `finished` event before falling back to marking the pane idle. A hook event arriving inside the window always wins, so a correctly hooked agent is never idled prematurely by detection.
 
-A `waiting` pane is handled more conservatively, because a waiting agent still has a live process and must never be idled just for leaving the foreground. It uses a much longer window (30 seconds), and at the end of it Muxy idles the pane only if the agent process is also gone. This recovers panes whose agent was killed before its `Stop` hook could run, without cutting short an agent that is genuinely waiting on input.
+A `waiting` pane is handled more conservatively, because a waiting agent still has a live process and must never be idled just for leaving the foreground. It uses a much longer window (30 seconds), and Muxy records the detected process ID before detection is lost. At the end of each window, Muxy idles the pane only if that process is gone; a live process schedules another low-frequency check. This recovers panes whose agent was killed before its `Stop` hook could run, without cutting short an agent that is genuinely waiting on input.
 
 ## Protocol (v3)
 
@@ -28,9 +28,11 @@ Hooks talk to Muxy over a Unix domain socket at `~/Library/Application Support/M
 
 The server replies with `{"v":3,"kind":"ack","ok":true}`. Events with the wrong version, wrong kind, empty provider, or a malformed pane id are rejected without an ack. This is the only agent protocol Muxy accepts; there is no pipe-format fallback.
 
+The bridge accepts at most 1 MiB from standard input and uses one monotonic 400 ms execution budget across input reading, socket connection, writes, acknowledgement reads, and retries. Reaching the payload cap returns immediately instead of draining the rest of standard input.
+
 ### Duplicate suppression
 
-The bridge retries an event when an ack does not arrive within its delivery budget, so a lost or slow ack can deliver the same event twice. The server remembers the 256 most recently applied `id` values (FIFO eviction) and, on a repeat, still acks — so the client stops retrying — while suppressing the notification, so no duplicate toast appears. The status update still runs and is idempotent. An event with a missing or empty `id` is never deduplicated and is always delivered.
+The bridge retries an event when an ack does not arrive within its delivery budget, so a lost or slow ack can deliver the same event twice. The server remembers the 256 most recently applied `id` values (FIFO eviction) and, on a repeat, still acks so the client stops retrying, then skips the event entirely. Duplicate deliveries do not update agent status, hook health, event time, or notifications. An event with a missing or empty `id` is never deduplicated and is always delivered.
 
 ## Staging layout
 
@@ -40,11 +42,13 @@ The compiled hook bridge (`muxy-hook`) and the provider shims are staged into `~
 - `muxy-claude-hook.sh`, `muxy-codex-hook.sh`, `muxy-cursor-hook.sh`, `muxy-droid-hook.sh`, `muxy-grok-hook.sh` — thin shell shims that exec the colocated `muxy-hook`.
 - `opencode-muxy-plugin.js`, `muxy-pi-extension.ts` — plugin/extension entry points that spawn the staged `muxy-hook`. When the binary is missing they log a clear error to their own stderr and skip the event. That stderr never reaches Muxy, so nothing restages automatically — use **Refresh** in Settings to restage.
 
+Reconciliation starts only after the complete staged resource set is available. Each provider also verifies that the shared `muxy-hook` bridge exists and is executable, so a stale shim or plugin cannot report healthy while its bridge is missing.
+
 Terminals export `MUXY_PANE_ID`, `MUXY_SOCKET_PATH`, `MUXY_HOOK_BIN`, `MUXY_HOOK_SCRIPT`, `MUXY_PROJECT_ID`, and `MUXY_WORKTREE_ID` so shims and plugins can reach the socket and binary and identify their context.
 
 ## Health and repair engine
 
-Each provider integration is reconciled declaratively: Muxy **verifies** the provider's hook configuration against what it should be and **repairs** it in place when it drifts, preserving any foreign hooks the user configured. Reconciliation runs at launch, when a provider becomes available, and whenever a provider's config file changes — the latter is watched with FSEvents and debounced, so an external edit to `~/.claude`, `~/.codex`, and the like triggers an automatic re-verify without polling.
+Each provider integration is reconciled declaratively: Muxy **verifies** that every managed event has exactly one current Muxy hook and **repairs** stale or duplicate entries in place when it drifts, preserving any foreign hooks the user configured. Reconciliation runs at launch, when a provider becomes available, and whenever a provider's config file changes — the latter is watched with FSEvents and debounced, so an external edit to `~/.claude`, `~/.codex`, and the like triggers an automatic re-verify without polling.
 
 Muxy records a hash of every config file it writes and ignores watcher events whose content matches its own last write, so a repair never re-triggers itself. A per-file rate limiter caps repairs within a rolling minute; when it trips — most commonly when a release and a debug build both manage the same config — Muxy stops rewriting and reports a `conflict` instead of spinning.
 

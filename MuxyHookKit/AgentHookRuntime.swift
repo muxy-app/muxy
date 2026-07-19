@@ -31,14 +31,22 @@ public struct AgentHookRuntime {
     }
 
     @discardableResult
-    public func run(command: AgentHookCommand, input: Data) -> RunResult {
+    public func run(
+        command: AgentHookCommand,
+        input: Data,
+        budget: AgentHookExecutionBudget? = nil
+    ) -> RunResult {
         guard let message = message(for: command, input: input) else { return .success }
         guard let socketPath = resolvedSocketPath else {
             return command.test ? .failure("No socket path configured") : .success
         }
 
         do {
-            try socketClient.send(message, to: socketPath)
+            if let budget {
+                try socketClient.send(message, to: socketPath, budget: budget)
+            } else {
+                try socketClient.send(message, to: socketPath)
+            }
             return .success
         } catch {
             failureLogger.append(

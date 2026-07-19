@@ -85,8 +85,15 @@ struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider {
 
         for event in Self.installedEvents {
             let expected = Self.hookCommand(hookScript: hookScriptPath, event: event.event)
-            let commands = ClaudeCodeProvider.commandStrings(inNested: hooks[event.settingsKey] as? [[String: Any]])
-            guard commands.contains(expected) else { return .needsRepair }
+            let entries = hooks[event.settingsKey] as? [[String: Any]]
+            guard Self.muxyHookMatches(entries: entries, expectedCommand: expected),
+                  Self.muxyHookEntryCount(entries) == 1
+            else { return .needsRepair }
+        }
+        let installedKeys = Set(Self.installedEvents.map(\.settingsKey))
+        for event in Self.removableEvents where !installedKeys.contains(event) {
+            let entries = hooks[event] as? [[String: Any]]
+            guard Self.muxyHookEntryCount(entries) == 0 else { return .needsRepair }
         }
         return .satisfied
     }

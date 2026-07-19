@@ -61,8 +61,15 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
 
         for binding in Self.bindings {
             let expected = Self.hookCommand(hookScript: hookScriptPath, argument: binding.argument)
-            let commands = (hooks[binding.event] as? [[String: Any]])?.compactMap { $0["command"] as? String } ?? []
-            guard commands.contains(expected) else { return .needsRepair }
+            let entries = hooks[binding.event] as? [[String: Any]]
+            guard Self.hasSingleMuxyHook(entries: entries, expectedCommand: expected) else {
+                return .needsRepair
+            }
+        }
+        let installedEvents = Set(Self.bindings.map(\.event))
+        for event in Self.removableEvents where !installedEvents.contains(event) {
+            let entries = hooks[event] as? [[String: Any]]
+            guard Self.muxyHookCount(entries) == 0 else { return .needsRepair }
         }
         return .satisfied
     }
@@ -89,7 +96,7 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
         for binding in Self.bindings {
             let command = Self.hookCommand(hookScript: hookScriptPath, argument: binding.argument)
             let existing = hooks[binding.event] as? [[String: Any]]
-            if Self.muxyHookMatches(entries: existing, expectedCommand: command) {
+            if Self.hasSingleMuxyHook(entries: existing, expectedCommand: command) {
                 continue
             }
             hooks[binding.event] = Self.mergeHookArray(existing: existing, command: command)
@@ -125,11 +132,18 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
         "\(ShellEscaper.quote(hookScript)) \(argument) # \(muxyMarker)"
     }
 
-    private static func muxyHookMatches(entries: [[String: Any]]?, expectedCommand: String) -> Bool {
-        guard let entries else { return false }
-        return entries.contains { entry in
-            (entry["command"] as? String) == expectedCommand
-        }
+    private static func hasSingleMuxyHook(entries: [[String: Any]]?, expectedCommand: String) -> Bool {
+        let muxyCommands = entries?.compactMap { entry -> String? in
+            guard let command = entry["command"] as? String,
+                  command.contains(muxyMarker)
+            else { return nil }
+            return command
+        } ?? []
+        return muxyCommands == [expectedCommand]
+    }
+
+    private static func muxyHookCount(_ entries: [[String: Any]]?) -> Int {
+        entries?.count(where: isMuxyHookEntry) ?? 0
     }
 
     private static func mergeHookArray(existing: [[String: Any]]?, command: String) -> [[String: Any]] {
