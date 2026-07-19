@@ -76,7 +76,7 @@ jobs:
             spm-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build tests
-        run: swift build --build-tests -v 2>&1 | tail -80
+        run: swift build --build-tests --quiet
 
       - name: Test
         run: swift test --quiet

@@ -5,7 +5,7 @@ enum SharedNotificationStateGate {
     private static var isBusy = false
     private static var waiters: [CheckedContinuation<Void, Never>] = []
 
-    static func run<T>(_ body: () async throws -> T) async rethrows -> T {
+    static func run<T>(_ body: () async throws -> sending T) async rethrows -> sending T {
         await acquire()
         defer { release() }
         return try await body()
