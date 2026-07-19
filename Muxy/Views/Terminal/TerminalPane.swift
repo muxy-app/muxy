@@ -240,8 +240,10 @@ struct TerminalBridge: NSViewRepresentable {
             guard let paneID = state?.id else { return }
             DetectedAgentStore.shared.setAgent(providerID, for: paneID)
             if providerID == nil {
-                AgentStatusStore.shared.markIdleIfActive(paneID: paneID)
+                AgentStatusStore.shared.noteDetectionLost(paneID: paneID)
+                return
             }
+            AgentStatusStore.shared.noteDetectionActive(paneID: paneID)
         }
         view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
@@ -292,8 +294,10 @@ struct TerminalBridge: NSViewRepresentable {
             guard let paneID = state?.id else { return }
             DetectedAgentStore.shared.setAgent(providerID, for: paneID)
             if providerID == nil {
-                AgentStatusStore.shared.markIdleIfActive(paneID: paneID)
+                AgentStatusStore.shared.noteDetectionLost(paneID: paneID)
+                return
             }
+            AgentStatusStore.shared.noteDetectionActive(paneID: paneID)
         }
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)

@@ -256,3 +256,213 @@ struct AgentStatusTests {
         #expect(AgentStatusStore.winningEntry(among: [older, newer]) == newer)
     }
 }
+
+@MainActor
+private final class ManualGraceScheduler: AgentGraceScheduler {
+    private(set) var items: [ManualGraceCancellable] = []
+
+    func schedule(after _: TimeInterval, _ work: @escaping @MainActor () -> Void) -> AgentGraceCancellable {
+        let item = ManualGraceCancellable(work: work)
+        items.append(item)
+        return item
+    }
+
+    var pendingCount: Int {
+        items.filter { !$0.isCancelled }.count
+    }
+
+    func fireLast() {
+        items.last?.fire()
+    }
+}
+
+@MainActor
+private final class ManualGraceCancellable: AgentGraceCancellable {
+    private let work: () -> Void
+    private(set) var isCancelled = false
+
+    init(work: @escaping @MainActor () -> Void) {
+        self.work = work
+    }
+
+    func cancel() {
+        isCancelled = true
+    }
+
+    func fire() {
+        guard !isCancelled else { return }
+        work()
+    }
+}
+
+@Suite("AgentStatusStore", .serialized)
+@MainActor
+struct AgentStatusStoreTests {
+    private let projectID = UUID()
+    private let worktreeID = UUID()
+
+    private func makeContext() -> (AgentStatusStore, ManualGraceScheduler, UUID) {
+        let scheduler = ManualGraceScheduler()
+        let store = AgentStatusStore(scheduler: scheduler, graceDelay: 4)
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = TabArea(projectPath: "/tmp/project")
+        appState.activeProjectID = projectID
+        appState.activeWorktreeID[projectID] = worktreeID
+        appState.workspaceRoots[key] = .tabArea(area)
+        appState.focusedAreaID[key] = area.id
+        let paneID = area.tabs.last!.content.pane!.id
+
+        NotificationStore.shared.appState = appState
+        NotificationStore.shared.worktreeStore = WorktreeStore(
+            persistence: WorktreePersistenceStub(),
+            projects: []
+        )
+        return (store, scheduler, paneID)
+    }
+
+    private func send(
+        _ store: AgentStatusStore,
+        _ paneID: UUID,
+        _ status: AgentStatus,
+        sequence: UInt64
+    ) {
+        guard let appState = NotificationStore.shared.appState else { return }
+        store.update(paneID: paneID, providerID: "claude", status: status, sequence: sequence, appState: appState)
+    }
+
+    @Test("drops stale out-of-order events")
+    func dropsStaleEvents() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 5)
+        send(store, paneID, .idle, sequence: 3)
+        #expect(store.status(forPane: paneID) == .working)
+    }
+
+    @Test("applies newer events after older ones")
+    func appliesNewerEvents() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        send(store, paneID, .waiting, sequence: 2)
+        #expect(store.status(forPane: paneID) == .waiting)
+    }
+
+    @Test("duplicate events are idempotent and mark completion once")
+    func duplicateEventsIdempotent() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        send(store, paneID, .idle, sequence: 2)
+        #expect(store.isCompletionPending(forPane: paneID))
+        store.clearCompletion(for: paneID)
+        send(store, paneID, .idle, sequence: 2)
+        #expect(!store.isCompletionPending(forPane: paneID))
+    }
+
+    @Test("completion badge fires exactly once per finish")
+    func completionFiresOncePerFinish() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        send(store, paneID, .idle, sequence: 2)
+        #expect(store.isCompletionPending(forPane: paneID))
+        store.clearCompletion(for: paneID)
+        send(store, paneID, .idle, sequence: 3)
+        #expect(!store.isCompletionPending(forPane: paneID))
+        send(store, paneID, .working, sequence: 4)
+        send(store, paneID, .idle, sequence: 5)
+        #expect(store.isCompletionPending(forPane: paneID))
+    }
+
+    @Test("detection loss idles a working agent only after grace with no hook events")
+    func detectionLossIdlesAfterGrace() {
+        let (store, scheduler, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        store.noteDetectionLost(paneID: paneID)
+        #expect(store.status(forPane: paneID) == .working)
+        scheduler.fireLast()
+        #expect(store.status(forPane: paneID) == .idle)
+        #expect(store.isCompletionPending(forPane: paneID))
+    }
+
+    @Test("hook event cancels a pending grace transition")
+    func hookEventCancelsGrace() {
+        let (store, scheduler, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        store.noteDetectionLost(paneID: paneID)
+        send(store, paneID, .working, sequence: 2)
+        #expect(scheduler.pendingCount == 0)
+        scheduler.fireLast()
+        #expect(store.status(forPane: paneID) == .working)
+    }
+
+    @Test("re-detection cancels a pending grace transition")
+    func reDetectionCancelsGrace() {
+        let (store, scheduler, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        store.noteDetectionLost(paneID: paneID)
+        store.noteDetectionActive(paneID: paneID)
+        #expect(scheduler.pendingCount == 0)
+        scheduler.fireLast()
+        #expect(store.status(forPane: paneID) == .working)
+    }
+
+    @Test("a waiting agent is never idled by detection loss")
+    func waitingNeverIdledByDetectionLoss() {
+        let (store, scheduler, paneID) = makeContext()
+        send(store, paneID, .waiting, sequence: 1)
+        store.noteDetectionLost(paneID: paneID)
+        #expect(scheduler.pendingCount == 0)
+        #expect(store.status(forPane: paneID) == .waiting)
+    }
+
+    @Test("grace does not idle when a hook event arrives before it fires")
+    func graceSkippedWhenHookArrives() {
+        let (store, scheduler, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        store.noteDetectionLost(paneID: paneID)
+        send(store, paneID, .waiting, sequence: 2)
+        scheduler.fireLast()
+        #expect(store.status(forPane: paneID) == .waiting)
+    }
+
+    @Test("pane close drops all session state")
+    func paneCloseDropsSessions() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        store.removePane(paneID)
+        #expect(store.status(forPane: paneID) == nil)
+        #expect(!store.isCompletionPending(forPane: paneID))
+        send(store, paneID, .idle, sequence: 1)
+        #expect(store.status(forPane: paneID) == .idle)
+    }
+}
+
+private final class WorkspacePersistenceStub: WorkspacePersisting {
+    func loadWorkspaces() throws -> [WorkspaceSnapshot] { [] }
+    func saveWorkspaces(_: [WorkspaceSnapshot]) throws {}
+}
+
+@MainActor
+private final class SelectionStoreStub: ActiveProjectSelectionStoring {
+    private var activeProjectID: UUID?
+    private var activeWorktreeIDs: [UUID: UUID] = [:]
+    func loadActiveProjectID() -> UUID? { activeProjectID }
+    func saveActiveProjectID(_ id: UUID?) { activeProjectID = id }
+    func loadActiveWorktreeIDs() -> [UUID: UUID] { activeWorktreeIDs }
+    func saveActiveWorktreeIDs(_ ids: [UUID: UUID]) { activeWorktreeIDs = ids }
+}
+
+@MainActor
+private final class TerminalViewRemovingStub: TerminalViewRemoving {
+    func removeView(for _: UUID) {}
+    func needsConfirmQuit(for _: UUID) -> Bool { false }
+}
+
+private final class WorktreePersistenceStub: WorktreePersisting {
+    func loadWorktrees(projectID _: UUID) throws -> [Worktree] { [] }
+    func saveWorktrees(_: [Worktree], projectID _: UUID) throws {}
+    func removeWorktrees(projectID _: UUID) throws {}
+}

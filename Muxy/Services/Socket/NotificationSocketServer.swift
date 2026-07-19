@@ -866,6 +866,7 @@ final class NotificationSocketServer: @unchecked Sendable {
             paneID: message.paneID,
             providerID: providerID,
             status: message.status,
+            sequence: AgentStatusStore.shared.nextSequence(),
             appState: appState
         )
     }
@@ -880,6 +881,7 @@ final class NotificationSocketServer: @unchecked Sendable {
             paneID: message.paneID,
             providerID: providerID,
             status: message.phase.status,
+            sequence: AgentStatusStore.shared.nextSequence(),
             appState: appState
         )
         guard !message.title.isEmpty || !message.body.isEmpty else { return }
