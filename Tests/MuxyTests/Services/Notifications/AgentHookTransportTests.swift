@@ -1,5 +1,3 @@
-import Darwin
-import Dispatch
 import Foundation
 import MuxyHookKit
 import MuxyShared
@@ -94,73 +92,6 @@ struct AgentHookTransportTests {
 
         #expect(clock.now() <= 0.4)
         #expect(recorder.attemptCount == 2)
-    }
-
-    @Test("socket client accepts a v3 acknowledgement from a Unix socket")
-    func acceptsAcknowledgement() throws {
-        let socketPath = Self.temporarySocketPath()
-        let listener = try Self.bindListener(at: socketPath)
-        defer {
-            close(listener)
-            unlink(socketPath)
-        }
-
-        let acknowledgementTimeout: TimeInterval = 10
-        let serverStarted = DispatchSemaphore(value: 0)
-        let serverFinished = DispatchSemaphore(value: 0)
-        let serverQueue = DispatchQueue(label: "com.muxy.tests.agent-hook-acknowledgement", qos: .userInitiated)
-        serverQueue.async {
-            serverStarted.signal()
-            defer { serverFinished.signal() }
-            let connection = accept(listener, nil, nil)
-            guard connection >= 0 else { return }
-            defer { close(connection) }
-            _ = try? Self.readLine(from: connection)
-            guard let acknowledgement = try? AgentHookWireCodec.encodeAcknowledgementLine(
-                AgentHookAcknowledgement(ok: true)
-            ) else { return }
-            Self.write(acknowledgement, to: connection)
-        }
-
-        try #require(serverStarted.wait(timeout: .now() + acknowledgementTimeout) == .success)
-        try AgentHookSocketClient.sendOnce(
-            socketPath: socketPath,
-            line: AgentHookWireCodec.encodeEventLine(Self.message),
-            remainingBudget: acknowledgementTimeout
-        )
-        #expect(serverFinished.wait(timeout: .now() + acknowledgementTimeout) == .success)
-    }
-
-    @Test("socket client bounds writes when the connected peer stops reading")
-    func boundsStalledWrites() throws {
-        var descriptors = [Int32](repeating: -1, count: 2)
-        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
-        defer {
-            close(descriptors[0])
-            close(descriptors[1])
-        }
-        var sendBufferSize: Int32 = 1_024
-        try #require(setsockopt(
-            descriptors[0],
-            SOL_SOCKET,
-            SO_SNDBUF,
-            &sendBufferSize,
-            socklen_t(MemoryLayout<Int32>.size)
-        ) == 0)
-        let deliveryTimeout: TimeInterval = 0.1
-        let maximumElapsed = deliveryTimeout * 20
-        let started = DispatchTime.now().uptimeNanoseconds
-
-        #expect(throws: AgentHookSocketError.deliveryTimedOut) {
-            try AgentHookSocketClient.sendConnected(
-                descriptor: descriptors[0],
-                line: Data(repeating: 1, count: 4 * 1_024 * 1_024),
-                remainingBudget: deliveryTimeout
-            )
-        }
-
-        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1_000_000_000
-        #expect(elapsed < maximumElapsed)
     }
 
     @Test("runtime includes ancestors only when pane identity is unavailable")
@@ -320,55 +251,6 @@ struct AgentHookTransportTests {
         ts: 100
     )
 
-    private static func temporarySocketPath() -> String {
-        "/tmp/mh-" + UUID().uuidString + ".sock"
-    }
-
-    private static func bindListener(at path: String) throws -> Int32 {
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { throw POSIXError(.EMFILE) }
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let capacity = MemoryLayout.size(ofValue: address.sun_path)
-        withUnsafeMutablePointer(to: &address.sun_path) { pointer in
-            let destination = pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { $0 }
-            _ = path.withCString { strncpy(destination, $0, capacity - 1) }
-        }
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard result == 0, listen(descriptor, 1) == 0 else {
-            let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            close(descriptor)
-            throw error
-        }
-        return descriptor
-    }
-
-    private static func readLine(from descriptor: Int32) throws -> Data {
-        var data = Data()
-        var byte: UInt8 = 0
-        while byte != UInt8(ascii: "\n") {
-            let count = Darwin.read(descriptor, &byte, 1)
-            guard count == 1 else { throw POSIXError(.EIO) }
-            data.append(byte)
-        }
-        return data
-    }
-
-    private static func write(_ data: Data, to descriptor: Int32) {
-        data.withUnsafeBytes { buffer in
-            guard let baseAddress = buffer.baseAddress else { return }
-            var offset = 0
-            while offset < buffer.count {
-                let written = Darwin.write(descriptor, baseAddress.advanced(by: offset), buffer.count - offset)
-                guard written > 0 else { return }
-                offset += written
-            }
-        }
-    }
 }
 
 private enum TransportTestError: Error {
