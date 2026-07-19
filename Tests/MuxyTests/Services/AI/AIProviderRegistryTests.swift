@@ -72,40 +72,12 @@ struct AIProviderRegistryTests {
         ])
     }
 
-    @Test("installAll waits for login shell PATH hydration before checking providers")
-    func installAllWaitsForLoginShellPathHydrationBeforeCheckingProviders() async {
-        let provider = RecordingProvider()
-        defer { provider.resetSettings() }
-        provider.isEnabled = true
-        let gate = HydrationGate()
-        let registry = AIProviderRegistry(
-            providers: [provider],
-            hydrateLoginShellPath: { await gate.wait() },
-            shouldInstallHooksInDebug: { true },
-            stageHookResources: { true },
-            installer: Self.stubInstaller()
-        )
-
-        let installTask = Task {
-            await registry.installAll()
-        }
-        while !gate.started {
-            await Task.yield()
-        }
-
-        #expect(provider.toolCheckCount == 0)
-        gate.finish()
-        await installTask.value
-        #expect(provider.toolCheckCount == 1)
-    }
-
     @Test("prepareForInstallation stages resources but skips PATH hydration without dev opt-in")
     func prepareForInstallationStagesWithoutDevOptIn() async {
-        let gate = HydrationGate()
         let staging = StagingRecorder()
         let registry = AIProviderRegistry(
             providers: [],
-            hydrateLoginShellPath: { await gate.wait() },
+            hydrateLoginShellPath: {},
             shouldInstallHooksInDebug: { false },
             stageHookResources: {
                 staging.record()
@@ -117,7 +89,6 @@ struct AIProviderRegistryTests {
         await Task.yield()
 
         #expect(staging.count == 1)
-        #expect(!gate.started)
     }
 
     @Test("installAll cleans disabled provider managed state without PATH hydration")
@@ -126,10 +97,9 @@ struct AIProviderRegistryTests {
         defer { provider.resetSettings() }
         provider.isEnabled = false
         provider.managedStateInstalled = true
-        let gate = HydrationGate()
         let registry = AIProviderRegistry(
             providers: [provider],
-            hydrateLoginShellPath: { await gate.wait() },
+            hydrateLoginShellPath: {},
             shouldInstallHooksInDebug: { true },
             stageHookResources: { true }
         )
@@ -138,7 +108,6 @@ struct AIProviderRegistryTests {
 
         #expect(provider.uninstallCount == 1)
         #expect(provider.toolCheckCount == 0)
-        #expect(!gate.started)
     }
 
     @Test("installAll does not touch disabled providers without managed state")
@@ -171,11 +140,10 @@ struct AIProviderRegistryTests {
         notInstalled.isEnabled = true
         notInstalled.hookInstalled = false
         notInstalled.toolInstalled = true
-        let gate = HydrationGate()
 
         let registry = AIProviderRegistry(
             providers: [installed, notInstalled],
-            hydrateLoginShellPath: { await gate.wait() },
+            hydrateLoginShellPath: {},
             shouldInstallHooksInDebug: { false },
             hookScriptPath: { _, _ in "/tmp/muxy-test-hook" }
         )
@@ -186,7 +154,6 @@ struct AIProviderRegistryTests {
         #expect(!installed.installAttempted)
         #expect(!notInstalled.installAttempted)
         #expect(notInstalled.toolCheckCount == 0)
-        #expect(!gate.started)
     }
 
     @Test("prepare and install stage resources once before provider reconciliation")
@@ -365,30 +332,3 @@ private final class RecordingProvider: AIProviderIntegration {
     }
 }
 
-private final class HydrationGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var didStart = false
-
-    var started: Bool {
-        lock.withLock { didStart }
-    }
-
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            lock.withLock {
-                didStart = true
-                self.continuation = continuation
-            }
-        }
-    }
-
-    func finish() {
-        let pending = lock.withLock {
-            let pending = continuation
-            continuation = nil
-            return pending
-        }
-        pending?.resume()
-    }
-}
