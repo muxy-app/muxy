@@ -29,6 +29,38 @@ enum AgentLifecyclePhase: String, Equatable {
 }
 
 @MainActor
+protocol AgentGraceScheduler {
+    func schedule(after delay: TimeInterval, _ work: @escaping @MainActor () -> Void) -> AgentGraceCancellable
+}
+
+@MainActor
+protocol AgentGraceCancellable {
+    func cancel()
+}
+
+@MainActor
+final class DispatchAgentGraceScheduler: AgentGraceScheduler {
+    func schedule(after delay: TimeInterval, _ work: @escaping @MainActor () -> Void) -> AgentGraceCancellable {
+        let item = DispatchWorkItem { work() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        return DispatchAgentGraceCancellable(item: item)
+    }
+}
+
+@MainActor
+final class DispatchAgentGraceCancellable: AgentGraceCancellable {
+    private let item: DispatchWorkItem
+
+    init(item: DispatchWorkItem) {
+        self.item = item
+    }
+
+    func cancel() {
+        item.cancel()
+    }
+}
+
+@MainActor
 @Observable
 final class AgentStatusStore {
     static let shared = AgentStatusStore()
@@ -40,15 +72,43 @@ final class AgentStatusStore {
         let providerID: String
         let status: AgentStatus
         let updatedAt: Date
+        var sequence: UInt64 = 0
     }
+
+    static let detectionLossGrace: TimeInterval = 4
 
     private(set) var entries: [UUID: Entry] = [:]
     private(set) var completionPending: Set<UUID> = []
     private var panes: [UUID: Entry] = [:]
+    private var appliedSequence: [UUID: UInt64] = [:]
+    private var pendingGrace: [UUID: AgentGraceCancellable] = [:]
+    private var detectionLost: Set<UUID> = []
+    private var sequenceCounter: UInt64 = 0
 
-    private init() {}
+    private let scheduler: AgentGraceScheduler
+    private let graceDelay: TimeInterval
 
-    func update(paneID: UUID, providerID: String, status: AgentStatus, appState: AppState) {
+    init(
+        scheduler: AgentGraceScheduler = DispatchAgentGraceScheduler(),
+        graceDelay: TimeInterval = AgentStatusStore.detectionLossGrace
+    ) {
+        self.scheduler = scheduler
+        self.graceDelay = graceDelay
+    }
+
+    func nextSequence() -> UInt64 {
+        sequenceCounter += 1
+        return sequenceCounter
+    }
+
+    func update(paneID: UUID, providerID: String, status: AgentStatus, sequence: UInt64, appState: AppState) {
+        if let applied = appliedSequence[paneID], sequence <= applied {
+            return
+        }
+        appliedSequence[paneID] = sequence
+
+        cancelGrace(for: paneID)
+
         if let existing = panes[paneID], existing.status == status, existing.providerID == providerID {
             return
         }
@@ -61,37 +121,38 @@ final class AgentStatusStore {
               )
         else { return }
 
-        let existingStatus = panes[paneID]?.status
-        panes[paneID] = Entry(
+        applyEntry(Entry(
             worktreeID: context.worktreeID,
             projectID: context.projectID,
             paneID: paneID,
             providerID: providerID,
             status: status,
-            updatedAt: Date()
-        )
-        updateCompletion(paneID: paneID, from: existingStatus, to: status)
-        recompute(worktreeID: context.worktreeID)
+            updatedAt: Date(),
+            sequence: sequence
+        ))
     }
 
     func removePane(_ paneID: UUID) {
+        cancelGrace(for: paneID)
+        detectionLost.remove(paneID)
+        appliedSequence.removeValue(forKey: paneID)
         completionPending.remove(paneID)
         guard let removed = panes.removeValue(forKey: paneID) else { return }
         recompute(worktreeID: removed.worktreeID)
     }
 
-    func markIdleIfActive(paneID: UUID) {
-        guard let existing = panes[paneID], existing.status != .idle else { return }
-        panes[paneID] = Entry(
-            worktreeID: existing.worktreeID,
-            projectID: existing.projectID,
-            paneID: paneID,
-            providerID: existing.providerID,
-            status: .idle,
-            updatedAt: Date()
-        )
-        completionPending.insert(paneID)
-        recompute(worktreeID: existing.worktreeID)
+    func noteDetectionActive(paneID: UUID) {
+        detectionLost.remove(paneID)
+        cancelGrace(for: paneID)
+    }
+
+    func noteDetectionLost(paneID: UUID) {
+        detectionLost.insert(paneID)
+        guard let existing = panes[paneID], existing.status == .working else { return }
+        guard pendingGrace[paneID] == nil else { return }
+        pendingGrace[paneID] = scheduler.schedule(after: graceDelay) { [weak self] in
+            self?.resolveGrace(for: paneID)
+        }
     }
 
     func clearCompletion(for paneID: UUID) {
@@ -134,6 +195,34 @@ final class AgentStatusStore {
                 ? lhs.status.priority < rhs.status.priority
                 : lhs.updatedAt < rhs.updatedAt
         }
+    }
+
+    private func resolveGrace(for paneID: UUID) {
+        pendingGrace.removeValue(forKey: paneID)
+        guard detectionLost.contains(paneID) else { return }
+        guard let existing = panes[paneID], existing.status == .working else { return }
+        let sequence = nextSequence()
+        appliedSequence[paneID] = sequence
+        applyEntry(Entry(
+            worktreeID: existing.worktreeID,
+            projectID: existing.projectID,
+            paneID: paneID,
+            providerID: existing.providerID,
+            status: .idle,
+            updatedAt: Date(),
+            sequence: sequence
+        ))
+    }
+
+    private func cancelGrace(for paneID: UUID) {
+        pendingGrace.removeValue(forKey: paneID)?.cancel()
+    }
+
+    private func applyEntry(_ entry: Entry) {
+        let existingStatus = panes[entry.paneID]?.status
+        panes[entry.paneID] = entry
+        updateCompletion(paneID: entry.paneID, from: existingStatus, to: entry.status)
+        recompute(worktreeID: entry.worktreeID)
     }
 
     private func updateCompletion(paneID: UUID, from previous: AgentStatus?, to current: AgentStatus) {
