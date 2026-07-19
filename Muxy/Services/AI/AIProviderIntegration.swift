@@ -3,6 +3,13 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "AIProviderRegistry")
 
+enum HookVerification: Equatable {
+    case satisfied
+    case needsRepair
+    case conflict(String)
+    case failed(String)
+}
+
 protocol AIProviderIntegration {
     var id: String { get }
     var displayName: String { get }
@@ -11,12 +18,14 @@ protocol AIProviderIntegration {
     var executableNames: [String] { get }
     var hookScriptName: String { get }
     var hookScriptExtension: String { get }
+    var configPaths: [String] { get }
 
     func isToolInstalled() -> Bool
     func isHookInstalled() -> Bool
     func hasManagedState() -> Bool
     func install(hookScriptPath: String) throws
     func uninstall() throws
+    func verify(hookScriptPath: String) -> HookVerification
 }
 
 extension AIProviderIntegration {
@@ -26,6 +35,12 @@ extension AIProviderIntegration {
 
     func hasManagedState() -> Bool {
         isHookInstalled()
+    }
+
+    var configPaths: [String] { [] }
+
+    func verify(hookScriptPath _: String) -> HookVerification {
+        isHookInstalled() ? .satisfied : .needsRepair
     }
 }
 
@@ -71,8 +86,10 @@ final class AIProviderRegistry {
     private let shouldInstallHooksInDebug: @Sendable () -> Bool
     private let hookScriptPath: @Sendable (String, String) -> String?
     private let stageHookResources: @Sendable () -> Bool
+    private let installer: HookInstaller
     private var loginShellPathHydration: Task<Void, Never>?
     private var hookResourcesStaged = false
+    private var configWatchers: [String: HookConfigWatcher] = [:]
 
     lazy var providers: [AIProviderIntegration] = injectedProviders ?? [
         claudeCodeProvider,
@@ -95,13 +112,15 @@ final class AIProviderRegistry {
         },
         stageHookResources: @escaping @Sendable () -> Bool = {
             MuxyNotificationHooks.stageAll()
-        }
+        },
+        installer: HookInstaller? = nil
     ) {
         injectedProviders = providers
         self.hydrateLoginShellPath = hydrateLoginShellPath
         self.shouldInstallHooksInDebug = shouldInstallHooksInDebug
         self.hookScriptPath = hookScriptPath
         self.stageHookResources = stageHookResources
+        self.installer = installer ?? HookInstaller(hookScriptPath: hookScriptPath)
     }
 
     func prepareForInstallation() {
@@ -122,67 +141,43 @@ final class AIProviderRegistry {
 
         stageHookResourcesIfNeeded()
 
-        for provider in providers {
-            guard provider.isEnabled else {
-                removeInstalledHook(for: provider)
-                continue
-            }
-
-            if provider.isHookInstalled() {
-                installHook(for: provider, action: "Refreshed")
-                continue
-            }
-
+        let hasDisabledManagedOnly = providers.allSatisfy { !$0.isEnabled }
+        if !hasDisabledManagedOnly {
             await loginShellPathHydrationTask().value
-
-            guard provider.isToolInstalled() else {
-                logger.info("\(provider.displayName) tool not installed, skipping hook install")
-                continue
-            }
-
-            installHook(for: provider, action: "Installed")
         }
-    }
 
-    private func removeInstalledHook(for provider: AIProviderIntegration) {
-        guard provider.hasManagedState() else { return }
-        logger.info("\(provider.displayName) is disabled, removing managed hook state")
-        do {
-            try provider.uninstall()
-        } catch {
-            logger.warning("Failed to uninstall \(provider.displayName): \(error.localizedDescription)")
-        }
-    }
-
-    private func installHook(for provider: AIProviderIntegration, action: String) {
-        guard let hookScript = hookScriptPath(provider.hookScriptName, provider.hookScriptExtension)
-        else {
-            logger.warning("Staged hook \(provider.hookScriptName) not found, skipping \(provider.displayName)")
-            return
-        }
-        do {
-            try provider.install(hookScriptPath: hookScript)
-            logger.info("\(action) \(provider.displayName) integration")
-        } catch {
-            logger.error("Failed to reconcile \(provider.displayName): \(error.localizedDescription)")
+        for provider in providers {
+            installer.reconcile(provider)
+            updateConfigWatcher(for: provider)
         }
     }
 
     func forceInstall(_ provider: AIProviderIntegration) async {
         guard stageHookResourcesNow() else { return }
-        guard let hookScript = hookScriptPath(provider.hookScriptName, provider.hookScriptExtension)
-        else {
-            logger.warning("Hook script \(provider.hookScriptName) not found, cannot force-install \(provider.displayName)")
+        await loginShellPathHydrationTask().value
+        installer.forceReinstall(provider)
+        updateConfigWatcher(for: provider)
+    }
+
+    func reconcile(_ provider: AIProviderIntegration) {
+        installer.reconcile(provider)
+        updateConfigWatcher(for: provider)
+    }
+
+    private func updateConfigWatcher(for provider: AIProviderIntegration) {
+        guard provider.isEnabled else {
+            configWatchers.removeValue(forKey: provider.id)
             return
         }
-
-        do {
-            try provider.uninstall()
-            try provider.install(hookScriptPath: hookScript)
-            logger.info("Force-installed \(provider.displayName) integration")
-        } catch {
-            logger.error("Failed to force-install \(provider.displayName): \(error.localizedDescription)")
+        guard configWatchers[provider.id] == nil else { return }
+        let providerID = provider.id
+        let watcher = HookConfigWatcher(configPaths: provider.configPaths) { [weak self] in
+            Task { @MainActor in
+                guard let self, let provider = self.providers.first(where: { $0.id == providerID }) else { return }
+                self.installer.reconcile(provider)
+            }
         }
+        configWatchers[providerID] = watcher
     }
 
     private func loginShellPathHydrationTask() -> Task<Void, Never> {

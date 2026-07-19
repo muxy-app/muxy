@@ -877,6 +877,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.socketType) else {
             return
         }
+        HookHealthStore.shared.noteEvent(providerID: providerID)
         AgentStatusStore.shared.update(
             paneID: message.paneID,
             providerID: providerID,
@@ -895,6 +896,10 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     @MainActor
     private func dispatchAgentHookEvent(_ message: AgentHookEventMessage) {
+        if message.test {
+            dispatchAgentHookTest(message)
+            return
+        }
         let paneID: UUID
         if let paneIDString = message.paneID, let explicitPaneID = UUID(uuidString: paneIDString) {
             paneID = explicitPaneID
@@ -914,6 +919,22 @@ final class NotificationSocketServer: @unchecked Sendable {
             title: message.title,
             body: message.body
         ))
+    }
+
+    @MainActor
+    private func dispatchAgentHookTest(_ message: AgentHookEventMessage) {
+        guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.provider)
+        else { return }
+        HookHealthStore.shared.noteEvent(providerID: providerID)
+
+        let title = message.title.isEmpty ? "Notifications" : message.title
+        let paneIDString = message.paneID.flatMap { UUID(uuidString: $0) }?.uuidString
+        dispatchNotification(
+            type: message.provider,
+            title: title,
+            body: message.body,
+            paneIDString: paneIDString
+        )
     }
 
     @MainActor

@@ -67,6 +67,50 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         Self.fileContainsMuxyMarker(at: Self.settingsPath)
     }
 
+    var configPaths: [String] { [Self.settingsPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        let expected = Self.hookEvents.map {
+            Self.hookCommand(hookScript: hookScriptPath, event: $0.event)
+        }
+        return Self.verifyNestedHooks(
+            at: Self.settingsPath,
+            keys: Self.hookEvents.map(\.settingsKey),
+            expectedCommands: expected
+        )
+    }
+
+    static func verifyNestedHooks(
+        at path: String,
+        keys: [String],
+        expectedCommands: [String]
+    ) -> HookVerification {
+        guard fileContainsMuxyMarker(at: path) else { return .needsRepair }
+        guard let settings = try? readJSON(at: path),
+              let hooks = settings["hooks"] as? [String: Any]
+        else { return .needsRepair }
+
+        for (key, expected) in zip(keys, expectedCommands) {
+            let commands = commandStrings(inNested: hooks[key] as? [[String: Any]])
+            guard commands.contains(expected) else { return .needsRepair }
+        }
+        return .satisfied
+    }
+
+    static func readJSON(at path: String) throws -> [String: Any] {
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        guard !data.isEmpty, let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return json
+    }
+
+    static func commandStrings(inNested entries: [[String: Any]]?) -> [String] {
+        guard let entries else { return [] }
+        return entries.flatMap { entry -> [String] in
+            guard let hooks = entry["hooks"] as? [[String: Any]] else { return [] }
+            return hooks.compactMap { $0["command"] as? String }
+        }
+    }
+
     static func fileContainsMuxyMarker(at path: String) -> Bool {
         guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
         return contents.contains(muxyMarker)

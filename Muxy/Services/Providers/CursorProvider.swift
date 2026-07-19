@@ -51,6 +51,22 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath)
     }
 
+    var configPaths: [String] { [hooksPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        guard ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath) else { return .needsRepair }
+        guard let settings = try? ClaudeCodeProvider.readJSON(at: hooksPath),
+              let hooks = settings["hooks"] as? [String: Any]
+        else { return .needsRepair }
+
+        for binding in Self.bindings {
+            let expected = Self.hookCommand(hookScript: hookScriptPath, argument: binding.argument)
+            let commands = (hooks[binding.event] as? [[String: Any]])?.compactMap { $0["command"] as? String } ?? []
+            guard commands.contains(expected) else { return .needsRepair }
+        }
+        return .satisfied
+    }
+
     func install(hookScriptPath: String) throws {
         var settings = try Self.readSettings(at: hooksPath)
         settings["version"] = settings["version"] ?? 1

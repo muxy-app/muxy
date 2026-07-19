@@ -62,36 +62,40 @@ private struct ProviderToggleRow: View {
     let provider: AIProviderIntegration
     @State private var enabled: Bool
     @State private var refreshed = false
+    @State private var testResult: HookTestResult?
+    @State private var testing = false
+    private let healthStore = HookHealthStore.shared
 
     init(provider: AIProviderIntegration) {
         self.provider = provider
         _enabled = State(initialValue: provider.isEnabled)
     }
 
+    private var health: HookHealth {
+        healthStore.health(for: provider.id)
+    }
+
+    private var isCLIMissing: Bool {
+        health.installState == .cliMissing
+    }
+
     var body: some View {
-        HStack {
-            Text(provider.displayName)
-                .font(.system(size: SettingsMetrics.labelFontSize))
+        HStack(alignment: .top, spacing: 8) {
+            statusDot
+                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(provider.displayName)
+                    .font(.system(size: SettingsMetrics.labelFontSize))
+                if enabled {
+                    Text(secondaryLine)
+                        .font(.system(size: SettingsMetrics.footnoteFontSize))
+                        .foregroundStyle(SettingsStyle.mutedForeground)
+                }
+            }
             Spacer()
             if enabled {
-                Button {
-                    Task { @MainActor in
-                        await AIProviderRegistry.shared.forceInstall(provider)
-                        withAnimation { refreshed = true }
-                        try? await Task.sleep(for: .seconds(2))
-                        withAnimation { refreshed = false }
-                    }
-                } label: {
-                    if refreshed {
-                        Label("Done", systemImage: "checkmark")
-                    } else {
-                        Text("Refresh")
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: SettingsMetrics.footnoteFontSize))
-                .foregroundStyle(refreshed ? MuxyTheme.diffAddFg : SettingsStyle.accent)
-                .disabled(refreshed)
+                testButton
+                refreshButton
             }
             Toggle("", isOn: $enabled)
                 .labelsHidden()
@@ -99,6 +103,7 @@ private struct ProviderToggleRow: View {
                 .controlSize(.small)
                 .onChange(of: enabled) { _, newValue in
                     provider.isEnabled = newValue
+                    testResult = nil
                     Task { @MainActor in
                         await AIProviderRegistry.shared.installAll()
                     }
@@ -106,5 +111,83 @@ private struct ProviderToggleRow: View {
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+    }
+
+    private var statusDot: some View {
+        Circle()
+            .fill(dotColor)
+            .frame(width: 7, height: 7)
+    }
+
+    private var dotColor: Color {
+        switch HookHealthPresenter.dot(for: health) {
+        case .healthy: MuxyTheme.diffAddFg
+        case .warning: SettingsStyle.warning
+        case .error: MuxyTheme.diffRemoveFg
+        case .idle: SettingsStyle.dimForeground
+        }
+    }
+
+    private var secondaryLine: String {
+        if let testResult {
+            switch testResult {
+            case .passed: return "Test passed"
+            case let .failed(reason): return "Test failed — \(reason)"
+            }
+        }
+        return HookHealthPresenter.statusLine(for: health)
+    }
+
+    private var testButton: some View {
+        Button {
+            runTest()
+        } label: {
+            if testing {
+                Text("Testing…")
+            } else {
+                Text("Test")
+            }
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: SettingsMetrics.footnoteFontSize))
+        .foregroundStyle(SettingsStyle.accent)
+        .disabled(testing || isCLIMissing)
+    }
+
+    private var refreshButton: some View {
+        Button {
+            Task { @MainActor in
+                await AIProviderRegistry.shared.forceInstall(provider)
+                withAnimation { refreshed = true }
+                try? await Task.sleep(for: .seconds(2))
+                withAnimation { refreshed = false }
+            }
+        } label: {
+            if refreshed {
+                Label("Done", systemImage: "checkmark")
+            } else {
+                Text("Refresh")
+            }
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: SettingsMetrics.footnoteFontSize))
+        .foregroundStyle(refreshed ? MuxyTheme.diffAddFg : SettingsStyle.accent)
+        .disabled(refreshed)
+    }
+
+    private func runTest() {
+        testing = true
+        testResult = nil
+        let socketType = provider.socketTypeKey
+        let title = provider.displayName
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                HookTestRunner().run(providerSocketType: socketType, providerTitle: title)
+            }.value
+            await MainActor.run {
+                testResult = result
+                testing = false
+            }
+        }
     }
 }

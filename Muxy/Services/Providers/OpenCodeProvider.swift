@@ -54,6 +54,16 @@ struct OpenCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         FileManager.default.fileExists(atPath: pluginPath)
     }
 
+    var configPaths: [String] { [pluginPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        guard FileManager.default.fileExists(atPath: pluginPath) else { return .needsRepair }
+        guard FileManager.default.contentsEqual(atPath: hookScriptPath, andPath: pluginPath) else {
+            return .needsRepair
+        }
+        return .satisfied
+    }
+
     func install(hookScriptPath: String) throws {
         let sourceData = try Data(contentsOf: URL(fileURLWithPath: hookScriptPath))
 

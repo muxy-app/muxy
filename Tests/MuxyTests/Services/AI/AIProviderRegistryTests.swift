@@ -6,6 +6,15 @@ import Testing
 @Suite("AIProviderRegistry")
 @MainActor
 struct AIProviderRegistryTests {
+    private static func stubInstaller() -> HookInstaller {
+        HookInstaller(
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" },
+            stagedFileExists: { _ in true },
+            stagedFileExecutable: { _ in true },
+            health: HookHealthStore()
+        )
+    }
+
     @Test("notificationSource resolves built-in socket type keys")
     func notificationSourceResolvesBuiltIn() {
         let source = AIProviderRegistry.shared.notificationSource(for: "claude_hook")
@@ -73,7 +82,8 @@ struct AIProviderRegistryTests {
             providers: [provider],
             hydrateLoginShellPath: { await gate.wait() },
             shouldInstallHooksInDebug: { true },
-            stageHookResources: { true }
+            stageHookResources: { true },
+            installer: Self.stubInstaller()
         )
 
         let installTask = Task {
@@ -184,7 +194,8 @@ struct AIProviderRegistryTests {
         let provider = RefreshRecordingProvider()
         defer { provider.resetSettings() }
         provider.isEnabled = true
-        provider.hookInstalled = true
+        provider.hookInstalled = false
+        provider.toolInstalled = true
         let staging = StagingRecorder()
         let registry = AIProviderRegistry(
             providers: [provider],
@@ -194,7 +205,8 @@ struct AIProviderRegistryTests {
             stageHookResources: {
                 staging.record()
                 return true
-            }
+            },
+            installer: Self.stubInstaller()
         )
 
         registry.prepareForInstallation()
@@ -217,7 +229,8 @@ struct AIProviderRegistryTests {
             stageHookResources: {
                 staging.record()
                 return true
-            }
+            },
+            installer: Self.stubInstaller()
         )
 
         registry.prepareForInstallation()
@@ -239,7 +252,8 @@ struct AIProviderRegistryTests {
             hydrateLoginShellPath: {},
             shouldInstallHooksInDebug: { true },
             hookScriptPath: { _, _ in "/tmp/muxy-test-hook" },
-            stageHookResources: { true }
+            stageHookResources: { true },
+            installer: Self.stubInstaller()
         )
 
         await registry.installAll()
@@ -286,9 +300,16 @@ private final class RefreshRecordingProvider: AIProviderIntegration {
 
     func install(hookScriptPath _: String) throws {
         installAttempted = true
+        hookInstalled = true
     }
 
-    func uninstall() throws {}
+    func verify(hookScriptPath _: String) -> HookVerification {
+        hookInstalled ? .satisfied : .needsRepair
+    }
+
+    func uninstall() throws {
+        hookInstalled = false
+    }
 
     func resetSettings() {
         UserDefaults.standard.removeObject(forKey: settingsKey)
@@ -325,12 +346,18 @@ private final class RecordingProvider: AIProviderIntegration {
         managedStateInstalled || hookInstalled
     }
 
+    func verify(hookScriptPath _: String) -> HookVerification {
+        hookInstalled ? .satisfied : .needsRepair
+    }
+
     func install(hookScriptPath _: String) throws {
         installCount += 1
+        hookInstalled = true
     }
 
     func uninstall() throws {
         uninstallCount += 1
+        hookInstalled = false
     }
 
     func resetSettings() {

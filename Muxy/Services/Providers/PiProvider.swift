@@ -63,6 +63,17 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
         isHookInstalled() || isRegisteredInSettings()
     }
 
+    var configPaths: [String] { [destinationPath, settingsPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        guard FileManager.default.fileExists(atPath: destinationPath) else { return .needsRepair }
+        guard FileManager.default.contentsEqual(atPath: hookScriptPath, andPath: destinationPath) else {
+            return .needsRepair
+        }
+        guard !isRegisteredInSettings() else { return .needsRepair }
+        return .satisfied
+    }
+
     func install(hookScriptPath: String) throws {
         let sourceURL = URL(fileURLWithPath: hookScriptPath)
         guard FileManager.default.fileExists(atPath: sourceURL.path) else { throw PiProviderError.hookResourceNotFound }

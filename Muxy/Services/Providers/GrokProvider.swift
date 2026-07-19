@@ -74,6 +74,18 @@ struct GrokProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ClaudeCodeProvider.fileContainsMuxyMarker(at: hookFilePath)
     }
 
+    var configPaths: [String] { [hookFilePath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        ClaudeCodeProvider.verifyNestedHooks(
+            at: hookFilePath,
+            keys: Self.hookEvents.map(\.settingsKey),
+            expectedCommands: Self.hookEvents.map {
+                Self.hookCommand(hookScript: hookScriptPath, event: $0.event)
+            }
+        )
+    }
+
     func install(hookScriptPath: String) throws {
         let existing = try Self.readHooksFile(at: hookFilePath)
         let hooks = existing["hooks"] as? [String: Any] ?? [:]

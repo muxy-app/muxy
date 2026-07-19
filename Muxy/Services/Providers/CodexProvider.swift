@@ -72,6 +72,25 @@ struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath)
     }
 
+    var configPaths: [String] { [hooksPath, configPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        if (try? hasExecutableInlineHooks()) == true {
+            return .conflict(CodexProviderError.inlineHooksConfigured(configPath).localizedDescription)
+        }
+        guard ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath) else { return .needsRepair }
+        guard let settings = try? ClaudeCodeProvider.readJSON(at: hooksPath),
+              let hooks = settings["hooks"] as? [String: Any]
+        else { return .needsRepair }
+
+        for event in Self.installedEvents {
+            let expected = Self.hookCommand(hookScript: hookScriptPath, event: event.event)
+            let commands = ClaudeCodeProvider.commandStrings(inNested: hooks[event.settingsKey] as? [[String: Any]])
+            guard commands.contains(expected) else { return .needsRepair }
+        }
+        return .satisfied
+    }
+
     func install(hookScriptPath: String) throws {
         if try hasExecutableInlineHooks() {
             if isHookInstalled() {

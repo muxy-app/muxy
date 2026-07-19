@@ -44,6 +44,18 @@ struct DroidProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ClaudeCodeProvider.fileContainsMuxyMarker(at: Self.settingsPath)
     }
 
+    var configPaths: [String] { [Self.settingsPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        ClaudeCodeProvider.verifyNestedHooks(
+            at: Self.settingsPath,
+            keys: Self.hookEvents.map(\.settingsKey),
+            expectedCommands: Self.hookEvents.map {
+                Self.hookCommand(hookScript: hookScriptPath, event: $0.event)
+            }
+        )
+    }
+
     func install(hookScriptPath: String) throws {
         let settings = try Self.readSettings()
         let hooks = settings["hooks"] as? [String: Any] ?? [:]

@@ -22,6 +22,7 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
     public let body: String
     public let pids: [Int32]
     public let ts: Int64
+    public let test: Bool
 
     public init(
         v: Int = AgentHookProtocol.version,
@@ -32,7 +33,8 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
         title: String,
         body: String,
         pids: [Int32],
-        ts: Int64
+        ts: Int64,
+        test: Bool = false
     ) {
         self.v = v
         self.kind = kind
@@ -43,6 +45,50 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
         self.body = body
         self.pids = pids
         self.ts = ts
+        self.test = test
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case v
+        case kind
+        case provider
+        case paneID
+        case phase
+        case title
+        case body
+        case pids
+        case ts
+        case test
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        v = try container.decode(Int.self, forKey: .v)
+        kind = try container.decode(String.self, forKey: .kind)
+        provider = try container.decode(String.self, forKey: .provider)
+        paneID = try container.decodeIfPresent(String.self, forKey: .paneID)
+        phase = try container.decode(AgentHookPhase.self, forKey: .phase)
+        title = try container.decode(String.self, forKey: .title)
+        body = try container.decode(String.self, forKey: .body)
+        pids = try container.decode([Int32].self, forKey: .pids)
+        ts = try container.decode(Int64.self, forKey: .ts)
+        test = try container.decodeIfPresent(Bool.self, forKey: .test) ?? false
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(v, forKey: .v)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(provider, forKey: .provider)
+        try container.encodeIfPresent(paneID, forKey: .paneID)
+        try container.encode(phase, forKey: .phase)
+        try container.encode(title, forKey: .title)
+        try container.encode(body, forKey: .body)
+        try container.encode(pids, forKey: .pids)
+        try container.encode(ts, forKey: .ts)
+        if test {
+            try container.encode(test, forKey: .test)
+        }
     }
 }
 
