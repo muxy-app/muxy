@@ -15,6 +15,7 @@ public enum AgentHookPhase: String, Codable, Equatable, Sendable {
 public struct AgentHookEventMessage: Codable, Equatable, Sendable {
     public let v: Int
     public let kind: String
+    public let id: String?
     public let provider: String
     public let paneID: String?
     public let phase: AgentHookPhase
@@ -27,6 +28,7 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
     public init(
         v: Int = AgentHookProtocol.version,
         kind: String = AgentHookProtocol.eventKind,
+        id: String? = nil,
         provider: String,
         paneID: String?,
         phase: AgentHookPhase,
@@ -38,6 +40,7 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
     ) {
         self.v = v
         self.kind = kind
+        self.id = id
         self.provider = provider
         self.paneID = paneID
         self.phase = phase
@@ -51,6 +54,7 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case v
         case kind
+        case id
         case provider
         case paneID
         case phase
@@ -65,6 +69,7 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         v = try container.decode(Int.self, forKey: .v)
         kind = try container.decode(String.self, forKey: .kind)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
         provider = try container.decode(String.self, forKey: .provider)
         paneID = try container.decodeIfPresent(String.self, forKey: .paneID)
         phase = try container.decode(AgentHookPhase.self, forKey: .phase)
@@ -79,6 +84,7 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(v, forKey: .v)
         try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(id, forKey: .id)
         try container.encode(provider, forKey: .provider)
         try container.encodeIfPresent(paneID, forKey: .paneID)
         try container.encode(phase, forKey: .phase)

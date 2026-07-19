@@ -187,6 +187,62 @@ struct AgentHookTransportTests {
         #expect(message.ts == 123)
     }
 
+    @Test("every retry re-sends the identical line so the event id is reused")
+    func reusesEventIDAcrossRetries() throws {
+        let recorder = TransportRecorder(failuresBeforeSuccess: 2)
+        let client = AgentHookSocketClient(
+            maximumAttempts: 3,
+            retryDelay: 0,
+            sendAttempt: recorder.send,
+            sleep: { _ in }
+        )
+        let runtime = AgentHookRuntime(
+            environment: [
+                "MUXY_SOCKET_PATH": "/tmp/test.sock",
+                "MUXY_PANE_ID": UUID().uuidString,
+            ],
+            socketClient: client,
+            failureLogger: AgentHookFailureLogger(logFileURL: nil),
+            ancestorPIDs: { [] },
+            timestamp: { 123 }
+        )
+
+        runtime.run(
+            command: AgentHookCommand(provider: "codex_hook", providerTitle: "Codex", event: "stop"),
+            input: Data("{}".utf8)
+        )
+
+        let lines = recorder.lines
+        #expect(lines.count == 3)
+        #expect(Set(lines).count == 1)
+        let firstLine = try #require(lines.first)
+        let identifier = try #require(AgentHookWireCodec.decodeEventLine(firstLine).id)
+        #expect(!identifier.isEmpty)
+    }
+
+    @Test("each logical event receives a distinct id")
+    func generatesDistinctEventIDs() throws {
+        let paneID = UUID().uuidString
+        let identifiers = try (0 ..< 2).map { _ -> String in
+            let recorder = TransportRecorder()
+            let runtime = AgentHookRuntime(
+                environment: ["MUXY_SOCKET_PATH": "/tmp/test.sock", "MUXY_PANE_ID": paneID],
+                socketClient: AgentHookSocketClient(maximumAttempts: 1, sendAttempt: recorder.send),
+                failureLogger: AgentHookFailureLogger(logFileURL: nil),
+                ancestorPIDs: { [] },
+                timestamp: { 123 }
+            )
+            runtime.run(
+                command: AgentHookCommand(provider: "codex_hook", providerTitle: "Codex", event: "stop"),
+                input: Data("{}".utf8)
+            )
+            let line = try #require(recorder.lastLine)
+            return try #require(AgentHookWireCodec.decodeEventLine(line).id)
+        }
+
+        #expect(identifiers[0] != identifiers[1])
+    }
+
     @Test("runtime logs the final delivery failure and returns normally")
     func logsFinalFailure() throws {
         let directory = FileManager.default.temporaryDirectory
@@ -341,6 +397,7 @@ private final class TransportRecorder: @unchecked Sendable {
     private var attempts = 0
     private var delays: [TimeInterval] = []
     private var line: Data?
+    private var sentLines: [Data] = []
 
     init(failuresBeforeSuccess: Int = 0) {
         self.failuresBeforeSuccess = failuresBeforeSuccess
@@ -350,6 +407,7 @@ private final class TransportRecorder: @unchecked Sendable {
         lock.lock()
         attempts += 1
         self.line = line
+        sentLines.append(line)
         let shouldFail = attempts <= failuresBeforeSuccess
         lock.unlock()
         if shouldFail {
@@ -373,5 +431,9 @@ private final class TransportRecorder: @unchecked Sendable {
 
     var lastLine: Data? {
         lock.withLock { line }
+    }
+
+    var lines: [Data] {
+        lock.withLock { sentLines }
     }
 }

@@ -18,14 +18,19 @@ A `waiting` pane is handled more conservatively, because a waiting agent still h
 Hooks talk to Muxy over a Unix domain socket at `~/Library/Application Support/Muxy/muxy.sock` (`muxy-dev.sock` for debug builds). The wire format is a single newline-delimited JSON object per event, acknowledged by the server:
 
 ```json
-{"v":3,"kind":"agent_event","provider":"claude_hook","paneID":"…","phase":"finished","title":"Claude Code","body":"Done","pids":[],"ts":1721234567}
+{"v":3,"kind":"agent_event","id":"…","provider":"claude_hook","paneID":"…","phase":"finished","title":"Claude Code","body":"Done","pids":[],"ts":1721234567}
 ```
 
+- `id` is a UUID identifying one logical event. The bridge generates it once when the message is built and re-sends the identical line on every retry, so a retried event carries the same `id`.
 - `paneID` is the target pane. When the CLI cannot know it, the field is omitted and `pids` carries the process's ancestor chain; Muxy resolves the nearest matching pane by foreground process id.
 - `phase` is `working`, `waiting`, or `finished`. `finished` maps to the `idle` status.
 - `test: true` marks a synthetic event from the settings Test button — it is delivered as a notification but never changes agent status.
 
 The server replies with `{"v":3,"kind":"ack","ok":true}`. Events with the wrong version, wrong kind, empty provider, or a malformed pane id are rejected without an ack. This is the only agent protocol Muxy accepts; there is no pipe-format fallback.
+
+### Duplicate suppression
+
+The bridge retries an event when an ack does not arrive within its delivery budget, so a lost or slow ack can deliver the same event twice. The server remembers the 256 most recently applied `id` values (FIFO eviction) and, on a repeat, still acks — so the client stops retrying — while suppressing the notification, so no duplicate toast appears. The status update still runs and is idempotent. An event with a missing or empty `id` is never deduplicated and is always delivered.
 
 ## Staging layout
 

@@ -52,6 +52,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var extensionEventObservers: [UUID: @Sendable (String, ExtensionLocalEvent.Message) -> Void] = [:]
     private var pendingInvokes: [String: CheckedContinuation<Data, Error>] = [:]
     private var invokeOwner: [String: ObjectIdentifier] = [:]
+    private var appliedAgentHookEventIDs = RecentAgentHookEventIDs()
 
     var openProjectHandler: (@Sendable (String) -> Void)?
     var installExtensionHandler: (@Sendable (String) -> Void)?
@@ -324,6 +325,22 @@ final class NotificationSocketServer: @unchecked Sendable {
         let body: String
     }
 
+    struct RecentAgentHookEventIDs {
+        static let capacity = 256
+
+        private var identifiers: Set<String> = []
+        private var insertionOrder: [String] = []
+
+        mutating func registerAndCheckIsFirstDelivery(_ identifier: String?) -> Bool {
+            guard let identifier, !identifier.isEmpty else { return true }
+            guard identifiers.insert(identifier).inserted else { return false }
+            insertionOrder.append(identifier)
+            guard insertionOrder.count > Self.capacity else { return true }
+            identifiers.remove(insertionOrder.removeFirst())
+            return true
+        }
+    }
+
     private static func pipeFields(_ message: String) -> [String] {
         message.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
     }
@@ -549,8 +566,10 @@ final class NotificationSocketServer: @unchecked Sendable {
            let agentHookEvent = Self.parseAgentHookEventMessage(Data(trimmed.utf8))
         {
             acknowledgeAgentHookEvent(session: session)
+            let isFirstDelivery = appliedAgentHookEventIDs
+                .registerAndCheckIsFirstDelivery(agentHookEvent.id)
             DispatchQueue.main.async { [weak self] in
-                self?.dispatchAgentHookEvent(agentHookEvent)
+                self?.dispatchAgentHookEvent(agentHookEvent, suppressNotification: !isFirstDelivery)
             }
             return
         }
@@ -809,7 +828,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func dispatchAgentLifecycle(_ message: AgentLifecycleMessage) {
+    private func dispatchAgentLifecycle(_ message: AgentLifecycleMessage, suppressNotification: Bool = false) {
         guard let appState = NotificationStore.shared.appState else { return }
         guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.socketType) else {
             return
@@ -822,6 +841,7 @@ final class NotificationSocketServer: @unchecked Sendable {
             sequence: AgentStatusStore.shared.nextSequence(),
             appState: appState
         )
+        guard !suppressNotification else { return }
         guard !message.title.isEmpty || !message.body.isEmpty else { return }
         dispatchNotification(
             type: message.socketType,
@@ -832,9 +852,9 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func dispatchAgentHookEvent(_ message: AgentHookEventMessage) {
+    private func dispatchAgentHookEvent(_ message: AgentHookEventMessage, suppressNotification: Bool = false) {
         if message.test {
-            dispatchAgentHookTest(message)
+            dispatchAgentHookTest(message, suppressNotification: suppressNotification)
             return
         }
         let paneID: UUID
@@ -855,14 +875,15 @@ final class NotificationSocketServer: @unchecked Sendable {
             phase: phase,
             title: message.title,
             body: message.body
-        ))
+        ), suppressNotification: suppressNotification)
     }
 
     @MainActor
-    private func dispatchAgentHookTest(_ message: AgentHookEventMessage) {
+    private func dispatchAgentHookTest(_ message: AgentHookEventMessage, suppressNotification: Bool) {
         guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.provider)
         else { return }
         HookHealthStore.shared.noteEvent(providerID: providerID)
+        guard !suppressNotification else { return }
 
         let title = message.title.isEmpty ? "Notifications" : message.title
         let paneIDString = message.paneID.flatMap { UUID(uuidString: $0) }?.uuidString

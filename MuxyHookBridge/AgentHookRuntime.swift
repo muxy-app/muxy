@@ -7,19 +7,22 @@ struct AgentHookRuntime {
     private let failureLogger: AgentHookFailureLogger
     private let ancestorPIDs: () -> [Int32]
     private let timestamp: () -> Int64
+    private let eventID: () -> String
 
     init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         socketClient: AgentHookSocketClient = AgentHookSocketClient(),
         failureLogger: AgentHookFailureLogger = AgentHookFailureLogger(),
         ancestorPIDs: @escaping () -> [Int32] = { AncestorProcessInspector.ancestorPIDs() },
-        timestamp: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970) }
+        timestamp: @escaping () -> Int64 = { Int64(Date().timeIntervalSince1970) },
+        eventID: @escaping () -> String = { UUID().uuidString }
     ) {
         self.environment = environment
         self.socketClient = socketClient
         self.failureLogger = failureLogger
         self.ancestorPIDs = ancestorPIDs
         self.timestamp = timestamp
+        self.eventID = eventID
     }
 
     enum RunResult: Equatable {
@@ -61,6 +64,7 @@ struct AgentHookRuntime {
 
         let paneID = resolvedPaneID
         return AgentHookEventMessage(
+            id: eventID(),
             provider: command.provider,
             paneID: paneID,
             phase: mapped.phase,
@@ -74,6 +78,7 @@ struct AgentHookRuntime {
     private func testMessage(for command: AgentHookCommand) -> AgentHookEventMessage {
         let title = command.providerTitle.isEmpty ? "Notifications" : "\(command.providerTitle) test"
         return AgentHookEventMessage(
+            id: eventID(),
             provider: command.provider,
             paneID: resolvedPaneID,
             phase: .finished,

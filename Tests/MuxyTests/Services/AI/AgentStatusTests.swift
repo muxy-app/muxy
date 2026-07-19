@@ -105,6 +105,104 @@ struct AgentStatusTests {
         #expect(NotificationSocketServer.parseAgentHookEventMessage(Data("not-json".utf8)) == nil)
     }
 
+    @Test("a repeated event id is delivered once and then suppressed")
+    func suppressesRepeatedEventID() {
+        var recent = NotificationSocketServer.RecentAgentHookEventIDs()
+        let identifier = UUID().uuidString
+
+        let first = recent.registerAndCheckIsFirstDelivery(identifier)
+        let second = recent.registerAndCheckIsFirstDelivery(identifier)
+        let third = recent.registerAndCheckIsFirstDelivery(identifier)
+
+        #expect(first)
+        #expect(!second)
+        #expect(!third)
+    }
+
+    @Test("distinct event ids are each delivered")
+    func deliversDistinctEventIDs() {
+        var recent = NotificationSocketServer.RecentAgentHookEventIDs()
+
+        let first = recent.registerAndCheckIsFirstDelivery(UUID().uuidString)
+        let second = recent.registerAndCheckIsFirstDelivery(UUID().uuidString)
+
+        #expect(first)
+        #expect(second)
+    }
+
+    @Test("events without an id are always delivered")
+    func alwaysDeliversEventsWithoutID() {
+        var recent = NotificationSocketServer.RecentAgentHookEventIDs()
+
+        let firstNil = recent.registerAndCheckIsFirstDelivery(nil)
+        let secondNil = recent.registerAndCheckIsFirstDelivery(nil)
+        let firstEmpty = recent.registerAndCheckIsFirstDelivery("")
+        let secondEmpty = recent.registerAndCheckIsFirstDelivery("")
+
+        #expect(firstNil)
+        #expect(secondNil)
+        #expect(firstEmpty)
+        #expect(secondEmpty)
+    }
+
+    @Test("the recent event id window evicts the oldest entries first")
+    func evictsOldestEventIDs() {
+        var recent = NotificationSocketServer.RecentAgentHookEventIDs()
+        let capacity = NotificationSocketServer.RecentAgentHookEventIDs.capacity
+        let oldest = "event-0"
+
+        var allAcceptedWhileFilling = true
+        for index in 0 ..< capacity where !recent.registerAndCheckIsFirstDelivery("event-\(index)") {
+            allAcceptedWhileFilling = false
+        }
+        let oldestStillRemembered = !recent.registerAndCheckIsFirstDelivery(oldest)
+        let overflowAccepted = recent.registerAndCheckIsFirstDelivery("event-\(capacity)")
+        let oldestEvicted = recent.registerAndCheckIsFirstDelivery(oldest)
+
+        #expect(allAcceptedWhileFilling)
+        #expect(oldestStillRemembered)
+        #expect(overflowAccepted)
+        #expect(oldestEvicted)
+    }
+
+    @Test("event id survives a codec round trip and stays optional")
+    func roundTripsEventID() throws {
+        let identifier = UUID().uuidString
+        let withID = AgentHookEventMessage(
+            id: identifier,
+            provider: "claude_hook",
+            paneID: UUID().uuidString,
+            phase: .finished,
+            title: "Claude Code",
+            body: "Done",
+            pids: [],
+            ts: 1_721_234_567
+        )
+
+        let parsedWithID = try #require(NotificationSocketServer.parseAgentHookEventMessage(
+            AgentHookWireCodec.encodeEventLine(withID)
+        ))
+        #expect(parsedWithID == withID)
+        #expect(parsedWithID.id == identifier)
+
+        let withoutID = AgentHookEventMessage(
+            provider: "claude_hook",
+            paneID: withID.paneID,
+            phase: .finished,
+            title: withID.title,
+            body: withID.body,
+            pids: [],
+            ts: withID.ts
+        )
+        let encodedWithoutID = try AgentHookWireCodec.encodeEventLine(withoutID)
+        #expect(!String(decoding: encodedWithoutID, as: UTF8.self).contains("\"id\""))
+        let parsedWithoutID = try #require(
+            NotificationSocketServer.parseAgentHookEventMessage(encodedWithoutID)
+        )
+        #expect(parsedWithoutID == withoutID)
+        #expect(parsedWithoutID.id == nil)
+    }
+
     @Test("only active to idle transitions mark completion")
     func completionTransitions() {
         #expect(AgentStatusStore.marksCompletion(from: .working, to: .idle))
