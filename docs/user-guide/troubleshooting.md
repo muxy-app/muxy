@@ -64,6 +64,7 @@ After authenticating, restart Muxy so it picks up the new credentials.
 - Check `~/Library/Application Support/Muxy/hooks.log` for hook delivery failures.
 - macOS may have suppressed Muxy's system notifications — check **System Settings → Notifications → Muxy**.
 - For socket‑based integrations, verify the socket exists: `ls -l ~/Library/Application\ Support/Muxy/muxy.sock`.
+- For AI coding agents, use the per‑provider **Test** button and see [AI notifications](../features/ai-notifications.md) for the hook pipeline and health engine.
 
 ## Reset state
 
