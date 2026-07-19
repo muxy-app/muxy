@@ -174,10 +174,25 @@ final class AIProviderRegistry {
         let watcher = HookConfigWatcher(configPaths: provider.configPaths) { [weak self] in
             Task { @MainActor in
                 guard let self, let provider = self.providers.first(where: { $0.id == providerID }) else { return }
-                self.installer.reconcile(provider)
+                self.reconcileFromWatcher(provider)
             }
         }
         configWatchers[providerID] = watcher
+    }
+
+    private func reconcileFromWatcher(_ provider: AIProviderIntegration) {
+        let ledger = HookConfigWriteLedger.shared
+        guard provider.configPaths.contains(where: { !ledger.isSelfWrite(path: $0) }) else { return }
+
+        if let saturated = provider.configPaths.first(where: { ledger.hasExceededRepairBudget(path: $0) }) {
+            let message = "Repeated config rewrites detected for \(saturated) — "
+                + "another Muxy build may be managing this config"
+            logger.error("\(message)")
+            HookHealthStore.shared.noteVerified(providerID: provider.id, state: .conflict(message))
+            return
+        }
+
+        installer.reconcile(provider)
     }
 
     private func loginShellPathHydrationTask() -> Task<Void, Never> {

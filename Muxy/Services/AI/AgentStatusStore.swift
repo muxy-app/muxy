@@ -76,6 +76,7 @@ final class AgentStatusStore {
     }
 
     static let detectionLossGrace: TimeInterval = 4
+    static let waitingDetectionLossGrace: TimeInterval = 30
 
     private(set) var entries: [UUID: Entry] = [:]
     private(set) var completionPending: Set<UUID> = []
@@ -87,13 +88,21 @@ final class AgentStatusStore {
 
     private let scheduler: AgentGraceScheduler
     private let graceDelay: TimeInterval
+    private let waitingGraceDelay: TimeInterval
+    private let isAgentProcessAlive: @MainActor (UUID) -> Bool
 
     init(
         scheduler: AgentGraceScheduler = DispatchAgentGraceScheduler(),
-        graceDelay: TimeInterval = AgentStatusStore.detectionLossGrace
+        graceDelay: TimeInterval = AgentStatusStore.detectionLossGrace,
+        waitingGraceDelay: TimeInterval = AgentStatusStore.waitingDetectionLossGrace,
+        isAgentProcessAlive: @escaping @MainActor (UUID) -> Bool = { paneID in
+            DetectedAgentStore.shared.agent(for: paneID) != nil
+        }
     ) {
         self.scheduler = scheduler
         self.graceDelay = graceDelay
+        self.waitingGraceDelay = waitingGraceDelay
+        self.isAgentProcessAlive = isAgentProcessAlive
     }
 
     func nextSequence() -> UInt64 {
@@ -148,9 +157,10 @@ final class AgentStatusStore {
 
     func noteDetectionLost(paneID: UUID) {
         detectionLost.insert(paneID)
-        guard let existing = panes[paneID], existing.status == .working else { return }
+        guard let existing = panes[paneID], existing.status != .idle else { return }
         guard pendingGrace[paneID] == nil else { return }
-        pendingGrace[paneID] = scheduler.schedule(after: graceDelay) { [weak self] in
+        let delay = existing.status == .waiting ? waitingGraceDelay : graceDelay
+        pendingGrace[paneID] = scheduler.schedule(after: delay) { [weak self] in
             self?.resolveGrace(for: paneID)
         }
     }
@@ -200,7 +210,10 @@ final class AgentStatusStore {
     private func resolveGrace(for paneID: UUID) {
         pendingGrace.removeValue(forKey: paneID)
         guard detectionLost.contains(paneID) else { return }
-        guard let existing = panes[paneID], existing.status == .working else { return }
+        guard let existing = panes[paneID], existing.status != .idle else { return }
+        if existing.status == .waiting, isAgentProcessAlive(paneID) {
+            return
+        }
         let sequence = nextSequence()
         appliedSequence[paneID] = sequence
         applyEntry(Entry(

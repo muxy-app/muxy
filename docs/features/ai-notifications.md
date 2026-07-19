@@ -11,6 +11,8 @@ There are two independent sources of truth, and hooks are authoritative.
 
 When detection reports that a working agent is no longer active, Muxy waits a short grace window (4 seconds) for a hook `finished` event before falling back to marking the pane idle. A hook event arriving inside the window always wins, so a correctly hooked agent is never idled prematurely by detection.
 
+A `waiting` pane is handled more conservatively, because a waiting agent still has a live process and must never be idled just for leaving the foreground. It uses a much longer window (30 seconds), and at the end of it Muxy idles the pane only if the agent process is also gone. This recovers panes whose agent was killed before its `Stop` hook could run, without cutting short an agent that is genuinely waiting on input.
+
 ## Protocol (v3)
 
 Hooks talk to Muxy over a Unix domain socket at `~/Library/Application Support/Muxy/muxy.sock` (`muxy-dev.sock` for debug builds). The wire format is a single newline-delimited JSON object per event, acknowledged by the server:
@@ -31,19 +33,21 @@ The compiled hook bridge (`muxy-hook`) and the provider shims are staged into `~
 
 - `muxy-hook` — the compiled bridge every hook invokes.
 - `muxy-claude-hook.sh`, `muxy-codex-hook.sh`, `muxy-cursor-hook.sh`, `muxy-droid-hook.sh`, `muxy-grok-hook.sh` — thin shell shims that exec the colocated `muxy-hook`.
-- `opencode-muxy-plugin.js`, `muxy-pi-extension.ts` — plugin/extension entry points that spawn the staged `muxy-hook`. When the binary is missing they log a clear error and skip the event; the health engine restages it.
+- `opencode-muxy-plugin.js`, `muxy-pi-extension.ts` — plugin/extension entry points that spawn the staged `muxy-hook`. When the binary is missing they log a clear error to their own stderr and skip the event. That stderr never reaches Muxy, so nothing restages automatically — use **Refresh** in Settings to restage.
 
-Terminals export `MUXY_PANE_ID`, `MUXY_SOCKET_PATH`, and `MUXY_HOOK_BIN` so shims and plugins can reach the socket and binary.
+Terminals export `MUXY_PANE_ID`, `MUXY_SOCKET_PATH`, `MUXY_HOOK_BIN`, `MUXY_HOOK_SCRIPT`, `MUXY_PROJECT_ID`, and `MUXY_WORKTREE_ID` so shims and plugins can reach the socket and binary and identify their context.
 
 ## Health and repair engine
 
 Each provider integration is reconciled declaratively: Muxy **verifies** the provider's hook configuration against what it should be and **repairs** it in place when it drifts, preserving any foreign hooks the user configured. Reconciliation runs at launch, when a provider becomes available, and whenever a provider's config file changes — the latter is watched with FSEvents and debounced, so an external edit to `~/.claude`, `~/.codex`, and the like triggers an automatic re-verify without polling.
 
+Muxy records a hash of every config file it writes and ignores watcher events whose content matches its own last write, so a repair never re-triggers itself. A per-file rate limiter caps repairs within a rolling minute; when it trips — most commonly when a release and a debug build both manage the same config — Muxy stops rewriting and reports a `conflict` instead of spinning.
+
 Results are tracked per provider in the health store — install state, last verified/repaired time, last event time, and last error — and shown in **Settings → Notifications** as a status dot and line per provider. A `conflict` means Muxy found a non-Muxy hook it will not overwrite; the message names it.
 
 ## Test button
 
-Each provider row in **Settings → Notifications** has a **Test** button. It runs the staged `muxy-hook` with `--event test --test`, which sends a `test: true` event over the live socket. A passing test confirms the full path end to end — staged binary, socket, server, ack, and notification delivery — without touching agent status. **Refresh** restages the provider's hook files and re-runs reconciliation.
+Each provider row in **Settings → Notifications** has a **Test** button. It runs the staged `muxy-hook` with `--event test --test`, which sends a `test: true` event over the live socket. The pass/fail signal is the bridge's exit code, so a passing test confirms the delivery path — staged binary, socket, server, and ack — without touching agent status. It does not verify that the resulting in-app notification was presented. **Refresh** restages the provider's hook files and re-runs reconciliation.
 
 ## Extension surface
 

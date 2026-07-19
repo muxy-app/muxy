@@ -203,26 +203,7 @@ struct GrokProvider: AIProviderIntegration, AIAgentLaunchProvider {
         return json
     }
 
-    private static func writeHooksFile(_ settings: [String: Any], at path: String, hooksDir: String) throws {
-        try FileManager.default.createDirectory(
-            atPath: hooksDir,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: FilePermissions.privateDirectory]
-        )
-
-        let fileURL = URL(fileURLWithPath: path)
-        if FileManager.default.fileExists(atPath: path) {
-            let backupPath = path + ".muxy-backup"
-            let backupURL = URL(fileURLWithPath: backupPath)
-            try? FileManager.default.removeItem(at: backupURL)
-            try FileManager.default.copyItem(at: fileURL, to: backupURL)
-        }
-
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: path
-        )
+    private static func writeHooksFile(_ settings: [String: Any], at path: String, hooksDir _: String) throws {
+        try HookConfigWriter.write(settings, to: path)
     }
 }

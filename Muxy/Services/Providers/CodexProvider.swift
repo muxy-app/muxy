@@ -250,23 +250,7 @@ struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private func writeSettings(_ settings: [String: Any]) throws {
-        let dirPath = (hooksPath as NSString).deletingLastPathComponent
-        try FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
-
-        let fileURL = URL(fileURLWithPath: hooksPath)
-        if FileManager.default.fileExists(atPath: hooksPath) {
-            let backupPath = hooksPath + ".muxy-backup"
-            let backupURL = URL(fileURLWithPath: backupPath)
-            try? FileManager.default.removeItem(at: backupURL)
-            try FileManager.default.copyItem(at: fileURL, to: backupURL)
-        }
-
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: hooksPath
-        )
+        try HookConfigWriter.write(settings, to: hooksPath)
     }
 }
 

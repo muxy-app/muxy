@@ -108,6 +108,65 @@ struct HookTestRunnerTests {
         }
     }
 
+    @Test("large stderr does not stall the wait loop or misreport a clean exit")
+    func largeStderrDoesNotDeadlock() throws {
+        let script = try Self.makeScript(
+            body: """
+            head -c 400000 /dev/zero | tr '\\0' 'x' >&2
+            exit 0
+            """
+        )
+        defer { try? FileManager.default.removeItem(atPath: script) }
+
+        let outcome = try HookTestRunner.runProcess(
+            binaryPath: script,
+            arguments: [],
+            environment: [:],
+            timeout: 20
+        )
+
+        #expect(outcome.terminationStatus == 0)
+        #expect(outcome.standardError.count == 400_000)
+    }
+
+    @Test("a hung child is reaped and reported as a timeout")
+    func hungChildIsReaped() throws {
+        let script = try Self.makeScript(body: "sleep 120")
+        defer { try? FileManager.default.removeItem(atPath: script) }
+
+        let outcome = try HookTestRunner.runProcess(
+            binaryPath: script,
+            arguments: [],
+            environment: [:],
+            timeout: 0.2
+        )
+
+        #expect(outcome.terminationStatus == -1)
+        #expect(outcome.standardError == "Hook timed out")
+        #expect(Self.lingeringSleepCount(matching: script) == 0)
+    }
+
+    private static func lingeringSleepCount(matching script: String) -> Int {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-A", "-o", "command"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        guard (try? process.run()) != nil else { return 0 }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        return output.split(separator: "\n").filter { $0.contains(script) }.count
+    }
+
+    private static func makeScript(body: String) throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("htr-script-\(UUID().uuidString.prefix(8)).sh")
+        try "#!/bin/bash\n\(body)\n".write(to: path, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path.path)
+        return path.path
+    }
+
     private static func hookBinaryPath() throws -> String {
         let candidate = RepositoryRoot.find().appendingPathComponent(".build/debug/muxy-hook")
         guard FileManager.default.isExecutableFile(atPath: candidate.path) else {

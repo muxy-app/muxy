@@ -131,17 +131,7 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
             json["extensions"] = extensions
         }
 
-        let updatedData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-
-        let backupPath = settingsPath + ".muxy-backup"
-        try? FileManager.default.removeItem(atPath: backupPath)
-        try FileManager.default.copyItem(atPath: settingsPath, toPath: backupPath)
-
-        try updatedData.write(to: url, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: settingsPath
-        )
+        try HookConfigWriter.write(json, to: settingsPath)
     }
 
     private func isRegisteredInSettings() -> Bool {

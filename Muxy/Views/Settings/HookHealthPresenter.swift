@@ -8,14 +8,22 @@ enum HookHealthDot: Equatable {
 }
 
 enum HookHealthPresenter {
-    static func dot(for health: HookHealth) -> HookHealthDot {
+    static let staleEventThreshold: TimeInterval = 24 * 60 * 60
+
+    static func dot(for health: HookHealth, now: Date = Date()) -> HookHealthDot {
         switch health.installState {
-        case .installed: .healthy
+        case .installed: installedDot(for: health, now: now)
         case .cliMissing: .warning
         case .conflict,
              .error: .error
         case .notInstalled: .idle
         }
+    }
+
+    private static func installedDot(for health: HookHealth, now: Date) -> HookHealthDot {
+        guard let eventAt = health.lastEventAt else { return .healthy }
+        guard now.timeIntervalSince(eventAt) < staleEventThreshold else { return .warning }
+        return .healthy
     }
 
     static func statusLine(for health: HookHealth, now: Date = Date()) -> String {

@@ -5,7 +5,7 @@ guard let command = AgentHookCommand.parse(Array(CommandLine.arguments.dropFirst
     exit(EXIT_SUCCESS)
 }
 
-let input = FileHandle.standardInput.readDataToEndOfFile()
+let input = AgentHookStandardInput.read()
 let result = AgentHookRuntime().run(command: command, input: input)
 
 switch result {

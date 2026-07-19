@@ -92,20 +92,85 @@ struct HookTestRunner {
         let inputPipe = Pipe()
         process.standardInput = inputPipe
 
+        let collector = StandardErrorCollector()
+        let readHandle = errorPipe.fileHandleForReading
+        readHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                collector.finish()
+                return
+            }
+            collector.append(data)
+        }
+
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         try process.run()
         try? inputPipe.fileHandleForWriting.close()
 
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning, Date() < deadline {
-            usleep(20000)
-        }
-        if process.isRunning {
-            process.terminate()
-            return ProcessOutcome(terminationStatus: -1, standardError: "Hook timed out")
+        let timedOut = exited.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut {
+            terminate(process)
         }
 
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        let standardError = String(data: errorData, encoding: .utf8) ?? ""
-        return ProcessOutcome(terminationStatus: process.terminationStatus, standardError: standardError)
+        process.waitUntilExit()
+        collector.waitForCompletion(timeout: Self.drainTimeout)
+        readHandle.readabilityHandler = nil
+        try? readHandle.close()
+
+        if timedOut {
+            return ProcessOutcome(terminationStatus: -1, standardError: "Hook timed out")
+        }
+        return ProcessOutcome(
+            terminationStatus: process.terminationStatus,
+            standardError: collector.string()
+        )
+    }
+
+    static let drainTimeout: TimeInterval = 1
+    static let terminationGrace: TimeInterval = 0.5
+
+    private static func terminate(_ process: Process) {
+        process.terminate()
+        let escalation = Date().addingTimeInterval(terminationGrace)
+        while process.isRunning, Date() < escalation {
+            usleep(10000)
+        }
+        guard process.isRunning else { return }
+        kill(process.processIdentifier, SIGKILL)
+    }
+
+    private final class StandardErrorCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private let completed = DispatchSemaphore(value: 0)
+        private var data = Data()
+        private var isFinished = false
+
+        func append(_ chunk: Data) {
+            lock.lock()
+            data.append(chunk)
+            lock.unlock()
+        }
+
+        func finish() {
+            lock.lock()
+            let alreadyFinished = isFinished
+            isFinished = true
+            lock.unlock()
+            guard !alreadyFinished else { return }
+            completed.signal()
+        }
+
+        func waitForCompletion(timeout: TimeInterval) {
+            _ = completed.wait(timeout: .now() + timeout)
+        }
+
+        func string() -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            return String(data: data, encoding: .utf8) ?? ""
+        }
     }
 }

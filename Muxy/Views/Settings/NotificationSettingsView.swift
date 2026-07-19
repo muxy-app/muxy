@@ -80,14 +80,20 @@ private struct ProviderToggleRow: View {
     }
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            rowContent(now: context.date)
+        }
+    }
+
+    private func rowContent(now: Date) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            statusDot
+            statusDot(now: now)
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 2) {
                 Text(provider.displayName)
                     .font(.system(size: SettingsMetrics.labelFontSize))
                 if enabled {
-                    Text(secondaryLine)
+                    Text(secondaryLine(now: now))
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
                         .foregroundStyle(SettingsStyle.mutedForeground)
                 }
@@ -113,14 +119,14 @@ private struct ProviderToggleRow: View {
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
     }
 
-    private var statusDot: some View {
+    private func statusDot(now: Date) -> some View {
         Circle()
-            .fill(dotColor)
+            .fill(dotColor(now: now))
             .frame(width: 7, height: 7)
     }
 
-    private var dotColor: Color {
-        switch HookHealthPresenter.dot(for: health) {
+    private func dotColor(now: Date) -> Color {
+        switch HookHealthPresenter.dot(for: health, now: now) {
         case .healthy: MuxyTheme.diffAddFg
         case .warning: SettingsStyle.warning
         case .error: MuxyTheme.diffRemoveFg
@@ -128,14 +134,14 @@ private struct ProviderToggleRow: View {
         }
     }
 
-    private var secondaryLine: String {
+    private func secondaryLine(now: Date) -> String {
         if let testResult {
             switch testResult {
             case .passed: return "Test passed"
             case let .failed(reason): return "Test failed — \(reason)"
             }
         }
-        return HookHealthPresenter.statusLine(for: health)
+        return HookHealthPresenter.statusLine(for: health, now: now)
     }
 
     private var testButton: some View {

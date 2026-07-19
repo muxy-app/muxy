@@ -16,55 +16,67 @@ struct AgentHookSocketClient {
     typealias SendAttempt = (String, Data, TimeInterval) throws -> Void
 
     static let defaultMaximumAttempts = 3
-    static let defaultAcknowledgementTimeout: TimeInterval = 2
-    static let defaultRetryDelay: TimeInterval = 0.1
+    static let defaultTotalBudget: TimeInterval = 0.4
+    static let defaultRetryDelay: TimeInterval = 0.02
 
     private let maximumAttempts: Int
-    private let acknowledgementTimeout: TimeInterval
+    private let totalBudget: TimeInterval
     private let retryDelay: TimeInterval
     private let sendAttempt: SendAttempt
     private let sleep: (TimeInterval) -> Void
+    private let elapsed: () -> TimeInterval
 
     init(
         maximumAttempts: Int = defaultMaximumAttempts,
-        acknowledgementTimeout: TimeInterval = defaultAcknowledgementTimeout,
+        totalBudget: TimeInterval = defaultTotalBudget,
         retryDelay: TimeInterval = defaultRetryDelay,
         sendAttempt: @escaping SendAttempt = sendOnce,
-        sleep: @escaping (TimeInterval) -> Void = Thread.sleep
+        sleep: @escaping (TimeInterval) -> Void = Thread.sleep,
+        elapsed: @escaping () -> TimeInterval = AgentHookSocketClient.processUptime
     ) {
         self.maximumAttempts = maximumAttempts
-        self.acknowledgementTimeout = acknowledgementTimeout
+        self.totalBudget = totalBudget
         self.retryDelay = retryDelay
         self.sendAttempt = sendAttempt
         self.sleep = sleep
+        self.elapsed = elapsed
+    }
+
+    static func processUptime() -> TimeInterval {
+        TimeInterval(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000
     }
 
     func send(_ message: AgentHookEventMessage, to socketPath: String) throws {
         guard maximumAttempts > 0 else { throw AgentHookSocketError.noAttempts }
         let line = try AgentHookWireCodec.encodeEventLine(message)
+        let start = elapsed()
         var lastError: (any Error)?
 
         for attempt in 0 ..< maximumAttempts {
+            let remaining = totalBudget - (elapsed() - start)
+            guard remaining > 0 else { break }
             do {
-                try sendAttempt(socketPath, line, acknowledgementTimeout)
+                try sendAttempt(socketPath, line, remaining)
                 return
             } catch {
                 lastError = error
                 guard attempt + 1 < maximumAttempts else { break }
-                sleep(retryDelay * Double(attempt + 1))
+                let afterAttempt = totalBudget - (elapsed() - start)
+                guard afterAttempt > retryDelay else { break }
+                sleep(retryDelay)
             }
         }
 
-        throw lastError ?? AgentHookSocketError.noAttempts
+        throw lastError ?? AgentHookSocketError.deliveryTimedOut
     }
 
-    static func sendOnce(socketPath: String, line: Data, acknowledgementTimeout: TimeInterval) throws {
+    static func sendOnce(socketPath: String, line: Data, remainingBudget: TimeInterval) throws {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw socketError() }
         defer { close(descriptor) }
 
         try configure(descriptor: descriptor)
-        let deadline = MonotonicDeadline(timeout: acknowledgementTimeout)
+        let deadline = MonotonicDeadline(timeout: remainingBudget)
         try connect(descriptor: descriptor, socketPath: socketPath, deadline: deadline)
         try exchange(line: line, descriptor: descriptor, deadline: deadline)
     }
@@ -72,13 +84,13 @@ struct AgentHookSocketClient {
     static func sendConnected(
         descriptor: Int32,
         line: Data,
-        acknowledgementTimeout: TimeInterval
+        remainingBudget: TimeInterval
     ) throws {
         try configure(descriptor: descriptor)
         try exchange(
             line: line,
             descriptor: descriptor,
-            deadline: MonotonicDeadline(timeout: acknowledgementTimeout)
+            deadline: MonotonicDeadline(timeout: remainingBudget)
         )
     }
 

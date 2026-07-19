@@ -170,11 +170,17 @@ struct AgentStatusTests {
 @MainActor
 private final class ManualGraceScheduler: AgentGraceScheduler {
     private(set) var items: [ManualGraceCancellable] = []
+    private(set) var delays: [TimeInterval] = []
 
-    func schedule(after _: TimeInterval, _ work: @escaping @MainActor () -> Void) -> AgentGraceCancellable {
+    func schedule(after delay: TimeInterval, _ work: @escaping @MainActor () -> Void) -> AgentGraceCancellable {
         let item = ManualGraceCancellable(work: work)
         items.append(item)
+        delays.append(delay)
         return item
+    }
+
+    var lastDelay: TimeInterval? {
+        delays.last
     }
 
     var pendingCount: Int {
@@ -211,9 +217,16 @@ struct AgentStatusStoreTests {
     private let projectID = UUID()
     private let worktreeID = UUID()
 
-    private func makeContext() -> (AgentStatusStore, ManualGraceScheduler, UUID) {
+    private func makeContext(
+        agentProcessAlive: Bool = false
+    ) -> (AgentStatusStore, ManualGraceScheduler, UUID) {
         let scheduler = ManualGraceScheduler()
-        let store = AgentStatusStore(scheduler: scheduler, graceDelay: 4)
+        let store = AgentStatusStore(
+            scheduler: scheduler,
+            graceDelay: 4,
+            waitingGraceDelay: 30,
+            isAgentProcessAlive: { _ in agentProcessAlive }
+        )
         let appState = AppState(
             selectionStore: SelectionStoreStub(),
             terminalViews: TerminalViewRemovingStub(),
@@ -333,13 +346,41 @@ struct AgentStatusStoreTests {
         }
     }
 
-    @Test("a waiting agent is never idled by detection loss")
-    func waitingNeverIdledByDetectionLoss() async {
+    @Test("a genuinely waiting agent is never idled while its process is alive")
+    func waitingNeverIdledWhileProcessAlive() async {
         await SharedNotificationStateGate.run {
-            let (store, scheduler, paneID) = makeContext()
+            let (store, scheduler, paneID) = makeContext(agentProcessAlive: true)
             send(store, paneID, .waiting, sequence: 1)
             store.noteDetectionLost(paneID: paneID)
+            #expect(store.status(forPane: paneID) == .waiting)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .waiting)
+        }
+    }
+
+    @Test("a killed waiting agent idles after the longer waiting grace")
+    func killedWaitingAgentIdlesAfterGrace() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext(agentProcessAlive: false)
+            send(store, paneID, .waiting, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            #expect(store.status(forPane: paneID) == .waiting)
+            #expect(scheduler.lastDelay == 30)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .idle)
+            #expect(store.isCompletionPending(forPane: paneID))
+        }
+    }
+
+    @Test("re-detection cancels a pending waiting recovery")
+    func reDetectionCancelsWaitingRecovery() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext(agentProcessAlive: false)
+            send(store, paneID, .waiting, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            store.noteDetectionActive(paneID: paneID)
             #expect(scheduler.pendingCount == 0)
+            scheduler.fireLast()
             #expect(store.status(forPane: paneID) == .waiting)
         }
     }

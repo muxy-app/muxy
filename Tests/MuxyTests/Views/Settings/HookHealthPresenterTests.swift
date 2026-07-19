@@ -16,6 +16,20 @@ struct HookHealthPresenterTests {
         #expect(HookHealthPresenter.dot(for: health(.notInstalled)) == .idle)
     }
 
+    @Test("an installed hook with a stale last event degrades to warning")
+    func staleEventDegradesDot() {
+        var value = health(.installed)
+        value.lastEventAt = base.addingTimeInterval(-HookHealthPresenter.staleEventThreshold - 1)
+        #expect(HookHealthPresenter.dot(for: value, now: base) == .warning)
+    }
+
+    @Test("an installed hook with a recent event stays healthy")
+    func recentEventStaysHealthy() {
+        var value = health(.installed)
+        value.lastEventAt = base.addingTimeInterval(-60)
+        #expect(HookHealthPresenter.dot(for: value, now: base) == .healthy)
+    }
+
     @Test("healthy line shows last event time when present")
     func healthyLineShowsLastEvent() {
         var value = health(.installed)
