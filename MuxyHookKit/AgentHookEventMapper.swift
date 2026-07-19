@@ -1,14 +1,20 @@
 import Foundation
 import MuxyShared
 
-struct MappedAgentHookEvent: Equatable {
-    let phase: AgentHookPhase
-    let title: String
-    let body: String
+public struct MappedAgentHookEvent: Equatable {
+    public let phase: AgentHookPhase
+    public let title: String
+    public let body: String
+
+    public init(phase: AgentHookPhase, title: String, body: String) {
+        self.phase = phase
+        self.title = title
+        self.body = body
+    }
 }
 
-enum AgentHookEventMapper {
-    static func map(event: String, providerTitle: String, input: Data) -> MappedAgentHookEvent? {
+public enum AgentHookEventMapper {
+    public static func map(event: String, providerTitle: String, input: Data) -> MappedAgentHookEvent? {
         let payload = payload(from: input)
 
         switch event {

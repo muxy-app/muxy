@@ -47,6 +47,7 @@ else
     "$root/Package.swift" \
     "$root/Package.resolved" \
     "$root/MuxyHookBridge"/**/*(.) \
+    "$root/MuxyHookKit"/**/*(.) \
     "$root/MuxyShared"/**/*(.); do
     if [[ "$path" -nt "$hook_binary" ]]; then
       needs_hook_build=true

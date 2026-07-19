@@ -3,7 +3,7 @@ import Dispatch
 import Foundation
 import MuxyShared
 
-enum AgentHookSocketError: Error, Equatable {
+public enum AgentHookSocketError: Error, Equatable {
     case invalidSocketPath
     case socketOperation(String)
     case deliveryTimedOut
@@ -12,12 +12,12 @@ enum AgentHookSocketError: Error, Equatable {
     case noAttempts
 }
 
-struct AgentHookSocketClient {
-    typealias SendAttempt = (String, Data, TimeInterval) throws -> Void
+public struct AgentHookSocketClient {
+    public typealias SendAttempt = (String, Data, TimeInterval) throws -> Void
 
-    static let defaultMaximumAttempts = 3
-    static let defaultTotalBudget: TimeInterval = 0.4
-    static let defaultRetryDelay: TimeInterval = 0.02
+    public static let defaultMaximumAttempts = 3
+    public static let defaultTotalBudget: TimeInterval = 0.4
+    public static let defaultRetryDelay: TimeInterval = 0.02
 
     private let maximumAttempts: Int
     private let totalBudget: TimeInterval
@@ -26,7 +26,7 @@ struct AgentHookSocketClient {
     private let sleep: (TimeInterval) -> Void
     private let elapsed: () -> TimeInterval
 
-    init(
+    public init(
         maximumAttempts: Int = defaultMaximumAttempts,
         totalBudget: TimeInterval = defaultTotalBudget,
         retryDelay: TimeInterval = defaultRetryDelay,
@@ -42,11 +42,11 @@ struct AgentHookSocketClient {
         self.elapsed = elapsed
     }
 
-    static func processUptime() -> TimeInterval {
+    public static func processUptime() -> TimeInterval {
         TimeInterval(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000
     }
 
-    func send(_ message: AgentHookEventMessage, to socketPath: String) throws {
+    public func send(_ message: AgentHookEventMessage, to socketPath: String) throws {
         guard maximumAttempts > 0 else { throw AgentHookSocketError.noAttempts }
         let line = try AgentHookWireCodec.encodeEventLine(message)
         let start = elapsed()
@@ -70,7 +70,7 @@ struct AgentHookSocketClient {
         throw lastError ?? AgentHookSocketError.deliveryTimedOut
     }
 
-    static func sendOnce(socketPath: String, line: Data, remainingBudget: TimeInterval) throws {
+    public static func sendOnce(socketPath: String, line: Data, remainingBudget: TimeInterval) throws {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw socketError() }
         defer { close(descriptor) }
@@ -81,7 +81,7 @@ struct AgentHookSocketClient {
         try exchange(line: line, descriptor: descriptor, deadline: deadline)
     }
 
-    static func sendConnected(
+    public static func sendConnected(
         descriptor: Int32,
         line: Data,
         remainingBudget: TimeInterval

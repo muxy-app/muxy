@@ -1,11 +1,11 @@
 import Darwin
 import Foundation
 
-struct AgentHookFailureLogger {
+public struct AgentHookFailureLogger {
     private let logFileURL: URL?
     private let maximumLogSize: Int
 
-    init(
+    public init(
         logFileURL: URL? = AgentHookPaths.defaultLogFileURL,
         maximumLogSize: Int = 1_048_576
     ) {
@@ -13,7 +13,7 @@ struct AgentHookFailureLogger {
         self.maximumLogSize = maximumLogSize
     }
 
-    func append(provider: String, event: String, error: any Error, timestamp: Int64) {
+    public func append(provider: String, event: String, error: any Error, timestamp: Int64) {
         guard let logFileURL else { return }
 
         do {

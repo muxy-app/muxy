@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MuxyHookKit
 
 guard let command = AgentHookCommand.parse(Array(CommandLine.arguments.dropFirst())) else {
     exit(EXIT_SUCCESS)

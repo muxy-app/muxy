@@ -1,17 +1,17 @@
-struct AgentHookCommand: Equatable {
-    let provider: String
-    let providerTitle: String
-    let event: String
-    let test: Bool
+public struct AgentHookCommand: Equatable {
+    public let provider: String
+    public let providerTitle: String
+    public let event: String
+    public let test: Bool
 
-    init(provider: String, providerTitle: String, event: String, test: Bool = false) {
+    public init(provider: String, providerTitle: String, event: String, test: Bool = false) {
         self.provider = provider
         self.providerTitle = providerTitle
         self.event = event
         self.test = test
     }
 
-    static func parse(_ arguments: [String]) -> AgentHookCommand? {
+    public static func parse(_ arguments: [String]) -> AgentHookCommand? {
         guard arguments.first == "agent-event" else { return nil }
 
         var provider: String?

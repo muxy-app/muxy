@@ -1,7 +1,7 @@
 import Foundation
 import MuxyShared
 
-struct AgentHookRuntime {
+public struct AgentHookRuntime {
     private let environment: [String: String]
     private let socketClient: AgentHookSocketClient
     private let failureLogger: AgentHookFailureLogger
@@ -9,7 +9,7 @@ struct AgentHookRuntime {
     private let timestamp: () -> Int64
     private let eventID: () -> String
 
-    init(
+    public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         socketClient: AgentHookSocketClient = AgentHookSocketClient(),
         failureLogger: AgentHookFailureLogger = AgentHookFailureLogger(),
@@ -25,13 +25,13 @@ struct AgentHookRuntime {
         self.eventID = eventID
     }
 
-    enum RunResult: Equatable {
+    public enum RunResult: Equatable {
         case success
         case failure(String)
     }
 
     @discardableResult
-    func run(command: AgentHookCommand, input: Data) -> RunResult {
+    public func run(command: AgentHookCommand, input: Data) -> RunResult {
         guard let message = message(for: command, input: input) else { return .success }
         guard let socketPath = resolvedSocketPath else {
             return command.test ? .failure("No socket path configured") : .success

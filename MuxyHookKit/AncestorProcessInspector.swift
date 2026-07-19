@@ -1,13 +1,13 @@
 import Darwin
 
-enum AncestorProcessInspector {
+public enum AncestorProcessInspector {
     static let maximumDepth = 64
 
-    static func ancestorPIDs(startingAt processID: Int32 = getppid()) -> [Int32] {
+    public static func ancestorPIDs(startingAt processID: Int32 = getppid()) -> [Int32] {
         ancestorPIDs(startingAt: processID, parentPID: parentPID)
     }
 
-    static func ancestorPIDs(
+    public static func ancestorPIDs(
         startingAt processID: Int32,
         parentPID: (Int32) -> Int32?
     ) -> [Int32] {

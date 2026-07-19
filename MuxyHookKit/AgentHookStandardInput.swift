@@ -1,10 +1,10 @@
 import Darwin
 import Foundation
 
-enum AgentHookStandardInput {
-    static let maximumPayloadBytes = 1024 * 1024
+public enum AgentHookStandardInput {
+    public static let maximumPayloadBytes = 1024 * 1024
 
-    static func read(
+    public static func read(
         descriptor: Int32 = FileHandle.standardInput.fileDescriptor,
         limit: Int = maximumPayloadBytes
     ) -> Data {

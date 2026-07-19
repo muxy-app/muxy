@@ -1,6 +1,6 @@
 import Foundation
 
-enum AgentHookPaths {
+public enum AgentHookPaths {
     static var applicationSupportDirectory: URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("Muxy", isDirectory: true)
@@ -10,7 +10,7 @@ enum AgentHookPaths {
         applicationSupportDirectory?.appendingPathComponent(socketFileName).path
     }
 
-    static var defaultLogFileURL: URL? {
+    public static var defaultLogFileURL: URL? {
         applicationSupportDirectory?.appendingPathComponent("hooks.log")
     }
 

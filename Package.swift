@@ -32,10 +32,17 @@ let package = Package(
                 .linkedFramework("JavaScriptCore"),
             ]
         ),
+        .target(
+            name: "MuxyHookKit",
+            dependencies: [
+                "MuxyShared",
+            ],
+            path: "MuxyHookKit"
+        ),
         .executableTarget(
             name: "MuxyHookBridge",
             dependencies: [
-                "MuxyShared",
+                "MuxyHookKit",
             ],
             path: "MuxyHookBridge"
         ),
@@ -100,7 +107,7 @@ let package = Package(
                 "MuxyShared",
                 "MuxyServer",
                 "MuxyExtensionHost",
-                "MuxyHookBridge",
+                "MuxyHookKit",
                 .product(name: "Yams", package: "Yams"),
             ],
             path: "Tests/MuxyTests",

@@ -1,10 +1,9 @@
 import Darwin
 import Dispatch
 import Foundation
+import MuxyHookKit
 import MuxyShared
 import Testing
-
-@testable import MuxyHookBridge
 
 @Suite("Agent hook transport")
 struct AgentHookTransportTests {
