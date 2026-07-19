@@ -1,4 +1,2 @@
 #!/usr/bin/env bash
-set -euo pipefail
-script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-exec /bin/bash "$script_dir/muxy-agent-hook.sh" "cursor_hook" "Cursor" "${1:-}"
+exec "$(dirname "$0")/muxy-hook" agent-event --provider cursor_hook --provider-title Cursor --event "${1:-}" || exit 0

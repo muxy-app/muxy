@@ -60,6 +60,8 @@ After authenticating, restart Muxy so it picks up the new credentials.
 ## Notifications aren't showing
 
 - Check **Settings → Notifications** that Toast or Desktop notifications are enabled and that the relevant provider integration is on.
+- Click **Refresh** beside the provider to restage its hook files under `~/Library/Application Support/Muxy/hooks` and update its configuration.
+- Check `~/Library/Application Support/Muxy/hooks.log` for hook delivery failures.
 - macOS may have suppressed Muxy's system notifications — check **System Settings → Notifications → Muxy**.
 - For socket‑based integrations, verify the socket exists: `ls -l ~/Library/Application\ Support/Muxy/muxy.sock`.
 

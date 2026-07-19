@@ -16,7 +16,12 @@ struct TerminalEnvVarBuilderTests {
                 .map { ($0.key, $0.value) }
         )
 
-        #expect(environment["MUXY_AGENT_EVENT_PROTOCOL"] == "2")
+        #expect(environment["MUXY_AGENT_EVENT_PROTOCOL"] == "3")
         #expect(environment["MUXY_PANE_ID"] == paneID.uuidString)
+        #expect(environment["MUXY_HOOK_BIN"] == MuxyNotificationHooks.hookBinaryPath)
+        #expect(
+            environment["MUXY_HOOK_SCRIPT"]
+                == MuxyNotificationHooks.stagedScriptPath(named: "muxy-claude-hook", extension: "sh")
+        )
     }
 }

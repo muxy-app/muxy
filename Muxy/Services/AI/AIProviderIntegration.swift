@@ -70,7 +70,9 @@ final class AIProviderRegistry {
     private let hydrateLoginShellPath: @Sendable () async -> Void
     private let shouldInstallHooksInDebug: @Sendable () -> Bool
     private let hookScriptPath: @Sendable (String, String) -> String?
+    private let stageHookResources: @Sendable () -> Bool
     private var loginShellPathHydration: Task<Void, Never>?
+    private var hookResourcesStaged = false
 
     lazy var providers: [AIProviderIntegration] = injectedProviders ?? [
         claudeCodeProvider,
@@ -90,15 +92,20 @@ final class AIProviderRegistry {
         },
         hookScriptPath: @escaping @Sendable (String, String) -> String? = {
             MuxyNotificationHooks.scriptPath(named: $0, extension: $1)
+        },
+        stageHookResources: @escaping @Sendable () -> Bool = {
+            MuxyNotificationHooks.stageAll()
         }
     ) {
         injectedProviders = providers
         self.hydrateLoginShellPath = hydrateLoginShellPath
         self.shouldInstallHooksInDebug = shouldInstallHooksInDebug
         self.hookScriptPath = hookScriptPath
+        self.stageHookResources = stageHookResources
     }
 
     func prepareForInstallation() {
+        stageHookResourcesIfNeeded()
         #if DEBUG
         guard shouldInstallHooksInDebug() else { return }
         #endif
@@ -107,13 +114,13 @@ final class AIProviderRegistry {
 
     func installAll() async {
         #if DEBUG
-        let installMissingHooks = shouldInstallHooksInDebug()
-        if !installMissingHooks {
-            logger.info("Reconciling installed AI hooks in dev mode (set FF_AI_HOOKS=true to install missing hooks)")
+        guard shouldInstallHooksInDebug() else {
+            logger.info("Skipping AI hook reconciliation in dev mode (set FF_AI_HOOKS=true to enable)")
+            return
         }
-        #else
-        let installMissingHooks = true
         #endif
+
+        stageHookResourcesIfNeeded()
 
         for provider in providers {
             guard provider.isEnabled else {
@@ -126,7 +133,6 @@ final class AIProviderRegistry {
                 continue
             }
 
-            guard installMissingHooks else { continue }
             await loginShellPathHydrationTask().value
 
             guard provider.isToolInstalled() else {
@@ -151,7 +157,7 @@ final class AIProviderRegistry {
     private func installHook(for provider: AIProviderIntegration, action: String) {
         guard let hookScript = hookScriptPath(provider.hookScriptName, provider.hookScriptExtension)
         else {
-            logger.warning("Hook script \(provider.hookScriptName) not found in bundle, skipping \(provider.displayName)")
+            logger.warning("Staged hook \(provider.hookScriptName) not found, skipping \(provider.displayName)")
             return
         }
         do {
@@ -163,6 +169,7 @@ final class AIProviderRegistry {
     }
 
     func forceInstall(_ provider: AIProviderIntegration) async {
+        guard stageHookResourcesNow() else { return }
         guard let hookScript = hookScriptPath(provider.hookScriptName, provider.hookScriptExtension)
         else {
             logger.warning("Hook script \(provider.hookScriptName) not found, cannot force-install \(provider.displayName)")
@@ -188,6 +195,20 @@ final class AIProviderRegistry {
         }
         loginShellPathHydration = task
         return task
+    }
+
+    private func stageHookResourcesIfNeeded() {
+        guard !hookResourcesStaged else { return }
+        _ = stageHookResourcesNow()
+    }
+
+    private func stageHookResourcesNow() -> Bool {
+        guard stageHookResources() else {
+            logger.error("Failed to stage AI hook resources")
+            return false
+        }
+        hookResourcesStaged = true
+        return true
     }
 
     func uninstallAll() {

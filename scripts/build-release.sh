@@ -108,6 +108,9 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$APP_BUNDLE/Content
 cp "$SPM_BUILD_DIR/MuxyExtensionHost" "$APP_BUNDLE/Contents/MacOS/MuxyExtensionHost"
 strip -Sx "$APP_BUNDLE/Contents/MacOS/MuxyExtensionHost"
 
+cp "$SPM_BUILD_DIR/muxy-hook" "$APP_BUNDLE/Contents/MacOS/muxy-hook"
+strip -Sx "$APP_BUNDLE/Contents/MacOS/muxy-hook"
+
 echo "==> Generating dSYM"
 xcrun dsymutil "$APP_BUNDLE/Contents/MacOS/Muxy" -o "$DSYM_BUNDLE"
 
@@ -186,6 +189,11 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
         --entitlements "$PROJECT_ROOT/MuxyExtensionHost/MuxyExtensionHost.entitlements" \
         --sign "$SIGN_IDENTITY" \
         "$APP_BUNDLE/Contents/MacOS/MuxyExtensionHost"
+
+    echo "==> Signing AI hook bridge"
+    /usr/bin/codesign --force --options runtime --timestamp \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/MacOS/muxy-hook"
 
     echo "==> Signing app bundle"
     /usr/bin/codesign --force --options runtime --timestamp \

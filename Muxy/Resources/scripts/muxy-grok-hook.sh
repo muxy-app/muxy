@@ -1,4 +1,2 @@
 #!/usr/bin/env bash
-set -euo pipefail
-script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-exec /bin/bash "$script_dir/muxy-agent-hook.sh" "grok_hook" "Grok" "${1:-}"
+exec "$(dirname "$0")/muxy-hook" agent-event --provider grok_hook --provider-title Grok --event "${1:-}" || exit 0

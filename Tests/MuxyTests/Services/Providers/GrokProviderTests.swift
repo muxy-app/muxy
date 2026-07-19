@@ -200,24 +200,42 @@ struct GrokProviderTests {
 
     @Test("shipped muxy-grok-hook emits one normalized finished event")
     func shippedHookEmitsGrokWireFormat() throws {
-        let scriptPath = try #require(
+        let sourceScriptPath = try #require(
             MuxyNotificationHooks.scriptPath(named: "muxy-grok-hook", extension: "sh")
                 ?? Self.repositoryScriptPath()
         )
+        let binaryURL = RepositoryRoot.find().appendingPathComponent(".build/debug/muxy-hook")
+        try #require(FileManager.default.isExecutableFile(atPath: binaryURL.path))
+        let stagedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuxyGrokHookTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: stagedDirectory) }
+        try FileManager.default.createDirectory(at: stagedDirectory, withIntermediateDirectories: true)
+        let stagedScriptURL = stagedDirectory.appendingPathComponent("muxy-grok-hook.sh")
+        let stagedBinaryURL = stagedDirectory.appendingPathComponent("muxy-hook")
+        try FileManager.default.copyItem(atPath: sourceScriptPath, toPath: stagedScriptURL.path)
+        try FileManager.default.copyItem(at: binaryURL, to: stagedBinaryURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateExecutable],
+            ofItemAtPath: stagedScriptURL.path
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateExecutable],
+            ofItemAtPath: stagedBinaryURL.path
+        )
         let payloads = try Self.runHookScript(
-            at: scriptPath,
+            at: stagedScriptURL.path,
             event: "stop",
             input: #"{}"#
         )
-        #expect(!payloads.isEmpty)
-        let joined = payloads.joined()
-        #expect(joined.contains("agent_event|grok_hook|"))
-        #expect(joined.contains("|finished|"))
-        #expect(joined.contains("|Grok|"))
-        #expect(joined.contains("Session completed"))
-        for payload in payloads {
-            #expect(payload.hasSuffix("\n"))
-        }
+        let payload = try #require(payloads.first)
+        let message = try #require(JSONSerialization.jsonObject(with: Data(payload.utf8)) as? [String: Any])
+        #expect(payloads.count == 1)
+        #expect(message["v"] as? Int == 3)
+        #expect(message["kind"] as? String == "agent_event")
+        #expect(message["provider"] as? String == "grok_hook")
+        #expect(message["phase"] as? String == "finished")
+        #expect(message["title"] as? String == "Grok")
+        #expect(message["body"] as? String == "Session completed")
     }
 
     @Test("uninstall preserves foreign hooks in the shared file")
@@ -313,7 +331,7 @@ struct GrokProviderTests {
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = socketPath
         environment["MUXY_PANE_ID"] = paneID
-        environment["MUXY_AGENT_EVENT_PROTOCOL"] = "2"
+        environment["MUXY_AGENT_EVENT_PROTOCOL"] = "3"
         process.environment = environment
         let stdin = Pipe()
         process.standardInput = stdin
@@ -353,6 +371,10 @@ struct GrokProviderTests {
                 let accepted = accept(listener, nil, nil)
                 guard accepted >= 0 else { continue }
                 let data = (try? readPayload(from: accepted)) ?? Data()
+                let acknowledgement = Data(#"{"v":3,"kind":"ack","ok":true}"#.utf8) + Data([10])
+                _ = acknowledgement.withUnsafeBytes { bytes in
+                    Darwin.write(accepted, bytes.baseAddress, bytes.count)
+                }
                 close(accepted)
                 if !data.isEmpty {
                     payloads.append(String(decoding: data, as: UTF8.self))
@@ -384,9 +406,15 @@ struct GrokProviderTests {
                 bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard bindResult == 0, listen(descriptor, 5) == 0 else {
+        guard bindResult == 0 else {
+            let code = errno
             close(descriptor)
-            throw POSIXError(.EADDRINUSE)
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+        }
+        guard listen(descriptor, 5) == 0 else {
+            let code = errno
+            close(descriptor)
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
         }
         return descriptor
     }

@@ -58,6 +58,13 @@ final class GhosttyTerminalNSView: NSView {
         command != nil && commandClosesOnExit
     }
 
+    var foregroundProcessID: Int32? {
+        guard let surface else { return nil }
+        let processID = ghostty_surface_foreground_pid(surface)
+        guard processID > 0, processID <= UInt64(Int32.max) else { return nil }
+        return Int32(processID)
+    }
+
     private var _markedText: String = ""
     private var _markedRange: NSRange = .init(location: NSNotFound, length: 0)
     private var _selectedRange: NSRange = .init(location: 0, length: 0)

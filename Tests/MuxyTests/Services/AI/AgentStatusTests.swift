@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 import Testing
 
 @testable import Muxy
@@ -93,6 +94,105 @@ struct AgentStatusTests {
         #expect(NotificationSocketServer.parseAgentLifecycleMessage(
             "agent_event||\(UUID().uuidString)|finished||"
         ) == nil)
+    }
+
+    @Test("parses a protocol v3 lifecycle event")
+    func parsesProtocolV3LifecycleEvent() throws {
+        let paneID = UUID()
+        let event = AgentHookEventMessage(
+            provider: "claude_hook",
+            paneID: paneID.uuidString,
+            phase: .waiting,
+            title: "Claude Code",
+            body: "Permission needed",
+            pids: [300, 200, 100],
+            ts: 1_721_234_567
+        )
+
+        let parsed = NotificationSocketServer.parseAgentHookEventMessage(
+            try AgentHookWireCodec.encodeEventLine(event)
+        )
+
+        #expect(parsed == event)
+    }
+
+    @Test("accepts protocol v3 lifecycle events without an explicit pane")
+    func acceptsProtocolV3LifecycleEventWithoutPane() throws {
+        let event = AgentHookEventMessage(
+            provider: "codex_hook",
+            paneID: nil,
+            phase: .working,
+            title: "",
+            body: "",
+            pids: [300, 200, 100],
+            ts: 1_721_234_567
+        )
+
+        let parsed = NotificationSocketServer.parseAgentHookEventMessage(
+            try AgentHookWireCodec.encodeEventLine(event)
+        )
+
+        #expect(parsed == event)
+    }
+
+    @Test("rejects invalid protocol v3 lifecycle envelopes")
+    func rejectsInvalidProtocolV3LifecycleEnvelopes() throws {
+        let valid = AgentHookEventMessage(
+            provider: "codex_hook",
+            paneID: UUID().uuidString,
+            phase: .finished,
+            title: "Codex",
+            body: "Session completed",
+            pids: [],
+            ts: 1_721_234_567
+        )
+        let invalidMessages = [
+            AgentHookEventMessage(
+                v: 2,
+                provider: valid.provider,
+                paneID: valid.paneID,
+                phase: valid.phase,
+                title: valid.title,
+                body: valid.body,
+                pids: valid.pids,
+                ts: valid.ts
+            ),
+            AgentHookEventMessage(
+                kind: "notification",
+                provider: valid.provider,
+                paneID: valid.paneID,
+                phase: valid.phase,
+                title: valid.title,
+                body: valid.body,
+                pids: valid.pids,
+                ts: valid.ts
+            ),
+            AgentHookEventMessage(
+                provider: "",
+                paneID: valid.paneID,
+                phase: valid.phase,
+                title: valid.title,
+                body: valid.body,
+                pids: valid.pids,
+                ts: valid.ts
+            ),
+            AgentHookEventMessage(
+                provider: valid.provider,
+                paneID: "not-a-uuid",
+                phase: valid.phase,
+                title: valid.title,
+                body: valid.body,
+                pids: valid.pids,
+                ts: valid.ts
+            ),
+        ]
+
+        for message in invalidMessages {
+            #expect(NotificationSocketServer.parseAgentHookEventMessage(
+                try AgentHookWireCodec.encodeEventLine(message)
+            ) == nil)
+        }
+        #expect(NotificationSocketServer.parseAgentHookEventMessage(Data("not-json".utf8)) == nil)
     }
 
     @Test("only active to idle transitions mark completion")

@@ -72,7 +72,8 @@ struct AIProviderRegistryTests {
         let registry = AIProviderRegistry(
             providers: [provider],
             hydrateLoginShellPath: { await gate.wait() },
-            shouldInstallHooksInDebug: { true }
+            shouldInstallHooksInDebug: { true },
+            stageHookResources: { true }
         )
 
         let installTask = Task {
@@ -88,18 +89,24 @@ struct AIProviderRegistryTests {
         #expect(provider.toolCheckCount == 1)
     }
 
-    @Test("prepareForInstallation skips PATH hydration when dev hook installation is disabled")
-    func prepareForInstallationSkipsPathHydrationWithoutDevOptIn() async {
+    @Test("prepareForInstallation stages resources but skips PATH hydration without dev opt-in")
+    func prepareForInstallationStagesWithoutDevOptIn() async {
         let gate = HydrationGate()
+        let staging = StagingRecorder()
         let registry = AIProviderRegistry(
             providers: [],
             hydrateLoginShellPath: { await gate.wait() },
-            shouldInstallHooksInDebug: { false }
+            shouldInstallHooksInDebug: { false },
+            stageHookResources: {
+                staging.record()
+                return true
+            }
         )
 
         registry.prepareForInstallation()
         await Task.yield()
 
+        #expect(staging.count == 1)
         #expect(!gate.started)
     }
 
@@ -113,7 +120,8 @@ struct AIProviderRegistryTests {
         let registry = AIProviderRegistry(
             providers: [provider],
             hydrateLoginShellPath: { await gate.wait() },
-            shouldInstallHooksInDebug: { true }
+            shouldInstallHooksInDebug: { true },
+            stageHookResources: { true }
         )
 
         await registry.installAll()
@@ -140,8 +148,8 @@ struct AIProviderRegistryTests {
         #expect(provider.toolCheckCount == 0)
     }
 
-    @Test("installAll refreshes only providers whose hook is already installed in dev")
-    func installAllRefreshesInstalledHooksInDev() async {
+    @Test("installAll does not reconcile hooks in dev without explicit opt-in")
+    func installAllDoesNotReconcileHooksInDevWithoutExplicitOptIn() async {
         let installed = RefreshRecordingProvider()
         let notInstalled = RefreshRecordingProvider()
         defer {
@@ -164,11 +172,60 @@ struct AIProviderRegistryTests {
 
         await registry.installAll()
 
-        #expect(installed.hookInstalledCheckCount >= 1)
-        #expect(installed.installAttempted)
+        #expect(installed.hookInstalledCheckCount == 0)
+        #expect(!installed.installAttempted)
         #expect(!notInstalled.installAttempted)
         #expect(notInstalled.toolCheckCount == 0)
         #expect(!gate.started)
+    }
+
+    @Test("prepare and install stage resources once before provider reconciliation")
+    func stagingRunsOnceBeforeReconciliation() async {
+        let provider = RefreshRecordingProvider()
+        defer { provider.resetSettings() }
+        provider.isEnabled = true
+        provider.hookInstalled = true
+        let staging = StagingRecorder()
+        let registry = AIProviderRegistry(
+            providers: [provider],
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { true },
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" },
+            stageHookResources: {
+                staging.record()
+                return true
+            }
+        )
+
+        registry.prepareForInstallation()
+        await registry.installAll()
+
+        #expect(staging.count == 1)
+        #expect(provider.installAttempted)
+    }
+
+    @Test("force install restages hook resources before reinstalling")
+    func forceInstallRestagesHookResources() async {
+        let provider = RecordingProvider()
+        defer { provider.resetSettings() }
+        let staging = StagingRecorder()
+        let registry = AIProviderRegistry(
+            providers: [provider],
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { true },
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" },
+            stageHookResources: {
+                staging.record()
+                return true
+            }
+        )
+
+        registry.prepareForInstallation()
+        await registry.forceInstall(provider)
+
+        #expect(staging.count == 2)
+        #expect(provider.uninstallCount == 1)
+        #expect(provider.installCount == 1)
     }
 
     @Test("installAll installs missing hooks in dev only with the explicit opt-in")
@@ -181,13 +238,27 @@ struct AIProviderRegistryTests {
             providers: [provider],
             hydrateLoginShellPath: {},
             shouldInstallHooksInDebug: { true },
-            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" }
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" },
+            stageHookResources: { true }
         )
 
         await registry.installAll()
 
         #expect(provider.toolCheckCount == 1)
         #expect(provider.installCount == 1)
+    }
+}
+
+private final class StagingRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var count: Int {
+        lock.withLock { storage }
+    }
+
+    func record() {
+        lock.withLock { storage += 1 }
     }
 }
 
