@@ -117,8 +117,8 @@ struct MuxyNotificationHooksTests {
             .appendingPathComponent("Muxy/Resources/scripts/muxy-agent-hook.sh").path))
     }
 
-    @Test("OpenCode invokes the bridge and keeps direct v2 as missing-binary fallback")
-    func openCodeUsesBridgeWithV2Fallback() throws {
+    @Test("OpenCode invokes the bridge and logs when the binary is missing")
+    func openCodeUsesBridgeOnly() throws {
         let contents = try String(
             contentsOf: Self.repositoryRoot.appendingPathComponent("Muxy/Resources/scripts/opencode-muxy-plugin.js"),
             encoding: .utf8
@@ -127,14 +127,16 @@ struct MuxyNotificationHooksTests {
         #expect(contents.contains("process.env.MUXY_HOOK_BIN"))
         #expect(contents.contains("node:child_process"))
         #expect(contents.contains("agent-event"))
-        #expect(contents.contains("`agent_event|opencode|${paneID}|${phase}|"))
         #expect(contents.contains("sendQueue = sendQueue.then(transmit, transmit)"))
+        #expect(contents.contains("muxy-hook binary is not staged"))
         #expect(!contents.contains("agent_status|"))
+        #expect(!contents.contains("agent_event|"))
+        #expect(!contents.contains("createConnection"))
         #expect(!contents.contains("MUXY_AGENT_EVENT_PROTOCOL"))
     }
 
-    @Test("Pi invokes the bridge and keeps direct v2 as missing-binary fallback")
-    func piUsesBridgeWithV2Fallback() throws {
+    @Test("Pi invokes the bridge and logs when the binary is missing")
+    func piUsesBridgeOnly() throws {
         let contents = try String(
             contentsOf: Self.repositoryRoot.appendingPathComponent("Muxy/Resources/scripts/muxy-pi-extension.ts"),
             encoding: .utf8
@@ -143,8 +145,10 @@ struct MuxyNotificationHooksTests {
         #expect(contents.contains("process.env.MUXY_HOOK_BIN"))
         #expect(contents.contains("node:child_process"))
         #expect(contents.contains("agent-event"))
-        #expect(contents.contains("`agent_event|pi|${paneID}|${phase}|${title}|${body}`"))
+        #expect(contents.contains("muxy-hook binary is not staged"))
         #expect(!contents.contains("agent_status|"))
+        #expect(!contents.contains("agent_event|"))
+        #expect(!contents.contains("createConnection"))
         #expect(!contents.contains("MUXY_AGENT_EVENT_PROTOCOL"))
     }
 
@@ -245,7 +249,6 @@ struct MuxyNotificationHooksTests {
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = socketPath
         environment["MUXY_PANE_ID"] = paneID
-        environment["MUXY_AGENT_EVENT_PROTOCOL"] = "3"
         process.environment = environment
         let standardInput = Pipe()
         process.standardInput = standardInput

@@ -90,19 +90,6 @@ function clearSettledSession(sessionID, version) {
   activeSessions.delete(sessionID)
 }
 
-async function sendDirect(socketPath, payload) {
-  try {
-    const { createConnection } = await import("net")
-    const conn = createConnection({ path: socketPath })
-    conn.on("error", () => {})
-    conn.write(`${payload}\n`, () => conn.end())
-    await new Promise((resolve) => {
-      conn.on("close", resolve)
-      setTimeout(resolve, 3000)
-    })
-  } catch {}
-}
-
 function stagedHookBinaryPath() {
   if (process.env.MUXY_HOOK_BIN) return process.env.MUXY_HOOK_BIN
   if (!process.env.HOME) return ""
@@ -167,12 +154,8 @@ function sendEvent(phase, title = "", body = "") {
   const cleanBody = sanitize(body)
   const transmit = async () => {
     if (await invokeHookBinary(phase, cleanTitle, cleanBody)) return
-    const socketPath = process.env.MUXY_SOCKET_PATH
-    const paneID = process.env.MUXY_PANE_ID
-    if (!socketPath || !paneID) return
-    await sendDirect(
-      socketPath,
-      `agent_event|opencode|${paneID}|${phase}|${cleanTitle}|${cleanBody}`,
+    process.stderr.write(
+      `[muxy-opencode] muxy-hook binary is not staged; skipping ${phase} event\n`,
     )
   }
   sendQueue = sendQueue.then(transmit, transmit)

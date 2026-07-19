@@ -44,6 +44,18 @@ struct DroidProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ClaudeCodeProvider.fileContainsMuxyMarker(at: Self.settingsPath)
     }
 
+    var configPaths: [String] { [Self.settingsPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        ClaudeCodeProvider.verifyNestedHooks(
+            at: Self.settingsPath,
+            keys: Self.hookEvents.map(\.settingsKey),
+            expectedCommands: Self.hookEvents.map {
+                Self.hookCommand(hookScript: hookScriptPath, event: $0.event)
+            }
+        )
+    }
+
     func install(hookScriptPath: String) throws {
         let settings = try Self.readSettings()
         let hooks = settings["hooks"] as? [String: Any] ?? [:]
@@ -162,22 +174,6 @@ struct DroidProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private static func writeSettings(_ settings: [String: Any]) throws {
-        let dirPath = (settingsPath as NSString).deletingLastPathComponent
-        try FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
-
-        let fileURL = URL(fileURLWithPath: settingsPath)
-        if FileManager.default.fileExists(atPath: settingsPath) {
-            let backupPath = settingsPath + ".muxy-backup"
-            let backupURL = URL(fileURLWithPath: backupPath)
-            try? FileManager.default.removeItem(at: backupURL)
-            try FileManager.default.copyItem(at: fileURL, to: backupURL)
-        }
-
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: settingsPath
-        )
+        try HookConfigWriter.write(settings, to: settingsPath)
     }
 }

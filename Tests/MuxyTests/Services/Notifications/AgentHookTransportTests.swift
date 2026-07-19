@@ -25,22 +25,76 @@ struct AgentHookTransportTests {
         #expect(result == [9, 8])
     }
 
-    @Test("socket client retries three times with increasing backoff")
-    func retriesWithBackoff() throws {
+    @Test("socket client retries within a single shared budget")
+    func retriesWithinSharedBudget() throws {
         let recorder = TransportRecorder(failuresBeforeSuccess: 2)
+        let clock = ManualClock()
         let client = AgentHookSocketClient(
             maximumAttempts: 3,
-            acknowledgementTimeout: 0.25,
-            retryDelay: 0.1,
+            totalBudget: 0.4,
+            retryDelay: 0.02,
             sendAttempt: recorder.send,
-            sleep: recorder.recordSleep
+            sleep: { delay in
+                recorder.recordSleep(delay)
+                clock.advance(by: delay)
+            },
+            elapsed: clock.now
         )
 
         try client.send(Self.message, to: "/tmp/test.sock")
 
         #expect(recorder.attemptCount == 3)
-        #expect(recorder.sleeps == [0.1, 0.2])
+        #expect(recorder.sleeps == [0.02, 0.02])
         #expect(try AgentHookWireCodec.decodeEventLine(#require(recorder.lastLine)) == Self.message)
+    }
+
+    @Test("each attempt receives only the remaining budget, never a fresh timeout")
+    func attemptsShareRemainingBudget() throws {
+        let recorder = TransportRecorder(failuresBeforeSuccess: .max)
+        let clock = ManualClock()
+        let client = AgentHookSocketClient(
+            maximumAttempts: 3,
+            totalBudget: 0.4,
+            retryDelay: 0.02,
+            sendAttempt: { path, line, budget in
+                clock.advance(by: budget)
+                try recorder.send(socketPath: path, line: line, timeout: budget)
+            },
+            sleep: { clock.advance(by: $0) },
+            elapsed: clock.now
+        )
+
+        #expect(throws: (any Error).self) {
+            try client.send(Self.message, to: "/tmp/test.sock")
+        }
+
+        #expect(recorder.attemptCount == 1)
+        #expect(clock.now() <= 0.4)
+    }
+
+    @Test("an unresponsive server never exceeds the total budget across all retries")
+    func totalBudgetBoundsUnresponsiveServer() throws {
+        let recorder = TransportRecorder(failuresBeforeSuccess: .max)
+        let clock = ManualClock()
+        let stallPerAttempt = 0.25
+        let client = AgentHookSocketClient(
+            maximumAttempts: 3,
+            totalBudget: 0.4,
+            retryDelay: 0.02,
+            sendAttempt: { path, line, budget in
+                clock.advance(by: min(stallPerAttempt, budget))
+                try recorder.send(socketPath: path, line: line, timeout: budget)
+            },
+            sleep: { clock.advance(by: $0) },
+            elapsed: clock.now
+        )
+
+        #expect(throws: (any Error).self) {
+            try client.send(Self.message, to: "/tmp/test.sock")
+        }
+
+        #expect(clock.now() <= 0.4)
+        #expect(recorder.attemptCount == 2)
     }
 
     @Test("socket client accepts a v3 acknowledgement from a Unix socket")
@@ -73,7 +127,7 @@ struct AgentHookTransportTests {
         try AgentHookSocketClient.sendOnce(
             socketPath: socketPath,
             line: AgentHookWireCodec.encodeEventLine(Self.message),
-            acknowledgementTimeout: acknowledgementTimeout
+            remainingBudget: acknowledgementTimeout
         )
         #expect(serverFinished.wait(timeout: .now() + acknowledgementTimeout) == .success)
     }
@@ -102,7 +156,7 @@ struct AgentHookTransportTests {
             try AgentHookSocketClient.sendConnected(
                 descriptor: descriptors[0],
                 line: Data(repeating: 1, count: 4 * 1_024 * 1_024),
-                acknowledgementTimeout: deliveryTimeout
+                remainingBudget: deliveryTimeout
             )
         }
 
@@ -264,6 +318,21 @@ struct AgentHookTransportTests {
 
 private enum TransportTestError: Error {
     case forcedFailure
+}
+
+private final class ManualClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current: TimeInterval = 0
+
+    func now() -> TimeInterval {
+        lock.withLock { current }
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.lock()
+        current += interval
+        lock.unlock()
+    }
 }
 
 private final class TransportRecorder: @unchecked Sendable {

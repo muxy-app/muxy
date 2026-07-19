@@ -53,6 +53,8 @@ Inside a terminal pane: **Paste**, **Split Right**, **Split Down**, **Close Pane
 
 OSC 9 and OSC 777 notification escape sequences are routed into Muxy's notification panel and (optionally) macOS notifications.
 
+For AI coding agents (Claude Code, Codex, Cursor, Droid, Grok, OpenCode, Pi), Muxy uses hook-based lifecycle events rather than escape sequences — see [AI notifications](ai-notifications.md).
+
 ## Quick-select labels
 
 Ghostty's quick-select feature lets you focus a pane or surface by typing a label key. Labels and bindings are configured in the Ghostty config.

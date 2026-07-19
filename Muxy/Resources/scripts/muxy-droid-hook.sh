@@ -1,2 +1,4 @@
 #!/usr/bin/env bash
-exec "$(dirname "$0")/muxy-hook" agent-event --provider droid_hook --provider-title Droid --event "${1:-}" || exit 0
+bin="$(dirname "$0")/muxy-hook"
+[ -x "$bin" ] || exit 0
+exec "$bin" agent-event --provider droid_hook --provider-title Droid --event "${1:-}"

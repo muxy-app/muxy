@@ -6,96 +6,6 @@ import Testing
 
 @Suite("AgentStatus")
 struct AgentStatusTests {
-    @Test("parses a well-formed agent_status message")
-    func parsesValidMessage() {
-        let paneID = UUID()
-        let parsed = NotificationSocketServer.parseAgentStatusMessage("agent_status|claude_hook|\(paneID.uuidString)|working")
-        #expect(parsed == NotificationSocketServer.AgentStatusMessage(
-            socketType: "claude_hook",
-            paneID: paneID,
-            status: .working
-        ))
-    }
-
-    @Test("parses every status value")
-    func parsesEveryStatus() {
-        let paneID = UUID()
-        for status in [AgentStatus.working, .waiting, .idle] {
-            let parsed = NotificationSocketServer.parseAgentStatusMessage(
-                "agent_status|claude_hook|\(paneID.uuidString)|\(status.rawValue)"
-            )
-            #expect(parsed?.status == status)
-        }
-    }
-
-    @Test("parses messages from every provider socket type")
-    func parsesEveryProviderSocketType() {
-        let paneID = UUID()
-        for socketType in ["claude_hook", "cursor_hook", "codex_hook", "droid_hook", "opencode", "pi", "grok_hook"] {
-            let parsed = NotificationSocketServer.parseAgentStatusMessage(
-                "agent_status|\(socketType)|\(paneID.uuidString)|working"
-            )
-            #expect(parsed?.socketType == socketType)
-            #expect(parsed?.status == .working)
-        }
-    }
-
-    @Test("rejects an unknown status")
-    func rejectsUnknownStatus() {
-        let message = "agent_status|claude_hook|\(UUID().uuidString)|busy"
-        #expect(NotificationSocketServer.parseAgentStatusMessage(message) == nil)
-    }
-
-    @Test("rejects a malformed pane id")
-    func rejectsMalformedPaneID() {
-        #expect(NotificationSocketServer.parseAgentStatusMessage("agent_status|claude_hook|not-a-uuid|idle") == nil)
-    }
-
-    @Test("rejects wrong arity and other heads")
-    func rejectsWrongShape() {
-        #expect(NotificationSocketServer.parseAgentStatusMessage("agent_status|claude_hook|\(UUID().uuidString)") == nil)
-        #expect(NotificationSocketServer.parseAgentStatusMessage("claude_hook|\(UUID().uuidString)|Title|Body") == nil)
-        #expect(NotificationSocketServer.parseAgentStatusMessage("agent_status||\(UUID().uuidString)|idle") == nil)
-    }
-
-    @Test("parses every normalized lifecycle phase")
-    func parsesEveryLifecyclePhase() {
-        let paneID = UUID()
-        for phase in [AgentLifecyclePhase.working, .waiting, .finished] {
-            let parsed = NotificationSocketServer.parseAgentLifecycleMessage(
-                "agent_event|codex_hook|\(paneID.uuidString)|\(phase.rawValue)|Codex|Body"
-            )
-            #expect(parsed == NotificationSocketServer.AgentLifecycleMessage(
-                socketType: "codex_hook",
-                paneID: paneID,
-                phase: phase,
-                title: "Codex",
-                body: "Body"
-            ))
-        }
-    }
-
-    @Test("lifecycle parser preserves an empty notification and body pipes")
-    func lifecycleParserPreservesPayload() {
-        let paneID = UUID()
-        let parsed = NotificationSocketServer.parseAgentLifecycleMessage(
-            "agent_event|opencode|\(paneID.uuidString)|working||part one|part two"
-        )
-        #expect(parsed?.title == "")
-        #expect(parsed?.body == "part one|part two")
-    }
-
-    @Test("lifecycle parser rejects malformed messages")
-    func rejectsMalformedLifecycleMessages() {
-        #expect(NotificationSocketServer.parseAgentLifecycleMessage("agent_event|codex_hook|bad|working||") == nil)
-        #expect(NotificationSocketServer.parseAgentLifecycleMessage(
-            "agent_event|codex_hook|\(UUID().uuidString)|idle||"
-        ) == nil)
-        #expect(NotificationSocketServer.parseAgentLifecycleMessage(
-            "agent_event||\(UUID().uuidString)|finished||"
-        ) == nil)
-    }
-
     @Test("parses a protocol v3 lifecycle event")
     func parsesProtocolV3LifecycleEvent() throws {
         let paneID = UUID()
@@ -260,11 +170,17 @@ struct AgentStatusTests {
 @MainActor
 private final class ManualGraceScheduler: AgentGraceScheduler {
     private(set) var items: [ManualGraceCancellable] = []
+    private(set) var delays: [TimeInterval] = []
 
-    func schedule(after _: TimeInterval, _ work: @escaping @MainActor () -> Void) -> AgentGraceCancellable {
+    func schedule(after delay: TimeInterval, _ work: @escaping @MainActor () -> Void) -> AgentGraceCancellable {
         let item = ManualGraceCancellable(work: work)
         items.append(item)
+        delays.append(delay)
         return item
+    }
+
+    var lastDelay: TimeInterval? {
+        delays.last
     }
 
     var pendingCount: Int {
@@ -301,9 +217,16 @@ struct AgentStatusStoreTests {
     private let projectID = UUID()
     private let worktreeID = UUID()
 
-    private func makeContext() -> (AgentStatusStore, ManualGraceScheduler, UUID) {
+    private func makeContext(
+        agentProcessAlive: Bool = false
+    ) -> (AgentStatusStore, ManualGraceScheduler, UUID) {
         let scheduler = ManualGraceScheduler()
-        let store = AgentStatusStore(scheduler: scheduler, graceDelay: 4)
+        let store = AgentStatusStore(
+            scheduler: scheduler,
+            graceDelay: 4,
+            waitingGraceDelay: 30,
+            isAgentProcessAlive: { _ in agentProcessAlive }
+        )
         let appState = AppState(
             selectionStore: SelectionStoreStub(),
             terminalViews: TerminalViewRemovingStub(),
@@ -336,107 +259,214 @@ struct AgentStatusStoreTests {
     }
 
     @Test("drops stale out-of-order events")
-    func dropsStaleEvents() {
-        let (store, _, paneID) = makeContext()
-        send(store, paneID, .working, sequence: 5)
-        send(store, paneID, .idle, sequence: 3)
-        #expect(store.status(forPane: paneID) == .working)
+    func dropsStaleEvents() async {
+        await SharedNotificationStateGate.run {
+            let (store, _, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 5)
+            send(store, paneID, .idle, sequence: 3)
+            #expect(store.status(forPane: paneID) == .working)
+        }
     }
 
     @Test("applies newer events after older ones")
-    func appliesNewerEvents() {
-        let (store, _, paneID) = makeContext()
-        send(store, paneID, .working, sequence: 1)
-        send(store, paneID, .waiting, sequence: 2)
-        #expect(store.status(forPane: paneID) == .waiting)
+    func appliesNewerEvents() async {
+        await SharedNotificationStateGate.run {
+            let (store, _, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            send(store, paneID, .waiting, sequence: 2)
+            #expect(store.status(forPane: paneID) == .waiting)
+        }
     }
 
     @Test("duplicate events are idempotent and mark completion once")
-    func duplicateEventsIdempotent() {
-        let (store, _, paneID) = makeContext()
-        send(store, paneID, .working, sequence: 1)
-        send(store, paneID, .idle, sequence: 2)
-        #expect(store.isCompletionPending(forPane: paneID))
-        store.clearCompletion(for: paneID)
-        send(store, paneID, .idle, sequence: 2)
-        #expect(!store.isCompletionPending(forPane: paneID))
+    func duplicateEventsIdempotent() async {
+        await SharedNotificationStateGate.run {
+            let (store, _, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            send(store, paneID, .idle, sequence: 2)
+            #expect(store.isCompletionPending(forPane: paneID))
+            store.clearCompletion(for: paneID)
+            send(store, paneID, .idle, sequence: 2)
+            #expect(!store.isCompletionPending(forPane: paneID))
+        }
     }
 
     @Test("completion badge fires exactly once per finish")
-    func completionFiresOncePerFinish() {
-        let (store, _, paneID) = makeContext()
-        send(store, paneID, .working, sequence: 1)
-        send(store, paneID, .idle, sequence: 2)
-        #expect(store.isCompletionPending(forPane: paneID))
-        store.clearCompletion(for: paneID)
-        send(store, paneID, .idle, sequence: 3)
-        #expect(!store.isCompletionPending(forPane: paneID))
-        send(store, paneID, .working, sequence: 4)
-        send(store, paneID, .idle, sequence: 5)
-        #expect(store.isCompletionPending(forPane: paneID))
+    func completionFiresOncePerFinish() async {
+        await SharedNotificationStateGate.run {
+            let (store, _, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            send(store, paneID, .idle, sequence: 2)
+            #expect(store.isCompletionPending(forPane: paneID))
+            store.clearCompletion(for: paneID)
+            send(store, paneID, .idle, sequence: 3)
+            #expect(!store.isCompletionPending(forPane: paneID))
+            send(store, paneID, .working, sequence: 4)
+            send(store, paneID, .idle, sequence: 5)
+            #expect(store.isCompletionPending(forPane: paneID))
+        }
     }
 
     @Test("detection loss idles a working agent only after grace with no hook events")
-    func detectionLossIdlesAfterGrace() {
-        let (store, scheduler, paneID) = makeContext()
-        send(store, paneID, .working, sequence: 1)
-        store.noteDetectionLost(paneID: paneID)
-        #expect(store.status(forPane: paneID) == .working)
-        scheduler.fireLast()
-        #expect(store.status(forPane: paneID) == .idle)
-        #expect(store.isCompletionPending(forPane: paneID))
+    func detectionLossIdlesAfterGrace() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            #expect(store.status(forPane: paneID) == .working)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .idle)
+            #expect(store.isCompletionPending(forPane: paneID))
+        }
     }
 
     @Test("hook event cancels a pending grace transition")
-    func hookEventCancelsGrace() {
-        let (store, scheduler, paneID) = makeContext()
-        send(store, paneID, .working, sequence: 1)
-        store.noteDetectionLost(paneID: paneID)
-        send(store, paneID, .working, sequence: 2)
-        #expect(scheduler.pendingCount == 0)
-        scheduler.fireLast()
-        #expect(store.status(forPane: paneID) == .working)
+    func hookEventCancelsGrace() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            send(store, paneID, .working, sequence: 2)
+            #expect(scheduler.pendingCount == 0)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .working)
+        }
     }
 
     @Test("re-detection cancels a pending grace transition")
-    func reDetectionCancelsGrace() {
-        let (store, scheduler, paneID) = makeContext()
-        send(store, paneID, .working, sequence: 1)
-        store.noteDetectionLost(paneID: paneID)
-        store.noteDetectionActive(paneID: paneID)
-        #expect(scheduler.pendingCount == 0)
-        scheduler.fireLast()
-        #expect(store.status(forPane: paneID) == .working)
+    func reDetectionCancelsGrace() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            store.noteDetectionActive(paneID: paneID)
+            #expect(scheduler.pendingCount == 0)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .working)
+        }
     }
 
-    @Test("a waiting agent is never idled by detection loss")
-    func waitingNeverIdledByDetectionLoss() {
-        let (store, scheduler, paneID) = makeContext()
-        send(store, paneID, .waiting, sequence: 1)
-        store.noteDetectionLost(paneID: paneID)
-        #expect(scheduler.pendingCount == 0)
-        #expect(store.status(forPane: paneID) == .waiting)
+    @Test("a genuinely waiting agent is never idled while its process is alive")
+    func waitingNeverIdledWhileProcessAlive() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext(agentProcessAlive: true)
+            send(store, paneID, .waiting, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            #expect(store.status(forPane: paneID) == .waiting)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .waiting)
+        }
+    }
+
+    @Test("a killed waiting agent idles after the longer waiting grace")
+    func killedWaitingAgentIdlesAfterGrace() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext(agentProcessAlive: false)
+            send(store, paneID, .waiting, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            #expect(store.status(forPane: paneID) == .waiting)
+            #expect(scheduler.lastDelay == 30)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .idle)
+            #expect(store.isCompletionPending(forPane: paneID))
+        }
+    }
+
+    @Test("re-detection cancels a pending waiting recovery")
+    func reDetectionCancelsWaitingRecovery() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext(agentProcessAlive: false)
+            send(store, paneID, .waiting, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            store.noteDetectionActive(paneID: paneID)
+            #expect(scheduler.pendingCount == 0)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .waiting)
+        }
     }
 
     @Test("grace does not idle when a hook event arrives before it fires")
-    func graceSkippedWhenHookArrives() {
-        let (store, scheduler, paneID) = makeContext()
-        send(store, paneID, .working, sequence: 1)
-        store.noteDetectionLost(paneID: paneID)
-        send(store, paneID, .waiting, sequence: 2)
-        scheduler.fireLast()
-        #expect(store.status(forPane: paneID) == .waiting)
+    func graceSkippedWhenHookArrives() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            send(store, paneID, .waiting, sequence: 2)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .waiting)
+        }
+    }
+
+    private func send(
+        _ store: AgentStatusStore,
+        _ paneID: UUID,
+        provider: String,
+        _ status: AgentStatus,
+        sequence: UInt64
+    ) {
+        guard let appState = NotificationStore.shared.appState else { return }
+        store.update(paneID: paneID, providerID: provider, status: status, sequence: sequence, appState: appState)
+    }
+
+    @Test("out-of-order events across two providers on one pane keep the newest sequence")
+    func outOfOrderAcrossProviders() async {
+        await SharedNotificationStateGate.run {
+            let (store, _, paneID) = makeContext()
+            send(store, paneID, provider: "claude", .working, sequence: 2)
+            send(store, paneID, provider: "codex", .waiting, sequence: 4)
+            send(store, paneID, provider: "claude", .idle, sequence: 3)
+            #expect(store.status(forPane: paneID) == .waiting)
+        }
+    }
+
+    @Test("a newer provider event supersedes an older one regardless of arrival order")
+    func newerProviderSupersedesOlder() async {
+        await SharedNotificationStateGate.run {
+            let (store, _, paneID) = makeContext()
+            send(store, paneID, provider: "codex", .idle, sequence: 5)
+            send(store, paneID, provider: "claude", .working, sequence: 2)
+            #expect(store.status(forPane: paneID) == .idle)
+        }
+    }
+
+    @Test("re-detection after loss keeps a working agent alive through the grace window")
+    func reDetectionKeepsWorkingThroughGrace() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            store.noteDetectionActive(paneID: paneID)
+            store.noteDetectionLost(paneID: paneID)
+            store.noteDetectionActive(paneID: paneID)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .working)
+        }
+    }
+
+    @Test("a waiting hook event during the grace window blocks the idle transition")
+    func waitingHookDuringGraceBlocksIdle() async {
+        await SharedNotificationStateGate.run {
+            let (store, scheduler, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            store.noteDetectionLost(paneID: paneID)
+            send(store, paneID, .waiting, sequence: 2)
+            scheduler.fireLast()
+            #expect(store.status(forPane: paneID) == .waiting)
+            #expect(!store.isCompletionPending(forPane: paneID))
+        }
     }
 
     @Test("pane close drops all session state")
-    func paneCloseDropsSessions() {
-        let (store, _, paneID) = makeContext()
-        send(store, paneID, .working, sequence: 1)
-        store.removePane(paneID)
-        #expect(store.status(forPane: paneID) == nil)
-        #expect(!store.isCompletionPending(forPane: paneID))
-        send(store, paneID, .idle, sequence: 1)
-        #expect(store.status(forPane: paneID) == .idle)
+    func paneCloseDropsSessions() async {
+        await SharedNotificationStateGate.run {
+            let (store, _, paneID) = makeContext()
+            send(store, paneID, .working, sequence: 1)
+            store.removePane(paneID)
+            #expect(store.status(forPane: paneID) == nil)
+            #expect(!store.isCompletionPending(forPane: paneID))
+            send(store, paneID, .idle, sequence: 1)
+            #expect(store.status(forPane: paneID) == .idle)
+        }
     }
 }
 

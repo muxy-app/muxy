@@ -35,6 +35,35 @@ struct NotificationSocketAgentHookTests {
         #expect(acknowledgement == AgentHookAcknowledgement(ok: true))
     }
 
+    @Test("acknowledges a synthetic test event")
+    func acknowledgesTestEvent() async throws {
+        let path = Self.temporarySocketPath()
+        let server = NotificationSocketServer(socketPath: path)
+        server.start()
+        await server.awaitReady()
+        defer { server.stop() }
+
+        let descriptor = try Self.connect(to: path)
+        defer { close(descriptor) }
+        let event = AgentHookEventMessage(
+            provider: "claude_hook",
+            paneID: nil,
+            phase: .finished,
+            title: "Claude Code test",
+            body: "Hook pipeline is working",
+            pids: [],
+            ts: 1_721_234_567,
+            test: true
+        )
+
+        try Self.write(AgentHookWireCodec.encodeEventLine(event), to: descriptor)
+        let acknowledgement = try AgentHookWireCodec.decodeAcknowledgementLine(
+            Self.readLine(from: descriptor)
+        )
+
+        #expect(acknowledgement == AgentHookAcknowledgement(ok: true))
+    }
+
     private static func temporarySocketPath() -> String {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("mah-\(UUID().uuidString.prefix(8)).sock")

@@ -24,6 +24,118 @@ struct AgentHookBridgeMappingTests {
         #expect(AgentHookCommand.parse(["other"]) == nil)
     }
 
+    @Test("command parser recognizes the test flag")
+    func parsesTestFlag() {
+        let parsed = AgentHookCommand.parse([
+            "agent-event",
+            "--provider", "claude_hook",
+            "--provider-title", "Claude Code",
+            "--event", "test",
+            "--test",
+        ])
+
+        #expect(parsed == AgentHookCommand(
+            provider: "claude_hook",
+            providerTitle: "Claude Code",
+            event: "test",
+            test: true
+        ))
+    }
+
+    @Test("runtime builds a self-contained synthetic test message flagged as test")
+    func runtimeBuildsTestMessage() {
+        let captured = MessageBox()
+        let runtime = AgentHookRuntime(
+            environment: ["MUXY_SOCKET_PATH": "/tmp/live.sock"],
+            socketClient: AgentHookSocketClient(sendAttempt: { _, line, _ in
+                captured.store(try? AgentHookWireCodec.decodeEventLine(line))
+            }),
+            ancestorPIDs: { [999] },
+            timestamp: { 42 }
+        )
+
+        let result = runtime.run(
+            command: AgentHookCommand(
+                provider: "claude_hook",
+                providerTitle: "Claude Code",
+                event: "test",
+                test: true
+            ),
+            input: Data()
+        )
+
+        #expect(result == .success)
+        let message = captured.value
+        #expect(message?.test == true)
+        #expect(message?.provider == "claude_hook")
+        #expect(message?.phase == .finished)
+        #expect(message?.title == "Claude Code test")
+        #expect(message?.pids.isEmpty == true)
+    }
+
+    @Test("runtime reports failure for a test command when delivery fails")
+    func runtimeTestReportsFailure() {
+        struct DeliveryError: Error {}
+        let runtime = AgentHookRuntime(
+            environment: ["MUXY_SOCKET_PATH": "/tmp/live.sock"],
+            socketClient: AgentHookSocketClient(
+                maximumAttempts: 1,
+                sendAttempt: { _, _, _ in throw DeliveryError() },
+                sleep: { _ in }
+            ),
+            failureLogger: AgentHookFailureLogger(logFileURL: nil),
+            timestamp: { 42 }
+        )
+
+        let result = runtime.run(
+            command: AgentHookCommand(
+                provider: "claude_hook",
+                providerTitle: "Claude Code",
+                event: "test",
+                test: true
+            ),
+            input: Data()
+        )
+
+        guard case .failure = result else {
+            Issue.record("expected failure result")
+            return
+        }
+    }
+
+    @Test("runtime never reports failure for non-test commands even on delivery error")
+    func runtimeNonTestAlwaysSucceeds() {
+        struct DeliveryError: Error {}
+        let runtime = AgentHookRuntime(
+            environment: ["MUXY_SOCKET_PATH": "/tmp/live.sock"],
+            socketClient: AgentHookSocketClient(
+                maximumAttempts: 1,
+                sendAttempt: { _, _, _ in throw DeliveryError() },
+                sleep: { _ in }
+            ),
+            failureLogger: AgentHookFailureLogger(logFileURL: nil),
+            timestamp: { 42 }
+        )
+
+        let result = runtime.run(
+            command: AgentHookCommand(
+                provider: "claude_hook",
+                providerTitle: "Claude Code",
+                event: "stop"
+            ),
+            input: Data()
+        )
+
+        #expect(result == .success)
+    }
+
+    private final class MessageBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: AgentHookEventMessage?
+        var value: AgentHookEventMessage? { lock.withLock { storage } }
+        func store(_ message: AgentHookEventMessage?) { lock.withLock { storage = message } }
+    }
+
     @Test(
         "working event aliases map to an empty working lifecycle",
         arguments: [

@@ -22,37 +22,67 @@ struct AgentHookRuntime {
         self.timestamp = timestamp
     }
 
-    func run(command: AgentHookCommand, input: Data) {
+    enum RunResult: Equatable {
+        case success
+        case failure(String)
+    }
+
+    @discardableResult
+    func run(command: AgentHookCommand, input: Data) -> RunResult {
+        guard let message = message(for: command, input: input) else { return .success }
+        guard let socketPath = resolvedSocketPath else {
+            return command.test ? .failure("No socket path configured") : .success
+        }
+
+        do {
+            try socketClient.send(message, to: socketPath)
+            return .success
+        } catch {
+            failureLogger.append(
+                provider: command.provider,
+                event: command.event,
+                error: error,
+                timestamp: message.ts
+            )
+            return command.test ? .failure(String(describing: error)) : .success
+        }
+    }
+
+    private func message(for command: AgentHookCommand, input: Data) -> AgentHookEventMessage? {
+        if command.test {
+            return testMessage(for: command)
+        }
         guard let mapped = AgentHookEventMapper.map(
             event: command.event,
             providerTitle: command.providerTitle,
             input: input
         )
-        else { return }
-        guard let socketPath = resolvedSocketPath else { return }
+        else { return nil }
 
-        let currentTimestamp = timestamp()
         let paneID = resolvedPaneID
-        let message = AgentHookEventMessage(
+        return AgentHookEventMessage(
             provider: command.provider,
             paneID: paneID,
             phase: mapped.phase,
             title: mapped.title,
             body: mapped.body,
             pids: paneID == nil ? ancestorPIDs() : [],
-            ts: currentTimestamp
+            ts: timestamp()
         )
+    }
 
-        do {
-            try socketClient.send(message, to: socketPath)
-        } catch {
-            failureLogger.append(
-                provider: command.provider,
-                event: command.event,
-                error: error,
-                timestamp: currentTimestamp
-            )
-        }
+    private func testMessage(for command: AgentHookCommand) -> AgentHookEventMessage {
+        let title = command.providerTitle.isEmpty ? "Notifications" : "\(command.providerTitle) test"
+        return AgentHookEventMessage(
+            provider: command.provider,
+            paneID: resolvedPaneID,
+            phase: .finished,
+            title: title,
+            body: "Hook pipeline is working",
+            pids: [],
+            ts: timestamp(),
+            test: true
+        )
     }
 
     private var resolvedPaneID: String? {

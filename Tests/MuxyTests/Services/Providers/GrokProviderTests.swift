@@ -331,7 +331,6 @@ struct GrokProviderTests {
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = socketPath
         environment["MUXY_PANE_ID"] = paneID
-        environment["MUXY_AGENT_EVENT_PROTOCOL"] = "3"
         process.environment = environment
         let stdin = Pipe()
         process.standardInput = stdin

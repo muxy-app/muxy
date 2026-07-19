@@ -316,12 +316,6 @@ final class NotificationSocketServer: @unchecked Sendable {
         let body: Data
     }
 
-    struct AgentStatusMessage: Equatable {
-        let socketType: String
-        let paneID: UUID
-        let status: AgentStatus
-    }
-
     struct AgentLifecycleMessage: Equatable {
         let socketType: String
         let paneID: UUID
@@ -332,34 +326,6 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private static func pipeFields(_ message: String) -> [String] {
         message.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
-    }
-
-    static func parseAgentStatusMessage(_ message: String) -> AgentStatusMessage? {
-        let parts = pipeFields(message)
-        guard parts.count == 4,
-              parts[0] == "agent_status",
-              !parts[1].isEmpty,
-              let paneID = UUID(uuidString: parts[2]),
-              let status = AgentStatus(rawValue: parts[3])
-        else { return nil }
-        return AgentStatusMessage(socketType: parts[1], paneID: paneID, status: status)
-    }
-
-    static func parseAgentLifecycleMessage(_ message: String) -> AgentLifecycleMessage? {
-        let parts = message.split(separator: "|", maxSplits: 5, omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 6,
-              parts[0] == "agent_event",
-              !parts[1].isEmpty,
-              let paneID = UUID(uuidString: parts[2]),
-              let phase = AgentLifecyclePhase(rawValue: parts[3])
-        else { return nil }
-        return AgentLifecycleMessage(
-            socketType: parts[1],
-            paneID: paneID,
-            phase: phase,
-            title: parts[4],
-            body: parts[5]
-        )
     }
 
     static func parseAgentHookEventMessage(_ data: Data) -> AgentHookEventMessage? {
@@ -812,20 +778,6 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
-        if session.extensionID == nil, let lifecycleMessage = Self.parseAgentLifecycleMessage(message) {
-            DispatchQueue.main.async { [weak self] in
-                self?.dispatchAgentLifecycle(lifecycleMessage)
-            }
-            return
-        }
-
-        if session.extensionID == nil, let statusMessage = Self.parseAgentStatusMessage(message) {
-            DispatchQueue.main.async { [weak self] in
-                self?.dispatchAgentStatus(statusMessage)
-            }
-            return
-        }
-
         let parts = message.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 3 else {
             logger.warning("Invalid message on notification socket: expected type|paneID|title|body")
@@ -857,26 +809,12 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func dispatchAgentStatus(_ message: AgentStatusMessage) {
-        guard let appState = NotificationStore.shared.appState else { return }
-        guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.socketType) else {
-            return
-        }
-        AgentStatusStore.shared.update(
-            paneID: message.paneID,
-            providerID: providerID,
-            status: message.status,
-            sequence: AgentStatusStore.shared.nextSequence(),
-            appState: appState
-        )
-    }
-
-    @MainActor
     private func dispatchAgentLifecycle(_ message: AgentLifecycleMessage) {
         guard let appState = NotificationStore.shared.appState else { return }
         guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.socketType) else {
             return
         }
+        HookHealthStore.shared.noteEvent(providerID: providerID)
         AgentStatusStore.shared.update(
             paneID: message.paneID,
             providerID: providerID,
@@ -895,6 +833,10 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     @MainActor
     private func dispatchAgentHookEvent(_ message: AgentHookEventMessage) {
+        if message.test {
+            dispatchAgentHookTest(message)
+            return
+        }
         let paneID: UUID
         if let paneIDString = message.paneID, let explicitPaneID = UUID(uuidString: paneIDString) {
             paneID = explicitPaneID
@@ -914,6 +856,22 @@ final class NotificationSocketServer: @unchecked Sendable {
             title: message.title,
             body: message.body
         ))
+    }
+
+    @MainActor
+    private func dispatchAgentHookTest(_ message: AgentHookEventMessage) {
+        guard case let .aiProvider(providerID) = AIProviderRegistry.shared.notificationSource(for: message.provider)
+        else { return }
+        HookHealthStore.shared.noteEvent(providerID: providerID)
+
+        let title = message.title.isEmpty ? "Notifications" : message.title
+        let paneIDString = message.paneID.flatMap { UUID(uuidString: $0) }?.uuidString
+        dispatchNotification(
+            type: message.provider,
+            title: title,
+            body: message.body,
+            paneIDString: paneIDString
+        )
     }
 
     @MainActor

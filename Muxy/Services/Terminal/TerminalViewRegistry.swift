@@ -11,8 +11,13 @@ final class TerminalViewRegistry {
 
     private var views: [UUID: GhosttyTerminalNSView] = [:]
     private var paneIDs: [ObjectIdentifier: UUID] = [:]
+    private var processIdentityOverride: [PaneProcessIdentity]?
 
     private init() {}
+
+    func overrideProcessIdentities(_ identities: [PaneProcessIdentity]?) {
+        processIdentityOverride = identities
+    }
 
     func isOwnedByRemote(_ paneID: UUID) -> Bool {
         !PaneOwnershipStore.shared.isOwnedByMac(paneID)
@@ -65,7 +70,7 @@ final class TerminalViewRegistry {
     }
 
     func paneID(matchingProcessIDs processIDs: [Int32]) -> UUID? {
-        let identities = views.compactMap { entry -> PaneProcessIdentity? in
+        let identities = processIdentityOverride ?? views.compactMap { entry -> PaneProcessIdentity? in
             let (paneID, view) = entry
             guard let processID = view.foregroundProcessID else { return nil }
             return PaneProcessIdentity(paneID: paneID, processID: processID)

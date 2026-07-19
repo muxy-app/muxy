@@ -51,6 +51,22 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath)
     }
 
+    var configPaths: [String] { [hooksPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        guard ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath) else { return .needsRepair }
+        guard let settings = try? ClaudeCodeProvider.readJSON(at: hooksPath),
+              let hooks = settings["hooks"] as? [String: Any]
+        else { return .needsRepair }
+
+        for binding in Self.bindings {
+            let expected = Self.hookCommand(hookScript: hookScriptPath, argument: binding.argument)
+            let commands = (hooks[binding.event] as? [[String: Any]])?.compactMap { $0["command"] as? String } ?? []
+            guard commands.contains(expected) else { return .needsRepair }
+        }
+        return .satisfied
+    }
+
     func install(hookScriptPath: String) throws {
         var settings = try Self.readSettings(at: hooksPath)
         settings["version"] = settings["version"] ?? 1
@@ -136,22 +152,6 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private static func writeSettings(_ settings: [String: Any], at path: String) throws {
-        let dirPath = (path as NSString).deletingLastPathComponent
-        try FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
-
-        let fileURL = URL(fileURLWithPath: path)
-        if FileManager.default.fileExists(atPath: path) {
-            let backupPath = path + ".muxy-backup"
-            let backupURL = URL(fileURLWithPath: backupPath)
-            try? FileManager.default.removeItem(at: backupURL)
-            try FileManager.default.copyItem(at: fileURL, to: backupURL)
-        }
-
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: path
-        )
+        try HookConfigWriter.write(settings, to: path)
     }
 }

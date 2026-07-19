@@ -1,23 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-  async function sendDirect(socketPath: string, payload: string) {
-    try {
-      const { createConnection } = await import("node:net");
-      const conn = createConnection({ path: socketPath });
-      conn.on("error", (err: any) => {
-        process.stderr.write(`[muxy-pi] socket error: ${err?.message ?? err}\n`);
-      });
-      conn.write(`${payload}\n`, () => conn.end());
-      await new Promise((resolve) => {
-        conn.on("close", resolve);
-        setTimeout(resolve, 3000);
-      });
-    } catch (err: any) {
-      process.stderr.write(`[muxy-pi] connection error: ${err?.message ?? err}\n`);
-    }
-  }
-
   const stagedHookBinaryPath = () => {
     if (process.env.MUXY_HOOK_BIN) return process.env.MUXY_HOOK_BIN;
     if (!process.env.HOME) return "";
@@ -84,12 +67,8 @@ export default function (pi: ExtensionAPI) {
 
   const sendEvent = async (phase: string, title = "", body = "") => {
     if (await invokeHookBinary(phase, title, body)) return;
-    const socketPath = process.env.MUXY_SOCKET_PATH;
-    const paneID = process.env.MUXY_PANE_ID;
-    if (!socketPath || !paneID) return;
-    await sendDirect(
-      socketPath,
-      `agent_event|pi|${paneID}|${phase}|${title}|${body}`,
+    process.stderr.write(
+      `[muxy-pi] muxy-hook binary is not staged; skipping ${phase} event\n`,
     );
   };
   let latestBody = "Session completed";
