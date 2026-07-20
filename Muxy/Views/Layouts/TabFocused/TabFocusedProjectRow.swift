@@ -318,7 +318,7 @@ struct TabFocusedProjectRow: View {
     }
 
     private var isFocused: Bool {
-        !isWorktreeRow && expansionStore.focusMode && isActive
+        !isWorktreeRow && expansionStore.focusMode && appState.activeProjectID == project.id
     }
 
     private var focusModeButton: some View {

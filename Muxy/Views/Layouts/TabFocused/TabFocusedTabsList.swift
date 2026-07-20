@@ -10,17 +10,22 @@ struct TabFocusedTabActions: View {
     @Environment(BrowserProfileStore.self) private var browserProfileStore
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
 
+    private var targetKey: WorktreeKey {
+        let id = worktree?.id ?? worktreeStore.primary(for: project.id)?.id ?? project.id
+        return WorktreeKey(projectID: project.id, worktreeID: id)
+    }
+
     var body: some View {
         SidebarActionButton(symbol: "plus", label: "New Terminal Tab") {
             activateTarget()
-            appState.createTab(projectID: project.id)
+            appState.dispatch(.createTabInWorktree(key: targetKey, areaID: nil))
         }
         if browserEnabled {
             SidebarActionButton(symbol: "globe", label: "New Browser Tab") {
                 activateTarget()
-                appState.dispatch(.createBrowserTab(
-                    projectID: project.id,
-                    areaID: appState.focusedArea(for: project.id)?.id,
+                appState.dispatch(.createBrowserTabInWorktree(
+                    key: targetKey,
+                    areaID: nil,
                     url: BrowserURL.homeURL,
                     profileID: browserProfileStore.defaultProfileID
                 ))
@@ -37,6 +42,11 @@ struct TabFocusedTabActions: View {
         }
         if let worktree, appState.activeWorktreeID[project.id] != worktree.id {
             appState.selectWorktree(projectID: project.id, worktree: worktree)
+        } else if worktree == nil,
+                  let primary = worktreeStore.primary(for: project.id),
+                  appState.activeWorktreeID[project.id] != primary.id
+        {
+            appState.selectWorktree(projectID: project.id, worktree: primary)
         }
     }
 }
@@ -542,8 +552,12 @@ private struct TabFocusedTabRow: View {
         appState.selectProject(project, worktree: target)
     }
 
+    private var tabKey: WorktreeKey {
+        WorktreeKey(projectID: projectID, worktreeID: worktree?.id ?? projectID)
+    }
+
     private func close() {
-        appState.closeTab(tab.id, areaID: area.id, projectID: projectID)
+        appState.closeTab(tab.id, areaID: area.id, key: tabKey)
     }
 
     private func closeOthers() {

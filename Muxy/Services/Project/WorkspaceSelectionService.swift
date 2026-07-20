@@ -11,10 +11,11 @@ enum WorkspaceSelectionService {
         if AppLayoutStore.shared.layout == .tabFocused {
             let expansionStore = TabFocusedSidebarState.shared
             if expansionStore.focusMode, let activeProjectID = appState.activeProjectID {
-                if let group = projectGroupStore.activeGroup, !group.projectIDs.contains(activeProjectID) {
-                    expansionStore.focusMode = false
+                let workspaceProjects = projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
+                if workspaceProjects.contains(where: { $0.id == activeProjectID }) {
+                    return
                 }
-                return
+                expansionStore.focusMode = false
             }
         }
 

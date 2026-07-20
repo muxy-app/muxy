@@ -100,6 +100,9 @@ struct WorkspaceSelectionServiceTests {
 
     @Test("focus mode turns off when active project is not in workspace")
     func focusModeTurnsOffWhenActiveProjectIsNotInWorkspace() {
+        let previousVisibility = HomeProjectPreferences.isVisible
+        HomeProjectPreferences.isVisible = false
+        defer { HomeProjectPreferences.isVisible = previousVisibility }
         let (appState, projectStore, worktreeStore, projectGroupStore, _) = makeStores()
         let alpha = Project(name: "alpha", path: "/tmp/alpha")
         let beta = Project(name: "beta", path: "/tmp/beta")
@@ -124,8 +127,8 @@ struct WorkspaceSelectionServiceTests {
             projectGroupStore: projectGroupStore
         )
 
-        #expect(appState.activeProjectID == alpha.id)
         #expect(expansionStore.focusMode == false)
+        #expect(appState.activeProjectID == beta.id)
     }
 
     @Test("selects first project when focus mode is off")
