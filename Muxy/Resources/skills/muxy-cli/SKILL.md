@@ -52,6 +52,7 @@ For the other surfaces, list and parse the **tab-separated** output (the first c
 | `muxy list-panes` | `<pane-id>  <title>  <cwd>  <focused>` |
 | `muxy list-projects` | `<project-id>  <name>  <path>  <active>` |
 | `muxy list-worktrees [project]` | `<worktree-id>  <name>  <path>  <branch>  <active>` |
+| `muxy list-workspaces` | `<workspace-id>  <name>  <project-count>  <active>` |
 | `muxy list-tabs` | `<index>  <tab-id>  <kind>  <title>  <active>` |
 
 ```bash
@@ -93,6 +94,38 @@ muxy refresh-worktrees
 ```
 
 `create-worktree <name>` defaults the branch to `<name>` and creates it; pass `--existing` to check out an existing branch, `--base <branch>` to fork from a specific base, and `--path`/`--project` to place or target it. Without `--path`, Muxy uses the project's worktree path template or folder setting and resolves the required `{branch}` variable from the requested branch. After Git operations done outside Muxy, `refresh-worktrees` re-reads worktrees from Git.
+
+## Workspaces
+
+Workspaces are named filters for the sidebar. A project can belong to one workspace at a time.
+
+```bash
+muxy list-workspaces                   # <id>  <name>  <project-count>  <active>
+muxy create-workspace "My Workspace"   # creates, returns the workspace ID
+muxy switch-workspace "My Workspace"   # filter sidebar to that workspace
+muxy rename-workspace <id> "New Name"
+muxy delete-workspace <id>
+```
+
+Workspaces resolve by UUID or exact case-insensitive name.
+
+## Projects
+
+`create-project` attaches an existing directory as a project, or with `--create` creates a new one:
+
+```bash
+muxy create-project ~/code/my-app                      # attach existing directory
+muxy create-project ~/code/new-project --create         # create directory then attach
+muxy create-project ~/code/my-app --workspace "Work"    # attach and move to a workspace
+muxy create-project ~/code/my-app --name "My App"       # set custom name
+```
+
+Move a project between workspaces:
+
+```bash
+muxy attach-project "My App" --workspace "Work"   # move project into workspace
+muxy detach-project "My App"                      # remove from all workspaces
+```
 
 ## Tabs
 

@@ -154,6 +154,99 @@ enum SocketCommandHandler {
             )) { result in
                 "ok\t\(result.count)"
             }
+        case "list-workspaces":
+            guard let projectGroupStore else { return "error:project group store unavailable" }
+            let workspaces = MuxyAPI.Workspaces.list(projectGroupStore: projectGroupStore)
+            return workspaces.map { ws in
+                "\(ws.id.uuidString)\t\(ws.name)\t\(ws.projectCount)\t\(ws.isActive)"
+            }.joined(separator: "\n")
+        case "create-workspace":
+            guard parts.count >= 2 else { return "error:usage create-workspace|<name>" }
+            guard let projectGroupStore else { return "error:project group store unavailable" }
+            let id = MuxyAPI.Workspaces.create(
+                name: parts.dropFirst().joined(separator: "|"),
+                projectGroupStore: projectGroupStore
+            )
+            return "ok\t\(id.uuidString)"
+        case "switch-workspace":
+            guard parts.count >= 2 else { return "error:usage switch-workspace|<name-or-id>" }
+            guard let projectGroupStore else { return "error:project group store unavailable" }
+            return serialize(
+                MuxyAPI.Workspaces.switchTo(
+                    identifier: parts.dropFirst().joined(separator: "|"),
+                    projectGroupStore: projectGroupStore
+                ),
+                ok: "ok"
+            )
+        case "rename-workspace":
+            guard parts.count >= 3 else { return "error:usage rename-workspace|<name-or-id>|<new-name>" }
+            guard let projectGroupStore else { return "error:project group store unavailable" }
+            return serialize(
+                MuxyAPI.Workspaces.rename(
+                    identifier: parts[1],
+                    to: parts.dropFirst(2).joined(separator: "|"),
+                    projectGroupStore: projectGroupStore
+                ),
+                ok: "ok"
+            )
+        case "delete-workspace":
+            guard parts.count >= 2 else { return "error:usage delete-workspace|<name-or-id>" }
+            guard let projectGroupStore else { return "error:project group store unavailable" }
+            return serialize(
+                MuxyAPI.Workspaces.delete(
+                    identifier: parts.dropFirst().joined(separator: "|"),
+                    projectGroupStore: projectGroupStore
+                ),
+                ok: "ok"
+            )
+        case "create-project":
+            guard parts.count >= 2 else { return "error:usage create-project|<path>[|createIfMissing][|name][|workspace]" }
+            guard let projectStore, let worktreeStore, let projectGroupStore else {
+                return "error:project store unavailable"
+            }
+            let path = parts[1]
+            let createIfMissing = parts.count >= 3 ? (parts[2] == "true") : false
+            let name = parts.count >= 4 ? parts[3] : nil
+            let workspaceIdentifier = parts.count >= 5 ? parts[4] : nil
+            return serialize(MuxyAPI.Projects.create(
+                CreateProjectRequest(
+                    path: path,
+                    createIfMissing: createIfMissing,
+                    name: name,
+                    workspaceIdentifier: workspaceIdentifier
+                ),
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
+            )) { info in
+                "ok\t\(info.id.uuidString)\t\(info.name)\t\(info.path)"
+            }
+        case "attach-project":
+            guard parts.count >= 3 else { return "error:usage attach-project|<project>|<workspace>" }
+            guard let projectStore, let projectGroupStore else { return "error:project store unavailable" }
+            return serialize(
+                MuxyAPI.Projects.attach(
+                    projectIdentifier: parts[1],
+                    workspaceIdentifier: parts[2],
+                    projectStore: projectStore,
+                    projectGroupStore: projectGroupStore,
+                    appState: appState
+                ),
+                ok: "ok"
+            )
+        case "detach-project":
+            guard parts.count >= 2 else { return "error:usage detach-project|<project>" }
+            guard let projectStore, let projectGroupStore else { return "error:project store unavailable" }
+            return serialize(
+                MuxyAPI.Projects.detach(
+                    projectIdentifier: parts.dropFirst().joined(separator: "|"),
+                    projectStore: projectStore,
+                    projectGroupStore: projectGroupStore,
+                    appState: appState
+                ),
+                ok: "ok"
+            )
         case "list-tabs":
             let parsed = parseTargetFlags(Array(parts.dropFirst()))
             switch resolveTarget(parsed, appState: appState, projectStore: projectStore, worktreeStore: worktreeStore) {

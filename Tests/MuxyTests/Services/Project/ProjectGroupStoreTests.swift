@@ -605,31 +605,3 @@ struct ProjectGroupStoreTests {
         #expect(project.sortOrder == 3)
     }
 }
-
-final class ProjectGroupPersistenceStub: ProjectGroupPersisting {
-    var groups: [ProjectGroup]
-    var savedGroups: [ProjectGroup]?
-    var storedActiveGroupID: UUID?
-
-    init(initial: [ProjectGroup] = [], storedActiveGroupID: UUID? = nil) {
-        groups = initial
-        self.storedActiveGroupID = storedActiveGroupID
-    }
-
-    func loadProjectGroups() throws -> [ProjectGroup] {
-        groups
-    }
-
-    func saveProjectGroups(_ groups: [ProjectGroup]) throws {
-        savedGroups = groups
-        self.groups = groups
-    }
-
-    func loadActiveGroupID() -> UUID? {
-        storedActiveGroupID
-    }
-
-    func saveActiveGroupID(_ id: UUID?) {
-        storedActiveGroupID = id
-    }
-}
