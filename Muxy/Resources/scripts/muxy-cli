@@ -22,7 +22,7 @@
 #   muxy rename-workspace <name|id> <name>     Rename a workspace
 #   muxy delete-workspace <name|id>            Delete a workspace
 #   muxy create-project <path> [options]       Create or attach a project
-#   muxy attach-project <project> <workspace>  Move a project into a workspace
+#   muxy attach-project <project> --workspace <workspace>  Move a project into a workspace
 #   muxy detach-project <project>              Remove a project from all workspaces
 #   muxy list-tabs                             List tabs
 #   muxy switch-tab <index|id|title>           Switch active tab
