@@ -451,6 +451,50 @@ enum SettingsCatalog {
             aliases: ["keybindings", "hotkeys"]
         ),
         SettingsCatalogItem(
+            key: "shortcuts.notchTerminal",
+            title: "Notch Terminal",
+            description: "Configures the system-wide shortcut for the notch terminal.",
+            category: .shortcuts,
+            section: "Notch Terminal",
+            aliases: ["double shift", "quick terminal", "global shortcut", "hotkey"]
+        ),
+        SettingsCatalogItem(
+            key: NotchTerminalSizePreferences.widthKey,
+            title: "Notch Terminal Width",
+            description: "Sets the width of the notch terminal in points.",
+            category: .shortcuts,
+            section: "Notch Terminal",
+            defaultValue: NotchTerminalSizePreferences.defaultWidth,
+            aliases: ["size", "panel", "window"]
+        ),
+        SettingsCatalogItem(
+            key: NotchTerminalSizePreferences.heightKey,
+            title: "Notch Terminal Height",
+            description: "Sets the height of the notch terminal in points.",
+            category: .shortcuts,
+            section: "Notch Terminal",
+            defaultValue: NotchTerminalSizePreferences.defaultHeight,
+            aliases: ["size", "panel", "window"]
+        ),
+        SettingsCatalogItem(
+            key: NotchTerminalAppearancePreferences.transparencyKey,
+            title: "Notch Terminal Transparency",
+            description: "Controls how much of the desktop shows through the terminal background.",
+            category: .shortcuts,
+            section: "Notch Terminal",
+            defaultValue: NotchTerminalAppearancePreferences.defaultTransparency,
+            aliases: ["opacity", "glass", "background", "appearance"]
+        ),
+        SettingsCatalogItem(
+            key: NotchTerminalAppearancePreferences.blurIntensityKey,
+            title: "Notch Terminal Vibrancy",
+            description: "Controls the native macOS material intensity behind the terminal.",
+            category: .shortcuts,
+            section: "Notch Terminal",
+            defaultValue: NotchTerminalAppearancePreferences.defaultBlurIntensity,
+            aliases: ["blur", "glass", "frost", "background", "appearance"]
+        ),
+        SettingsCatalogItem(
             key: "shortcuts.customCommands",
             title: "Commands",
             description: "Configures shortcuts that open command tabs.",

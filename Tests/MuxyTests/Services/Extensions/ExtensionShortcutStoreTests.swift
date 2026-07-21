@@ -31,6 +31,38 @@ struct ExtensionShortcutStoreTests {
         #expect(store.shortcut(extensionID: "beta", commandID: "open")?.combo.isAssigned == false)
     }
 
+    @Test("syncBindings leaves a Notch Terminal default combo unassigned")
+    func syncBindingsRejectsNotchTerminalCombo() throws {
+        let combo = try #require(KeyCombo(parsing: "ctrl+opt+shift+4"))
+        let store = ExtensionShortcutStore(
+            persistence: InMemoryExtensionShortcutPersistence(),
+            notchTerminalConflictMessage: { $0 == combo ? "Notch Terminal conflict" : nil }
+        )
+        let ext = makeExtension(id: "alpha", commandID: "open", shortcut: combo.tokenString)
+
+        store.syncBindings(for: [ext])
+
+        #expect(store.shortcut(extensionID: "alpha", commandID: "open")?.combo.isAssigned == false)
+    }
+
+    @Test("reset leaves a Notch Terminal default combo unassigned")
+    func resetRejectsNotchTerminalCombo() throws {
+        let defaultCombo = try #require(KeyCombo(parsing: "ctrl+opt+shift+5"))
+        let stored = ExtensionShortcut(
+            extensionID: "alpha",
+            commandID: "open",
+            combo: KeyCombo(key: "9", command: true)
+        )
+        let store = ExtensionShortcutStore(
+            persistence: InMemoryExtensionShortcutPersistence(shortcuts: [stored]),
+            notchTerminalConflictMessage: { $0 == defaultCombo ? "Notch Terminal conflict" : nil }
+        )
+
+        store.resetCombo(extensionID: "alpha", commandID: "open", defaultCombo: defaultCombo)
+
+        #expect(store.shortcut(extensionID: "alpha", commandID: "open")?.combo.isAssigned == false)
+    }
+
     @Test("syncBindings preserves stored user-assigned combos")
     func preservesStoredCombo() {
         let stored = ExtensionShortcut(
@@ -126,6 +158,29 @@ struct ExtensionShortcutStoreTests {
 
         #expect(conflict != nil)
         #expect(store.runtimeShortcuts.count == 1)
+    }
+
+    @Test("finds a conflicting shortcut while allowing the same command")
+    func findsConflictingShortcut() {
+        let stored = ExtensionShortcut(
+            extensionID: "alpha",
+            commandID: "open",
+            combo: KeyCombo(key: "9", command: true)
+        )
+        let store = ExtensionShortcutStore(
+            persistence: InMemoryExtensionShortcutPersistence(shortcuts: [stored])
+        )
+
+        #expect(store.conflictingShortcut(
+            for: stored.combo,
+            excludingExtensionID: nil,
+            commandID: nil
+        )?.id == stored.id)
+        #expect(store.conflictingShortcut(
+            for: stored.combo,
+            excludingExtensionID: stored.extensionID,
+            commandID: stored.commandID
+        ) == nil)
     }
 
     @Test("re-registering an id updates its combo")

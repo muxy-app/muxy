@@ -140,6 +140,7 @@ final class GhosttyService {
         }
         configVersion += 1
         TerminalViewRegistry.shared.reapplyClientThemes()
+        NotificationCenter.default.post(name: .ghosttyConfigurationDidChange, object: nil)
         if postThemeChangeNotification {
             NotificationCenter.default.post(name: .themeDidChange, object: nil)
         }

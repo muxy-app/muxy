@@ -5,6 +5,8 @@ private let settingsJSONLogger = Logger(subsystem: "app.muxy", category: "Settin
 
 @MainActor
 enum SettingsJSONStore {
+    typealias NotchTerminalShortcutUpdater = @MainActor (NotchTerminalShortcut) throws -> Void
+
     private static var defaultsObserver: NSObjectProtocol?
     private static var isApplyingSettings = false
     private static var isSyncingFile = false
@@ -23,18 +25,33 @@ enum SettingsJSONStore {
         return (try? prettifiedSettingsText(text)) ?? text
     }
 
-    static func saveUserSettingsText(_ text: String) throws {
+    static func saveUserSettingsText(
+        _ text: String,
+        notchTerminalShortcutUpdater: NotchTerminalShortcutUpdater = {
+            try NotchTerminalShortcutService.shared.updateShortcut($0)
+        }
+    ) throws {
         let data = Data(text.utf8)
         let object = try JSONSerialization.jsonObject(with: data)
         guard let dictionary = object as? [String: Any] else {
             throw SettingsJSONError.topLevelObjectRequired
         }
         let settings = try validatedSettings(from: dictionary)
-        try Data(prettyJSONString(dictionary).utf8).write(to: userSettingsURL, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: FilePermissions.privateFile], ofItemAtPath: userSettingsURL.path)
-        isApplyingSettings = true
-        apply(settings)
-        isApplyingSettings = false
+        let previousData = try? Data(contentsOf: userSettingsURL)
+        do {
+            try Data(prettyJSONString(dictionary).utf8).write(to: userSettingsURL, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: FilePermissions.privateFile],
+                ofItemAtPath: userSettingsURL.path
+            )
+            isApplyingSettings = true
+            try apply(settings, notchTerminalShortcutUpdater: notchTerminalShortcutUpdater)
+            isApplyingSettings = false
+        } catch {
+            isApplyingSettings = false
+            restoreUserSettingsFile(previousData)
+            throw error
+        }
         syncUserSettingsFileWithCurrentSettings()
     }
 
@@ -105,6 +122,7 @@ enum SettingsJSONStore {
             return (item.key, jsonValue(value))
         })
         dictionary["shortcuts.app"] = keyBindingsJSONObject(KeyBinding.defaults)
+        dictionary["shortcuts.notchTerminal"] = codableJSONObject(NotchTerminalShortcut.default) ?? [:]
         dictionary["shortcuts.customCommands"] = commandShortcutsJSONObject(CommandShortcutConfiguration())
         dictionary["ai.providers"] = notificationProviderSettings(defaultValue: true)
         dictionary["mobile.approvedDevices"] = []
@@ -117,6 +135,7 @@ enum SettingsJSONStore {
             return (item.key, value)
         })
         dictionary["shortcuts.app"] = keyBindingsJSONObject(KeyBindingStore.shared.bindings)
+        dictionary["shortcuts.notchTerminal"] = codableJSONObject(NotchTerminalShortcutService.shared.shortcut) ?? [:]
         dictionary["shortcuts.customCommands"] = commandShortcutsJSONObject(CommandShortcutConfiguration(
             prefixCombo: CommandShortcutStore.shared.prefixCombo,
             shortcuts: CommandShortcutStore.shared.shortcuts
@@ -137,12 +156,56 @@ enum SettingsJSONStore {
             guard let item = itemsByKey[key] else { continue }
             settings[key] = try validatedValue(value, for: item)
         }
+        try validateNotchTerminalShortcutConflicts(in: settings)
         return settings
     }
 
-    private static func apply(_ dictionary: [String: Any]) {
-        for (key, value) in dictionary {
-            if applySpecialSetting(key: key, value: value) {
+    private static func validateNotchTerminalShortcutConflicts(in settings: [String: Any]) throws {
+        let shortcut: NotchTerminalShortcut = settings["shortcuts.notchTerminal"]
+            .flatMap { codableValue(from: $0) }
+            ?? NotchTerminalShortcutService.shared.shortcut
+        guard let combo = shortcut.keyCombo else { return }
+
+        let bindings = settings["shortcuts.app"].flatMap(keyBindings(from:))
+            ?? KeyBindingStore.shared.bindings
+        guard !bindings.contains(where: { $0.combo == combo }) else {
+            throw SettingsJSONError.invalidValue("shortcuts.notchTerminal")
+        }
+
+        let commandConfiguration = settings["shortcuts.customCommands"].flatMap(commandShortcutConfiguration(from:))
+            ?? CommandShortcutConfiguration(
+                prefixCombo: CommandShortcutStore.shared.prefixCombo,
+                shortcuts: CommandShortcutStore.shared.shortcuts
+            )
+        guard commandConfiguration.prefixCombo != combo,
+              !commandConfiguration.shortcuts.contains(where: { $0.combo == combo }),
+              ExtensionShortcutStore.shared.conflictingShortcut(
+                  for: combo,
+                  excludingExtensionID: nil,
+                  commandID: nil
+              ) == nil
+        else {
+            throw SettingsJSONError.invalidValue("shortcuts.notchTerminal")
+        }
+    }
+
+    private static func apply(
+        _ dictionary: [String: Any],
+        notchTerminalShortcutUpdater: NotchTerminalShortcutUpdater
+    ) throws {
+        if let notchTerminalShortcut = dictionary["shortcuts.notchTerminal"] {
+            _ = try applySpecialSetting(
+                key: "shortcuts.notchTerminal",
+                value: notchTerminalShortcut,
+                notchTerminalShortcutUpdater: notchTerminalShortcutUpdater
+            )
+        }
+        for (key, value) in dictionary where key != "shortcuts.notchTerminal" {
+            if try applySpecialSetting(
+                key: key,
+                value: value,
+                notchTerminalShortcutUpdater: notchTerminalShortcutUpdater
+            ) {
                 continue
             }
             if applyEditorSetting(key: key, value: value) {
@@ -153,6 +216,22 @@ enum SettingsJSONStore {
             } else {
                 UserDefaults.standard.set(value, forKey: key)
             }
+        }
+    }
+
+    private static func restoreUserSettingsFile(_ data: Data?) {
+        do {
+            if let data {
+                try data.write(to: userSettingsURL, options: .atomic)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: FilePermissions.privateFile],
+                    ofItemAtPath: userSettingsURL.path
+                )
+            } else if FileManager.default.fileExists(atPath: userSettingsURL.path) {
+                try FileManager.default.removeItem(at: userSettingsURL)
+            }
+        } catch {
+            settingsJSONLogger.error("Failed to restore the user settings file: \(error.localizedDescription)")
         }
     }
 
@@ -234,11 +313,29 @@ enum SettingsJSONStore {
     }
 
     private static func validateAllowedInt(_ value: Int, key: String) throws {
-        if key == MobileServerService.portKey {
+        switch key {
+        case MobileServerService.portKey:
             guard let port = UInt16(exactly: value), MobileServerService.isValid(port: port) else {
                 throw SettingsJSONError.invalidValue(key)
             }
-            return
+        case NotchTerminalSizePreferences.widthKey:
+            guard NotchTerminalSizePreferences.widthRange.contains(value) else {
+                throw SettingsJSONError.invalidValue(key)
+            }
+        case NotchTerminalSizePreferences.heightKey:
+            guard NotchTerminalSizePreferences.heightRange.contains(value) else {
+                throw SettingsJSONError.invalidValue(key)
+            }
+        case NotchTerminalAppearancePreferences.transparencyKey:
+            guard NotchTerminalAppearancePreferences.transparencyRange.contains(value) else {
+                throw SettingsJSONError.invalidValue(key)
+            }
+        case NotchTerminalAppearancePreferences.blurIntensityKey:
+            guard NotchTerminalAppearancePreferences.blurIntensityRange.contains(value) else {
+                throw SettingsJSONError.invalidValue(key)
+            }
+        default:
+            break
         }
     }
 
@@ -273,6 +370,7 @@ enum SettingsJSONStore {
     private static func isSpecialJSONSetting(_ key: String) -> Bool {
         switch key {
         case "shortcuts.app",
+             "shortcuts.notchTerminal",
              "shortcuts.customCommands",
              "ai.providers",
              "mobile.approvedDevices":
@@ -286,6 +384,10 @@ enum SettingsJSONStore {
         switch key {
         case "shortcuts.app":
             guard let bindings = keyBindings(from: value), !bindings.isEmpty else { throw SettingsJSONError.invalidValue(key) }
+        case "shortcuts.notchTerminal":
+            guard let shortcut: NotchTerminalShortcut = codableValue(from: value), shortcut.isValid else {
+                throw SettingsJSONError.invalidValue(key)
+            }
         case "shortcuts.customCommands":
             guard let configuration = commandShortcutConfiguration(from: value), isValidKeyCombo(configuration.prefixCombo),
                   configuration.shortcuts.allSatisfy({ isValidKeyCombo($0.combo) })
@@ -302,7 +404,11 @@ enum SettingsJSONStore {
         return value
     }
 
-    private static func applySpecialSetting(key: String, value: Any) -> Bool {
+    private static func applySpecialSetting(
+        key: String,
+        value: Any,
+        notchTerminalShortcutUpdater: NotchTerminalShortcutUpdater
+    ) throws -> Bool {
         switch key {
         case SentryConsent.storageKey:
             guard let rawValue = value as? String else { return false }
@@ -330,6 +436,9 @@ enum SettingsJSONStore {
         case "shortcuts.app":
             guard let bindings = keyBindings(from: value) else { return true }
             KeyBindingStore.shared.replaceBindings(bindings)
+        case "shortcuts.notchTerminal":
+            guard let shortcut: NotchTerminalShortcut = codableValue(from: value) else { return true }
+            try notchTerminalShortcutUpdater(shortcut)
         case "shortcuts.customCommands":
             guard let configuration = commandShortcutConfiguration(from: value) else { return true }
             CommandShortcutStore.shared.replaceConfiguration(configuration)

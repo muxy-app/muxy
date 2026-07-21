@@ -86,9 +86,7 @@ struct CommandsSettingsView: View {
                     commandPrefixConflictWarning = nil
                 },
                 onReset: {
-                    commandStore.resetPrefixCombo()
-                    recordingCommandPrefix = false
-                    commandPrefixConflictWarning = nil
+                    resetCommandPrefix()
                 }
             )
 
@@ -147,12 +145,30 @@ struct CommandsSettingsView: View {
     }
 
     private func handleRecord(prefixCombo combo: KeyCombo) {
+        if let message = NotchTerminalShortcutConflictResolver.notchTerminalConflictMessage(for: combo) {
+            commandPrefixConflictWarning = message
+            return
+        }
         commandStore.updatePrefixCombo(combo)
         recordingCommandPrefix = false
         commandPrefixConflictWarning = nil
     }
 
+    private func resetCommandPrefix() {
+        if let message = NotchTerminalShortcutConflictResolver.commandPrefixResetConflictMessage() {
+            commandPrefixConflictWarning = message
+            return
+        }
+        commandStore.resetPrefixCombo()
+        recordingCommandPrefix = false
+        commandPrefixConflictWarning = nil
+    }
+
     private func handleRecord(shortcutID: UUID, combo: KeyCombo) {
+        if let message = NotchTerminalShortcutConflictResolver.notchTerminalConflictMessage(for: combo) {
+            commandConflictWarning = (id: shortcutID, message: message)
+            return
+        }
         if let existing = commandStore.conflictingShortcut(for: combo, excluding: shortcutID) {
             commandConflictWarning = (id: shortcutID, message: "Conflicts with \"\(existing.displayName)\"")
             return

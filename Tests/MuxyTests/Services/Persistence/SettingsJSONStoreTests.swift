@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -120,6 +121,109 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func invalidNotchTerminalShortcutDoesNotWriteSettings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "shortcuts.notchTerminal": {
+                "type": "keyCombo",
+                "keyCombo": {
+                  "key": "space",
+                  "modifiers": 0
+                }
+              }
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+    }
+
+    @Test
+    func conflictingNotchTerminalShortcutDoesNotWriteSettings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+        let modifiers = NSEvent.ModifierFlags.command.rawValue
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "shortcuts.app": {
+                "newTab": {
+                  "key": "space",
+                  "modifiers": \(modifiers)
+                }
+              },
+              "shortcuts.notchTerminal": {
+                "type": "keyCombo",
+                "keyCombo": {
+                  "key": "space",
+                  "modifiers": \(modifiers)
+                }
+              }
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+    }
+
+    @Test
+    func failedNotchTerminalRegistrationRestoresSettingsFile() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+        let modifiers: UInt = [
+            NSEvent.ModifierFlags.command,
+            .control,
+            .option,
+            .shift,
+        ].reduce(0) { $0 | $1.rawValue }
+        var attemptedShortcut: NotchTerminalShortcut?
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONApplyTestError.registrationFailed) {
+            try SettingsJSONStore.saveUserSettingsText(
+                """
+                {
+                  "shortcuts.notchTerminal": {
+                    "type": "keyCombo",
+                    "keyCombo": {
+                      "key": "space",
+                      "modifiers": \(modifiers)
+                    },
+                    "virtualKeyCode": 49
+                  }
+                }
+                """,
+                notchTerminalShortcutUpdater: {
+                    attemptedShortcut = $0
+                    throw SettingsJSONApplyTestError.registrationFailed
+                }
+            )
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(attemptedShortcut?.keyCombo == KeyCombo(key: "space", modifiers: modifiers))
+        #expect(savedText == originalText)
+    }
+
+    @Test
     func invalidAppShortcutsDoNotReplaceBindings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
         let originalBindings = KeyBindingStore.shared.bindings
@@ -182,6 +286,110 @@ struct SettingsJSONStoreTests {
         """)
 
         #expect(UserDefaults.standard.integer(forKey: MobileServerService.portKey) == 4242)
+    }
+
+    @Test
+    func notchTerminalSizePersistsWithinAllowedRange() throws {
+        let keys = [NotchTerminalSizePreferences.widthKey, NotchTerminalSizePreferences.heightKey]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(NotchTerminalSizePreferences.widthKey)": 960,
+          "\(NotchTerminalSizePreferences.heightKey)": 600
+        }
+        """)
+
+        #expect(NotchTerminalSizePreferences.width() == 960)
+        #expect(NotchTerminalSizePreferences.height() == 600)
+    }
+
+    @Test
+    func invalidNotchTerminalSizeDoesNotWriteOrApplySettings() throws {
+        let keys = [NotchTerminalSizePreferences.widthKey, NotchTerminalSizePreferences.heightKey]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+        UserDefaults.standard.set(720, forKey: NotchTerminalSizePreferences.widthKey)
+        UserDefaults.standard.set(430, forKey: NotchTerminalSizePreferences.heightKey)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(NotchTerminalSizePreferences.widthKey)": 320,
+              "\(NotchTerminalSizePreferences.heightKey)": 600
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+        #expect(NotchTerminalSizePreferences.width() == 720)
+        #expect(NotchTerminalSizePreferences.height() == 430)
+    }
+
+    @Test
+    func notchTerminalAppearancePersistsWithinAllowedValues() throws {
+        let keys = [
+            NotchTerminalAppearancePreferences.transparencyKey,
+            NotchTerminalAppearancePreferences.blurIntensityKey,
+        ]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(NotchTerminalAppearancePreferences.transparencyKey)": 40,
+          "\(NotchTerminalAppearancePreferences.blurIntensityKey)": 86
+        }
+        """)
+
+        #expect(NotchTerminalAppearancePreferences.transparency() == 40)
+        #expect(NotchTerminalAppearancePreferences.blurIntensity() == 86)
+    }
+
+    @Test(arguments: [0, 100])
+    func notchTerminalBlurIntensityAcceptsEndpoints(_ intensity: Int) throws {
+        let key = NotchTerminalAppearancePreferences.blurIntensityKey
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("{\"\(key)\":\(intensity)}")
+
+        #expect(NotchTerminalAppearancePreferences.blurIntensity() == intensity)
+    }
+
+    @Test(arguments: [
+        "{\"\(NotchTerminalAppearancePreferences.transparencyKey)\": 80}",
+        "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": -1}",
+        "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": 101}",
+    ])
+    func invalidNotchTerminalAppearanceDoesNotWriteOrApplySettings(settings: String) throws {
+        let keys = [
+            NotchTerminalAppearancePreferences.transparencyKey,
+            NotchTerminalAppearancePreferences.blurIntensityKey,
+        ]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+        UserDefaults.standard.set(18, forKey: NotchTerminalAppearancePreferences.transparencyKey)
+        UserDefaults.standard.set(70, forKey: NotchTerminalAppearancePreferences.blurIntensityKey)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText(settings)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+        #expect(NotchTerminalAppearancePreferences.transparency() == 18)
+        #expect(NotchTerminalAppearancePreferences.blurIntensity() == 70)
     }
 
     @Test
@@ -395,6 +603,7 @@ struct SettingsJSONStoreTests {
             #expect(object.keys.contains(item.key))
         }
         #expect(object.keys.contains("shortcuts.app"))
+        #expect(object.keys.contains("shortcuts.notchTerminal"))
         #expect(object.keys.contains("shortcuts.customCommands"))
         #expect(object.keys.contains("ai.providers"))
         #expect(object.keys.contains("mobile.approvedDevices"))
@@ -413,7 +622,12 @@ struct SettingsJSONStoreTests {
 
         #expect(object[MobileServerService.portKey] as? Int == 4242)
         #expect(object.keys.contains("shortcuts.app"))
+        #expect(object.keys.contains("shortcuts.notchTerminal"))
     }
+}
+
+private enum SettingsJSONApplyTestError: Error {
+    case registrationFailed
 }
 
 private struct SettingsJSONStoreSnapshot {

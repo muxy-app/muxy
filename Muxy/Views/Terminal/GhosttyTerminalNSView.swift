@@ -76,6 +76,7 @@ final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private var surfaceCStringPointers: [UnsafeMutablePointer<CChar>] = []
     nonisolated(unsafe) private var surfaceEnvVarPointer: UnsafeMutablePointer<ghostty_env_var_s>?
     nonisolated(unsafe) private var surfaceEnvVarCount = 0
+    private var surfaceConfigurationOverlay: ((ghostty_surface_t) -> Void)?
 
     init(
         workingDirectory: String,
@@ -221,6 +222,7 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
 
         reapplyActiveColors()
+        applySurfaceConfigurationOverlay()
 
         if let screen = window?.screen ?? NSScreen.main,
            let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
@@ -250,6 +252,16 @@ final class GhosttyTerminalNSView: NSView {
         surface = nil
         surfaceFocused = nil
         cleanupSurfaceConfigPointers()
+    }
+
+    func setSurfaceConfigurationOverlay(_ overlay: @escaping (ghostty_surface_t) -> Void) {
+        surfaceConfigurationOverlay = overlay
+        applySurfaceConfigurationOverlay()
+    }
+
+    private func applySurfaceConfigurationOverlay() {
+        guard let surface else { return }
+        surfaceConfigurationOverlay?(surface)
     }
 
     private func detachRendererLayer() {

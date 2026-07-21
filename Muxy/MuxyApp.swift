@@ -3,6 +3,7 @@ import os
 import SwiftUI
 
 private let deepLinkLogger = Logger(subsystem: "app.muxy", category: "DeepLink")
+private let notchTerminalLogger = Logger(subsystem: "app.muxy", category: "NotchTerminal")
 
 @main
 struct MuxyApp: App {
@@ -234,6 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var extensionsObserver: NSObjectProtocol?
     private var whatsNewObserver: NSObjectProtocol?
     private var modalThemeObserver: NSObjectProtocol?
+    private var notchTerminalController: NotchTerminalController?
     private weak var settingsWindow: NSWindow?
     private weak var extensionsWindow: NSWindow?
     private weak var whatsNewWindow: NSWindow?
@@ -391,6 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
         ModifierKeyMonitor.shared.start()
+        startNotchTerminal()
         DesktopNotificationService.shared.prepare()
         NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
             Task { @MainActor [weak self] in
@@ -406,6 +409,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DiagnosticsMenuController.shared.install()
         observeSettingsRequests()
         consumeLaunchArguments()
+    }
+
+    @MainActor
+    private func startNotchTerminal() {
+        NotchTerminalAppearancePreferences.migrateLegacyBlur()
+        let shortcutService = NotchTerminalShortcutService.shared
+        let controller = NotchTerminalController(
+            shortcutLabelProvider: { shortcutService.shortcut.displayString },
+            onOpenSettings: {
+                SettingsFocusCoordinator.shared.request(.notchTerminalShortcut)
+                NotificationCenter.default.post(name: .openSettingsModal, object: nil)
+            }
+        )
+        shortcutService.onTrigger = { [weak controller] in
+            controller?.toggle()
+        }
+        do {
+            try shortcutService.start()
+        } catch {
+            notchTerminalLogger.error("Failed to start the shortcut listener: \(error.localizedDescription)")
+        }
+        controller.startHoverZones()
+        notchTerminalController = controller
+    }
+
+    @MainActor
+    func applicationDidBecomeActive(_ notification: Notification) {
+        NotchTerminalShortcutService.shared.refreshInputMonitoringAccess()
     }
 
     @MainActor
@@ -470,6 +501,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NotchTerminalShortcutService.shared.stop()
+        notchTerminalController?.applicationWillTerminate()
+        notchTerminalController = nil
         if let observer = systemAppearanceObserver {
             DistributedNotificationCenter.default().removeObserver(observer)
             systemAppearanceObserver = nil

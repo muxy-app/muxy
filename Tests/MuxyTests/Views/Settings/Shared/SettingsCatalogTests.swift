@@ -22,6 +22,42 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func notchTerminalShortcutIsSearchable() {
+        let item = SettingsCatalog.matchingItems(query: "double shift").first {
+            $0.key == "shortcuts.notchTerminal"
+        }
+
+        #expect(item?.category == .shortcuts)
+        #expect(item?.section == "Notch Terminal")
+        #expect(!SettingsCatalog.jsonEditableItems.contains { $0.key == "shortcuts.notchTerminal" })
+    }
+
+    @Test
+    func notchTerminalAppearanceAndSizeAreSearchableAndJSONEditable() {
+        let notchItems = SettingsCatalog.items.filter { $0.section == "Notch Terminal" }
+
+        #expect(notchItems.contains { $0.key == NotchTerminalSizePreferences.widthKey })
+        #expect(notchItems.contains { $0.key == NotchTerminalSizePreferences.heightKey })
+        #expect(notchItems.contains { $0.key == NotchTerminalAppearancePreferences.transparencyKey })
+        #expect(notchItems.contains { $0.key == NotchTerminalAppearancePreferences.blurIntensityKey })
+        #expect(SettingsCatalog.matchingItems(query: "terminal size").contains {
+            $0.key == NotchTerminalSizePreferences.widthKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == NotchTerminalSizePreferences.heightKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "glass").contains {
+            $0.key == NotchTerminalAppearancePreferences.transparencyKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == NotchTerminalAppearancePreferences.blurIntensityKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "vibrancy").contains {
+            $0.key == NotchTerminalAppearancePreferences.blurIntensityKey
+        })
+    }
+
+    @Test
     func categoryMatchingUsesCatalogItems() {
         #expect(SettingsCatalog.categoryMatches(.richInput, query: "rich input"))
         #expect(!SettingsCatalog.categoryMatches(.mobile, query: "rich input"))
