@@ -416,7 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         QuickTerminalAppearancePreferences.migrateLegacyBlur()
         let shortcutService = QuickTerminalShortcutService.shared
         let controller = QuickTerminalController(
-            shortcutLabelProvider: { shortcutService.shortcut.displayString },
+            shortcutLabelProvider: { shortcutService.shortcut.controlLabel },
             onOpenSettings: {
                 SettingsFocusCoordinator.shared.request(.quickTerminalShortcut)
                 NotificationCenter.default.post(name: .openSettingsModal, object: nil)

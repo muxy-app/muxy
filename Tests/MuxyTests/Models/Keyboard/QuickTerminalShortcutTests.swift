@@ -6,10 +6,11 @@ import Testing
 @Suite("QuickTerminalShortcut")
 @MainActor
 struct QuickTerminalShortcutTests {
-    @Test("default is double Shift")
+    @Test("default is unassigned")
     func defaultShortcut() {
-        #expect(QuickTerminalShortcut.default == .doubleShift)
-        #expect(QuickTerminalShortcut.default.displayString == "Double Shift")
+        #expect(QuickTerminalShortcut.default == .unassigned)
+        #expect(QuickTerminalShortcut.default.displayString == "Unassigned")
+        #expect(QuickTerminalShortcut.default.controlLabel == "Set Shortcut")
         #expect(QuickTerminalShortcut.default.isValid)
     }
 
@@ -38,6 +39,7 @@ struct QuickTerminalShortcutTests {
     }
 
     @Test("Codable round-trip preserves both shortcut kinds", arguments: [
+        QuickTerminalShortcut.unassigned,
         QuickTerminalShortcut.doubleShift,
         QuickTerminalShortcut.keyCombo(KeyCombo(key: "space", control: true), virtualKeyCode: 49),
     ])

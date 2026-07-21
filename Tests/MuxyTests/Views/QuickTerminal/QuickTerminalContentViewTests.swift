@@ -131,6 +131,42 @@ struct QuickTerminalContentViewTests {
         #expect(settingsPopover.isHidden)
     }
 
+    @Test("unassigned shortcut is presented and selectable")
+    func unassignedShortcutPresentation() throws {
+        let contentView = QuickTerminalContentView(frame: NSRect(x: 0, y: 0, width: 720, height: 420))
+        var selectedShortcut: QuickTerminalShortcut?
+        contentView.shortcutSettingsProvider = {
+            QuickTerminalShortcutSettingsSnapshot(
+                shortcut: .unassigned,
+                monitoringState: .stopped,
+                errorMessage: nil
+            )
+        }
+        contentView.onShortcutChange = {
+            selectedShortcut = $0
+            return nil
+        }
+        contentView.layout()
+
+        let shortcutButton = try #require(button("quickTerminalShortcutButton", in: contentView))
+        shortcutButton.performClick(nil)
+        contentView.layout()
+
+        let shortcutPopover = try #require(popover("quickTerminalShortcutPopover", in: contentView))
+        let noShortcutButton = try #require(button("quickTerminalNoShortcutButton", in: contentView))
+        let status = try #require(descendant("quickTerminalShortcutStatus", in: contentView) as? NSTextField)
+
+        #expect(shortcutButton.title == "Set Shortcut")
+        #expect(!shortcutPopover.isHidden)
+        #expect(shortcutPopover.frame.height == 174)
+        #expect(noShortcutButton.state == .on)
+        #expect(status.stringValue == "No keyboard shortcut assigned.")
+
+        noShortcutButton.performClick(nil)
+
+        #expect(selectedShortcut == .unassigned)
+    }
+
     @Test("reset restores default appearance and size through the callbacks")
     func resetAppliesDefaults() {
         let contentView = QuickTerminalContentView(frame: NSRect(x: 0, y: 0, width: 720, height: 420))
@@ -149,6 +185,17 @@ struct QuickTerminalContentViewTests {
 
     private func popover(_ identifier: String, in view: NSView) -> NSView? {
         view.subviews.first { $0.accessibilityIdentifier() == identifier }
+    }
+
+    private func button(_ identifier: String, in view: NSView) -> NSButton? {
+        descendant(identifier, in: view) as? NSButton
+    }
+
+    private func descendant(_ identifier: String, in view: NSView) -> NSView? {
+        if view.accessibilityIdentifier() == identifier {
+            return view
+        }
+        return view.subviews.lazy.compactMap { descendant(identifier, in: $0) }.first
     }
 
     private func colorsMatch(_ lhs: NSColor, _ rhs: NSColor) -> Bool {

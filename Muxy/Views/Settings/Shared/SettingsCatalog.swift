@@ -7,6 +7,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case remoteDevices
     case appearance
     case terminal
+    case quickTerminal
     case browser
     case richInput
     case shortcuts
@@ -27,6 +28,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .remoteDevices: "Remote Devices"
         case .appearance: "Interface"
         case .terminal: "Terminal"
+        case .quickTerminal: "Quick Terminal"
         case .browser: "Browser"
         case .richInput: "Rich Input"
         case .shortcuts: "Shortcuts"
@@ -47,6 +49,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .remoteDevices: "server.rack"
         case .appearance: "macwindow"
         case .terminal: "terminal"
+        case .quickTerminal: "bolt.horizontal.circle"
         case .browser: "globe"
         case .richInput: "text.cursor"
         case .shortcuts: "keyboard"
@@ -454,16 +457,16 @@ enum SettingsCatalog {
             key: "shortcuts.quickTerminal",
             title: "Quick Terminal",
             description: "Configures the system-wide shortcut for the quick terminal.",
-            category: .shortcuts,
-            section: "Quick Terminal",
+            category: .quickTerminal,
+            section: "Shortcut",
             aliases: ["double shift", "quick terminal", "global shortcut", "hotkey"]
         ),
         SettingsCatalogItem(
             key: QuickTerminalSizePreferences.widthKey,
             title: "Quick Terminal Width",
             description: "Sets the width of the quick terminal in points.",
-            category: .shortcuts,
-            section: "Quick Terminal",
+            category: .quickTerminal,
+            section: "Size",
             defaultValue: QuickTerminalSizePreferences.defaultWidth,
             aliases: ["size", "panel", "window"]
         ),
@@ -471,8 +474,8 @@ enum SettingsCatalog {
             key: QuickTerminalSizePreferences.heightKey,
             title: "Quick Terminal Height",
             description: "Sets the height of the quick terminal in points.",
-            category: .shortcuts,
-            section: "Quick Terminal",
+            category: .quickTerminal,
+            section: "Size",
             defaultValue: QuickTerminalSizePreferences.defaultHeight,
             aliases: ["size", "panel", "window"]
         ),
@@ -480,8 +483,8 @@ enum SettingsCatalog {
             key: QuickTerminalAppearancePreferences.transparencyKey,
             title: "Quick Terminal Transparency",
             description: "Controls how much of the desktop shows through the terminal background.",
-            category: .shortcuts,
-            section: "Quick Terminal",
+            category: .quickTerminal,
+            section: "Appearance",
             defaultValue: QuickTerminalAppearancePreferences.defaultTransparency,
             aliases: ["opacity", "glass", "background", "appearance"]
         ),
@@ -489,8 +492,8 @@ enum SettingsCatalog {
             key: QuickTerminalAppearancePreferences.blurIntensityKey,
             title: "Quick Terminal Vibrancy",
             description: "Controls the native macOS material intensity behind the terminal.",
-            category: .shortcuts,
-            section: "Quick Terminal",
+            category: .quickTerminal,
+            section: "Appearance",
             defaultValue: QuickTerminalAppearancePreferences.defaultBlurIntensity,
             aliases: ["blur", "glass", "frost", "background", "appearance"]
         ),

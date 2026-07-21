@@ -24,7 +24,7 @@ log show --predicate 'subsystem == "app.muxy"' --last 10m --info --debug
 
 ## Double Shift doesn't open the quick terminal
 
-- Open **Settings → Shortcuts → Quick Terminal** and check the Input Monitoring status.
+- Open **Settings → Quick Terminal** and check the Input Monitoring status.
 - Enable Muxy under **System Settings → Privacy & Security → Input Monitoring**, then bring Muxy to the foreground so it can retry the listener.
 - If access remains unavailable, assign a conventional global shortcut such as Option Space. Conventional shortcuts do not require Input Monitoring.
 - Double Shift is intentionally ignored while another key or modifier is involved, which prevents normal capital-letter typing from opening the terminal.
@@ -37,7 +37,7 @@ log show --predicate 'subsystem == "app.muxy"' --last 10m --info --debug
 
 ## The quick terminal is not transparent or blurred
 
-- Open **Settings → Shortcuts → Quick Terminal** and set Terminal transparency above 0%.
+- Open **Settings → Quick Terminal** and set Terminal transparency above 0%.
 - Raise Background vibrancy above 0% for a progressively stronger native material effect. At 0%, the wallpaper remains sharp.
 - macOS Reduce Transparency and Increase Contrast intentionally force an opaque, unblurred terminal. Check both under **System Settings → Accessibility → Display**.
 

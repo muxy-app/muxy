@@ -1,10 +1,11 @@
 import AppKit
 
 enum QuickTerminalShortcut: Codable, Equatable {
+    case unassigned
     case doubleShift
     case keyCombo(KeyCombo, virtualKeyCode: UInt16)
 
-    static let `default` = QuickTerminalShortcut.doubleShift
+    static let `default` = QuickTerminalShortcut.unassigned
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -13,15 +14,21 @@ enum QuickTerminalShortcut: Codable, Equatable {
     }
 
     private enum ShortcutType: String, Codable {
+        case unassigned
         case doubleShift
         case keyCombo
     }
 
     var displayString: String {
         switch self {
+        case .unassigned: "Unassigned"
         case .doubleShift: "Double Shift"
         case let .keyCombo(combo, _): combo.displayString
         }
+    }
+
+    var controlLabel: String {
+        self == .unassigned ? "Set Shortcut" : displayString
     }
 
     var keyCombo: KeyCombo? {
@@ -46,6 +53,8 @@ enum QuickTerminalShortcut: Codable, Equatable {
 
     func canonicalized(keyResolver: (UInt16) -> String?) -> QuickTerminalShortcut? {
         switch self {
+        case .unassigned:
+            return .unassigned
         case .doubleShift:
             return .doubleShift
         case let .keyCombo(_, virtualKeyCode):
@@ -61,7 +70,7 @@ enum QuickTerminalShortcut: Codable, Equatable {
         case let (lhs?, rhs?):
             lhs == rhs
         case (nil, nil):
-            self == .doubleShift && other == .doubleShift
+            self == other
         default:
             false
         }
@@ -85,6 +94,8 @@ enum QuickTerminalShortcut: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(ShortcutType.self, forKey: .type) {
+        case .unassigned:
+            self = .unassigned
         case .doubleShift:
             self = .doubleShift
         case .keyCombo:
@@ -105,6 +116,8 @@ enum QuickTerminalShortcut: Codable, Equatable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .unassigned:
+            try container.encode(ShortcutType.unassigned, forKey: .type)
         case .doubleShift:
             try container.encode(ShortcutType.doubleShift, forKey: .type)
         case let .keyCombo(combo, virtualKeyCode):

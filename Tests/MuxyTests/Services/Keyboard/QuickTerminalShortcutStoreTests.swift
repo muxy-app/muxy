@@ -26,13 +26,13 @@ struct QuickTerminalShortcutStoreTests {
         #expect(persistence.savedShortcuts == [expected])
     }
 
-    @Test("invalid persisted shortcut falls back to double Shift")
+    @Test("invalid persisted shortcut falls back to unassigned")
     func invalidPersistedShortcutFallsBack() {
         let shortcut = QuickTerminalShortcut.keyCombo(KeyCombo(key: "space", modifiers: 0), virtualKeyCode: 49)
         let persistence = InMemoryQuickTerminalShortcutPersistence(shortcut: shortcut)
         let store = makeStore(persistence: persistence)
 
-        #expect(store.shortcut == .doubleShift)
+        #expect(store.shortcut == .unassigned)
     }
 
     @Test("update persists and runs the change handler")
@@ -55,6 +55,18 @@ struct QuickTerminalShortcutStoreTests {
         #expect(syncCount == 1)
     }
 
+    @Test("reset removes the assigned shortcut")
+    func resetRemovesAssignedShortcut() throws {
+        let shortcut = QuickTerminalShortcut.keyCombo(KeyCombo(key: "space", command: true), virtualKeyCode: 49)
+        let persistence = InMemoryQuickTerminalShortcutPersistence(shortcut: shortcut)
+        let store = makeStore(persistence: persistence)
+
+        try store.resetToDefault()
+
+        #expect(store.shortcut == .unassigned)
+        #expect(persistence.savedShortcuts == [.unassigned])
+    }
+
     @Test("failed change never persists the rejected shortcut")
     func failedChangeNeverPersists() {
         let persistence = InMemoryQuickTerminalShortcutPersistence()
@@ -65,7 +77,7 @@ struct QuickTerminalShortcutStoreTests {
         #expect(throws: QuickTerminalShortcutTestError.registrationFailed) {
             try store.updateShortcut(replacement)
         }
-        #expect(store.shortcut == .doubleShift)
+        #expect(store.shortcut == .unassigned)
         #expect(persistence.savedShortcuts.isEmpty)
     }
 
@@ -92,7 +104,7 @@ struct QuickTerminalShortcutStoreTests {
                 virtualKeyCode: 49
             ))
         }
-        #expect(store.shortcut == .doubleShift)
+        #expect(store.shortcut == .unassigned)
     }
 
     private func makeStore(

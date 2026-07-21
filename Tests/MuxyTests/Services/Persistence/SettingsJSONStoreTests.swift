@@ -668,7 +668,8 @@ struct SettingsJSONStoreTests {
             #expect(object.keys.contains(item.key))
         }
         #expect(object.keys.contains("shortcuts.app"))
-        #expect(object.keys.contains("shortcuts.quickTerminal"))
+        let quickTerminalShortcut = try #require(object["shortcuts.quickTerminal"] as? [String: Any])
+        #expect(quickTerminalShortcut["type"] as? String == "unassigned")
         #expect(object.keys.contains("shortcuts.customCommands"))
         #expect(object.keys.contains("ai.providers"))
         #expect(object.keys.contains("mobile.approvedDevices"))

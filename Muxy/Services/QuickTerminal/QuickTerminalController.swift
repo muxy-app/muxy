@@ -94,7 +94,7 @@ final class QuickTerminalController: NSObject {
     }
 
     override convenience init() {
-        self.init(shortcutLabelProvider: { "⇧ ⇧" }, onOpenSettings: {})
+        self.init(shortcutLabelProvider: { QuickTerminalShortcut.default.controlLabel }, onOpenSettings: {})
     }
 
     deinit {
@@ -322,7 +322,7 @@ final class QuickTerminalController: NSObject {
         }
         do {
             try shortcutService.updateShortcut(shortcut)
-            contentView?.setShortcutLabel(shortcut.displayString)
+            contentView?.setShortcutLabel(shortcut.controlLabel)
             return nil
         } catch {
             return error.localizedDescription

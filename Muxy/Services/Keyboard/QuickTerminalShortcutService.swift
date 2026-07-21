@@ -83,7 +83,11 @@ final class QuickTerminalShortcutService {
 
     func start() throws {
         guard activeBackend == nil else { return }
-        let backend = makeBackend(for: store.shortcut)
+        guard let backend = makeBackend(for: store.shortcut) else {
+            monitoringState = .stopped
+            errorMessage = nil
+            return
+        }
         do {
             let generation = try start(backend)
             activeRegistrationGeneration = generation
@@ -167,7 +171,14 @@ final class QuickTerminalShortcutService {
             try persistenceCommit()
             return
         }
-        let replacementBackend = makeBackend(for: shortcut)
+        guard let replacementBackend = makeBackend(for: shortcut) else {
+            try persistenceCommit()
+            activeRegistrationGeneration = nil
+            activeBackend?.stop()
+            activeBackend = nil
+            monitoringState = .stopped
+            return
+        }
         let replacementGeneration = try start(replacementBackend)
         do {
             try persistenceCommit()
@@ -187,8 +198,10 @@ final class QuickTerminalShortcutService {
         monitoringState = replacementBackend.monitoringState
     }
 
-    private func makeBackend(for shortcut: QuickTerminalShortcut) -> any QuickTerminalShortcutBackend {
+    private func makeBackend(for shortcut: QuickTerminalShortcut) -> (any QuickTerminalShortcutBackend)? {
         switch shortcut {
+        case .unassigned:
+            nil
         case .doubleShift:
             doubleShiftBackendFactory()
         case let .keyCombo(combo, virtualKeyCode):

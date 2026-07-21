@@ -43,6 +43,7 @@ final class QuickTerminalContentView: NSView {
     private let shortcutSettingsView = NSView()
     private let shortcutSettingsTitle = NSTextField(labelWithString: "Quick Terminal Shortcut")
     private let shortcutSettingsStatus = NSTextField(wrappingLabelWithString: "")
+    private let noShortcutButton = NSButton()
     private let doubleShiftButton = NSButton()
     private let customShortcutButton = NSButton()
     private let inputMonitoringButton = NSButton()
@@ -310,12 +311,13 @@ final class QuickTerminalContentView: NSView {
         bridgeView.addSubview(titleLabel)
         bridgeView.addSubview(statusLabel)
 
-        configureButton(shortcutButton, title: "⇧ ⇧", symbolName: nil, action: #selector(toggleShortcutSettings))
+        configureButton(shortcutButton, title: "Set Shortcut", symbolName: nil, action: #selector(toggleShortcutSettings))
         shortcutButton.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
         shortcutButton.wantsLayer = true
         shortcutButton.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
         shortcutButton.layer?.cornerRadius = 5
         shortcutButton.setAccessibilityLabel("Change quick terminal shortcut")
+        shortcutButton.setAccessibilityIdentifier("quickTerminalShortcutButton")
 
         configureButton(settingsButton, title: "", symbolName: "gearshape", action: #selector(toggleSettingsPopover))
         settingsButton.setAccessibilityLabel("Open quick terminal settings")
@@ -354,9 +356,12 @@ final class QuickTerminalContentView: NSView {
         shortcutSettingsStatus.textColor = NSColor.white.withAlphaComponent(0.62)
         shortcutSettingsStatus.font = .systemFont(ofSize: 10.5, weight: .regular)
         shortcutSettingsStatus.maximumNumberOfLines = 2
+        shortcutSettingsStatus.setAccessibilityIdentifier("quickTerminalShortcutStatus")
         shortcutSettingsView.addSubview(shortcutSettingsTitle)
         shortcutSettingsView.addSubview(shortcutSettingsStatus)
 
+        configureSettingsChoice(noShortcutButton, title: "No Shortcut", action: #selector(selectNoShortcut))
+        noShortcutButton.setAccessibilityIdentifier("quickTerminalNoShortcutButton")
         configureSettingsChoice(doubleShiftButton, title: "Double Shift", action: #selector(selectDoubleShift))
         configureSettingsChoice(customShortcutButton, title: "Record Custom…", action: #selector(recordCustomShortcut))
         configureSettingsChoice(
@@ -424,7 +429,7 @@ final class QuickTerminalContentView: NSView {
     }
 
     private func layoutShortcutSettings() {
-        let size = NSSize(width: 272, height: inputMonitoringButton.isHidden ? 142 : 174)
+        let size = NSSize(width: 272, height: inputMonitoringButton.isHidden ? 174 : 206)
         shortcutSettingsView.frame = NSRect(
             x: max(12, bounds.maxX - size.width - 12),
             y: max(12, bounds.maxY - Self.bridgeHeight - size.height - 8),
@@ -433,14 +438,16 @@ final class QuickTerminalContentView: NSView {
         )
         shortcutSettingsTitle.frame = NSRect(x: 14, y: size.height - 32, width: size.width - 28, height: 18)
         shortcutSettingsStatus.frame = NSRect(x: 14, y: size.height - 59, width: size.width - 28, height: 24)
-        doubleShiftButton.frame = NSRect(x: 14, y: size.height - 91, width: size.width - 28, height: 26)
-        customShortcutButton.frame = NSRect(x: 14, y: size.height - 123, width: size.width - 28, height: 26)
+        noShortcutButton.frame = NSRect(x: 14, y: size.height - 91, width: size.width - 28, height: 26)
+        doubleShiftButton.frame = NSRect(x: 14, y: size.height - 123, width: size.width - 28, height: 26)
+        customShortcutButton.frame = NSRect(x: 14, y: size.height - 155, width: size.width - 28, height: 26)
         inputMonitoringButton.frame = NSRect(x: 14, y: 14, width: size.width - 28, height: 26)
     }
 
     private func refreshShortcutSettings() {
         guard let snapshot = shortcutSettingsProvider?() else { return }
-        setShortcutLabel(snapshot.shortcut.displayString)
+        setShortcutLabel(snapshot.shortcut.controlLabel)
+        noShortcutButton.state = snapshot.shortcut == .unassigned ? .on : .off
         doubleShiftButton.state = snapshot.shortcut == .doubleShift ? .on : .off
         if case let .keyCombo(combo, _) = snapshot.shortcut {
             customShortcutButton.title = combo.displayString
@@ -631,6 +638,16 @@ final class QuickTerminalContentView: NSView {
     }
 
     @objc
+    private func selectNoShortcut() {
+        if let message = onShortcutChange?(.unassigned) {
+            shortcutSettingsStatus.stringValue = message
+            return
+        }
+        isRecordingShortcut = false
+        refreshShortcutSettings()
+    }
+
+    @objc
     func toggleSettingsPopover() {
         if settingsPopover.isHidden {
             shortcutSettingsView.isHidden = true
@@ -683,7 +700,8 @@ struct QuickTerminalShortcutSettingsSnapshot {
     }
 
     var statusText: String {
-        switch monitoringState {
+        guard shortcut != .unassigned else { return "No keyboard shortcut assigned." }
+        return switch monitoringState {
         case .systemWide,
              .carbonHotKey:
             "Active system-wide"

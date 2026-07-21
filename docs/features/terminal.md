@@ -4,11 +4,11 @@ Muxy's terminals are powered by [libghostty](https://github.com/ghostty-org/ghos
 
 ## Quick terminal
 
-On a display with a camera cutout, hover the cutout for a moment and the terminal expands out of it like a dynamic island. Pressing Shift twice (or a recorded shortcut) opens it from anywhere. It always starts in your home directory and keeps the same shell, working directory, and history while hidden.
+On a display with a camera cutout, hover the cutout for a moment and the terminal expands out of it like a dynamic island. You can assign Double Shift or a conventional global shortcut to open it from anywhere. It always starts in your home directory and keeps the same shell, working directory, and history while hidden.
 
-Dismiss it with the same shortcut or the close button. Moving the pointer away, clicking another app, and pressing Escape no longer close it, so Escape reaches the terminal for `vim`, `less`, and other full-screen programs. On a display without a camera cutout there is no hover zone; the terminal opens only from the shortcut, at the same top-center position.
+Dismiss it with the assigned shortcut or the close button. Moving the pointer away, clicking another app, and pressing Escape no longer close it, so Escape reaches the terminal for `vim`, `less`, and other full-screen programs. On a display without a camera cutout there is no hover zone, so assign a shortcut to open the terminal at the same top-center position.
 
-System-wide double Shift requires **System Settings → Privacy & Security → Input Monitoring**. You can use **Settings → Shortcuts → Quick Terminal** to enable access or assign a conventional global shortcut that does not require Input Monitoring.
+Quick Terminal has no shortcut assigned by default. Open **Settings → Quick Terminal** to choose one. System-wide Double Shift requires **System Settings → Privacy & Security → Input Monitoring**; conventional global shortcuts do not.
 
 The same settings section controls the terminal width, height, transparency, and background vibrancy. These same controls are also available in-place from the gear button in the quick terminal, applied live to the open panel. Sizes are stored in points, constrained to 480–1200 wide and 280–800 high, and automatically reduced when the active display is smaller. Transparency ranges from 0–55%, and vibrancy uses a continuous 0–100% native material intensity.
 

@@ -27,15 +27,16 @@ struct SettingsCatalogTests {
             $0.key == "shortcuts.quickTerminal"
         }
 
-        #expect(item?.category == .shortcuts)
-        #expect(item?.section == "Quick Terminal")
+        #expect(item?.category == .quickTerminal)
+        #expect(item?.section == "Shortcut")
         #expect(!SettingsCatalog.jsonEditableItems.contains { $0.key == "shortcuts.quickTerminal" })
     }
 
     @Test
     func quickTerminalAppearanceAndSizeAreSearchableAndJSONEditable() {
-        let quickTerminalItems = SettingsCatalog.items.filter { $0.section == "Quick Terminal" }
+        let quickTerminalItems = SettingsCatalog.items.filter { $0.category == .quickTerminal }
 
+        #expect(quickTerminalItems.allSatisfy { $0.category == .quickTerminal })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalSizePreferences.widthKey })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalSizePreferences.heightKey })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalAppearancePreferences.transparencyKey })
@@ -55,6 +56,8 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.matchingItems(query: "vibrancy").contains {
             $0.key == QuickTerminalAppearancePreferences.blurIntensityKey
         })
+        #expect(SettingsCatalog.sectionMatches(query: "terminal size", category: .quickTerminal, section: "Size"))
+        #expect(SettingsCatalog.sectionMatches(query: "vibrancy", category: .quickTerminal, section: "Appearance"))
     }
 
     @Test
@@ -158,6 +161,7 @@ struct SettingsCatalogTests {
     @Test
     func settingsRoutesRoundTripStoredIDs() throws {
         #expect(SettingsRoute(storedID: "builtin.terminal") == .builtin(.terminal))
+        #expect(SettingsRoute(storedID: "builtin.quickTerminal") == .builtin(.quickTerminal))
         #expect(SettingsRoute(storedID: "ext.com.example.tool") == .ext("com.example.tool"))
         #expect(SettingsRoute(storedID: "builtin.missing") == nil)
         #expect(SettingsRoute(storedID: "ext.") == nil)

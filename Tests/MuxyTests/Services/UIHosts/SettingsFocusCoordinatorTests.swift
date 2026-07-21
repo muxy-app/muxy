@@ -27,8 +27,8 @@ struct SettingsFocusCoordinatorTests {
         #expect(!coordinator.consume(.projectPickerDefaultLocation))
     }
 
-    @Test("quick terminal requests route to shortcut settings")
-    func quickTerminalRequestRoutesToShortcutSettings() {
+    @Test("quick terminal requests route to Quick Terminal settings")
+    func quickTerminalRequestRoutesToQuickTerminalSettings() {
         let notificationCenter = NotificationCenter()
         let coordinator = SettingsFocusCoordinator(notificationCenter: notificationCenter)
         let flag = SettingsFocusNotificationFlag()

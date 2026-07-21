@@ -9,7 +9,7 @@ import Testing
 struct QuickTerminalShortcutServiceTests {
     @Test("starts the stored backend and delivers triggers")
     func startAndTrigger() throws {
-        let persistence = ServiceShortcutPersistence()
+        let persistence = ServiceShortcutPersistence(shortcut: .doubleShift)
         let store = makeStore(persistence: persistence)
         let backend = TestShortcutBackend(state: .localOnly)
         let service = makeService(store: store, doubleShiftBackend: backend)
@@ -27,7 +27,7 @@ struct QuickTerminalShortcutServiceTests {
     @Test("replacement starts before the previous registration stops")
     func replacementOrdering() throws {
         let recorder = ShortcutBackendRecorder()
-        let store = makeStore(persistence: ServiceShortcutPersistence())
+        let store = makeStore(persistence: ServiceShortcutPersistence(shortcut: .doubleShift))
         let previous = TestShortcutBackend(name: "previous", state: .localOnly, recorder: recorder)
         let replacement = TestShortcutBackend(name: "replacement", state: .carbonHotKey, recorder: recorder)
         let service = makeService(
@@ -47,7 +47,7 @@ struct QuickTerminalShortcutServiceTests {
     @Test("failed replacement keeps the previous registration working")
     func failedReplacementKeepsPrevious() throws {
         let recorder = ShortcutBackendRecorder()
-        let persistence = ServiceShortcutPersistence()
+        let persistence = ServiceShortcutPersistence(shortcut: .doubleShift)
         let store = makeStore(persistence: persistence)
         let previous = TestShortcutBackend(name: "previous", state: .localOnly, recorder: recorder)
         let replacement = TestShortcutBackend(
@@ -77,7 +77,7 @@ struct QuickTerminalShortcutServiceTests {
 
     @Test("persistence failure stops the replacement and keeps the previous registration")
     func persistenceFailureKeepsPrevious() throws {
-        let persistence = ServiceShortcutPersistence()
+        let persistence = ServiceShortcutPersistence(shortcut: .doubleShift)
         let store = makeStore(persistence: persistence)
         let previous = TestShortcutBackend(state: .localOnly)
         let replacement = TestShortcutBackend(state: .carbonHotKey)
@@ -160,7 +160,7 @@ struct QuickTerminalShortcutServiceTests {
 
     @Test("explicit permission request upgrades double Shift monitoring")
     func explicitPermissionRequestUpgradesMonitoring() throws {
-        let store = makeStore(persistence: ServiceShortcutPersistence())
+        let store = makeStore(persistence: ServiceShortcutPersistence(shortcut: .doubleShift))
         let backend = TestShortcutBackend(state: .localOnly, enabledState: .systemWide)
         var requestCount = 0
         let service = makeService(
@@ -183,7 +183,7 @@ struct QuickTerminalShortcutServiceTests {
 
     @Test("permission refresh never requests access")
     func permissionRefreshDoesNotRequestAccess() throws {
-        let store = makeStore(persistence: ServiceShortcutPersistence())
+        let store = makeStore(persistence: ServiceShortcutPersistence(shortcut: .doubleShift))
         let backend = TestShortcutBackend(state: .localOnly, enabledState: .systemWide)
         var requestCount = 0
         let service = makeService(
@@ -283,7 +283,7 @@ struct QuickTerminalShortcutServiceTests {
 
     @Test("service deinitialization stops its active backend")
     func serviceDeinitializationStopsBackend() throws {
-        let store = makeStore(persistence: ServiceShortcutPersistence())
+        let store = makeStore(persistence: ServiceShortcutPersistence(shortcut: .doubleShift))
         let backend = TestShortcutBackend(state: .localOnly)
         var service: QuickTerminalShortcutService? = makeService(
             store: store,
@@ -294,6 +294,76 @@ struct QuickTerminalShortcutServiceTests {
         service = nil
 
         #expect(backend.stopCount == 1)
+    }
+
+    @Test("unassigned shortcut starts without installing a backend")
+    func unassignedStartsWithoutBackend() throws {
+        let store = makeStore(persistence: ServiceShortcutPersistence())
+        let doubleShift = TestShortcutBackend(state: .localOnly)
+        let carbon = TestShortcutBackend(state: .carbonHotKey)
+        let service = makeService(
+            store: store,
+            doubleShiftBackend: doubleShift,
+            carbonHotKeyBackend: carbon
+        )
+
+        try service.start()
+
+        #expect(service.shortcut == .unassigned)
+        #expect(service.monitoringState == .stopped)
+        #expect(doubleShift.startCount == 0)
+        #expect(carbon.startCount == 0)
+    }
+
+    @Test("assigning a shortcut starts monitoring from an unassigned state")
+    func assignFromUnassignedStartsBackend() throws {
+        let persistence = ServiceShortcutPersistence()
+        let store = makeStore(persistence: persistence)
+        let backend = TestShortcutBackend(state: .localOnly)
+        let service = makeService(store: store, doubleShiftBackend: backend)
+        try service.start()
+
+        try service.updateShortcut(.doubleShift)
+
+        #expect(service.shortcut == .doubleShift)
+        #expect(service.monitoringState == .localOnly)
+        #expect(backend.startCount == 1)
+        #expect(persistence.shortcut == .doubleShift)
+    }
+
+    @Test("unassigning persists before stopping the active backend")
+    func unassignStopsActiveBackend() throws {
+        let recorder = ShortcutBackendRecorder()
+        let persistence = ServiceShortcutPersistence(shortcut: .doubleShift)
+        let store = makeStore(persistence: persistence)
+        let backend = TestShortcutBackend(name: "double shift", state: .localOnly, recorder: recorder)
+        let service = makeService(store: store, doubleShiftBackend: backend)
+        try service.start()
+
+        try service.updateShortcut(.unassigned)
+
+        #expect(service.shortcut == .unassigned)
+        #expect(service.monitoringState == .stopped)
+        #expect(persistence.shortcut == .unassigned)
+        #expect(recorder.events == ["start double shift", "stop double shift"])
+    }
+
+    @Test("failed unassignment persistence keeps the active backend")
+    func failedUnassignmentKeepsActiveBackend() throws {
+        let persistence = ServiceShortcutPersistence(shortcut: .doubleShift)
+        let store = makeStore(persistence: persistence)
+        let backend = TestShortcutBackend(state: .localOnly)
+        let service = makeService(store: store, doubleShiftBackend: backend)
+        try service.start()
+        persistence.saveError = .persistenceFailed
+
+        #expect(throws: ShortcutBackendTestError.persistenceFailed) {
+            try service.updateShortcut(.unassigned)
+        }
+
+        #expect(service.shortcut == .doubleShift)
+        #expect(service.monitoringState == .localOnly)
+        #expect(backend.stopCount == 0)
     }
 
     private func makeStore(persistence: ServiceShortcutPersistence) -> QuickTerminalShortcutStore {
