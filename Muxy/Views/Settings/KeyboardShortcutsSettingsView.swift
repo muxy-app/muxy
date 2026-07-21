@@ -54,6 +54,8 @@ struct KeyboardShortcutsSettingsView: View {
                     notchTerminalShortcutError = error.localizedDescription
                 }
                 recordingAction = nil
+                recordingExtensionShortcutID = nil
+                isRecordingNotchTerminalShortcut = false
                 conflictWarning = nil
             }
             .buttonStyle(.plain)
@@ -111,7 +113,7 @@ struct KeyboardShortcutsSettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
-                        updateNotchTerminalShortcut(.doubleShift)
+                        _ = updateNotchTerminalShortcut(.doubleShift)
                     } label: {
                         Label(
                             "Double Shift",
@@ -122,11 +124,13 @@ struct KeyboardShortcutsSettingsView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .accessibilityAddTraits(isDoubleShiftShortcutSelected ? .isSelected : [])
+                    .accessibilityValue(isDoubleShiftShortcutSelected ? "Selected" : "Not selected")
 
                     ZStack {
                         if isRecordingNotchTerminalShortcut {
                             ShortcutRecorderView(
-                                onRecord: { _ in },
+                                onRecord: { _ in false },
                                 onCancel: { isRecordingNotchTerminalShortcut = false },
                                 onRecordWithKeyCode: recordNotchTerminalShortcut
                             )
@@ -134,11 +138,15 @@ struct KeyboardShortcutsSettingsView: View {
                             .opacity(0)
                         }
                         Button(isRecordingNotchTerminalShortcut ? "Press shortcut…" : customShortcutTitle) {
+                            recordingAction = nil
+                            recordingExtensionShortcutID = nil
                             isRecordingNotchTerminalShortcut = true
                             notchTerminalShortcutError = nil
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .accessibilityAddTraits(isCustomShortcutSelected ? .isSelected : [])
+                        .accessibilityValue(isCustomShortcutSelected ? "Selected" : "Not selected")
                     }
                 }
 
@@ -241,8 +249,17 @@ struct KeyboardShortcutsSettingsView: View {
     }
 
     private var customShortcutTitle: String {
-        guard case let .keyCombo(combo, _) = notchShortcutService.shortcut else { return "Record Custom…" }
-        return combo.displayString
+        guard case .keyCombo = notchShortcutService.shortcut else { return "Record Custom…" }
+        return notchShortcutService.shortcut.displayString
+    }
+
+    private var isDoubleShiftShortcutSelected: Bool {
+        notchShortcutService.shortcut == .doubleShift
+    }
+
+    private var isCustomShortcutSelected: Bool {
+        guard case .keyCombo = notchShortcutService.shortcut else { return false }
+        return true
     }
 
     private var notchTerminalTransparencyBinding: Binding<Double> {
@@ -296,26 +313,25 @@ struct KeyboardShortcutsSettingsView: View {
         }
     }
 
-    private func recordNotchTerminalShortcut(_ combo: KeyCombo, virtualKeyCode: UInt16) {
+    private func recordNotchTerminalShortcut(_ combo: KeyCombo, virtualKeyCode: UInt16) -> Bool {
         updateNotchTerminalShortcut(.keyCombo(combo, virtualKeyCode: virtualKeyCode))
-        if notchTerminalShortcutError == nil {
-            isRecordingNotchTerminalShortcut = false
-        }
     }
 
-    private func updateNotchTerminalShortcut(_ shortcut: NotchTerminalShortcut) {
+    private func updateNotchTerminalShortcut(_ shortcut: NotchTerminalShortcut) -> Bool {
         if case let .keyCombo(combo, _) = shortcut,
            let conflict = NotchTerminalShortcutConflictResolver.conflictMessage(for: combo)
         {
             notchTerminalShortcutError = conflict
-            return
+            return false
         }
         do {
             try notchShortcutService.updateShortcut(shortcut)
             notchTerminalShortcutError = nil
             isRecordingNotchTerminalShortcut = false
+            return true
         } catch {
             notchTerminalShortcutError = error.localizedDescription
+            return false
         }
     }
 
@@ -329,6 +345,7 @@ struct KeyboardShortcutsSettingsView: View {
                     conflictMessage: extensionConflictWarning?.id == entry.id ? extensionConflictWarning?.message : nil,
                     onStartRecording: {
                         recordingAction = nil
+                        isRecordingNotchTerminalShortcut = false
                         recordingExtensionShortcutID = entry.id
                         extensionConflictWarning = nil
                     },
@@ -357,18 +374,19 @@ struct KeyboardShortcutsSettingsView: View {
         .environment(\.settingsSearchQuery, "")
     }
 
-    private func handleRecord(extensionEntry entry: ExtensionShortcutEntry, combo: KeyCombo) {
+    private func handleRecord(extensionEntry entry: ExtensionShortcutEntry, combo: KeyCombo) -> Bool {
         if let message = extensionStore.conflictMessage(
             for: combo,
             extensionID: entry.extensionID,
             commandID: entry.commandID
         ) {
             extensionConflictWarning = (id: entry.id, message: "\(message) — press a different shortcut or Esc to cancel")
-            return
+            return false
         }
         extensionStore.updateCombo(extensionID: entry.extensionID, commandID: entry.commandID, combo: combo)
         recordingExtensionShortcutID = nil
         extensionConflictWarning = nil
+        return true
     }
 
     private var filteredExtensionGroups: [ExtensionShortcutGroup] {
@@ -398,6 +416,8 @@ struct KeyboardShortcutsSettingsView: View {
                         ? conflictWarning?.message
                         : nil,
                     onStartRecording: {
+                        recordingExtensionShortcutID = nil
+                        isRecordingNotchTerminalShortcut = false
                         recordingAction = action
                         conflictWarning = nil
                     },
@@ -423,21 +443,22 @@ struct KeyboardShortcutsSettingsView: View {
         return actions.filter { $0.displayName.localizedCaseInsensitiveContains(searchText) }
     }
 
-    private func handleRecord(action: ShortcutAction, combo: KeyCombo) {
+    private func handleRecord(action: ShortcutAction, combo: KeyCombo) -> Bool {
         if let message = NotchTerminalShortcutConflictResolver.notchTerminalConflictMessage(for: combo) {
             conflictWarning = (action: action, message: "\(message) Press a different shortcut or Esc to cancel.")
-            return
+            return false
         }
         if let existing = store.conflictingAction(for: combo, excluding: action) {
             conflictWarning = (
                 action: action,
                 message: "Conflicts with \"\(existing.displayName)\". Press a different shortcut or Esc to cancel."
             )
-            return
+            return false
         }
         store.updateBinding(action: action, combo: combo)
         recordingAction = nil
         conflictWarning = nil
+        return true
     }
 
     private func resetBinding(action: ShortcutAction) {
@@ -515,7 +536,7 @@ private struct ShortcutRow: View {
     let isRecording: Bool
     let conflictMessage: String?
     let onStartRecording: () -> Void
-    let onRecord: (KeyCombo) -> Void
+    let onRecord: (KeyCombo) -> Bool
     let onCancel: () -> Void
     let onReset: () -> Void
     let onUnassign: () -> Void

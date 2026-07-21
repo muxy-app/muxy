@@ -2,10 +2,10 @@ import AppKit
 import SwiftUI
 
 struct ShortcutRecorderView: NSViewRepresentable {
-    let onRecord: (KeyCombo) -> Void
+    let onRecord: (KeyCombo) -> Bool
     let onCancel: () -> Void
     var requiresModifier = true
-    var onRecordWithKeyCode: ((KeyCombo, UInt16) -> Void)?
+    var onRecordWithKeyCode: ((KeyCombo, UInt16) -> Bool)?
 
     func makeNSView(context: Context) -> ShortcutRecorderNSView {
         let view = ShortcutRecorderNSView()
@@ -26,8 +26,8 @@ struct ShortcutRecorderView: NSViewRepresentable {
 }
 
 final class ShortcutRecorderNSView: NSView {
-    var onRecord: ((KeyCombo) -> Void)?
-    var onRecordWithKeyCode: ((KeyCombo, UInt16) -> Void)?
+    var onRecord: ((KeyCombo) -> Bool)?
+    var onRecordWithKeyCode: ((KeyCombo, UInt16) -> Bool)?
     var onCancel: (() -> Void)?
     var requiresModifier = true
     private var completed = false
@@ -89,12 +89,11 @@ final class ShortcutRecorderNSView: NSView {
         let key = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
         guard !key.isEmpty else { return false }
 
-        completed = true
         let combo = KeyCombo(key: key, modifiers: flags.rawValue)
         if let onRecordWithKeyCode {
-            onRecordWithKeyCode(combo, event.keyCode)
+            completed = onRecordWithKeyCode(combo, event.keyCode)
         } else {
-            onRecord?(combo)
+            completed = onRecord?(combo) ?? false
         }
         return true
     }

@@ -151,7 +151,10 @@ final class NotchTerminalController: NSObject {
             _ = presentation.complete(transition)
             return
         }
-        if focusSnapshot == nil {
+        if NotchTerminalFocusRestorationPolicy.shouldCapture(
+            hasSnapshot: focusSnapshot != nil,
+            panelIsKey: panel.isKeyWindow
+        ) {
             focusSnapshot = NotchTerminalFocusSnapshot.capture(excluding: panel)
         }
         let frame = NotchTerminalGeometry.frame(
@@ -186,8 +189,12 @@ final class NotchTerminalController: NSObject {
         contentView?.animateReveal(false, duration: duration)
         scheduleCompletion(transition, duration: duration) { [weak self] in
             guard let self else { return }
+            let shouldRestoreFocus = NotchTerminalFocusRestorationPolicy.shouldRestore(
+                requested: restoresFocus,
+                panelIsKey: self.panel?.isKeyWindow == true
+            )
             self.panel?.orderOut(nil)
-            if restoresFocus {
+            if shouldRestoreFocus {
                 self.focusSnapshot?.restore()
             }
             self.focusSnapshot = nil
@@ -282,7 +289,6 @@ final class NotchTerminalController: NSObject {
     private func applyCurrentAppearance() {
         let appearance = appearanceProvider().resolvingReduceTransparency(reduceTransparencyProvider())
         contentView?.applyAppearance(appearance)
-        session.applyAppearance(appearance)
     }
 
     private func handleProcessExit() {
@@ -313,6 +319,7 @@ final class NotchTerminalController: NSObject {
     @objc
     private func handleGhosttyConfigurationDidChange() {
         guard !isTerminated else { return }
+        session.reloadConfiguration()
         applyCurrentAppearance()
     }
 
@@ -320,6 +327,16 @@ final class NotchTerminalController: NSObject {
     private func handleAccessibilityDisplayOptionsDidChange() {
         guard !isTerminated else { return }
         applyCurrentAppearance()
+    }
+}
+
+enum NotchTerminalFocusRestorationPolicy {
+    static func shouldCapture(hasSnapshot: Bool, panelIsKey: Bool) -> Bool {
+        !hasSnapshot || !panelIsKey
+    }
+
+    static func shouldRestore(requested: Bool, panelIsKey: Bool) -> Bool {
+        requested && panelIsKey
     }
 }
 

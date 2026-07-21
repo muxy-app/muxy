@@ -144,14 +144,15 @@ struct CommandsSettingsView: View {
         }
     }
 
-    private func handleRecord(prefixCombo combo: KeyCombo) {
+    private func handleRecord(prefixCombo combo: KeyCombo) -> Bool {
         if let message = NotchTerminalShortcutConflictResolver.notchTerminalConflictMessage(for: combo) {
             commandPrefixConflictWarning = message
-            return
+            return false
         }
         commandStore.updatePrefixCombo(combo)
         recordingCommandPrefix = false
         commandPrefixConflictWarning = nil
+        return true
     }
 
     private func resetCommandPrefix() {
@@ -164,16 +165,16 @@ struct CommandsSettingsView: View {
         commandPrefixConflictWarning = nil
     }
 
-    private func handleRecord(shortcutID: UUID, combo: KeyCombo) {
+    private func handleRecord(shortcutID: UUID, combo: KeyCombo) -> Bool {
         if let message = NotchTerminalShortcutConflictResolver.notchTerminalConflictMessage(for: combo) {
             commandConflictWarning = (id: shortcutID, message: message)
-            return
+            return false
         }
         if let existing = commandStore.conflictingShortcut(for: combo, excluding: shortcutID) {
             commandConflictWarning = (id: shortcutID, message: "Conflicts with \"\(existing.displayName)\"")
-            return
+            return false
         }
-        guard var shortcut = commandStore.shortcuts.first(where: { $0.id == shortcutID }) else { return }
+        guard var shortcut = commandStore.shortcuts.first(where: { $0.id == shortcutID }) else { return false }
         shortcut.combo = combo
         commandStore.updateShortcut(shortcut)
         if pendingCommandShortcutID == shortcutID {
@@ -181,6 +182,7 @@ struct CommandsSettingsView: View {
         }
         recordingCommandShortcutID = nil
         commandConflictWarning = nil
+        return true
     }
 
     private func cancelCommandShortcutRecording(shortcutID: UUID) {
@@ -253,7 +255,7 @@ private struct CommandPrefixRow: View {
     let isRecording: Bool
     let conflictMessage: String?
     let onStartRecording: () -> Void
-    let onRecord: (KeyCombo) -> Void
+    let onRecord: (KeyCombo) -> Bool
     let onCancel: () -> Void
     let onReset: () -> Void
     @State private var hovered = false
@@ -335,7 +337,7 @@ private struct CommandShortcutRow: View {
     let isRecording: Bool
     let conflictMessage: String?
     let onStartRecording: () -> Void
-    let onRecord: (KeyCombo) -> Void
+    let onRecord: (KeyCombo) -> Bool
     let onCancel: () -> Void
     let onDelete: () -> Void
     @State private var hovered = false

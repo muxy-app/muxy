@@ -8,7 +8,8 @@ struct NotchTerminalShortcutConflictResolverTests {
     @Test("app shortcut reset reports a Notch Terminal default conflict")
     func appShortcutResetConflict() throws {
         let binding = try #require(KeyBinding.defaults.first)
-        let shortcut = NotchTerminalShortcut.keyCombo(binding.combo, virtualKeyCode: 0)
+        let virtualKeyCode = try #require(KeyCombo.virtualKeyCode(for: binding.combo.key))
+        let shortcut = NotchTerminalShortcut.keyCombo(binding.combo, virtualKeyCode: virtualKeyCode)
 
         let message = NotchTerminalShortcutConflictResolver.appShortcutResetConflictMessage(
             for: binding.action,
@@ -19,10 +20,12 @@ struct NotchTerminalShortcutConflictResolverTests {
     }
 
     @Test("command prefix reset reports a Notch Terminal default conflict")
-    func commandPrefixResetConflict() {
+    func commandPrefixResetConflict() throws {
+        let combo = CommandShortcutConfiguration().prefixCombo
+        let virtualKeyCode = try #require(KeyCombo.virtualKeyCode(for: combo.key))
         let shortcut = NotchTerminalShortcut.keyCombo(
-            CommandShortcutConfiguration().prefixCombo,
-            virtualKeyCode: 0
+            combo,
+            virtualKeyCode: virtualKeyCode
         )
 
         let message = NotchTerminalShortcutConflictResolver.commandPrefixResetConflictMessage(

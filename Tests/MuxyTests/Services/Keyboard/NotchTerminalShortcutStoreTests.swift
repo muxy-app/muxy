@@ -15,6 +15,17 @@ struct NotchTerminalShortcutStoreTests {
         #expect(store.shortcut == shortcut)
     }
 
+    @Test("normalizes a persisted display key to its registration identity")
+    func normalizesPersistedDisplayKey() {
+        let persisted = NotchTerminalShortcut.keyCombo(KeyCombo(key: "q", command: true), virtualKeyCode: 49)
+        let expected = NotchTerminalShortcut.keyCombo(KeyCombo(key: "space", command: true), virtualKeyCode: 49)
+        let persistence = InMemoryNotchTerminalShortcutPersistence(shortcut: persisted)
+        let store = makeStore(persistence: persistence)
+
+        #expect(store.shortcut == expected)
+        #expect(persistence.savedShortcuts == [expected])
+    }
+
     @Test("invalid persisted shortcut falls back to double Shift")
     func invalidPersistedShortcutFallsBack() {
         let shortcut = NotchTerminalShortcut.keyCombo(KeyCombo(key: "space", modifiers: 0), virtualKeyCode: 49)

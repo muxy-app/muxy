@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import Muxy
@@ -5,7 +6,9 @@ import Testing
 @Suite("Notch terminal Ghostty config")
 struct NotchTerminalGhosttyConfigTests {
     @Test("leaves background composition to the native material stack")
-    func transparentBackgroundOverride() {
-        #expect(NotchTerminalGhosttyConfig.configText() == "background-opacity = 0.00\nbackground-blur = false\n")
+    func transparentBackgroundOverride() throws {
+        let url = try #require(NotchTerminalGhosttyConfig.overridesURL())
+
+        #expect(try String(contentsOf: url, encoding: .utf8) == "background-opacity = 0.00\nbackground-blur = false\n")
     }
 }

@@ -57,27 +57,35 @@ final class FileNotchTerminalShortcutPersistence: NotchTerminalShortcutPersistin
 final class NotchTerminalShortcutStore {
     typealias PersistenceCommit = @MainActor @Sendable () throws -> Void
     typealias ChangeHandler = @MainActor (NotchTerminalShortcut, PersistenceCommit) throws -> Void
+    typealias Canonicalizer = @MainActor (NotchTerminalShortcut) -> NotchTerminalShortcut?
 
     static let shared = NotchTerminalShortcutStore()
 
     private(set) var shortcut = NotchTerminalShortcut.default
     private let persistence: any NotchTerminalShortcutPersisting
     @ObservationIgnored private let settingsSynchronizer: @MainActor () -> Void
+    @ObservationIgnored private let canonicalizer: Canonicalizer
     @ObservationIgnored private var changeHandler: ChangeHandler?
 
     init(
         persistence: any NotchTerminalShortcutPersisting = FileNotchTerminalShortcutPersistence(),
         settingsSynchronizer: @escaping @MainActor () -> Void = {
             SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
+        },
+        canonicalizer: @escaping Canonicalizer = {
+            $0.canonicalizedForCurrentKeyboardLayout()
         }
     ) {
         self.persistence = persistence
         self.settingsSynchronizer = settingsSynchronizer
+        self.canonicalizer = canonicalizer
         load()
     }
 
     func updateShortcut(_ newShortcut: NotchTerminalShortcut) throws {
-        guard newShortcut.isValid else { throw NotchTerminalShortcutError.invalidShortcut }
+        guard let newShortcut = canonicalized(newShortcut) else {
+            throw NotchTerminalShortcutError.invalidShortcut
+        }
         guard newShortcut != shortcut else { return }
 
         let persistenceCommit: PersistenceCommit = {
@@ -100,12 +108,25 @@ final class NotchTerminalShortcutStore {
         changeHandler = handler
     }
 
+    func canonicalized(_ shortcut: NotchTerminalShortcut) -> NotchTerminalShortcut? {
+        canonicalizer(shortcut)
+    }
+
     private func load() {
         do {
-            let storedShortcut = try persistence.loadShortcut()
-            guard storedShortcut.isValid else {
+            let persistedShortcut = try persistence.loadShortcut()
+            guard let storedShortcut = canonicalized(persistedShortcut) else {
                 shortcut = .default
                 return
+            }
+            if storedShortcut != persistedShortcut {
+                do {
+                    try persistence.saveShortcut(storedShortcut)
+                } catch {
+                    notchTerminalShortcutLogger.error(
+                        "Failed to normalize the stored shortcut: \(error.localizedDescription)"
+                    )
+                }
             }
             shortcut = storedShortcut
         } catch {

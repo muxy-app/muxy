@@ -436,6 +436,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @MainActor
     func applicationDidBecomeActive(_ notification: Notification) {
+        do {
+            try NotchTerminalShortcutService.shared.refreshKeyboardLayout()
+        } catch {
+            notchTerminalLogger.error("Failed to refresh the Notch Terminal shortcut: \(error.localizedDescription)")
+        }
         NotchTerminalShortcutService.shared.refreshInputMonitoringAccess()
     }
 

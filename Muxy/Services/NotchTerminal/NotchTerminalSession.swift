@@ -5,7 +5,7 @@ protocol NotchTerminalSurface: AnyObject {
     var notchTerminalView: NSView { get }
     var onProcessExit: (() -> Void)? { get set }
 
-    func applyAppearance(_ appearance: NotchTerminalAppearance)
+    func applyNotchTerminalConfiguration()
     func setVisible(_ visible: Bool)
     func setFocused(_ focused: Bool)
     func notifySurfaceUnfocused()
@@ -15,9 +15,9 @@ protocol NotchTerminalSurface: AnyObject {
 extension GhosttyTerminalNSView: NotchTerminalSurface {
     var notchTerminalView: NSView { self }
 
-    func applyAppearance(_ appearance: NotchTerminalAppearance) {
+    func applyNotchTerminalConfiguration() {
         setSurfaceConfigurationOverlay { surface in
-            NotchTerminalGhosttyConfig.apply(appearance, to: surface)
+            NotchTerminalGhosttyConfig.apply(to: surface)
         }
     }
 }
@@ -56,6 +56,7 @@ final class NotchTerminalSession {
             self?.handleProcessExit(identifier: identifier)
         }
         self.surface = surface
+        surface.applyNotchTerminalConfiguration()
         return surface
     }
 
@@ -67,8 +68,8 @@ final class NotchTerminalSession {
         }
     }
 
-    func applyAppearance(_ appearance: NotchTerminalAppearance) {
-        surface?.applyAppearance(appearance)
+    func reloadConfiguration() {
+        surface?.applyNotchTerminalConfiguration()
     }
 
     func terminate() {

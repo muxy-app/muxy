@@ -34,16 +34,52 @@ enum NotchTerminalShortcut: Codable, Equatable {
         return virtualKeyCode
     }
 
+    @MainActor
     var isValid: Bool {
+        canonicalizedForCurrentKeyboardLayout() != nil
+    }
+
+    @MainActor
+    func canonicalizedForCurrentKeyboardLayout() -> NotchTerminalShortcut? {
+        canonicalized(keyResolver: KeyCombo.key(forVirtualKeyCode:))
+    }
+
+    func canonicalized(keyResolver: (UInt16) -> String?) -> NotchTerminalShortcut? {
         switch self {
-        case .doubleShift: return true
-        case let .keyCombo(combo, virtualKeyCode):
-            let conventionalModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
-            return combo.isAssigned
-                && !combo.nsModifierFlags.isDisjoint(with: conventionalModifiers)
-                && (combo.key.count == 1 || KeyCombo.keyCode(for: combo.key) != nil)
-                && virtualKeyCode <= 127
+        case .doubleShift:
+            return .doubleShift
+        case let .keyCombo(_, virtualKeyCode):
+            guard let identity = registrationIdentity,
+                  let combo = identity.keyCombo(keyResolver: keyResolver)
+            else { return nil }
+            return .keyCombo(combo, virtualKeyCode: virtualKeyCode)
         }
+    }
+
+    func hasSameRegistrationIdentity(as other: NotchTerminalShortcut) -> Bool {
+        switch (registrationIdentity, other.registrationIdentity) {
+        case let (lhs?, rhs?):
+            lhs == rhs
+        case (nil, nil):
+            self == .doubleShift && other == .doubleShift
+        default:
+            false
+        }
+    }
+
+    private var registrationIdentity: NotchTerminalShortcutRegistrationIdentity? {
+        guard case let .keyCombo(combo, virtualKeyCode) = self else { return nil }
+        let conventionalModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
+        guard combo.isAssigned,
+              combo.isCanonical,
+              !combo.nsModifierFlags.isDisjoint(with: conventionalModifiers),
+              combo.key.count == 1 || KeyCombo.keyCode(for: combo.key) != nil,
+              virtualKeyCode <= 127
+        else { return nil }
+        return NotchTerminalShortcutRegistrationIdentity(
+            modifiers: combo.modifiers,
+            virtualKeyCode: virtualKeyCode
+        )
     }
 
     init(from decoder: Decoder) throws {
@@ -76,5 +112,15 @@ enum NotchTerminalShortcut: Codable, Equatable {
             try container.encode(combo, forKey: .keyCombo)
             try container.encode(virtualKeyCode, forKey: .virtualKeyCode)
         }
+    }
+}
+
+struct NotchTerminalShortcutRegistrationIdentity: Equatable {
+    let modifiers: UInt
+    let virtualKeyCode: UInt16
+
+    func keyCombo(keyResolver: (UInt16) -> String?) -> KeyCombo? {
+        guard let key = keyResolver(virtualKeyCode) else { return nil }
+        return KeyCombo(key: key, modifiers: modifiers)
     }
 }

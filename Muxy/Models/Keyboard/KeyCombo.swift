@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CoreGraphics
 import SwiftUI
 
 enum ShortcutScope: String, Codable, CaseIterable {
@@ -102,6 +103,31 @@ struct KeyCombo: Codable, Equatable, Hashable {
             return UInt16(code)
         }
         return nil
+    }
+
+    @MainActor
+    static func key(forVirtualKeyCode virtualKeyCode: UInt16) -> String? {
+        guard virtualKeyCode <= 127,
+              let cgEvent = CGEvent(
+                  keyboardEventSource: nil,
+                  virtualKey: CGKeyCode(virtualKeyCode),
+                  keyDown: true
+              ),
+              let event = NSEvent(cgEvent: cgEvent)
+        else { return nil }
+        let key = normalized(
+            key: event.charactersIgnoringModifiers ?? "",
+            keyCode: virtualKeyCode
+        )
+        return key.isEmpty ? nil : key
+    }
+
+    @MainActor
+    static func virtualKeyCode(for key: String) -> UInt16? {
+        let normalizedKey = normalized(key: key)
+        return (0 ... 127).lazy
+            .map(UInt16.init)
+            .first { Self.key(forVirtualKeyCode: $0) == normalizedKey }
     }
 
     let key: String
@@ -210,6 +236,11 @@ struct KeyCombo: Codable, Equatable, Hashable {
 
     var isAssigned: Bool {
         !key.isEmpty
+    }
+
+    var isCanonical: Bool {
+        key == Self.normalized(key: key)
+            && modifiers == Self.normalized(modifiers: modifiers)
     }
 
     var swiftUIModifiers: SwiftUI.EventModifiers {

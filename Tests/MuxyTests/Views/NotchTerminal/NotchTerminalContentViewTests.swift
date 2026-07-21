@@ -112,7 +112,7 @@ private final class NotchTerminalContentTestSurface: NotchTerminalSurface {
     let notchTerminalView = NSView()
     var onProcessExit: (() -> Void)?
 
-    func applyAppearance(_: NotchTerminalAppearance) {}
+    func applyNotchTerminalConfiguration() {}
     func setVisible(_: Bool) {}
     func setFocused(_: Bool) {}
     func notifySurfaceUnfocused() {}

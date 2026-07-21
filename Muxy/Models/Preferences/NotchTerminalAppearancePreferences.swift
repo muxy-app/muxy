@@ -57,7 +57,6 @@ enum NotchTerminalAppearancePreferences {
     }
 
     static func blurIntensity(defaults: UserDefaults = .standard) -> Int {
-        migrateLegacyBlur(defaults: defaults)
         guard defaults.object(forKey: blurIntensityKey) != nil else { return defaultBlurIntensity }
         return min(
             max(defaults.integer(forKey: blurIntensityKey), blurIntensityRange.lowerBound),
@@ -65,19 +64,19 @@ enum NotchTerminalAppearancePreferences {
         )
     }
 
-    static func migrateLegacyBlur(defaults: UserDefaults = .standard) {
-        guard let storedValue = defaults.object(forKey: blurIntensityKey) else { return }
+    @discardableResult
+    static func migrateLegacyBlur(defaults: UserDefaults = .standard) -> Bool {
+        guard let storedValue = defaults.object(forKey: blurIntensityKey) else { return false }
         if let number = storedValue as? NSNumber,
            CFGetTypeID(number) != CFBooleanGetTypeID()
         {
-            defaults.set(
-                min(
-                    max(number.intValue, blurIntensityRange.lowerBound),
-                    blurIntensityRange.upperBound
-                ),
-                forKey: blurIntensityKey
+            let intensity = min(
+                max(number.intValue, blurIntensityRange.lowerBound),
+                blurIntensityRange.upperBound
             )
-            return
+            guard storedValue as? Int != intensity else { return false }
+            defaults.set(intensity, forKey: blurIntensityKey)
+            return true
         }
         let intensity = switch storedValue as? String {
         case "off": 0
@@ -87,5 +86,6 @@ enum NotchTerminalAppearancePreferences {
         default: defaultBlurIntensity
         }
         defaults.set(intensity, forKey: blurIntensityKey)
+        return true
     }
 }

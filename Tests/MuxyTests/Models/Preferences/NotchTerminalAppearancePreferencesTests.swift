@@ -71,8 +71,8 @@ struct NotchTerminalAppearancePreferencesTests {
         let defaults = makeDefaults()
         defaults.set(value, forKey: NotchTerminalAppearancePreferences.blurIntensityKey)
 
-        NotchTerminalAppearancePreferences.migrateLegacyBlur(defaults: defaults)
-        NotchTerminalAppearancePreferences.migrateLegacyBlur(defaults: defaults)
+        #expect(NotchTerminalAppearancePreferences.migrateLegacyBlur(defaults: defaults))
+        #expect(!NotchTerminalAppearancePreferences.migrateLegacyBlur(defaults: defaults))
 
         #expect(defaults.integer(forKey: NotchTerminalAppearancePreferences.blurIntensityKey) == expectedIntensity)
     }
@@ -82,9 +82,29 @@ struct NotchTerminalAppearancePreferencesTests {
         let defaults = makeDefaults()
         defaults.set(130, forKey: NotchTerminalAppearancePreferences.blurIntensityKey)
 
-        NotchTerminalAppearancePreferences.migrateLegacyBlur(defaults: defaults)
+        #expect(NotchTerminalAppearancePreferences.migrateLegacyBlur(defaults: defaults))
+        #expect(!NotchTerminalAppearancePreferences.migrateLegacyBlur(defaults: defaults))
 
         #expect(defaults.integer(forKey: NotchTerminalAppearancePreferences.blurIntensityKey) == 100)
+    }
+
+    @Test("canonical numeric blur migration is a no-op")
+    func canonicalNumericMigration() {
+        let defaults = makeDefaults()
+        defaults.set(70, forKey: NotchTerminalAppearancePreferences.blurIntensityKey)
+
+        #expect(!NotchTerminalAppearancePreferences.migrateLegacyBlur(defaults: defaults))
+        #expect(defaults.integer(forKey: NotchTerminalAppearancePreferences.blurIntensityKey) == 70)
+    }
+
+    @Test("reading blur intensity does not mutate legacy storage")
+    func blurReadIsPure() {
+        let defaults = makeDefaults()
+        defaults.set("strong", forKey: NotchTerminalAppearancePreferences.blurIntensityKey)
+
+        _ = NotchTerminalAppearancePreferences.blurIntensity(defaults: defaults)
+
+        #expect(defaults.string(forKey: NotchTerminalAppearancePreferences.blurIntensityKey) == "strong")
     }
 
     private func makeDefaults() -> UserDefaults {

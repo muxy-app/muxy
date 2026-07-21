@@ -213,8 +213,9 @@ struct NotchTerminalShortcutServiceTests {
 
     @Test("service forwards the recorded virtual key code to Carbon")
     func recordedVirtualKeyCodeIsForwarded() throws {
+        let key = try #require(KeyCombo.key(forVirtualKeyCode: 0))
         let shortcut = NotchTerminalShortcut.keyCombo(
-            KeyCombo(key: "q", command: true),
+            KeyCombo(key: key, command: true),
             virtualKeyCode: 0
         )
         let store = makeStore(persistence: ServiceShortcutPersistence(shortcut: shortcut))
@@ -234,8 +235,50 @@ struct NotchTerminalShortcutServiceTests {
 
         try service.start()
 
-        #expect(receivedCombo == KeyCombo(key: "q", command: true))
+        #expect(receivedCombo == KeyCombo(key: key, command: true))
         #expect(receivedKeyCode == 0)
+    }
+
+    @Test("keyboard layout refresh preserves an unchanged Carbon registration")
+    func keyboardLayoutRefreshPreservesRegistration() throws {
+        var resolvedKey = "a"
+        let shortcut = NotchTerminalShortcut.keyCombo(
+            KeyCombo(key: resolvedKey, command: true),
+            virtualKeyCode: 0
+        )
+        let persistence = ServiceShortcutPersistence(shortcut: shortcut)
+        let store = NotchTerminalShortcutStore(
+            persistence: persistence,
+            settingsSynchronizer: {},
+            canonicalizer: {
+                $0.canonicalized(keyResolver: { _ in resolvedKey })
+            }
+        )
+        let backend = TestShortcutBackend(state: .carbonHotKey)
+        var backendCreationCount = 0
+        let service = NotchTerminalShortcutService(
+            store: store,
+            doubleShiftBackendFactory: { TestShortcutBackend(state: .localOnly) },
+            carbonHotKeyBackendFactory: { _, _ in
+                backendCreationCount += 1
+                return backend
+            },
+            inputMonitoringAccessRequester: { false }
+        )
+        try service.start()
+
+        resolvedKey = "q"
+        try service.refreshKeyboardLayout()
+
+        let expected = NotchTerminalShortcut.keyCombo(
+            KeyCombo(key: "q", command: true),
+            virtualKeyCode: 0
+        )
+        #expect(backendCreationCount == 1)
+        #expect(backend.startCount == 1)
+        #expect(backend.stopCount == 0)
+        #expect(service.shortcut == expected)
+        #expect(persistence.shortcut == expected)
     }
 
     @Test("service deinitialization stops its active backend")

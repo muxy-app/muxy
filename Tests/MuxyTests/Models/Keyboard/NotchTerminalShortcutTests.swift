@@ -4,6 +4,7 @@ import Testing
 @testable import Muxy
 
 @Suite("NotchTerminalShortcut")
+@MainActor
 struct NotchTerminalShortcutTests {
     @Test("default is double Shift")
     func defaultShortcut() {
@@ -56,6 +57,16 @@ struct NotchTerminalShortcutTests {
         #expect(decoded == .keyCombo(KeyCombo(key: "space", command: true), virtualKeyCode: 49))
     }
 
+    @Test("decoded key combos must use canonical keys and modifiers", arguments: [
+        (#"{"type":"keyCombo","keyCombo":{"key":"SPACE","modifiers":1048576},"virtualKeyCode":49}"#),
+        (#"{"type":"keyCombo","keyCombo":{"key":"space","modifiers":1114112},"virtualKeyCode":49}"#),
+    ])
+    func decodedShortcutValidation(json: String) throws {
+        let shortcut = try JSONDecoder().decode(NotchTerminalShortcut.self, from: Data(json.utf8))
+
+        #expect(!shortcut.isValid)
+    }
+
     @Test("explicit virtual key code preserves international and keypad identity")
     func explicitVirtualKeyCodeIdentity() {
         let international = NotchTerminalShortcut.keyCombo(
@@ -69,7 +80,25 @@ struct NotchTerminalShortcutTests {
 
         #expect(international.virtualKeyCode == 0)
         #expect(keypad.virtualKeyCode == 83)
-        #expect(international.isValid)
-        #expect(keypad.isValid)
+        #expect(international.canonicalized(keyResolver: { $0 == 0 ? "q" : nil }) == international)
+        #expect(keypad.canonicalized(keyResolver: { $0 == 83 ? "1" : nil }) == keypad)
+    }
+
+    @Test("registration identity derives the display key from the virtual key code")
+    func registrationIdentityCanonicalization() {
+        let shortcut = NotchTerminalShortcut.keyCombo(
+            KeyCombo(key: "q", command: true),
+            virtualKeyCode: 49
+        )
+        let expected = NotchTerminalShortcut.keyCombo(
+            KeyCombo(key: "space", command: true),
+            virtualKeyCode: 49
+        )
+
+        let canonicalized = shortcut.canonicalized(keyResolver: { $0 == 49 ? "space" : nil })
+
+        #expect(canonicalized == expected)
+        #expect(canonicalized?.keyCombo == KeyCombo(key: "space", command: true))
+        #expect(canonicalized?.displayString == "⌘Space")
     }
 }

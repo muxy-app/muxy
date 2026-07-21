@@ -4,6 +4,7 @@ import Testing
 @testable import Muxy
 
 @Suite("KeyCombo")
+@MainActor
 struct KeyComboTests {
     @Test("init normalizes key to lowercase")
     func initNormalizesKey() {
@@ -123,6 +124,12 @@ struct KeyComboTests {
         }
 
         #expect(KeyCombo.keyCode(for: "missing") == nil)
+    }
+
+    @Test("active keyboard layout resolves keys and virtual key codes")
+    func activeKeyboardLayoutResolution() {
+        #expect(KeyCombo.key(forVirtualKeyCode: 49) == "space")
+        #expect(KeyCombo.virtualKeyCode(for: "space") == 49)
     }
 
     @Test("SwiftUI modifiers mirror AppKit modifier flags")

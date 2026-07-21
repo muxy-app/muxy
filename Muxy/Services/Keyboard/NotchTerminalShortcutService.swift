@@ -104,6 +104,10 @@ final class NotchTerminalShortcutService {
     }
 
     func updateShortcut(_ shortcut: NotchTerminalShortcut) throws {
+        guard let shortcut = store.canonicalized(shortcut) else {
+            errorMessage = NotchTerminalShortcutError.invalidShortcut.localizedDescription
+            throw NotchTerminalShortcutError.invalidShortcut
+        }
         if shortcut == store.shortcut, activeBackend == nil {
             try start()
             return
@@ -119,6 +123,14 @@ final class NotchTerminalShortcutService {
 
     func resetShortcut() throws {
         try updateShortcut(.default)
+    }
+
+    func refreshKeyboardLayout() throws {
+        let currentShortcut = shortcut
+        guard let refreshedShortcut = store.canonicalized(currentShortcut),
+              refreshedShortcut != currentShortcut
+        else { return }
+        try updateShortcut(refreshedShortcut)
     }
 
     @discardableResult
@@ -149,6 +161,12 @@ final class NotchTerminalShortcutService {
         with shortcut: NotchTerminalShortcut,
         persistenceCommit: NotchTerminalShortcutStore.PersistenceCommit
     ) throws {
+        if activeBackend != nil,
+           shortcut.hasSameRegistrationIdentity(as: store.shortcut)
+        {
+            try persistenceCommit()
+            return
+        }
         let replacementBackend = makeBackend(for: shortcut)
         let replacementGeneration = try start(replacementBackend)
         do {

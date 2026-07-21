@@ -95,19 +95,26 @@ enum SettingsJSONStore {
         syncUserSettingsFileWithCurrentSettings()
     }
 
-    static func syncUserSettingsFileWithCurrentSettings() {
-        guard !isApplyingSettings, !isSyncingFile else { return }
+    @discardableResult
+    static func syncUserSettingsFileWithCurrentSettings() -> Bool {
+        guard !isApplyingSettings, !isSyncingFile else { return false }
         isSyncingFile = true
         defer { isSyncingFile = false }
         var dictionary = existingUserSettingsDictionary()
         for (key, value) in currentSettingsDictionary() {
             dictionary[key] = value
         }
+        let data = Data(prettyJSONString(dictionary).utf8)
+        if (try? Data(contentsOf: userSettingsURL)) == data {
+            return false
+        }
         do {
-            try Data(prettyJSONString(dictionary).utf8).write(to: userSettingsURL, options: .atomic)
+            try data.write(to: userSettingsURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: FilePermissions.privateFile], ofItemAtPath: userSettingsURL.path)
+            return true
         } catch {
             settingsJSONLogger.error("Failed to sync user settings file: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -258,11 +265,11 @@ enum SettingsJSONStore {
             try validateAllowedString(string, key: item.key)
             return string
         }
-        if defaultValue is Int, let int = value as? Int {
+        if defaultValue is Int, !isBooleanValue(value), let int = value as? Int {
             try validateAllowedInt(int, key: item.key)
             return int
         }
-        if defaultValue is UInt16, let int = value as? Int {
+        if defaultValue is UInt16, !isBooleanValue(value), let int = value as? Int {
             try validateAllowedInt(int, key: item.key)
             return int
         }
@@ -385,9 +392,13 @@ enum SettingsJSONStore {
         case "shortcuts.app":
             guard let bindings = keyBindings(from: value), !bindings.isEmpty else { throw SettingsJSONError.invalidValue(key) }
         case "shortcuts.notchTerminal":
-            guard let shortcut: NotchTerminalShortcut = codableValue(from: value), shortcut.isValid else {
+            guard let shortcut: NotchTerminalShortcut = codableValue(from: value),
+                  let canonicalShortcut = shortcut.canonicalizedForCurrentKeyboardLayout(),
+                  let canonicalValue = codableJSONObject(canonicalShortcut)
+            else {
                 throw SettingsJSONError.invalidValue(key)
             }
+            return canonicalValue
         case "shortcuts.customCommands":
             guard let configuration = commandShortcutConfiguration(from: value), isValidKeyCombo(configuration.prefixCombo),
                   configuration.shortcuts.allSatisfy({ isValidKeyCombo($0.combo) })
@@ -517,9 +528,7 @@ enum SettingsJSONStore {
     }
 
     private static func isValidKeyCombo(_ combo: KeyCombo) -> Bool {
-        !combo.key.isEmpty
-            && KeyCombo.normalized(key: combo.key) == combo.key
-            && KeyCombo.normalized(modifiers: combo.modifiers) == combo.modifiers
+        combo.isAssigned && combo.isCanonical
     }
 
     private static func isValidAppKeyCombo(_ combo: KeyCombo) -> Bool {

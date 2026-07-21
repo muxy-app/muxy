@@ -11,8 +11,9 @@ DerivedData/
 GhosttyKit.xcframework
 GhosttyKit/ghostty.h
 GhosttyKit/GhosttyKit
-Muxy/Resources/ghostty
-!Muxy/Resources/ghostty/themes
+Muxy/Resources/ghostty/*
+!Muxy/Resources/ghostty/notch-terminal.conf
+!Muxy/Resources/ghostty/themes/
 !Muxy/Resources/ghostty/themes/**
 Muxy/Resources/terminfo
 /ghostty

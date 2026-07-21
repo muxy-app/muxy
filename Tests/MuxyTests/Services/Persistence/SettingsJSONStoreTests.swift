@@ -147,6 +147,35 @@ struct SettingsJSONStoreTests {
         #expect(savedText == originalText)
     }
 
+    @Test("noncanonical Notch Terminal shortcuts do not write settings", arguments: [
+        ("SPACE", NSEvent.ModifierFlags.command.rawValue),
+        ("space", NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.capsLock.rawValue),
+    ])
+    func noncanonicalNotchTerminalShortcutDoesNotWriteSettings(key: String, modifiers: UInt) throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "shortcuts.notchTerminal": {
+                "type": "keyCombo",
+                "keyCombo": {
+                  "key": "\(key)",
+                  "modifiers": \(modifiers)
+                },
+                "virtualKeyCode": 49
+              }
+            }
+            """)
+        }
+
+        #expect(try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8) == originalText)
+    }
+
     @Test
     func conflictingNotchTerminalShortcutDoesNotWriteSettings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
@@ -179,6 +208,39 @@ struct SettingsJSONStoreTests {
         let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
 
         #expect(savedText == originalText)
+    }
+
+    @Test
+    func conflictingNotchTerminalRegistrationIdentityDoesNotWriteSettings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+        let modifiers = NSEvent.ModifierFlags.command.rawValue
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "shortcuts.app": {
+                "newTab": {
+                  "key": "space",
+                  "modifiers": \(modifiers)
+                }
+              },
+              "shortcuts.notchTerminal": {
+                "type": "keyCombo",
+                "keyCombo": {
+                  "key": "q",
+                  "modifiers": \(modifiers)
+                },
+                "virtualKeyCode": 49
+              }
+            }
+            """)
+        }
+
+        #expect(try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8) == originalText)
     }
 
     @Test
@@ -365,8 +427,11 @@ struct SettingsJSONStoreTests {
 
     @Test(arguments: [
         "{\"\(NotchTerminalAppearancePreferences.transparencyKey)\": 80}",
+        "{\"\(NotchTerminalAppearancePreferences.transparencyKey)\": false}",
         "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": -1}",
         "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": 101}",
+        "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": true}",
+        "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": false}",
     ])
     func invalidNotchTerminalAppearanceDoesNotWriteOrApplySettings(settings: String) throws {
         let keys = [
@@ -623,6 +688,17 @@ struct SettingsJSONStoreTests {
         #expect(object[MobileServerService.portKey] as? Int == 4242)
         #expect(object.keys.contains("shortcuts.app"))
         #expect(object.keys.contains("shortcuts.notchTerminal"))
+    }
+
+    @Test
+    func syncSkipsAnIdenticalUserSettingsFile() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+
+        try Data("{}".utf8).write(to: SettingsJSONStore.userSettingsURL, options: .atomic)
+
+        #expect(SettingsJSONStore.syncUserSettingsFileWithCurrentSettings())
+        #expect(!SettingsJSONStore.syncUserSettingsFileWithCurrentSettings())
     }
 }
 

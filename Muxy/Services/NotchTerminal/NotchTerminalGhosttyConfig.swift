@@ -1,8 +1,5 @@
 import Foundation
 import GhosttyKit
-import os
-
-private let notchTerminalGhosttyLogger = Logger(subsystem: "app.muxy", category: "NotchTerminalGhosttyConfig")
 
 @MainActor
 struct GhosttyConfigOverlayLoader {
@@ -25,29 +22,25 @@ struct GhosttyConfigOverlayLoader {
 
 enum NotchTerminalGhosttyConfig {
     @MainActor
-    static func apply(_: NotchTerminalAppearance, to surface: ghostty_surface_t) {
+    static func apply(to surface: ghostty_surface_t) {
         guard let config = makeConfiguration() else { return }
         defer { ghostty_config_free(config) }
 
         ghostty_surface_update_config(surface, config)
     }
 
-    static func configText() -> String {
-        "background-opacity = 0.00\nbackground-blur = false\n"
+    static func overridesURL(bundle: Bundle = .module) -> URL? {
+        guard let resourceURL = bundle.resourceURL else { return nil }
+        let url = resourceURL.appendingPathComponent("ghostty/notch-terminal.conf")
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
     }
 
     @MainActor
     private static func makeConfiguration() -> ghostty_config_t? {
-        guard let base = GhosttyService.shared.config else { return nil }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muxy-notch-terminal-\(UUID().uuidString).conf")
-        defer { try? FileManager.default.removeItem(at: url) }
-        do {
-            try Data(configText().utf8).write(to: url, options: .atomic)
-        } catch {
-            notchTerminalGhosttyLogger.error("Failed to write the notch terminal config: \(error.localizedDescription)")
-            return nil
-        }
+        guard let base = GhosttyService.shared.config,
+              let url = overridesURL()
+        else { return nil }
         return GhosttyConfigOverlayLoader.live.load(base: base, overridesFilePath: url.path)
     }
 }

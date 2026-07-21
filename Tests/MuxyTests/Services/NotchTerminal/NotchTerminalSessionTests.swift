@@ -66,16 +66,18 @@ struct NotchTerminalSessionTests {
         #expect(session.surfaceForPresentation() == nil)
     }
 
-    @Test("applies appearance to the retained surface")
-    func appliesAppearance() throws {
+    @Test("applies configuration once to a retained surface and reloads explicitly")
+    func configurationLifecycle() throws {
         let surface = NotchTerminalTestSurface()
         let session = NotchTerminalSession(surfaceFactory: { _ in surface })
-        let appearance = NotchTerminalAppearance(transparency: 32, blurIntensity: 92)
+        _ = try #require(session.surfaceForPresentation())
         _ = try #require(session.surfaceForPresentation())
 
-        session.applyAppearance(appearance)
+        #expect(surface.configurationApplicationCount == 1)
 
-        #expect(surface.appearances == [appearance])
+        session.reloadConfiguration()
+
+        #expect(surface.configurationApplicationCount == 2)
     }
 }
 
@@ -83,14 +85,14 @@ struct NotchTerminalSessionTests {
 private final class NotchTerminalTestSurface: NotchTerminalSurface {
     let notchTerminalView = NSView()
     var onProcessExit: (() -> Void)?
-    var appearances: [NotchTerminalAppearance] = []
+    var configurationApplicationCount = 0
     var visibility: [Bool] = []
     var focus: [Bool] = []
     var unfocusedCount = 0
     var tearDownCount = 0
 
-    func applyAppearance(_ appearance: NotchTerminalAppearance) {
-        appearances.append(appearance)
+    func applyNotchTerminalConfiguration() {
+        configurationApplicationCount += 1
     }
 
     func setVisible(_ visible: Bool) {
