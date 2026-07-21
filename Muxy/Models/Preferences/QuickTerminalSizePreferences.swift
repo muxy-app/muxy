@@ -23,6 +23,14 @@ enum QuickTerminalSizePreferences {
         storedValue(forKey: heightKey, defaultValue: defaultHeight, range: heightRange, defaults: defaults)
     }
 
+    static func setWidth(_ value: Int, defaults: UserDefaults = .standard) {
+        defaults.set(min(max(value, widthRange.lowerBound), widthRange.upperBound), forKey: widthKey)
+    }
+
+    static func setHeight(_ value: Int, defaults: UserDefaults = .standard) {
+        defaults.set(min(max(value, heightRange.lowerBound), heightRange.upperBound), forKey: heightKey)
+    }
+
     private static func storedValue(
         forKey key: String,
         defaultValue: Int,

@@ -64,6 +64,20 @@ enum QuickTerminalAppearancePreferences {
         )
     }
 
+    static func setTransparency(_ value: Int, defaults: UserDefaults = .standard) {
+        defaults.set(
+            min(max(value, transparencyRange.lowerBound), transparencyRange.upperBound),
+            forKey: transparencyKey
+        )
+    }
+
+    static func setBlurIntensity(_ value: Int, defaults: UserDefaults = .standard) {
+        defaults.set(
+            min(max(value, blurIntensityRange.lowerBound), blurIntensityRange.upperBound),
+            forKey: blurIntensityKey
+        )
+    }
+
     @discardableResult
     static func migrateLegacyBlur(defaults: UserDefaults = .standard) -> Bool {
         guard let storedValue = defaults.object(forKey: blurIntensityKey) else { return false }

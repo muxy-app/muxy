@@ -26,6 +26,9 @@ final class QuickTerminalContentView: NSView {
     var shortcutSettingsProvider: (() -> QuickTerminalShortcutSettingsSnapshot)?
     var onShortcutChange: ((QuickTerminalShortcut) -> String?)?
     var onRequestInputMonitoringAccess: (() -> Bool)?
+    var quickSettingsProvider: (() -> QuickTerminalQuickSettings)?
+    var onAppearanceSettingsChange: ((_ transparency: Int, _ blurIntensity: Int) -> Void)?
+    var onSizeSettingsChange: ((_ width: Int, _ height: Int) -> Void)?
 
     private let revealMask = CAShapeLayer()
     private let terminalBackgroundView = NSVisualEffectView()
@@ -43,6 +46,22 @@ final class QuickTerminalContentView: NSView {
     private let doubleShiftButton = NSButton()
     private let customShortcutButton = NSButton()
     private let inputMonitoringButton = NSButton()
+    private let settingsPopover = NSView()
+    private let settingsPopoverTitle = NSTextField(labelWithString: "Quick Terminal")
+    private let transparencyTitle = NSTextField(labelWithString: "Transparency")
+    private let transparencySlider = NSSlider()
+    private let transparencyValue = NSTextField(labelWithString: "")
+    private let vibrancyTitle = NSTextField(labelWithString: "Vibrancy")
+    private let vibrancySlider = NSSlider()
+    private let vibrancyValue = NSTextField(labelWithString: "")
+    private let widthTitle = NSTextField(labelWithString: "Width")
+    private let widthSlider = NSSlider()
+    private let widthValue = NSTextField(labelWithString: "")
+    private let heightTitle = NSTextField(labelWithString: "Height")
+    private let heightSlider = NSSlider()
+    private let heightValue = NSTextField(labelWithString: "")
+    private let settingsResetButton = NSButton()
+    private let openFullSettingsButton = NSButton()
     private weak var terminalView: NSView?
     private var isRecordingShortcut = false
     private var isRevealed = true
@@ -61,6 +80,7 @@ final class QuickTerminalContentView: NSView {
         configureTerminalTint()
         configureBridge()
         configureShortcutSettings()
+        configureSettingsPopover()
     }
 
     @available(*, unavailable)
@@ -92,6 +112,7 @@ final class QuickTerminalContentView: NSView {
         )
         layoutBridgeControls()
         layoutShortcutSettings()
+        layoutSettingsPopover()
         if revealMask.animation(forKey: "reveal") == nil {
             revealMask.path = isRevealed ? expandedPath : collapsedPath
         }
@@ -123,6 +144,9 @@ final class QuickTerminalContentView: NSView {
         shortcutSettingsView.layer?.backgroundColor = NSColor.black
             .withAlphaComponent(appearance.transparency == 0 ? 1 : 0.94)
             .cgColor
+        settingsPopover.layer?.backgroundColor = NSColor.black
+            .withAlphaComponent(appearance.transparency == 0 ? 1 : 0.94)
+            .cgColor
     }
 
     func clearTerminal(status: String) {
@@ -144,6 +168,10 @@ final class QuickTerminalContentView: NSView {
     }
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
+        if !settingsPopover.isHidden, event.keyCode == 53 {
+            settingsPopover.isHidden = true
+            return true
+        }
         guard isRecordingShortcut else { return false }
         if event.keyCode == 53 {
             isRecordingShortcut = false
@@ -177,8 +205,9 @@ final class QuickTerminalContentView: NSView {
         return true
     }
 
-    func hideShortcutSettings() {
+    func hideConfigurationOverlays() {
         shortcutSettingsView.isHidden = true
+        settingsPopover.isHidden = true
         isRecordingShortcut = false
     }
 
@@ -288,7 +317,7 @@ final class QuickTerminalContentView: NSView {
         shortcutButton.layer?.cornerRadius = 5
         shortcutButton.setAccessibilityLabel("Change quick terminal shortcut")
 
-        configureButton(settingsButton, title: "", symbolName: "gearshape", action: #selector(openSettings))
+        configureButton(settingsButton, title: "", symbolName: "gearshape", action: #selector(toggleSettingsPopover))
         settingsButton.setAccessibilityLabel("Open quick terminal settings")
         configureButton(closeButton, title: "", symbolName: "xmark", action: #selector(close))
         closeButton.setAccessibilityLabel("Close quick terminal")
@@ -317,6 +346,7 @@ final class QuickTerminalContentView: NSView {
         shortcutSettingsView.layer?.shadowOpacity = 0.4
         shortcutSettingsView.layer?.shadowRadius = 16
         shortcutSettingsView.isHidden = true
+        shortcutSettingsView.setAccessibilityIdentifier("quickTerminalShortcutPopover")
         addSubview(shortcutSettingsView)
 
         shortcutSettingsTitle.textColor = .white
@@ -431,21 +461,186 @@ final class QuickTerminalContentView: NSView {
         needsLayout = true
     }
 
+    private func configureSettingsPopover() {
+        settingsPopover.wantsLayer = true
+        settingsPopover.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.94).cgColor
+        settingsPopover.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        settingsPopover.layer?.borderWidth = 1
+        settingsPopover.layer?.cornerRadius = 12
+        settingsPopover.layer?.shadowColor = NSColor.black.cgColor
+        settingsPopover.layer?.shadowOpacity = 0.4
+        settingsPopover.layer?.shadowRadius = 16
+        settingsPopover.isHidden = true
+        settingsPopover.setAccessibilityIdentifier("quickTerminalSettingsPopover")
+        addSubview(settingsPopover)
+
+        settingsPopoverTitle.textColor = .white
+        settingsPopoverTitle.font = .systemFont(ofSize: 12, weight: .semibold)
+        settingsPopover.addSubview(settingsPopoverTitle)
+
+        configureSettingsRow(title: transparencyTitle, value: transparencyValue)
+        configureSettingsRow(title: vibrancyTitle, value: vibrancyValue)
+        configureSettingsRow(title: widthTitle, value: widthValue)
+        configureSettingsRow(title: heightTitle, value: heightValue)
+
+        configureSettingsSlider(
+            transparencySlider,
+            range: QuickTerminalAppearancePreferences.transparencyRange,
+            continuous: true,
+            action: #selector(appearanceSlidersChanged)
+        )
+        configureSettingsSlider(
+            vibrancySlider,
+            range: QuickTerminalAppearancePreferences.blurIntensityRange,
+            continuous: true,
+            action: #selector(appearanceSlidersChanged)
+        )
+        configureSettingsSlider(
+            widthSlider,
+            range: QuickTerminalSizePreferences.widthRange,
+            continuous: true,
+            action: #selector(sizeSlidersChanged)
+        )
+        configureSettingsSlider(
+            heightSlider,
+            range: QuickTerminalSizePreferences.heightRange,
+            continuous: true,
+            action: #selector(sizeSlidersChanged)
+        )
+
+        configureSettingsPopoverButton(settingsResetButton, title: "Reset", action: #selector(resetSettingsPopover))
+        configureSettingsPopoverButton(openFullSettingsButton, title: "Open Settings…", action: #selector(openFullSettings))
+    }
+
+    private func configureSettingsRow(title: NSTextField, value: NSTextField) {
+        title.textColor = NSColor.white.withAlphaComponent(0.72)
+        title.font = .systemFont(ofSize: 11, weight: .medium)
+        value.textColor = NSColor.white.withAlphaComponent(0.55)
+        value.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        value.alignment = .right
+        settingsPopover.addSubview(title)
+        settingsPopover.addSubview(value)
+    }
+
+    private func configureSettingsSlider(
+        _ slider: NSSlider,
+        range: ClosedRange<Int>,
+        continuous: Bool,
+        action: Selector
+    ) {
+        slider.minValue = Double(range.lowerBound)
+        slider.maxValue = Double(range.upperBound)
+        slider.isContinuous = continuous
+        slider.controlSize = .small
+        slider.target = self
+        slider.action = action
+        settingsPopover.addSubview(slider)
+    }
+
+    private func configureSettingsPopoverButton(_ button: NSButton, title: String, action: Selector) {
+        button.title = title
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 11, weight: .medium)
+        button.target = self
+        button.action = action
+        settingsPopover.addSubview(button)
+    }
+
+    private func layoutSettingsPopover() {
+        let size = NSSize(width: 300, height: 244)
+        settingsPopover.frame = NSRect(
+            x: max(12, bounds.maxX - size.width - 12),
+            y: max(12, bounds.maxY - Self.bridgeHeight - size.height - 8),
+            width: size.width,
+            height: size.height
+        )
+        settingsPopoverTitle.frame = NSRect(x: 16, y: size.height - 32, width: size.width - 32, height: 18)
+        layoutSettingsRow(title: transparencyTitle, slider: transparencySlider, value: transparencyValue, sliderY: size.height - 66)
+        layoutSettingsRow(title: vibrancyTitle, slider: vibrancySlider, value: vibrancyValue, sliderY: size.height - 98)
+        layoutSettingsRow(title: widthTitle, slider: widthSlider, value: widthValue, sliderY: size.height - 130)
+        layoutSettingsRow(title: heightTitle, slider: heightSlider, value: heightValue, sliderY: size.height - 162)
+        settingsResetButton.frame = NSRect(x: 16, y: 14, width: 72, height: 24)
+        let openWidth: CGFloat = 132
+        openFullSettingsButton.frame = NSRect(x: size.width - openWidth - 16, y: 14, width: openWidth, height: 24)
+    }
+
+    private func layoutSettingsRow(title: NSTextField, slider: NSSlider, value: NSTextField, sliderY: CGFloat) {
+        let width = settingsPopover.frame.width
+        slider.frame = NSRect(x: 98, y: sliderY, width: width - 98 - 64, height: 20)
+        title.frame = NSRect(x: 16, y: sliderY + 2, width: 78, height: 16)
+        value.frame = NSRect(x: width - 16 - 42, y: sliderY + 2, width: 42, height: 16)
+    }
+
+    private func refreshSettingsPopover() {
+        guard let snapshot = quickSettingsProvider?() else { return }
+        transparencySlider.integerValue = snapshot.transparency
+        vibrancySlider.integerValue = snapshot.blurIntensity
+        widthSlider.integerValue = snapshot.width
+        heightSlider.integerValue = snapshot.height
+        updateSettingsValueLabels()
+    }
+
+    private func updateSettingsValueLabels() {
+        transparencyValue.stringValue = "\(transparencySlider.integerValue)%"
+        vibrancyValue.stringValue = "\(vibrancySlider.integerValue)%"
+        widthValue.stringValue = "\(widthSlider.integerValue)"
+        heightValue.stringValue = "\(heightSlider.integerValue)"
+    }
+
+    @objc
+    private func appearanceSlidersChanged() {
+        updateSettingsValueLabels()
+        onAppearanceSettingsChange?(transparencySlider.integerValue, vibrancySlider.integerValue)
+    }
+
+    @objc
+    private func sizeSlidersChanged() {
+        updateSettingsValueLabels()
+        guard NSApp.currentEvent?.type == .leftMouseUp else { return }
+        onSizeSettingsChange?(widthSlider.integerValue, heightSlider.integerValue)
+    }
+
+    @objc
+    func resetSettingsPopover() {
+        transparencySlider.integerValue = QuickTerminalAppearancePreferences.defaultTransparency
+        vibrancySlider.integerValue = QuickTerminalAppearancePreferences.defaultBlurIntensity
+        widthSlider.integerValue = QuickTerminalSizePreferences.defaultWidth
+        heightSlider.integerValue = QuickTerminalSizePreferences.defaultHeight
+        updateSettingsValueLabels()
+        onAppearanceSettingsChange?(transparencySlider.integerValue, vibrancySlider.integerValue)
+        onSizeSettingsChange?(widthSlider.integerValue, heightSlider.integerValue)
+    }
+
     @objc
     private func close() {
         onClose?()
     }
 
     @objc
-    private func openSettings() {
+    private func openFullSettings() {
         onOpenSettings?()
     }
 
     @objc
     private func toggleShortcutSettings() {
+        settingsPopover.isHidden = true
         shortcutSettingsView.isHidden.toggle()
         isRecordingShortcut = false
         refreshShortcutSettings()
+    }
+
+    @objc
+    func toggleSettingsPopover() {
+        if settingsPopover.isHidden {
+            shortcutSettingsView.isHidden = true
+            isRecordingShortcut = false
+            refreshSettingsPopover()
+            settingsPopover.isHidden = false
+        } else {
+            settingsPopover.isHidden = true
+        }
+        needsLayout = true
     }
 
     @objc
@@ -469,6 +664,13 @@ final class QuickTerminalContentView: NSView {
         _ = onRequestInputMonitoringAccess?()
         refreshShortcutSettings()
     }
+}
+
+struct QuickTerminalQuickSettings {
+    let transparency: Int
+    let blurIntensity: Int
+    let width: Int
+    let height: Int
 }
 
 struct QuickTerminalShortcutSettingsSnapshot {

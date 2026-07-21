@@ -96,6 +96,61 @@ struct QuickTerminalContentViewTests {
         #expect(QuickTerminalMaterialMask.image(opacity: 0.99) != nil)
     }
 
+    @Test("gear toggles the settings popover and hides the shortcut popover")
+    func settingsPopoverIsMutuallyExclusive() throws {
+        let contentView = QuickTerminalContentView(frame: NSRect(x: 0, y: 0, width: 720, height: 420))
+        contentView.quickSettingsProvider = {
+            QuickTerminalQuickSettings(transparency: 20, blurIntensity: 60, width: 800, height: 500)
+        }
+        contentView.layout()
+        let settingsPopover = try #require(popover("quickTerminalSettingsPopover", in: contentView))
+        let shortcutPopover = try #require(popover("quickTerminalShortcutPopover", in: contentView))
+
+        #expect(settingsPopover.isHidden)
+
+        contentView.toggleSettingsPopover()
+        #expect(!settingsPopover.isHidden)
+        #expect(shortcutPopover.isHidden)
+
+        contentView.toggleSettingsPopover()
+        #expect(settingsPopover.isHidden)
+    }
+
+    @Test("dismissing overlays hides the settings popover")
+    func hidesSettingsPopoverOnDismiss() throws {
+        let contentView = QuickTerminalContentView(frame: NSRect(x: 0, y: 0, width: 720, height: 420))
+        contentView.quickSettingsProvider = {
+            QuickTerminalQuickSettings(transparency: 20, blurIntensity: 60, width: 800, height: 500)
+        }
+        let settingsPopover = try #require(popover("quickTerminalSettingsPopover", in: contentView))
+
+        contentView.toggleSettingsPopover()
+        #expect(!settingsPopover.isHidden)
+
+        contentView.hideConfigurationOverlays()
+        #expect(settingsPopover.isHidden)
+    }
+
+    @Test("reset restores default appearance and size through the callbacks")
+    func resetAppliesDefaults() {
+        let contentView = QuickTerminalContentView(frame: NSRect(x: 0, y: 0, width: 720, height: 420))
+        var appearance: (transparency: Int, blurIntensity: Int)?
+        var size: (width: Int, height: Int)?
+        contentView.onAppearanceSettingsChange = { appearance = ($0, $1) }
+        contentView.onSizeSettingsChange = { size = ($0, $1) }
+
+        contentView.resetSettingsPopover()
+
+        #expect(appearance?.transparency == QuickTerminalAppearancePreferences.defaultTransparency)
+        #expect(appearance?.blurIntensity == QuickTerminalAppearancePreferences.defaultBlurIntensity)
+        #expect(size?.width == QuickTerminalSizePreferences.defaultWidth)
+        #expect(size?.height == QuickTerminalSizePreferences.defaultHeight)
+    }
+
+    private func popover(_ identifier: String, in view: NSView) -> NSView? {
+        view.subviews.first { $0.accessibilityIdentifier() == identifier }
+    }
+
     private func colorsMatch(_ lhs: NSColor, _ rhs: NSColor) -> Bool {
         guard let left = lhs.usingColorSpace(.sRGB),
               let right = rhs.usingColorSpace(.sRGB)

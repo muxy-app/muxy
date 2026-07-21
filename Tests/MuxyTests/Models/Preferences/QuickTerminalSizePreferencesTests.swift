@@ -33,6 +33,28 @@ struct QuickTerminalSizePreferencesTests {
         #expect(QuickTerminalSizePreferences.height(defaults: defaults) == 800)
     }
 
+    @Test("persists size values within range")
+    func persistsSize() {
+        let defaults = makeDefaults()
+
+        QuickTerminalSizePreferences.setWidth(960, defaults: defaults)
+        QuickTerminalSizePreferences.setHeight(600, defaults: defaults)
+
+        #expect(QuickTerminalSizePreferences.width(defaults: defaults) == 960)
+        #expect(QuickTerminalSizePreferences.height(defaults: defaults) == 600)
+    }
+
+    @Test("clamps written size values to safe ranges")
+    func clampsWrittenSize() {
+        let defaults = makeDefaults()
+
+        QuickTerminalSizePreferences.setWidth(100, defaults: defaults)
+        QuickTerminalSizePreferences.setHeight(5_000, defaults: defaults)
+
+        #expect(defaults.integer(forKey: QuickTerminalSizePreferences.widthKey) == 480)
+        #expect(defaults.integer(forKey: QuickTerminalSizePreferences.heightKey) == 800)
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "QuickTerminalSizePreferencesTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

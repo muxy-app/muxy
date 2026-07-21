@@ -10,7 +10,7 @@ Dismiss it with the same shortcut or the close button. Moving the pointer away, 
 
 System-wide double Shift requires **System Settings → Privacy & Security → Input Monitoring**. You can use **Settings → Shortcuts → Quick Terminal** to enable access or assign a conventional global shortcut that does not require Input Monitoring.
 
-The same settings section controls the terminal width, height, transparency, and background vibrancy. Sizes are stored in points, constrained to 480–1200 wide and 280–800 high, and automatically reduced when the active display is smaller. Transparency ranges from 0–55%, and vibrancy uses a continuous 0–100% native material intensity.
+The same settings section controls the terminal width, height, transparency, and background vibrancy. These same controls are also available in-place from the gear button in the quick terminal, applied live to the open panel. Sizes are stored in points, constrained to 480–1200 wide and 280–800 high, and automatically reduced when the active display is smaller. Transparency ranges from 0–55%, and vibrancy uses a continuous 0–100% native material intensity.
 
 Vibrancy controls how much of the native macOS material participates in the background composition. It does not set a custom blur radius, which AppKit does not expose for system materials.
 

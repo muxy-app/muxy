@@ -42,6 +42,29 @@ struct QuickTerminalAppearancePreferencesTests {
         #expect(appearance.blurIntensity == 100)
     }
 
+    @Test("persists appearance values within range")
+    func persistsAppearance() {
+        let defaults = makeDefaults()
+
+        QuickTerminalAppearancePreferences.setTransparency(30, defaults: defaults)
+        QuickTerminalAppearancePreferences.setBlurIntensity(40, defaults: defaults)
+
+        let appearance = QuickTerminalAppearancePreferences.appearance(defaults: defaults)
+        #expect(appearance.transparency == 30)
+        #expect(appearance.blurIntensity == 40)
+    }
+
+    @Test("clamps written appearance values to safe ranges")
+    func clampsWrittenAppearance() {
+        let defaults = makeDefaults()
+
+        QuickTerminalAppearancePreferences.setTransparency(90, defaults: defaults)
+        QuickTerminalAppearancePreferences.setBlurIntensity(-10, defaults: defaults)
+
+        #expect(defaults.integer(forKey: QuickTerminalAppearancePreferences.transparencyKey) == 55)
+        #expect(defaults.integer(forKey: QuickTerminalAppearancePreferences.blurIntensityKey) == 0)
+    }
+
     @Test("Reduce Transparency resolves to an opaque unblurred surface")
     func reduceTransparencyFallback() {
         let appearance = QuickTerminalAppearance(transparency: 42, blurIntensity: 88)

@@ -184,7 +184,7 @@ final class QuickTerminalController: NSObject {
 
     private func dismiss(_ transition: QuickTerminalPresentationTransition, restoresFocus: Bool) {
         session.markVisible(false)
-        contentView?.hideShortcutSettings()
+        contentView?.hideConfigurationOverlays()
         let duration = reduceMotionProvider() ? 0 : Self.hideDuration
         contentView?.animateReveal(false, duration: duration)
         scheduleCompletion(transition, duration: duration) { [weak self] in
@@ -266,9 +266,52 @@ final class QuickTerminalController: NSObject {
         contentView.onRequestInputMonitoringAccess = { [weak shortcutService] in
             shortcutService?.requestInputMonitoringAccess() ?? false
         }
+        contentView.quickSettingsProvider = { [weak self] in
+            guard let self else {
+                return QuickTerminalQuickSettings(transparency: 0, blurIntensity: 0, width: 0, height: 0)
+            }
+            let appearance = self.appearanceProvider()
+            let size = self.sizeProvider()
+            return QuickTerminalQuickSettings(
+                transparency: appearance.transparency,
+                blurIntensity: appearance.blurIntensity,
+                width: Int(size.width.rounded()),
+                height: Int(size.height.rounded())
+            )
+        }
+        contentView.onAppearanceSettingsChange = { [weak self] transparency, blurIntensity in
+            self?.updateAppearanceSettings(transparency: transparency, blurIntensity: blurIntensity)
+        }
+        contentView.onSizeSettingsChange = { [weak self] width, height in
+            self?.updateSizeSettings(width: width, height: height)
+        }
         self.panel = panel
         self.contentView = contentView
         return panel
+    }
+
+    private func updateAppearanceSettings(transparency: Int, blurIntensity: Int) {
+        QuickTerminalAppearancePreferences.setTransparency(transparency)
+        QuickTerminalAppearancePreferences.setBlurIntensity(blurIntensity)
+        applyCurrentAppearance()
+    }
+
+    private func updateSizeSettings(width: Int, height: Int) {
+        QuickTerminalSizePreferences.setWidth(width)
+        QuickTerminalSizePreferences.setHeight(height)
+        applyPreferredSize()
+    }
+
+    private func applyPreferredSize() {
+        guard let panel, let screen = screenProvider() else { return }
+        let frame = QuickTerminalGeometry.frame(
+            screenFrame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            preferredSize: sizeProvider()
+        )
+        panel.setFrame(frame, display: true)
+        contentView?.frame = NSRect(origin: .zero, size: frame.size)
+        contentView?.setCollapsedCutoutRect(collapsedCutoutRect(screen: screen, panelFrame: frame))
     }
 
     private func updateShortcut(_ shortcut: QuickTerminalShortcut) -> String? {
@@ -305,15 +348,8 @@ final class QuickTerminalController: NSObject {
     @objc
     private func handleScreenParametersDidChange() {
         hoverController.refreshForScreenChange()
-        guard presentation.targetIsVisible, let panel, let screen = screenProvider() else { return }
-        let frame = QuickTerminalGeometry.frame(
-            screenFrame: screen.frame,
-            visibleFrame: screen.visibleFrame,
-            preferredSize: sizeProvider()
-        )
-        panel.setFrame(frame, display: true)
-        contentView?.frame = NSRect(origin: .zero, size: frame.size)
-        contentView?.setCollapsedCutoutRect(collapsedCutoutRect(screen: screen, panelFrame: frame))
+        guard presentation.targetIsVisible else { return }
+        applyPreferredSize()
     }
 
     @objc
