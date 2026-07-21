@@ -29,9 +29,9 @@ enum QuickTerminalGhosttyConfig {
         ghostty_surface_update_config(surface, config)
     }
 
-    static func overridesURL(bundle: Bundle = .module) -> URL? {
+    static func overridesURL(bundle: Bundle) -> URL? {
         guard let resourceURL = bundle.resourceURL else { return nil }
-        let url = resourceURL.appendingPathComponent("ghostty/quick-terminal.conf")
+        let url = resourceURL.appendingPathComponent("quick-terminal/ghostty.conf")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
     }
@@ -39,7 +39,7 @@ enum QuickTerminalGhosttyConfig {
     @MainActor
     private static func makeConfiguration() -> ghostty_config_t? {
         guard let base = GhosttyService.shared.config,
-              let url = overridesURL()
+              let url = overridesURL(bundle: .appResources)
         else { return nil }
         return GhosttyConfigOverlayLoader.live.load(base: base, overridesFilePath: url.path)
     }

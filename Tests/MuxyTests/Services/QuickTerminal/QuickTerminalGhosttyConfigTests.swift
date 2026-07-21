@@ -5,10 +5,12 @@ import Testing
 
 @Suite("Quick terminal Ghostty config")
 struct QuickTerminalGhosttyConfigTests {
-    @Test("leaves background composition to the native material stack")
-    func transparentBackgroundOverride() throws {
-        let url = try #require(QuickTerminalGhosttyConfig.overridesURL())
+    @Test("loads the packaged override outside the managed Ghostty resources")
+    func packagedOverride() throws {
+        let url = try #require(QuickTerminalGhosttyConfig.overridesURL(bundle: .module))
 
+        #expect(url.lastPathComponent == "ghostty.conf")
+        #expect(url.deletingLastPathComponent().lastPathComponent == "quick-terminal")
         #expect(try String(contentsOf: url, encoding: .utf8) == "background-opacity = 0.00\nbackground-blur = false\n")
     }
 }
