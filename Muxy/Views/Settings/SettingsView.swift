@@ -57,8 +57,8 @@ struct SettingsView: View {
         .resetsSettingsFocusOnOutsideClick()
         .onAppear {
             selectedRoute = validatedRoute(selectedRoute)
-            if SettingsFocusCoordinator.shared.consume(.notchTerminalShortcut) {
-                searchText = "Notch Terminal"
+            if SettingsFocusCoordinator.shared.consume(.quickTerminalShortcut) {
+                searchText = "Quick Terminal"
                 selectedRoute = .builtin(.shortcuts)
             }
         }
@@ -81,9 +81,9 @@ struct SettingsView: View {
             searchText = ""
             selectedRoute = .builtin(.browser)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .focusNotchTerminalShortcut)) { _ in
-            _ = SettingsFocusCoordinator.shared.consume(.notchTerminalShortcut)
-            searchText = "Notch Terminal"
+        .onReceive(NotificationCenter.default.publisher(for: .focusQuickTerminalShortcut)) { _ in
+            _ = SettingsFocusCoordinator.shared.consume(.quickTerminalShortcut)
+            searchText = "Quick Terminal"
             selectedRoute = .builtin(.shortcuts)
         }
     }

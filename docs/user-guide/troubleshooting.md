@@ -22,22 +22,22 @@ log show --predicate 'subsystem == "app.muxy"' --last 10m --info --debug
 - Check `~/Library/Application Support/Muxy/ghostty.conf` parses by opening it in **Open Configuration...**.
 - If the issue is reproducible, check `log stream` while reproducing.
 
-## Double Shift doesn't open the notch terminal
+## Double Shift doesn't open the quick terminal
 
-- Open **Settings → Shortcuts → Notch Terminal** and check the Input Monitoring status.
+- Open **Settings → Shortcuts → Quick Terminal** and check the Input Monitoring status.
 - Enable Muxy under **System Settings → Privacy & Security → Input Monitoring**, then bring Muxy to the foreground so it can retry the listener.
 - If access remains unavailable, assign a conventional global shortcut such as Option Space. Conventional shortcuts do not require Input Monitoring.
 - Double Shift is intentionally ignored while another key or modifier is involved, which prevents normal capital-letter typing from opening the terminal.
 
-## Hovering the notch doesn't open the terminal
+## Hovering the cutout doesn't open the terminal
 
-- Hover-to-open works only on a display with a physical notch. On other displays use the shortcut.
-- Rest the pointer over the notch for a moment; a short dwell delay prevents accidental opens when reaching for the menu bar.
+- Hover-to-open works only on a display with a camera cutout. On other displays use the shortcut.
+- Rest the pointer over the cutout for a moment; a short dwell delay prevents accidental opens when reaching for the menu bar.
 - The terminal closes only from the shortcut or the close button, so once open it stays until you dismiss it that way.
 
-## The notch terminal is not transparent or blurred
+## The quick terminal is not transparent or blurred
 
-- Open **Settings → Shortcuts → Notch Terminal** and set Terminal transparency above 0%.
+- Open **Settings → Shortcuts → Quick Terminal** and set Terminal transparency above 0%.
 - Raise Background vibrancy above 0% for a progressively stronger native material effect. At 0%, the wallpaper remains sharp.
 - macOS Reduce Transparency and Increase Contrast intentionally force an opaque, unblurred terminal. Check both under **System Settings → Accessibility → Display**.
 

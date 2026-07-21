@@ -3,7 +3,7 @@ import os
 import SwiftUI
 
 private let deepLinkLogger = Logger(subsystem: "app.muxy", category: "DeepLink")
-private let notchTerminalLogger = Logger(subsystem: "app.muxy", category: "NotchTerminal")
+private let quickTerminalLogger = Logger(subsystem: "app.muxy", category: "QuickTerminal")
 
 @main
 struct MuxyApp: App {
@@ -235,7 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var extensionsObserver: NSObjectProtocol?
     private var whatsNewObserver: NSObjectProtocol?
     private var modalThemeObserver: NSObjectProtocol?
-    private var notchTerminalController: NotchTerminalController?
+    private var quickTerminalController: QuickTerminalController?
     private weak var settingsWindow: NSWindow?
     private weak var extensionsWindow: NSWindow?
     private weak var whatsNewWindow: NSWindow?
@@ -393,7 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
         ModifierKeyMonitor.shared.start()
-        startNotchTerminal()
+        startQuickTerminal()
         DesktopNotificationService.shared.prepare()
         NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
             Task { @MainActor [weak self] in
@@ -412,13 +412,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @MainActor
-    private func startNotchTerminal() {
-        NotchTerminalAppearancePreferences.migrateLegacyBlur()
-        let shortcutService = NotchTerminalShortcutService.shared
-        let controller = NotchTerminalController(
+    private func startQuickTerminal() {
+        QuickTerminalAppearancePreferences.migrateLegacyBlur()
+        let shortcutService = QuickTerminalShortcutService.shared
+        let controller = QuickTerminalController(
             shortcutLabelProvider: { shortcutService.shortcut.displayString },
             onOpenSettings: {
-                SettingsFocusCoordinator.shared.request(.notchTerminalShortcut)
+                SettingsFocusCoordinator.shared.request(.quickTerminalShortcut)
                 NotificationCenter.default.post(name: .openSettingsModal, object: nil)
             }
         )
@@ -428,20 +428,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         do {
             try shortcutService.start()
         } catch {
-            notchTerminalLogger.error("Failed to start the shortcut listener: \(error.localizedDescription)")
+            quickTerminalLogger.error("Failed to start the shortcut listener: \(error.localizedDescription)")
         }
         controller.startHoverZones()
-        notchTerminalController = controller
+        quickTerminalController = controller
     }
 
     @MainActor
     func applicationDidBecomeActive(_ notification: Notification) {
         do {
-            try NotchTerminalShortcutService.shared.refreshKeyboardLayout()
+            try QuickTerminalShortcutService.shared.refreshKeyboardLayout()
         } catch {
-            notchTerminalLogger.error("Failed to refresh the Notch Terminal shortcut: \(error.localizedDescription)")
+            quickTerminalLogger.error("Failed to refresh the Quick Terminal shortcut: \(error.localizedDescription)")
         }
-        NotchTerminalShortcutService.shared.refreshInputMonitoringAccess()
+        QuickTerminalShortcutService.shared.refreshInputMonitoringAccess()
     }
 
     @MainActor
@@ -506,9 +506,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        NotchTerminalShortcutService.shared.stop()
-        notchTerminalController?.applicationWillTerminate()
-        notchTerminalController = nil
+        QuickTerminalShortcutService.shared.stop()
+        quickTerminalController?.applicationWillTerminate()
+        quickTerminalController = nil
         if let observer = systemAppearanceObserver {
             DistributedNotificationCenter.default().removeObserver(observer)
             systemAppearanceObserver = nil

@@ -1,7 +1,7 @@
 import AppKit
 import CoreGraphics
 
-private let notchTerminalDoubleShiftEventTapCallback: CGEventTapCallBack = { _, type, event, userData in
+private let quickTerminalDoubleShiftEventTapCallback: CGEventTapCallBack = { _, type, event, userData in
     guard let userData else { return Unmanaged.passUnretained(event) }
     let flags = event.flags
     let timestamp = TimeInterval(event.timestamp) / 1_000_000_000
@@ -13,7 +13,7 @@ private let notchTerminalDoubleShiftEventTapCallback: CGEventTapCallBack = { _, 
 }
 
 @MainActor
-final class DoubleShiftShortcutBackend: NotchTerminalShortcutBackend {
+final class DoubleShiftShortcutBackend: QuickTerminalShortcutBackend {
     private static let otherAppKitModifiers: NSEvent.ModifierFlags = [
         .control,
         .option,
@@ -44,7 +44,7 @@ final class DoubleShiftShortcutBackend: NotchTerminalShortcutBackend {
         }
     }
 
-    var monitoringState: NotchTerminalShortcutMonitoringState {
+    var monitoringState: QuickTerminalShortcutMonitoringState {
         if eventTap != nil {
             return .systemWide
         }
@@ -102,7 +102,7 @@ final class DoubleShiftShortcutBackend: NotchTerminalShortcutBackend {
             place: .headInsertEventTap,
             options: .listenOnly,
             eventsOfInterest: mask,
-            callback: notchTerminalDoubleShiftEventTapCallback,
+            callback: quickTerminalDoubleShiftEventTapCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ), let eventTapSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
         else { return false }

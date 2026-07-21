@@ -2,21 +2,21 @@
 
 Muxy's terminals are powered by [libghostty](https://github.com/ghostty-org/ghostty), running on a Metal layer for fast, GPU-accelerated rendering.
 
-## Notch terminal
+## Quick terminal
 
-On a display with a physical notch, hover the notch for a moment and the terminal expands out of it like a dynamic island. Pressing Shift twice (or a recorded shortcut) opens it from anywhere. It always starts in your home directory and keeps the same shell, working directory, and history while hidden.
+On a display with a camera cutout, hover the cutout for a moment and the terminal expands out of it like a dynamic island. Pressing Shift twice (or a recorded shortcut) opens it from anywhere. It always starts in your home directory and keeps the same shell, working directory, and history while hidden.
 
-Dismiss it with the same shortcut or the close button. Moving the pointer away, clicking another app, and pressing Escape no longer close it, so Escape reaches the terminal for `vim`, `less`, and other full-screen programs. On a display without a physical notch there is no hover zone; the terminal opens only from the shortcut, at the same top-center position.
+Dismiss it with the same shortcut or the close button. Moving the pointer away, clicking another app, and pressing Escape no longer close it, so Escape reaches the terminal for `vim`, `less`, and other full-screen programs. On a display without a camera cutout there is no hover zone; the terminal opens only from the shortcut, at the same top-center position.
 
-System-wide double Shift requires **System Settings → Privacy & Security → Input Monitoring**. You can use **Settings → Shortcuts → Notch Terminal** to enable access or assign a conventional global shortcut that does not require Input Monitoring.
+System-wide double Shift requires **System Settings → Privacy & Security → Input Monitoring**. You can use **Settings → Shortcuts → Quick Terminal** to enable access or assign a conventional global shortcut that does not require Input Monitoring.
 
 The same settings section controls the terminal width, height, transparency, and background vibrancy. Sizes are stored in points, constrained to 480–1200 wide and 280–800 high, and automatically reduced when the active display is smaller. Transparency ranges from 0–55%, and vibrancy uses a continuous 0–100% native material intensity.
 
 Vibrancy controls how much of the native macOS material participates in the background composition. It does not set a custom blur radius, which AppKit does not expose for system materials.
 
-Transparency and vibrancy apply only to the terminal workspace while preserving the active Ghostty theme. The notch bridge and its controls stay solid for readability, and project terminals keep their own Ghostty configuration. Muxy uses an opaque, unblurred fallback when macOS Reduce Transparency or Increase Contrast is enabled.
+Transparency and vibrancy apply only to the terminal workspace while preserving the active Ghostty theme. The cutout bridge and its controls stay solid for readability, and project terminals keep their own Ghostty configuration. Muxy uses an opaque, unblurred fallback when macOS Reduce Transparency or Increase Contrast is enabled.
 
-The notch terminal is available while Muxy is running. Closing Muxy's main window still follows the existing quit behavior.
+The quick terminal is available while Muxy is running. Closing Muxy's main window still follows the existing quit behavior.
 
 ## Configuration
 

@@ -145,7 +145,7 @@ struct CommandsSettingsView: View {
     }
 
     private func handleRecord(prefixCombo combo: KeyCombo) -> Bool {
-        if let message = NotchTerminalShortcutConflictResolver.notchTerminalConflictMessage(for: combo) {
+        if let message = QuickTerminalShortcutConflictResolver.quickTerminalConflictMessage(for: combo) {
             commandPrefixConflictWarning = message
             return false
         }
@@ -156,7 +156,7 @@ struct CommandsSettingsView: View {
     }
 
     private func resetCommandPrefix() {
-        if let message = NotchTerminalShortcutConflictResolver.commandPrefixResetConflictMessage() {
+        if let message = QuickTerminalShortcutConflictResolver.commandPrefixResetConflictMessage() {
             commandPrefixConflictWarning = message
             return
         }
@@ -166,7 +166,7 @@ struct CommandsSettingsView: View {
     }
 
     private func handleRecord(shortcutID: UUID, combo: KeyCombo) -> Bool {
-        if let message = NotchTerminalShortcutConflictResolver.notchTerminalConflictMessage(for: combo) {
+        if let message = QuickTerminalShortcutConflictResolver.quickTerminalConflictMessage(for: combo) {
             commandConflictWarning = (id: shortcutID, message: message)
             return false
         }

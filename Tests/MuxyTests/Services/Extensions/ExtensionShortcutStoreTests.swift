@@ -31,12 +31,12 @@ struct ExtensionShortcutStoreTests {
         #expect(store.shortcut(extensionID: "beta", commandID: "open")?.combo.isAssigned == false)
     }
 
-    @Test("syncBindings leaves a Notch Terminal default combo unassigned")
-    func syncBindingsRejectsNotchTerminalCombo() throws {
+    @Test("syncBindings leaves a Quick Terminal default combo unassigned")
+    func syncBindingsRejectsQuickTerminalCombo() throws {
         let combo = try #require(KeyCombo(parsing: "ctrl+opt+shift+4"))
         let store = ExtensionShortcutStore(
             persistence: InMemoryExtensionShortcutPersistence(),
-            notchTerminalConflictMessage: { $0 == combo ? "Notch Terminal conflict" : nil }
+            quickTerminalConflictMessage: { $0 == combo ? "Quick Terminal conflict" : nil }
         )
         let ext = makeExtension(id: "alpha", commandID: "open", shortcut: combo.tokenString)
 
@@ -45,8 +45,8 @@ struct ExtensionShortcutStoreTests {
         #expect(store.shortcut(extensionID: "alpha", commandID: "open")?.combo.isAssigned == false)
     }
 
-    @Test("reset leaves a Notch Terminal default combo unassigned")
-    func resetRejectsNotchTerminalCombo() throws {
+    @Test("reset leaves a Quick Terminal default combo unassigned")
+    func resetRejectsQuickTerminalCombo() throws {
         let defaultCombo = try #require(KeyCombo(parsing: "ctrl+opt+shift+5"))
         let stored = ExtensionShortcut(
             extensionID: "alpha",
@@ -55,7 +55,7 @@ struct ExtensionShortcutStoreTests {
         )
         let store = ExtensionShortcutStore(
             persistence: InMemoryExtensionShortcutPersistence(shortcuts: [stored]),
-            notchTerminalConflictMessage: { $0 == defaultCombo ? "Notch Terminal conflict" : nil }
+            quickTerminalConflictMessage: { $0 == defaultCombo ? "Quick Terminal conflict" : nil }
         )
 
         store.resetCombo(extensionID: "alpha", commandID: "open", defaultCombo: defaultCombo)

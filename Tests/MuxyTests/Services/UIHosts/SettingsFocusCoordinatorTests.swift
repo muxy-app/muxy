@@ -27,13 +27,13 @@ struct SettingsFocusCoordinatorTests {
         #expect(!coordinator.consume(.projectPickerDefaultLocation))
     }
 
-    @Test("notch terminal requests route to shortcut settings")
-    func notchTerminalRequestRoutesToShortcutSettings() {
+    @Test("quick terminal requests route to shortcut settings")
+    func quickTerminalRequestRoutesToShortcutSettings() {
         let notificationCenter = NotificationCenter()
         let coordinator = SettingsFocusCoordinator(notificationCenter: notificationCenter)
         let flag = SettingsFocusNotificationFlag()
         let observer = notificationCenter.addObserver(
-            forName: .focusNotchTerminalShortcut,
+            forName: .focusQuickTerminalShortcut,
             object: nil,
             queue: nil
         ) { _ in
@@ -41,11 +41,11 @@ struct SettingsFocusCoordinatorTests {
         }
         defer { notificationCenter.removeObserver(observer) }
 
-        coordinator.request(.notchTerminalShortcut)
+        coordinator.request(.quickTerminalShortcut)
 
         #expect(flag.didPost)
-        #expect(coordinator.consume(.notchTerminalShortcut))
-        #expect(!coordinator.consume(.notchTerminalShortcut))
+        #expect(coordinator.consume(.quickTerminalShortcut))
+        #expect(!coordinator.consume(.quickTerminalShortcut))
     }
 }
 

@@ -121,7 +121,7 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
-    func invalidNotchTerminalShortcutDoesNotWriteSettings() throws {
+    func invalidQuickTerminalShortcutDoesNotWriteSettings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
         defer { snapshot.restore() }
         let originalText = "{\"unchanged\":true}\n"
@@ -131,7 +131,7 @@ struct SettingsJSONStoreTests {
         #expect(throws: SettingsJSONError.self) {
             try SettingsJSONStore.saveUserSettingsText("""
             {
-              "shortcuts.notchTerminal": {
+              "shortcuts.quickTerminal": {
                 "type": "keyCombo",
                 "keyCombo": {
                   "key": "space",
@@ -147,11 +147,11 @@ struct SettingsJSONStoreTests {
         #expect(savedText == originalText)
     }
 
-    @Test("noncanonical Notch Terminal shortcuts do not write settings", arguments: [
+    @Test("noncanonical Quick Terminal shortcuts do not write settings", arguments: [
         ("SPACE", NSEvent.ModifierFlags.command.rawValue),
         ("space", NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.capsLock.rawValue),
     ])
-    func noncanonicalNotchTerminalShortcutDoesNotWriteSettings(key: String, modifiers: UInt) throws {
+    func noncanonicalQuickTerminalShortcutDoesNotWriteSettings(key: String, modifiers: UInt) throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
         defer { snapshot.restore() }
         let originalText = "{\"unchanged\":true}\n"
@@ -161,7 +161,7 @@ struct SettingsJSONStoreTests {
         #expect(throws: SettingsJSONError.self) {
             try SettingsJSONStore.saveUserSettingsText("""
             {
-              "shortcuts.notchTerminal": {
+              "shortcuts.quickTerminal": {
                 "type": "keyCombo",
                 "keyCombo": {
                   "key": "\(key)",
@@ -177,7 +177,7 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
-    func conflictingNotchTerminalShortcutDoesNotWriteSettings() throws {
+    func conflictingQuickTerminalShortcutDoesNotWriteSettings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
         defer { snapshot.restore() }
         let originalText = "{\"unchanged\":true}\n"
@@ -194,7 +194,7 @@ struct SettingsJSONStoreTests {
                   "modifiers": \(modifiers)
                 }
               },
-              "shortcuts.notchTerminal": {
+              "shortcuts.quickTerminal": {
                 "type": "keyCombo",
                 "keyCombo": {
                   "key": "space",
@@ -211,7 +211,7 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
-    func conflictingNotchTerminalRegistrationIdentityDoesNotWriteSettings() throws {
+    func conflictingQuickTerminalRegistrationIdentityDoesNotWriteSettings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
         defer { snapshot.restore() }
         let originalText = "{\"unchanged\":true}\n"
@@ -228,7 +228,7 @@ struct SettingsJSONStoreTests {
                   "modifiers": \(modifiers)
                 }
               },
-              "shortcuts.notchTerminal": {
+              "shortcuts.quickTerminal": {
                 "type": "keyCombo",
                 "keyCombo": {
                   "key": "q",
@@ -244,7 +244,7 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
-    func failedNotchTerminalRegistrationRestoresSettingsFile() throws {
+    func failedQuickTerminalRegistrationRestoresSettingsFile() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
         defer { snapshot.restore() }
         let originalText = "{\"unchanged\":true}\n"
@@ -254,7 +254,7 @@ struct SettingsJSONStoreTests {
             .option,
             .shift,
         ].reduce(0) { $0 | $1.rawValue }
-        var attemptedShortcut: NotchTerminalShortcut?
+        var attemptedShortcut: QuickTerminalShortcut?
 
         try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
 
@@ -262,7 +262,7 @@ struct SettingsJSONStoreTests {
             try SettingsJSONStore.saveUserSettingsText(
                 """
                 {
-                  "shortcuts.notchTerminal": {
+                  "shortcuts.quickTerminal": {
                     "type": "keyCombo",
                     "keyCombo": {
                       "key": "space",
@@ -272,7 +272,7 @@ struct SettingsJSONStoreTests {
                   }
                 }
                 """,
-                notchTerminalShortcutUpdater: {
+                quickTerminalShortcutUpdater: {
                     attemptedShortcut = $0
                     throw SettingsJSONApplyTestError.registrationFailed
                 }
@@ -351,38 +351,38 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
-    func notchTerminalSizePersistsWithinAllowedRange() throws {
-        let keys = [NotchTerminalSizePreferences.widthKey, NotchTerminalSizePreferences.heightKey]
+    func quickTerminalSizePersistsWithinAllowedRange() throws {
+        let keys = [QuickTerminalSizePreferences.widthKey, QuickTerminalSizePreferences.heightKey]
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
         defer { snapshot.restore() }
 
         try SettingsJSONStore.saveUserSettingsText("""
         {
-          "\(NotchTerminalSizePreferences.widthKey)": 960,
-          "\(NotchTerminalSizePreferences.heightKey)": 600
+          "\(QuickTerminalSizePreferences.widthKey)": 960,
+          "\(QuickTerminalSizePreferences.heightKey)": 600
         }
         """)
 
-        #expect(NotchTerminalSizePreferences.width() == 960)
-        #expect(NotchTerminalSizePreferences.height() == 600)
+        #expect(QuickTerminalSizePreferences.width() == 960)
+        #expect(QuickTerminalSizePreferences.height() == 600)
     }
 
     @Test
-    func invalidNotchTerminalSizeDoesNotWriteOrApplySettings() throws {
-        let keys = [NotchTerminalSizePreferences.widthKey, NotchTerminalSizePreferences.heightKey]
+    func invalidQuickTerminalSizeDoesNotWriteOrApplySettings() throws {
+        let keys = [QuickTerminalSizePreferences.widthKey, QuickTerminalSizePreferences.heightKey]
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
         defer { snapshot.restore() }
         let originalText = "{\"unchanged\":true}\n"
 
         try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
-        UserDefaults.standard.set(720, forKey: NotchTerminalSizePreferences.widthKey)
-        UserDefaults.standard.set(430, forKey: NotchTerminalSizePreferences.heightKey)
+        UserDefaults.standard.set(720, forKey: QuickTerminalSizePreferences.widthKey)
+        UserDefaults.standard.set(430, forKey: QuickTerminalSizePreferences.heightKey)
 
         #expect(throws: SettingsJSONError.self) {
             try SettingsJSONStore.saveUserSettingsText("""
             {
-              "\(NotchTerminalSizePreferences.widthKey)": 320,
-              "\(NotchTerminalSizePreferences.heightKey)": 600
+              "\(QuickTerminalSizePreferences.widthKey)": 320,
+              "\(QuickTerminalSizePreferences.heightKey)": 600
             }
             """)
         }
@@ -390,61 +390,61 @@ struct SettingsJSONStoreTests {
         let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
 
         #expect(savedText == originalText)
-        #expect(NotchTerminalSizePreferences.width() == 720)
-        #expect(NotchTerminalSizePreferences.height() == 430)
+        #expect(QuickTerminalSizePreferences.width() == 720)
+        #expect(QuickTerminalSizePreferences.height() == 430)
     }
 
     @Test
-    func notchTerminalAppearancePersistsWithinAllowedValues() throws {
+    func quickTerminalAppearancePersistsWithinAllowedValues() throws {
         let keys = [
-            NotchTerminalAppearancePreferences.transparencyKey,
-            NotchTerminalAppearancePreferences.blurIntensityKey,
+            QuickTerminalAppearancePreferences.transparencyKey,
+            QuickTerminalAppearancePreferences.blurIntensityKey,
         ]
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
         defer { snapshot.restore() }
 
         try SettingsJSONStore.saveUserSettingsText("""
         {
-          "\(NotchTerminalAppearancePreferences.transparencyKey)": 40,
-          "\(NotchTerminalAppearancePreferences.blurIntensityKey)": 86
+          "\(QuickTerminalAppearancePreferences.transparencyKey)": 40,
+          "\(QuickTerminalAppearancePreferences.blurIntensityKey)": 86
         }
         """)
 
-        #expect(NotchTerminalAppearancePreferences.transparency() == 40)
-        #expect(NotchTerminalAppearancePreferences.blurIntensity() == 86)
+        #expect(QuickTerminalAppearancePreferences.transparency() == 40)
+        #expect(QuickTerminalAppearancePreferences.blurIntensity() == 86)
     }
 
     @Test(arguments: [0, 100])
-    func notchTerminalBlurIntensityAcceptsEndpoints(_ intensity: Int) throws {
-        let key = NotchTerminalAppearancePreferences.blurIntensityKey
+    func quickTerminalBlurIntensityAcceptsEndpoints(_ intensity: Int) throws {
+        let key = QuickTerminalAppearancePreferences.blurIntensityKey
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
         defer { snapshot.restore() }
 
         try SettingsJSONStore.saveUserSettingsText("{\"\(key)\":\(intensity)}")
 
-        #expect(NotchTerminalAppearancePreferences.blurIntensity() == intensity)
+        #expect(QuickTerminalAppearancePreferences.blurIntensity() == intensity)
     }
 
     @Test(arguments: [
-        "{\"\(NotchTerminalAppearancePreferences.transparencyKey)\": 80}",
-        "{\"\(NotchTerminalAppearancePreferences.transparencyKey)\": false}",
-        "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": -1}",
-        "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": 101}",
-        "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": true}",
-        "{\"\(NotchTerminalAppearancePreferences.blurIntensityKey)\": false}",
+        "{\"\(QuickTerminalAppearancePreferences.transparencyKey)\": 80}",
+        "{\"\(QuickTerminalAppearancePreferences.transparencyKey)\": false}",
+        "{\"\(QuickTerminalAppearancePreferences.blurIntensityKey)\": -1}",
+        "{\"\(QuickTerminalAppearancePreferences.blurIntensityKey)\": 101}",
+        "{\"\(QuickTerminalAppearancePreferences.blurIntensityKey)\": true}",
+        "{\"\(QuickTerminalAppearancePreferences.blurIntensityKey)\": false}",
     ])
-    func invalidNotchTerminalAppearanceDoesNotWriteOrApplySettings(settings: String) throws {
+    func invalidQuickTerminalAppearanceDoesNotWriteOrApplySettings(settings: String) throws {
         let keys = [
-            NotchTerminalAppearancePreferences.transparencyKey,
-            NotchTerminalAppearancePreferences.blurIntensityKey,
+            QuickTerminalAppearancePreferences.transparencyKey,
+            QuickTerminalAppearancePreferences.blurIntensityKey,
         ]
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
         defer { snapshot.restore() }
         let originalText = "{\"unchanged\":true}\n"
 
         try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
-        UserDefaults.standard.set(18, forKey: NotchTerminalAppearancePreferences.transparencyKey)
-        UserDefaults.standard.set(70, forKey: NotchTerminalAppearancePreferences.blurIntensityKey)
+        UserDefaults.standard.set(18, forKey: QuickTerminalAppearancePreferences.transparencyKey)
+        UserDefaults.standard.set(70, forKey: QuickTerminalAppearancePreferences.blurIntensityKey)
 
         #expect(throws: SettingsJSONError.self) {
             try SettingsJSONStore.saveUserSettingsText(settings)
@@ -453,8 +453,8 @@ struct SettingsJSONStoreTests {
         let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
 
         #expect(savedText == originalText)
-        #expect(NotchTerminalAppearancePreferences.transparency() == 18)
-        #expect(NotchTerminalAppearancePreferences.blurIntensity() == 70)
+        #expect(QuickTerminalAppearancePreferences.transparency() == 18)
+        #expect(QuickTerminalAppearancePreferences.blurIntensity() == 70)
     }
 
     @Test
@@ -668,7 +668,7 @@ struct SettingsJSONStoreTests {
             #expect(object.keys.contains(item.key))
         }
         #expect(object.keys.contains("shortcuts.app"))
-        #expect(object.keys.contains("shortcuts.notchTerminal"))
+        #expect(object.keys.contains("shortcuts.quickTerminal"))
         #expect(object.keys.contains("shortcuts.customCommands"))
         #expect(object.keys.contains("ai.providers"))
         #expect(object.keys.contains("mobile.approvedDevices"))
@@ -687,7 +687,7 @@ struct SettingsJSONStoreTests {
 
         #expect(object[MobileServerService.portKey] as? Int == 4242)
         #expect(object.keys.contains("shortcuts.app"))
-        #expect(object.keys.contains("shortcuts.notchTerminal"))
+        #expect(object.keys.contains("shortcuts.quickTerminal"))
     }
 
     @Test

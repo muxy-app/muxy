@@ -1,7 +1,7 @@
 import AppKit
 import Carbon
 
-private let notchTerminalCarbonEventHandler: EventHandlerUPP = { _, event, userData in
+private let quickTerminalCarbonEventHandler: EventHandlerUPP = { _, event, userData in
     guard let event, let userData else { return OSStatus(eventNotHandledErr) }
     var hotKeyID = EventHotKeyID()
     let status = GetEventParameter(
@@ -23,7 +23,7 @@ private let notchTerminalCarbonEventHandler: EventHandlerUPP = { _, event, userD
 }
 
 @MainActor
-final class CarbonHotKeyBackend: NotchTerminalShortcutBackend {
+final class CarbonHotKeyBackend: QuickTerminalShortcutBackend {
     private static let signature: OSType = 0x4D58_4E54
     private static var nextIdentifier: UInt32 = 1
 
@@ -47,14 +47,14 @@ final class CarbonHotKeyBackend: NotchTerminalShortcutBackend {
         }
     }
 
-    var monitoringState: NotchTerminalShortcutMonitoringState {
+    var monitoringState: QuickTerminalShortcutMonitoringState {
         hotKey == nil ? .stopped : .carbonHotKey
     }
 
     func start(trigger: @escaping @MainActor () -> Void) throws {
         guard hotKey == nil else { return }
-        guard NotchTerminalShortcut.keyCombo(combo, virtualKeyCode: virtualKeyCode).isValid
-        else { throw NotchTerminalShortcutError.invalidShortcut }
+        guard QuickTerminalShortcut.keyCombo(combo, virtualKeyCode: virtualKeyCode).isValid
+        else { throw QuickTerminalShortcutError.invalidShortcut }
 
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -63,14 +63,14 @@ final class CarbonHotKeyBackend: NotchTerminalShortcutBackend {
         var installedHandler: EventHandlerRef?
         let handlerStatus = InstallEventHandler(
             GetApplicationEventTarget(),
-            notchTerminalCarbonEventHandler,
+            quickTerminalCarbonEventHandler,
             1,
             &eventType,
             Unmanaged.passUnretained(self).toOpaque(),
             &installedHandler
         )
         guard handlerStatus == noErr else {
-            throw NotchTerminalShortcutError.carbonEventHandlerInstallationFailed(handlerStatus)
+            throw QuickTerminalShortcutError.carbonEventHandlerInstallationFailed(handlerStatus)
         }
 
         var registeredHotKey: EventHotKeyRef?
@@ -87,7 +87,7 @@ final class CarbonHotKeyBackend: NotchTerminalShortcutBackend {
             if let installedHandler {
                 RemoveEventHandler(installedHandler)
             }
-            throw NotchTerminalShortcutError.carbonHotKeyRegistrationFailed(registrationStatus)
+            throw QuickTerminalShortcutError.carbonHotKeyRegistrationFailed(registrationStatus)
         }
 
         eventHandler = installedHandler

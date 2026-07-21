@@ -7,20 +7,20 @@ struct KeyboardShortcutsSettingsView: View {
     @State private var conflictWarning: (action: ShortcutAction, message: String)?
     @State private var recordingExtensionShortcutID: String?
     @State private var extensionConflictWarning: (id: String, message: String)?
-    @State private var isRecordingNotchTerminalShortcut = false
-    @State private var notchTerminalShortcutError: String?
-    @AppStorage(NotchTerminalSizePreferences.widthKey)
-    private var notchTerminalWidth = NotchTerminalSizePreferences.defaultWidth
-    @AppStorage(NotchTerminalSizePreferences.heightKey)
-    private var notchTerminalHeight = NotchTerminalSizePreferences.defaultHeight
-    @AppStorage(NotchTerminalAppearancePreferences.transparencyKey)
-    private var notchTerminalTransparency = NotchTerminalAppearancePreferences.defaultTransparency
-    @AppStorage(NotchTerminalAppearancePreferences.blurIntensityKey)
-    private var notchTerminalBlurIntensity = NotchTerminalAppearancePreferences.defaultBlurIntensity
+    @State private var isRecordingQuickTerminalShortcut = false
+    @State private var quickTerminalShortcutError: String?
+    @AppStorage(QuickTerminalSizePreferences.widthKey)
+    private var quickTerminalWidth = QuickTerminalSizePreferences.defaultWidth
+    @AppStorage(QuickTerminalSizePreferences.heightKey)
+    private var quickTerminalHeight = QuickTerminalSizePreferences.defaultHeight
+    @AppStorage(QuickTerminalAppearancePreferences.transparencyKey)
+    private var quickTerminalTransparency = QuickTerminalAppearancePreferences.defaultTransparency
+    @AppStorage(QuickTerminalAppearancePreferences.blurIntensityKey)
+    private var quickTerminalBlurIntensity = QuickTerminalAppearancePreferences.defaultBlurIntensity
 
     private var store: KeyBindingStore { KeyBindingStore.shared }
     private var extensionStore: ExtensionShortcutStore { ExtensionShortcutStore.shared }
-    private var notchShortcutService: NotchTerminalShortcutService { NotchTerminalShortcutService.shared }
+    private var quickTerminalShortcutService: QuickTerminalShortcutService { QuickTerminalShortcutService.shared }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,15 +47,15 @@ struct KeyboardShortcutsSettingsView: View {
 
             Button("Reset All") {
                 do {
-                    try notchShortcutService.resetShortcut()
+                    try quickTerminalShortcutService.resetShortcut()
                     store.resetToDefaults()
-                    notchTerminalShortcutError = nil
+                    quickTerminalShortcutError = nil
                 } catch {
-                    notchTerminalShortcutError = error.localizedDescription
+                    quickTerminalShortcutError = error.localizedDescription
                 }
                 recordingAction = nil
                 recordingExtensionShortcutID = nil
-                isRecordingNotchTerminalShortcut = false
+                isRecordingQuickTerminalShortcut = false
                 conflictWarning = nil
             }
             .buttonStyle(.plain)
@@ -70,8 +70,8 @@ struct KeyboardShortcutsSettingsView: View {
         let extensionGroups = filteredExtensionGroups
         return ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0) {
-                if notchTerminalMatchesSearch {
-                    notchTerminalSection(showsDivider: !visibleCategories.isEmpty || !extensionGroups.isEmpty)
+                if quickTerminalMatchesSearch {
+                    quickTerminalSection(showsDivider: !visibleCategories.isEmpty || !extensionGroups.isEmpty)
                 }
                 ForEach(visibleCategories, id: \.self) { category in
                     categorySection(
@@ -93,31 +93,31 @@ struct KeyboardShortcutsSettingsView: View {
         }
     }
 
-    private var notchTerminalMatchesSearch: Bool {
+    private var quickTerminalMatchesSearch: Bool {
         searchText.isEmpty || SettingsCatalog.matchingItems(query: searchText).contains {
-            $0.section == "Notch Terminal"
+            $0.section == "Quick Terminal"
         }
     }
 
-    private func notchTerminalSection(showsDivider: Bool) -> some View {
-        SettingsSection("Notch Terminal", showsDivider: showsDivider) {
+    private func quickTerminalSection(showsDivider: Bool) -> some View {
+        SettingsSection("Quick Terminal", showsDivider: showsDivider) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Open Notch Terminal")
+                        Text("Open Quick Terminal")
                             .font(.system(size: SettingsMetrics.labelFontSize))
-                        Text(notchTerminalStatusText)
+                        Text(quickTerminalStatusText)
                             .font(.system(size: SettingsMetrics.footnoteFontSize))
-                            .foregroundStyle(notchTerminalStatusColor)
+                            .foregroundStyle(quickTerminalStatusColor)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
-                        _ = updateNotchTerminalShortcut(.doubleShift)
+                        _ = updateQuickTerminalShortcut(.doubleShift)
                     } label: {
                         Label(
                             "Double Shift",
-                            systemImage: notchShortcutService.shortcut == .doubleShift
+                            systemImage: quickTerminalShortcutService.shortcut == .doubleShift
                                 ? "checkmark.circle.fill"
                                 : "circle"
                         )
@@ -128,20 +128,20 @@ struct KeyboardShortcutsSettingsView: View {
                     .accessibilityValue(isDoubleShiftShortcutSelected ? "Selected" : "Not selected")
 
                     ZStack {
-                        if isRecordingNotchTerminalShortcut {
+                        if isRecordingQuickTerminalShortcut {
                             ShortcutRecorderView(
                                 onRecord: { _ in false },
-                                onCancel: { isRecordingNotchTerminalShortcut = false },
-                                onRecordWithKeyCode: recordNotchTerminalShortcut
+                                onCancel: { isRecordingQuickTerminalShortcut = false },
+                                onRecordWithKeyCode: recordQuickTerminalShortcut
                             )
                             .frame(width: 0, height: 0)
                             .opacity(0)
                         }
-                        Button(isRecordingNotchTerminalShortcut ? "Press shortcut…" : customShortcutTitle) {
+                        Button(isRecordingQuickTerminalShortcut ? "Press shortcut…" : customShortcutTitle) {
                             recordingAction = nil
                             recordingExtensionShortcutID = nil
-                            isRecordingNotchTerminalShortcut = true
-                            notchTerminalShortcutError = nil
+                            isRecordingQuickTerminalShortcut = true
+                            quickTerminalShortcutError = nil
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -150,14 +150,14 @@ struct KeyboardShortcutsSettingsView: View {
                     }
                 }
 
-                if notchShortcutService.needsInputMonitoringAccess {
+                if quickTerminalShortcutService.needsInputMonitoringAccess {
                     HStack(spacing: 8) {
                         Text("Double Shift needs Input Monitoring outside Muxy.")
                             .font(.system(size: SettingsMetrics.footnoteFontSize))
                             .foregroundStyle(SettingsStyle.mutedForeground)
                         Spacer()
                         Button("Enable Input Monitoring") {
-                            _ = notchShortcutService.requestInputMonitoringAccess()
+                            _ = quickTerminalShortcutService.requestInputMonitoringAccess()
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
@@ -171,24 +171,24 @@ struct KeyboardShortcutsSettingsView: View {
                     Text("Width")
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
                         .foregroundStyle(SettingsStyle.mutedForeground)
-                    NotchTerminalDimensionField(
+                    QuickTerminalDimensionField(
                         label: "Width",
-                        value: $notchTerminalWidth,
-                        range: NotchTerminalSizePreferences.widthRange
+                        value: $quickTerminalWidth,
+                        range: QuickTerminalSizePreferences.widthRange
                     )
                     Text("×")
                         .foregroundStyle(SettingsStyle.mutedForeground)
                     Text("Height")
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
                         .foregroundStyle(SettingsStyle.mutedForeground)
-                    NotchTerminalDimensionField(
+                    QuickTerminalDimensionField(
                         label: "Height",
-                        value: $notchTerminalHeight,
-                        range: NotchTerminalSizePreferences.heightRange
+                        value: $quickTerminalHeight,
+                        range: QuickTerminalSizePreferences.heightRange
                     )
                     Button("Reset") {
-                        notchTerminalWidth = NotchTerminalSizePreferences.defaultWidth
-                        notchTerminalHeight = NotchTerminalSizePreferences.defaultHeight
+                        quickTerminalWidth = QuickTerminalSizePreferences.defaultWidth
+                        quickTerminalHeight = QuickTerminalSizePreferences.defaultHeight
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -199,14 +199,14 @@ struct KeyboardShortcutsSettingsView: View {
                         .font(.system(size: SettingsMetrics.labelFontSize))
                     Spacer()
                     Slider(
-                        value: notchTerminalTransparencyBinding,
-                        in: Double(NotchTerminalAppearancePreferences.transparencyRange.lowerBound)
-                            ... Double(NotchTerminalAppearancePreferences.transparencyRange.upperBound),
+                        value: quickTerminalTransparencyBinding,
+                        in: Double(QuickTerminalAppearancePreferences.transparencyRange.lowerBound)
+                            ... Double(QuickTerminalAppearancePreferences.transparencyRange.upperBound),
                         step: 1
                     )
                     .frame(width: 220)
                     .accessibilityLabel("Terminal transparency")
-                    Text("\(displayedNotchTerminalTransparency)%")
+                    Text("\(displayedQuickTerminalTransparency)%")
                         .font(.system(size: SettingsMetrics.footnoteFontSize).monospacedDigit())
                         .foregroundStyle(SettingsStyle.mutedForeground)
                         .frame(width: 34, alignment: .trailing)
@@ -217,26 +217,26 @@ struct KeyboardShortcutsSettingsView: View {
                         .font(.system(size: SettingsMetrics.labelFontSize))
                     Spacer()
                     Slider(
-                        value: notchTerminalBlurIntensityBinding,
-                        in: Double(NotchTerminalAppearancePreferences.blurIntensityRange.lowerBound)
-                            ... Double(NotchTerminalAppearancePreferences.blurIntensityRange.upperBound),
+                        value: quickTerminalBlurIntensityBinding,
+                        in: Double(QuickTerminalAppearancePreferences.blurIntensityRange.lowerBound)
+                            ... Double(QuickTerminalAppearancePreferences.blurIntensityRange.upperBound),
                         step: 1
                     )
                     .frame(width: 220)
                     .accessibilityLabel("Background vibrancy")
-                    Text("\(displayedNotchTerminalBlurIntensity)%")
+                    Text("\(displayedQuickTerminalBlurIntensity)%")
                         .font(.system(size: SettingsMetrics.footnoteFontSize).monospacedDigit())
                         .foregroundStyle(SettingsStyle.mutedForeground)
                         .frame(width: 34, alignment: .trailing)
                     Button("Reset") {
-                        notchTerminalTransparency = NotchTerminalAppearancePreferences.defaultTransparency
-                        notchTerminalBlurIntensity = NotchTerminalAppearancePreferences.defaultBlurIntensity
+                        quickTerminalTransparency = QuickTerminalAppearancePreferences.defaultTransparency
+                        quickTerminalBlurIntensity = QuickTerminalAppearancePreferences.defaultBlurIntensity
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
 
-                if let errorMessage = notchTerminalShortcutError ?? notchShortcutService.errorMessage {
+                if let errorMessage = quickTerminalShortcutError ?? quickTerminalShortcutService.errorMessage {
                     Text(errorMessage)
                         .font(.system(size: 10))
                         .foregroundStyle(SettingsStyle.warning)
@@ -249,49 +249,49 @@ struct KeyboardShortcutsSettingsView: View {
     }
 
     private var customShortcutTitle: String {
-        guard case .keyCombo = notchShortcutService.shortcut else { return "Record Custom…" }
-        return notchShortcutService.shortcut.displayString
+        guard case .keyCombo = quickTerminalShortcutService.shortcut else { return "Record Custom…" }
+        return quickTerminalShortcutService.shortcut.displayString
     }
 
     private var isDoubleShiftShortcutSelected: Bool {
-        notchShortcutService.shortcut == .doubleShift
+        quickTerminalShortcutService.shortcut == .doubleShift
     }
 
     private var isCustomShortcutSelected: Bool {
-        guard case .keyCombo = notchShortcutService.shortcut else { return false }
+        guard case .keyCombo = quickTerminalShortcutService.shortcut else { return false }
         return true
     }
 
-    private var notchTerminalTransparencyBinding: Binding<Double> {
+    private var quickTerminalTransparencyBinding: Binding<Double> {
         Binding(
-            get: { Double(displayedNotchTerminalTransparency) },
-            set: { notchTerminalTransparency = Int($0.rounded()) }
+            get: { Double(displayedQuickTerminalTransparency) },
+            set: { quickTerminalTransparency = Int($0.rounded()) }
         )
     }
 
-    private var displayedNotchTerminalTransparency: Int {
+    private var displayedQuickTerminalTransparency: Int {
         min(
-            max(notchTerminalTransparency, NotchTerminalAppearancePreferences.transparencyRange.lowerBound),
-            NotchTerminalAppearancePreferences.transparencyRange.upperBound
+            max(quickTerminalTransparency, QuickTerminalAppearancePreferences.transparencyRange.lowerBound),
+            QuickTerminalAppearancePreferences.transparencyRange.upperBound
         )
     }
 
-    private var notchTerminalBlurIntensityBinding: Binding<Double> {
+    private var quickTerminalBlurIntensityBinding: Binding<Double> {
         Binding(
-            get: { Double(displayedNotchTerminalBlurIntensity) },
-            set: { notchTerminalBlurIntensity = Int($0.rounded()) }
+            get: { Double(displayedQuickTerminalBlurIntensity) },
+            set: { quickTerminalBlurIntensity = Int($0.rounded()) }
         )
     }
 
-    private var displayedNotchTerminalBlurIntensity: Int {
+    private var displayedQuickTerminalBlurIntensity: Int {
         min(
-            max(notchTerminalBlurIntensity, NotchTerminalAppearancePreferences.blurIntensityRange.lowerBound),
-            NotchTerminalAppearancePreferences.blurIntensityRange.upperBound
+            max(quickTerminalBlurIntensity, QuickTerminalAppearancePreferences.blurIntensityRange.lowerBound),
+            QuickTerminalAppearancePreferences.blurIntensityRange.upperBound
         )
     }
 
-    private var notchTerminalStatusText: String {
-        switch notchShortcutService.monitoringState {
+    private var quickTerminalStatusText: String {
+        switch quickTerminalShortcutService.monitoringState {
         case .systemWide,
              .carbonHotKey:
             "Active system-wide"
@@ -302,8 +302,8 @@ struct KeyboardShortcutsSettingsView: View {
         }
     }
 
-    private var notchTerminalStatusColor: Color {
-        switch notchShortcutService.monitoringState {
+    private var quickTerminalStatusColor: Color {
+        switch quickTerminalShortcutService.monitoringState {
         case .systemWide,
              .carbonHotKey:
             SettingsStyle.accent
@@ -313,24 +313,24 @@ struct KeyboardShortcutsSettingsView: View {
         }
     }
 
-    private func recordNotchTerminalShortcut(_ combo: KeyCombo, virtualKeyCode: UInt16) -> Bool {
-        updateNotchTerminalShortcut(.keyCombo(combo, virtualKeyCode: virtualKeyCode))
+    private func recordQuickTerminalShortcut(_ combo: KeyCombo, virtualKeyCode: UInt16) -> Bool {
+        updateQuickTerminalShortcut(.keyCombo(combo, virtualKeyCode: virtualKeyCode))
     }
 
-    private func updateNotchTerminalShortcut(_ shortcut: NotchTerminalShortcut) -> Bool {
+    private func updateQuickTerminalShortcut(_ shortcut: QuickTerminalShortcut) -> Bool {
         if case let .keyCombo(combo, _) = shortcut,
-           let conflict = NotchTerminalShortcutConflictResolver.conflictMessage(for: combo)
+           let conflict = QuickTerminalShortcutConflictResolver.conflictMessage(for: combo)
         {
-            notchTerminalShortcutError = conflict
+            quickTerminalShortcutError = conflict
             return false
         }
         do {
-            try notchShortcutService.updateShortcut(shortcut)
-            notchTerminalShortcutError = nil
-            isRecordingNotchTerminalShortcut = false
+            try quickTerminalShortcutService.updateShortcut(shortcut)
+            quickTerminalShortcutError = nil
+            isRecordingQuickTerminalShortcut = false
             return true
         } catch {
-            notchTerminalShortcutError = error.localizedDescription
+            quickTerminalShortcutError = error.localizedDescription
             return false
         }
     }
@@ -345,7 +345,7 @@ struct KeyboardShortcutsSettingsView: View {
                     conflictMessage: extensionConflictWarning?.id == entry.id ? extensionConflictWarning?.message : nil,
                     onStartRecording: {
                         recordingAction = nil
-                        isRecordingNotchTerminalShortcut = false
+                        isRecordingQuickTerminalShortcut = false
                         recordingExtensionShortcutID = entry.id
                         extensionConflictWarning = nil
                     },
@@ -417,7 +417,7 @@ struct KeyboardShortcutsSettingsView: View {
                         : nil,
                     onStartRecording: {
                         recordingExtensionShortcutID = nil
-                        isRecordingNotchTerminalShortcut = false
+                        isRecordingQuickTerminalShortcut = false
                         recordingAction = action
                         conflictWarning = nil
                     },
@@ -444,7 +444,7 @@ struct KeyboardShortcutsSettingsView: View {
     }
 
     private func handleRecord(action: ShortcutAction, combo: KeyCombo) -> Bool {
-        if let message = NotchTerminalShortcutConflictResolver.notchTerminalConflictMessage(for: combo) {
+        if let message = QuickTerminalShortcutConflictResolver.quickTerminalConflictMessage(for: combo) {
             conflictWarning = (action: action, message: "\(message) Press a different shortcut or Esc to cancel.")
             return false
         }
@@ -462,7 +462,7 @@ struct KeyboardShortcutsSettingsView: View {
     }
 
     private func resetBinding(action: ShortcutAction) {
-        if let message = NotchTerminalShortcutConflictResolver.appShortcutResetConflictMessage(for: action) {
+        if let message = QuickTerminalShortcutConflictResolver.appShortcutResetConflictMessage(for: action) {
             conflictWarning = (action: action, message: message)
             return
         }
@@ -471,11 +471,11 @@ struct KeyboardShortcutsSettingsView: View {
     }
 }
 
-private struct NotchTerminalDimensionField: View {
+private struct QuickTerminalDimensionField: View {
     let label: String
     @Binding var value: Int
     let range: ClosedRange<Int>
-    @State private var input = NotchTerminalDimensionInput()
+    @State private var input = QuickTerminalDimensionInput()
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -512,7 +512,7 @@ private struct NotchTerminalDimensionField: View {
     }
 }
 
-struct NotchTerminalDimensionInput: Equatable {
+struct QuickTerminalDimensionInput: Equatable {
     var text = ""
 
     mutating func synchronize(with value: Int) {

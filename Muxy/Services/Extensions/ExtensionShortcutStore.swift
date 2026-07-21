@@ -39,18 +39,18 @@ final class ExtensionShortcutStore {
     private(set) var shortcuts: [ExtensionShortcut] = []
     private(set) var runtimeShortcuts: [ExtensionShortcut] = []
     private let persistence: any ExtensionShortcutPersisting
-    private let notchTerminalConflictMessage: (KeyCombo) -> String?
+    private let quickTerminalConflictMessage: (KeyCombo) -> String?
 
     private var allShortcuts: [ExtensionShortcut] { shortcuts + runtimeShortcuts }
 
     init(
         persistence: any ExtensionShortcutPersisting = FileExtensionShortcutPersistence(),
-        notchTerminalConflictMessage: @escaping (KeyCombo) -> String? = {
-            NotchTerminalShortcutConflictResolver.notchTerminalConflictMessage(for: $0)
+        quickTerminalConflictMessage: @escaping (KeyCombo) -> String? = {
+            QuickTerminalShortcutConflictResolver.quickTerminalConflictMessage(for: $0)
         }
     ) {
         self.persistence = persistence
-        self.notchTerminalConflictMessage = notchTerminalConflictMessage
+        self.quickTerminalConflictMessage = quickTerminalConflictMessage
         load()
     }
 
@@ -131,7 +131,7 @@ final class ExtensionShortcutStore {
 
     func conflictMessage(for combo: KeyCombo, extensionID: String, commandID: String) -> String? {
         guard combo.isAssigned else { return nil }
-        if let message = notchTerminalConflictMessage(combo) {
+        if let message = quickTerminalConflictMessage(combo) {
             return message
         }
         if let action = KeyBindingStore.shared.conflictingAction(for: combo, excluding: ShortcutAction?.none) {
@@ -204,7 +204,7 @@ final class ExtensionShortcutStore {
 
     private func isComboFree(_ combo: KeyCombo, extensionID: String, commandID: String) -> Bool {
         guard combo.isAssigned else { return false }
-        guard notchTerminalConflictMessage(combo) == nil else {
+        guard quickTerminalConflictMessage(combo) == nil else {
             return false
         }
         guard KeyBindingStore.shared.conflictingAction(for: combo, excluding: ShortcutAction?.none) == nil else {
