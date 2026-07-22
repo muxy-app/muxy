@@ -330,7 +330,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .pinUnpinTab, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .splitRight, combo: KeyCombo(key: "d", command: true)),
         Self(action: .splitDown, combo: KeyCombo(key: "d", command: true, shift: true)),
-        Self(action: .splitTabPane, combo: KeyCombo(key: "d", command: true, option: true)),
+        Self(action: .splitTabPane, combo: KeyCombo(key: "\\", command: true, option: true)),
         Self(action: .closePane, combo: KeyCombo(key: "w", command: true, shift: true)),
         Self(action: .focusPaneLeft, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, option: true)),
         Self(action: .focusPaneRight, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, option: true)),

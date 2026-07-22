@@ -19,7 +19,9 @@ struct InternalPaneView: View {
                 focused: focusedPaneID == pane.id,
                 visible: true,
                 areaID: areaID,
-                onFocus: { onPaneFocus(pane.id); onFocus() },
+                onFocus: { onPaneFocus(pane.id)
+                    onFocus()
+                },
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
             )
