@@ -102,6 +102,7 @@ struct TabAreaView: View {
                         focused: isActive && isFocused && isActiveProject,
                         visible: isActive && isActiveProject,
                         areaID: area.id,
+                        projectID: projectID,
                         onFocus: onFocus,
                         onProcessExit: { onForceCloseTab(tab.id) },
                         onSplitRequest: { direction, position in
@@ -198,6 +199,7 @@ private struct TabContentView: View {
     let focused: Bool
     let visible: Bool
     let areaID: UUID
+    let projectID: UUID
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -206,15 +208,30 @@ private struct TabContentView: View {
     var body: some View {
         switch tab.content {
         case let .terminal(pane):
-            TerminalPane(
-                state: pane,
-                focused: focused,
-                visible: visible,
-                areaID: areaID,
-                onFocus: onFocus,
-                onProcessExit: onProcessExit,
-                onSplitRequest: onSplitRequest
-            )
+            if let internalPanes = tab.internalPanes {
+                InternalPaneView(
+                    node: internalPanes,
+                    focusedPaneID: tab.focusedPaneID,
+                    areaID: areaID,
+                    projectID: projectID,
+                    onFocus: onFocus,
+                    onPaneFocus: { paneID in
+                        tab.focusedPaneID = paneID
+                    },
+                    onProcessExit: onProcessExit,
+                    onSplitRequest: onSplitRequest
+                )
+            } else {
+                TerminalPane(
+                    state: pane,
+                    focused: focused,
+                    visible: visible,
+                    areaID: areaID,
+                    onFocus: onFocus,
+                    onProcessExit: onProcessExit,
+                    onSplitRequest: onSplitRequest
+                )
+            }
         case let .extensionWebView(extensionState):
             ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)
         case let .browser(browserState):
