@@ -18,4 +18,14 @@ enum QuickTerminalPreferences {
         defaults.set(enabled, forKey: enabledKey)
         notificationCenter.post(name: .quickTerminalEnabledDidChange, object: defaults)
     }
+
+    static func resetEnabled(
+        defaults: UserDefaults = .standard,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        let wasEnabled = isEnabled(defaults: defaults)
+        defaults.removeObject(forKey: enabledKey)
+        guard wasEnabled != isEnabled(defaults: defaults) else { return }
+        notificationCenter.post(name: .quickTerminalEnabledDidChange, object: defaults)
+    }
 }

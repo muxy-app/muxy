@@ -46,6 +46,35 @@ struct QuickTerminalPreferencesTests {
         #expect(notifications.count == 2)
     }
 
+    @Test("reset removes the stored value and only notifies when the effective value changes")
+    func resetRemovesStoredValueAndNotifiesChanges() {
+        let defaults = makeDefaults()
+        let notificationCenter = NotificationCenter()
+        let notifications = QuickTerminalPreferenceNotifications()
+        defaults.set(false, forKey: QuickTerminalPreferences.enabledKey)
+        let observer = notificationCenter.addObserver(
+            forName: .quickTerminalEnabledDidChange,
+            object: defaults,
+            queue: nil
+        ) { _ in
+            notifications.count += 1
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        QuickTerminalPreferences.resetEnabled(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+        QuickTerminalPreferences.resetEnabled(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        )
+
+        #expect(defaults.object(forKey: QuickTerminalPreferences.enabledKey) == nil)
+        #expect(QuickTerminalPreferences.isEnabled(defaults: defaults))
+        #expect(notifications.count == 1)
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "QuickTerminalPreferencesTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

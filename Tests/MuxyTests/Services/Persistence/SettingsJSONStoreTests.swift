@@ -445,6 +445,22 @@ struct SettingsJSONStoreTests {
         #expect(savedText == originalText)
     }
 
+    @Test("null Quick Terminal enabled value resets to the default")
+    func nullQuickTerminalEnabledValueResetsToDefault() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [QuickTerminalPreferences.enabledKey])
+        defer { snapshot.restore() }
+        QuickTerminalPreferences.setEnabled(false)
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(QuickTerminalPreferences.enabledKey)": null
+        }
+        """)
+
+        #expect(UserDefaults.standard.object(forKey: QuickTerminalPreferences.enabledKey) == nil)
+        #expect(QuickTerminalPreferences.isEnabled())
+    }
+
     @Test
     func quickTerminalSizePersistsWithinAllowedRange() throws {
         let keys = [QuickTerminalSizePreferences.widthKey, QuickTerminalSizePreferences.heightKey]
