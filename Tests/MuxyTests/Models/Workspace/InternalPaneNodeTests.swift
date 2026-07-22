@@ -121,7 +121,7 @@ struct InternalPaneNodeTests {
             position: .second
         )
         #expect(newPaneID == nil)
-        if case .pane = newNode { /* expected */ } else { #expect(Bool(false), "Expected .pane") }
+        if case .pane = newNode {} else { #expect(Bool(false)) }
     }
 
     @Test("splitting split node at specific pane")

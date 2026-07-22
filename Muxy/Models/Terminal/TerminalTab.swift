@@ -127,6 +127,8 @@ final class TerminalTab: Identifiable {
             browserState.shouldFocusAddressOnOpen = false
             content = .browser(browserState)
         }
+        internalPanes = snapshot.internalPanes?.toInternalPaneNode()
+        focusedPaneID = snapshot.focusedPaneID.flatMap(UUID.init(uuidString:))
     }
 
     func snapshot() -> TerminalTabSnapshot {
@@ -145,7 +147,9 @@ final class TerminalTab: Identifiable {
             extensionTabTypeID: content.extensionState?.tabTypeID,
             extensionTabData: content.extensionState?.data,
             browserURL: content.browserState?.url?.absoluteString,
-            browserProfileID: content.browserState?.profileID.uuidString
+            browserProfileID: content.browserState?.profileID.uuidString,
+            internalPanes: internalPanes.map(InternalPaneNodeSnapshot.init(node:)),
+            focusedPaneID: focusedPaneID?.uuidString
         )
     }
 
