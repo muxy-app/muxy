@@ -88,12 +88,24 @@ struct TabFocusedProjectRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            if isExpanded, let listWorktree {
-                switch content {
-                case .tabs:
-                    TabFocusedTabsList(project: project, worktree: listWorktree, shortcutNumbers: shortcutNumbers)
-                case .agents:
-                    AgentsFocusedTabsList(project: project, worktree: listWorktree)
+            if isExpanded {
+                if content == .tabs, !isWorktreeRow, project.worktreesEnabled {
+                    TabFocusedWorktreeTree(
+                        project: project,
+                        worktrees: worktreeStore.list(for: project.id),
+                        shortcutNumbers: shortcutNumbers
+                    )
+                } else if let listWorktree {
+                    switch content {
+                    case .tabs:
+                        TabFocusedTabsList(
+                            project: project,
+                            worktree: listWorktree,
+                            shortcutNumbers: shortcutNumbers
+                        )
+                    case .agents:
+                        AgentsFocusedTabsList(project: project, worktree: listWorktree)
+                    }
                 }
             }
         }
@@ -336,7 +348,9 @@ struct TabFocusedProjectRow: View {
     private var actions: some View {
         switch content {
         case .tabs:
-            TabFocusedTabActions(project: project, worktree: worktree)
+            if isWorktreeRow || !project.worktreesEnabled {
+                TabFocusedTabActions(project: project, worktree: worktree)
+            }
         case .agents:
             AgentsFocusedTabActions(
                 project: project,

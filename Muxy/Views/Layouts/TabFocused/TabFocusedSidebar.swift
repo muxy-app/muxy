@@ -42,10 +42,8 @@ struct TabFocusedSidebar: View {
     private var rows: [TabFocusedSidebarRowItem] {
         projects.flatMap { project -> [TabFocusedSidebarRowItem] in
             var items: [TabFocusedSidebarRowItem] = [.project(project)]
-            guard project.worktreesEnabled, !project.isHome else { return items }
+            guard content == .agents, project.worktreesEnabled, !project.isHome else { return items }
             for worktree in worktreeStore.list(for: project.id) where !worktree.isPrimary {
-                let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
-                guard content == .agents || appState.hasTabs(for: key) else { continue }
                 items.append(.worktree(project, worktree))
             }
             return items

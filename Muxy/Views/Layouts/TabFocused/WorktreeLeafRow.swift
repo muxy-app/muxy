@@ -1,0 +1,197 @@
+import SwiftUI
+
+struct WorktreeLeafRow: View {
+    let project: Project
+    let worktree: Worktree
+    let depth: Int
+    let shortcutNumbers: [UUID: Int]
+
+    @Environment(AppState.self) private var appState
+    @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
+    @State private var expansionStore = TabFocusedSidebarState.shared
+    @State private var hovered = false
+    @State private var isRenaming = false
+    @State private var renameText = ""
+    @FocusState private var renameFieldFocused: Bool
+
+    private var rowTitle: String {
+        worktree.sidebarDisplayName
+    }
+
+    private var isActive: Bool {
+        guard appState.activeProjectID == project.id else { return false }
+        return appState.activeWorktreeID[project.id] == worktree.id
+    }
+
+    private var isExpanded: Bool {
+        expansionStore.isExpanded(worktree.id, default: false)
+    }
+
+    private var leafIcon: some View {
+        Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            .foregroundStyle(isExpanded ? MuxyTheme.fg : MuxyTheme.fgMuted)
+    }
+
+    private var leafTrailing: some View {
+        HStack(spacing: UIMetrics.spacing2) {
+            if let badge = shortcutBadge {
+                Text("\(badge)")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .padding(.horizontal, UIMetrics.spacing2)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule()
+                            .fill(MuxyTheme.surface)
+                    )
+            }
+
+            if isRemoving {
+                ProgressView()
+                    .scaleEffect(0.5)
+            }
+
+            SidebarActionButton(symbol: "plus", label: "New Terminal Tab") {
+                appState.selectWorktree(projectID: project.id, worktree: worktree)
+                appState.createTab(projectID: project.id)
+            }
+        }
+    }
+
+    private var shortcutBadge: Int? {
+        shortcutNumbers[worktree.id]
+    }
+
+    private var isRemoving: Bool {
+        worktreeStore.isRemoving(worktreeID: worktree.id)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            leafHeader
+            if isExpanded {
+                TabFocusedTabsList(
+                    project: project,
+                    worktree: worktree,
+                    shortcutNumbers: shortcutNumbers
+                )
+            }
+        }
+        .onChange(of: isActive) { _, active in
+            guard active, !isExpanded else { return }
+            withAnimation(.easeInOut(duration: 0.15)) {
+                expansionStore.set(worktree.id, expanded: true)
+            }
+        }
+    }
+
+    private var leafHeader: some View {
+        HStack(spacing: TabFocusedSidebarMetrics.iconTitleGap) {
+            leafIcon
+            if isRenaming {
+                renameField
+            } else {
+                Text(rowTitle)
+                    .font(.system(size: UIMetrics.fontHeadline, weight: .regular))
+                    .foregroundStyle(MuxyTheme.fg)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: UIMetrics.spacing2)
+            leafTrailing
+        }
+        .padding(.leading, UIMetrics.spacing6 * CGFloat(depth))
+        .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
+        .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
+        .background {
+            RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
+                .fill(leafBackground)
+        }
+        .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
+        .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
+        .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
+        .onHover { hovered = $0 }
+        .onTapGesture { toggle() }
+        .contextMenu { worktreeContextMenu }
+    }
+
+    private var leafBackground: AnyShapeStyle {
+        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        return AnyShapeStyle(Color.clear)
+    }
+
+    private func toggle() {
+        let shouldExpand = !isExpanded
+        withAnimation(.easeInOut(duration: 0.15)) {
+            expansionStore.set(worktree.id, expanded: shouldExpand)
+        }
+        if shouldExpand {
+            appState.selectWorktree(projectID: project.id, worktree: worktree)
+        }
+    }
+
+    @ViewBuilder
+    private var worktreeContextMenu: some View {
+        Button("New Terminal Tab") {
+            appState.selectProject(project, worktree: worktree)
+            appState.createTab(projectID: project.id)
+        }
+        Divider()
+        Button("Rename Worktree") { startRename() }
+        if worktree.canBeRemoved {
+            Divider()
+            Button("Remove Worktree", role: .destructive) {
+                Task { await requestRemoveWorktree() }
+            }
+        }
+    }
+
+    private func startRename() {
+        renameText = rowTitle
+        isRenaming = true
+        renameFieldFocused = true
+    }
+
+    private var renameField: some View {
+        TextField("", text: $renameText)
+            .font(.system(size: UIMetrics.fontHeadline, weight: .regular))
+            .foregroundStyle(MuxyTheme.fg)
+            .textFieldStyle(.plain)
+            .focused($renameFieldFocused)
+            .onAppear { renameText = rowTitle }
+            .onSubmit { commitRename() }
+            .onChange(of: renameFieldFocused) { _, focused in
+                if !focused { commitRename() }
+            }
+    }
+
+    private func commitRename() {
+        guard !renameText.isEmpty, renameText != rowTitle else {
+            isRenaming = false
+            return
+        }
+        worktreeStore.rename(worktreeID: worktree.id, in: project.id, to: renameText)
+        isRenaming = false
+    }
+
+    private func requestRemoveWorktree() async {
+        let context = projectGroupStore.workspaceContext(for: project)
+        worktreeStore.beginRemoval(
+            worktree: worktree,
+            projectID: project.id,
+            repoPath: project.path,
+            context: context
+        ) {
+            appState.removeWorktree(
+                projectID: project.id,
+                worktree: worktree,
+                replacement: worktreeStore.preferred(
+                    for: project.id,
+                    matching: appState.activeWorktreeID[project.id]
+                )
+            )
+        }
+    }
+}
