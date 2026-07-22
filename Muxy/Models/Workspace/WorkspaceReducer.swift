@@ -177,15 +177,6 @@ enum WorkspaceReducer {
                 state: &state
             )
 
-        case let .focusInternalPane(projectID, areaID, tabID, paneID):
-            TabReducer.focusInternalPane(
-                projectID: projectID,
-                areaID: areaID,
-                tabID: tabID,
-                paneID: paneID,
-                state: &state
-            )
-
         case let .splitAreaInWorktree(key, request):
             guard state.workspaceRoots[key] != nil else { break }
             effects.createdPaneID = SplitReducer.splitArea(request, key: key, state: &state)
@@ -238,6 +229,9 @@ enum WorkspaceReducer {
             } else {
                 FocusReducer.focusArea(projectID: projectID, areaID: areaID, state: &state)
             }
+
+        default:
+            break
         }
 
         return effects
