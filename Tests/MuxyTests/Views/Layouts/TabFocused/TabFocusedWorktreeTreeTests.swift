@@ -101,26 +101,61 @@ struct WorktreeSidebarDisplayTests {
     }
 }
 
-@Suite("TabFocusedSidebarRowItem")
-struct TabFocusedSidebarRowItemTests {
-    @Test("project row id and project match the project")
-    func projectRow() {
-        let project = Project(name: "app", path: "/projects/app")
-        let row = TabFocusedSidebarRowItem.project(project)
+@Suite("TabFocusedSidebarProjectSelection")
+struct TabFocusedSidebarProjectSelectionTests {
+    @Test("returns all projects when focus mode is off")
+    func focusModeOff() {
+        let a = Project(name: "a", path: "/a")
+        let b = Project(name: "b", path: "/b")
 
-        #expect(row.id == project.id)
-        #expect(row.project.id == project.id)
-        #expect(row.worktree == nil)
+        let result = TabFocusedSidebarProjectSelection.resolve(
+            projects: [a, b],
+            focusMode: false,
+            activeProjectID: a.id
+        )
+
+        #expect(result == [a, b])
     }
 
-    @Test("worktree row id and project are derived from the worktree and project")
-    func worktreeRow() {
-        let project = Project(name: "app", path: "/projects/app")
-        let worktree = Worktree(name: "feature-x", path: "/projects/app-feature-x", isPrimary: false)
-        let row = TabFocusedSidebarRowItem.worktree(project, worktree)
+    @Test("returns active project only when focus mode is on")
+    func focusModeOn() {
+        let a = Project(name: "a", path: "/a")
+        let b = Project(name: "b", path: "/b")
 
-        #expect(row.id == worktree.id)
-        #expect(row.project.id == project.id)
-        #expect(row.worktree?.id == worktree.id)
+        let result = TabFocusedSidebarProjectSelection.resolve(
+            projects: [a, b],
+            focusMode: true,
+            activeProjectID: b.id
+        )
+
+        #expect(result == [b])
+    }
+
+    @Test("returns all projects when focus mode on but no active project matches")
+    func focusModeOnNoMatch() {
+        let a = Project(name: "a", path: "/a")
+        let b = Project(name: "b", path: "/b")
+        let other = UUID()
+
+        let result = TabFocusedSidebarProjectSelection.resolve(
+            projects: [a, b],
+            focusMode: true,
+            activeProjectID: other
+        )
+
+        #expect(result == [a, b])
+    }
+
+    @Test("returns all projects when active project id is nil")
+    func nilActiveProject() {
+        let a = Project(name: "a", path: "/a")
+
+        let result = TabFocusedSidebarProjectSelection.resolve(
+            projects: [a],
+            focusMode: true,
+            activeProjectID: nil
+        )
+
+        #expect(result == [a])
     }
 }
