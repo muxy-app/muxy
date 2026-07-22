@@ -34,18 +34,22 @@ struct AppStateFocusInternalPaneTests {
         #expect(tab?.focusedPaneID == secondPaneID)
     }
 
-    @Test("focusInternalPane leaves focus unchanged when target is missing")
+    @Test("focusInternalPane leaves workspace unchanged when target is missing")
     func focusInternalPaneNoOpForMissingTarget() {
         let projectID = UUID()
         let worktreeID = UUID()
         let appState = makeAppState(projectID: projectID, worktreeID: worktreeID)
-        let otherProjectID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = appState.workspaceRoots[key]!.allAreas().first!
+        let tabID = area.activeTabID!
 
         appState.focusInternalPane(
-            projectID: otherProjectID, areaID: UUID(), tabID: UUID(), paneID: UUID()
+            projectID: UUID(), areaID: UUID(), tabID: UUID(), paneID: UUID()
         )
 
         #expect(appState.activeProjectID == projectID)
+        #expect(appState.focusedAreaID(for: projectID) == area.id)
+        #expect(area.activeTabID == tabID)
     }
 
     private func makeAppState(projectID: UUID, worktreeID: UUID) -> AppState {

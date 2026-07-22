@@ -896,7 +896,6 @@ final class AppState {
     }
 
     func focusInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID) {
-        activeProjectID = projectID
         dispatch(.focusInternalPane(projectID: projectID, areaID: areaID, tabID: tabID, paneID: paneID))
     }
 
