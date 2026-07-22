@@ -207,4 +207,22 @@ enum TabReducer {
             effects: &effects
         )
     }
+
+    static func focusInternalPane(
+        projectID: UUID,
+        areaID: UUID,
+        tabID: UUID,
+        paneID: UUID,
+        state: inout WorkspaceState
+    ) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state),
+              let tab = area.tabs.first(where: { $0.id == tabID })
+        else { return }
+
+        state.activeProjectID = projectID
+        FocusReducer.focusArea(area.id, key: key, state: &state)
+        area.selectTab(tabID)
+        tab.focusedPaneID = paneID
+    }
 }
