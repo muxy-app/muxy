@@ -6,6 +6,7 @@ private let settingsJSONLogger = Logger(subsystem: "app.muxy", category: "Settin
 @MainActor
 enum SettingsJSONStore {
     typealias QuickTerminalShortcutUpdater = @MainActor (QuickTerminalShortcut) throws -> Void
+    typealias QuickTerminalEnabledUpdater = @MainActor (Bool) -> Void
 
     private static var defaultsObserver: NSObjectProtocol?
     private static var isApplyingSettings = false
@@ -29,6 +30,9 @@ enum SettingsJSONStore {
         _ text: String,
         quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater = {
             try QuickTerminalShortcutService.shared.updateShortcut($0)
+        },
+        quickTerminalEnabledUpdater: QuickTerminalEnabledUpdater = {
+            QuickTerminalPreferences.setEnabled($0)
         }
     ) throws {
         let data = Data(text.utf8)
@@ -45,7 +49,11 @@ enum SettingsJSONStore {
                 ofItemAtPath: userSettingsURL.path
             )
             isApplyingSettings = true
-            try apply(settings, quickTerminalShortcutUpdater: quickTerminalShortcutUpdater)
+            try apply(
+                settings,
+                quickTerminalShortcutUpdater: quickTerminalShortcutUpdater,
+                quickTerminalEnabledUpdater: quickTerminalEnabledUpdater
+            )
             isApplyingSettings = false
         } catch {
             isApplyingSettings = false
@@ -198,20 +206,33 @@ enum SettingsJSONStore {
 
     private static func apply(
         _ dictionary: [String: Any],
-        quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater
+        quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater,
+        quickTerminalEnabledUpdater: QuickTerminalEnabledUpdater
     ) throws {
         if let quickTerminalShortcut = dictionary["shortcuts.quickTerminal"] {
             _ = try applySpecialSetting(
                 key: "shortcuts.quickTerminal",
                 value: quickTerminalShortcut,
-                quickTerminalShortcutUpdater: quickTerminalShortcutUpdater
+                quickTerminalShortcutUpdater: quickTerminalShortcutUpdater,
+                quickTerminalEnabledUpdater: quickTerminalEnabledUpdater
             )
         }
-        for (key, value) in dictionary where key != "shortcuts.quickTerminal" {
+        if let enabled = dictionary[QuickTerminalPreferences.enabledKey] as? Bool {
+            _ = try applySpecialSetting(
+                key: QuickTerminalPreferences.enabledKey,
+                value: enabled,
+                quickTerminalShortcutUpdater: quickTerminalShortcutUpdater,
+                quickTerminalEnabledUpdater: quickTerminalEnabledUpdater
+            )
+        }
+        for (key, value) in dictionary where key != "shortcuts.quickTerminal"
+            && key != QuickTerminalPreferences.enabledKey
+        {
             if try applySpecialSetting(
                 key: key,
                 value: value,
-                quickTerminalShortcutUpdater: quickTerminalShortcutUpdater
+                quickTerminalShortcutUpdater: quickTerminalShortcutUpdater,
+                quickTerminalEnabledUpdater: quickTerminalEnabledUpdater
             ) {
                 continue
             }
@@ -418,9 +439,13 @@ enum SettingsJSONStore {
     private static func applySpecialSetting(
         key: String,
         value: Any,
-        quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater
+        quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater,
+        quickTerminalEnabledUpdater: QuickTerminalEnabledUpdater
     ) throws -> Bool {
         switch key {
+        case QuickTerminalPreferences.enabledKey:
+            guard let enabled = value as? Bool else { return true }
+            quickTerminalEnabledUpdater(enabled)
         case SentryConsent.storageKey:
             guard let rawValue = value as? String else { return false }
             if rawValue.isEmpty {

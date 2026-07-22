@@ -11,7 +11,6 @@ final class QuickTerminalController: NSObject {
     private static let hideDuration: TimeInterval = 0.18
 
     private let session: QuickTerminalSession
-    private let hoverController: QuickTerminalHoverController
     private let shortcutLabelProvider: ShortcutLabelProvider
     private let settingsHandler: SettingsHandler
     private let shortcutService: QuickTerminalShortcutService
@@ -34,7 +33,6 @@ final class QuickTerminalController: NSObject {
         onOpenSettings: @escaping SettingsHandler,
         shortcutService: QuickTerminalShortcutService = .shared,
         session: QuickTerminalSession = QuickTerminalSession(),
-        hoverController: QuickTerminalHoverController = QuickTerminalHoverController(),
         screenProvider: @escaping @MainActor () -> NSScreen? = { QuickTerminalScreenResolver.activeScreen() },
         sizeProvider: @escaping SizeProvider = { QuickTerminalSizePreferences.size() },
         appearanceProvider: @escaping AppearanceProvider = { QuickTerminalAppearancePreferences.appearance() },
@@ -52,7 +50,6 @@ final class QuickTerminalController: NSObject {
         settingsHandler = onOpenSettings
         self.shortcutService = shortcutService
         self.session = session
-        self.hoverController = hoverController
         self.screenProvider = screenProvider
         self.sizeProvider = sizeProvider
         self.appearanceProvider = appearanceProvider
@@ -64,8 +61,8 @@ final class QuickTerminalController: NSObject {
         session.onProcessExit = { [weak self] in
             self?.handleProcessExit()
         }
-        hoverController.onOpenRequested = { [weak self] in
-            self?.show()
+        shortcutService.onTrigger = { [weak self] in
+            self?.handleShortcutTrigger()
         }
         notificationCenter.addObserver(
             self,
@@ -104,32 +101,42 @@ final class QuickTerminalController: NSObject {
 
     var isVisible: Bool { presentation.targetIsVisible }
 
-    func toggle() {
+    private func handleShortcutTrigger() {
         setVisible(!presentation.targetIsVisible, restoresFocus: true)
     }
 
-    func show() {
-        setVisible(true, restoresFocus: true)
-    }
-
-    func hide() {
+    private func hide() {
         setVisible(false, restoresFocus: true)
     }
 
-    func startHoverZones() {
-        hoverController.start()
+    func applicationWillTerminate() {
+        stop(restoresFocus: false)
     }
 
-    func applicationWillTerminate() {
+    func stop(restoresFocus: Bool) {
         guard !isTerminated else { return }
         isTerminated = true
         completionWorkItem?.cancel()
         completionWorkItem = nil
-        hoverController.tearDown()
+        let shouldRestoreFocus = QuickTerminalFocusRestorationPolicy.shouldRestore(
+            requested: restoresFocus,
+            panelIsKey: panel?.isKeyWindow == true
+        )
+        session.markVisible(false)
+        contentView?.hideConfigurationOverlays()
         panel?.orderOut(nil)
-        session.terminate()
+        if shouldRestoreFocus {
+            focusSnapshot?.restore()
+        }
         contentView?.clearTerminal(status: "Closed")
+        session.terminate()
+        panel?.onKeyDown = nil
+        panel?.contentView = nil
+        panel?.close()
+        panel = nil
+        contentView = nil
         focusSnapshot = nil
+        presentation = QuickTerminalPresentationState()
     }
 
     private func setVisible(_ visible: Bool, restoresFocus: Bool) {
@@ -169,7 +176,6 @@ final class QuickTerminalController: NSObject {
         applyCurrentAppearance()
         contentView?.setShortcutLabel(shortcutLabelProvider())
         session.markVisible(true)
-        hoverController.notifyOpened()
 
         let duration = reduceMotionProvider() ? 0 : Self.showDuration
         if !panel.isVisible {
@@ -198,7 +204,6 @@ final class QuickTerminalController: NSObject {
                 self.focusSnapshot?.restore()
             }
             self.focusSnapshot = nil
-            self.hoverController.notifyClosed()
         }
     }
 
@@ -347,7 +352,6 @@ final class QuickTerminalController: NSObject {
 
     @objc
     private func handleScreenParametersDidChange() {
-        hoverController.refreshForScreenChange()
         guard presentation.targetIsVisible else { return }
         applyPreferredSize()
     }

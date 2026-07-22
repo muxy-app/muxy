@@ -19,6 +19,7 @@ extension Notification.Name {
     static let focusRemoteDevicesSettings = Notification.Name("MuxyFocusRemoteDevicesSettings")
     static let focusBrowserSettings = Notification.Name("MuxyFocusBrowserSettings")
     static let focusQuickTerminalShortcut = Notification.Name("MuxyFocusQuickTerminalShortcut")
+    static let quickTerminalEnabledDidChange = Notification.Name("MuxyQuickTerminalEnabledDidChange")
     static let windowFullScreenDidChange = Notification.Name("MuxyWindowFullScreenDidChange")
     static let toggleSidebar = Notification.Name("MuxyToggleSidebar")
     static let toggleAppLayout = Notification.Name("MuxyToggleAppLayout")

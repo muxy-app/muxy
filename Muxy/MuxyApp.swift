@@ -235,6 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var extensionsObserver: NSObjectProtocol?
     private var whatsNewObserver: NSObjectProtocol?
     private var modalThemeObserver: NSObjectProtocol?
+    private var quickTerminalEnabledObserver: NSObjectProtocol?
     private var quickTerminalController: QuickTerminalController?
     private weak var settingsWindow: NSWindow?
     private weak var extensionsWindow: NSWindow?
@@ -393,6 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
         ModifierKeyMonitor.shared.start()
+        observeQuickTerminalEnabledChanges()
         startQuickTerminal()
         DesktopNotificationService.shared.prepare()
         NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
@@ -413,6 +415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @MainActor
     private func startQuickTerminal() {
+        guard QuickTerminalPreferences.isEnabled(), quickTerminalController == nil else { return }
         QuickTerminalAppearancePreferences.migrateLegacyBlur()
         let shortcutService = QuickTerminalShortcutService.shared
         let controller = QuickTerminalController(
@@ -422,20 +425,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 NotificationCenter.default.post(name: .openSettingsModal, object: nil)
             }
         )
-        shortcutService.onTrigger = { [weak controller] in
-            controller?.toggle()
-        }
         do {
             try shortcutService.start()
         } catch {
             quickTerminalLogger.error("Failed to start the shortcut listener: \(error.localizedDescription)")
         }
-        controller.startHoverZones()
         quickTerminalController = controller
     }
 
     @MainActor
+    private func stopQuickTerminal(restoresFocus: Bool) {
+        QuickTerminalShortcutService.shared.stop()
+        quickTerminalController?.stop(restoresFocus: restoresFocus)
+        quickTerminalController = nil
+    }
+
+    @MainActor
+    private func observeQuickTerminalEnabledChanges() {
+        quickTerminalEnabledObserver = NotificationCenter.default.addObserver(
+            forName: .quickTerminalEnabledDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if QuickTerminalPreferences.isEnabled() {
+                    self.startQuickTerminal()
+                } else {
+                    self.stopQuickTerminal(restoresFocus: true)
+                }
+            }
+        }
+    }
+
+    @MainActor
     func applicationDidBecomeActive(_ notification: Notification) {
+        guard QuickTerminalPreferences.isEnabled() else { return }
         do {
             try QuickTerminalShortcutService.shared.refreshKeyboardLayout()
         } catch {
@@ -506,9 +531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        QuickTerminalShortcutService.shared.stop()
-        quickTerminalController?.applicationWillTerminate()
-        quickTerminalController = nil
+        stopQuickTerminal(restoresFocus: false)
         if let observer = systemAppearanceObserver {
             DistributedNotificationCenter.default().removeObserver(observer)
             systemAppearanceObserver = nil
@@ -528,6 +551,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let modalThemeObserver {
             NotificationCenter.default.removeObserver(modalThemeObserver)
             self.modalThemeObserver = nil
+        }
+        if let quickTerminalEnabledObserver {
+            NotificationCenter.default.removeObserver(quickTerminalEnabledObserver)
+            self.quickTerminalEnabledObserver = nil
         }
         persistUserStateForTermination()
         NotificationStore.shared.saveToDisk()

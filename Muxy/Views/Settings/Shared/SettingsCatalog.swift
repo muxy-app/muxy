@@ -454,6 +454,15 @@ enum SettingsCatalog {
             aliases: ["keybindings", "hotkeys"]
         ),
         SettingsCatalogItem(
+            key: QuickTerminalPreferences.enabledKey,
+            title: "Enable Quick Terminal",
+            description: "Controls whether the Quick Terminal shortcut listener and shell can run.",
+            category: .quickTerminal,
+            section: "General",
+            defaultValue: QuickTerminalPreferences.defaultIsEnabled,
+            aliases: ["disable", "off", "global terminal"]
+        ),
+        SettingsCatalogItem(
             key: "shortcuts.quickTerminal",
             title: "Quick Terminal",
             description: "Configures the system-wide shortcut for the quick terminal.",

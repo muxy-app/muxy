@@ -3,6 +3,8 @@ import SwiftUI
 struct QuickTerminalSettingsView: View {
     @State private var isRecordingShortcut = false
     @State private var shortcutError: String?
+    @AppStorage(QuickTerminalPreferences.enabledKey)
+    private var quickTerminalEnabled = QuickTerminalPreferences.defaultIsEnabled
     @AppStorage(QuickTerminalSizePreferences.widthKey)
     private var width = QuickTerminalSizePreferences.defaultWidth
     @AppStorage(QuickTerminalSizePreferences.heightKey)
@@ -16,6 +18,16 @@ struct QuickTerminalSettingsView: View {
 
     var body: some View {
         SettingsContainer {
+            SettingsSection(
+                "General",
+                footer: quickTerminalEnabled ? nil : Self.disabledFooter
+            ) {
+                SettingsToggleRow(
+                    label: "Enable Quick Terminal",
+                    isOn: enabledBinding
+                )
+            }
+
             SettingsSection("Shortcut") {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
@@ -187,6 +199,18 @@ struct QuickTerminalSettingsView: View {
         }
     }
 
+    private static let disabledFooter = """
+    The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance \
+    settings are preserved.
+    """
+
+    private var enabledBinding: Binding<Bool> {
+        Binding(
+            get: { quickTerminalEnabled },
+            set: { QuickTerminalPreferences.setEnabled($0) }
+        )
+    }
+
     private var customShortcutTitle: String {
         guard case .keyCombo = shortcutService.shortcut else { return "Record Custom…" }
         return shortcutService.shortcut.displayString
@@ -234,6 +258,7 @@ struct QuickTerminalSettingsView: View {
     }
 
     private var statusText: String {
+        guard quickTerminalEnabled else { return "Disabled" }
         guard shortcutService.shortcut != .unassigned else { return "No shortcut assigned" }
         return switch shortcutService.monitoringState {
         case .systemWide,
@@ -247,6 +272,7 @@ struct QuickTerminalSettingsView: View {
     }
 
     private var statusColor: Color {
+        guard quickTerminalEnabled else { return SettingsStyle.mutedForeground }
         guard shortcutService.shortcut != .unassigned else { return SettingsStyle.mutedForeground }
         return switch shortcutService.monitoringState {
         case .systemWide,

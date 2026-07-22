@@ -42,8 +42,4 @@ extension QuickTerminalCutoutGeometry {
             rightAuxiliaryWidth: screen.auxiliaryTopRightArea?.width
         )
     }
-
-    static func firstScreenWithTopInset(_ screens: [NSScreen] = NSScreen.screens) -> NSScreen? {
-        screens.first { cutoutRect(for: $0) != nil }
-    }
 }

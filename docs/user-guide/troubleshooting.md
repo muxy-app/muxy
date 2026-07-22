@@ -24,16 +24,11 @@ log show --predicate 'subsystem == "app.muxy"' --last 10m --info --debug
 
 ## Double Shift doesn't open the quick terminal
 
+- Open **Settings → Quick Terminal** and make sure **Enable Quick Terminal** is on.
 - Open **Settings → Quick Terminal** and check the Input Monitoring status.
 - Enable Muxy under **System Settings → Privacy & Security → Input Monitoring**, then bring Muxy to the foreground so it can retry the listener.
 - If access remains unavailable, assign a conventional global shortcut such as Option Space. Conventional shortcuts do not require Input Monitoring.
 - Double Shift is intentionally ignored while another key or modifier is involved, which prevents normal capital-letter typing from opening the terminal.
-
-## Hovering the cutout doesn't open the terminal
-
-- Hover-to-open works only on a display with a camera cutout. On other displays use the shortcut.
-- Rest the pointer over the cutout for a moment; a short dwell delay prevents accidental opens when reaching for the menu bar.
-- The terminal closes only from the shortcut or the close button, so once open it stays until you dismiss it that way.
 
 ## The quick terminal is not transparent or blurred
 

@@ -281,6 +281,59 @@ struct QuickTerminalShortcutServiceTests {
         #expect(persistence.shortcut == expected)
     }
 
+    @Test("shortcut changes while stopped persist without restarting monitoring")
+    func stoppedShortcutChangesWaitForStart() throws {
+        let persistence = ServiceShortcutPersistence(shortcut: .doubleShift)
+        let store = makeStore(persistence: persistence)
+        let doubleShift = TestShortcutBackend(state: .localOnly)
+        let carbon = TestShortcutBackend(state: .carbonHotKey)
+        let service = makeService(
+            store: store,
+            doubleShiftBackend: doubleShift,
+            carbonHotKeyBackend: carbon
+        )
+        let replacement = QuickTerminalShortcut.keyCombo(
+            KeyCombo(key: "space", command: true),
+            virtualKeyCode: 49
+        )
+        try service.start()
+        service.stop()
+
+        try service.updateShortcut(.doubleShift)
+        try service.updateShortcut(replacement)
+
+        #expect(doubleShift.startCount == 1)
+        #expect(doubleShift.stopCount == 1)
+        #expect(carbon.startCount == 0)
+        #expect(service.monitoringState == .stopped)
+        #expect(persistence.shortcut == replacement)
+
+        try service.start()
+
+        #expect(carbon.startCount == 1)
+        #expect(service.monitoringState == .carbonHotKey)
+    }
+
+    @Test("stopped monitoring never requests Input Monitoring access")
+    func stoppedMonitoringDoesNotRequestAccess() throws {
+        let store = makeStore(persistence: ServiceShortcutPersistence(shortcut: .doubleShift))
+        let backend = TestShortcutBackend(state: .localOnly)
+        var requestCount = 0
+        let service = makeService(
+            store: store,
+            doubleShiftBackend: backend,
+            requestAccess: {
+                requestCount += 1
+                return true
+            }
+        )
+        try service.start()
+        service.stop()
+
+        #expect(!service.requestInputMonitoringAccess())
+        #expect(requestCount == 0)
+    }
+
     @Test("service deinitialization stops its active backend")
     func serviceDeinitializationStopsBackend() throws {
         let store = makeStore(persistence: ServiceShortcutPersistence(shortcut: .doubleShift))
