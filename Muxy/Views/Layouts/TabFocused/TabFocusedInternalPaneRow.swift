@@ -9,9 +9,24 @@ struct TabFocusedInternalPaneRow: View {
     let onFocus: () -> Void
 
     @Environment(AppState.self) private var appState
+    @State private var hovered = false
+
+    private var hasSplitPanes: Bool {
+        tab.internalPanes?.allPanes().count ?? 0 > 1
+    }
+
+    private var leadingIndent: CGFloat {
+        TabFocusedSidebarMetrics.tabContentLeadingInset
+            + UIMetrics.iconMD
+            + UIMetrics.spacing3
+            - UIMetrics.iconSM
+            - UIMetrics.spacing2
+            + (hasSplitPanes ? UIMetrics.iconSM : 0)
+    }
 
     private var rowBackground: AnyShapeStyle {
         if active { return AnyShapeStyle(MuxyTheme.surface) }
+        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(Color.clear)
     }
 
@@ -30,7 +45,7 @@ struct TabFocusedInternalPaneRow: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.leading, TabFocusedSidebarMetrics.tabContentLeadingInset + UIMetrics.spacing3)
+        .padding(.leading, leadingIndent)
         .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
         .frame(minHeight: TabFocusedSidebarMetrics.rowHeight - 4)
         .background {
@@ -40,6 +55,7 @@ struct TabFocusedInternalPaneRow: View {
         .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
         .padding(.vertical, UIMetrics.spacing1)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
+        .onHover { hovered = $0 }
         .onTapGesture { onFocus() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Pane: \(pane.title)")
