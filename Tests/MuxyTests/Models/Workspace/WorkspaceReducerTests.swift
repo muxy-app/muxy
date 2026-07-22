@@ -260,6 +260,41 @@ struct WorkspaceReducerTests {
         #expect(!effects.paneIDsToRemove.isEmpty)
     }
 
+    @Test("closeTab with internal panes closes focused internal pane instead of tab")
+    func closeTabWithInternalPanes() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let area = state.workspaceRoots[key]!.findArea(id: areaID)!
+        let tabID = area.tabs[0].id
+
+        let splitEffects = WorkspaceReducer.reduce(
+            action: .splitTabPane(projectID: projectID, areaID: areaID, tabID: tabID, direction: .horizontal),
+            state: &state
+        )
+        let newPaneID = splitEffects.createdPaneID
+        #expect(newPaneID != nil)
+        #expect(area.tabs[0].internalPanes != nil)
+
+        let effects = WorkspaceReducer.reduce(
+            action: .closeTab(projectID: projectID, areaID: areaID, tabID: tabID),
+            state: &state
+        )
+
+        #expect(area.tabs.count == 1)
+        #expect(area.tabs[0].internalPanes == nil)
+        #expect(effects.paneIDsToRemove.contains(newPaneID!))
+
+        let finalEffects = WorkspaceReducer.reduce(
+            action: .closeTab(projectID: projectID, areaID: areaID, tabID: tabID),
+            state: &state
+        )
+        #expect(area.tabs.isEmpty)
+        #expect(!finalEffects.paneIDsToRemove.isEmpty)
+    }
+
     @Test("closeTab last tab in multi-area closes area instead")
     func closeTabLastInMultiArea() {
         let projectID = UUID()

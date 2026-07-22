@@ -170,6 +170,24 @@ enum TabReducer {
               let area = root.findArea(id: areaID)
         else { return }
 
+        if let tab = area.tabs.first(where: { $0.id == tabID }),
+           let internalPanes = tab.internalPanes,
+           internalPanes.allPanes().count > 1,
+           let focusedPaneID = tab.focusedPaneID
+        {
+            let removedPaneID = TabPaneReducer.closeInternalPane(
+                projectID: key.projectID,
+                areaID: areaID,
+                tabID: tabID,
+                paneID: focusedPaneID,
+                state: &state
+            )
+            if let removedPaneID {
+                effects.paneIDsToRemove.append(removedPaneID)
+            }
+            return
+        }
+
         let areaCount = root.allAreas().count
         if area.tabs.count <= 1, areaCount > 1 {
             SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
