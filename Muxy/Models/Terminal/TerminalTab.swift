@@ -51,6 +51,8 @@ final class TerminalTab: Identifiable {
     var colorID: String?
     var customIcon: String?
     var isPinned: Bool = false
+    var internalPanes: InternalPaneNode?
+    var focusedPaneID: UUID?
     let content: Content
 
     var kind: Kind { content.kind }
