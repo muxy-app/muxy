@@ -265,6 +265,7 @@ private struct TabFocusedTabRow: View {
     @State private var completionFlashOn = false
     @State private var flashTask: Task<Void, any Error>?
     @FocusState private var renameFieldFocused: Bool
+    @State private var isPaneTreeExpanded = false
 
     private var tabColor: Color? {
         ProjectIconColor.color(for: tab.colorID)
@@ -312,8 +313,24 @@ private struct TabFocusedTabRow: View {
         return hovered
     }
 
-    var body: some View {
+    private var paneTree: [TerminalPaneState] {
+        tab.internalPanes?.allPanes() ?? []
+    }
+
+    private var hasSplitPanes: Bool {
+        paneTree.count > 1
+    }
+
+    private var tabRowContent: some View {
         HStack(spacing: UIMetrics.spacing3) {
+            if hasSplitPanes {
+                Image(systemName: isPaneTreeExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+                    .animation(.easeInOut(duration: 0.15), value: isPaneTreeExpanded)
+            }
+
             leadingIcon
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
@@ -343,7 +360,11 @@ private struct TabFocusedTabRow: View {
 
             trailingAccessory
         }
-        .padding(.leading, TabFocusedSidebarMetrics.tabContentLeadingInset)
+        .padding(
+            .leading,
+            hasSplitPanes ? TabFocusedSidebarMetrics.tabContentLeadingInset - UIMetrics.spacing3 : TabFocusedSidebarMetrics
+                .tabContentLeadingInset
+        )
         .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
         .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
         .background {
@@ -370,7 +391,6 @@ private struct TabFocusedTabRow: View {
         .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
-        .onTapGesture { select() }
         .onChange(of: hasCompletionPending) { _, pending in
             guard pending else { return }
             triggerCompletionFlash()
@@ -400,6 +420,42 @@ private struct TabFocusedTabRow: View {
         .onReceive(NotificationCenter.default.publisher(for: .renameActiveTab)) { _ in
             guard active else { return }
             startRename()
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            tabRowContent
+                .onTapGesture {
+                    guard hasSplitPanes else {
+                        select()
+                        return
+                    }
+                    if isPaneTreeExpanded {
+                        isPaneTreeExpanded = false
+                    } else {
+                        isPaneTreeExpanded = true
+                        focusFirstPane()
+                    }
+                }
+            if isPaneTreeExpanded {
+                ForEach(paneTree) { pane in
+                    TabFocusedInternalPaneRow(
+                        project: project,
+                        area: area,
+                        tab: tab,
+                        pane: pane,
+                        active: active && tab.focusedPaneID == pane.id
+                    ) {
+                        appState.focusInternalPane(
+                            projectID: projectID,
+                            areaID: area.id,
+                            tabID: tab.id,
+                            paneID: pane.id
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -619,5 +675,15 @@ private struct TabFocusedTabRow: View {
 
     private func cancelRename() {
         isRenaming = false
+    }
+
+    private func focusFirstPane() {
+        guard let firstPane = paneTree.first else { return }
+        appState.focusInternalPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tab.id,
+            paneID: firstPane.id
+        )
     }
 }
