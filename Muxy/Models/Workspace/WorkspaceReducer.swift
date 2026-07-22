@@ -168,6 +168,15 @@ enum WorkspaceReducer {
         case let .splitArea(request):
             effects.createdPaneID = SplitReducer.splitArea(request, state: &state)
 
+        case let .splitTabPane(projectID, areaID, tabID, direction):
+            effects.createdPaneID = TabPaneReducer.splitTabPane(
+                projectID: projectID,
+                areaID: areaID,
+                tabID: tabID,
+                direction: direction,
+                state: &state
+            )
+
         case let .splitAreaInWorktree(key, request):
             guard state.workspaceRoots[key] != nil else { break }
             effects.createdPaneID = SplitReducer.splitArea(request, key: key, state: &state)

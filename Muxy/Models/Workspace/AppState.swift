@@ -52,6 +52,7 @@ final class AppState {
         case selectPreviousTabInWorktree(key: WorktreeKey)
         case splitArea(SplitAreaRequest)
         case splitAreaInWorktree(key: WorktreeKey, request: SplitAreaRequest)
+        case splitTabPane(projectID: UUID, areaID: UUID, tabID: UUID, direction: SplitDirection)
         case closeArea(projectID: UUID, areaID: UUID)
         case focusArea(projectID: UUID, areaID: UUID)
         case focusPaneLeft(projectID: UUID)
