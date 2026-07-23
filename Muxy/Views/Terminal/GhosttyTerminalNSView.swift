@@ -1756,6 +1756,12 @@ final class GhosttyTerminalNSView: NSView {
         return String(bytes: bytes, encoding: .utf8)
     }
 
+    func currentProcessName() -> String? {
+        guard let surface else { return nil }
+        let foregroundPID = ghostty_surface_foreground_pid(surface)
+        return ForegroundProcessInspector.executableNameCandidates(pid: foregroundPID).first
+    }
+
     private func startAgentDetection() {
         if agentExecutables.isEmpty {
             agentExecutables = DetectedAgentStore.executablesSnapshot(from: AIProviderRegistry.shared)

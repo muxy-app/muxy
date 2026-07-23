@@ -58,6 +58,7 @@ final class AppState {
         case splitAreaInWorktree(key: WorktreeKey, request: SplitAreaRequest)
         case splitTabPane(projectID: UUID, areaID: UUID, tabID: UUID, direction: SplitDirection)
         case focusInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID)
+        case closeInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID)
         case closeArea(projectID: UUID, areaID: UUID)
         case closeAreaInWorktree(key: WorktreeKey, areaID: UUID)
         case focusArea(projectID: UUID, areaID: UUID)
@@ -1098,6 +1099,10 @@ final class AppState {
 
     func moveFocusedPaneDown(projectID: UUID) {
         dispatch(.movePaneDown(projectID: projectID))
+    }
+
+    func closeInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID) {
+        dispatch(.closeInternalPane(projectID: projectID, areaID: areaID, tabID: tabID, paneID: paneID))
     }
 
     func cycleNextTabAcrossPanes(projectID: UUID) {

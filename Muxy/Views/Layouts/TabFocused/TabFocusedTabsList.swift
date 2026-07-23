@@ -453,6 +453,13 @@ private struct TabFocusedTabRow: View {
                             tabID: tab.id,
                             paneID: pane.id
                         )
+                    } onClose: {
+                        appState.closeInternalPane(
+                            projectID: projectID,
+                            areaID: area.id,
+                            tabID: tab.id,
+                            paneID: pane.id
+                        )
                     }
                 }
             }

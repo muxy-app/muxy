@@ -34,8 +34,62 @@ struct AppStateFocusInternalPaneTests {
         #expect(tab?.focusedPaneID == secondPaneID)
     }
 
-    @Test("focusInternalPane leaves workspace unchanged when target is missing")
-    func focusInternalPaneNoOpForMissingTarget() {
+    private func makeAppState(projectID: UUID, worktreeID: UUID) -> AppState {
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = TabArea(projectPath: testPath)
+        appState.activeProjectID = projectID
+        appState.activeWorktreeID[projectID] = worktreeID
+        appState.workspaceRoots[key] = .tabArea(area)
+        appState.focusedAreaID[key] = area.id
+        return appState
+    }
+}
+
+@Suite("AppState.closeInternalPane")
+@MainActor
+struct AppStateCloseInternalPaneTests {
+    private let testPath = "/tmp/test"
+
+    @Test("closeInternalPane removes pane and clears splits when two panes remain")
+    func closeInternalPaneRemovesPane() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = TabArea(projectPath: testPath)
+        appState.activeProjectID = projectID
+        appState.activeWorktreeID[projectID] = worktreeID
+        appState.workspaceRoots[key] = .tabArea(area)
+        appState.focusedAreaID[key] = area.id
+
+        let tabID = area.activeTabID!
+        appState.dispatch(.splitTabPane(
+            projectID: projectID, areaID: area.id, tabID: tabID, direction: .horizontal
+        ))
+
+        let tab = area.tabs.first { $0.id == tabID }
+        let paneID = tab?.internalPanes?.allPanes().first?.id
+
+        appState.closeInternalPane(
+            projectID: projectID, areaID: area.id, tabID: tabID, paneID: paneID!
+        )
+
+        let updatedTab = area.tabs.first { $0.id == tabID }
+        #expect(updatedTab?.internalPanes == nil)
+        #expect(updatedTab?.focusedPaneID == nil)
+    }
+
+    @Test("closeInternalPane no-op when target missing")
+    func closeInternalPaneNoOpForMissingTarget() {
         let projectID = UUID()
         let worktreeID = UUID()
         let appState = makeAppState(projectID: projectID, worktreeID: worktreeID)
@@ -43,7 +97,7 @@ struct AppStateFocusInternalPaneTests {
         let area = appState.workspaceRoots[key]!.allAreas().first!
         let tabID = area.activeTabID!
 
-        appState.focusInternalPane(
+        appState.closeInternalPane(
             projectID: UUID(), areaID: UUID(), tabID: UUID(), paneID: UUID()
         )
 

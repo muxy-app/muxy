@@ -216,6 +216,17 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .closeInternalPane(projectID, areaID, tabID, paneID):
+            if let removedPaneID = TabPaneReducer.closeInternalPane(
+                projectID: projectID,
+                areaID: areaID,
+                tabID: tabID,
+                paneID: paneID,
+                state: &state
+            ) {
+                effects.paneIDsToRemove.append(removedPaneID)
+            }
+
         case let .splitAreaInWorktree(key, request):
             guard state.workspaceRoots[key] != nil else { break }
             effects.createdPaneID = SplitReducer.splitArea(request, key: key, state: &state)
