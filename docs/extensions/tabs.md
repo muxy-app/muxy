@@ -34,6 +34,8 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
 
 The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
 
+Split-child tabs belong to their owning top-level tab. Closing that parent closes every child it owns, including pinned children. If a parent or child page registers [`muxy.lifecycle.onBeforeClose`](lifecycle.md), Muxy asks all participating surfaces in parallel; any veto cancels the entire hierarchy close.
+
 ## File openers
 
 A tab type can register as a **file opener** so the user can select it in Settings. When selected, Muxy routes terminal file links into a tab of that type instead of an external editor. Declare openers under the `fileOpeners` manifest array:
