@@ -3,6 +3,7 @@ import SwiftUI
 struct TabAreaView: View {
     let area: TabArea
     let tab: TerminalTab
+    let topLevelGroupID: UUID
     let isFocused: Bool
     let isActiveProject: Bool
     let projectID: UUID
@@ -11,11 +12,22 @@ struct TabAreaView: View {
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @Environment(AppState.self) private var appState
+    @Environment(\.activeWorktreeKey) private var worktreeKey
     @State private var isExternalDragHovering = false
     @State private var externalDragHideTask: Task<Void, any Error>?
     @State private var isCommandDragging = false
 
     private static let externalDragHideDebounce: Duration = .milliseconds(80)
+
+    private var ownsActivePaneDrag: Bool {
+        guard let drag = dragCoordinator.activeDrag,
+              !drag.isTopLevel,
+              let worktreeKey,
+              let root = appState.workspaceRoots[worktreeKey],
+              let draggedTab = root.locateTab(id: drag.tabID)?.tab
+        else { return false }
+        return (draggedTab.parentTabID ?? draggedTab.id) == (tab.parentTabID ?? tab.id)
+    }
 
     var body: some View {
         TabContentView(
@@ -24,6 +36,7 @@ struct TabAreaView: View {
             focused: isFocused && isActiveProject,
             visible: isActiveProject,
             areaID: area.id,
+            topLevelGroupID: topLevelGroupID,
             onFocus: onFocus,
             onProcessExit: onForceCloseTab,
             onSplitRequest: { direction, position in
@@ -36,7 +49,8 @@ struct TabAreaView: View {
             }
         )
         .overlay {
-            if dragCoordinator.activeDrag != nil, dragCoordinator.hoveredAreaID == area.id,
+            if ownsActivePaneDrag,
+               dragCoordinator.hoveredAreaID == area.id,
                let zone = dragCoordinator.hoveredZone
             {
                 DropZoneHighlight(zone: zone)
@@ -68,7 +82,7 @@ struct TabAreaView: View {
             }
         }
         .background {
-            if dragCoordinator.activeDrag != nil {
+            if ownsActivePaneDrag {
                 GeometryReader { geo in
                     Color.clear.preference(
                         key: AreaFramePreferenceKey.self,
@@ -141,6 +155,7 @@ private struct TabContentView: View {
     let focused: Bool
     let visible: Bool
     let areaID: UUID
+    let topLevelGroupID: UUID
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -154,6 +169,7 @@ private struct TabContentView: View {
                 focused: focused,
                 visible: visible,
                 areaID: areaID,
+                topLevelGroupID: topLevelGroupID,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
@@ -162,7 +178,12 @@ private struct TabContentView: View {
             ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)
         case let .browser(browserState):
             if browserEnabled {
-                BrowserPane(state: browserState, focused: focused, onFocus: onFocus)
+                BrowserPane(
+                    state: browserState,
+                    focused: focused,
+                    topLevelGroupID: topLevelGroupID,
+                    onFocus: onFocus
+                )
             } else {
                 BrowserDisabledPlaceholder()
                     .contentShape(Rectangle())

@@ -30,8 +30,9 @@ struct PaneTabStrip: View {
     var showDevelopmentBadge = false
     var openProjectPath: String?
     let projectID: UUID
-    var shortcutIndexOffset: Int = 0
+    var shortcutIndicesByTabID: [UUID: Int]?
     var allowsSplitDrag = true
+    var topLevelGroupID: UUID?
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
     var onOpenBrowser: (() -> Void)?
@@ -161,7 +162,7 @@ struct PaneTabStrip: View {
 
         return HStack(spacing: 0) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
-                let globalIndex = shortcutIndexOffset + index
+                let globalIndex = shortcutIndicesByTabID?[tab.id] ?? index
                 TabCell(
                     tab: tab,
                     active: tab.id == activeTabID,
@@ -265,7 +266,15 @@ struct PaneTabStrip: View {
 
         if allowsSplitDrag, abs(dy) > 24, !tab.isPinned {
             dragState.isInSplitMode = true
-            dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: areaID, projectID: projectID)
+            if let topLevelGroupID {
+                dragCoordinator.beginTopLevelDrag(
+                    tabID: tab.id,
+                    sourceGroupID: topLevelGroupID,
+                    projectID: projectID
+                )
+            } else {
+                dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: areaID, projectID: projectID)
+            }
             dragCoordinator.updatePosition(globalLocation)
             return
         }

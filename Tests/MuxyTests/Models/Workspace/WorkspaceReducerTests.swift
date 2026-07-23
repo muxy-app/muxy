@@ -1196,6 +1196,635 @@ struct WorkspaceReducerTests {
         #expect(state.workspaceRoots[key]!.findArea(id: otherRootArea.id)?.tabs.contains { $0.id == otherRootID } == true)
     }
 
+    @Test("docking a top-level tab preserves both parent child layouts")
+    func dockingTopLevelTabPreservesChildLayouts() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let rootAreaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: rootAreaID)!.activeTabID!
+        let createEffects = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: rootAreaID),
+            state: &state
+        )
+        let secondTabID = createEffects.createdTabID!
+
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: rootAreaID, tabID: firstTabID),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(.init(
+                projectID: projectID,
+                areaID: rootAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: rootAreaID, tabID: secondTabID),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(.init(
+                projectID: projectID,
+                areaID: rootAreaID,
+                direction: .vertical,
+                position: .second
+            )),
+            state: &state
+        )
+
+        let root = state.workspaceRoots[key]!
+        let tabOwnershipBefore = Dictionary(uniqueKeysWithValues: root.allTabs().map { ($0.id, $0.parentTabID) })
+        let paneIDsBefore = Set(root.allTabs().compactMap { $0.content.pane?.id })
+        let firstPaneIDsBefore = Set(
+            root.visibleLayout(forTopLevelTabID: firstTabID)?.allPanes().compactMap { $0.tab.content.pane?.id } ?? []
+        )
+        let secondPaneIDsBefore = Set(
+            root.visibleLayout(forTopLevelTabID: secondTabID)?.allPanes().compactMap { $0.tab.content.pane?.id } ?? []
+        )
+        let sourceGroupID = state.topLevelTabLayouts[key]!.allGroups()[0].id
+
+        let effects = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: sourceGroupID,
+                    targetGroupID: sourceGroupID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+
+        guard case let .split(branch) = state.topLevelTabLayouts[key] else {
+            Issue.record("Expected an outer split")
+            return
+        }
+        #expect(branch.direction == .horizontal)
+        #expect(branch.first.allGroups()[0].tabIDs == [firstTabID])
+        #expect(branch.second.allGroups()[0].tabIDs == [secondTabID])
+        #expect(state.workspaceRoots[key]!.allTabs().count == tabOwnershipBefore.count)
+        #expect(
+            Dictionary(uniqueKeysWithValues: state.workspaceRoots[key]!.allTabs().map { ($0.id, $0.parentTabID) })
+                == tabOwnershipBefore
+        )
+        #expect(Set(state.workspaceRoots[key]!.allTabs().compactMap { $0.content.pane?.id }) == paneIDsBefore)
+        #expect(
+            Set(
+                state.workspaceRoots[key]!.visibleLayout(forTopLevelTabID: firstTabID)?
+                    .allPanes().compactMap { $0.tab.content.pane?.id } ?? []
+            ) == firstPaneIDsBefore
+        )
+        #expect(
+            Set(
+                state.workspaceRoots[key]!.visibleLayout(forTopLevelTabID: secondTabID)?
+                    .allPanes().compactMap { $0.tab.content.pane?.id } ?? []
+            ) == secondPaneIDsBefore
+        )
+        #expect(effects.paneIDsToRemove.isEmpty)
+        #expect(effects.deferredAreaCollapses.isEmpty)
+    }
+
+    @Test("selecting child panes activates their docked parent groups")
+    func selectingChildPanesActivatesDockedParentGroups() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let rootAreaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: rootAreaID)!.activeTabID!
+        let secondTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: rootAreaID),
+            state: &state
+        ).createdTabID!
+
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: rootAreaID, tabID: firstTabID),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(.init(
+                projectID: projectID,
+                areaID: rootAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let firstChildAreaID = state.focusedAreaID[key]!
+        let firstChildTabID = state.workspaceRoots[key]!.findArea(id: firstChildAreaID)!.activeTabID!
+
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: rootAreaID, tabID: secondTabID),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(.init(
+                projectID: projectID,
+                areaID: rootAreaID,
+                direction: .vertical,
+                position: .second
+            )),
+            state: &state
+        )
+        let secondChildAreaID = state.focusedAreaID[key]!
+        let secondChildTabID = state.workspaceRoots[key]!.findArea(id: secondChildAreaID)!.activeTabID!
+        let initialGroupID = state.topLevelTabLayouts[key]!.allGroups()[0].id
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: initialGroupID,
+                    targetGroupID: initialGroupID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(
+                projectID: projectID,
+                areaID: firstChildAreaID,
+                tabID: firstChildTabID
+            ),
+            state: &state
+        )
+
+        #expect(state.focusedAreaID[key] == firstChildAreaID)
+        #expect(state.workspaceRoots[key]!.findArea(id: firstChildAreaID)?.activeTabID == firstChildTabID)
+        #expect(state.topLevelTabLayouts[key]!.group(containingTabID: firstTabID)?.activeTabID == firstTabID)
+
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(
+                projectID: projectID,
+                areaID: secondChildAreaID,
+                tabID: secondChildTabID
+            ),
+            state: &state
+        )
+
+        #expect(state.focusedAreaID[key] == secondChildAreaID)
+        #expect(state.workspaceRoots[key]!.findArea(id: secondChildAreaID)?.activeTabID == secondChildTabID)
+        #expect(state.topLevelTabLayouts[key]!.group(containingTabID: secondTabID)?.activeTabID == secondTabID)
+    }
+
+    @Test("center docking merges top-level groups and collapses the empty group")
+    func centerDockingMergesTopLevelGroups() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        let createEffects = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        )
+        let secondTabID = createEffects.createdTabID!
+        let initialGroupID = state.topLevelTabLayouts[key]!.allGroups()[0].id
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: initialGroupID,
+                    targetGroupID: initialGroupID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+
+        let groups = state.topLevelTabLayouts[key]!.allGroups()
+        let firstGroupID = groups.first(where: { $0.tabIDs.contains(firstTabID) })!.id
+        let secondGroupID = groups.first(where: { $0.tabIDs.contains(secondTabID) })!.id
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toGroup(
+                    tabID: secondTabID,
+                    sourceGroupID: secondGroupID,
+                    destinationGroupID: firstGroupID
+                )
+            ),
+            state: &state
+        )
+
+        guard case let .group(group) = state.topLevelTabLayouts[key] else {
+            Issue.record("Expected merged top-level group")
+            return
+        }
+        #expect(group.tabIDs == [firstTabID, secondTabID])
+        #expect(group.activeTabID == secondTabID)
+        #expect(state.workspaceRoots[key]!.allTabs().count == 2)
+    }
+
+    @Test("closing an inactive docked tab preserves the active group")
+    func closingInactiveDockedTabPreservesActiveGroup() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        let secondTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        ).createdTabID!
+        let thirdTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        ).createdTabID!
+        let initialGroupID = state.topLevelTabLayouts[key]!.allGroups()[0].id
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: firstTabID,
+                    sourceGroupID: initialGroupID,
+                    targetGroupID: initialGroupID,
+                    split: SplitPlacement(direction: .horizontal, position: .first)
+                )
+            ),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .closeTab(projectID: projectID, areaID: areaID, tabID: thirdTabID),
+            state: &state
+        )
+
+        #expect(state.focusedAreaID[key] == areaID)
+        #expect(state.workspaceRoots[key]!.findArea(id: areaID)?.activeTabID == firstTabID)
+        #expect(state.topLevelTabLayouts[key]!.group(containingTabID: secondTabID)?.activeTabID == secondTabID)
+    }
+
+    @Test("directional focus moves between docked top-level groups")
+    func directionalFocusMovesBetweenDockedGroups() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        let secondTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        ).createdTabID!
+        let groupID = state.topLevelTabLayouts[key]!.allGroups()[0].id
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: groupID,
+                    targetGroupID: groupID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: areaID, tabID: firstTabID),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .focusPaneRight(projectID: projectID),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key]!.findArea(id: areaID)?.activeTabID == secondTabID)
+        #expect(state.topLevelTabLayouts[key]!.group(containingTabID: secondTabID)?.activeTabID == secondTabID)
+    }
+
+    @Test("closing an active docked tab prefers a sibling in the same group")
+    func closingActiveDockedTabPrefersSameGroup() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        let secondTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        ).createdTabID!
+        let thirdTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        ).createdTabID!
+        let initialGroup = state.topLevelTabLayouts[key]!.allGroups()[0]
+        initialGroup.tabIDs = [thirdTabID, firstTabID, secondTabID]
+        state.topLevelTabOrder[key] = initialGroup.tabIDs
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: initialGroup.id,
+                    targetGroupID: initialGroup.id,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: areaID, tabID: firstTabID),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .closeTab(projectID: projectID, areaID: areaID, tabID: firstTabID),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key]!.findArea(id: areaID)?.activeTabID == thirdTabID)
+        #expect(state.topLevelTabLayouts[key]!.group(containingTabID: thirdTabID)?.activeTabID == thirdTabID)
+    }
+
+    @Test("new top-level tabs stay in the selected docked group")
+    func newTopLevelTabsStayInSelectedDockedGroup() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        let secondTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        ).createdTabID!
+        let initialGroupID = state.topLevelTabLayouts[key]!.allGroups()[0].id
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: initialGroupID,
+                    targetGroupID: initialGroupID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+
+        let secondGroup = state.topLevelTabLayouts[key]!.group(containingTabID: secondTabID)!
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: areaID, tabID: secondTabID),
+            state: &state
+        )
+        let thirdTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        ).createdTabID!
+
+        #expect(secondGroup.tabIDs == [secondTabID, thirdTabID])
+        #expect(state.topLevelTabLayouts[key]!.group(containingTabID: firstTabID)?.tabIDs == [firstTabID])
+    }
+
+    @Test("repeated singleton group docking preserves identities and pane ownership")
+    func repeatedSingletonGroupDockingPreservesIdentityAndPaneOwnership() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let rootAreaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: rootAreaID)!.activeTabID!
+        let secondTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: rootAreaID),
+            state: &state
+        ).createdTabID!
+        let thirdTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: rootAreaID),
+            state: &state
+        ).createdTabID!
+
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: rootAreaID, tabID: firstTabID),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(.init(
+                projectID: projectID,
+                areaID: rootAreaID,
+                direction: .vertical,
+                position: .second
+            )),
+            state: &state
+        )
+
+        let initialGroupID = state.topLevelTabLayouts[key]!.allGroups()[0].id
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: initialGroupID,
+                    targetGroupID: initialGroupID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+        let secondGroupID = state.topLevelTabLayouts[key]!.group(containingTabID: secondTabID)!.id
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: thirdTabID,
+                    sourceGroupID: initialGroupID,
+                    targetGroupID: secondGroupID,
+                    split: SplitPlacement(direction: .vertical, position: .first)
+                )
+            ),
+            state: &state
+        )
+
+        let firstGroupID = state.topLevelTabLayouts[key]!.group(containingTabID: firstTabID)!.id
+        let thirdGroupID = state.topLevelTabLayouts[key]!.group(containingTabID: thirdTabID)!.id
+        let expectedGroupIDs = [
+            firstTabID: firstGroupID,
+            secondTabID: secondGroupID,
+            thirdTabID: thirdGroupID,
+        ]
+        let expectedPaneIDs = Dictionary(uniqueKeysWithValues: expectedGroupIDs.keys.map { tabID in
+            (
+                tabID,
+                Set(
+                    state.workspaceRoots[key]!.visibleLayout(forTopLevelTabID: tabID)?
+                        .allPanes().compactMap { $0.tab.content.pane?.id } ?? []
+                )
+            )
+        })
+        let moves = [
+            (
+                tabID: secondTabID,
+                sourceGroupID: secondGroupID,
+                targetGroupID: thirdGroupID,
+                split: SplitPlacement(direction: .horizontal, position: .first)
+            ),
+            (
+                tabID: firstTabID,
+                sourceGroupID: firstGroupID,
+                targetGroupID: secondGroupID,
+                split: SplitPlacement(direction: .vertical, position: .second)
+            ),
+            (
+                tabID: thirdTabID,
+                sourceGroupID: thirdGroupID,
+                targetGroupID: firstGroupID,
+                split: SplitPlacement(direction: .horizontal, position: .second)
+            ),
+        ]
+
+        for _ in 0 ..< 3 {
+            for move in moves {
+                _ = WorkspaceReducer.reduce(
+                    action: .moveTopLevelTab(
+                        projectID: projectID,
+                        request: .toNewSplit(
+                            tabID: move.tabID,
+                            sourceGroupID: move.sourceGroupID,
+                            targetGroupID: move.targetGroupID,
+                            split: move.split
+                        )
+                    ),
+                    state: &state
+                )
+
+                let layout = state.topLevelTabLayouts[key]!
+                let flattenedTabIDs = layout.flattenedTabIDs()
+                #expect(flattenedTabIDs.count == expectedGroupIDs.count)
+                #expect(Set(flattenedTabIDs) == Set(expectedGroupIDs.keys))
+                for (tabID, groupID) in expectedGroupIDs {
+                    let group = layout.group(containingTabID: tabID)
+                    #expect(group?.id == groupID)
+                    #expect(group?.activeTabID == tabID)
+                }
+                for (tabID, paneIDs) in expectedPaneIDs {
+                    let currentPaneIDs = Set(
+                        state.workspaceRoots[key]!.visibleLayout(forTopLevelTabID: tabID)?
+                            .allPanes().compactMap { $0.tab.content.pane?.id } ?? []
+                    )
+                    #expect(currentPaneIDs == paneIDs)
+                }
+                let projectedPaneIDs = expectedPaneIDs.values
+                #expect(
+                    projectedPaneIDs.reduce(into: Set<UUID>()) { result, paneIDs in
+                        result.formUnion(paneIDs)
+                    }.count == projectedPaneIDs.reduce(0) { $0 + $1.count }
+                )
+            }
+        }
+    }
+
+    @Test("merged tab receives one stable group identity when split out again")
+    func mergedTabReceivesStableIdentityWhenExtractedAgain() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        let secondTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        ).createdTabID!
+        let retainedGroupID = state.topLevelTabLayouts[key]!.allGroups()[0].id
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: retainedGroupID,
+                    targetGroupID: retainedGroupID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+        let mergedGroupID = state.topLevelTabLayouts[key]!.group(containingTabID: secondTabID)!.id
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toGroup(
+                    tabID: secondTabID,
+                    sourceGroupID: mergedGroupID,
+                    destinationGroupID: retainedGroupID
+                )
+            ),
+            state: &state
+        )
+
+        #expect(state.topLevelTabLayouts[key]!.group(id: mergedGroupID) == nil)
+        #expect(state.topLevelTabLayouts[key]!.group(id: retainedGroupID)?.tabIDs == [firstTabID, secondTabID])
+
+        let paneIDsBefore = Set(state.workspaceRoots[key]!.allTabs().compactMap { $0.content.pane?.id })
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: retainedGroupID,
+                    targetGroupID: retainedGroupID,
+                    split: SplitPlacement(direction: .vertical, position: .first)
+                )
+            ),
+            state: &state
+        )
+        let extractedGroupID = state.topLevelTabLayouts[key]!.group(containingTabID: secondTabID)!.id
+
+        #expect(extractedGroupID != mergedGroupID)
+        #expect(state.topLevelTabLayouts[key]!.group(containingTabID: firstTabID)?.id == retainedGroupID)
+
+        let placements = [
+            SplitPlacement(direction: .horizontal, position: .second),
+            SplitPlacement(direction: .vertical, position: .first),
+            SplitPlacement(direction: .vertical, position: .second),
+        ]
+        for placement in placements {
+            _ = WorkspaceReducer.reduce(
+                action: .moveTopLevelTab(
+                    projectID: projectID,
+                    request: .toNewSplit(
+                        tabID: secondTabID,
+                        sourceGroupID: extractedGroupID,
+                        targetGroupID: retainedGroupID,
+                        split: placement
+                    )
+                ),
+                state: &state
+            )
+
+            let layout = state.topLevelTabLayouts[key]!
+            #expect(layout.group(containingTabID: firstTabID)?.id == retainedGroupID)
+            #expect(layout.group(containingTabID: secondTabID)?.id == extractedGroupID)
+            #expect(Set(layout.flattenedTabIDs()) == Set([firstTabID, secondTabID]))
+            #expect(Set(state.workspaceRoots[key]!.allTabs().compactMap { $0.content.pane?.id }) == paneIDsBefore)
+            guard case let .split(branch) = layout else {
+                Issue.record("Expected two docked groups")
+                return
+            }
+            #expect(branch.direction == placement.direction)
+            let firstGroupID = branch.first.allGroups()[0].id
+            let secondGroupID = branch.second.allGroups()[0].id
+            #expect(firstGroupID == (placement.position == .first ? extractedGroupID : retainedGroupID))
+            #expect(secondGroupID == (placement.position == .first ? retainedGroupID : extractedGroupID))
+        }
+    }
+
     @Test("directional pane movement swaps the nearest owned panes")
     func directionalPaneMovementSwapsNearestOwnedPanes() {
         let projectID = UUID()

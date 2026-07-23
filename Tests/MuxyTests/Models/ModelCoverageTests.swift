@@ -267,8 +267,11 @@ struct ModelCoverageTests {
         let tabID = UUID()
         let sourceAreaID = UUID()
         let targetAreaID = UUID()
-        coordinator.setAreaFrames([targetAreaID: CGRect(x: 10, y: 20, width: 100, height: 80)], forProject: projectID)
         coordinator.beginDrag(tabID: tabID, sourceAreaID: sourceAreaID, projectID: projectID)
+        coordinator.setAreaFrames(
+            [targetAreaID: CGRect(x: 10, y: 20, width: 100, height: 80)],
+            forProject: projectID
+        )
 
         coordinator.updatePosition(CGPoint(x: 20, y: 60))
         #expect(coordinator.hoveredAreaID == targetAreaID)
@@ -302,6 +305,10 @@ struct ModelCoverageTests {
 
         for (point, zone) in zones {
             coordinator.beginDrag(tabID: tabID, sourceAreaID: sourceAreaID, projectID: projectID)
+            coordinator.setAreaFrames(
+                [targetAreaID: CGRect(x: 10, y: 20, width: 100, height: 80)],
+                forProject: projectID
+            )
             coordinator.updatePosition(point)
             #expect(coordinator.hoveredZone == zone)
             _ = coordinator.endDrag()
@@ -310,6 +317,79 @@ struct ModelCoverageTests {
         coordinator.beginDrag(tabID: tabID, sourceAreaID: sourceAreaID, projectID: UUID())
         coordinator.updatePosition(CGPoint(x: 60, y: 60))
         #expect(coordinator.endDrag() == nil)
+    }
+
+    @Test("Tab drag coordinator creates top-level docking actions")
+    func tabDragCoordinatorCreatesTopLevelActions() {
+        let coordinator = TabDragCoordinator()
+        let projectID = UUID()
+        let tabID = UUID()
+        let sourceGroupID = UUID()
+        let targetGroupID = UUID()
+        coordinator.beginTopLevelDrag(
+            tabID: tabID,
+            sourceGroupID: sourceGroupID,
+            projectID: projectID
+        )
+        coordinator.setGroupFrames(
+            [targetGroupID: CGRect(x: 0, y: 0, width: 100, height: 100)],
+            forProject: projectID
+        )
+        coordinator.updatePosition(CGPoint(x: 95, y: 50))
+
+        let result = coordinator.endDrag()
+        #expect(result?.targetGroupID == targetGroupID)
+        #expect(result?.targetAreaID == nil)
+        if case let .moveTopLevelTab(actionProjectID, request) = result?.action(projectID: projectID) {
+            #expect(actionProjectID == projectID)
+            if case let .toNewSplit(actionTabID, actionSourceGroupID, actionTargetGroupID, split) = request {
+                #expect(actionTabID == tabID)
+                #expect(actionSourceGroupID == sourceGroupID)
+                #expect(actionTargetGroupID == targetGroupID)
+                #expect(split.direction == .horizontal)
+                #expect(split.position == .second)
+            } else {
+                Issue.record("Expected top-level split request")
+            }
+        } else {
+            Issue.record("Expected top-level tab action")
+        }
+    }
+
+    @Test("Tab drag coordinator discards stale frames between drags")
+    func tabDragCoordinatorDiscardsStaleFrames() {
+        let coordinator = TabDragCoordinator()
+        let projectID = UUID()
+        let tabID = UUID()
+        let sourceGroupID = UUID()
+        let staleGroupID = UUID()
+        let currentGroupID = UUID()
+
+        coordinator.beginTopLevelDrag(
+            tabID: tabID,
+            sourceGroupID: sourceGroupID,
+            projectID: projectID
+        )
+        coordinator.setGroupFrames(
+            [staleGroupID: CGRect(x: 0, y: 0, width: 100, height: 100)],
+            forProject: projectID
+        )
+        coordinator.cancelDrag()
+
+        coordinator.beginTopLevelDrag(
+            tabID: tabID,
+            sourceGroupID: sourceGroupID,
+            projectID: projectID
+        )
+        coordinator.updatePosition(CGPoint(x: 50, y: 50))
+        #expect(coordinator.hoveredGroupID == nil)
+        coordinator.setGroupFrames(
+            [currentGroupID: CGRect(x: 100, y: 0, width: 100, height: 100)],
+            forProject: projectID
+        )
+        coordinator.updatePosition(CGPoint(x: 150, y: 50))
+
+        #expect(coordinator.hoveredGroupID == currentGroupID)
     }
 
     @Test("Muxy notification codable preserves source and read state")

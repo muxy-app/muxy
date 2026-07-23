@@ -40,6 +40,7 @@ enum ProjectLifecycleReducer {
             state.focusedAreaID.removeValue(forKey: key)
             state.focusHistory.removeValue(forKey: key)
             state.topLevelTabOrder.removeValue(forKey: key)
+            state.topLevelTabLayouts.removeValue(forKey: key)
         }
         state.activeWorktreeID.removeValue(forKey: projectID)
         if state.activeProjectID == projectID {
@@ -63,6 +64,7 @@ enum ProjectLifecycleReducer {
         state.focusedAreaID.removeValue(forKey: key)
         state.focusHistory.removeValue(forKey: key)
         state.topLevelTabOrder.removeValue(forKey: key)
+        state.topLevelTabLayouts.removeValue(forKey: key)
 
         guard state.activeWorktreeID[projectID] == worktreeID else { return }
         if let replacement {

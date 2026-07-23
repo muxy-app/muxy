@@ -10,9 +10,16 @@ enum TabReducer {
     static func createTab(key: WorktreeKey, areaID: UUID?, state: inout WorkspaceState) -> UUID? {
         guard let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state) else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
         let order = normalizedTopLevelOrder(key: key, state: state)
         let tabID = area.createTab()
         state.topLevelTabOrder[key] = order + [tabID]
+        TopLevelTabReducer.registerTopLevelTab(
+            tabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
         return tabID
     }
 
@@ -33,6 +40,13 @@ enum TabReducer {
         let insertionIndex = side == .left ? targetIndex : min(targetIndex + 1, order.count)
         order.insert(createdTabID, at: insertionIndex)
         state.topLevelTabOrder[key] = order
+        let alongsideTabID = area.tabs.first(where: { $0.id == tabID }).map { $0.parentTabID ?? $0.id }
+        TopLevelTabReducer.registerTopLevelTab(
+            createdTabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
     }
 
     static func createTabInDirectory(
@@ -45,9 +59,16 @@ enum TabReducer {
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
         else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
         let order = normalizedTopLevelOrder(key: key, state: state)
         let tabID = area.createTab(inDirectory: directory)
         state.topLevelTabOrder[key] = order + [tabID]
+        TopLevelTabReducer.registerTopLevelTab(
+            tabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
         return tabID
     }
 
@@ -56,6 +77,7 @@ enum TabReducer {
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: request.areaID, state: state)
         else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
         let order = normalizedTopLevelOrder(key: key, state: state)
         let tabID = area.createCommandTab(
             name: request.name,
@@ -65,6 +87,12 @@ enum TabReducer {
         )
         if let tabID {
             state.topLevelTabOrder[key] = order + [tabID]
+            TopLevelTabReducer.registerTopLevelTab(
+                tabID,
+                alongside: alongsideTabID,
+                key: key,
+                state: &state
+            )
         }
         return tabID
     }
@@ -93,6 +121,7 @@ enum TabReducer {
             }
         }
         FocusReducer.focusArea(area.id, key: key, state: &state)
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
         let order = normalizedTopLevelOrder(key: key, state: state)
         let tabID = area.createExtensionTab(
             extensionID: request.extensionID,
@@ -101,6 +130,12 @@ enum TabReducer {
             data: request.data
         )
         state.topLevelTabOrder[key] = order + [tabID]
+        TopLevelTabReducer.registerTopLevelTab(
+            tabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
         return tabID
     }
 
@@ -126,9 +161,16 @@ enum TabReducer {
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
         else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
         let order = normalizedTopLevelOrder(key: key, state: state)
         let tabID = area.createBrowserTab(url: url, profileID: profileID)
         state.topLevelTabOrder[key] = order + [tabID]
+        TopLevelTabReducer.registerTopLevelTab(
+            tabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
         return tabID
     }
 
@@ -244,9 +286,19 @@ enum TabReducer {
         guard var root = state.workspaceRoots[key] else { return }
         let originalOrder = normalizedTopLevelOrder(key: key, state: state)
         let closedIndex = originalOrder.firstIndex(of: tab.id) ?? 0
+        let sourceGroupOrder = state.topLevelTabLayouts[key]?
+            .group(containingTabID: tab.id)?
+            .tabIDs
+            ?? originalOrder
+        let sourceGroupClosedIndex = sourceGroupOrder.firstIndex(of: tab.id) ?? 0
         let preservesEmptyWorkspace = state.keepProjectOpenWhenEmpty
             && root.allTabs().count(where: { $0.parentTabID == nil }) == 1
         let ownedIDs = Set(root.allTabs().filter { $0.parentTabID == tab.id }.map(\.id) + [tab.id])
+        let closedTabWasFocused = state.focusedAreaID[key]
+            .flatMap(root.findArea(id:))?
+            .activeTab
+            .map { ($0.parentTabID ?? $0.id) == tab.id }
+            ?? false
         let affectedAreas = root.allAreas().filter { area in
             area.tabs.contains { ownedIDs.contains($0.id) }
         }
@@ -267,6 +319,7 @@ enum TabReducer {
                 state.workspaceRoots.removeValue(forKey: key)
                 state.focusedAreaID.removeValue(forKey: key)
                 state.topLevelTabOrder.removeValue(forKey: key)
+                state.topLevelTabLayouts.removeValue(forKey: key)
                 WorkspaceReducerShared.handleProjectEmptiedIfNeeded(
                     projectID: key.projectID,
                     state: &state,
@@ -293,8 +346,12 @@ enum TabReducer {
             )
             return
         }
-        let next = remainingRoots[min(closedIndex, remainingRoots.count - 1)]
-        if affectedAreas.contains(where: { $0.id == state.focusedAreaID[key] }) || areaID == state.focusedAreaID[key] {
+        if closedTabWasFocused {
+            let remainingByID = Dictionary(uniqueKeysWithValues: remainingRoots.map { ($0.tab.id, $0) })
+            let remainingSourceGroup = sourceGroupOrder.compactMap { remainingByID[$0] }
+            let next = remainingSourceGroup.isEmpty
+                ? remainingRoots[min(closedIndex, remainingRoots.count - 1)]
+                : remainingSourceGroup[min(sourceGroupClosedIndex, remainingSourceGroup.count - 1)]
             state.focusedAreaID[key] = next.area.id
             next.area.selectTab(next.tab.id)
         }

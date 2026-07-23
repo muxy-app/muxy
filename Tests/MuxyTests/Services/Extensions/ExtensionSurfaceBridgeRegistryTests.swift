@@ -43,6 +43,23 @@ struct ExtensionSurfaceBridgeRegistryTests {
         let registry = ExtensionSurfaceBridgeRegistry()
         registry.unregister(LifecycleSurfaceKey(kind: .tab, instanceID: "nope"))
     }
+
+    @Test("stale unregister preserves the replacement bridge")
+    func staleUnregisterPreservesReplacement() async {
+        let registry = ExtensionSurfaceBridgeRegistry()
+        let key = LifecycleSurfaceKey(kind: .tab, instanceID: "replacement")
+        let staleBridge = FakeBeforeCloseAsking(verdict: .allow)
+        let replacementBridge = FakeBeforeCloseAsking(verdict: .prevent)
+        registry.register(staleBridge, for: key)
+        registry.register(replacementBridge, for: key)
+
+        registry.unregister(key, ifMatches: staleBridge)
+        let verdict = await registry.requestBeforeClose(key)
+
+        #expect(verdict == .prevent)
+        #expect(staleBridge.failPendingCallCount == 1)
+        #expect(replacementBridge.failPendingCallCount == 0)
+    }
 }
 
 @MainActor

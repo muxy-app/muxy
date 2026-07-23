@@ -8,19 +8,87 @@ struct BrowserWebView: NSViewRepresentable {
     let overlayActive: Bool
     let appState: AppState
     let historyStore: BrowserHistoryStore
+    let topLevelGroupID: UUID
+    @Environment(\.activeWorktreeKey) private var worktreeKey
+
+    private static let mountBroker = ReparentingNSViewBroker<WKWebView> { webView in
+        _ = (webView as? any BrowserElementInspecting)?.closeInspector()
+        BrowserWebViewRegistry.shared.unregister(webView)
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(state: state, appState: appState, historyStore: historyStore)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> ReparentingNSViewHost {
+        let host = ReparentingNSViewHost()
+        let webView = resolvedWebView()
+        Self.mountBroker.register(
+            claimID: context.coordinator.claimID,
+            view: webView,
+            host: host,
+            configuration: mountConfiguration(coordinator: context.coordinator)
+        )
+        return host
+    }
+
+    func updateNSView(_ host: ReparentingNSViewHost, context: Context) {
+        let webView = resolvedWebView()
+        Self.mountBroker.update(
+            claimID: context.coordinator.claimID,
+            view: webView,
+            host: host,
+            configuration: mountConfiguration(coordinator: context.coordinator)
+        )
+    }
+
+    static func dismantleNSView(_ host: ReparentingNSViewHost, coordinator: Coordinator) {
+        guard mountBroker.release(claimID: coordinator.claimID, host: host) else { return }
+        coordinator.detach()
+    }
+
+    private var isCurrentPresentation: Bool {
+        guard let worktreeKey,
+              let visibleLayout = appState.visibleLayout(
+                  for: worktreeKey,
+                  groupID: topLevelGroupID
+              )
+        else { return false }
+        return visibleLayout.allPanes().contains {
+            $0.tab.content.browserState?.id == state.id
+        }
+    }
+
+    private func mountConfiguration(
+        coordinator: Coordinator
+    ) -> ReparentingNSViewBroker<WKWebView>.Configuration {
+        .init(
+            isEligible: { isCurrentPresentation },
+            prepare: { webView in
+                coordinator.attach(to: webView)
+                BrowserWebViewRegistry.shared.register(webView, for: state.id)
+                webView.pageZoom = state.pageZoom
+                coordinator.applyPendingCommand(in: webView)
+                coordinator.applyPendingNavigation(in: webView)
+                coordinator.applyPendingFind(in: webView)
+            },
+            didMount: { webView, host, ownershipChanged in
+                coordinator.applyFocusIfChanged(
+                    focused,
+                    overlayActive: overlayActive,
+                    in: webView,
+                    host: host,
+                    reset: ownershipChanged
+                )
+            }
+        )
+    }
+
+    private func resolvedWebView() -> WKWebView {
         let dataStore = BrowserDataStoreCache.shared.store(for: state.profileID)
         if let webView = Self.reusableWebView(for: state, dataStore: dataStore) {
-            webView.navigationDelegate = context.coordinator
-            webView.uiDelegate = context.coordinator
-            context.coordinator.attach(to: webView)
-            BrowserWebViewRegistry.shared.register(webView, for: state.id)
-            webView.pageZoom = state.pageZoom
             return webView
         }
 
@@ -30,33 +98,15 @@ struct BrowserWebView: NSViewRepresentable {
         BrowserInspectableWebView.enableInspection(in: config)
 
         let webView = BrowserInspectableWebView(frame: .zero, configuration: config)
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
         webView.isInspectable = true
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
 
-        context.coordinator.attach(to: webView)
         state.webView = webView
-        BrowserWebViewRegistry.shared.register(webView, for: state.id)
-        webView.pageZoom = state.pageZoom
         if let url = state.navigationURLForWebViewMount() {
             webView.load(URLRequest(url: url))
         }
         return webView
-    }
-
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.applyPendingCommand(in: webView)
-        context.coordinator.applyPendingNavigation(in: webView)
-        context.coordinator.applyPendingFind(in: webView)
-        context.coordinator.applyFocusIfChanged(focused, overlayActive: overlayActive, in: webView)
-    }
-
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        _ = (webView as? any BrowserElementInspecting)?.closeInspector()
-        BrowserWebViewRegistry.shared.unregister(coordinator.tabID, ifMatches: webView)
-        coordinator.detach(from: webView)
     }
 
     static func reusableWebView(for state: BrowserTabState, dataStore: WKWebsiteDataStore) -> WKWebView? {
@@ -79,14 +129,18 @@ struct BrowserWebView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject {
+        let claimID = UUID()
         private let state: BrowserTabState
         private let appState: AppState
         private let historyStore: BrowserHistoryStore
         private var observations: [NSKeyValueObservation] = []
+        private weak var attachedWebView: WKWebView?
         private var focused = false
         private var overlayActive = false
 
-        var tabID: UUID { state.id }
+        var activeObservationCount: Int {
+            observations.count
+        }
 
         init(state: BrowserTabState, appState: AppState, historyStore: BrowserHistoryStore) {
             self.state = state
@@ -95,6 +149,21 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         func attach(to webView: WKWebView) {
+            if let displacedCoordinator = webView.navigationDelegate as? Coordinator,
+               displacedCoordinator !== self
+            {
+                displacedCoordinator.detach()
+            }
+            if let displacedCoordinator = webView.uiDelegate as? Coordinator,
+               displacedCoordinator !== self
+            {
+                displacedCoordinator.detach()
+            }
+            webView.navigationDelegate = self
+            webView.uiDelegate = self
+            guard attachedWebView !== webView else { return }
+            detach()
+            attachedWebView = webView
             observations = [
                 webView.observe(\.estimatedProgress, options: [.new]) { [weak self] view, _ in
                     MainActor.assumeIsolated { self?.state.estimatedProgress = view.estimatedProgress }
@@ -154,11 +223,10 @@ struct BrowserWebView: NSViewRepresentable {
             historyStore.updateTitle(title, for: url, profileID: state.profileID)
         }
 
-        func detach(from webView: WKWebView) {
+        func detach() {
             observations.forEach { $0.invalidate() }
             observations.removeAll()
-            webView.navigationDelegate = nil
-            webView.uiDelegate = nil
+            attachedWebView = nil
         }
 
         func applyPendingNavigation(in webView: WKWebView) {
@@ -202,16 +270,30 @@ struct BrowserWebView: NSViewRepresentable {
             }
         }
 
-        func applyFocusIfChanged(_ focused: Bool, overlayActive: Bool, in webView: WKWebView) {
-            guard focused != self.focused || overlayActive != self.overlayActive else { return }
+        func applyFocusIfChanged(
+            _ focused: Bool,
+            overlayActive: Bool,
+            in webView: WKWebView,
+            host: ReparentingNSViewHost,
+            reset: Bool
+        ) {
+            guard reset || focused != self.focused || overlayActive != self.overlayActive else { return }
             self.focused = focused
             self.overlayActive = overlayActive
-            updateFirstResponder(for: webView)
+            updateFirstResponder(for: webView, in: host)
         }
 
-        private func updateFirstResponder(for webView: WKWebView) {
-            DispatchQueue.main.async { [weak webView] in
-                guard let webView, let window = webView.window else { return }
+        private func updateFirstResponder(
+            for webView: WKWebView,
+            in host: ReparentingNSViewHost
+        ) {
+            DispatchQueue.main.async { [weak self, weak webView, weak host] in
+                guard let self,
+                      let webView,
+                      let host,
+                      webView.superview === host,
+                      let window = webView.window
+                else { return }
                 if self.focused, !self.overlayActive {
                     window.makeFirstResponder(webView)
                 } else if window.firstResponder === webView {

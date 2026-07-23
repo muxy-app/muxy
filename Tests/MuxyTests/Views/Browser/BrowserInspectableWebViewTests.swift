@@ -83,6 +83,63 @@ struct BrowserInspectableWebViewTests {
         #expect(state.webView === webView)
         #expect(webView.closeCount == 0)
     }
+
+    @Test("registry unregisters only entries matching the retired web view")
+    func registryUnregistersMatchingWebView() {
+        let firstTabID = UUID()
+        let secondTabID = UUID()
+        let firstWebView = WKWebView(frame: .zero)
+        let secondWebView = WKWebView(frame: .zero)
+        BrowserWebViewRegistry.shared.register(firstWebView, for: firstTabID)
+        BrowserWebViewRegistry.shared.register(secondWebView, for: secondTabID)
+        defer {
+            BrowserWebViewRegistry.shared.unregister(firstTabID)
+            BrowserWebViewRegistry.shared.unregister(secondTabID)
+        }
+
+        BrowserWebViewRegistry.shared.unregister(firstWebView)
+
+        #expect(BrowserWebViewRegistry.shared.webView(for: firstTabID) == nil)
+        #expect(BrowserWebViewRegistry.shared.webView(for: secondTabID) === secondWebView)
+    }
+
+    @Test("cached web view handoff detaches the displaced coordinator")
+    func cachedWebViewHandoffDetachesDisplacedCoordinator() {
+        let state = BrowserTabState(projectPath: "/tmp/test")
+        let appState = AppState(
+            selectionStore: BrowserSelectionStoreStub(),
+            terminalViews: BrowserTerminalViewRemovingStub(),
+            workspacePersistence: BrowserWorkspacePersistenceStub()
+        )
+        let historyStore = BrowserHistoryStore(persistence: InMemoryBrowserHistoryPersistence())
+        let source = BrowserWebView.Coordinator(
+            state: state,
+            appState: appState,
+            historyStore: historyStore
+        )
+        let destination = BrowserWebView.Coordinator(
+            state: state,
+            appState: appState,
+            historyStore: historyStore
+        )
+        let webView = WKWebView(frame: .zero)
+
+        source.attach(to: webView)
+        #expect(source.activeObservationCount == 6)
+
+        destination.attach(to: webView)
+
+        #expect(source.activeObservationCount == 0)
+        #expect(destination.activeObservationCount == 6)
+        #expect(webView.navigationDelegate === destination)
+        #expect(webView.uiDelegate === destination)
+
+        source.detach()
+
+        #expect(destination.activeObservationCount == 6)
+        #expect(webView.navigationDelegate === destination)
+        #expect(webView.uiDelegate === destination)
+    }
 }
 
 @MainActor
@@ -97,4 +154,23 @@ private final class InspectorClosingWebViewStub: WKWebView, BrowserElementInspec
         closeCount += 1
         return true
     }
+}
+
+@MainActor
+private final class BrowserSelectionStoreStub: ActiveProjectSelectionStoring {
+    func loadActiveProjectID() -> UUID? { nil }
+    func saveActiveProjectID(_: UUID?) {}
+    func loadActiveWorktreeIDs() -> [UUID: UUID] { [:] }
+    func saveActiveWorktreeIDs(_: [UUID: UUID]) {}
+}
+
+@MainActor
+private final class BrowserTerminalViewRemovingStub: TerminalViewRemoving {
+    func removeView(for _: UUID) {}
+    func needsConfirmQuit(for _: UUID) -> Bool { false }
+}
+
+private final class BrowserWorkspacePersistenceStub: WorkspacePersisting {
+    func loadWorkspaces() throws -> [WorkspaceSnapshot] { [] }
+    func saveWorkspaces(_: [WorkspaceSnapshot]) throws {}
 }

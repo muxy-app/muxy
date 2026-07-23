@@ -379,4 +379,147 @@ struct WorkspaceSnapshotTests {
         #expect(restored.tabs.count == area.tabs.count)
         #expect(restored.tabs[0].isPinned == true)
     }
+
+    @Test("Workspace snapshot preserves the outer top-level tab layout")
+    func workspaceSnapshotPreservesTopLevelLayout() throws {
+        let project = Project(name: "Test", path: testPath)
+        let worktree = Worktree(name: "main", path: testPath, isPrimary: true)
+        let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
+        let area = TabArea(projectPath: testPath)
+        let firstTabID = area.activeTabID!
+        let secondTabID = area.createTab()
+        let firstGroup = TopLevelTabGroup(tabIDs: [firstTabID], activeTabID: firstTabID)
+        let secondGroup = TopLevelTabGroup(tabIDs: [secondTabID], activeTabID: secondTabID)
+        let layout = TopLevelTabNode.split(TopLevelTabBranch(
+            direction: .horizontal,
+            ratio: 0.35,
+            first: .group(firstGroup),
+            second: .group(secondGroup)
+        ))
+
+        let snapshots = WorkspaceRestorer.snapshotAll(
+            workspaceRoots: [key: .tabArea(area)],
+            focusedAreaID: [key: area.id],
+            topLevelTabOrder: [key: [firstTabID, secondTabID]],
+            topLevelTabLayouts: [key: layout]
+        )
+        let data = try JSONEncoder().encode(snapshots)
+        let decoded = try JSONDecoder().decode([WorkspaceSnapshot].self, from: data)
+        let restored = WorkspaceRestorer.restoreAll(
+            from: decoded,
+            projects: [project],
+            worktrees: [project.id: [worktree]]
+        )
+
+        guard case let .split(branch) = restored.first?.topLevelTabLayout else {
+            Issue.record("Expected restored outer split")
+            return
+        }
+        #expect(branch.direction == .horizontal)
+        #expect(branch.ratio == 0.35)
+        #expect(branch.first.allGroups()[0].tabIDs == [firstTabID])
+        #expect(branch.second.allGroups()[0].tabIDs == [secondTabID])
+    }
+
+    @Test("Legacy workspace snapshot restores into one top-level group")
+    func legacyWorkspaceRestoresIntoSingleTopLevelGroup() {
+        let project = Project(name: "Test", path: testPath)
+        let worktree = Worktree(name: "main", path: testPath, isPrimary: true)
+        let area = TabArea(projectPath: testPath)
+        let firstTabID = area.activeTabID!
+        let secondTabID = area.createTab()
+        let snapshot = WorkspaceSnapshot(
+            projectID: project.id,
+            worktreeID: worktree.id,
+            worktreePath: worktree.path,
+            focusedAreaID: area.id,
+            topLevelTabOrder: [firstTabID, secondTabID],
+            root: .tabArea(area.snapshot())
+        )
+
+        let restored = WorkspaceRestorer.restoreAll(
+            from: [snapshot],
+            projects: [project],
+            worktrees: [project.id: [worktree]]
+        )
+
+        guard case let .group(group) = restored.first?.topLevelTabLayout else {
+            Issue.record("Expected one legacy top-level group")
+            return
+        }
+        #expect(group.tabIDs == [firstTabID, secondTabID])
+        #expect(group.activeTabID == secondTabID)
+    }
+
+    @Test("Workspace restore adds root tabs missing from the saved outer layout")
+    func workspaceRestoreAddsRootTabsMissingFromTopLevelLayout() {
+        let project = Project(name: "Test", path: testPath)
+        let worktree = Worktree(name: "main", path: testPath, isPrimary: true)
+        let area = TabArea(projectPath: testPath)
+        let firstTabID = area.activeTabID!
+        let secondTabID = area.createTab()
+        let snapshot = WorkspaceSnapshot(
+            projectID: project.id,
+            worktreeID: worktree.id,
+            worktreePath: worktree.path,
+            focusedAreaID: area.id,
+            topLevelTabOrder: [firstTabID, secondTabID],
+            topLevelTabLayout: .group(TopLevelTabGroupSnapshot(
+                tabIDs: [firstTabID],
+                activeTabID: firstTabID
+            )),
+            root: .tabArea(area.snapshot())
+        )
+
+        let restored = WorkspaceRestorer.restoreAll(
+            from: [snapshot],
+            projects: [project],
+            worktrees: [project.id: [worktree]]
+        )
+
+        guard case let .group(group) = restored.first?.topLevelTabLayout else {
+            Issue.record("Expected one repaired top-level group")
+            return
+        }
+        #expect(group.tabIDs == [firstTabID, secondTabID])
+        #expect(group.activeTabID == secondTabID)
+    }
+
+    @Test("Empty workspace restore retains its area and empty top-level group")
+    func emptyWorkspaceRestoreRetainsAreaAndGroup() {
+        let project = Project(name: "Test", path: testPath)
+        let worktree = Worktree(name: "main", path: testPath, isPrimary: true)
+        let areaID = UUID()
+        let snapshot = WorkspaceSnapshot(
+            projectID: project.id,
+            worktreeID: worktree.id,
+            worktreePath: worktree.path,
+            focusedAreaID: areaID,
+            topLevelTabOrder: [],
+            topLevelTabLayout: .group(TopLevelTabGroupSnapshot(
+                tabIDs: [],
+                activeTabID: nil
+            )),
+            root: .tabArea(TabAreaSnapshot(
+                id: areaID,
+                projectPath: testPath,
+                tabs: [],
+                activeTabIndex: nil
+            ))
+        )
+
+        let restored = WorkspaceRestorer.restoreAll(
+            from: [snapshot],
+            projects: [project],
+            worktrees: [project.id: [worktree]]
+        )
+
+        guard case let .group(group) = restored.first?.topLevelTabLayout else {
+            Issue.record("Expected one empty top-level group")
+            return
+        }
+        #expect(restored.first?.root.allAreas().map(\.id) == [areaID])
+        #expect(group.tabIDs.isEmpty)
+        #expect(group.activeTabID == nil)
+    }
 }

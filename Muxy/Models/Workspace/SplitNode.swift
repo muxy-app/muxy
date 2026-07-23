@@ -29,7 +29,7 @@ indirect enum VisiblePaneNode: Identifiable {
 
     var id: UUID {
         switch self {
-        case let .pane(area, _): area.id
+        case let .pane(_, tab): tab.id
         case let .split(branch, _, _): branch.id
         }
     }

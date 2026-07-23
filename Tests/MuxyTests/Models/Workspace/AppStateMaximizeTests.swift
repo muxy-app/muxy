@@ -18,7 +18,7 @@ struct AppStateMaximizeTests {
         appState.dispatch(.focusPaneLeft(projectID: projectID))
 
         #expect(appState.focusedAreaID[key] == secondAreaID)
-        #expect(appState.maximizedAreaID[key] == secondAreaID)
+        #expect(appState.maximizedPanes[key]?.areaID == secondAreaID)
     }
 
     @Test("cross-pane tab cycling restores full layout when focus leaves maximized pane")
@@ -33,7 +33,7 @@ struct AppStateMaximizeTests {
         appState.dispatch(.cycleNextTabAcrossPanes(projectID: projectID))
 
         #expect(appState.focusedAreaID[key] == firstAreaID)
-        #expect(appState.maximizedAreaID[key] == nil)
+        #expect(appState.maximizedPanes[key] == nil)
     }
 
     @Test("reverse cross-pane tab cycling restores full layout when focus leaves maximized pane")
@@ -48,7 +48,7 @@ struct AppStateMaximizeTests {
         appState.dispatch(.cyclePreviousTabAcrossPanes(projectID: projectID))
 
         #expect(appState.focusedAreaID[key] == secondAreaID)
-        #expect(appState.maximizedAreaID[key] == nil)
+        #expect(appState.maximizedPanes[key] == nil)
     }
 
     @Test("selecting the active top-level tab by index preserves the maximized child")
@@ -68,7 +68,8 @@ struct AppStateMaximizeTests {
         appState.selectTabByIndex(0, projectID: projectID)
 
         #expect(appState.focusedAreaID[key] == secondAreaID)
-        #expect(appState.maximizedAreaID[key] == secondAreaID)
+        #expect(appState.maximizedPanes[key]?.areaID == secondAreaID)
+        #expect(appState.maximizedPanes[key]?.topLevelTabID == firstRootTabID)
         #expect(firstArea.activeTabID == firstRootTabID)
         #expect(secondArea.activeTabID == childTabID)
     }
@@ -85,7 +86,7 @@ struct AppStateMaximizeTests {
         appState.dispatch(.focusArea(projectID: projectID, areaID: firstAreaID))
 
         #expect(appState.focusedAreaID[key] == firstAreaID)
-        #expect(appState.maximizedAreaID[key] == nil)
+        #expect(appState.maximizedPanes[key] == nil)
     }
 
     @Test("maximize guard uses action project")
@@ -115,7 +116,7 @@ struct AppStateMaximizeTests {
         appState.dispatch(.focusPaneLeft(projectID: secondProjectID))
 
         #expect(appState.focusedAreaID[firstKey] == firstProjectSecondAreaID)
-        #expect(appState.maximizedAreaID[firstKey] == firstProjectSecondAreaID)
+        #expect(appState.maximizedPanes[firstKey]?.areaID == firstProjectSecondAreaID)
         #expect(appState.focusedAreaID[secondKey] == secondProjectFirstArea.id)
         #expect(secondProjectSecondAreaID != secondProjectFirstArea.id)
     }
@@ -130,7 +131,7 @@ struct AppStateMaximizeTests {
 
         appState.toggleMaximize(areaID: areaID, for: projectID)
 
-        #expect(appState.maximizedAreaID[key] == nil)
+        #expect(appState.maximizedPanes[key] == nil)
     }
 
     @Test("splitting a maximized pane restores the full layout")
@@ -149,7 +150,65 @@ struct AppStateMaximizeTests {
             position: .second
         )))
 
-        #expect(appState.maximizedAreaID[key] == nil)
+        #expect(appState.maximizedPanes[key] == nil)
+    }
+
+    @Test("maximize distinguishes docked parents sharing the same pane area")
+    func maximizeDistinguishesDockedParentsSharingArea() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let appState = makeAppState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let rootAreaID = appState.focusedAreaID[key]!
+        let firstTabID = appState.workspaceRoots[key]!.findArea(id: rootAreaID)!.activeTabID!
+        appState.dispatch(.createTab(projectID: projectID, areaID: rootAreaID))
+        let secondTabID = appState.workspaceRoots[key]!.findArea(id: rootAreaID)!.activeTabID!
+
+        appState.dispatch(.selectTab(projectID: projectID, areaID: rootAreaID, tabID: firstTabID))
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: rootAreaID,
+            direction: .horizontal,
+            position: .second
+        )))
+        appState.dispatch(.selectTab(projectID: projectID, areaID: rootAreaID, tabID: secondTabID))
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: rootAreaID,
+            direction: .vertical,
+            position: .second
+        )))
+
+        let groupID = appState.topLevelTabLayouts[key]!.allGroups()[0].id
+        appState.dispatch(.moveTopLevelTab(
+            projectID: projectID,
+            request: .toNewSplit(
+                tabID: secondTabID,
+                sourceGroupID: groupID,
+                targetGroupID: groupID,
+                split: SplitPlacement(direction: .horizontal, position: .second)
+            )
+        ))
+
+        appState.toggleMaximize(
+            areaID: rootAreaID,
+            topLevelTabID: secondTabID,
+            for: projectID
+        )
+        #expect(appState.maximizedPanes[key] == AppState.MaximizedPane(
+            topLevelTabID: secondTabID,
+            areaID: rootAreaID
+        ))
+
+        appState.toggleMaximize(
+            areaID: rootAreaID,
+            topLevelTabID: firstTabID,
+            for: projectID
+        )
+        #expect(appState.maximizedPanes[key] == AppState.MaximizedPane(
+            topLevelTabID: firstTabID,
+            areaID: rootAreaID
+        ))
     }
 
     private func makeAppState(projectID: UUID, worktreeID: UUID) -> AppState {

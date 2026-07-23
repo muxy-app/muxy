@@ -80,8 +80,10 @@ struct ExtensionWebView: NSViewRepresentable {
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.stopObservingThemeChanges()
         coordinator.bridge?.dropAllEventSubscriptions()
-        if let surfaceKey = coordinator.surfaceKey {
-            ExtensionSurfaceBridgeRegistry.shared.unregister(surfaceKey)
+        if let surfaceKey = coordinator.surfaceKey,
+           let bridge = coordinator.bridge
+        {
+            ExtensionSurfaceBridgeRegistry.shared.unregister(surfaceKey, ifMatches: bridge)
         }
         webView.navigationDelegate = nil
         webView.uiDelegate = nil

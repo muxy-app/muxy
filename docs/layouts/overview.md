@@ -22,6 +22,7 @@ flowchart TB
 - Each file under `.muxy/layouts/` defines one named layout. The file name (without extension) is the layout's name.
 - Supported extensions: `.yaml`, `.yml`, `.json`.
 - The first depth-first pane becomes the top-level tab; all remaining panes are its children.
+- Docking that top-level tab beside another tab preserves the complete in-tab pane layout.
 - Layouts are **never auto-applied** on project open — the user picks one explicitly.
 - Selecting a layout asks for confirmation. On accept, all current terminals/tabs in that worktree are closed and the layout is applied.
 

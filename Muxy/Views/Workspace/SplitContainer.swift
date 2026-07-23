@@ -5,6 +5,7 @@ struct SplitContainer: View {
     let branch: SplitBranch
     let first: VisiblePaneNode
     let second: VisiblePaneNode
+    let topLevelGroupID: UUID
     let focusedAreaID: UUID?
     let isActiveProject: Bool
     let projectID: UUID
@@ -63,6 +64,7 @@ struct SplitContainer: View {
     private func child(_ node: VisiblePaneNode) -> some View {
         PaneNode(
             node: node,
+            topLevelGroupID: topLevelGroupID,
             focusedAreaID: focusedAreaID,
             isActiveProject: isActiveProject,
             projectID: projectID,

@@ -31,6 +31,22 @@ struct SplitNodeTests {
         #expect(secondLayout?.allPanes().map(\.tab.id) == [secondRoot.id])
     }
 
+    @Test("visible pane identity follows the projected tab")
+    func visiblePaneIdentityFollowsProjectedTab() {
+        let area = TabArea(projectPath: testPath)
+        let firstTab = area.tabs[0]
+        let secondTab = TerminalTab(pane: TerminalPaneState(projectPath: testPath))
+        area.insertExistingTab(secondTab)
+        let node = SplitNode.tabArea(area)
+
+        let firstLayout = node.visibleLayout(forTopLevelTabID: firstTab.id)
+        let secondLayout = node.visibleLayout(forTopLevelTabID: secondTab.id)
+
+        #expect(firstLayout?.id == firstTab.id)
+        #expect(secondLayout?.id == secondTab.id)
+        #expect(firstLayout?.id != secondLayout?.id)
+    }
+
     private let testPath = "/tmp/test"
 
     @Test("tabArea node id matches area id")

@@ -6,6 +6,7 @@ struct WorkspaceSnapshot: Codable {
     let worktreePath: String?
     let focusedAreaID: UUID?
     let topLevelTabOrder: [UUID]?
+    let topLevelTabLayout: TopLevelTabNodeSnapshot?
     let root: SplitNodeSnapshot
 
     init(
@@ -14,6 +15,7 @@ struct WorkspaceSnapshot: Codable {
         worktreePath: String?,
         focusedAreaID: UUID?,
         topLevelTabOrder: [UUID]? = nil,
+        topLevelTabLayout: TopLevelTabNodeSnapshot? = nil,
         root: SplitNodeSnapshot
     ) {
         self.projectID = projectID
@@ -21,6 +23,7 @@ struct WorkspaceSnapshot: Codable {
         self.worktreePath = worktreePath
         self.focusedAreaID = focusedAreaID
         self.topLevelTabOrder = topLevelTabOrder
+        self.topLevelTabLayout = topLevelTabLayout
         self.root = root
     }
 
@@ -30,6 +33,7 @@ struct WorkspaceSnapshot: Codable {
         case worktreePath
         case focusedAreaID
         case topLevelTabOrder
+        case topLevelTabLayout
         case root
     }
 
@@ -40,8 +44,59 @@ struct WorkspaceSnapshot: Codable {
         worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
         focusedAreaID = try container.decodeIfPresent(UUID.self, forKey: .focusedAreaID)
         topLevelTabOrder = try container.decodeIfPresent([UUID].self, forKey: .topLevelTabOrder)
+        topLevelTabLayout = try container.decodeIfPresent(TopLevelTabNodeSnapshot.self, forKey: .topLevelTabLayout)
         root = try container.decode(SplitNodeSnapshot.self, forKey: .root)
     }
+}
+
+indirect enum TopLevelTabNodeSnapshot: Codable {
+    case group(TopLevelTabGroupSnapshot)
+    case split(TopLevelTabBranchSnapshot)
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case group
+        case split
+    }
+
+    private enum NodeType: String, Codable {
+        case group
+        case split
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(NodeType.self, forKey: .type) {
+        case .group:
+            self = try .group(container.decode(TopLevelTabGroupSnapshot.self, forKey: .group))
+        case .split:
+            self = try .split(container.decode(TopLevelTabBranchSnapshot.self, forKey: .split))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .group(group):
+            try container.encode(NodeType.group, forKey: .type)
+            try container.encode(group, forKey: .group)
+        case let .split(branch):
+            try container.encode(NodeType.split, forKey: .type)
+            try container.encode(branch, forKey: .split)
+        }
+    }
+}
+
+struct TopLevelTabGroupSnapshot: Codable {
+    let tabIDs: [UUID]
+    let activeTabID: UUID?
+}
+
+struct TopLevelTabBranchSnapshot: Codable {
+    let direction: SplitDirectionSnapshot
+    let ratio: Double
+    let first: TopLevelTabNodeSnapshot
+    let second: TopLevelTabNodeSnapshot
 }
 
 indirect enum SplitNodeSnapshot: Codable {
@@ -207,6 +262,7 @@ struct RestoredWorkspace {
     let root: SplitNode
     let focusedAreaID: UUID
     let topLevelTabOrder: [UUID]
+    let topLevelTabLayout: TopLevelTabNode
 }
 
 @MainActor
@@ -249,11 +305,32 @@ enum WorkspaceRestorer {
             ordered.append(contentsOf: rootTabIDs.filter {
                 seenIDs.insert($0).inserted
             })
+            let focusedTopLevelTabID = root.findArea(id: focusedID)?.activeTab.map {
+                $0.parentTabID ?? $0.id
+            }
+            let restoredTopLevelLayout = snapshot.topLevelTabLayout
+                .map(restoreTopLevelTabNode)
+                .flatMap { $0.pruningTabs(validTabIDs: Set(ordered)) }
+                ?? .group(TopLevelTabGroup(
+                    tabIDs: ordered,
+                    activeTabID: focusedTopLevelTabID ?? ordered.first
+                ))
+            let assignedIDs = Set(restoredTopLevelLayout.flattenedTabIDs())
+            let destinationGroup = focusedTopLevelTabID
+                .flatMap(restoredTopLevelLayout.group(containingTabID:))
+                ?? restoredTopLevelLayout.allGroups()[0]
+            destinationGroup.tabIDs.append(contentsOf: ordered.filter { !assignedIDs.contains($0) })
+            if let focusedTopLevelTabID,
+               destinationGroup.tabIDs.contains(focusedTopLevelTabID)
+            {
+                destinationGroup.activeTabID = focusedTopLevelTabID
+            }
             results.append(RestoredWorkspace(
                 key: key,
                 root: root,
                 focusedAreaID: focusedID,
-                topLevelTabOrder: ordered
+                topLevelTabOrder: ordered,
+                topLevelTabLayout: restoredTopLevelLayout
             ))
         }
         return results
@@ -276,7 +353,8 @@ enum WorkspaceRestorer {
     static func snapshotAll(
         workspaceRoots: [WorktreeKey: SplitNode],
         focusedAreaID: [WorktreeKey: UUID],
-        topLevelTabOrder: [WorktreeKey: [UUID]] = [:]
+        topLevelTabOrder: [WorktreeKey: [UUID]] = [:],
+        topLevelTabLayouts: [WorktreeKey: TopLevelTabNode] = [:]
     ) -> [WorkspaceSnapshot] {
         var snapshots: [WorkspaceSnapshot] = []
         for (key, root) in workspaceRoots {
@@ -292,6 +370,7 @@ enum WorkspaceRestorer {
                 worktreePath: path,
                 focusedAreaID: focusedAreaID[key],
                 topLevelTabOrder: topLevelTabOrder[key],
+                topLevelTabLayout: topLevelTabLayouts[key].map(snapshotTopLevelTabNode),
                 root: snapshotSplitNode(root)
             ))
         }
@@ -332,6 +411,56 @@ enum WorkspaceRestorer {
                 ratio: Double(branch.ratio),
                 first: snapshotSplitNode(branch.first),
                 second: snapshotSplitNode(branch.second)
+            ))
+        }
+    }
+
+    private static func restoreTopLevelTabNode(
+        from snapshot: TopLevelTabNodeSnapshot
+    ) -> TopLevelTabNode {
+        switch snapshot {
+        case let .group(group):
+            return .group(TopLevelTabGroup(
+                tabIDs: group.tabIDs,
+                activeTabID: group.activeTabID
+            ))
+        case let .split(branch):
+            let direction: SplitDirection = switch branch.direction {
+            case .horizontal:
+                .horizontal
+            case .vertical:
+                .vertical
+            }
+            return .split(TopLevelTabBranch(
+                direction: direction,
+                ratio: CGFloat(branch.ratio),
+                first: restoreTopLevelTabNode(from: branch.first),
+                second: restoreTopLevelTabNode(from: branch.second)
+            ))
+        }
+    }
+
+    private static func snapshotTopLevelTabNode(
+        _ node: TopLevelTabNode
+    ) -> TopLevelTabNodeSnapshot {
+        switch node {
+        case let .group(group):
+            return .group(TopLevelTabGroupSnapshot(
+                tabIDs: group.tabIDs,
+                activeTabID: group.activeTabID
+            ))
+        case let .split(branch):
+            let direction: SplitDirectionSnapshot = switch branch.direction {
+            case .horizontal:
+                .horizontal
+            case .vertical:
+                .vertical
+            }
+            return .split(TopLevelTabBranchSnapshot(
+                direction: direction,
+                ratio: Double(branch.ratio),
+                first: snapshotTopLevelTabNode(branch.first),
+                second: snapshotTopLevelTabNode(branch.second)
             ))
         }
     }

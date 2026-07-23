@@ -8,6 +8,7 @@ struct WorkspaceState {
     var focusedAreaID: [WorktreeKey: UUID]
     var focusHistory: [WorktreeKey: [UUID]]
     var topLevelTabOrder: [WorktreeKey: [UUID]] = [:]
+    var topLevelTabLayouts: [WorktreeKey: TopLevelTabNode] = [:]
     var keepProjectOpenWhenEmpty: Bool = false
 }
 
@@ -211,6 +212,10 @@ enum WorkspaceReducer {
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
             SplitReducer.moveTab(request, key: key, state: &state, effects: &effects)
 
+        case let .moveTopLevelTab(projectID, request):
+            guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
+            TopLevelTabReducer.moveTab(request, key: key, state: &state)
+
         case let .focusArea(projectID, areaID):
             FocusReducer.focusArea(projectID: projectID, areaID: areaID, state: &state)
 
@@ -265,6 +270,7 @@ enum WorkspaceReducer {
             }
         }
 
+        TopLevelTabReducer.reconcileAll(state: &state)
         return effects
     }
 
@@ -284,6 +290,10 @@ enum WorkspaceReducer {
         state.workspaceRoots[key] = built.root
         state.focusedAreaID[key] = built.focusedAreaID
         state.topLevelTabOrder[key] = built.root.topLevelTabs().map(\.tab.id)
+        state.topLevelTabLayouts[key] = .group(TopLevelTabGroup(
+            tabIDs: state.topLevelTabOrder[key] ?? [],
+            activeTabID: built.root.findArea(id: built.focusedAreaID)?.activeTab.map { $0.parentTabID ?? $0.id }
+        ))
         state.focusHistory.removeValue(forKey: key)
     }
 
