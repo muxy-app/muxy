@@ -166,6 +166,31 @@ struct WorkspaceReducerTests {
         #expect(effects.createdTabID == area?.tabs[1].id)
     }
 
+    @Test("workspace-local actions reconcile only their worktree")
+    func workspaceLocalActionReconcilesOnlyItsWorktree() {
+        let projectID = UUID()
+        let activeWorktreeID = UUID()
+        let inactiveWorktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: activeWorktreeID)
+        let inactiveKey = WorktreeKey(projectID: projectID, worktreeID: inactiveWorktreeID)
+        let inactiveArea = TabArea(projectPath: "/tmp/inactive")
+        let inactiveTabID = inactiveArea.activeTabID!
+        state.workspaceRoots[inactiveKey] = .tabArea(inactiveArea)
+        state.focusedAreaID[inactiveKey] = inactiveArea.id
+        state.topLevelTabOrder[inactiveKey] = []
+        state.topLevelTabLayouts[inactiveKey] = .group(TopLevelTabGroup(
+            tabIDs: [inactiveTabID],
+            activeTabID: inactiveTabID
+        ))
+
+        _ = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: nil),
+            state: &state
+        )
+
+        #expect(state.topLevelTabOrder[inactiveKey] == [])
+    }
+
     @Test("createExtensionTab adds extension tab and reports the instance id")
     func createExtensionTab() {
         let projectID = UUID()
@@ -244,6 +269,7 @@ struct WorkspaceReducerTests {
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         let areaID = state.focusedAreaID[key]!
+        state.focusHistory[key] = [areaID]
 
         _ = WorkspaceReducer.reduce(
             action: .createTab(projectID: projectID, areaID: nil),
@@ -338,6 +364,7 @@ struct WorkspaceReducerTests {
         )
 
         #expect(state.workspaceRoots[key] == nil)
+        #expect(state.focusHistory[key] == nil)
         #expect(effects.projectIDsToRemove.contains(projectID))
     }
 
@@ -1426,6 +1453,55 @@ struct WorkspaceReducerTests {
         #expect(group.tabIDs == [firstTabID, secondTabID])
         #expect(group.activeTabID == secondTabID)
         #expect(state.workspaceRoots[key]!.allTabs().count == 2)
+    }
+
+    @Test("center docking keeps pinned top-level tabs before unpinned tabs")
+    func centerDockingPreservesPinnedFirstOrdering() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let firstTabID = state.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        let secondTabID = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: areaID),
+            state: &state
+        ).createdTabID!
+        let secondTab = state.workspaceRoots[key]!.locateTab(id: secondTabID)!.tab
+        secondTab.isPinned = true
+        state.topLevelTabOrder[key] = [secondTabID, firstTabID]
+        let initialGroup = state.topLevelTabLayouts[key]!.allGroups()[0]
+        initialGroup.tabIDs = [secondTabID, firstTabID]
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: secondTabID,
+                    sourceGroupID: initialGroup.id,
+                    targetGroupID: initialGroup.id,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+
+        let pinnedGroupID = state.topLevelTabLayouts[key]!.group(containingTabID: secondTabID)!.id
+        let unpinnedGroupID = state.topLevelTabLayouts[key]!.group(containingTabID: firstTabID)!.id
+        _ = WorkspaceReducer.reduce(
+            action: .moveTopLevelTab(
+                projectID: projectID,
+                request: .toGroup(
+                    tabID: secondTabID,
+                    sourceGroupID: pinnedGroupID,
+                    destinationGroupID: unpinnedGroupID
+                )
+            ),
+            state: &state
+        )
+
+        let mergedGroup = state.topLevelTabLayouts[key]!.group(id: unpinnedGroupID)
+        #expect(mergedGroup?.tabIDs == [secondTabID, firstTabID])
     }
 
     @Test("closing an inactive docked tab preserves the active group")

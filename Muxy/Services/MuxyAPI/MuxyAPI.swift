@@ -1352,7 +1352,7 @@ enum MuxyAPI {
             let target = locations[toIndex]
             if located.tab.parentTabID == nil {
                 guard target.tab.parentTabID == nil else {
-                    return .failure(.invalidArguments("index out of range"))
+                    return .failure(.invalidArguments("target index is not a top-level tab"))
                 }
                 let roots = appState.topLevelTabs(for: located.key)
                 guard let from = roots.firstIndex(where: { $0.tab.id == located.tab.id }),
@@ -1364,7 +1364,7 @@ enum MuxyAPI {
                 let lowerBound = located.tab.isPinned ? 0 : boundary
                 let upperBound = located.tab.isPinned ? boundary : roots.count
                 guard targetIndex >= lowerBound, targetIndex < upperBound else {
-                    return .failure(.invalidArguments("index out of range"))
+                    return .failure(.invalidArguments("target index crosses the pinned tab boundary"))
                 }
                 let destination = targetIndex > from ? targetIndex + 1 : targetIndex
                 appState.reorderTopLevelTabs(
@@ -1380,14 +1380,14 @@ enum MuxyAPI {
                 return .failure(.tabNotFound(identifier))
             }
             guard target.slotArea.id == area.id else {
-                return .failure(.invalidArguments("index out of range"))
+                return .failure(.invalidArguments("target index is in a different pane"))
             }
             let targetIndex = target.slotIndex
             let boundary = area.tabs.firstIndex(where: { !$0.isPinned }) ?? area.tabs.count
             let lowerBound = located.tab.isPinned ? 0 : boundary
             let upperBound = located.tab.isPinned ? boundary : area.tabs.count
             guard targetIndex >= lowerBound, targetIndex < upperBound else {
-                return .failure(.invalidArguments("index out of range"))
+                return .failure(.invalidArguments("target index crosses the pinned tab boundary"))
             }
             let destination = targetIndex > from ? targetIndex + 1 : targetIndex
             area.reorderTab(fromOffsets: IndexSet(integer: from), toOffset: destination)
@@ -1742,7 +1742,7 @@ enum MuxyAPI {
             guard let resolved = BrowserURL.resolve(from: url) else {
                 return .failure(.invalidArguments("invalid url"))
             }
-            state.pendingURL = resolved
+            state.navigate(to: resolved)
             return .success(())
         }
 

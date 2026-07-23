@@ -328,7 +328,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func closeArea(projectID: UUID, areaID: UUID) {
-        appState.dispatch(.closeArea(projectID: projectID, areaID: areaID))
+        appState.closeArea(areaID, projectID: projectID)
     }
 
     func focusArea(projectID: UUID, areaID: UUID) {

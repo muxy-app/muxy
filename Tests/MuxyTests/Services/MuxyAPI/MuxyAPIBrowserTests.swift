@@ -56,12 +56,44 @@ struct MuxyAPIBrowserTests {
         #expect(result == .failure(.browserDisabled))
     }
 
-    @Test("navigate updates the pending url")
-    func navigateUpdatesURL() throws {
+    @Test("navigate queues the url before a browser surface exists")
+    func navigateQueuesURL() throws {
         let appState = makeAppState()
         let id = try MuxyAPI.Browser.open(url: "https://example.com", appState: appState).get()
         let result = MuxyAPI.Browser.navigate(tabIDString: id.uuidString, url: "muxy.app/docs", appState: appState)
+        let state = try #require(
+            appState.workspaceRoots.values
+                .flatMap { $0.allTabs() }
+                .first(where: { $0.id == id })?
+                .content.browserState
+        )
+
         #expect(isSuccess(result))
+        #expect(state.pendingURL?.absoluteString == "https://muxy.app/docs")
+    }
+
+    @Test("navigate loads an inactive cached browser surface immediately")
+    func navigateLoadsInactiveCachedSurface() throws {
+        let appState = makeAppState()
+        let id = try MuxyAPI.Browser.open(url: "https://example.com", appState: appState).get()
+        let state = try #require(
+            appState.workspaceRoots.values
+                .flatMap { $0.allTabs() }
+                .first(where: { $0.id == id })?
+                .content.browserState
+        )
+        let webView = NavigationRecordingWebView(frame: .zero)
+        state.webView = webView
+
+        let result = MuxyAPI.Browser.navigate(
+            tabIDString: id.uuidString,
+            url: "muxy.app/docs",
+            appState: appState
+        )
+
+        #expect(isSuccess(result))
+        #expect(webView.lastRequest?.url?.absoluteString == "https://muxy.app/docs")
+        #expect(state.pendingURL == nil)
     }
 
     @Test("navigate fails for an unknown tab id")
@@ -242,6 +274,16 @@ struct MuxyAPIBrowserTests {
         let unknownID = UUID().uuidString
         let result = await MuxyAPI.Browser.screenshot(tabIDString: unknownID, appState: appState)
         #expect(failureErrorString(result) == .browserTabNotFound(unknownID))
+    }
+}
+
+@MainActor
+private final class NavigationRecordingWebView: WKWebView {
+    private(set) var lastRequest: URLRequest?
+
+    override func load(_ request: URLRequest) -> WKNavigation? {
+        lastRequest = request
+        return nil
     }
 }
 

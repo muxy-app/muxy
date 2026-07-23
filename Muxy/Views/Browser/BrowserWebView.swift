@@ -13,18 +13,22 @@ struct BrowserWebView: NSViewRepresentable {
 
     private static let mountBroker = ReparentingNSViewBroker<WKWebView> { webView in
         _ = (webView as? any BrowserElementInspecting)?.closeInspector()
-        BrowserWebViewRegistry.shared.unregister(webView)
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(state: state, appState: appState, historyStore: historyStore)
+        if let coordinator = state.surfaceRuntime as? Coordinator {
+            coordinator.update(appState: appState, historyStore: historyStore)
+            return coordinator
+        }
+        let coordinator = Coordinator(state: state, appState: appState, historyStore: historyStore)
+        state.surfaceRuntime = coordinator
+        return coordinator
     }
 
     func makeNSView(context: Context) -> ReparentingNSViewHost {
         let host = ReparentingNSViewHost()
         let webView = resolvedWebView()
+        state.surfaceRuntime = context.coordinator
         Self.mountBroker.register(
             claimID: context.coordinator.claimID,
             view: webView,
@@ -36,6 +40,7 @@ struct BrowserWebView: NSViewRepresentable {
 
     func updateNSView(_ host: ReparentingNSViewHost, context: Context) {
         let webView = resolvedWebView()
+        state.surfaceRuntime = context.coordinator
         Self.mountBroker.update(
             claimID: context.coordinator.claimID,
             view: webView,
@@ -46,7 +51,8 @@ struct BrowserWebView: NSViewRepresentable {
 
     static func dismantleNSView(_ host: ReparentingNSViewHost, coordinator: Coordinator) {
         guard mountBroker.release(claimID: coordinator.claimID, host: host) else { return }
-        coordinator.detach()
+        guard !coordinator.isRetainedByState else { return }
+        coordinator.retire(webView: nil)
     }
 
     private var isCurrentPresentation: Bool {
@@ -68,7 +74,6 @@ struct BrowserWebView: NSViewRepresentable {
             isEligible: { isCurrentPresentation },
             prepare: { webView in
                 coordinator.attach(to: webView)
-                BrowserWebViewRegistry.shared.register(webView, for: state.id)
                 webView.pageZoom = state.pageZoom
                 coordinator.applyPendingCommand(in: webView)
                 coordinator.applyPendingNavigation(in: webView)
@@ -121,18 +126,17 @@ struct BrowserWebView: NSViewRepresentable {
     private static func retireCachedWebView(_ webView: WKWebView, state: BrowserTabState) {
         _ = (webView as? any BrowserElementInspecting)?.closeInspector()
         webView.stopLoading()
-        BrowserWebViewRegistry.shared.unregister(state.id, ifMatches: webView)
         if state.webView === webView {
             state.webView = nil
         }
     }
 
     @MainActor
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, BrowserTabSurfaceRuntime {
         let claimID = UUID()
-        private let state: BrowserTabState
-        private let appState: AppState
-        private let historyStore: BrowserHistoryStore
+        private weak var state: BrowserTabState?
+        private weak var appState: AppState?
+        private var historyStore: BrowserHistoryStore
         private var observations: [NSKeyValueObservation] = []
         private weak var attachedWebView: WKWebView?
         private var focused = false
@@ -142,8 +146,17 @@ struct BrowserWebView: NSViewRepresentable {
             observations.count
         }
 
+        var isRetainedByState: Bool {
+            state?.surfaceRuntime === self
+        }
+
         init(state: BrowserTabState, appState: AppState, historyStore: BrowserHistoryStore) {
             self.state = state
+            self.appState = appState
+            self.historyStore = historyStore
+        }
+
+        func update(appState: AppState, historyStore: BrowserHistoryStore) {
             self.appState = appState
             self.historyStore = historyStore
         }
@@ -166,16 +179,16 @@ struct BrowserWebView: NSViewRepresentable {
             attachedWebView = webView
             observations = [
                 webView.observe(\.estimatedProgress, options: [.new]) { [weak self] view, _ in
-                    MainActor.assumeIsolated { self?.state.estimatedProgress = view.estimatedProgress }
+                    MainActor.assumeIsolated { self?.state?.estimatedProgress = view.estimatedProgress }
                 },
                 webView.observe(\.isLoading, options: [.new]) { [weak self] view, _ in
-                    MainActor.assumeIsolated { self?.state.isLoading = view.isLoading }
+                    MainActor.assumeIsolated { self?.state?.isLoading = view.isLoading }
                 },
                 webView.observe(\.canGoBack, options: [.new]) { [weak self] view, _ in
-                    MainActor.assumeIsolated { self?.state.canGoBack = view.canGoBack }
+                    MainActor.assumeIsolated { self?.state?.canGoBack = view.canGoBack }
                 },
                 webView.observe(\.canGoForward, options: [.new]) { [weak self] view, _ in
-                    MainActor.assumeIsolated { self?.state.canGoForward = view.canGoForward }
+                    MainActor.assumeIsolated { self?.state?.canGoForward = view.canGoForward }
                 },
                 webView.observe(\.title, options: [.new]) { [weak self] view, _ in
                     MainActor.assumeIsolated { self?.handleTitleChange(view.title, url: view.url) }
@@ -187,6 +200,7 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         private func handleURLChange(_ url: URL?, title: String?) {
+            guard let state else { return }
             state.url = url
             guard let url else { return }
             state.faviconImage = FaviconStore.shared.favicon(for: url)
@@ -208,16 +222,17 @@ struct BrowserWebView: NSViewRepresentable {
                           let href = result as? String,
                           let iconURL = URL(string: href)
                     else { return }
-                    self.state.faviconURL = iconURL
+                    self.state?.faviconURL = iconURL
                     FaviconStore.shared.load(for: pageURL, iconURL: iconURL) { [weak self] image in
                         guard let image else { return }
-                        self?.state.faviconImage = image
+                        self?.state?.faviconImage = image
                     }
                 }
             }
         }
 
         private func handleTitleChange(_ title: String?, url: URL?) {
+            guard let state else { return }
             state.pageTitle = title
             guard let url else { return }
             historyStore.updateTitle(title, for: url, profileID: state.profileID)
@@ -229,13 +244,27 @@ struct BrowserWebView: NSViewRepresentable {
             attachedWebView = nil
         }
 
+        func retire(webView: WKWebView?) {
+            if let webView, attachedWebView !== webView {
+                return
+            }
+            let retiredWebView = attachedWebView
+            detach()
+            if retiredWebView?.navigationDelegate === self {
+                retiredWebView?.navigationDelegate = nil
+            }
+            if retiredWebView?.uiDelegate === self {
+                retiredWebView?.uiDelegate = nil
+            }
+        }
+
         func applyPendingNavigation(in webView: WKWebView) {
-            guard let url = state.consumePendingNavigationURL() else { return }
+            guard let url = state?.consumePendingNavigationURL() else { return }
             webView.load(URLRequest(url: url))
         }
 
         func applyPendingCommand(in webView: WKWebView) {
-            guard let command = state.pendingCommand else { return }
+            guard let state, let command = state.pendingCommand else { return }
             state.pendingCommand = nil
             switch command {
             case .back: webView.goBack()
@@ -251,12 +280,12 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         private func applyZoom(_ zoom: Double, to webView: WKWebView) {
-            state.pageZoom = zoom
+            state?.pageZoom = zoom
             webView.pageZoom = zoom
         }
 
         func applyPendingFind(in webView: WKWebView) {
-            guard let request = state.pendingFind else { return }
+            guard let state, let request = state.pendingFind else { return }
             state.pendingFind = nil
             guard !request.query.isEmpty else {
                 state.findFoundMatch = true
@@ -266,7 +295,7 @@ struct BrowserWebView: NSViewRepresentable {
             configuration.backwards = request.backwards
             configuration.wraps = true
             webView.find(request.query, configuration: configuration) { [weak self] result in
-                MainActor.assumeIsolated { self?.state.findFoundMatch = result.matchFound }
+                MainActor.assumeIsolated { self?.state?.findFoundMatch = result.matchFound }
             }
         }
 
@@ -318,16 +347,16 @@ extension BrowserWebView.Coordinator: WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_: WKWebView, didStartProvisionalNavigation _: WKNavigation!) {
-        state.loadError = nil
+        state?.loadError = nil
     }
 
     func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
-        state.loadError = nil
+        state?.loadError = nil
         extractFavicon(from: webView)
     }
 
     func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError error: Error) {
-        state.loadError = BrowserLoadError.make(from: error, url: webView.url ?? state.url)
+        state?.loadError = BrowserLoadError.make(from: error, url: webView.url ?? state?.url)
     }
 
     func webView(
@@ -335,7 +364,7 @@ extension BrowserWebView.Coordinator: WKNavigationDelegate, WKUIDelegate {
         didFailProvisionalNavigation _: WKNavigation!,
         withError error: Error
     ) {
-        state.loadError = BrowserLoadError.make(from: error, url: webView.url ?? state.url)
+        state?.loadError = BrowserLoadError.make(from: error, url: webView.url ?? state?.url)
     }
 
     func webView(
@@ -362,8 +391,12 @@ extension BrowserWebView.Coordinator: WKNavigationDelegate, WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures _: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url, BrowserURL.isAllowed(url) {
-            appState.openInBuiltInBrowser(url, profileID: state.profileID)
+        if let url = navigationAction.request.url,
+           BrowserURL.isAllowed(url),
+           let appState,
+           let profileID = state?.profileID
+        {
+            appState.openInBuiltInBrowser(url, profileID: profileID)
         }
         return nil
     }

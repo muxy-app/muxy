@@ -471,7 +471,14 @@ final class AppState {
     }
 
     func closeArea(_ areaID: UUID, projectID: UUID) {
-        dispatch(.closeArea(projectID: projectID, areaID: areaID))
+        guard let key = activeWorktreeKey(for: projectID),
+              let area = workspaceRoots[key]?.findArea(id: areaID)
+        else { return }
+        guard let tabID = area.activeTabID else {
+            dispatch(.closeAreaInWorktree(key: key, areaID: areaID))
+            return
+        }
+        closeTab(tabID, areaID: areaID, key: key)
     }
 
     func createTab(projectID: UUID) {
@@ -528,16 +535,29 @@ final class AppState {
     }
 
     func closeTab(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
+        guard let tab = workspaceRoots[key]?
+            .findArea(id: areaID)?
+            .tabs
+            .first(where: { $0.id == tabID }),
+            !tab.isPinned
+        else { return }
         let surfaceKeys = lifecycleSurfaceKeys(tabID: tabID, areaID: areaID, key: key)
         guard !surfaceKeys.isEmpty else {
             proceedCloseAfterVeto(tabID, areaID: areaID, key: key)
             return
         }
         Task { @MainActor in
-            for surfaceKey in surfaceKeys {
-                let verdict = await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
-                guard verdict == .allow else { return }
+            let requests = surfaceKeys.map { surfaceKey in
+                Task { @MainActor in
+                    await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
+                }
             }
+            var allowsClose = true
+            for request in requests {
+                let verdict = await request.value
+                allowsClose = allowsClose && verdict == .allow
+            }
+            guard allowsClose else { return }
             proceedCloseAfterVeto(tabID, areaID: areaID, key: key)
         }
     }
@@ -813,6 +833,7 @@ final class AppState {
         }
 
         let currentWorkspaceRootSignature = workspaceRootSignature(workspaceRoots)
+        let currentTopLevelTabLayoutSignature = topLevelTabLayoutSignature(topLevelTabLayouts)
         var workspace = WorkspaceState(
             activeProjectID: activeProjectID,
             activeWorktreeID: activeWorktreeID,
@@ -842,7 +863,9 @@ final class AppState {
         if topLevelTabOrder != workspace.topLevelTabOrder {
             topLevelTabOrder = workspace.topLevelTabOrder
         }
-        topLevelTabLayouts = workspace.topLevelTabLayouts
+        if currentTopLevelTabLayoutSignature != topLevelTabLayoutSignature(workspace.topLevelTabLayouts) {
+            topLevelTabLayouts = workspace.topLevelTabLayouts
+        }
         invalidateMaximizedAreas(for: action)
         reconcilePendingClosures()
 
@@ -968,6 +991,12 @@ final class AppState {
 
     private func workspaceRootSignature(_ roots: [WorktreeKey: SplitNode]) -> [WorktreeKey: UUID] {
         roots.mapValues(\.id)
+    }
+
+    private func topLevelTabLayoutSignature(
+        _ layouts: [WorktreeKey: TopLevelTabNode]
+    ) -> [WorktreeKey: UUID] {
+        layouts.mapValues(\.id)
     }
 
     private func clearPendingProcessCloseIfMatching(tabID: UUID, areaID: UUID, key: WorktreeKey) {

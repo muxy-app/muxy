@@ -316,10 +316,7 @@ enum TabReducer {
                 continue
             }
             guard let updated = root.removing(areaID: emptyArea.id) else {
-                state.workspaceRoots.removeValue(forKey: key)
-                state.focusedAreaID.removeValue(forKey: key)
-                state.topLevelTabOrder.removeValue(forKey: key)
-                state.topLevelTabLayouts.removeValue(forKey: key)
+                WorkspaceReducerShared.clearWorkspace(key: key, state: &state)
                 WorkspaceReducerShared.handleProjectEmptiedIfNeeded(
                     projectID: key.projectID,
                     state: &state,

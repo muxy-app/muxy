@@ -103,6 +103,50 @@ struct BrowserInspectableWebViewTests {
         #expect(BrowserWebViewRegistry.shared.webView(for: secondTabID) === secondWebView)
     }
 
+    @Test("cached web view remains registered while its tab state is inactive")
+    func cachedWebViewRemainsRegisteredWhileInactive() async {
+        var state: BrowserTabState? = BrowserTabState(projectPath: "/tmp/test")
+        let webView = WKWebView(frame: .zero)
+        let tabID = try? #require(state?.id)
+
+        state?.webView = webView
+
+        #expect(tabID.flatMap { BrowserWebViewRegistry.shared.webView(for: $0) } === webView)
+
+        state = nil
+        await Task.yield()
+
+        #expect(tabID.flatMap { BrowserWebViewRegistry.shared.webView(for: $0) } == nil)
+    }
+
+    @Test("cached web view keeps its runtime attached while inactive")
+    func cachedWebViewKeepsRuntimeAttachedWhileInactive() {
+        let state = BrowserTabState(projectPath: "/tmp/test")
+        let appState = AppState(
+            selectionStore: BrowserSelectionStoreStub(),
+            terminalViews: BrowserTerminalViewRemovingStub(),
+            workspacePersistence: BrowserWorkspacePersistenceStub()
+        )
+        let historyStore = BrowserHistoryStore(persistence: InMemoryBrowserHistoryPersistence())
+        let webView = WKWebView(frame: .zero)
+        var coordinator: BrowserWebView.Coordinator? = BrowserWebView.Coordinator(
+            state: state,
+            appState: appState,
+            historyStore: historyStore
+        )
+        state.webView = webView
+        state.surfaceRuntime = coordinator
+        coordinator?.attach(to: webView)
+        let retainedCoordinator = coordinator
+
+        coordinator = nil
+
+        #expect(state.surfaceRuntime === retainedCoordinator)
+        #expect(retainedCoordinator?.activeObservationCount == 6)
+        #expect(webView.navigationDelegate === retainedCoordinator)
+        #expect(webView.uiDelegate === retainedCoordinator)
+    }
+
     @Test("cached web view handoff detaches the displaced coordinator")
     func cachedWebViewHandoffDetachesDisplacedCoordinator() {
         let state = BrowserTabState(projectPath: "/tmp/test")

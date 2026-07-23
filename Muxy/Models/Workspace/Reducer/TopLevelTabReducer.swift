@@ -48,6 +48,7 @@ enum TopLevelTabReducer {
 
             sourceGroup.tabIDs.removeAll { $0 == tabID }
             destinationGroup.tabIDs.append(tabID)
+            destinationGroup.tabIDs = pinnedFirst(destinationGroup.tabIDs, root: root)
             destinationGroup.activeTabID = tabID
             if sourceGroup.activeTabID == tabID {
                 sourceGroup.activeTabID = sourceGroup.tabIDs.first
@@ -98,17 +99,6 @@ enum TopLevelTabReducer {
         if let located = root.locateTab(id: tabID) {
             FocusReducer.focusArea(located.area.id, key: key, state: &state)
             located.area.selectTab(tabID)
-        }
-        reconcile(key: key, state: &state)
-    }
-
-    static func reconcileAll(state: inout WorkspaceState) {
-        for key in state.workspaceRoots.keys {
-            reconcile(key: key, state: &state)
-        }
-        let removedKeys = state.topLevelTabLayouts.keys.filter { state.workspaceRoots[$0] == nil }
-        for key in removedKeys {
-            state.topLevelTabLayouts.removeValue(forKey: key)
         }
     }
 
@@ -173,5 +163,11 @@ enum TopLevelTabReducer {
             return group
         }
         return layout.allGroups()[0]
+    }
+
+    private static func pinnedFirst(_ tabIDs: [UUID], root: SplitNode) -> [UUID] {
+        let tabsByID = Dictionary(uniqueKeysWithValues: root.allTabs().map { ($0.id, $0) })
+        return tabIDs.filter { tabsByID[$0]?.isPinned == true }
+            + tabIDs.filter { tabsByID[$0]?.isPinned != true }
     }
 }

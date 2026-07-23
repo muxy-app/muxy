@@ -1,12 +1,23 @@
 import Foundation
 
 @MainActor
+protocol ExtensionTabSurface: AnyObject {
+    func retire()
+}
+
+@MainActor
+final class ExtensionTabSurfaceStore {
+    var surface: (any ExtensionTabSurface)?
+}
+
+@MainActor
 @Observable
 final class ExtensionTabState: Identifiable {
     let id = UUID()
     let extensionID: String
     let tabTypeID: String
     let projectPath: String
+    @ObservationIgnored let surfaceStore = ExtensionTabSurfaceStore()
     var data: ExtensionJSON?
 
     var customTitle: String?

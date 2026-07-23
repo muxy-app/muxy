@@ -110,7 +110,7 @@ struct MuxyAPITabsControlTests {
 
         let result = MuxyAPI.Tabs.move(identifier: unpinned.id.uuidString, toIndex: 0, appState: appState)
         guard case let .failure(error) = result else { Issue.record("expected failure"); return }
-        #expect(error == .invalidArguments("index out of range"))
+        #expect(error == .invalidArguments("target index crosses the pinned tab boundary"))
         #expect(area.tabs[0].isPinned)
         #expect(area.tabs.firstIndex(where: { !$0.isPinned }) == 1)
     }
@@ -160,6 +160,14 @@ struct MuxyAPITabsControlTests {
         }
         #expect(listed.map(\.id) == [childTab.id, secondTab.id, firstTab.id])
 
+        let incompatible = MuxyAPI.Tabs.move(
+            identifier: secondTab.id.uuidString,
+            toIndex: 0,
+            appState: appState
+        )
+        guard case let .failure(error) = incompatible else { Issue.record("expected failure"); return }
+        #expect(error == .invalidArguments("target index is not a top-level tab"))
+
         _ = MuxyAPI.Tabs.switchTo(identifier: "1", appState: appState)
         #expect(rootArea.activeTabID == secondTab.id)
         _ = MuxyAPI.Tabs.next(appState: appState)
@@ -202,7 +210,7 @@ struct MuxyAPITabsControlTests {
             appState: appState
         )
         guard case let .failure(error) = crossArea else { Issue.record("expected failure"); return }
-        #expect(error == .invalidArguments("index out of range"))
+        #expect(error == .invalidArguments("target index is in a different pane"))
     }
 
     @Test("child moves use physical slots after roots are reordered")
@@ -232,7 +240,7 @@ struct MuxyAPITabsControlTests {
             appState: appState
         )
         guard case let .failure(error) = crossArea else { Issue.record("expected failure"); return }
-        #expect(error == .invalidArguments("index out of range"))
+        #expect(error == .invalidArguments("target index is in a different pane"))
 
         let moved = MuxyAPI.Tabs.move(
             identifier: child.id.uuidString,
