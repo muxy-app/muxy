@@ -106,7 +106,7 @@ muxy next-tab                # cycle forward
 muxy previous-tab            # cycle backward
 ```
 
-Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `next-tab`/`previous-tab` only for relative cycling. List first with `muxy list-tabs` when you need the index or ID.
+Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `next-tab`/`previous-tab` only for relative cycling. List first with `muxy list-tabs` when you need the index or ID. The list is flat and includes split-child tabs; switching to one activates its owning top-level tab and focuses that pane.
 
 `new-tab`, `list-tabs`, `switch-tab`, `next-tab`, `previous-tab`, and `split-right`/`split-down` accept `--project <name|id|path>` and `--worktree <name|id|branch>` to target a specific worktree. Both are optional: with neither they act on the active worktree; `--worktree` alone resolves in the active project, then searches all projects for a unique match (ambiguous — pass `--project`); `--project` alone uses that project's active/preferred worktree; both are explicit. Targeting acts in the target worktree's background workspace — your visible view stays put. Use `switch-project`/`switch-worktree` to actually move focus.
 
@@ -125,7 +125,7 @@ muxy tab set-color 0 blue           # palette name; omit to reset
 muxy tab set-icon 0 "flame.fill"    # any SF Symbol name; omit to reset
 muxy tab pin 0                       # pin / unpin (pinned tabs can't be closed)
 muxy tab unpin 0
-muxy tab move 0 2                    # reorder within the tab's area
+muxy tab move 0 2                    # reorder a root tab or a child within its pane
 muxy tab close "Server"             # close by index/id/title
 ```
 

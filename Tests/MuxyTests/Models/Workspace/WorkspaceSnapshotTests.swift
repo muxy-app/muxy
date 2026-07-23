@@ -31,6 +31,37 @@ struct WorkspaceSnapshotTests {
         #expect(decoded.currentWorkingDirectory == nil)
     }
 
+    @Test("TerminalTabSnapshot preserves child ownership and legacy snapshots default to top-level")
+    func terminalTabParentOwnershipRoundTrip() throws {
+        let parentID = UUID()
+        let child = TerminalTabSnapshot(
+            kind: .terminal,
+            parentTabID: parentID,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: "/tmp",
+            paneTitle: "Child"
+        )
+        let data = try JSONEncoder().encode(child)
+        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: data)
+        let legacyData = try #require(
+            """
+            {
+              "kind":"terminal",
+              "id":"00000000-0000-0000-0000-000000000001",
+              "isPinned":false,
+              "projectPath":"/tmp",
+              "paneTitle":"Legacy"
+            }
+            """.data(using: .utf8)
+        )
+        let legacy = try JSONDecoder().decode(TerminalTabSnapshot.self, from: legacyData)
+
+        #expect(decoded.parentTabID == parentID)
+        #expect(legacy.parentTabID == nil)
+    }
+
     @Test("TerminalTabSnapshot round-trip preserves currentWorkingDirectory")
     func terminalTabSnapshotPreservesWorkingDirectory() throws {
         let snapshot = TerminalTabSnapshot(
@@ -171,14 +202,16 @@ struct WorkspaceSnapshotTests {
         let projectID = UUID()
         let worktreeID = UUID()
         let focusedAreaID = UUID()
+        let tabID = UUID()
         let snapshot = WorkspaceSnapshot(
             projectID: projectID,
             worktreeID: worktreeID,
             worktreePath: testPath,
             focusedAreaID: focusedAreaID,
+            topLevelTabOrder: [tabID],
             root: .tabArea(TabAreaSnapshot(
                 id: focusedAreaID, projectPath: testPath,
-                tabs: [TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Shell")],
+                tabs: [TerminalTabSnapshot(kind: .terminal, id: tabID, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Shell")],
                 activeTabIndex: 0
             ))
         )
@@ -189,6 +222,7 @@ struct WorkspaceSnapshotTests {
         #expect(decoded.worktreeID == worktreeID)
         #expect(decoded.worktreePath == testPath)
         #expect(decoded.focusedAreaID == focusedAreaID)
+        #expect(decoded.topLevelTabOrder == [tabID])
     }
 
     @Test("WorkspaceRestorer.snapshotAll produces correct structure")
@@ -197,19 +231,23 @@ struct WorkspaceSnapshotTests {
         let worktreeID = UUID()
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         let area = TabArea(projectPath: testPath)
+        let secondTabID = area.createTab()
         let root = SplitNode.tabArea(area)
         let workspaceRoots: [WorktreeKey: SplitNode] = [key: root]
         let focusedAreaID: [WorktreeKey: UUID] = [key: area.id]
+        let topLevelTabOrder = [key: [secondTabID, area.tabs[0].id]]
 
         let snapshots = WorkspaceRestorer.snapshotAll(
             workspaceRoots: workspaceRoots,
-            focusedAreaID: focusedAreaID
+            focusedAreaID: focusedAreaID,
+            topLevelTabOrder: topLevelTabOrder
         )
 
         #expect(snapshots.count == 1)
         #expect(snapshots[0].projectID == projectID)
         #expect(snapshots[0].worktreeID == worktreeID)
         #expect(snapshots[0].focusedAreaID == area.id)
+        #expect(snapshots[0].topLevelTabOrder == topLevelTabOrder[key])
     }
 
     @Test("WorkspaceRestorer.restoreAll rebuilds tree from snapshots")

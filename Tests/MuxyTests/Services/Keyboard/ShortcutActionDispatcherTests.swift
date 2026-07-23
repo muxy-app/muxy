@@ -65,6 +65,16 @@ struct ShortcutActionDispatcherTests {
         #expect(!dispatcher.perform(.removeCurrentWorktree, activeProject: nil))
     }
 
+    @Test("move pane actions require an active project")
+    func movePaneActionsRequireActiveProject() {
+        let dispatcher = makeDispatcher(notificationCenter: NotificationCenter())
+        let actions: [ShortcutAction] = [.movePaneLeft, .movePaneRight, .movePaneUp, .movePaneDown]
+
+        for action in actions {
+            #expect(!dispatcher.perform(action, activeProject: nil))
+        }
+    }
+
     private func makeDispatcher(notificationCenter: NotificationCenter) -> ShortcutActionDispatcher {
         let projectStore = ProjectStore(persistence: DispatcherProjectPersistenceStub())
         let worktreeStore = WorktreeStore(persistence: DispatcherWorktreePersistenceStub(), projects: [])

@@ -5,6 +5,7 @@ struct WorkspaceSnapshot: Codable {
     let worktreeID: UUID?
     let worktreePath: String?
     let focusedAreaID: UUID?
+    let topLevelTabOrder: [UUID]?
     let root: SplitNodeSnapshot
 
     init(
@@ -12,12 +13,14 @@ struct WorkspaceSnapshot: Codable {
         worktreeID: UUID?,
         worktreePath: String?,
         focusedAreaID: UUID?,
+        topLevelTabOrder: [UUID]? = nil,
         root: SplitNodeSnapshot
     ) {
         self.projectID = projectID
         self.worktreeID = worktreeID
         self.worktreePath = worktreePath
         self.focusedAreaID = focusedAreaID
+        self.topLevelTabOrder = topLevelTabOrder
         self.root = root
     }
 
@@ -26,6 +29,7 @@ struct WorkspaceSnapshot: Codable {
         case worktreeID
         case worktreePath
         case focusedAreaID
+        case topLevelTabOrder
         case root
     }
 
@@ -35,6 +39,7 @@ struct WorkspaceSnapshot: Codable {
         worktreeID = try container.decodeIfPresent(UUID.self, forKey: .worktreeID)
         worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
         focusedAreaID = try container.decodeIfPresent(UUID.self, forKey: .focusedAreaID)
+        topLevelTabOrder = try container.decodeIfPresent([UUID].self, forKey: .topLevelTabOrder)
         root = try container.decode(SplitNodeSnapshot.self, forKey: .root)
     }
 }
@@ -100,6 +105,7 @@ struct TabAreaSnapshot: Codable {
 struct TerminalTabSnapshot: Codable {
     let kind: TerminalTab.Kind
     let id: UUID
+    let parentTabID: UUID?
     let customTitle: String?
     let colorID: String?
     let customIcon: String?
@@ -118,6 +124,7 @@ struct TerminalTabSnapshot: Codable {
     init(
         kind: TerminalTab.Kind,
         id: UUID = UUID(),
+        parentTabID: UUID? = nil,
         customTitle: String?,
         colorID: String?,
         customIcon: String? = nil,
@@ -135,6 +142,7 @@ struct TerminalTabSnapshot: Codable {
     ) {
         self.kind = kind
         self.id = id
+        self.parentTabID = parentTabID
         self.customTitle = customTitle
         self.colorID = colorID
         self.customIcon = customIcon
@@ -154,6 +162,7 @@ struct TerminalTabSnapshot: Codable {
     private enum CodingKeys: String, CodingKey {
         case kind
         case id
+        case parentTabID
         case customTitle
         case colorID
         case customIcon
@@ -175,6 +184,7 @@ struct TerminalTabSnapshot: Codable {
         let rawKind = try container.decodeIfPresent(String.self, forKey: .kind)
         kind = rawKind.flatMap(TerminalTab.Kind.init(rawValue:)) ?? .terminal
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        parentTabID = try container.decodeIfPresent(UUID.self, forKey: .parentTabID)
         customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
         colorID = try container.decodeIfPresent(String.self, forKey: .colorID)
         customIcon = try container.decodeIfPresent(String.self, forKey: .customIcon)
@@ -196,6 +206,7 @@ struct RestoredWorkspace {
     let key: WorktreeKey
     let root: SplitNode
     let focusedAreaID: UUID
+    let topLevelTabOrder: [UUID]
 }
 
 @MainActor
@@ -220,7 +231,30 @@ enum WorkspaceRestorer {
                 areas[0].id
             }
             let key = WorktreeKey(projectID: snapshot.projectID, worktreeID: targetWorktree.id)
-            results.append(RestoredWorkspace(key: key, root: root, focusedAreaID: focusedID))
+            let restoredTabs = root.allTabs()
+            let validParentIDs = Set(restoredTabs.filter { $0.parentTabID == nil }.map(\.id))
+            for tab in restoredTabs {
+                guard let parentTabID = tab.parentTabID,
+                      !validParentIDs.contains(parentTabID)
+                else { continue }
+                tab.parentTabID = nil
+            }
+            let rootTabIDs = restoredTabs.filter { $0.parentTabID == nil }.map(\.id)
+            let persistedOrder = snapshot.topLevelTabOrder ?? []
+            let validIDs = Set(rootTabIDs)
+            var seenIDs = Set<UUID>()
+            var ordered = persistedOrder.filter {
+                validIDs.contains($0) && seenIDs.insert($0).inserted
+            }
+            ordered.append(contentsOf: rootTabIDs.filter {
+                seenIDs.insert($0).inserted
+            })
+            results.append(RestoredWorkspace(
+                key: key,
+                root: root,
+                focusedAreaID: focusedID,
+                topLevelTabOrder: ordered
+            ))
         }
         return results
     }
@@ -241,7 +275,8 @@ enum WorkspaceRestorer {
 
     static func snapshotAll(
         workspaceRoots: [WorktreeKey: SplitNode],
-        focusedAreaID: [WorktreeKey: UUID]
+        focusedAreaID: [WorktreeKey: UUID],
+        topLevelTabOrder: [WorktreeKey: [UUID]] = [:]
     ) -> [WorkspaceSnapshot] {
         var snapshots: [WorkspaceSnapshot] = []
         for (key, root) in workspaceRoots {
@@ -256,6 +291,7 @@ enum WorkspaceRestorer {
                 worktreeID: key.worktreeID,
                 worktreePath: path,
                 focusedAreaID: focusedAreaID[key],
+                topLevelTabOrder: topLevelTabOrder[key],
                 root: snapshotSplitNode(root)
             ))
         }

@@ -511,7 +511,11 @@ struct SocketCommandHandlerTests {
         #expect(areas.count == 2)
         let hostingArea = try #require(areas.first { $0.tabs.contains { $0.id == tabID } })
         #expect(hostingArea.id == appState.focusedAreaID[featureKey])
-        #expect(hostingArea.tabs.contains { $0.content.pane != nil })
+        let browserTab = try #require(hostingArea.tabs.first { $0.id == tabID })
+        let rootTab = try #require(appState.workspaceRoots[featureKey]?.allTabs().first { $0.parentTabID == nil })
+        #expect(browserTab.content.browserState != nil)
+        #expect(browserTab.parentTabID == rootTab.id)
+        #expect(hostingArea.tabs.count == 1)
     }
 
     @Test("split-right --worktree splits the target worktree")

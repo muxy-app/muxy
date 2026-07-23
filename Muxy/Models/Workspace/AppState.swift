@@ -41,6 +41,8 @@ final class AppState {
         case createBrowserTab(projectID: UUID, areaID: UUID?, url: URL?, profileID: UUID)
         case createTabInWorktree(key: WorktreeKey, areaID: UUID?)
         case createBrowserTabInWorktree(key: WorktreeKey, areaID: UUID?, url: URL?, profileID: UUID)
+        case createBrowserSplit(projectID: UUID, areaID: UUID, url: URL?, profileID: UUID)
+        case createBrowserSplitInWorktree(key: WorktreeKey, areaID: UUID, url: URL?, profileID: UUID)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case closeTabInWorktree(key: WorktreeKey, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
@@ -50,14 +52,21 @@ final class AppState {
         case selectPreviousTab(projectID: UUID)
         case selectNextTabInWorktree(key: WorktreeKey)
         case selectPreviousTabInWorktree(key: WorktreeKey)
+        case selectNextFlatTabInWorktree(key: WorktreeKey)
+        case selectPreviousFlatTabInWorktree(key: WorktreeKey)
         case splitArea(SplitAreaRequest)
         case splitAreaInWorktree(key: WorktreeKey, request: SplitAreaRequest)
         case closeArea(projectID: UUID, areaID: UUID)
+        case closeAreaInWorktree(key: WorktreeKey, areaID: UUID)
         case focusArea(projectID: UUID, areaID: UUID)
         case focusPaneLeft(projectID: UUID)
         case focusPaneRight(projectID: UUID)
         case focusPaneUp(projectID: UUID)
         case focusPaneDown(projectID: UUID)
+        case movePaneLeft(projectID: UUID)
+        case movePaneRight(projectID: UUID)
+        case movePaneUp(projectID: UUID)
+        case movePaneDown(projectID: UUID)
         case cycleNextTabAcrossPanes(projectID: UUID)
         case cyclePreviousTabAcrossPanes(projectID: UUID)
         case moveTab(projectID: UUID, request: TabMoveRequest)
@@ -93,6 +102,7 @@ final class AppState {
 
     var workspaceRoots: [WorktreeKey: SplitNode] = [:]
     var focusedAreaID: [WorktreeKey: UUID] = [:]
+    var topLevelTabOrder: [WorktreeKey: [UUID]] = [:]
     var pendingLayoutApply: PendingLayoutApply?
     var maximizedAreaID: [WorktreeKey: UUID] = [:]
     var pendingLastTabClose: PendingTabClose?
@@ -131,6 +141,7 @@ final class AppState {
         for entry in restored {
             workspaceRoots[entry.key] = entry.root
             focusedAreaID[entry.key] = entry.focusedAreaID
+            topLevelTabOrder[entry.key] = entry.topLevelTabOrder
         }
 
         let savedWorktreeIDs = selectionStore.loadActiveWorktreeIDs()
@@ -158,7 +169,8 @@ final class AppState {
     func saveWorkspaces() {
         let snapshots = WorkspaceRestorer.snapshotAll(
             workspaceRoots: workspaceRoots,
-            focusedAreaID: focusedAreaID
+            focusedAreaID: focusedAreaID,
+            topLevelTabOrder: topLevelTabOrder
         )
         do {
             try workspacePersistence.saveWorkspaces(snapshots)
@@ -240,12 +252,60 @@ final class AppState {
         let area = TabArea(projectPath: worktreePath)
         workspaceRoots[key] = .tabArea(area)
         focusedAreaID[key] = area.id
+        topLevelTabOrder[key] = area.tabs.map(\.id)
         saveWorkspaces()
         return key
     }
 
     func areas(for key: WorktreeKey) -> [TabArea] {
         workspaceRoots[key]?.allAreas() ?? []
+    }
+
+    func topLevelTabs(for key: WorktreeKey) -> [(area: TabArea, tab: TerminalTab)] {
+        workspaceRoots[key]?.topLevelTabs(order: topLevelTabOrder[key] ?? []) ?? []
+    }
+
+    func activeTopLevelTabID(for key: WorktreeKey) -> UUID? {
+        guard let root = workspaceRoots[key],
+              let areaID = focusedAreaID[key],
+              let tab = root.findArea(id: areaID)?.activeTab
+        else { return nil }
+        return tab.parentTabID ?? tab.id
+    }
+
+    func visibleLayout(for key: WorktreeKey) -> VisiblePaneNode? {
+        guard let root = workspaceRoots[key],
+              let topLevelTabID = activeTopLevelTabID(for: key)
+        else { return nil }
+        return root.visibleLayout(forTopLevelTabID: topLevelTabID)
+    }
+
+    func reorderTopLevelTabs(
+        for key: WorktreeKey,
+        fromOffsets: IndexSet,
+        toOffset: Int
+    ) {
+        var order = topLevelTabs(for: key).map(\.tab.id)
+        guard let source = fromOffsets.first, source < order.count else { return }
+        let tabs = Dictionary(uniqueKeysWithValues: topLevelTabs(for: key).map { ($0.tab.id, $0.tab) })
+        let pinnedCount = order.prefix { tabs[$0]?.isPinned == true }.count
+        let lowerBound = tabs[order[source]]?.isPinned == true ? 0 : pinnedCount
+        let upperBound = tabs[order[source]]?.isPinned == true ? pinnedCount : order.count
+        let destination = min(max(toOffset, lowerBound), upperBound)
+        order.move(fromOffsets: fromOffsets, toOffset: destination)
+        topLevelTabOrder[key] = order
+        saveWorkspaces()
+    }
+
+    func togglePinTopLevelTab(_ tabID: UUID, for key: WorktreeKey) {
+        guard let located = workspaceRoots[key]?.locateTab(id: tabID),
+              located.tab.parentTabID == nil
+        else { return }
+        located.area.togglePin(tabID)
+        let current = topLevelTabs(for: key)
+        let tabs = current.filter(\.tab.isPinned) + current.filter { !$0.tab.isPinned }
+        topLevelTabOrder[key] = tabs.map(\.tab.id)
+        saveWorkspaces()
     }
 
     func hasTabs(for projectID: UUID) -> Bool {
@@ -286,20 +346,6 @@ final class AppState {
         return nil
     }
 
-    func shortcutOffsets(for projectID: UUID) -> [UUID: Int] {
-        guard let key = activeWorktreeKey(for: projectID) else { return [:] }
-        if let maximizedAreaID = maximizedAreaID[key] {
-            return [maximizedAreaID: 0]
-        }
-        var offsets: [UUID: Int] = [:]
-        var running = 0
-        for area in allAreas(for: projectID) {
-            offsets[area.id] = running
-            running += area.tabs.count
-        }
-        return offsets
-    }
-
     func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
         dispatch(.splitArea(.init(
@@ -311,19 +357,20 @@ final class AppState {
     }
 
     func toggleMaximize(areaID: UUID, for projectID: UUID) {
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key]
-        else { return }
-        guard case .split = root else {
+        guard let key = activeWorktreeKey(for: projectID) else { return }
+        if maximizedAreaID[key] == areaID {
             maximizedAreaID.removeValue(forKey: key)
             return
         }
-        if maximizedAreaID[key] == areaID {
+        guard let visibleLayout = visibleLayout(for: key),
+              visibleLayout.allPanes().count > 1,
+              visibleLayout.allPanes().contains(where: { $0.area.id == areaID })
+        else {
             maximizedAreaID.removeValue(forKey: key)
-        } else {
-            dispatch(.focusArea(projectID: projectID, areaID: areaID))
-            maximizedAreaID[key] = areaID
+            return
         }
+        dispatch(.focusArea(projectID: projectID, areaID: areaID))
+        maximizedAreaID[key] = areaID
     }
 
     func closeArea(_ areaID: UUID, projectID: UUID) {
@@ -384,13 +431,16 @@ final class AppState {
     }
 
     func closeTab(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
-        guard let surfaceKey = lifecycleSurfaceKey(tabID: tabID, areaID: areaID, key: key) else {
+        let surfaceKeys = lifecycleSurfaceKeys(tabID: tabID, areaID: areaID, key: key)
+        guard !surfaceKeys.isEmpty else {
             proceedCloseAfterVeto(tabID, areaID: areaID, key: key)
             return
         }
         Task { @MainActor in
-            let verdict = await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
-            guard verdict == .allow else { return }
+            for surfaceKey in surfaceKeys {
+                let verdict = await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
+                guard verdict == .allow else { return }
+            }
             proceedCloseAfterVeto(tabID, areaID: areaID, key: key)
         }
     }
@@ -431,13 +481,20 @@ final class AppState {
         }
     }
 
-    private func lifecycleSurfaceKey(tabID: UUID, areaID: UUID, key: WorktreeKey) -> LifecycleSurfaceKey? {
+    private func lifecycleSurfaceKeys(tabID: UUID, areaID: UUID, key: WorktreeKey) -> [LifecycleSurfaceKey] {
         guard let root = workspaceRoots[key],
               let area = root.findArea(id: areaID),
-              let tab = area.tabs.first(where: { $0.id == tabID }),
-              let state = tab.content.extensionState
-        else { return nil }
-        return LifecycleSurfaceKey(kind: .tab, instanceID: state.id.uuidString)
+              let tab = area.tabs.first(where: { $0.id == tabID })
+        else { return [] }
+        let tabs = if tab.parentTabID == nil {
+            root.allTabs().filter { $0.id == tab.id || $0.parentTabID == tab.id }
+        } else {
+            [tab]
+        }
+        return tabs.compactMap { relatedTab in
+            guard let state = relatedTab.content.extensionState else { return nil }
+            return LifecycleSurfaceKey(kind: .tab, instanceID: state.id.uuidString)
+        }
     }
 
     func confirmCloseRunningTab() {
@@ -550,32 +607,32 @@ final class AppState {
     }
 
     private func isLastTabInWorktree(_ tabID: UUID, areaID: UUID, key: WorktreeKey) -> Bool {
-        guard let root = workspaceRoots[key] else { return false }
-        let allAreas = root.allAreas()
-        let totalTabs = allAreas.reduce(0) { $0 + $1.tabs.count }
-        return totalTabs <= 1
+        guard let root = workspaceRoots[key],
+              let tab = root.findArea(id: areaID)?.tabs.first(where: { $0.id == tabID })
+        else { return false }
+        guard tab.parentTabID == nil else { return false }
+        return root.allTabs().count(where: { $0.parentTabID == nil }) <= 1
     }
 
     private func needsProcessConfirmation(tabID: UUID, areaID: UUID, key: WorktreeKey) -> Bool {
         guard TabCloseConfirmationPreferences.confirmRunningProcess else { return false }
         guard let root = workspaceRoots[key],
               let area = root.findArea(id: areaID),
-              let tab = area.tabs.first(where: { $0.id == tabID }),
-              let paneID = tab.content.pane?.id
+              let tab = area.tabs.first(where: { $0.id == tabID })
         else { return false }
-        return terminalViews.needsConfirmQuit(for: paneID)
+        let tabs = if tab.parentTabID == nil {
+            root.allTabs().filter { $0.id == tab.id || $0.parentTabID == tab.id }
+        } else {
+            [tab]
+        }
+        return tabs.compactMap { $0.content.pane?.id }
+            .contains { terminalViews.needsConfirmQuit(for: $0) }
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {
-        if let key = activeWorktreeKey(for: projectID),
-           let areaID = maximizedAreaID[key],
-           let root = workspaceRoots[key],
-           let area = root.findArea(id: areaID)
-        {
-            guard index >= 0, index < area.tabs.count else { return }
-            dispatch(.selectTab(projectID: projectID, areaID: areaID, tabID: area.tabs[index].id))
-            return
-        }
+        guard let key = activeWorktreeKey(for: projectID), index >= 0 else { return }
+        let tabs = topLevelTabs(for: key)
+        guard index < tabs.count, activeTopLevelTabID(for: key) != tabs[index].tab.id else { return }
         dispatch(.selectTabByIndex(projectID: projectID, index: index))
     }
 
@@ -606,11 +663,10 @@ final class AppState {
     }
 
     func togglePinActiveTab(projectID: UUID) {
-        guard let area = focusedArea(for: projectID),
-              let tabID = area.activeTabID
+        guard let key = activeWorktreeKey(for: projectID),
+              let tabID = activeTopLevelTabID(for: key)
         else { return }
-        area.togglePin(tabID)
-        saveWorkspaces()
+        togglePinTopLevelTab(tabID, for: key)
     }
 
     func dispatch(_ action: Action) {
@@ -666,6 +722,7 @@ final class AppState {
             workspaceRoots: workspaceRoots,
             focusedAreaID: focusedAreaID,
             focusHistory: focusHistory,
+            topLevelTabOrder: topLevelTabOrder,
             keepProjectOpenWhenEmpty: ProjectLifecyclePreferences.keepOpenWhenNoTabs
         )
         let effects = WorkspaceReducer.reduce(action: action, state: &workspace)
@@ -683,6 +740,9 @@ final class AppState {
         }
         if focusHistory != workspace.focusHistory {
             focusHistory = workspace.focusHistory
+        }
+        if topLevelTabOrder != workspace.topLevelTabOrder {
+            topLevelTabOrder = workspace.topLevelTabOrder
         }
         invalidateMaximizedAreas(for: action)
         reconcilePendingClosures()
@@ -704,7 +764,7 @@ final class AppState {
                       let area = root.findArea(id: collapse.areaID),
                       area.tabs.isEmpty
                 else { return }
-                self.dispatch(.closeArea(projectID: collapse.key.projectID, areaID: collapse.areaID))
+                self.dispatch(.closeAreaInWorktree(key: collapse.key, areaID: collapse.areaID))
             }
         }
 
@@ -855,15 +915,10 @@ final class AppState {
 
         for key in Array(maximizedAreaID.keys) {
             guard let areaID = maximizedAreaID[key] else { continue }
-            guard let root = workspaceRoots[key] else {
-                maximizedAreaID.removeValue(forKey: key)
-                continue
-            }
-            if case .tabArea = root {
-                maximizedAreaID.removeValue(forKey: key)
-                continue
-            }
-            if root.findArea(id: areaID) == nil {
+            guard let visibleLayout = visibleLayout(for: key),
+                  visibleLayout.allPanes().count > 1,
+                  visibleLayout.allPanes().contains(where: { $0.area.id == areaID })
+            else {
                 maximizedAreaID.removeValue(forKey: key)
                 continue
             }
@@ -891,6 +946,22 @@ final class AppState {
 
     func focusPaneDown(projectID: UUID) {
         dispatch(.focusPaneDown(projectID: projectID))
+    }
+
+    func moveFocusedPaneLeft(projectID: UUID) {
+        dispatch(.movePaneLeft(projectID: projectID))
+    }
+
+    func moveFocusedPaneRight(projectID: UUID) {
+        dispatch(.movePaneRight(projectID: projectID))
+    }
+
+    func moveFocusedPaneUp(projectID: UUID) {
+        dispatch(.movePaneUp(projectID: projectID))
+    }
+
+    func moveFocusedPaneDown(projectID: UUID) {
+        dispatch(.movePaneDown(projectID: projectID))
     }
 
     func cycleNextTabAcrossPanes(projectID: UUID) {

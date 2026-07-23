@@ -260,7 +260,7 @@ struct WorkspaceReducerTests {
         #expect(!effects.paneIDsToRemove.isEmpty)
     }
 
-    @Test("closeTab last tab in multi-area closes area instead")
+    @Test("closing a top-level tab closes its child panes")
     func closeTabLastInMultiArea() {
         let projectID = UUID()
         let worktreeID = UUID()
@@ -286,8 +286,40 @@ struct WorkspaceReducerTests {
             state: &state
         )
 
-        #expect(!state.workspaceRoots[key]!.containsArea(id: firstAreaID))
-        #expect(!effects.paneIDsToRemove.isEmpty)
+        #expect(state.workspaceRoots[key] == nil)
+        #expect(effects.paneIDsToRemove.count == 2)
+    }
+
+    @Test("closing a pinned top-level tab preserves its child panes")
+    func closePinnedTopLevelTabPreservesChildPanes() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let rootAreaID = state.focusedAreaID[key]!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: rootAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+
+        let rootArea = state.workspaceRoots[key]!.findArea(id: rootAreaID)!
+        let rootTab = rootArea.tabs[0]
+        rootArea.togglePin(rootTab.id)
+
+        let effects = WorkspaceReducer.reduce(
+            action: .closeTab(projectID: projectID, areaID: rootAreaID, tabID: rootTab.id),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key]!.allAreas().count == 2)
+        #expect(state.workspaceRoots[key]!.allTabs().count == 2)
+        #expect(effects.paneIDsToRemove.isEmpty)
     }
 
     @Test("closeTab last tab in last area triggers projectIDsToRemove")
@@ -609,21 +641,15 @@ struct WorkspaceReducerTests {
         #expect(state.focusedAreaID[key] == bottomAreaID)
     }
 
-    @Test("cycleNextTabAcrossPanes walks tabs in focused pane before next pane")
-    func cycleNextTabAcrossPanesWalksTabsBeforeNextPane() {
+    @Test("cycleNextTabAcrossPanes walks the selected parent pane tree")
+    func cycleNextTabAcrossPanesWalksSelectedParentTree() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         let firstAreaID = state.focusedAreaID[key]!
 
-        _ = WorkspaceReducer.reduce(
-            action: .createTab(projectID: projectID, areaID: firstAreaID),
-            state: &state
-        )
-        let firstAreaTabs = area(in: state, key: key, areaID: firstAreaID)!.tabs
-        let firstTabID = firstAreaTabs[0].id
-        let secondTabID = firstAreaTabs[1].id
+        let firstTabID = area(in: state, key: key, areaID: firstAreaID)!.tabs[0].id
 
         _ = WorkspaceReducer.reduce(
             action: .splitArea(AppState.SplitAreaRequest(
@@ -636,6 +662,7 @@ struct WorkspaceReducerTests {
         )
         let secondAreaID = state.focusedAreaID[key]!
         let secondAreaTabID = area(in: state, key: key, areaID: secondAreaID)!.tabs[0].id
+        #expect(area(in: state, key: key, areaID: secondAreaID)?.tabs[0].parentTabID == firstTabID)
 
         _ = WorkspaceReducer.reduce(
             action: .selectTab(projectID: projectID, areaID: firstAreaID, tabID: firstTabID),
@@ -646,15 +673,14 @@ struct WorkspaceReducerTests {
             action: .cycleNextTabAcrossPanes(projectID: projectID),
             state: &state
         )
-        #expect(state.focusedAreaID[key] == firstAreaID)
-        #expect(area(in: state, key: key, areaID: firstAreaID)?.activeTabID == secondTabID)
+        #expect(state.focusedAreaID[key] == secondAreaID)
+        #expect(area(in: state, key: key, areaID: secondAreaID)?.activeTabID == secondAreaTabID)
 
         _ = WorkspaceReducer.reduce(
             action: .cycleNextTabAcrossPanes(projectID: projectID),
             state: &state
         )
-        #expect(state.focusedAreaID[key] == secondAreaID)
-        #expect(area(in: state, key: key, areaID: secondAreaID)?.activeTabID == secondAreaTabID)
+        #expect(state.focusedAreaID[key] == firstAreaID)
     }
 
     @Test("cyclePreviousTabAcrossPanes walks backward across panes")
@@ -665,11 +691,7 @@ struct WorkspaceReducerTests {
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         let firstAreaID = state.focusedAreaID[key]!
 
-        _ = WorkspaceReducer.reduce(
-            action: .createTab(projectID: projectID, areaID: firstAreaID),
-            state: &state
-        )
-        let secondFirstAreaTabID = area(in: state, key: key, areaID: firstAreaID)!.tabs[1].id
+        let firstAreaTabID = area(in: state, key: key, areaID: firstAreaID)!.tabs[0].id
 
         _ = WorkspaceReducer.reduce(
             action: .splitArea(AppState.SplitAreaRequest(
@@ -693,7 +715,7 @@ struct WorkspaceReducerTests {
             state: &state
         )
         #expect(state.focusedAreaID[key] == firstAreaID)
-        #expect(area(in: state, key: key, areaID: firstAreaID)?.activeTabID == secondFirstAreaTabID)
+        #expect(area(in: state, key: key, areaID: firstAreaID)?.activeTabID == firstAreaTabID)
     }
 
     @Test("cycleTabAcrossPanes wraps between first and last entries")
@@ -704,10 +726,6 @@ struct WorkspaceReducerTests {
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         let firstAreaID = state.focusedAreaID[key]!
 
-        _ = WorkspaceReducer.reduce(
-            action: .createTab(projectID: projectID, areaID: firstAreaID),
-            state: &state
-        )
         let firstTabID = area(in: state, key: key, areaID: firstAreaID)!.tabs[0].id
 
         _ = WorkspaceReducer.reduce(
@@ -765,18 +783,13 @@ struct WorkspaceReducerTests {
         #expect(area(in: state, key: key, areaID: areaID)?.activeTabID == tabID)
     }
 
-    @Test("moveTab toArea moves tab between areas")
+    @Test("moveTab toArea swaps panes within one parent")
     func moveTabToArea() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         let firstAreaID = state.focusedAreaID[key]!
-
-        _ = WorkspaceReducer.reduce(
-            action: .createTab(projectID: projectID, areaID: nil),
-            state: &state
-        )
 
         _ = WorkspaceReducer.reduce(
             action: .splitArea(AppState.SplitAreaRequest(
@@ -790,7 +803,9 @@ struct WorkspaceReducerTests {
         let secondAreaID = state.focusedAreaID[key]!
 
         let sourceArea = state.workspaceRoots[key]!.findArea(id: firstAreaID)!
+        let destinationArea = state.workspaceRoots[key]!.findArea(id: secondAreaID)!
         let tabToMove = sourceArea.tabs[0].id
+        let destinationTabID = destinationArea.tabs[0].id
 
         _ = WorkspaceReducer.reduce(
             action: .moveTab(
@@ -802,10 +817,11 @@ struct WorkspaceReducerTests {
 
         let destArea = state.workspaceRoots[key]!.findArea(id: secondAreaID)!
         #expect(destArea.tabs.contains(where: { $0.id == tabToMove }))
+        #expect(sourceArea.tabs.contains(where: { $0.id == destinationTabID }))
     }
 
-    @Test("moveTab toArea defers collapse of empty source area")
-    func moveTabToAreaDefersCollapse() {
+    @Test("moveTab toArea does not collapse either swapped pane")
+    func moveTabToAreaDoesNotCollapse() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
@@ -837,8 +853,8 @@ struct WorkspaceReducerTests {
         let destArea = state.workspaceRoots[key]!.findArea(id: secondAreaID)!
         #expect(destArea.tabs.contains(where: { $0.id == tabToMove }))
         #expect(state.workspaceRoots[key]!.findArea(id: firstAreaID) != nil)
-        #expect(state.workspaceRoots[key]!.findArea(id: firstAreaID)!.tabs.isEmpty)
-        #expect(effects.deferredAreaCollapses.contains(where: { $0.areaID == firstAreaID }))
+        #expect(!state.workspaceRoots[key]!.findArea(id: firstAreaID)!.tabs.isEmpty)
+        #expect(effects.deferredAreaCollapses.isEmpty)
     }
 
     @Test("moveTab toNewSplit creates new split with tab")
@@ -871,6 +887,35 @@ struct WorkspaceReducerTests {
 
         let root = state.workspaceRoots[key]!
         #expect(root.allAreas().count == 2)
+    }
+
+    @Test("moveTab toNewSplit moves a pinned pane")
+    func movePinnedTabToNewSplit() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let area = focusedArea(in: state, projectID: projectID)!
+        let tabToMove = area.tabs[0]
+        tabToMove.isPinned = true
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: tabToMove.id,
+                    sourceAreaID: areaID,
+                    targetAreaID: areaID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+
+        let root = state.workspaceRoots[key]!
+        #expect(root.allAreas().count == 2)
+        #expect(root.locateTab(id: tabToMove.id)?.tab.isPinned == true)
     }
 
     @Test("moveTab toNewSplit defers collapse when source becomes empty")
@@ -1008,8 +1053,8 @@ struct WorkspaceReducerTests {
         #expect(newArea.activeTabID == originalTabID)
     }
 
-    @Test("selectTabByIndex selects cross-pane global index")
-    func selectTabByIndexCrossPane() {
+    @Test("selectTabByIndex ignores child panes")
+    func selectTabByIndexIgnoresChildPanes() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
@@ -1042,13 +1087,147 @@ struct WorkspaceReducerTests {
         #expect(firstArea.tabs.count == 2)
         #expect(secondArea.tabs.count == 2)
 
+        let expectedTabID = secondArea.tabs[1].id
         _ = WorkspaceReducer.reduce(
-            action: .selectTabByIndex(projectID: projectID, index: 3),
+            action: .selectTabByIndex(projectID: projectID, index: 2),
             state: &state
         )
 
         #expect(state.focusedAreaID[key] == secondAreaID)
         let newSecondArea = area(in: state, key: key, areaID: secondAreaID)!
-        #expect(newSecondArea.activeTabID == newSecondArea.tabs[1].id)
+        #expect(newSecondArea.activeTabID == expectedTabID)
+    }
+
+    @Test("splitting a child creates another direct child of the top-level tab")
+    func splittingChildKeepsOneLevelOwnership() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let rootAreaID = state.focusedAreaID[key]!
+        let rootTabID = state.workspaceRoots[key]!.findArea(id: rootAreaID)!.activeTabID!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(.init(
+                projectID: projectID,
+                areaID: rootAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let firstChildAreaID = state.focusedAreaID[key]!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(.init(
+                projectID: projectID,
+                areaID: firstChildAreaID,
+                direction: .vertical,
+                position: .second
+            )),
+            state: &state
+        )
+        let secondChildAreaID = state.focusedAreaID[key]!
+        let tabs = state.workspaceRoots[key]!.allTabs()
+
+        #expect(tabs.count == 3)
+        #expect(tabs.filter { $0.parentTabID == rootTabID }.count == 2)
+        #expect(state.workspaceRoots[key]!.findArea(id: secondChildAreaID)?.activeTab?.parentTabID == rootTabID)
+    }
+
+    @Test("new tab from a child pane is top-level")
+    func newTabFromChildIsTopLevel() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let rootAreaID = state.focusedAreaID[key]!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(.init(
+                projectID: projectID,
+                areaID: rootAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let childAreaID = state.focusedAreaID[key]!
+        let effects = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: childAreaID),
+            state: &state
+        )
+        let newTab = state.workspaceRoots[key]!.locateTab(id: effects.createdTabID!)!.tab
+
+        #expect(newTab.parentTabID == nil)
+        #expect(state.topLevelTabOrder[key]?.contains(newTab.id) == true)
+    }
+
+    @Test("pane movement rejects a target owned by another top-level tab")
+    func paneMovementRejectsCrossParentTarget() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let rootAreaID = state.focusedAreaID[key]!
+        let rootArea = state.workspaceRoots[key]!.findArea(id: rootAreaID)!
+        let otherRootArea = TabArea(projectPath: testPath)
+        let rootTabID = rootArea.tabs[0].id
+        let otherRootID = otherRootArea.tabs[0].id
+        state.workspaceRoots[key] = .split(SplitBranch(
+            direction: .horizontal,
+            first: .tabArea(rootArea),
+            second: .tabArea(otherRootArea)
+        ))
+
+        _ = WorkspaceReducer.reduce(
+            action: .moveTab(
+                projectID: projectID,
+                request: .toArea(
+                    tabID: rootTabID,
+                    sourceAreaID: rootAreaID,
+                    destinationAreaID: otherRootArea.id
+                )
+            ),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key]!.findArea(id: rootAreaID)?.tabs.contains { $0.id == rootTabID } == true)
+        #expect(state.workspaceRoots[key]!.findArea(id: otherRootArea.id)?.tabs.contains { $0.id == otherRootID } == true)
+    }
+
+    @Test("directional pane movement swaps the nearest owned panes")
+    func directionalPaneMovementSwapsNearestOwnedPanes() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let leftAreaID = state.focusedAreaID[key]!
+        let leftTabID = state.workspaceRoots[key]!.findArea(id: leftAreaID)!.activeTabID!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(.init(
+                projectID: projectID,
+                areaID: leftAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let rightAreaID = state.focusedAreaID[key]!
+        let rightTabID = state.workspaceRoots[key]!.findArea(id: rightAreaID)!.activeTabID!
+        _ = WorkspaceReducer.reduce(
+            action: .focusArea(projectID: projectID, areaID: leftAreaID),
+            state: &state
+        )
+
+        _ = WorkspaceReducer.reduce(
+            action: .movePaneRight(projectID: projectID),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key]!.findArea(id: leftAreaID)?.activeTabID == rightTabID)
+        #expect(state.workspaceRoots[key]!.findArea(id: rightAreaID)?.activeTabID == leftTabID)
+        #expect(state.focusedAreaID[key] == rightAreaID)
     }
 }

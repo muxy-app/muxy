@@ -65,6 +65,8 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 
 Inside a terminal pane: **Paste**, **Split Right**, **Split Down**, **Close Pane**.
 
+Splitting creates a child pane inside the current top-level tab. Each pane keeps its own terminal, browser, source-control, or extension surface, while a one-pixel divider replaces the old per-pane tab strip. Child panes do not appear as separate entries in the window tab strip or the Tab Focused sidebar.
+
 ## Notifications from the terminal
 
 OSC 9 and OSC 777 notification escape sequences are routed into Muxy's notification panel and (optionally) macOS notifications.

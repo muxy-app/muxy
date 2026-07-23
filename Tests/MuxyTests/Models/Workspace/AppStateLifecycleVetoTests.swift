@@ -61,6 +61,48 @@ struct AppStateLifecycleVetoTests {
         #expect(bridge.askCount == 0)
     }
 
+    @Test("a split-child extension can veto closing its top-level tab")
+    func childExtensionVetoesOwnerClose() async {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        let rootArea = TabArea(projectPath: "/tmp/test")
+        let rootTabID = rootArea.tabs[0].id
+        let extensionState = ExtensionTabState(
+            extensionID: "ext",
+            tabTypeID: "editor",
+            projectPath: "/tmp/test",
+            defaultTitle: "Editor",
+            data: nil
+        )
+        let childTab = TerminalTab(extensionState: extensionState, parentTabID: rootTabID)
+        let childArea = TabArea(projectPath: "/tmp/test", existingTab: childTab)
+        appState.activeProjectID = projectID
+        appState.activeWorktreeID[projectID] = worktreeID
+        appState.workspaceRoots[key] = .split(SplitBranch(
+            direction: .horizontal,
+            first: .tabArea(rootArea),
+            second: .tabArea(childArea)
+        ))
+        appState.focusedAreaID[key] = rootArea.id
+
+        let surfaceKey = LifecycleSurfaceKey(kind: .tab, instanceID: extensionState.id.uuidString)
+        let bridge = FakeBeforeCloseAsking(verdict: .prevent)
+        ExtensionSurfaceBridgeRegistry.shared.register(bridge, for: surfaceKey)
+        defer { ExtensionSurfaceBridgeRegistry.shared.unregister(surfaceKey) }
+
+        appState.closeTab(rootTabID, areaID: rootArea.id, projectID: projectID)
+        await settle()
+
+        #expect(appState.workspaceRoots[key]?.allTabs().count == 2)
+        #expect(bridge.askCount == 1)
+    }
+
     private func settle() async {
         for _ in 0 ..< 50 { await Task.yield() }
     }

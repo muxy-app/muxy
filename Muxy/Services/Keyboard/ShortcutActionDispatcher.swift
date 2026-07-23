@@ -55,9 +55,9 @@ struct ShortcutActionDispatcher {
         let entries = tabFocusedEntries
         guard entries.count > 1 else { return false }
         guard let projectID = appState.activeProjectID,
-              let area = appState.focusedArea(for: projectID),
-              let activeTabID = area.activeTabID,
-              let current = entries.firstIndex(where: { $0.areaID == area.id && $0.tabID == activeTabID })
+              let key = appState.activeWorktreeKey(for: projectID),
+              let activeTabID = appState.activeTopLevelTabID(for: key),
+              let current = entries.firstIndex(where: { $0.tabID == activeTabID })
         else { return false }
         let next = (current + offset + entries.count) % entries.count
         return selectGlobalTab(entries[next])
@@ -158,6 +158,22 @@ struct ShortcutActionDispatcher {
         case .focusPaneDown:
             guard let projectID = appState.activeProjectID else { return false }
             appState.focusPaneDown(projectID: projectID)
+            return true
+        case .movePaneLeft:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.moveFocusedPaneLeft(projectID: projectID)
+            return true
+        case .movePaneRight:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.moveFocusedPaneRight(projectID: projectID)
+            return true
+        case .movePaneUp:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.moveFocusedPaneUp(projectID: projectID)
+            return true
+        case .movePaneDown:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.moveFocusedPaneDown(projectID: projectID)
             return true
         case .cycleNextTabAcrossPanes:
             guard let projectID = appState.activeProjectID else { return false }

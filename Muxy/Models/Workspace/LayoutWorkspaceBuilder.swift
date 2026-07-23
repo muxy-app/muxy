@@ -11,13 +11,26 @@ enum LayoutWorkspaceBuilder {
         guard let node = buildNode(from: config.root, projectPath: projectPath) else {
             return nil
         }
+        let areas = node.allAreas()
+        guard let rootArea = areas.first,
+              let rootTab = rootArea.tabs.first
+        else {
+            return nil
+        }
+        for area in areas.dropFirst() {
+            area.tabs.first?.parentTabID = rootTab.id
+        }
+        for legacyExtraTab in config.legacyExtraTabs {
+            rootArea.insertExistingTab(makeTab(from: legacyExtraTab, projectPath: projectPath))
+        }
+        rootArea.activeTabID = rootTab.id
         return Result(root: node, focusedAreaID: firstAreaID(in: node))
     }
 
     private static func buildNode(from pane: LayoutConfig.Pane, projectPath: String) -> SplitNode? {
         switch pane {
-        case let .leaf(tabs):
-            return makeArea(tabs: tabs, projectPath: projectPath).map { .tabArea($0) }
+        case let .leaf(tab):
+            return .tabArea(makeArea(tab: tab, projectPath: projectPath))
         case let .branch(layout, panes):
             let children = panes.compactMap { buildNode(from: $0, projectPath: projectPath) }
             guard let first = children.first else { return nil }
@@ -31,15 +44,8 @@ enum LayoutWorkspaceBuilder {
         }
     }
 
-    private static func makeArea(tabs: [LayoutConfig.Tab], projectPath: String) -> TabArea? {
-        let terminalTabs = tabs.map { makeTab(from: $0, projectPath: projectPath) }
-        guard let firstTab = terminalTabs.first else { return nil }
-        let area = TabArea(projectPath: projectPath, existingTab: firstTab)
-        for tab in terminalTabs.dropFirst() {
-            area.insertExistingTab(tab)
-        }
-        area.activeTabID = firstTab.id
-        return area
+    private static func makeArea(tab: LayoutConfig.Tab, projectPath: String) -> TabArea {
+        TabArea(projectPath: projectPath, existingTab: makeTab(from: tab, projectPath: projectPath))
     }
 
     private static func makeTab(from tab: LayoutConfig.Tab, projectPath: String) -> TerminalTab {

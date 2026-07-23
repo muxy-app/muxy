@@ -26,7 +26,7 @@
 #   muxy tab set-icon <tab> [sf-symbol]        Set a tab icon (SF Symbol; omit to reset)
 #   muxy tab pin|unpin <tab>                   Pin or unpin a tab
 #   muxy tab close <tab>                       Close a tab
-#   muxy tab move <tab> <to-index>             Reorder a tab within its area
+#   muxy tab move <tab> <to-index>             Reorder a root tab or a child within its pane
 #   muxy install-skills [skills args...]       Install Muxy agent skills into detected AI harnesses
 #
 # Worktree targeting:
@@ -111,7 +111,7 @@ usage() {
     echo "  muxy tab set-icon <tab> [sf-symbol]      Set a tab icon (SF Symbol; omit to reset)"
     echo "  muxy tab pin|unpin <tab>                 Pin or unpin a tab"
     echo "  muxy tab close <tab>                     Close a tab"
-    echo "  muxy tab move <tab> <to-index>           Reorder a tab within its area"
+    echo "  muxy tab move <tab> <to-index>           Reorder a root tab or a child within its pane"
     echo "  muxy browser open <url> [--split]        Open a URL in a built-in browser tab (returns tab ID)"
     echo "  muxy browser navigate <tab-id> <url>     Navigate a browser tab to a URL"
     echo "  muxy browser list                        List built-in browser tabs"

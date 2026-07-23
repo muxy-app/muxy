@@ -18,7 +18,7 @@ struct AppStateMaximizeTests {
         appState.dispatch(.focusPaneLeft(projectID: projectID))
 
         #expect(appState.focusedAreaID[key] == secondAreaID)
-        #expect(appState.shortcutOffsets(for: projectID) == [secondAreaID: 0])
+        #expect(appState.maximizedAreaID[key] == secondAreaID)
     }
 
     @Test("cross-pane tab cycling restores full layout when focus leaves maximized pane")
@@ -51,8 +51,8 @@ struct AppStateMaximizeTests {
         #expect(appState.maximizedAreaID[key] == nil)
     }
 
-    @Test("indexed tab selection uses maximized pane numbering")
-    func indexedTabSelectionUsesMaximizedPaneNumbering() {
+    @Test("selecting the active top-level tab by index preserves the maximized child")
+    func selectingActiveTopLevelTabPreservesMaximizedChild() {
         let projectID = UUID()
         let worktreeID = UUID()
         let appState = makeAppState(projectID: projectID, worktreeID: worktreeID)
@@ -61,19 +61,16 @@ struct AppStateMaximizeTests {
         let root = appState.workspaceRoots[key]!
         let firstArea = root.findArea(id: firstAreaID)!
         let secondArea = root.findArea(id: secondAreaID)!
-        firstArea.createTab()
-        firstArea.createTab()
-        secondArea.createTab()
-        secondArea.createTab()
-        let secondAreaFirstTabID = secondArea.tabs[0].id
+        let firstRootTabID = firstArea.tabs[0].id
+        let childTabID = secondArea.tabs[0].id
 
         appState.toggleMaximize(areaID: secondAreaID, for: projectID)
         appState.selectTabByIndex(0, projectID: projectID)
 
         #expect(appState.focusedAreaID[key] == secondAreaID)
         #expect(appState.maximizedAreaID[key] == secondAreaID)
-        #expect(secondArea.activeTabID == secondAreaFirstTabID)
-        #expect(firstArea.activeTabID != secondAreaFirstTabID)
+        #expect(firstArea.activeTabID == firstRootTabID)
+        #expect(secondArea.activeTabID == childTabID)
     }
 
     @Test("direct area focus restores full layout when focus leaves maximized pane")

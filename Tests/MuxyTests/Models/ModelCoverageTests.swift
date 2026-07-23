@@ -168,16 +168,16 @@ struct ModelCoverageTests {
         try """
         layout: vertical
         panes:
-          - tabs:
-              - name: Editor
-                command:
-                  - swift build
-                  - swift test
-              - npm run dev
+          - tab:
+              name: Editor
+              command:
+                - swift build
+                - swift test
           - layout: horizontal
             panes:
               - tabs:
                   - command: git status
+                  - npm run dev
         """.write(to: layoutURL.appendingPathComponent("B.yml"), atomically: true, encoding: .utf8)
         try #"{"tabs":["echo hi"]}"#.write(to: layoutURL.appendingPathComponent("a.json"), atomically: true, encoding: .utf8)
         try "ignored".write(to: layoutURL.appendingPathComponent("ignored.txt"), atomically: true, encoding: .utf8)
@@ -188,19 +188,17 @@ struct ModelCoverageTests {
 
         let config = try #require(LayoutConfig.load(projectPath: projectURL.path, name: "B"))
         #expect(config.root == .branch(layout: .vertical, panes: [
-            .leaf(tabs: [
-                .init(name: "Editor", command: "swift build && swift test"),
-                .init(name: nil, command: "npm run dev"),
-            ]),
+            .leaf(tab: .init(name: "Editor", command: "swift build && swift test")),
             .branch(layout: .horizontal, panes: [
-                .leaf(tabs: [.init(name: nil, command: "git status")]),
+                .leaf(tab: .init(name: nil, command: "git status")),
             ]),
         ]))
+        #expect(config.legacyExtraTabs == [.init(name: nil, command: "npm run dev")])
 
         #expect(LayoutConfig.parse(nil) == nil)
         #expect(LayoutConfig.parse(["tabs": []]) == nil)
         #expect(LayoutConfig.parse(["panes": []]) == nil)
-        #expect(LayoutConfig.parse(["tabs": [["name": "  ", "command": []]]]) == .init(root: .leaf(tabs: [.init(name: nil, command: nil)])))
+        #expect(LayoutConfig.parse(["tab": ["name": "  ", "command": []]]) == .init(root: .leaf(tab: .init(name: nil, command: nil))))
     }
 
     @Test("Terminal search display text and publishing follow query length rules")

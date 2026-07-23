@@ -6,6 +6,7 @@ struct PaneTabStrip: View {
     struct TabSnapshot: Identifiable {
         let id: UUID
         let paneID: UUID?
+        let relatedPaneIDs: [UUID]
         let title: String
         let kind: TerminalTab.Kind
         let isPinned: Bool
@@ -18,6 +19,7 @@ struct PaneTabStrip: View {
         let faviconImage: NSImage?
         let detectedAgentIconName: String?
         let agentStatus: AgentStatus?
+        let hasUnread: Bool
     }
 
     let areaID: UUID
@@ -29,6 +31,7 @@ struct PaneTabStrip: View {
     var openProjectPath: String?
     let projectID: UUID
     var shortcutIndexOffset: Int = 0
+    var allowsSplitDrag = true
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
     var onOpenBrowser: (() -> Void)?
@@ -50,11 +53,22 @@ struct PaneTabStrip: View {
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @State private var dragState = TabDragState()
 
-    static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
+    static func snapshots(
+        from tabs: [TerminalTab],
+        including allTabs: [TerminalTab]? = nil
+    ) -> [TabSnapshot] {
         tabs.map { tab in
-            TabSnapshot(
+            let relatedTabs = [tab] + (allTabs ?? []).filter { $0.parentTabID == tab.id }
+            let panes = relatedTabs.compactMap(\.content.pane)
+            let paneIDs = panes.map(\.id)
+            let agentStatuses = paneIDs.compactMap { AgentStatusStore.shared.status(forPane: $0) }
+            let agentStatus = agentStatuses.contains(.waiting)
+                ? AgentStatus.waiting
+                : agentStatuses.first
+            return TabSnapshot(
                 id: tab.id,
                 paneID: tab.content.pane?.id,
+                relatedPaneIDs: paneIDs,
                 title: tab.title,
                 kind: tab.kind,
                 isPinned: tab.isPinned,
@@ -63,10 +77,13 @@ struct PaneTabStrip: View {
                 customIconSymbol: tab.customIcon,
                 extensionID: tab.content.extensionState?.extensionID,
                 customIcon: tab.content.extensionState?.customIcon,
-                isOffline: tab.content.pane?.isOffline ?? false,
+                isOffline: !panes.isEmpty && panes.allSatisfy(\.isOffline),
                 faviconImage: tab.content.browserState?.faviconImage,
-                detectedAgentIconName: DetectedAgentStore.shared.iconName(forPane: tab.content.pane?.id),
-                agentStatus: AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
+                detectedAgentIconName: paneIDs.compactMap {
+                    DetectedAgentStore.shared.iconName(forPane: $0)
+                }.first,
+                agentStatus: agentStatus,
+                hasUnread: relatedTabs.contains { NotificationStore.shared.hasUnread(tabID: $0.id) }
             )
         }
     }
@@ -150,7 +167,7 @@ struct PaneTabStrip: View {
                     active: tab.id == activeTabID,
                     paneFocused: isFocused,
                     areaID: areaID,
-                    hasUnread: NotificationStore.shared.hasUnread(tabID: tab.id),
+                    hasUnread: tab.hasUnread,
                     isAnyDragging: dragState.draggedID != nil,
                     shortcutIndex: globalIndex < 9 ? globalIndex + 1 : nil,
                     closableOthersCount: closableOthersCount(excluding: tab.id),
@@ -246,7 +263,7 @@ struct PaneTabStrip: View {
             return
         }
 
-        if abs(dy) > 24, !tab.isPinned {
+        if allowsSplitDrag, abs(dy) > 24, !tab.isPinned {
             dragState.isInSplitMode = true
             dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: areaID, projectID: projectID)
             dragCoordinator.updatePosition(globalLocation)
@@ -398,8 +415,7 @@ private struct TabCell: View {
     }
 
     private var paneProgress: TerminalProgress? {
-        guard let paneID = tab.paneID else { return nil }
-        return progressStore.progress(for: paneID)
+        tab.relatedPaneIDs.compactMap { progressStore.progress(for: $0) }.first
     }
 
     private var tabProgress: TerminalProgress? {
@@ -407,9 +423,10 @@ private struct TabCell: View {
     }
 
     private var hasCompletionPending: Bool {
-        guard let paneID = tab.paneID else { return false }
-        return progressStore.isCompletionPending(for: paneID)
-            || AgentStatusStore.shared.isCompletionPending(forPane: paneID)
+        tab.relatedPaneIDs.contains {
+            progressStore.isCompletionPending(for: $0)
+                || AgentStatusStore.shared.isCompletionPending(forPane: $0)
+        }
     }
 
     private var statusDotColor: Color? {
@@ -621,9 +638,11 @@ private struct TabCell: View {
         withAnimation(.easeIn(duration: 0.15)) {
             completionFlashOn = true
         }
-        if active, let paneID = tab.paneID {
-            progressStore.clearCompletion(for: paneID)
-            AgentStatusStore.shared.clearCompletion(for: paneID)
+        if active {
+            for paneID in tab.relatedPaneIDs {
+                progressStore.clearCompletion(for: paneID)
+                AgentStatusStore.shared.clearCompletion(for: paneID)
+            }
         }
         flashTask = Task { @MainActor in
             try await Task.sleep(for: .milliseconds(450))

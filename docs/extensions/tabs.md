@@ -71,7 +71,7 @@ The topbar project target is independent from this setting and never lists exten
 
 ## Topbar (recommended)
 
-A tab fills its whole region with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
+A tab fills its whole pane with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; sibling panes line up only when every surface uses the same bar.** Split-child extension tabs render as bordered panes inside their owning top-level tab and do not get their own tab strip.
 
 Tab webviews use an opaque native backing that follows `--muxy-background`, which keeps large scrolling pages composited smoothly. Paint the `html` and `body` backgrounds with `--muxy-background`; transparent page backgrounds are supported only for [popovers](popovers.md).
 

@@ -71,7 +71,7 @@ Muxy's native views are built from one scale of values, and **all of them scale 
 
 **Radii** — `4` chips/badges · `6` buttons/inputs · `8` cards/panels · `10` large containers. Buttons are `4`–`6`, not `5`.
 
-**Topbar height is the exception — never hardcode it.** It scales with interface scale and is injected pre-scaled as `--muxy-topbar-height`. A tab fills its whole region, so render your own topbar to match native tabs (so split panes line up): use that variable for the height and keep `box-sizing: content-box` so the 1px `border-bottom` lands on the same line as native tabs. Omit the topbar for edge-to-edge content.
+**Topbar height is the exception — never hardcode it.** It scales with interface scale and is injected pre-scaled as `--muxy-topbar-height`. A tab fills its whole pane, so render your own topbar to match native surfaces (so sibling panes line up): use that variable for the height and keep `box-sizing: content-box` so the 1px `border-bottom` lands on the same line as native tabs. Split-child tabs appear as bordered panes inside their owner and do not have a local tab strip. Omit the topbar for edge-to-edge content.
 
 Declare the scale once at the top of your stylesheet and reference it everywhere, so there are no stray magic numbers:
 

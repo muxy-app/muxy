@@ -137,7 +137,7 @@ Pane-control commands talk to the running Muxy app through a local Unix socket. 
 
 ### Create splits
 
-When you run `muxy split-right` or `muxy split-down` from inside a Muxy pane, the split starts from the pane you are in. Muxy exports `MUXY_PANE_ID` into every pane, and `muxy` uses it automatically.
+When you run `muxy split-right` or `muxy split-down` from inside a Muxy pane, the split starts from the pane you are in. Muxy exports `MUXY_PANE_ID` into every pane, and `muxy` uses it automatically. The new pane belongs to the same top-level tab as its source, including when the source is already a child pane.
 
 Split the current pane to the right:
 
@@ -262,6 +262,10 @@ Output is tab-separated:
 ```
 
 Add `--project` or `--worktree` to list the tabs of another worktree. See [Targeting a project or worktree](#targeting-a-project-or-worktree).
+
+`list-tabs` deliberately stays flat: it includes top-level tabs and their split-child tabs in one indexed list. Switching to a child entry activates its owning top-level tab and focuses that pane.
+
+`muxy tab move <tab> <to-index>` uses this flat list for both arguments. A top-level tab can move to another top-level slot, while a split-child tab can move only to a slot in its current pane.
 
 ### Switch and create tabs
 
