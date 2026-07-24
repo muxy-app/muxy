@@ -351,7 +351,10 @@ extension InternalPaneNodeSnapshot {
                 id: snapshot.id,
                 projectPath: snapshot.projectPath,
                 title: snapshot.title,
-                initialWorkingDirectory: snapshot.currentWorkingDirectory,
+                initialWorkingDirectory: Self.restoredWorkingDirectory(
+                    snapshot.currentWorkingDirectory,
+                    projectPath: snapshot.projectPath
+                ),
                 startupCommand: snapshot.startupCommand,
                 startupCommandInteractive: snapshot.startupCommandInteractive,
                 closesOnStartupCommandExit: snapshot.closesOnStartupCommandExit,
@@ -365,6 +368,16 @@ extension InternalPaneNodeSnapshot {
                 second: snapshot.second.toInternalPaneNode()
             ))
         }
+    }
+
+    private static func restoredWorkingDirectory(_ path: String?, projectPath: String) -> String? {
+        guard let path else { return nil }
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        let standardizedProjectPath = URL(fileURLWithPath: projectPath).standardizedFileURL.path
+        guard standardizedPath == standardizedProjectPath || standardizedPath.hasPrefix(standardizedProjectPath + "/") else {
+            return nil
+        }
+        return path
     }
 }
 

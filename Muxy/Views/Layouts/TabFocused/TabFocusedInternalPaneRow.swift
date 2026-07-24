@@ -146,7 +146,7 @@ struct TabFocusedInternalPaneRow: View {
         .onHover { hovered = $0 }
         .onTapGesture { onFocus() }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Pane: \(pane.title)")
+        .accessibilityLabel("Pane: \(pane.displayTitle)")
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
     }
 }

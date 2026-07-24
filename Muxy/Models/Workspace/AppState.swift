@@ -1031,6 +1031,17 @@ final class AppState {
         {
             pendingProcessTabClose = nil
         }
+
+        if let pending = pendingProcessInternalPaneClose,
+           !containsInternalPane(
+               projectID: pending.projectID,
+               areaID: pending.areaID,
+               tabID: pending.tabID,
+               paneID: pending.paneID
+           )
+        {
+            pendingProcessInternalPaneClose = nil
+        }
     }
 
     private func tabExists(tabID: UUID, areaID: UUID, key: WorktreeKey) -> Bool {

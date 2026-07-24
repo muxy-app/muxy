@@ -452,6 +452,7 @@ private struct TabFocusedTabRow: View {
                         select()
                         return
                     }
+                    select()
                     if isPaneTreeExpanded {
                         isPaneTreeExpanded = false
                     } else {
@@ -705,12 +706,12 @@ private struct TabFocusedTabRow: View {
     }
 
     private func focusFirstPane() {
-        guard let firstPane = paneTree.first else { return }
+        guard let targetPane = paneTree.first(where: { $0.id == tab.focusedPaneID }) ?? paneTree.first else { return }
         appState.focusInternalPane(
             projectID: projectID,
             areaID: area.id,
             tabID: tab.id,
-            paneID: firstPane.id
+            paneID: targetPane.id
         )
     }
 }

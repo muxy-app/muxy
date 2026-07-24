@@ -227,6 +227,7 @@ enum TabReducer {
         else { return }
 
         if let tab = area.tabs.first(where: { $0.id == tabID }),
+           !tab.isPinned,
            let internalPanes = tab.internalPanes,
            internalPanes.allPanes().count > 1,
            let focusedPaneID = tab.focusedPaneID
@@ -389,6 +390,7 @@ enum TabReducer {
               let tab = area.tabs.first(where: { $0.id == tabID })
         else { return }
 
+        guard tab.internalPanes?.containsPane(id: paneID) == true || tab.content.pane?.id == paneID else { return }
         state.activeProjectID = projectID
         FocusReducer.focusArea(area.id, key: key, state: &state)
         area.selectTab(tabID)
