@@ -82,7 +82,25 @@ struct ShortcutActionDispatcher {
         return true
     }
 
+    private func splitFocusedInnerPane(direction: SplitDirection) -> Bool {
+        guard let projectID = appState.activeProjectID,
+              let area = appState.focusedArea(for: projectID),
+              let tabID = area.activeTabID
+        else { return false }
+        appState.dispatch(.splitTabPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            direction: direction
+        ))
+        return true
+    }
+
     func perform(_ action: ShortcutAction, activeProject: Project?) -> Bool {
+        if let direction = action.innerPaneSplitDirection {
+            return splitFocusedInnerPane(direction: direction)
+        }
+
         if let index = action.tabSelectionIndex {
             if AppLayoutStore.shared.layout == .tabFocused {
                 return selectGlobalTab(index: index)
@@ -137,18 +155,9 @@ struct ShortcutActionDispatcher {
             guard let projectID = appState.activeProjectID else { return false }
             appState.splitFocusedArea(direction: .vertical, projectID: projectID)
             return true
-        case .splitTabPane:
-            guard let projectID = appState.activeProjectID,
-                  let area = appState.focusedArea(for: projectID),
-                  let tabID = area.activeTabID
-            else { return false }
-            appState.dispatch(.splitTabPane(
-                projectID: projectID,
-                areaID: area.id,
-                tabID: tabID,
-                direction: .horizontal
-            ))
-            return true
+        case .splitTabPane,
+             .splitTabPaneDown:
+            return false
         case .closePane:
             guard let projectID = appState.activeProjectID,
                   let areaID = appState.focusedAreaID(for: projectID)

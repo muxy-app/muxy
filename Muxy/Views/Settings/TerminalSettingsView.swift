@@ -35,7 +35,7 @@ struct TerminalSettingsView: View {
 
             SettingsSection("Tabs") {
                 SettingsToggleRow(
-                    label: "Confirm before closing a tab with a running process",
+                    label: "Confirm before closing a terminal with a running process",
                     isOn: $confirmRunningProcess
                 )
             }

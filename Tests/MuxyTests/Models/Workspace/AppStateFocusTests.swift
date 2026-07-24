@@ -106,10 +106,99 @@ struct AppStateCloseInternalPaneTests {
         #expect(area.activeTabID == tabID)
     }
 
-    private func makeAppState(projectID: UUID, worktreeID: UUID) -> AppState {
+    @Test("closeInternalPane requires confirmation before closing a running pane")
+    func closeInternalPaneConfirmsRunningProcess() {
+        let previousPreference = TabCloseConfirmationPreferences.confirmRunningProcess
+        TabCloseConfirmationPreferences.confirmRunningProcess = true
+        defer {
+            TabCloseConfirmationPreferences.confirmRunningProcess = previousPreference
+        }
+
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let terminalViews = TerminalViewRemovingStub()
+        let appState = makeAppState(
+            projectID: projectID,
+            worktreeID: worktreeID,
+            terminalViews: terminalViews
+        )
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = appState.workspaceRoots[key]!.allAreas().first!
+        let tabID = area.activeTabID!
+        appState.dispatch(.splitTabPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            direction: .horizontal
+        ))
+        let tab = area.tabs.first { $0.id == tabID }!
+        let paneID = tab.focusedPaneID!
+        terminalViews.paneIDsRequiringConfirmation = [paneID]
+
+        appState.closeInternalPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            paneID: paneID
+        )
+
+        #expect(tab.internalPanes?.allPanes().count == 2)
+        #expect(appState.pendingProcessInternalPaneClose == .init(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            paneID: paneID
+        ))
+
+        appState.confirmCloseRunningInternalPane()
+
+        #expect(appState.pendingProcessInternalPaneClose == nil)
+        #expect(tab.internalPanes == nil)
+        #expect(tab.focusedPaneID == nil)
+    }
+
+    @Test("closeTab checks the focused internal pane process")
+    func closeTabChecksFocusedInternalPane() {
+        let previousPreference = TabCloseConfirmationPreferences.confirmRunningProcess
+        TabCloseConfirmationPreferences.confirmRunningProcess = true
+        defer {
+            TabCloseConfirmationPreferences.confirmRunningProcess = previousPreference
+        }
+
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let terminalViews = TerminalViewRemovingStub()
+        let appState = makeAppState(
+            projectID: projectID,
+            worktreeID: worktreeID,
+            terminalViews: terminalViews
+        )
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = appState.workspaceRoots[key]!.allAreas().first!
+        let tabID = area.activeTabID!
+        appState.dispatch(.splitTabPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            direction: .horizontal
+        ))
+        let tab = area.tabs.first { $0.id == tabID }!
+        terminalViews.paneIDsRequiringConfirmation = [tab.focusedPaneID!]
+
+        appState.closeTab(tabID, areaID: area.id, projectID: projectID)
+
+        #expect(appState.pendingProcessTabClose == .init(key: key, areaID: area.id, tabID: tabID))
+        #expect(tab.internalPanes?.allPanes().count == 2)
+    }
+
+    private func makeAppState(
+        projectID: UUID,
+        worktreeID: UUID,
+        terminalViews: TerminalViewRemovingStub = TerminalViewRemovingStub()
+    ) -> AppState {
         let appState = AppState(
             selectionStore: SelectionStoreStub(),
-            terminalViews: TerminalViewRemovingStub(),
+            terminalViews: terminalViews,
             workspacePersistence: WorkspacePersistenceStub()
         )
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
@@ -140,6 +229,10 @@ private final class SelectionStoreStub: ActiveProjectSelectionStoring {
 
 @MainActor
 private final class TerminalViewRemovingStub: TerminalViewRemoving {
+    var paneIDsRequiringConfirmation: Set<UUID> = []
+
     func removeView(for paneID: UUID) {}
-    func needsConfirmQuit(for paneID: UUID) -> Bool { false }
+    func needsConfirmQuit(for paneID: UUID) -> Bool {
+        paneIDsRequiringConfirmation.contains(paneID)
+    }
 }

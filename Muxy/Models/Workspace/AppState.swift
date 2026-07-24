@@ -98,6 +98,13 @@ final class AppState {
         let tabID: UUID
     }
 
+    struct PendingInternalPaneClose: Equatable {
+        let projectID: UUID
+        let areaID: UUID
+        let tabID: UUID
+        let paneID: UUID
+    }
+
     struct PendingLayoutApply: Equatable {
         let projectID: UUID
         let worktreePath: String
@@ -117,6 +124,7 @@ final class AppState {
     var maximizedPanes: [WorktreeKey: MaximizedPane] = [:]
     var pendingLastTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
+    var pendingProcessInternalPaneClose: PendingInternalPaneClose?
     let navigation = NavigationHistory()
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
 
@@ -745,8 +753,9 @@ final class AppState {
         } else {
             [tab]
         }
-        return tabs.compactMap { $0.content.pane?.id }
-            .contains { terminalViews.needsConfirmQuit(for: $0) }
+        return tabs.flatMap { relatedTab in
+            relatedTab.internalPanes?.allPanes() ?? relatedTab.content.pane.map { [$0] } ?? []
+        }.contains { terminalViews.needsConfirmQuit(for: $0.id) }
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {
@@ -1102,7 +1111,52 @@ final class AppState {
     }
 
     func closeInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID) {
+        guard containsInternalPane(
+            projectID: projectID,
+            areaID: areaID,
+            tabID: tabID,
+            paneID: paneID
+        )
+        else { return }
+        guard !needsProcessConfirmation(paneID: paneID) else {
+            pendingProcessInternalPaneClose = PendingInternalPaneClose(
+                projectID: projectID,
+                areaID: areaID,
+                tabID: tabID,
+                paneID: paneID
+            )
+            return
+        }
         dispatch(.closeInternalPane(projectID: projectID, areaID: areaID, tabID: tabID, paneID: paneID))
+    }
+
+    func confirmCloseRunningInternalPane() {
+        guard let pending = pendingProcessInternalPaneClose else { return }
+        pendingProcessInternalPaneClose = nil
+        dispatch(.closeInternalPane(
+            projectID: pending.projectID,
+            areaID: pending.areaID,
+            tabID: pending.tabID,
+            paneID: pending.paneID
+        ))
+    }
+
+    func cancelCloseRunningInternalPane() {
+        pendingProcessInternalPaneClose = nil
+    }
+
+    private func needsProcessConfirmation(paneID: UUID) -> Bool {
+        TabCloseConfirmationPreferences.confirmRunningProcess
+            && terminalViews.needsConfirmQuit(for: paneID)
+    }
+
+    private func containsInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID) -> Bool {
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID })
+        else { return false }
+        return tab.internalPanes?.allPanes().contains(where: { $0.id == paneID }) == true
     }
 
     func cycleNextTabAcrossPanes(projectID: UUID) {

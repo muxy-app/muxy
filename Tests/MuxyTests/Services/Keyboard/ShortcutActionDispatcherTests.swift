@@ -75,6 +75,33 @@ struct ShortcutActionDispatcherTests {
         }
     }
 
+    @Test("inner pane split shortcuts preserve their direction")
+    func innerPaneSplitShortcutsPreserveDirection() {
+        assertInnerPaneSplit(action: .splitTabPane, expectedDirection: .horizontal)
+        assertInnerPaneSplit(action: .splitTabPaneDown, expectedDirection: .vertical)
+    }
+
+    private func assertInnerPaneSplit(action: ShortcutAction, expectedDirection: SplitDirection) {
+        let dispatcher = makeDispatcher(notificationCenter: NotificationCenter())
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = TabArea(projectPath: "/tmp/app")
+        dispatcher.appState.activeProjectID = projectID
+        dispatcher.appState.activeWorktreeID[projectID] = worktreeID
+        dispatcher.appState.workspaceRoots[key] = .tabArea(area)
+        dispatcher.appState.focusedAreaID[key] = area.id
+
+        let performed = dispatcher.perform(action, activeProject: nil)
+
+        #expect(performed)
+        guard case let .split(branch) = area.activeTab?.internalPanes else {
+            Issue.record("Expected an internal pane split")
+            return
+        }
+        #expect(branch.direction == expectedDirection)
+    }
+
     private func makeDispatcher(notificationCenter: NotificationCenter) -> ShortcutActionDispatcher {
         let projectStore = ProjectStore(persistence: DispatcherProjectPersistenceStub())
         let worktreeStore = WorktreeStore(persistence: DispatcherWorktreePersistenceStub(), projects: [])

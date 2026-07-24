@@ -1,31 +1,23 @@
 import SwiftUI
 
+enum TabFocusedInternalPaneRowPosition: Equatable {
+    case branch
+    case last
+
+    init(index: Int, count: Int) {
+        self = index == count - 1 ? .last : .branch
+    }
+}
+
 struct TabFocusedInternalPaneRow: View {
-    let project: Project
-    let area: TabArea
-    let tab: TerminalTab
     let pane: TerminalPaneState
+    let position: TabFocusedInternalPaneRowPosition
     let active: Bool
     let onFocus: () -> Void
     let onClose: () -> Void
 
-    @Environment(AppState.self) private var appState
     @State private var hovered = false
     @State private var processName: String?
-
-    private var hasSplitPanes: Bool {
-        tab.internalPanes?.allPanes().count ?? 0 > 1
-    }
-
-    private var leadingIndent: CGFloat {
-        TabFocusedSidebarMetrics.tabContentLeadingInset
-            + UIMetrics.iconMD
-            + UIMetrics.spacing3
-            - UIMetrics.iconSM
-            - UIMetrics.spacing2
-            + (hasSplitPanes ? UIMetrics.iconSM : 0)
-    }
-
     @State private var progressStore = TerminalProgressStore.shared
 
     private var paneProgress: TerminalProgress? {
@@ -62,16 +54,25 @@ struct TabFocusedInternalPaneRow: View {
     }
 
     private var rowBackground: AnyShapeStyle {
-        if active { return AnyShapeStyle(MuxyTheme.surface) }
+        if active { return AnyShapeStyle(MuxyTheme.accent.opacity(0.12)) }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(Color.clear)
     }
 
     var body: some View {
         HStack(spacing: UIMetrics.spacing2) {
+            TabFocusedInternalPaneConnector(position: position)
+                .stroke(
+                    active ? MuxyTheme.accent.opacity(0.75) : MuxyTheme.fgMuted.opacity(0.45),
+                    style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+                )
+                .frame(width: UIMetrics.iconSM)
+                .frame(maxHeight: .infinity)
+                .accessibilityHidden(true)
+
             Image(systemName: "terminal")
                 .font(.system(size: UIMetrics.fontCaption, weight: .medium))
-                .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
+                .foregroundStyle(active ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
 
             Text(processName ?? pane.title)
@@ -82,32 +83,33 @@ struct TabFocusedInternalPaneRow: View {
 
             Spacer(minLength: 0)
 
-            statusDot
-                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
-
-            if hovered {
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                        .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
-                        .contentShape(Rectangle())
+            ZStack {
+                if hovered {
+                    Button {
+                        onClose()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                            .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close Pane")
+                } else {
+                    statusDot
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close Pane")
             }
+            .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
         }
-        .padding(.leading, leadingIndent)
+        .padding(.leading, TabFocusedSidebarMetrics.paneTreeLeadingInset)
         .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
-        .frame(minHeight: TabFocusedSidebarMetrics.rowHeight - 4)
+        .frame(height: TabFocusedSidebarMetrics.paneRowHeight)
         .background {
             RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous)
                 .fill(rowBackground)
         }
         .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
-        .padding(.vertical, UIMetrics.spacing1)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
         .onTapGesture { onFocus() }
@@ -117,5 +119,19 @@ struct TabFocusedInternalPaneRow: View {
         .task {
             processName = TerminalViewRegistry.shared.existingView(for: pane.id)?.currentProcessName()
         }
+    }
+}
+
+private struct TabFocusedInternalPaneConnector: Shape {
+    let position: TabFocusedInternalPaneRowPosition
+
+    func path(in rect: CGRect) -> Path {
+        let centerY = rect.midY
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX, y: position == .last ? centerY : rect.maxY))
+        path.move(to: CGPoint(x: rect.minX, y: centerY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: centerY))
+        return path
     }
 }

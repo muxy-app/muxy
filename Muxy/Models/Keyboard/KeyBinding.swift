@@ -17,6 +17,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case splitRight
     case splitDown
     case splitTabPane
+    case splitTabPaneDown
     case closePane
     case focusPaneLeft
     case focusPaneRight
@@ -87,6 +88,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .splitRight,
         .splitDown,
         .splitTabPane,
+        .splitTabPaneDown,
         .closePane,
         .focusPaneLeft,
         .focusPaneRight,
@@ -159,7 +161,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .pinUnpinTab: ShortcutMetadata(displayName: "Pin/Unpin Tab", category: "Tabs", scope: .mainWindow)
         case .splitRight: ShortcutMetadata(displayName: "Split Right", category: "Panes", scope: .mainWindow)
         case .splitDown: ShortcutMetadata(displayName: "Split Down", category: "Panes", scope: .mainWindow)
-        case .splitTabPane: ShortcutMetadata(displayName: "Split Tab Pane", category: "Panes", scope: .mainWindow)
+        case .splitTabPane:
+            ShortcutMetadata(displayName: "Split Inner Pane Right", category: "Panes", scope: .mainWindow)
+        case .splitTabPaneDown:
+            ShortcutMetadata(displayName: "Split Inner Pane Down", category: "Panes", scope: .mainWindow)
         case .closePane: ShortcutMetadata(displayName: "Close Pane", category: "Panes", scope: .mainWindow)
         case .focusPaneLeft: ShortcutMetadata(displayName: "Focus Pane Left", category: "Panes", scope: .mainWindow)
         case .focusPaneRight: ShortcutMetadata(displayName: "Focus Pane Right", category: "Panes", scope: .mainWindow)
@@ -270,6 +275,14 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var category: String { metadata.category }
     var scope: ShortcutScope { metadata.scope }
 
+    var innerPaneSplitDirection: SplitDirection? {
+        switch self {
+        case .splitTabPane: .horizontal
+        case .splitTabPaneDown: .vertical
+        default: nil
+        }
+    }
+
     static var categories: [String] {
         [
             "Tabs",
@@ -350,6 +363,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .splitRight, combo: KeyCombo(key: "d", command: true)),
         Self(action: .splitDown, combo: KeyCombo(key: "d", command: true, shift: true)),
         Self(action: .splitTabPane, combo: KeyCombo(key: "\\", command: true, option: true)),
+        Self(action: .splitTabPaneDown, combo: KeyCombo(key: "\\", command: true, shift: true, option: true)),
         Self(action: .closePane, combo: KeyCombo(key: "w", command: true, shift: true)),
         Self(action: .focusPaneLeft, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, option: true)),
         Self(action: .focusPaneRight, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, option: true)),

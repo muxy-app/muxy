@@ -120,6 +120,15 @@ struct KeyBindingTests {
         #expect(combos[.toggleMaximizePane] == KeyCombo(key: KeyCombo.returnKey, command: true, option: true))
     }
 
+    @Test("KeyBinding.defaults includes directional inner pane shortcuts")
+    func defaultsIncludesDirectionalInnerPaneShortcuts() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.splitTabPane] == KeyCombo(key: "\\", command: true, option: true))
+        #expect(combos[.splitTabPaneDown] == KeyCombo(key: "\\", command: true, shift: true, option: true))
+        #expect(ShortcutAction.splitTabPane.innerPaneSplitDirection == .horizontal)
+        #expect(ShortcutAction.splitTabPaneDown.innerPaneSplitDirection == .vertical)
+    }
+
     @Test("KeyBinding.defaults includes scoped omnibox shortcuts")
     func defaultsIncludesScopedOmniboxShortcuts() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })

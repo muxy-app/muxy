@@ -272,12 +272,11 @@ private struct TabFocusedTabRow: View {
     }
 
     private var rowBackground: AnyShapeStyle {
-        if active {
-            return AnyShapeStyle(MuxyTheme.surface)
+        if active, hasSplitPanes, isPaneTreeExpanded {
+            return AnyShapeStyle(MuxyTheme.surface.opacity(0.45))
         }
-        if hovered {
-            return AnyShapeStyle(MuxyTheme.hover)
-        }
+        if active { return AnyShapeStyle(MuxyTheme.surface) }
+        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(Color.clear)
     }
 
@@ -439,12 +438,10 @@ private struct TabFocusedTabRow: View {
                     }
                 }
             if isPaneTreeExpanded {
-                ForEach(paneTree) { pane in
+                ForEach(Array(paneTree.enumerated()), id: \.element.id) { index, pane in
                     TabFocusedInternalPaneRow(
-                        project: project,
-                        area: area,
-                        tab: tab,
                         pane: pane,
+                        position: TabFocusedInternalPaneRowPosition(index: index, count: paneTree.count),
                         active: active && tab.focusedPaneID == pane.id
                     ) {
                         appState.focusInternalPane(

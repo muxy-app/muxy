@@ -51,6 +51,7 @@ struct MainWindow: View {
     private enum CloseConfirmationKind {
         case lastTab
         case runningProcess
+        case runningInternalPane
 
         var title: String {
             switch self {
@@ -58,6 +59,8 @@ struct MainWindow: View {
                 "Close Project?"
             case .runningProcess:
                 "Close Tab?"
+            case .runningInternalPane:
+                "Close Pane?"
             }
         }
 
@@ -67,6 +70,8 @@ struct MainWindow: View {
                 "This is the last tab. Closing it will remove the project from the sidebar."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
+            case .runningInternalPane:
+                "A process is still running in this pane. Are you sure you want to close it?"
             }
         }
     }
@@ -228,8 +233,10 @@ struct MainWindow: View {
             tabCloseObserver: TabCloseConfirmationObserver(
                 lastTab: appState.pendingLastTabClose != nil,
                 runningProcess: appState.pendingProcessTabClose != nil,
+                runningInternalPane: appState.pendingProcessInternalPaneClose != nil,
                 onLastTab: { presentCloseConfirmation(.lastTab) },
-                onRunningProcess: { presentCloseConfirmation(.runningProcess) }
+                onRunningProcess: { presentCloseConfirmation(.runningProcess) },
+                onRunningInternalPane: { presentCloseConfirmation(.runningInternalPane) }
             ),
             worktreeKeysSignature: worktreeKeysSignature,
             activeWorktreeSignature: activeWorktreeSignature,
@@ -1707,7 +1714,7 @@ struct MainWindow: View {
         alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = "\u{1b}"
 
-        if kind == .runningProcess {
+        if kind == .runningProcess || kind == .runningInternalPane {
             alert.showsSuppressionButton = true
             alert.suppressionButton?.title = "Don't ask again"
         }
@@ -1728,6 +1735,15 @@ struct MainWindow: View {
                     appState.confirmCloseRunningTab()
                 } else {
                     appState.cancelCloseRunningTab()
+                }
+            case .runningInternalPane:
+                if response == .alertFirstButtonReturn {
+                    if alert.suppressionButton?.state == .on {
+                        TabCloseConfirmationPreferences.confirmRunningProcess = false
+                    }
+                    appState.confirmCloseRunningInternalPane()
+                } else {
+                    appState.cancelCloseRunningInternalPane()
                 }
             }
         }
@@ -1781,8 +1797,10 @@ private struct WindowTitleUpdater: NSViewRepresentable {
 private struct TabCloseConfirmationObserver: ViewModifier {
     let lastTab: Bool
     let runningProcess: Bool
+    let runningInternalPane: Bool
     let onLastTab: () -> Void
     let onRunningProcess: () -> Void
+    let onRunningInternalPane: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -1793,6 +1811,10 @@ private struct TabCloseConfirmationObserver: ViewModifier {
             .onChange(of: runningProcess) { _, isPresented in
                 guard isPresented else { return }
                 onRunningProcess()
+            }
+            .onChange(of: runningInternalPane) { _, isPresented in
+                guard isPresented else { return }
+                onRunningInternalPane()
             }
     }
 }
