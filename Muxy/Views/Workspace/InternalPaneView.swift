@@ -25,6 +25,7 @@ struct InternalPaneView: View {
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
             )
+            .id(pane.id)
         case let .split(branch):
             InternalSplitContainer(
                 branch: branch,

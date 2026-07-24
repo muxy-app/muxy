@@ -92,6 +92,44 @@ struct TabPaneReducerTests {
         #expect(tab?.focusedPaneID == secondPaneID)
     }
 
+    @Test("closing one of three panes preserves the remaining pane identities")
+    func closeOneOfThreePanesPreservesRemainingIdentities() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = state.workspaceRoots[key]!.allAreas().first!
+        let tabID = area.activeTabID!
+        let firstNewPaneID = TabPaneReducer.splitTabPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            direction: .horizontal,
+            state: &state
+        )!
+        let secondNewPaneID = TabPaneReducer.splitTabPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            direction: .vertical,
+            state: &state
+        )!
+        let tab = area.tabs.first { $0.id == tabID }!
+        let paneIDsBeforeClose = Set(tab.internalPanes!.allPanes().map(\.id))
+
+        let removedPaneID = TabPaneReducer.closeInternalPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            paneID: firstNewPaneID,
+            state: &state
+        )
+
+        #expect(removedPaneID == firstNewPaneID)
+        #expect(Set(tab.internalPanes!.allPanes().map(\.id)) == paneIDsBeforeClose.subtracting([firstNewPaneID]))
+        #expect(tab.focusedPaneID == secondNewPaneID)
+    }
+
     @Test("splitTabPane on non-terminal content does nothing")
     func splitTabPaneNonTerminal() {
         let projectID = UUID()

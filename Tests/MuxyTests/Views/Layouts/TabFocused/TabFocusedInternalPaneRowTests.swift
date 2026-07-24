@@ -14,4 +14,10 @@ struct TabFocusedInternalPaneRowTests {
     func finalRowTerminatesTreeBranch() {
         #expect(TabFocusedInternalPaneRowPosition(index: 2, count: 3) == .last)
     }
+
+    @Test("pane icon uses its detected provider with terminal fallback")
+    func paneIconUsesDetectedProvider() {
+        #expect(TabFocusedInternalPaneIcon(agentIconName: "claude") == .provider("claude"))
+        #expect(TabFocusedInternalPaneIcon(agentIconName: nil) == .terminal)
+    }
 }

@@ -58,13 +58,22 @@ final class TerminalTab: Identifiable {
 
     var kind: Kind { content.kind }
 
+    var displayPane: TerminalPaneState? {
+        guard case let .terminal(pane) = content else { return nil }
+        guard let internalPanes,
+              let focusedPaneID,
+              let focusedPane = internalPanes.findPane(id: focusedPaneID)
+        else { return pane }
+        return focusedPane
+    }
+
     var title: String {
         if let customTitle {
             return customTitle
         }
         switch content {
-        case let .terminal(pane):
-            return pane.title
+        case .terminal:
+            return displayPane?.displayTitle ?? "Terminal"
         case let .extensionWebView(state):
             return state.displayTitle
         case let .browser(state):

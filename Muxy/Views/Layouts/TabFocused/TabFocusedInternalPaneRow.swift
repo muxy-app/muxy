@@ -9,6 +9,15 @@ enum TabFocusedInternalPaneRowPosition: Equatable {
     }
 }
 
+enum TabFocusedInternalPaneIcon: Equatable {
+    case terminal
+    case provider(String)
+
+    init(agentIconName: String?) {
+        self = agentIconName.map(Self.provider) ?? .terminal
+    }
+}
+
 struct TabFocusedInternalPaneRow: View {
     let pane: TerminalPaneState
     let position: TabFocusedInternalPaneRowPosition
@@ -17,7 +26,6 @@ struct TabFocusedInternalPaneRow: View {
     let onClose: () -> Void
 
     @State private var hovered = false
-    @State private var processName: String?
     @State private var progressStore = TerminalProgressStore.shared
 
     private var paneProgress: TerminalProgress? {
@@ -59,6 +67,27 @@ struct TabFocusedInternalPaneRow: View {
         return AnyShapeStyle(Color.clear)
     }
 
+    private var paneIcon: TabFocusedInternalPaneIcon {
+        TabFocusedInternalPaneIcon(
+            agentIconName: DetectedAgentStore.shared.iconName(forPane: pane.id)
+        )
+    }
+
+    @ViewBuilder
+    private var leadingIcon: some View {
+        switch paneIcon {
+        case .terminal:
+            Image(systemName: "terminal")
+                .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+        case let .provider(iconName):
+            ProviderIconView(
+                iconName: iconName,
+                size: UIMetrics.iconSM,
+                monochromeTint: active ? MuxyTheme.accent : MuxyTheme.fgMuted
+            )
+        }
+    }
+
     var body: some View {
         HStack(spacing: UIMetrics.spacing2) {
             TabFocusedInternalPaneConnector(position: position)
@@ -70,12 +99,11 @@ struct TabFocusedInternalPaneRow: View {
                 .frame(maxHeight: .infinity)
                 .accessibilityHidden(true)
 
-            Image(systemName: "terminal")
-                .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+            leadingIcon
                 .foregroundStyle(active ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
 
-            Text(processName ?? pane.title)
+            Text(pane.displayTitle)
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                 .lineLimit(1)
@@ -116,9 +144,6 @@ struct TabFocusedInternalPaneRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Pane: \(pane.title)")
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
-        .task {
-            processName = TerminalViewRegistry.shared.existingView(for: pane.id)?.currentProcessName()
-        }
     }
 }
 

@@ -43,4 +43,40 @@ struct TerminalTabInternalPanesTests {
         #expect(tab.internalPanes == nil)
         #expect(tab.focusedPaneID == nil)
     }
+
+    @Test("tab title follows the focused internal pane process")
+    func titleFollowsFocusedInternalPaneProcess() {
+        let rootPane = TerminalPaneState(projectPath: testPath, title: "root")
+        let firstPane = TerminalPaneState(projectPath: testPath, title: "first")
+        let secondPane = TerminalPaneState(projectPath: testPath, title: "second")
+        let tab = TerminalTab(pane: rootPane)
+        tab.internalPanes = .split(InternalBranch(
+            direction: .horizontal,
+            first: .pane(firstPane),
+            second: .pane(secondPane)
+        ))
+        firstPane.setForegroundProcessName("vim")
+        secondPane.setForegroundProcessName("swift")
+
+        tab.focusedPaneID = firstPane.id
+        #expect(tab.title == "vim")
+        #expect(tab.displayPane?.id == firstPane.id)
+
+        tab.focusedPaneID = secondPane.id
+        #expect(tab.title == "swift")
+        #expect(tab.displayPane?.id == secondPane.id)
+    }
+
+    @Test("custom tab title overrides focused internal pane process")
+    func customTitleOverridesFocusedInternalPaneProcess() {
+        let rootPane = TerminalPaneState(projectPath: testPath)
+        let innerPane = TerminalPaneState(projectPath: testPath)
+        innerPane.setForegroundProcessName("vim")
+        let tab = TerminalTab(pane: rootPane)
+        tab.internalPanes = .pane(innerPane)
+        tab.focusedPaneID = innerPane.id
+        tab.customTitle = "Editor"
+
+        #expect(tab.title == "Editor")
+    }
 }

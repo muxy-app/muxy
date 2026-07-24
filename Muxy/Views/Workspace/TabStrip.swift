@@ -60,7 +60,9 @@ struct PaneTabStrip: View {
     ) -> [TabSnapshot] {
         tabs.map { tab in
             let relatedTabs = [tab] + (allTabs ?? []).filter { $0.parentTabID == tab.id }
-            let panes = relatedTabs.compactMap(\.content.pane)
+            let panes = relatedTabs.flatMap {
+                $0.internalPanes?.allPanes() ?? $0.content.pane.map { [$0] } ?? []
+            }
             let paneIDs = panes.map(\.id)
             let agentStatuses = paneIDs.compactMap { AgentStatusStore.shared.status(forPane: $0) }
             let agentStatus = agentStatuses.contains(.waiting)
@@ -80,10 +82,9 @@ struct PaneTabStrip: View {
                 customIcon: tab.content.extensionState?.customIcon,
                 isOffline: !panes.isEmpty && panes.allSatisfy(\.isOffline),
                 faviconImage: tab.content.browserState?.faviconImage,
-                detectedAgentIconName: paneIDs.compactMap {
-                    DetectedAgentStore.shared.iconName(forPane: $0)
-                }.first,
-                agentStatus: agentStatus,
+                detectedAgentIconName: DetectedAgentStore.shared.iconName(forPane: tab.displayPane?.id)
+                    ?? paneIDs.compactMap { DetectedAgentStore.shared.iconName(forPane: $0) }.first,
+                agentStatus: AgentStatusStore.shared.status(forPane: tab.displayPane?.id) ?? agentStatus,
                 hasUnread: relatedTabs.contains { NotificationStore.shared.hasUnread(tabID: $0.id) }
             )
         }
