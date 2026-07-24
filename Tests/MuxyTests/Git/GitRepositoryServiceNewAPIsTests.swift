@@ -55,6 +55,39 @@ struct GitRepositoryServiceNewAPIsTests {
         #expect(branch == nil)
     }
 
+    @Test("remote HEAD overrides stale local default branch metadata")
+    func remoteDefaultBranchOverridesStaleLocalMetadata() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let remotePath = try repo.createBareRemote()
+        try repo.run("remote", "add", "origin", remotePath)
+        try repo.commit(file: "main.txt", contents: "main", message: "main")
+        try repo.run("push", "-u", "origin", "main")
+        try repo.run("checkout", "-b", "develop")
+        try repo.commit(file: "develop.txt", contents: "develop", message: "develop")
+        try repo.run("push", "-u", "origin", "develop")
+        try repo.run("checkout", "main")
+        try repo.run("remote", "set-head", "origin", "main")
+        try repo.setRemoteHEAD(remotePath, branch: "develop")
+
+        #expect(try repo.runCapturing("symbolic-ref", "--short", "refs/remotes/origin/HEAD") == "origin/main")
+        #expect(await GitRepositoryService().defaultBranch(repoPath: repo.path) == "develop")
+    }
+
+    @Test("local default branch metadata is used when remote HEAD is not symbolic")
+    func localDefaultBranchIsUsedWhenRemoteHEADIsNotSymbolic() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let remotePath = try repo.createBareRemote()
+        try repo.run("remote", "add", "origin", remotePath)
+        try repo.commit(file: "main.txt", contents: "main", message: "main")
+        try repo.run("push", "-u", "origin", "main")
+        try repo.run("remote", "set-head", "origin", "main")
+        try repo.detachRemoteHEAD(remotePath, commit: try repo.runCapturing("rev-parse", "main"))
+
+        #expect(await GitRepositoryService().defaultBranch(repoPath: repo.path) == "main")
+    }
+
     @Test("repoInfo reports root, gitDir and current branch for a normal repo")
     func repoInfoForNormalRepo() async throws {
         let repo = try TempGitRepo()
@@ -387,7 +420,25 @@ private struct TempGitRepo {
         URL(fileURLWithPath: parent).appendingPathComponent(name).path
     }
 
+    func createBareRemote() throws -> String {
+        let remotePath = sibling("remote.git")
+        try Self.runGit(at: parent, args: ["init", "-q", "--bare", "-b", "main", remotePath])
+        return remotePath
+    }
+
+    func setRemoteHEAD(_ remotePath: String, branch: String) throws {
+        try Self.runGit(at: remotePath, args: ["symbolic-ref", "HEAD", "refs/heads/\(branch)"])
+    }
+
+    func detachRemoteHEAD(_ remotePath: String, commit: String) throws {
+        try Self.runGit(at: remotePath, args: ["update-ref", "--no-deref", "HEAD", commit])
+    }
+
     func run(_ args: String...) throws {
+        try Self.runGit(at: path, args: args)
+    }
+
+    func runCapturing(_ args: String...) throws -> String {
         try Self.runGit(at: path, args: args)
     }
 
