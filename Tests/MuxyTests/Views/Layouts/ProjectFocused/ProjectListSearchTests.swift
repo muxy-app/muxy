@@ -16,7 +16,7 @@ struct ProjectListSearchTests {
         let matchingProject = project(named: "Muxy Desktop")
         let projects = [project(named: "Alpha"), matchingProject, project(named: "Beta")]
 
-        #expect(ProjectListSearch.filter(projects, matching: "DESKTOP") == [matchingProject])
+        #expect(ProjectListSearch.filter(projects, matching: "  DESKTOP  ") == [matchingProject])
     }
 
     @Test("preserves the displayed project order")
