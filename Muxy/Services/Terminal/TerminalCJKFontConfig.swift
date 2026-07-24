@@ -6,8 +6,7 @@ import os
 private let logger = Logger(subsystem: "app.muxy", category: "TerminalCJKFontConfig")
 
 enum TerminalCJKFontConfig {
-    private static let configuredFontSampleText = "中文"
-    private static let systemFallbackSampleText = "漢字"
+    private static let requiredChineseGlyphs = "中文简体繁體专业專業，。！？"
     private static let codepointRanges = [
         "U+3000-U+303F",
         "U+3400-U+4DBF",
@@ -59,7 +58,7 @@ enum TerminalCJKFontConfig {
     private static func resolvedFontFamily(configuredFamilies: [String]) -> String? {
         for family in configuredFamilies {
             let font = CTFontCreateWithName(family as CFString, 13, nil)
-            guard supports(configuredFontSampleText, font: font) else { continue }
+            guard supports(requiredChineseGlyphs, font: font) else { continue }
             return family
         }
 
@@ -67,10 +66,10 @@ enum TerminalCJKFontConfig {
             ?? CTFontCreateWithName("Menlo" as CFString, 13, nil)
         let fallback = CTFontCreateForString(
             baseFont,
-            systemFallbackSampleText as CFString,
-            CFRange(location: 0, length: systemFallbackSampleText.utf16.count)
+            requiredChineseGlyphs as CFString,
+            CFRange(location: 0, length: requiredChineseGlyphs.utf16.count)
         )
-        guard supports(systemFallbackSampleText, font: fallback) else { return nil }
+        guard supports(requiredChineseGlyphs, font: fallback) else { return nil }
         return CTFontCopyFamilyName(fallback) as String
     }
 

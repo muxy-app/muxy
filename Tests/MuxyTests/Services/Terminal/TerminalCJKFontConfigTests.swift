@@ -24,9 +24,22 @@ struct TerminalCJKFontConfigTests {
 
     @Test("system CJK fallback is used when configured fonts lack Chinese glyphs")
     func mapsSystemCJKFallback() throws {
-        let generated = try #require(TerminalCJKFontConfig.configText(userConfig: "font-family = Menlo"))
+        let generated = try #require(TerminalCJKFontConfig.configText(userConfig: "font-family = Hiragino Sans"))
+        let systemFallback = try #require(TerminalCJKFontConfig.configText(userConfig: ""))
 
-        #expect(!generated.hasSuffix("=Menlo\n"))
+        #expect(generated == systemFallback)
+    }
+
+    @Test("partial CJK font is skipped for a complete Chinese fallback")
+    func skipsPartialCJKFont() throws {
+        let config = """
+        font-family = Hiragino Sans
+        font-family = PingFang SC
+        """
+
+        let generated = try #require(TerminalCJKFontConfig.configText(userConfig: config))
+
+        #expect(generated.hasSuffix("=PingFang SC\n"))
     }
 
     @Test("UTF-8 BOM is ignored before parsing the first font family")

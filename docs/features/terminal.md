@@ -26,7 +26,7 @@ Most Ghostty options work — fonts, colors, padding, keybinds, shell integratio
 
 ### Chinese font rendering
 
-Muxy maps common Chinese Unicode ranges to one font so Ghostty does not mix fallback faces within the same text. It uses the first configured `font-family` that contains Chinese glyphs; otherwise it uses the macOS system fallback.
+Muxy maps common Chinese Unicode ranges to one font so Ghostty does not mix fallback faces within the same text. It uses the first configured `font-family` with broad Simplified Chinese, Traditional Chinese, and punctuation coverage; otherwise it uses the macOS system fallback.
 
 Keep the Latin terminal font first and add the preferred Chinese font as a fallback:
 
