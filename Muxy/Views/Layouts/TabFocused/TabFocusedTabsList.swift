@@ -600,21 +600,21 @@ private struct TabFocusedTabRow: View {
 
     private func closeOthers() {
         for item in topLevelTabs where item.tab.id != tab.id && !item.tab.isPinned {
-            appState.closeTab(item.tab.id, areaID: item.area.id, key: worktreeKey)
+            appState.closeTab(item.tab.id, areaID: item.area.id, key: tabKey)
         }
     }
 
     private func closeLeft() {
         guard let currentIndex else { return }
         for item in topLevelTabs.prefix(currentIndex) where !item.tab.isPinned {
-            appState.closeTab(item.tab.id, areaID: item.area.id, key: worktreeKey)
+            appState.closeTab(item.tab.id, areaID: item.area.id, key: tabKey)
         }
     }
 
     private func closeRight() {
         guard let currentIndex else { return }
         for item in topLevelTabs.suffix(from: currentIndex + 1) where !item.tab.isPinned {
-            appState.closeTab(item.tab.id, areaID: item.area.id, key: worktreeKey)
+            appState.closeTab(item.tab.id, areaID: item.area.id, key: tabKey)
         }
     }
 
