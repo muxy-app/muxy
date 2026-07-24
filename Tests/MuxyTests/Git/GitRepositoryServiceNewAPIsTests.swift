@@ -36,6 +36,25 @@ struct GitRepositoryServiceNewAPIsTests {
         #expect(resolved == "gh")
     }
 
+    @Test("uses the branch advertised by the remote HEAD")
+    func parsesRemoteDefaultBranch() {
+        let branch = GitRepositoryService.defaultBranch(fromRemoteHEAD: """
+        ref: refs/heads/develop\tHEAD
+        6afb7d6642b93be44dddd5b13d3eb39901142f18\tHEAD
+        """)
+
+        #expect(branch == "develop")
+    }
+
+    @Test("ignores a remote HEAD response without a symbolic branch")
+    func ignoresRemoteDefaultBranchWithoutSymbolicRef() {
+        let branch = GitRepositoryService.defaultBranch(
+            fromRemoteHEAD: "6afb7d6642b93be44dddd5b13d3eb39901142f18\tHEAD"
+        )
+
+        #expect(branch == nil)
+    }
+
     @Test("repoInfo reports root, gitDir and current branch for a normal repo")
     func repoInfoForNormalRepo() async throws {
         let repo = try TempGitRepo()
