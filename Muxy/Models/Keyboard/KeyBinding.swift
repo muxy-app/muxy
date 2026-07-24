@@ -22,6 +22,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case focusPaneRight
     case focusPaneUp
     case focusPaneDown
+    case movePaneLeft
+    case movePaneRight
+    case movePaneUp
+    case movePaneDown
     case cycleNextTabAcrossPanes
     case cyclePreviousTabAcrossPanes
     case nextTab
@@ -29,6 +33,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case toggleThemePicker
     case newProject
     case openProject
+    case recentlyRemovedProjects
     case reloadConfig
     case refreshWorktrees
     case createWorktree
@@ -87,12 +92,17 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .focusPaneRight,
         .focusPaneUp,
         .focusPaneDown,
+        .movePaneLeft,
+        .movePaneRight,
+        .movePaneUp,
+        .movePaneDown,
         .cycleNextTabAcrossPanes,
         .cyclePreviousTabAcrossPanes,
         .nextTab,
         .previousTab,
         .toggleThemePicker,
         .openProject,
+        .recentlyRemovedProjects,
         .reloadConfig,
         .refreshWorktrees,
         .createWorktree,
@@ -155,6 +165,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .focusPaneRight: ShortcutMetadata(displayName: "Focus Pane Right", category: "Panes", scope: .mainWindow)
         case .focusPaneUp: ShortcutMetadata(displayName: "Focus Pane Up", category: "Panes", scope: .mainWindow)
         case .focusPaneDown: ShortcutMetadata(displayName: "Focus Pane Down", category: "Panes", scope: .mainWindow)
+        case .movePaneLeft: ShortcutMetadata(displayName: "Move Pane Left", category: "Panes", scope: .mainWindow)
+        case .movePaneRight: ShortcutMetadata(displayName: "Move Pane Right", category: "Panes", scope: .mainWindow)
+        case .movePaneUp: ShortcutMetadata(displayName: "Move Pane Up", category: "Panes", scope: .mainWindow)
+        case .movePaneDown: ShortcutMetadata(displayName: "Move Pane Down", category: "Panes", scope: .mainWindow)
         case .cycleNextTabAcrossPanes: ShortcutMetadata(
                 displayName: "Cycle Next Tab (All Panes)",
                 category: "Tab Navigation",
@@ -228,6 +242,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
+        case .recentlyRemovedProjects: ShortcutMetadata(
+                displayName: "Recently Removed Projects",
+                category: "App",
+                scope: .mainWindow
+            )
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
         case .refreshWorktrees: ShortcutMetadata(displayName: "Refresh Worktrees", category: "App", scope: .mainWindow)
         case .createWorktree: ShortcutMetadata(displayName: "New Worktree", category: "App", scope: .mainWindow)
@@ -336,10 +355,15 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .focusPaneRight, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, option: true)),
         Self(action: .focusPaneUp, combo: KeyCombo(key: KeyCombo.upArrowKey, command: true, option: true)),
         Self(action: .focusPaneDown, combo: KeyCombo(key: KeyCombo.downArrowKey, command: true, option: true)),
+        Self(action: .movePaneLeft, combo: KeyCombo(key: "", modifiers: 0)),
+        Self(action: .movePaneRight, combo: KeyCombo(key: "", modifiers: 0)),
+        Self(action: .movePaneUp, combo: KeyCombo(key: "", modifiers: 0)),
+        Self(action: .movePaneDown, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .cycleNextTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
         Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
+        Self(action: .recentlyRemovedProjects, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
         Self(action: .refreshWorktrees, combo: KeyCombo(key: "r", command: true, option: true)),
         Self(action: .createWorktree, combo: KeyCombo(key: "n", command: true, option: true)),

@@ -39,8 +39,12 @@ enum ForegroundProcessInspector {
     }
 
     private static func isScriptInterpreter(executableName: String?, firstArgument: String?) -> Bool {
-        if let executableName, scriptInterpreters.contains(executableName) { return true }
-        if let firstArgument, scriptInterpreters.contains(firstArgument) { return true }
+        if let executableName, scriptInterpreters.contains(executableName) {
+            return true
+        }
+        if let firstArgument, scriptInterpreters.contains(firstArgument) {
+            return true
+        }
         return false
     }
 

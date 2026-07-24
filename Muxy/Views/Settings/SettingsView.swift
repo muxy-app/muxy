@@ -17,7 +17,9 @@ struct SettingsView: View {
             .filter { status in
                 guard !query.isEmpty else { return true }
                 let displayName = status.muxyExtension.displayName.lowercased()
-                if displayName.contains(query) { return true }
+                if displayName.contains(query) {
+                    return true
+                }
                 return status.muxyExtension.manifest.settings.contains { entry in
                     entry.key.lowercased().contains(query)
                         || entry.title.lowercased().contains(query)
@@ -55,6 +57,10 @@ struct SettingsView: View {
         .resetsSettingsFocusOnOutsideClick()
         .onAppear {
             selectedRoute = validatedRoute(selectedRoute)
+            if SettingsFocusCoordinator.shared.consume(.quickTerminalShortcut) {
+                searchText = ""
+                selectedRoute = .builtin(.quickTerminal)
+            }
         }
         .onChange(of: searchText) { _, _ in
             guard !isRouteVisible(selectedRoute) else { return }
@@ -75,10 +81,17 @@ struct SettingsView: View {
             searchText = ""
             selectedRoute = .builtin(.browser)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .focusQuickTerminalShortcut)) { _ in
+            _ = SettingsFocusCoordinator.shared.consume(.quickTerminalShortcut)
+            searchText = ""
+            selectedRoute = .builtin(.quickTerminal)
+        }
     }
 
     private var selectedBuiltinCategory: SettingsCategory? {
-        if case let .builtin(category) = selectedRoute { return category }
+        if case let .builtin(category) = selectedRoute {
+            return category
+        }
         return nil
     }
 
@@ -129,6 +142,8 @@ struct SettingsView: View {
             InterfaceSettingsView()
         case .terminal:
             TerminalSettingsView()
+        case .quickTerminal:
+            QuickTerminalSettingsView()
         case .browser:
             BrowserSettingsView()
         case .richInput:

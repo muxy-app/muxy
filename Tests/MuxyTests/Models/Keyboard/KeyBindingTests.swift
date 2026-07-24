@@ -87,11 +87,31 @@ struct KeyBindingTests {
         #expect(combos[.renameTab]?.isAssigned == false)
     }
 
+    @Test("Recently Removed Projects is available without a default shortcut")
+    func recentlyRemovedProjectsIsUnassigned() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(ShortcutAction.allCases.contains(.recentlyRemovedProjects))
+        #expect(combos[.recentlyRemovedProjects]?.isAssigned == false)
+    }
+
     @Test("KeyBinding.defaults includes cycle tab across panes shortcuts")
     func defaultsIncludesCycleTabAcrossPanesShortcuts() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
         #expect(combos[.cycleNextTabAcrossPanes] == KeyCombo(key: "tab", control: true))
         #expect(combos[.cyclePreviousTabAcrossPanes] == KeyCombo(key: "tab", shift: true, control: true))
+    }
+
+    @Test("Move pane actions are available without default shortcuts")
+    func movePaneActionsAreUnassigned() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        let actions: [ShortcutAction] = [.movePaneLeft, .movePaneRight, .movePaneUp, .movePaneDown]
+
+        for action in actions {
+            #expect(ShortcutAction.allCases.contains(action))
+            #expect(action.category == "Panes")
+            #expect(action.scope == .mainWindow)
+            #expect(combos[action]?.isAssigned == false)
+        }
     }
 
     @Test("KeyBinding.defaults includes maximize pane shortcut")

@@ -1,6 +1,13 @@
 {
   "version": 1,
   "skills": {
+    "build": {
+      "source": "saeedvaziry/skills",
+      "ref": "main",
+      "sourceType": "github",
+      "skillPath": "skills/build/SKILL.md",
+      "computedHash": "44aeeb7946fcc486135f115c7358b9f056e4c9d7aadbf00d170d8621c39bb6e2"
+    },
     "swiftui-expert-skill": {
       "source": "avdlee/swiftui-agent-skill",
       "sourceType": "github",

@@ -4,6 +4,7 @@ import Testing
 @testable import Muxy
 
 @Suite("KeyCombo")
+@MainActor
 struct KeyComboTests {
     @Test("init normalizes key to lowercase")
     func initNormalizesKey() {
@@ -62,6 +63,17 @@ struct KeyComboTests {
         _ = combo.swiftUIKeyEquivalent
     }
 
+    @Test("space key supports normalization and presentation")
+    func spaceKeySupport() throws {
+        let keyCode = try #require(KeyCombo.keyCode(for: "space"))
+
+        #expect(KeyCombo.normalized(key: " ") == "space")
+        #expect(KeyCombo.normalized(key: "", keyCode: keyCode) == "space")
+        #expect(KeyCombo(key: "space", command: true).displayString == "⌘Space")
+        #expect(KeyCombo(key: "space", command: true).tokenString == "cmd+space")
+        _ = KeyCombo(key: "space", command: true).swiftUIKeyEquivalent
+    }
+
     @Test("displayString for letter key is uppercased")
     func displayStringLetter() {
         let combo = KeyCombo(key: "t", command: true)
@@ -105,13 +117,19 @@ struct KeyComboTests {
             "a", "s", "d", "f", "h", "g", "z", "x", "c", "v", "b", "q", "w", "e", "r", "y", "t",
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "=", "-", "]", "o", "u", "[", "i",
             "p", "l", "j", "'", "k", ";", "\\", ",", "/", "n", "m", ".", "`", "*", "+",
-            "leftarrow", "rightarrow", "downarrow", "uparrow", "tab", "return",
+            "leftarrow", "rightarrow", "downarrow", "uparrow", "tab", "return", "space",
         ] {
             let code = try #require(KeyCombo.keyCode(for: name))
             #expect(KeyCombo.normalized(key: "", keyCode: code) == name)
         }
 
         #expect(KeyCombo.keyCode(for: "missing") == nil)
+    }
+
+    @Test("active keyboard layout resolves keys and virtual key codes")
+    func activeKeyboardLayoutResolution() {
+        #expect(KeyCombo.key(forVirtualKeyCode: 49) == "space")
+        #expect(KeyCombo.virtualKeyCode(for: "space") == 49)
     }
 
     @Test("SwiftUI modifiers mirror AppKit modifier flags")

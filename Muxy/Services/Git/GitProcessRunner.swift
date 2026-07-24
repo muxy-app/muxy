@@ -114,7 +114,9 @@ enum GitProcessRunner {
             .map(String.init)
             .filter { !$0.isEmpty }
         let paths = (currentPaths + searchPaths).reduce(into: [String]()) { result, path in
-            if !result.contains(path) { result.append(path) }
+            if !result.contains(path) {
+                result.append(path)
+            }
         }
         return paths.joined(separator: ":")
     }
@@ -362,7 +364,9 @@ enum GitProcessRunner {
             }
             collected.append(chunk)
             currentLineCount += chunk.reduce(into: 0) { count, byte in
-                if byte == 0x0A { count += 1 }
+                if byte == 0x0A {
+                    count += 1
+                }
             }
 
             if currentLineCount >= lineLimit {
@@ -426,7 +430,9 @@ private final class AsyncDataCollector: @unchecked Sendable {
             var didTruncate = false
             while true {
                 let chunk = (try? handle.read(upToCount: 65536)) ?? Data()
-                if chunk.isEmpty { break }
+                if chunk.isEmpty {
+                    break
+                }
                 guard !didTruncate else { continue }
                 guard let byteLimit else {
                     collected.append(chunk)

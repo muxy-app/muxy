@@ -9,17 +9,15 @@ import Yams
 struct LayoutWorkspaceBuilderTests {
     private let testPath = "/tmp/test"
 
-    @Test("returns nil for empty leaf")
-    func emptyLeaf() {
-        let config = LayoutConfig(root: .leaf(tabs: []))
+    @Test("returns nil for empty branch")
+    func emptyBranch() {
+        let config = LayoutConfig(root: .branch(layout: .horizontal, panes: []))
         #expect(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath) == nil)
     }
 
     @Test("single tab leaf")
     func singleTabLeaf() throws {
-        let config = LayoutConfig(root: .leaf(tabs: [
-            .init(name: "dev", command: "npm run dev")
-        ]))
+        let config = LayoutConfig(root: .leaf(tab: .init(name: "dev", command: "npm run dev")))
         let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
         guard case let .tabArea(area) = result.root else {
             Issue.record("expected leaf")
@@ -30,16 +28,19 @@ struct LayoutWorkspaceBuilderTests {
         #expect(pane.title == "dev")
         #expect(pane.startupCommand == "npm run dev")
         #expect(pane.startupCommandInteractive == true)
+        #expect(area.tabs[0].parentTabID == nil)
         #expect(result.focusedAreaID == area.id)
     }
 
-    @Test("multiple tabs preserve order with first focused")
-    func multipleTabs() throws {
-        let config = LayoutConfig(root: .leaf(tabs: [
-            .init(name: "one", command: nil),
-            .init(name: nil, command: "echo hi"),
-            .init(name: "three", command: nil)
-        ]))
+    @Test("legacy extra tabs become independent top-level tabs")
+    func legacyExtraTabs() throws {
+        let config = LayoutConfig(
+            root: .leaf(tab: .init(name: "one", command: nil)),
+            legacyExtraTabs: [
+                .init(name: nil, command: "echo hi"),
+                .init(name: "three", command: nil),
+            ]
+        )
         let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
         guard case let .tabArea(area) = result.root else {
             Issue.record("expected leaf")
@@ -50,13 +51,14 @@ struct LayoutWorkspaceBuilderTests {
         #expect(area.tabs[0].content.pane?.title == "one")
         #expect(area.tabs[1].content.pane?.title == "echo")
         #expect(area.tabs[2].content.pane?.title == "three")
+        #expect(area.tabs.allSatisfy { $0.parentTabID == nil })
     }
 
     @Test("two-pane horizontal split")
     func twoPaneHorizontal() throws {
         let config = LayoutConfig(root: .branch(layout: .horizontal, panes: [
-            .leaf(tabs: [.init(name: "left", command: nil)]),
-            .leaf(tabs: [.init(name: "right", command: nil)])
+            .leaf(tab: .init(name: "left", command: nil)),
+            .leaf(tab: .init(name: "right", command: nil))
         ]))
         let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
         guard case let .split(branch) = result.root else {
@@ -72,29 +74,34 @@ struct LayoutWorkspaceBuilderTests {
         }
         #expect(left.tabs[0].content.pane?.title == "left")
         #expect(right.tabs[0].content.pane?.title == "right")
+        #expect(left.tabs[0].parentTabID == nil)
+        #expect(right.tabs[0].parentTabID == left.tabs[0].id)
         #expect(result.focusedAreaID == left.id)
     }
 
     @Test("three panes produce nested splits")
     func threePanes() throws {
         let config = LayoutConfig(root: .branch(layout: .vertical, panes: [
-            .leaf(tabs: [.init(name: "a", command: nil)]),
-            .leaf(tabs: [.init(name: "b", command: nil)]),
-            .leaf(tabs: [.init(name: "c", command: nil)])
+            .leaf(tab: .init(name: "a", command: nil)),
+            .leaf(tab: .init(name: "b", command: nil)),
+            .leaf(tab: .init(name: "c", command: nil))
         ]))
         let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
         let areas = result.root.allAreas()
         #expect(areas.count == 3)
         #expect(areas.map { $0.tabs[0].content.pane?.title } == ["a", "b", "c"])
+        let rootTabID = try #require(areas[0].tabs.first?.id)
+        #expect(areas[0].tabs[0].parentTabID == nil)
+        #expect(areas.dropFirst().allSatisfy { $0.tabs[0].parentTabID == rootTabID })
     }
 
     @Test("nested branch with mixed layouts")
     func nestedBranches() throws {
         let config = LayoutConfig(root: .branch(layout: .horizontal, panes: [
-            .leaf(tabs: [.init(name: "left", command: nil)]),
+            .leaf(tab: .init(name: "left", command: nil)),
             .branch(layout: .vertical, panes: [
-                .leaf(tabs: [.init(name: "top", command: nil)]),
-                .leaf(tabs: [.init(name: "bottom", command: nil)])
+                .leaf(tab: .init(name: "top", command: nil)),
+                .leaf(tab: .init(name: "bottom", command: nil))
             ])
         ]))
         let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
@@ -111,24 +118,45 @@ struct LayoutWorkspaceBuilderTests {
         }
         #expect(inner.direction == .vertical)
     }
+
+    @Test("legacy extras from nested leaves preserve depth-first order as roots")
+    func nestedLegacyExtraTabs() throws {
+        let config = LayoutConfig(
+            root: .branch(layout: .horizontal, panes: [
+                .leaf(tab: .init(name: "left", command: nil)),
+                .leaf(tab: .init(name: "right", command: nil)),
+            ]),
+            legacyExtraTabs: [
+                .init(name: "left-extra", command: nil),
+                .init(name: "right-extra", command: nil),
+            ]
+        )
+        let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
+        let areas = result.root.allAreas()
+        #expect(areas[0].tabs.map { $0.content.pane?.title } == ["left", "left-extra", "right-extra"])
+        #expect(areas[0].tabs.allSatisfy { $0.parentTabID == nil })
+        #expect(areas[1].tabs[0].parentTabID == areas[0].tabs[0].id)
+        #expect(areas[0].activeTabID == areas[0].tabs[0].id)
+    }
 }
 
 @Suite("LayoutConfig")
 struct LayoutConfigParsingTests {
-    @Test("parses YAML with single tab leaf")
+    @Test("parses YAML with singular tab leaf")
     func parsesSingleTab() throws {
         let yaml = """
-        tabs:
-          - name: dev
-            command: npm run dev
+        tab:
+          name: dev
+          command: npm run dev
         """
         let value = try Yams.load(yaml: yaml)
         let config = try #require(LayoutConfig.parse(value))
-        guard case let .leaf(tabs) = config.root else {
+        guard case let .leaf(tab) = config.root else {
             Issue.record("expected leaf")
             return
         }
-        #expect(tabs == [.init(name: "dev", command: "npm run dev")])
+        #expect(tab == .init(name: "dev", command: "npm run dev"))
+        #expect(config.legacyExtraTabs.isEmpty)
     }
 
     @Test("parses nested panes")
@@ -136,16 +164,15 @@ struct LayoutConfigParsingTests {
         let yaml = """
         layout: horizontal
         panes:
-          - tabs:
-              - name: editor
-                command: nvim
+          - tab:
+              name: editor
+              command: nvim
           - layout: vertical
             panes:
-              - tabs:
-                  - name: logs
-                    command: tail -f log
-              - tabs:
-                  - btop
+              - tab:
+                  name: logs
+                  command: tail -f log
+              - tab: btop
         """
         let value = try Yams.load(yaml: yaml)
         let config = try #require(LayoutConfig.parse(value))
@@ -163,36 +190,80 @@ struct LayoutConfigParsingTests {
         #expect(innerPanes.count == 2)
     }
 
-    @Test("string tab is treated as command")
+    @Test("singular string tab is treated as command")
     func stringTab() throws {
         let yaml = """
-        tabs:
-          - htop
+        tab: htop
         """
         let value = try Yams.load(yaml: yaml)
         let config = try #require(LayoutConfig.parse(value))
-        guard case let .leaf(tabs) = config.root else {
+        guard case let .leaf(tab) = config.root else {
             Issue.record("expected leaf")
             return
         }
-        #expect(tabs == [.init(name: nil, command: "htop")])
+        #expect(tab == .init(name: nil, command: "htop"))
     }
 
     @Test("array command joins with &&")
     func arrayCommand() throws {
         let yaml = """
-        tabs:
-          - name: setup
-            command:
-              - cd src
-              - npm install
+        tab:
+          name: setup
+          command:
+            - cd src
+            - npm install
         """
         let value = try Yams.load(yaml: yaml)
         let config = try #require(LayoutConfig.parse(value))
-        guard case let .leaf(tabs) = config.root else {
+        guard case let .leaf(tab) = config.root else {
             Issue.record("expected leaf")
             return
         }
-        #expect(tabs[0].command == "cd src && npm install")
+        #expect(tab.command == "cd src && npm install")
+    }
+
+    @Test("legacy tabs keep first pane tab and collect extras depth-first")
+    func legacyTabs() throws {
+        let yaml = """
+        layout: horizontal
+        panes:
+          - tabs:
+              - name: editor
+              - name: editor-extra
+          - layout: vertical
+            panes:
+              - tabs:
+                  - name: logs
+                  - name: logs-extra
+              - tab:
+                  name: shell
+        """
+        let value = try Yams.load(yaml: yaml)
+        let config = try #require(LayoutConfig.parse(value))
+        guard case let .branch(_, panes) = config.root,
+              case let .leaf(first) = panes[0],
+              case let .branch(_, nestedPanes) = panes[1],
+              case let .leaf(second) = nestedPanes[0]
+        else {
+            Issue.record("expected nested layout")
+            return
+        }
+        #expect(first.name == "editor")
+        #expect(second.name == "logs")
+        #expect(config.legacyExtraTabs.map(\.name) == ["editor-extra", "logs-extra"])
+    }
+
+    @Test("panes remain authoritative over tab fields")
+    func panesAreAuthoritative() throws {
+        let value = try Yams.load(yaml: """
+        tab: ignored
+        panes:
+          - tab: used
+        """)
+        let config = try #require(LayoutConfig.parse(value))
+        #expect(config.root == .branch(
+            layout: .horizontal,
+            panes: [.leaf(tab: .init(name: nil, command: "used"))]
+        ))
     }
 }

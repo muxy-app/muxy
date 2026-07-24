@@ -28,7 +28,9 @@ enum FileTreeService {
         entries.reserveCapacity(classification.visible.count)
 
         for name in classification.visible {
-            if name == "." || name == ".." { continue }
+            if name == "." || name == ".." {
+                continue
+            }
             let absolute = directoryAbsolutePath.hasSuffix("/")
                 ? directoryAbsolutePath + name
                 : directoryAbsolutePath + "/" + name
@@ -52,7 +54,9 @@ enum FileTreeService {
         }
 
         entries.sort { lhs, rhs in
-            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory && !rhs.isDirectory }
+            if lhs.isDirectory != rhs.isDirectory {
+                return lhs.isDirectory && !rhs.isDirectory
+            }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
 

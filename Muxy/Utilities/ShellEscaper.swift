@@ -9,6 +9,10 @@ enum ShellEscaper {
 
     static func escape(_ path: String) -> String {
         guard path.contains(where: { !safeCharacters.contains($0) }) else { return path }
-        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        return quote(path)
+    }
+
+    static func quote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

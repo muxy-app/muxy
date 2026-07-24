@@ -92,17 +92,31 @@ private final class ProjectPickerNSTextField: NSTextField {
 
 private enum ProjectPickerPathFieldCommandMapper {
     static func command(for selector: Selector, shouldGoUpOnDeleteBackward: Bool) -> ProjectPickerCommand? {
-        if selector == #selector(NSResponder.insertNewline(_:)) { return .openHighlighted }
-        if selector == #selector(NSResponder.insertTab(_:)) { return .completeHighlighted }
-        if selector == #selector(NSResponder.moveUp(_:)) { return .moveHighlightUp }
-        if selector == #selector(NSResponder.moveDown(_:)) { return .moveHighlightDown }
-        if selector == #selector(NSResponder.deleteWordBackward(_:)) { return shouldGoUpOnDeleteBackward ? .goBack : nil }
+        if selector == #selector(NSResponder.insertNewline(_:)) {
+            return .openHighlighted
+        }
+        if selector == #selector(NSResponder.insertTab(_:)) {
+            return .completeHighlighted
+        }
+        if selector == #selector(NSResponder.moveUp(_:)) {
+            return .moveHighlightUp
+        }
+        if selector == #selector(NSResponder.moveDown(_:)) {
+            return .moveHighlightDown
+        }
+        if selector == #selector(NSResponder.deleteWordBackward(_:)) {
+            return shouldGoUpOnDeleteBackward ? .goBack : nil
+        }
         return nil
     }
 
     static func command(for event: NSEvent) -> ProjectPickerCommand? {
-        if event.keyCode == kVK_Escape { return .dismiss }
-        if event.keyCode == kVK_Return, event.modifierFlags.contains(.command) { return .confirmTypedPath }
+        if event.keyCode == kVK_Escape {
+            return .dismiss
+        }
+        if event.keyCode == kVK_Return, event.modifierFlags.contains(.command) {
+            return .confirmTypedPath
+        }
         return nil
     }
 }

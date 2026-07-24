@@ -2,116 +2,37 @@
 
 Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to find settings by name.
 
-## App
+## Worktree path templates
 
-- **Update Channel** — stable releases or beta builds.
-- **Confirm Quit** — asks before quitting Muxy.
-- **Crash Reports** — controls anonymous crash report consent when diagnostics are available.
+Set the default under **Projects -> Worktrees** and choose **Template**. Every template must include `{branch}` and can
+also use these filesystem-safe values:
 
-## Projects
+- `{project-name}` — the project name shown in Muxy
+- `{base-dir}` — the current checkout folder name
+- `{branch}` — the branch name, with path separators replaced
 
-- **Project Picker** — use Muxy's picker or the Finder picker.
-- **Project Picker Search Location** — folder recursively searched by Muxy's picker.
-- **Keep Projects Open** — keeps projects in the sidebar after closing the last tab.
-- **Default Opener** — chooses the IDE or extension opener for files opened from native surfaces.
-- **Default Worktree Path** — parent folder for new worktrees.
+Relative templates start from the project folder. For a project at `/code/my-app` and branch `feature/auth`,
+`../{base-dir}.{branch}` resolves to `/code/my-app.feature-auth`.
 
-## Remote Devices
+Choose **Folder** to retain Muxy's existing folder layout. A global folder stores worktrees under
+`<folder>/<project-name>/<worktree-name>`, while a folder selected in the new worktree dialog stores them under
+`<folder>/<worktree-name>`. A project-specific template or folder selected in that dialog takes precedence over the
+global setting. Remote worktrees keep their remote workspace layout.
 
-- Add and manage reusable SSH connections for remote workspaces.
-- Configure `KEY=value` environment variables exported before remote terminals, git, files, worktrees, and extension commands run. New SSH devices default to `TERM=xterm-256color`.
+## Quick terminal
 
-## Interface
+The assigned shortcut is the only way to open the quick terminal. On a display with a camera cutout, the terminal expands out of it like a dynamic island. Open **Quick Terminal** in Settings to configure its shortcut, size, and appearance:
 
-- **Interface Size** — controls app density across Default, Large, Extra Large, and Huge. Scales fonts, spacing, icons, and the status bar.
-- **Tab header width** — controls maximum tab header width.
-- **Show Status Bar** — shows or hides the bottom status bar.
-- **Show Resource Usage in Status Bar** — shows CPU and memory usage; disabling it stops sampling.
-- **Light Terminal Theme** and **Dark Terminal Theme** — paired terminal themes that follow macOS appearance.
-- **Sidebar Vibrancy** — on by default; uses theme-tinted native macOS vibrancy across the sidebar and its traffic-light/title strip. Turn it off for a solid theme background. The main topbar keeps the active theme background.
-- **Auto-expand Worktrees** — reveals worktrees when switching projects.
-- **Show Home** — shows the permanent Home project at the top of the sidebar.
-- **Active Sidebar** — chooses the built-in sidebar or one provided by an extension.
-- **Collapsed Sidebar Style** and **Expanded Sidebar Style** — controls sidebar presentation.
-- **Worktree switcher options** — unread indicators and recent-use ordering.
+- **Enable Quick Terminal** controls the entire feature. Turning it off stops the shortcut listener, closes the panel, and releases its shell while preserving its settings.
+- No shortcut is assigned by default.
+- **Double Shift** requires macOS Input Monitoring for use outside Muxy.
+- **Option Space** or another recorded key combination is registered as a conventional global shortcut without Input Monitoring.
+- **Width** and **Height** set the panel size in points for the next opening. Smaller displays automatically reduce the configured size.
+- **Terminal transparency** controls how much of the desktop shows through the terminal workspace from 0–55%.
+- **Background vibrancy** continuously controls the native macOS material intensity from 0–100%. The cutout bridge remains solid.
 
-See [Themes](../features/themes.md).
+The vibrancy control mixes the system material continuously; it does not set a custom blur radius.
 
-## Terminal
+The gear button in the quick terminal opens an in-place settings popover with the transparency, vibrancy, width, and height controls, so those can be adjusted without leaving the terminal. Transparency and vibrancy apply immediately; size applies when the slider is released. The shortcut is also available from the shortcut control in the quick terminal. The feature toggle is stored as `muxy.quickTerminal.enabled` in `settings.json`. The shortcut is stored as `shortcuts.quickTerminal` using `{"type":"unassigned"}`, `{"type":"doubleShift"}`, or `{"type":"keyCombo","keyCombo":{"key":"space","modifiers":...},"virtualKeyCode":49}`. Panel dimensions are stored as `muxy.quickTerminal.width` and `muxy.quickTerminal.height`. Glass settings use `muxy.quickTerminal.transparency` as an integer percentage from 0–55 and `muxy.quickTerminal.blur` as an integer material intensity from 0–100.
 
-- **Auto-copy Terminal Selection** — copies terminal selections when the mouse is released.
-- **Confirm Running Process Tab Close** — asks before closing a terminal tab with a running process.
-- Terminal config is stored in `~/Library/Application Support/Muxy/ghostty.conf` and can be opened from the Muxy menu.
-
-See [Terminal](../features/terminal.md).
-
-## Browser
-
-- Enable or disable the built-in browser.
-- Choose whether terminal links open in the built-in browser.
-- Choose search engine and home page.
-- Manage browser profiles, clear profile data, and import supported browser data.
-
-## Rich Input
-
-- Configure image submission mode, position, floating mode, font, and line height.
-
-See [Rich Input](../features/rich-input.md).
-
-## Shortcuts
-
-- Remap app actions with the key-capture recorder.
-
-See [Keyboard Shortcuts](keyboard-shortcuts.md).
-
-## Commands
-
-- Define reusable shell command shortcuts that open a new terminal tab.
-
-See [Terminal](../features/terminal.md#custom-command-shortcuts).
-
-## AI
-
-- **Commit and Push** — choose the provider CLI and edit the instructions used to generate the commit message. Muxy always stages all changes, commits, and pushes; the prompt cannot change that workflow.
-- **Create Pull Request** — choose the provider CLI and edit the global instructions used to generate the pull request title, summary, new branch name, and target branch. The Create PR dropdown in the status bar can override this prompt for the current project. Muxy validates the response before creating the branch, commit, push, and pull request.
-- **Auto** selects the first available supported provider CLI. Claude Code, Codex, Cursor Agent, Droid, Grok, OpenCode, and Pi are supported.
-- Provider CLIs run non-interactively in the active worktree and return metadata without opening a terminal tab. Muxy disables provider write tools and performs every Git and GitHub mutation through its native services.
-- Global prompts are stored as settings, while Create PR project overrides are stored with their project. Repository context such as changed paths and capped diffs is sent to the selected provider CLI. Do not put credentials or other secrets in prompts or changes sent to a remote provider.
-- Model selection is not exposed yet. Configure a provider's own defaults when a specific model is required.
-
-## Voice
-
-- **Press Return after inserting** — sends dictated text immediately.
-- **Language** — on-device speech recognition language.
-
-See [Voice Recording](../features/voice-recording.md).
-
-## Notifications
-
-- **Toast** — show an in-app toast on arrival.
-- **Desktop notifications** — show a macOS notification when Muxy is not frontmost.
-- **Toast position** and **Sound** — delivery presentation.
-- **AI Providers** — enable or disable hook integrations for Claude Code, Codex, Cursor, Droid, Grok, OpenCode, and Pi.
-- **Per-source delivery** — separate toggles for provider hooks, OSC sequences, and the socket API.
-
-See [Notifications](../features/notifications.md).
-
-## Mobile
-
-- **Allow Mobile Connections** — start or stop the WebSocket server.
-- **Port** — defaults to 4865 in release builds.
-- **Pair Mobile Device** — shows the pairing QR code.
-- **Approved devices** — list of paired clients with revoke buttons.
-
-See [Remote Server](../remote-server/overview.md).
-
-## Backup
-
-- Create, restore, and manage Muxy backups.
-- Backups include settings, projects, worktrees, workspaces, remote devices, key bindings, command shortcuts, extension shortcuts, editor settings, and Ghostty config.
-
-## JSON
-
-The JSON tab exposes editable settings as `settings.json`.
-
-Use it for bulk edits, sharing settings, or editing values faster than clicking through controls. Muxy validates the file before applying it.
+When macOS Reduce Transparency or Increase Contrast is enabled, Muxy temporarily renders the quick terminal as opaque and unblurred without changing the saved glass settings.

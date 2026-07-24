@@ -51,6 +51,29 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath)
     }
 
+    var configPaths: [String] { [hooksPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        guard ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath) else { return .needsRepair }
+        guard let settings = try? ClaudeCodeProvider.readJSON(at: hooksPath),
+              let hooks = settings["hooks"] as? [String: Any]
+        else { return .needsRepair }
+
+        for binding in Self.bindings {
+            let expected = Self.hookCommand(hookScript: hookScriptPath, argument: binding.argument)
+            let entries = hooks[binding.event] as? [[String: Any]]
+            guard Self.hasSingleMuxyHook(entries: entries, expectedCommand: expected) else {
+                return .needsRepair
+            }
+        }
+        let installedEvents = Set(Self.bindings.map(\.event))
+        for event in Self.removableEvents where !installedEvents.contains(event) {
+            let entries = hooks[event] as? [[String: Any]]
+            guard Self.muxyHookCount(entries) == 0 else { return .needsRepair }
+        }
+        return .satisfied
+    }
+
     func install(hookScriptPath: String) throws {
         var settings = try Self.readSettings(at: hooksPath)
         settings["version"] = settings["version"] ?? 1
@@ -73,7 +96,9 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
         for binding in Self.bindings {
             let command = Self.hookCommand(hookScript: hookScriptPath, argument: binding.argument)
             let existing = hooks[binding.event] as? [[String: Any]]
-            if Self.muxyHookMatches(entries: existing, expectedCommand: command) { continue }
+            if Self.hasSingleMuxyHook(entries: existing, expectedCommand: command) {
+                continue
+            }
             hooks[binding.event] = Self.mergeHookArray(existing: existing, command: command)
             changed = true
         }
@@ -104,14 +129,21 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private static func hookCommand(hookScript: String, argument: String) -> String {
-        "'\(hookScript)' \(argument) # \(muxyMarker)"
+        "\(ShellEscaper.quote(hookScript)) \(argument) # \(muxyMarker)"
     }
 
-    private static func muxyHookMatches(entries: [[String: Any]]?, expectedCommand: String) -> Bool {
-        guard let entries else { return false }
-        return entries.contains { entry in
-            (entry["command"] as? String) == expectedCommand
-        }
+    private static func hasSingleMuxyHook(entries: [[String: Any]]?, expectedCommand: String) -> Bool {
+        let muxyCommands = entries?.compactMap { entry -> String? in
+            guard let command = entry["command"] as? String,
+                  command.contains(muxyMarker)
+            else { return nil }
+            return command
+        } ?? []
+        return muxyCommands == [expectedCommand]
+    }
+
+    private static func muxyHookCount(_ entries: [[String: Any]]?) -> Int {
+        entries?.count(where: isMuxyHookEntry) ?? 0
     }
 
     private static func mergeHookArray(existing: [[String: Any]]?, command: String) -> [[String: Any]] {
@@ -134,22 +166,6 @@ struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private static func writeSettings(_ settings: [String: Any], at path: String) throws {
-        let dirPath = (path as NSString).deletingLastPathComponent
-        try FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
-
-        let fileURL = URL(fileURLWithPath: path)
-        if FileManager.default.fileExists(atPath: path) {
-            let backupPath = path + ".muxy-backup"
-            let backupURL = URL(fileURLWithPath: backupPath)
-            try? FileManager.default.removeItem(at: backupURL)
-            try FileManager.default.copyItem(at: fileURL, to: backupURL)
-        }
-
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: path
-        )
+        try HookConfigWriter.write(settings, to: path)
     }
 }

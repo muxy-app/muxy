@@ -28,8 +28,12 @@ struct CodableFileStore<Value: Codable> {
     func save(_ value: Value) throws {
         let encoder = JSONEncoder()
         var formatting: JSONEncoder.OutputFormatting = []
-        if options.prettyPrinted { formatting.insert(.prettyPrinted) }
-        if options.sortedKeys { formatting.insert(.sortedKeys) }
+        if options.prettyPrinted {
+            formatting.insert(.prettyPrinted)
+        }
+        if options.sortedKeys {
+            formatting.insert(.sortedKeys)
+        }
         encoder.outputFormatting = formatting
 
         let data = try encoder.encode(value)

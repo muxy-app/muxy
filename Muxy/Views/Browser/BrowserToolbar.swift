@@ -93,7 +93,9 @@ struct BrowserToolbar: View {
         .disabled(state.url == nil)
         .help("Open in External Browser")
         .onAppear {
-            if installedBrowsers.isEmpty { installedBrowsers = InstalledBrowsers.all() }
+            if installedBrowsers.isEmpty {
+                installedBrowsers = InstalledBrowsers.all()
+            }
         }
     }
 

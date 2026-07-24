@@ -386,10 +386,18 @@ private struct BranchPopoverRow: View {
     }
 
     private var rowBackground: AnyShapeStyle {
-        if isDeletionPending { return AnyShapeStyle(MuxyTheme.diffRemoveBg) }
-        if isHovered { return AnyShapeStyle(MuxyTheme.hover) }
-        if isSelected { return AnyShapeStyle(MuxyTheme.accentSoft) }
-        if isHighlighted { return AnyShapeStyle(MuxyTheme.surface) }
+        if isDeletionPending {
+            return AnyShapeStyle(MuxyTheme.diffRemoveBg)
+        }
+        if isHovered {
+            return AnyShapeStyle(MuxyTheme.hover)
+        }
+        if isSelected {
+            return AnyShapeStyle(MuxyTheme.accentSoft)
+        }
+        if isHighlighted {
+            return AnyShapeStyle(MuxyTheme.surface)
+        }
         return AnyShapeStyle(Color.clear)
     }
 }

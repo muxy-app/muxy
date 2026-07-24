@@ -120,7 +120,9 @@ final class HostSocketClient: @unchecked Sendable {
                     offset += written
                     continue
                 }
-                if written < 0, errno == EINTR { continue }
+                if written < 0, errno == EINTR {
+                    continue
+                }
                 throw ClientError.closed
             }
         }
@@ -137,7 +139,9 @@ final class HostSocketClient: @unchecked Sendable {
         replyLock.lock()
         defer { replyLock.unlock() }
         while !hasReply {
-            if closed { throw ClientError.closed }
+            if closed {
+                throw ClientError.closed
+            }
             replyLock.wait()
         }
         guard let reply = pendingReply else { throw ClientError.closed }
@@ -153,7 +157,9 @@ final class HostSocketClient: @unchecked Sendable {
                 drainLines()
                 continue
             }
-            if bytesRead < 0, errno == EINTR { continue }
+            if bytesRead < 0, errno == EINTR {
+                continue
+            }
             break
         }
         markClosed()

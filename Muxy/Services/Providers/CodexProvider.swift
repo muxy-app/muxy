@@ -72,6 +72,32 @@ struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath)
     }
 
+    var configPaths: [String] { [hooksPath, configPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        if (try? hasExecutableInlineHooks()) == true {
+            return .conflict(CodexProviderError.inlineHooksConfigured(configPath).localizedDescription)
+        }
+        guard ClaudeCodeProvider.fileContainsMuxyMarker(at: hooksPath) else { return .needsRepair }
+        guard let settings = try? ClaudeCodeProvider.readJSON(at: hooksPath),
+              let hooks = settings["hooks"] as? [String: Any]
+        else { return .needsRepair }
+
+        for event in Self.installedEvents {
+            let expected = Self.hookCommand(hookScript: hookScriptPath, event: event.event)
+            let entries = hooks[event.settingsKey] as? [[String: Any]]
+            guard Self.muxyHookMatches(entries: entries, expectedCommand: expected),
+                  Self.muxyHookEntryCount(entries) == 1
+            else { return .needsRepair }
+        }
+        let installedKeys = Set(Self.installedEvents.map(\.settingsKey))
+        for event in Self.removableEvents where !installedKeys.contains(event) {
+            let entries = hooks[event] as? [[String: Any]]
+            guard Self.muxyHookEntryCount(entries) == 0 else { return .needsRepair }
+        }
+        return .satisfied
+    }
+
     func install(hookScriptPath: String) throws {
         if try hasExecutableInlineHooks() {
             if isHookInstalled() {
@@ -135,7 +161,7 @@ struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private static func hookCommand(hookScript: String, event: String) -> String {
-        "'\(hookScript)' \(event) # \(muxyMarker)"
+        "\(ShellEscaper.quote(hookScript)) \(event) # \(muxyMarker)"
     }
 
     private static func buildHookEntry(command: String) -> [String: Any] {
@@ -231,23 +257,7 @@ struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private func writeSettings(_ settings: [String: Any]) throws {
-        let dirPath = (hooksPath as NSString).deletingLastPathComponent
-        try FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
-
-        let fileURL = URL(fileURLWithPath: hooksPath)
-        if FileManager.default.fileExists(atPath: hooksPath) {
-            let backupPath = hooksPath + ".muxy-backup"
-            let backupURL = URL(fileURLWithPath: backupPath)
-            try? FileManager.default.removeItem(at: backupURL)
-            try FileManager.default.copyItem(at: fileURL, to: backupURL)
-        }
-
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: hooksPath
-        )
+        try HookConfigWriter.write(settings, to: hooksPath)
     }
 }
 

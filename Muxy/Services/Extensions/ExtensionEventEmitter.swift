@@ -108,11 +108,21 @@ enum ExtensionEventEmitter {
             "title": context.title,
             "projectPath": context.projectPath,
         ]
-        if let paneID = context.paneID { payload["paneID"] = paneID.uuidString }
-        if let cwd = context.cwd { payload["cwd"] = cwd }
-        if let extensionID = context.extensionID { payload["extensionID"] = extensionID }
-        if let tabTypeID = context.tabTypeID { payload["tabTypeID"] = tabTypeID }
-        if let data = context.data { payload["data"] = data }
+        if let paneID = context.paneID {
+            payload["paneID"] = paneID.uuidString
+        }
+        if let cwd = context.cwd {
+            payload["cwd"] = cwd
+        }
+        if let extensionID = context.extensionID {
+            payload["extensionID"] = extensionID
+        }
+        if let tabTypeID = context.tabTypeID {
+            payload["tabTypeID"] = tabTypeID
+        }
+        if let data = context.data {
+            payload["data"] = data
+        }
         return payload
     }
 

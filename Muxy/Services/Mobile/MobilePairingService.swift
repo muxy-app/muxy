@@ -90,7 +90,9 @@ enum MobilePairingService {
             var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
             guard inet_ntop(AF_INET, &raw, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else { continue }
             let ip = String(cString: buffer)
-            if isTailscaleAddress(ip) { return ip }
+            if isTailscaleAddress(ip) {
+                return ip
+            }
         }
         return nil
     }

@@ -25,6 +25,7 @@ enum SettingsFocusRequest: Hashable {
     case projectPickerDefaultLocation
     case remoteDevices
     case browser
+    case quickTerminalShortcut
 
     var notificationName: Notification.Name {
         switch self {
@@ -34,6 +35,8 @@ enum SettingsFocusRequest: Hashable {
             .focusRemoteDevicesSettings
         case .browser:
             .focusBrowserSettings
+        case .quickTerminalShortcut:
+            .focusQuickTerminalShortcut
         }
     }
 }

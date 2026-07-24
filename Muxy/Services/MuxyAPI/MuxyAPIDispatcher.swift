@@ -159,7 +159,9 @@ enum MuxyAPIDispatcher {
             )
             ExtensionStore.shared.refreshExtensionSnapshot()
             var result: [String: Any] = ["ok": conflict == nil]
-            if let conflict { result["conflict"] = conflict }
+            if let conflict {
+                result["conflict"] = conflict
+            }
             return result
         case "shortcuts.unregister":
             try ExtensionShortcutStore.shared.unregister(
@@ -703,9 +705,15 @@ enum MuxyAPIDispatcher {
     }
 
     private static func doubleArgOptional(_ args: [String: Any], _ key: String) -> Double? {
-        if let value = args[key] as? Double { return value }
-        if let value = args[key] as? Int { return Double(value) }
-        if let value = args[key] as? NSNumber { return value.doubleValue }
+        if let value = args[key] as? Double {
+            return value
+        }
+        if let value = args[key] as? Int {
+            return Double(value)
+        }
+        if let value = args[key] as? NSNumber {
+            return value.doubleValue
+        }
         return nil
     }
 
@@ -1087,7 +1095,9 @@ enum MuxyAPIDispatcher {
     }
 
     private static func stringArg(_ args: [String: Any], _ key: String) throws -> String {
-        if let value = args[key] as? String { return value }
+        if let value = args[key] as? String {
+            return value
+        }
         throw APIError.invalidArguments("missing argument '\(key)'")
     }
 
@@ -1110,9 +1120,15 @@ enum MuxyAPIDispatcher {
     }
 
     private static func doubleArg(_ args: [String: Any], _ key: String) throws -> Double {
-        if let value = args[key] as? Double { return value }
-        if let value = args[key] as? Int { return Double(value) }
-        if let value = args[key] as? NSNumber { return value.doubleValue }
+        if let value = args[key] as? Double {
+            return value
+        }
+        if let value = args[key] as? Int {
+            return Double(value)
+        }
+        if let value = args[key] as? NSNumber {
+            return value.doubleValue
+        }
         throw APIError.invalidArguments("missing argument '\(key)'")
     }
 
@@ -1123,10 +1139,8 @@ enum MuxyAPIDispatcher {
         }
     }
 
-    private static func panelData(_ args: [String: Any]) -> ExtensionJSON? {
-        guard let raw = args["data"] else { return nil }
-        guard let data = try? JSONSerialization.data(withJSONObject: raw) else { return nil }
-        return try? JSONDecoder().decode(ExtensionJSON.self, from: data)
+    static func panelData(_ args: [String: Any]) -> ExtensionJSON? {
+        extensionJSON(args["data"])
     }
 
     private static func resolvedEntry(_ args: [String: Any], context: Context) throws -> String {
@@ -1141,11 +1155,20 @@ enum MuxyAPIDispatcher {
     }
 
     private static func clampedResult(_ value: Any?) -> ExtensionJSON? {
-        guard let value, !(value is NSNull) else { return nil }
-        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
-              data.count <= ExtensionWebviewModalService.maxResultBytes
-        else { return nil }
+        guard let data = serializedJSON(value), data.count <= ExtensionWebviewModalService.maxResultBytes else {
+            return nil
+        }
         return try? JSONDecoder().decode(ExtensionJSON.self, from: data)
+    }
+
+    private static func extensionJSON(_ value: Any?) -> ExtensionJSON? {
+        guard let data = serializedJSON(value) else { return nil }
+        return try? JSONDecoder().decode(ExtensionJSON.self, from: data)
+    }
+
+    private static func serializedJSON(_ value: Any?) -> Data? {
+        guard let value, !(value is NSNull) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
     }
 
     private static func foundationValue(_ value: ExtensionJSON?) -> Any {
@@ -1241,14 +1264,22 @@ enum MuxyAPIDispatcher {
     }
 
     private static func intArg(_ args: [String: Any], _ key: String) -> Int? {
-        if let value = args[key] as? Int { return value }
-        if let value = args[key] as? NSNumber { return value.intValue }
+        if let value = args[key] as? Int {
+            return value
+        }
+        if let value = args[key] as? NSNumber {
+            return value.intValue
+        }
         return nil
     }
 
     private static func boolArg(_ args: [String: Any], _ key: String) -> Bool? {
-        if let value = args[key] as? Bool { return value }
-        if let value = args[key] as? NSNumber { return value.boolValue }
+        if let value = args[key] as? Bool {
+            return value
+        }
+        if let value = args[key] as? NSNumber {
+            return value.boolValue
+        }
         return nil
     }
 

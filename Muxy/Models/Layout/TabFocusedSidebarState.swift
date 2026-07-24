@@ -15,7 +15,9 @@ final class TabFocusedSidebarState {
     private var expanded: [UUID: Bool] = [:]
 
     func isExpanded(_ projectID: UUID, default defaultValue: Bool) -> Bool {
-        if let value = expanded[projectID] { return value }
+        if let value = expanded[projectID] {
+            return value
+        }
         let key = TabFocusedSidebarPreferences.projectExpandedKey(projectID)
         if let stored = defaults.object(forKey: key) as? Bool {
             expanded[projectID] = stored
@@ -30,7 +32,9 @@ final class TabFocusedSidebarState {
     }
 
     func isExpandedPersisted(_ projectID: UUID) -> Bool {
-        if let value = expanded[projectID] { return value }
+        if let value = expanded[projectID] {
+            return value
+        }
         return defaults.bool(forKey: TabFocusedSidebarPreferences.projectExpandedKey(projectID))
     }
 

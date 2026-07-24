@@ -253,6 +253,54 @@ struct SocketCommandHandlerTests {
         #expect(appState.activeWorktreeID[project.id] == worktree.id)
     }
 
+    @Test("create-worktree resolves the configured template with the requested branch")
+    func createWorktreeWithConfiguredTemplate() async throws {
+        let projectPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-template-project-\(UUID().uuidString)")
+            .path
+        var project = Project(name: "Template Project", path: projectPath)
+        project.preferredWorktreePathTemplate = "../{base-dir}.{branch}"
+        let primary = Worktree(name: project.name, path: project.path, isPrimary: true)
+        let appState = makeAppState(projectID: project.id, worktreeID: primary.id)
+        let stores = makeStores(
+            projects: [project],
+            worktrees: [project.id: [primary]],
+            addGitWorktree: { _, _, _, _, _ in }
+        )
+
+        let result = await SocketCommandHandler.handleRequest(
+            "create-worktree|Display Name|feature/auth|\(project.name)||true|main",
+            appState: appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore
+        )
+
+        let worktree = try #require(stores.worktreeStore.list(for: project.id).first { $0.name == "Display Name" })
+        let expectedPath = "\(projectPath).feature-auth"
+        #expect(result.hasPrefix("ok\t"))
+        #expect(worktree.path == expectedPath)
+        #expect(worktree.branch == "feature/auth")
+    }
+
+    @Test("create-worktree rejects a configured template without branch")
+    func createWorktreeRejectsStaticTemplate() async {
+        var project = Project(name: "Template Project", path: testPath)
+        project.preferredWorktreePathTemplate = "/tmp/worktrees"
+        let primary = Worktree(name: project.name, path: project.path, isPrimary: true)
+        let appState = makeAppState(projectID: project.id, worktreeID: primary.id)
+        let stores = makeStores(projects: [project], worktrees: [project.id: [primary]])
+
+        let result = await SocketCommandHandler.handleRequest(
+            "create-worktree|Feature|feature/auth|\(project.name)||true|main",
+            appState: appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore
+        )
+
+        #expect(result == "error:Path template must include {branch}.")
+        #expect(stores.worktreeStore.list(for: project.id).count == 1)
+    }
+
     @Test("list-tabs includes active tab")
     func listTabs() async {
         let appState = makeAppState()
@@ -463,7 +511,11 @@ struct SocketCommandHandlerTests {
         #expect(areas.count == 2)
         let hostingArea = try #require(areas.first { $0.tabs.contains { $0.id == tabID } })
         #expect(hostingArea.id == appState.focusedAreaID[featureKey])
-        #expect(hostingArea.tabs.contains { $0.content.pane != nil })
+        let browserTab = try #require(hostingArea.tabs.first { $0.id == tabID })
+        let rootTab = try #require(appState.workspaceRoots[featureKey]?.allTabs().first { $0.parentTabID == nil })
+        #expect(browserTab.content.browserState != nil)
+        #expect(browserTab.parentTabID == rootTab.id)
+        #expect(hostingArea.tabs.count == 1)
     }
 
     @Test("split-right --worktree splits the target worktree")

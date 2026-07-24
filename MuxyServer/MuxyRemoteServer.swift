@@ -126,7 +126,9 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 completion?()
                 return
             }
-            if let completion { self.stopCompletions.append(completion) }
+            if let completion {
+                self.stopCompletions.append(completion)
+            }
             listener.cancel()
         }
     }

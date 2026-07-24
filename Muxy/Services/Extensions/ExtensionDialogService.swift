@@ -95,8 +95,12 @@ enum ExtensionDialogService {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        if !request.title.isEmpty { panel.message = request.title }
-        if !request.message.isEmpty { panel.prompt = request.message }
+        if !request.title.isEmpty {
+            panel.message = request.title
+        }
+        if !request.message.isEmpty {
+            panel.prompt = request.message
+        }
         if let defaultPath = request.defaultPath {
             panel.directoryURL = URL(fileURLWithPath: defaultPath, isDirectory: true)
         }
@@ -183,8 +187,12 @@ enum ExtensionDialogService {
 
     static func keyEquivalents(for request: ConfirmRequest) -> [String] {
         request.buttons.enumerated().map { index, label in
-            if index == 0 { return "\r" }
-            if label == request.cancelButton { return "\u{1B}" }
+            if index == 0 {
+                return "\r"
+            }
+            if label == request.cancelButton {
+                return "\u{1B}"
+            }
             return ""
         }
     }

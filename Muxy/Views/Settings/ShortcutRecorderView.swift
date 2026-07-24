@@ -2,15 +2,17 @@ import AppKit
 import SwiftUI
 
 struct ShortcutRecorderView: NSViewRepresentable {
-    let onRecord: (KeyCombo) -> Void
+    let onRecord: (KeyCombo) -> Bool
     let onCancel: () -> Void
     var requiresModifier = true
+    var onRecordWithKeyCode: ((KeyCombo, UInt16) -> Bool)?
 
     func makeNSView(context: Context) -> ShortcutRecorderNSView {
         let view = ShortcutRecorderNSView()
         view.onRecord = onRecord
         view.onCancel = onCancel
         view.requiresModifier = requiresModifier
+        view.onRecordWithKeyCode = onRecordWithKeyCode
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return view
     }
@@ -19,11 +21,13 @@ struct ShortcutRecorderView: NSViewRepresentable {
         nsView.onRecord = onRecord
         nsView.onCancel = onCancel
         nsView.requiresModifier = requiresModifier
+        nsView.onRecordWithKeyCode = onRecordWithKeyCode
     }
 }
 
 final class ShortcutRecorderNSView: NSView {
-    var onRecord: ((KeyCombo) -> Void)?
+    var onRecord: ((KeyCombo) -> Bool)?
+    var onRecordWithKeyCode: ((KeyCombo, UInt16) -> Bool)?
     var onCancel: (() -> Void)?
     var requiresModifier = true
     private var completed = false
@@ -85,8 +89,12 @@ final class ShortcutRecorderNSView: NSView {
         let key = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
         guard !key.isEmpty else { return false }
 
-        completed = true
-        onRecord?(KeyCombo(key: key, modifiers: flags.rawValue))
+        let combo = KeyCombo(key: key, modifiers: flags.rawValue)
+        if let onRecordWithKeyCode {
+            completed = onRecordWithKeyCode(combo, event.keyCode)
+        } else {
+            completed = onRecord?(combo) ?? false
+        }
         return true
     }
 }

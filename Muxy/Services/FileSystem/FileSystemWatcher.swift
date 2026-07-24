@@ -30,7 +30,9 @@ final class FileSystemWatcher: @unchecked Sendable {
                     let isGitInternal = path.contains("/.git/")
                     let isLockFile = path.hasSuffix(".lock")
                     let isDirectory = flag & UInt32(kFSEventStreamEventFlagItemIsDir) != 0
-                    if isGitInternal, isLockFile || isDirectory { return nil }
+                    if isGitInternal, isLockFile || isDirectory {
+                        return nil
+                    }
                     return path
                 }
                 guard !relevant.isEmpty else { return }

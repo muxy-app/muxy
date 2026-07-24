@@ -323,7 +323,9 @@ extension MuxyAPI.Browser {
         let bounded = max(0, min(timeoutMs, maxWaitMilliseconds))
         let deadline = ContinuousClock.now + .milliseconds(bounded)
         while ContinuousClock.now < deadline {
-            if !state.isLoading { return .success(state.url?.absoluteString) }
+            if !state.isLoading {
+                return .success(state.url?.absoluteString)
+            }
             do { try await Task.sleep(for: .milliseconds(100)) } catch { break }
         }
         return .success(state.url?.absoluteString)
@@ -522,7 +524,9 @@ extension MuxyAPI.Browser {
 
     private static func allCookies(in store: WKHTTPCookieStore) async -> [HTTPCookie] {
         for _ in 0 ..< cookieFetchAttempts {
-            if let cookies = await allCookiesAttempt(in: store) { return cookies }
+            if let cookies = await allCookiesAttempt(in: store) {
+                return cookies
+            }
         }
         return await allCookiesAttempt(in: store) ?? []
     }
@@ -534,7 +538,9 @@ extension MuxyAPI.Browser {
         }
         let deadline = ContinuousClock.now + .milliseconds(cookieAttemptTimeoutMs)
         while ContinuousClock.now < deadline {
-            if let cookies = box.take() { return cookies }
+            if let cookies = box.take() {
+                return cookies
+            }
             do { try await Task.sleep(for: .milliseconds(20)) } catch { break }
         }
         return nil
@@ -712,7 +718,9 @@ extension MuxyAPI.Browser {
 
     private static func stringify(_ value: Any?) -> String {
         guard let value, !(value is NSNull) else { return "null" }
-        if let string = value as? String { return string }
+        if let string = value as? String {
+            return string
+        }
         if let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
            let json = String(data: data, encoding: .utf8)
         {
@@ -722,7 +730,9 @@ extension MuxyAPI.Browser {
     }
 
     private static func waitConditionExpression(_ condition: WaitCondition) -> String {
-        if let function = condition.function, !function.isEmpty { return "(\(function))" }
+        if let function = condition.function, !function.isEmpty {
+            return "(\(function))"
+        }
         if let selector = condition.selector, !selector.isEmpty {
             return "document.querySelector(\(jsString(selector)))"
         }
@@ -819,8 +829,12 @@ private extension BrowserCookieInfo {
             .domain: domain,
             .path: path.isEmpty ? "/" : path,
         ]
-        if secure { properties[.secure] = "TRUE" }
-        if let expires { properties[.expires] = Date(timeIntervalSince1970: expires) }
+        if secure {
+            properties[.secure] = "TRUE"
+        }
+        if let expires {
+            properties[.expires] = Date(timeIntervalSince1970: expires)
+        }
         return HTTPCookie(properties: properties)
     }
 }

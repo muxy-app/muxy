@@ -61,9 +61,15 @@ final class ChromeImporter: BrowserImporter, Sendable {
             .domain: row.host,
             .path: row.path.isEmpty ? "/" : row.path,
         ]
-        if row.isSecure { properties[.secure] = "TRUE" }
-        if row.isHTTPOnly { properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE" }
-        if let expiry = expiryDate(from: row.expiresUTC) { properties[.expires] = expiry }
+        if row.isSecure {
+            properties[.secure] = "TRUE"
+        }
+        if row.isHTTPOnly {
+            properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE"
+        }
+        if let expiry = expiryDate(from: row.expiresUTC) {
+            properties[.expires] = expiry
+        }
 
         return HTTPCookie(properties: properties)
     }

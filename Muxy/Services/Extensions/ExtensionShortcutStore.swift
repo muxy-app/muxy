@@ -39,11 +39,18 @@ final class ExtensionShortcutStore {
     private(set) var shortcuts: [ExtensionShortcut] = []
     private(set) var runtimeShortcuts: [ExtensionShortcut] = []
     private let persistence: any ExtensionShortcutPersisting
+    private let quickTerminalConflictMessage: (KeyCombo) -> String?
 
     private var allShortcuts: [ExtensionShortcut] { shortcuts + runtimeShortcuts }
 
-    init(persistence: any ExtensionShortcutPersisting = FileExtensionShortcutPersistence()) {
+    init(
+        persistence: any ExtensionShortcutPersisting = FileExtensionShortcutPersistence(),
+        quickTerminalConflictMessage: @escaping (KeyCombo) -> String? = {
+            QuickTerminalShortcutConflictResolver.quickTerminalConflictMessage(for: $0)
+        }
+    ) {
         self.persistence = persistence
+        self.quickTerminalConflictMessage = quickTerminalConflictMessage
         load()
     }
 
@@ -124,6 +131,9 @@ final class ExtensionShortcutStore {
 
     func conflictMessage(for combo: KeyCombo, extensionID: String, commandID: String) -> String? {
         guard combo.isAssigned else { return nil }
+        if let message = quickTerminalConflictMessage(combo) {
+            return message
+        }
         if let action = KeyBindingStore.shared.conflictingAction(for: combo, excluding: ShortcutAction?.none) {
             return "Conflicts with \"\(action.displayName)\""
         }
@@ -134,6 +144,18 @@ final class ExtensionShortcutStore {
             $0.combo == combo && !($0.extensionID == extensionID && $0.commandID == commandID)
         }
         return conflictsWithOther ? "Conflicts with another extension shortcut" : nil
+    }
+
+    func conflictingShortcut(
+        for combo: KeyCombo,
+        excludingExtensionID extensionID: String?,
+        commandID: String?
+    ) -> ExtensionShortcut? {
+        allShortcuts.first { shortcut in
+            guard shortcut.combo == combo else { return false }
+            guard let extensionID, let commandID else { return true }
+            return shortcut.extensionID != extensionID || shortcut.commandID != commandID
+        }
     }
 
     func syncBindings(for extensions: [MuxyExtension]) {
@@ -182,6 +204,9 @@ final class ExtensionShortcutStore {
 
     private func isComboFree(_ combo: KeyCombo, extensionID: String, commandID: String) -> Bool {
         guard combo.isAssigned else { return false }
+        guard quickTerminalConflictMessage(combo) == nil else {
+            return false
+        }
         guard KeyBindingStore.shared.conflictingAction(for: combo, excluding: ShortcutAction?.none) == nil else {
             return false
         }

@@ -60,6 +60,12 @@ struct ShellEscaperTests {
         #expect(ShellEscaper.escape("it's my file") == "'it'\\''s my file'")
     }
 
+    @Test("quote always wraps and escapes shell values")
+    func quoteAlwaysWrapsValues() {
+        #expect(ShellEscaper.quote("/tmp/hook.sh") == "'/tmp/hook.sh'")
+        #expect(ShellEscaper.quote("/tmp/Muxy's hook.sh") == "'/tmp/Muxy'\\''s hook.sh'")
+    }
+
     @Test("path with only alphanumerics and safe punctuation stays plain")
     func safePunctuation() {
         #expect(ShellEscaper.escape("/Users/a/b-c_d.1.txt") == "/Users/a/b-c_d.1.txt")
