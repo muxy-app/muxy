@@ -22,6 +22,7 @@ enum APIError: Error, Equatable {
     case browserDisabled
     case unsupportedKey(String)
     case worktreePathExists
+    case remoteContextUnavailable(String)
     case splitFailed
     case renameFailed
     case consentDenied(verb: String)
@@ -50,6 +51,7 @@ enum APIError: Error, Equatable {
         case .browserDisabled: "the built-in browser is disabled"
         case let .unsupportedKey(key): "unsupported key \(key)"
         case .worktreePathExists: "worktree path already exists"
+        case let .remoteContextUnavailable(project): "remote context unavailable for project \(project)"
         case .splitFailed: "split succeeded but could not determine new pane ID"
         case .renameFailed: "could not rename pane"
         case let .consentDenied(verb): "user denied consent for \(verb)"
@@ -985,6 +987,37 @@ enum MuxyAPI {
 
     @MainActor
     enum Worktrees {
+        static func resolveProjectContext(
+            projectIdentifier: String?,
+            appState: AppState,
+            projectStore: ProjectStore,
+            projectGroupStore: ProjectGroupStore?
+        ) -> Result<(project: Project, context: WorkspaceContext), APIError> {
+            let project = if let projectGroupStore {
+                projectGroupStore.resolveProject(
+                    identifier: projectIdentifier,
+                    localProjects: projectStore.projects,
+                    activeProjectID: appState.activeProjectID
+                )
+            } else {
+                resolveProject(projectIdentifier, appState: appState, projectStore: projectStore)
+            }
+            guard let project else {
+                return .failure(.projectNotFound(projectIdentifier ?? ""))
+            }
+            let context: WorkspaceContext? = if let projectGroupStore {
+                projectGroupStore.resolvedWorkspaceContext(for: project)
+            } else if project.isRemote {
+                nil
+            } else {
+                WorkspaceContext.local
+            }
+            guard let context else {
+                return .failure(.remoteContextUnavailable(project.name))
+            }
+            return .success((project, context))
+        }
+
         static func list(
             projectIdentifier: String?,
             appState: AppState,
@@ -1029,7 +1062,8 @@ enum MuxyAPI {
             _ request: CreateWorktreeRequest,
             appState: AppState,
             projectStore: ProjectStore,
-            worktreeStore: WorktreeStore
+            worktreeStore: WorktreeStore,
+            projectGroupStore: ProjectGroupStore? = nil
         ) async -> Result<CreatedWorktreeInfo, APIError> {
             let trimmedName = request.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedBranch = request.branch.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1039,16 +1073,22 @@ enum MuxyAPI {
             guard !trimmedName.isEmpty, !trimmedBranch.isEmpty else {
                 return .failure(.invalidArguments("name and branch are required"))
             }
-            guard let project = resolveProject(
-                request.projectIdentifier,
+            let resolved = resolveProjectContext(
+                projectIdentifier: request.projectIdentifier,
                 appState: appState,
-                projectStore: projectStore
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore
             )
-            else {
-                return .failure(.projectNotFound(request.projectIdentifier ?? ""))
+            let project: Project
+            let workspaceContext: WorkspaceContext
+            switch resolved {
+            case let .success(value):
+                project = value.project
+                workspaceContext = value.context
+            case let .failure(error):
+                return .failure(error)
             }
 
-            let workspaceContext = ActiveWorkspaceContext.shared.current
             let expandedPath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
             let path: String
             if trimmedPath.isEmpty {
@@ -1099,12 +1139,22 @@ enum MuxyAPI {
             worktreeStore: WorktreeStore,
             projectGroupStore: ProjectGroupStore? = nil
         ) async -> Result<RefreshWorktreesResult, APIError> {
-            guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
-                return .failure(.projectNotFound(projectIdentifier ?? ""))
+            let resolved = resolveProjectContext(
+                projectIdentifier: projectIdentifier,
+                appState: appState,
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore
+            )
+            let project: Project
+            let context: WorkspaceContext
+            switch resolved {
+            case let .success(value):
+                project = value.project
+                context = value.context
+            case let .failure(error):
+                return .failure(error)
             }
             do {
-                let context = projectGroupStore?.workspaceContext(for: project)
-                    ?? (project.isRemote ? ActiveWorkspaceContext.shared.current : .local)
                 let worktrees = try await worktreeStore.refreshFromGit(project: project, context: context)
                 return .success(RefreshWorktreesResult(count: worktrees.count))
             } catch {

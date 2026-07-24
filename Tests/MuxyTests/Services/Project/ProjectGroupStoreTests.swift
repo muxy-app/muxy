@@ -304,6 +304,7 @@ struct ProjectGroupStoreTests {
         let store = makeStore(persistence: ProjectGroupPersistenceStub(initial: []))
 
         #expect(store.workspaceContext(for: Project(name: "A", path: "/a")) == .local)
+        #expect(store.resolvedWorkspaceContext(for: Project(name: "A", path: "/a")) == .local)
     }
 
     @Test("workspaceContext resolves a remote project to its device's SSH context")
@@ -314,6 +315,7 @@ struct ProjectGroupStoreTests {
         let project = Project(name: "api", path: "~/code/api", remoteWorkspaceID: group.id)
 
         #expect(store.workspaceContext(for: project) == .ssh(device.destination))
+        #expect(store.resolvedWorkspaceContext(for: project) == .ssh(device.destination))
     }
 
     @Test("workspaceContext falls back to local when the device is missing")
@@ -323,6 +325,7 @@ struct ProjectGroupStoreTests {
         let project = Project(name: "api", path: "~/code/api", remoteWorkspaceID: group.id)
 
         #expect(store.workspaceContext(for: project) == .local)
+        #expect(store.resolvedWorkspaceContext(for: project) == nil)
     }
 
     @Test("workspaceContext falls back to local when the remote workspace is missing")
@@ -331,6 +334,7 @@ struct ProjectGroupStoreTests {
         let project = Project(name: "api", path: "~/code/api", remoteWorkspaceID: UUID())
 
         #expect(store.workspaceContext(for: project) == .local)
+        #expect(store.resolvedWorkspaceContext(for: project) == nil)
     }
 
     @Test("addRemoteWorkspace appends an SSH group referencing the device and persists")
