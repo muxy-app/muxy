@@ -24,6 +24,19 @@ Muxy's active Ghostty config is `~/Library/Application Support/Muxy/ghostty.conf
 
 Most Ghostty options work — fonts, colors, padding, keybinds, shell integration. Muxy applies the active light/dark variant automatically when the system appearance changes.
 
+### Chinese font rendering
+
+Muxy maps common Chinese Unicode ranges to one font so Ghostty does not mix fallback faces within the same text. It uses the first configured `font-family` that contains Chinese glyphs; otherwise it uses the macOS system fallback.
+
+Keep the Latin terminal font first and add the preferred Chinese font as a fallback:
+
+```ini
+font-family = JetBrains Mono
+font-family = PingFang SC
+```
+
+Reload the configuration with `⌘⇧R`, then open a new terminal. Ghostty applies codepoint-map changes only to new terminals. Explicit `font-codepoint-map` entries in `ghostty.conf` take priority over Muxy's automatic mapping for overlapping ranges.
+
 ## Find in terminal
 
 `⌘F` opens an inline search overlay scoped to the focused pane. Enter / Shift-Enter cycle through matches; Escape dismisses.
