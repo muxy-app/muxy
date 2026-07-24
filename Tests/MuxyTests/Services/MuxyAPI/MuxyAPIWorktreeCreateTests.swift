@@ -76,6 +76,70 @@ struct MuxyAPIWorktreeCreateTests {
         #expect(FileManager.default.fileExists(atPath: worktreePath))
     }
 
+    @Test("project context resolution includes group-backed remote projects")
+    func resolveProjectContextIncludesRemoteProjects() throws {
+        let deviceStore = RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence())
+        let device = deviceStore.add(
+            name: "Remote",
+            ssh: SSHWorkspaceData(host: "remote.example", remoteRoot: "~/code")
+        )
+        let remote = RemoteProject(name: "Repo", path: "~/code/repo")
+        let group = ProjectGroup(
+            name: "Remote",
+            type: .ssh,
+            remoteDeviceID: device.id,
+            remoteProjects: [remote]
+        )
+        let projectGroupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(initial: [group]),
+            remoteDeviceStore: deviceStore,
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let stores = makeStores(projectGroupStore: projectGroupStore)
+
+        let result = MuxyAPI.Worktrees.resolveProjectContext(
+            projectIdentifier: remote.id.uuidString,
+            appState: stores.appState,
+            projectStore: stores.projectStore,
+            projectGroupStore: stores.projectGroupStore
+        )
+
+        let resolved = try #require(try? result.get())
+        #expect(resolved.project.id == remote.id)
+        #expect(resolved.context == .ssh(device.destination))
+    }
+
+    @Test("create rejects a remote project whose device is unavailable before touching disk")
+    func createRejectsUnavailableRemoteContext() async {
+        let project = Project(
+            name: "Remote Repo",
+            path: "/remote/repo",
+            remoteDeviceID: UUID()
+        )
+        let stores = makeStores(project: project)
+        let worktreePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-unavailable-remote-\(UUID().uuidString)")
+            .path
+
+        let result = await MuxyAPI.Worktrees.create(
+            CreateWorktreeRequest(
+                name: "feature",
+                branch: "feature",
+                projectIdentifier: project.id.uuidString,
+                requestedPath: worktreePath,
+                createBranch: true,
+                baseBranch: "main"
+            ),
+            appState: stores.appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore,
+            projectGroupStore: stores.projectGroupStore
+        )
+
+        #expect(result == .failure(.remoteContextUnavailable(project.name)))
+        #expect(!FileManager.default.fileExists(atPath: worktreePath))
+    }
+
     private struct Stores {
         let appState: AppState
         let projectStore: ProjectStore
@@ -83,19 +147,24 @@ struct MuxyAPIWorktreeCreateTests {
         let projectGroupStore: ProjectGroupStore
     }
 
-    private func makeStores(project: Project) -> Stores {
+    private func makeStores(
+        project: Project? = nil,
+        projectGroupStore: ProjectGroupStore? = nil
+    ) -> Stores {
         let projectStore = ProjectStore(persistence: ProjectPersistenceMemoryStub())
-        projectStore.add(project)
+        if let project {
+            projectStore.add(project)
+        }
         let worktreeStore = WorktreeStore(
             persistence: WorktreePersistenceMemoryStub(),
-            projects: [project]
+            projects: project.map { [$0] } ?? []
         )
         let appState = AppState(
             selectionStore: SelectionStoreMemoryStub(),
             terminalViews: TerminalViewRemovingMemoryStub(),
             workspacePersistence: WorkspacePersistenceMemoryStub()
         )
-        let projectGroupStore = ProjectGroupStore(
+        let resolvedProjectGroupStore = projectGroupStore ?? ProjectGroupStore(
             persistence: ProjectGroupPersistenceStub(),
             remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
             workspaceContextSink: InMemoryWorkspaceContextSink()
@@ -104,7 +173,7 @@ struct MuxyAPIWorktreeCreateTests {
             appState: appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
-            projectGroupStore: projectGroupStore
+            projectGroupStore: resolvedProjectGroupStore
         )
     }
 }
