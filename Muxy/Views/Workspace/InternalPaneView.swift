@@ -1,15 +1,34 @@
 import AppKit
 import SwiftUI
 
+enum InternalPanePresentation {
+    static func isFocused(paneID: UUID, focusedPaneID: UUID?, parentFocused: Bool) -> Bool {
+        parentFocused && focusedPaneID == paneID
+    }
+
+    static func isVisible(parentVisible: Bool) -> Bool {
+        parentVisible
+    }
+
+    static func processExitHandler(
+        paneID: UUID,
+        onProcessExit: @escaping (UUID) -> Void
+    ) -> () -> Void {
+        { onProcessExit(paneID) }
+    }
+}
+
 struct InternalPaneView: View {
     let node: InternalPaneNode
     let focusedPaneID: UUID?
+    let focused: Bool
+    let visible: Bool
     let areaID: UUID
     let projectID: UUID
     let topLevelGroupID: UUID
     let onFocus: () -> Void
     let onPaneFocus: (UUID) -> Void
-    let onProcessExit: () -> Void
+    let onProcessExit: (UUID) -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
 
     var body: some View {
@@ -17,14 +36,21 @@ struct InternalPaneView: View {
         case let .pane(pane):
             TerminalPane(
                 state: pane,
-                focused: focusedPaneID == pane.id,
-                visible: true,
+                focused: InternalPanePresentation.isFocused(
+                    paneID: pane.id,
+                    focusedPaneID: focusedPaneID,
+                    parentFocused: focused
+                ),
+                visible: InternalPanePresentation.isVisible(parentVisible: visible),
                 areaID: areaID,
                 topLevelGroupID: topLevelGroupID,
                 onFocus: { onPaneFocus(pane.id)
                     onFocus()
                 },
-                onProcessExit: onProcessExit,
+                onProcessExit: InternalPanePresentation.processExitHandler(
+                    paneID: pane.id,
+                    onProcessExit: onProcessExit
+                ),
                 onSplitRequest: onSplitRequest
             )
             .id(pane.id)
@@ -32,6 +58,8 @@ struct InternalPaneView: View {
             InternalSplitContainer(
                 branch: branch,
                 focusedPaneID: focusedPaneID,
+                focused: focused,
+                visible: visible,
                 areaID: areaID,
                 projectID: projectID,
                 topLevelGroupID: topLevelGroupID,
@@ -47,12 +75,14 @@ struct InternalPaneView: View {
 private struct InternalSplitContainer: View {
     let branch: InternalBranch
     let focusedPaneID: UUID?
+    let focused: Bool
+    let visible: Bool
     let areaID: UUID
     let projectID: UUID
     let topLevelGroupID: UUID
     let onFocus: () -> Void
     let onPaneFocus: (UUID) -> Void
-    let onProcessExit: () -> Void
+    let onProcessExit: (UUID) -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
 
     var body: some View {
@@ -69,6 +99,8 @@ private struct InternalSplitContainer: View {
                 InternalPaneView(
                     node: branch.first,
                     focusedPaneID: focusedPaneID,
+                    focused: focused,
+                    visible: visible,
                     areaID: areaID,
                     projectID: projectID,
                     topLevelGroupID: topLevelGroupID,
@@ -104,6 +136,8 @@ private struct InternalSplitContainer: View {
                 InternalPaneView(
                     node: branch.second,
                     focusedPaneID: focusedPaneID,
+                    focused: focused,
+                    visible: visible,
                     areaID: areaID,
                     projectID: projectID,
                     topLevelGroupID: topLevelGroupID,

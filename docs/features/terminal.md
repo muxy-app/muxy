@@ -69,6 +69,8 @@ Splitting creates a child pane inside the current top-level tab. Each pane keeps
 
 Dragging a top-level tab toward an edge docks the whole tab beside another top-level tab. Its child-pane layout moves with it and remains independent from the neighboring tab's child panes.
 
+Inner terminal panes follow the parent area's visibility and keyboard focus. If a pane's startup process exits, only that pane closes; collapsing the final split keeps the surviving terminal session active.
+
 ## Notifications from the terminal
 
 OSC 9 and OSC 777 notification escape sequences are routed into Muxy's notification panel and (optionally) macOS notifications.

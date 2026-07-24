@@ -155,7 +155,7 @@ enum SplitReducer {
     ) -> Bool {
         guard let root = state.workspaceRoots[key] else { return false }
         if let area = root.findArea(id: areaID) {
-            effects.paneIDsToRemove.append(contentsOf: area.tabs.compactMap { $0.content.pane?.id })
+            effects.paneIDsToRemove.append(contentsOf: area.tabs.flatMap(\.terminalPanes).map(\.id))
         }
         guard let newRoot = root.removing(areaID: areaID) else { return false }
         state.workspaceRoots[key] = newRoot

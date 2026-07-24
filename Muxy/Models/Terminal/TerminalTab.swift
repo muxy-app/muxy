@@ -67,6 +67,14 @@ final class TerminalTab: Identifiable {
         return focusedPane
     }
 
+    var terminalPanes: [TerminalPaneState] {
+        internalPanes?.allPanes() ?? content.pane.map { [$0] } ?? []
+    }
+
+    func containsTerminalPane(id: UUID) -> Bool {
+        terminalPanes.contains { $0.id == id }
+    }
+
     var title: String {
         if let customTitle {
             return customTitle

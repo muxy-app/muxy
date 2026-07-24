@@ -178,4 +178,35 @@ struct TabPaneReducerTests {
         #expect(tab?.internalPanes == nil)
         #expect(tab?.focusedPaneID == nil)
     }
+
+    @Test("closing the original pane preserves the surviving session")
+    func closingOriginalPanePreservesSurvivingSession() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = state.workspaceRoots[key]!.allAreas().first!
+        let tabID = area.activeTabID!
+        let originalPaneID = area.activeTab!.content.pane!.id
+        let survivingPaneID = TabPaneReducer.splitTabPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            direction: .horizontal,
+            state: &state
+        )!
+
+        _ = TabPaneReducer.closeInternalPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tabID,
+            paneID: originalPaneID,
+            state: &state
+        )
+
+        let tab = area.tabs.first { $0.id == tabID }!
+        #expect(tab.internalPanes?.allPanes().map(\.id) == [survivingPaneID])
+        #expect(tab.focusedPaneID == survivingPaneID)
+        #expect(tab.displayPane?.id == survivingPaneID)
+    }
 }

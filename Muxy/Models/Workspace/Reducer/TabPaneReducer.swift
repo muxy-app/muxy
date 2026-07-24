@@ -67,8 +67,14 @@ enum TabPaneReducer {
         if let remaining = internalPanes.removing(paneID: paneID) {
             let remainingPanes = remaining.allPanes()
             if remainingPanes.count == 1 {
-                tab.internalPanes = nil
-                tab.focusedPaneID = nil
+                let survivingPane = remainingPanes[0]
+                if survivingPane.id == tab.content.pane?.id {
+                    tab.internalPanes = nil
+                    tab.focusedPaneID = nil
+                } else {
+                    tab.internalPanes = .pane(survivingPane)
+                    tab.focusedPaneID = survivingPane.id
+                }
             } else {
                 tab.internalPanes = remaining
                 if tab.focusedPaneID == paneID {

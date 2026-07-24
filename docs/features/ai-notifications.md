@@ -13,6 +13,8 @@ When detection reports that a working agent is no longer active, Muxy waits a sh
 
 A `waiting` pane is handled more conservatively, because a waiting agent still has a live process and must never be idled just for leaving the foreground. It uses a much longer window (30 seconds), and Muxy records the detected process ID before detection is lost. At the end of each window, Muxy idles the pane only if that process is gone; a live process schedules another low-frequency check. This recovers panes whose agent was killed before its `Stop` hook could run, without cutting short an agent that is genuinely waiting on input.
 
+The Tab Focused sidebar aggregates every terminal pane in a tab group, including inner split panes. A working agent shows the tab spinner, while an agent waiting for input shows the attention dot; expanded inner panes also show their own status.
+
 ## Protocol (v3)
 
 Hooks talk to Muxy over a Unix domain socket at `~/Library/Application Support/Muxy/muxy.sock` (`muxy-dev.sock` for debug builds). The wire format is a single newline-delimited JSON object per event, acknowledged by the server:

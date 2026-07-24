@@ -55,7 +55,7 @@ struct AppStateFocusInternalPaneTests {
 struct AppStateCloseInternalPaneTests {
     private let testPath = "/tmp/test"
 
-    @Test("closeInternalPane removes pane and clears splits when two panes remain")
+    @Test("closeInternalPane preserves the surviving pane when closing the original")
     func closeInternalPaneRemovesPane() {
         let projectID = UUID()
         let worktreeID = UUID()
@@ -78,14 +78,15 @@ struct AppStateCloseInternalPaneTests {
 
         let tab = area.tabs.first { $0.id == tabID }
         let paneID = tab?.internalPanes?.allPanes().first?.id
+        let survivingPaneID = tab!.internalPanes!.allPanes().last!.id
 
         appState.closeInternalPane(
             projectID: projectID, areaID: area.id, tabID: tabID, paneID: paneID!
         )
 
         let updatedTab = area.tabs.first { $0.id == tabID }
-        #expect(updatedTab?.internalPanes == nil)
-        #expect(updatedTab?.focusedPaneID == nil)
+        #expect(updatedTab?.internalPanes?.allPanes().map(\.id) == [survivingPaneID])
+        #expect(updatedTab?.focusedPaneID == survivingPaneID)
     }
 
     @Test("closeInternalPane no-op when target missing")

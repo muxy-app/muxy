@@ -405,7 +405,7 @@ enum WorkspaceReducer {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return }
         guard let built = LayoutWorkspaceBuilder.build(config: config, projectPath: worktreePath) else { return }
         if let existingRoot = state.workspaceRoots[key] {
-            let paneIDs = existingRoot.allAreas().flatMap { area in area.tabs.compactMap { $0.content.pane?.id } }
+            let paneIDs = existingRoot.allAreas().flatMap { area in area.tabs.flatMap(\.terminalPanes).map(\.id) }
             effects.paneIDsToRemove.append(contentsOf: paneIDs)
         }
         state.workspaceRoots[key] = built.root

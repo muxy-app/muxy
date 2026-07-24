@@ -29,6 +29,17 @@ struct TerminalTabInternalPanesTests {
         #expect(tab.focusedPaneID == p1.id)
     }
 
+    @Test("promoted internal pane remains a current terminal presentation")
+    func promotedInternalPaneRemainsCurrentPresentation() {
+        let originalPane = TerminalPaneState(projectPath: testPath)
+        let survivingPane = TerminalPaneState(projectPath: testPath)
+        let tab = TerminalTab(pane: originalPane)
+        tab.internalPanes = .pane(survivingPane)
+
+        #expect(tab.containsTerminalPane(id: survivingPane.id))
+        #expect(!tab.containsTerminalPane(id: originalPane.id))
+    }
+
     @Test("setting internalPanes to nil restores single pane behavior")
     func clearingInternalPanes() {
         let tab = TerminalTab(pane: TerminalPaneState(projectPath: testPath))

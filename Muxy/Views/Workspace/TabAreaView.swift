@@ -1,5 +1,14 @@
 import SwiftUI
 
+enum InternalPaneProcessExitAction: Equatable {
+    case closePane(UUID)
+    case closeTab
+
+    static func resolve(paneID: UUID, internalPaneCount: Int) -> Self {
+        internalPaneCount > 1 ? .closePane(paneID) : .closeTab
+    }
+}
+
 struct TabAreaView: View {
     let area: TabArea
     let tab: TerminalTab
@@ -162,6 +171,7 @@ private struct TabContentView: View {
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         switch tab.content {
@@ -170,12 +180,29 @@ private struct TabContentView: View {
                 InternalPaneView(
                     node: internalPanes,
                     focusedPaneID: tab.focusedPaneID,
+                    focused: focused,
+                    visible: visible,
                     areaID: areaID,
                     projectID: projectID,
                     topLevelGroupID: topLevelGroupID,
                     onFocus: onFocus,
                     onPaneFocus: { tab.focusedPaneID = $0 },
-                    onProcessExit: onProcessExit,
+                    onProcessExit: { paneID in
+                        switch InternalPaneProcessExitAction.resolve(
+                            paneID: paneID,
+                            internalPaneCount: tab.internalPanes?.allPanes().count ?? 0
+                        ) {
+                        case let .closePane(paneID):
+                            appState.dispatch(.closeInternalPane(
+                                projectID: projectID,
+                                areaID: areaID,
+                                tabID: tab.id,
+                                paneID: paneID
+                            ))
+                        case .closeTab:
+                            onProcessExit()
+                        }
+                    },
                     onSplitRequest: onSplitRequest
                 )
             } else {

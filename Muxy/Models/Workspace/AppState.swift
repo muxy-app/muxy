@@ -753,9 +753,8 @@ final class AppState {
         } else {
             [tab]
         }
-        return tabs.flatMap { relatedTab in
-            relatedTab.internalPanes?.allPanes() ?? relatedTab.content.pane.map { [$0] } ?? []
-        }.contains { terminalViews.needsConfirmQuit(for: $0.id) }
+        return tabs.flatMap(\.terminalPanes)
+            .contains { terminalViews.needsConfirmQuit(for: $0.id) }
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {

@@ -252,9 +252,9 @@ enum TabReducer {
             return
         }
 
-        if let paneID = area.closeTab(tabID) {
-            effects.paneIDsToRemove.append(paneID)
-        }
+        let paneIDs = tab.terminalPanes.map(\.id)
+        _ = area.closeTab(tabID)
+        effects.paneIDsToRemove.append(contentsOf: paneIDs)
 
         guard area.tabs.isEmpty else { return }
         SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
@@ -323,9 +323,7 @@ enum TabReducer {
         for affectedArea in affectedAreas {
             let ownedTabs = affectedArea.tabs.filter { ownedIDs.contains($0.id) }
             for ownedTab in ownedTabs {
-                if let paneID = ownedTab.content.pane?.id {
-                    effects.paneIDsToRemove.append(paneID)
-                }
+                effects.paneIDsToRemove.append(contentsOf: ownedTab.terminalPanes.map(\.id))
                 _ = affectedArea.extractTabForMove(ownedTab.id)
             }
         }

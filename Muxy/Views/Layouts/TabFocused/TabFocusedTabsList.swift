@@ -189,6 +189,21 @@ private struct TabFocusedRowFramePreferenceKey: PreferenceKey {
     }
 }
 
+@MainActor
+enum TabFocusedTabStatusSummary {
+    static func paneIDs(in tabs: [TerminalTab]) -> [UUID] {
+        tabs.flatMap(\.terminalPanes).map(\.id)
+    }
+
+    static func agentStatus(
+        in tabs: [TerminalTab],
+        statusForPane: (UUID) -> AgentStatus?
+    ) -> AgentStatus? {
+        let statuses = paneIDs(in: tabs).compactMap(statusForPane)
+        return statuses.contains(.waiting) ? .waiting : statuses.first
+    }
+}
+
 private struct TabFocusedTabRow: View {
     let project: Project
     let area: TabArea
@@ -215,8 +230,12 @@ private struct TabFocusedTabRow: View {
 
     @State private var notificationStore = NotificationStore.shared
 
+    private var paneIDs: [UUID] {
+        TabFocusedTabStatusSummary.paneIDs(in: relatedTabs)
+    }
+
     private var paneProgress: TerminalProgress? {
-        relatedTabs.compactMap { $0.content.pane?.id }
+        paneIDs
             .compactMap { progressStore.progress(for: $0) }
             .first
     }
@@ -226,7 +245,7 @@ private struct TabFocusedTabRow: View {
     }
 
     private var hasCompletionPending: Bool {
-        relatedTabs.compactMap { $0.content.pane?.id }.contains {
+        paneIDs.contains {
             progressStore.isCompletionPending(for: $0)
                 || AgentStatusStore.shared.isCompletionPending(forPane: $0)
         }
@@ -237,15 +256,14 @@ private struct TabFocusedTabRow: View {
     }
 
     private var isIdle: Bool {
-        let panes = relatedTabs.compactMap(\.content.pane)
+        let panes = relatedTabs.flatMap(\.terminalPanes)
         return !panes.isEmpty && panes.allSatisfy(\.isOffline)
     }
 
     private var agentStatus: AgentStatus? {
-        let statuses = relatedTabs.compactMap { tab in
-            AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
+        TabFocusedTabStatusSummary.agentStatus(in: relatedTabs) {
+            AgentStatusStore.shared.status(forPane: $0)
         }
-        return statuses.contains(.waiting) ? .waiting : statuses.first
     }
 
     private var statusDotColor: Color? {
@@ -612,7 +630,7 @@ private struct TabFocusedTabRow: View {
             completionFlashOn = true
         }
         if active {
-            for paneID in relatedTabs.compactMap({ $0.content.pane?.id }) {
+            for paneID in paneIDs {
                 progressStore.clearCompletion(for: paneID)
                 AgentStatusStore.shared.clearCompletion(for: paneID)
             }

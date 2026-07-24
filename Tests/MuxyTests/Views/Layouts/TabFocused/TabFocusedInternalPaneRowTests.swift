@@ -20,4 +20,57 @@ struct TabFocusedInternalPaneRowTests {
         #expect(TabFocusedInternalPaneIcon(agentIconName: "claude") == .provider("claude"))
         #expect(TabFocusedInternalPaneIcon(agentIconName: nil) == .terminal)
     }
+
+    @Test("tab status summary includes every internal pane")
+    @MainActor
+    func statusSummaryIncludesInternalPanes() {
+        let rootPane = TerminalPaneState(projectPath: "/tmp")
+        let firstPane = TerminalPaneState(projectPath: "/tmp")
+        let secondPane = TerminalPaneState(projectPath: "/tmp")
+        let tab = TerminalTab(pane: rootPane)
+        tab.internalPanes = .split(InternalBranch(
+            direction: .horizontal,
+            first: .pane(firstPane),
+            second: .pane(secondPane)
+        ))
+
+        #expect(Set(TabFocusedTabStatusSummary.paneIDs(in: [tab])) == [firstPane.id, secondPane.id])
+    }
+
+    @Test("waiting internal pane drives parent tab status")
+    @MainActor
+    func waitingInternalPaneDrivesParentStatus() {
+        let rootPane = TerminalPaneState(projectPath: "/tmp")
+        let firstPane = TerminalPaneState(projectPath: "/tmp")
+        let secondPane = TerminalPaneState(projectPath: "/tmp")
+        let tab = TerminalTab(pane: rootPane)
+        tab.internalPanes = .split(InternalBranch(
+            direction: .horizontal,
+            first: .pane(firstPane),
+            second: .pane(secondPane)
+        ))
+
+        let status = TabFocusedTabStatusSummary.agentStatus(in: [tab]) {
+            $0 == secondPane.id ? .waiting : nil
+        }
+
+        #expect(status == .waiting)
+    }
+
+    @Test("working internal pane drives parent tab spinner")
+    @MainActor
+    func workingInternalPaneDrivesParentSpinner() {
+        let rootPane = TerminalPaneState(projectPath: "/tmp")
+        let innerPane = TerminalPaneState(projectPath: "/tmp")
+        let tab = TerminalTab(pane: rootPane)
+        tab.internalPanes = .pane(innerPane)
+
+        let status = TabFocusedTabStatusSummary.agentStatus(in: [tab]) {
+            $0 == innerPane.id ? .working : nil
+        }
+        let indicator = TerminalProgress.tabIndicator(progress: nil, agentStatus: status)
+
+        #expect(status == .working)
+        #expect(indicator?.kind == .indeterminate)
+    }
 }

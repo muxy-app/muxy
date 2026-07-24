@@ -60,9 +60,7 @@ struct PaneTabStrip: View {
     ) -> [TabSnapshot] {
         tabs.map { tab in
             let relatedTabs = [tab] + (allTabs ?? []).filter { $0.parentTabID == tab.id }
-            let panes = relatedTabs.flatMap {
-                $0.internalPanes?.allPanes() ?? $0.content.pane.map { [$0] } ?? []
-            }
+            let panes = relatedTabs.flatMap(\.terminalPanes)
             let paneIDs = panes.map(\.id)
             let agentStatuses = paneIDs.compactMap { AgentStatusStore.shared.status(forPane: $0) }
             let agentStatus = agentStatuses.contains(.waiting)
