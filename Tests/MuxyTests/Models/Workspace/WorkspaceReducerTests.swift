@@ -259,8 +259,8 @@ struct WorkspaceReducerTests {
 
         #expect(!state.workspaceRoots[key]!.containsArea(id: firstAreaID))
         #expect(!effects.paneIDsToRemove.isEmpty)
-    }  
-      
+    }
+
     @Test("workspace-local actions reconcile only their worktree")
     func workspaceLocalActionReconcilesOnlyItsWorktree() {
         let projectID = UUID()
