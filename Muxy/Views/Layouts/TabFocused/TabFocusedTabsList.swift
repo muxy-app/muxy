@@ -562,19 +562,19 @@ private struct TabFocusedTabRow: View {
 
     private func closeOthers() {
         let ids = area.tabs.filter { $0.id != tab.id && !$0.isPinned }.map(\.id)
-        appState.closeTabs(ids, areaID: area.id, projectID: projectID)
+        appState.closeTabs(ids, areaID: area.id, key: tabKey)
     }
 
     private func closeLeft() {
         guard let currentIndex else { return }
         let ids = area.tabs.prefix(currentIndex).filter { !$0.isPinned }.map(\.id)
-        appState.closeTabs(ids, areaID: area.id, projectID: projectID)
+        appState.closeTabs(ids, areaID: area.id, key: tabKey)
     }
 
     private func closeRight() {
         guard let currentIndex else { return }
         let ids = area.tabs.suffix(from: currentIndex + 1).filter { !$0.isPinned }.map(\.id)
-        appState.closeTabs(ids, areaID: area.id, projectID: projectID)
+        appState.closeTabs(ids, areaID: area.id, key: tabKey)
     }
 
     private func startRename() {

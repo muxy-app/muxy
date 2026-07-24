@@ -98,6 +98,55 @@ struct WorkspaceSelectionServiceTests {
         #expect(expansionStore.focusMode == true)
     }
 
+    @Test("focus mode stays on for the visible local home project")
+    func focusModeStaysOnForVisibleLocalHomeProject() {
+        let previousVisibility = HomeProjectPreferences.isVisible
+        HomeProjectPreferences.isVisible = true
+        defer { HomeProjectPreferences.isVisible = previousVisibility }
+        let (appState, projectStore, worktreeStore, projectGroupStore, _) = makeStores()
+        projectStore.add(Project(name: "project", path: "/tmp/project"))
+        appState.activeProjectID = Project.homeID
+        let (expansionStore, layoutStore) = resetFocusModeAndLayout()
+        defer { expansionStore.focusMode = false; layoutStore.set(.projectFocused) }
+        expansionStore.focusMode = true
+        layoutStore.set(.tabFocused)
+
+        WorkspaceSelectionService.selectFirstProject(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+
+        #expect(expansionStore.focusMode == true)
+    }
+
+    @Test("focus mode stays on for the visible remote home project")
+    func focusModeStaysOnForVisibleRemoteHomeProject() {
+        let previousVisibility = HomeProjectPreferences.isVisible
+        HomeProjectPreferences.isVisible = true
+        defer { HomeProjectPreferences.isVisible = previousVisibility }
+        let (appState, projectStore, worktreeStore, projectGroupStore, deviceStore) = makeStores()
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~"))
+        let group = projectGroupStore.addRemoteWorkspace(name: "prod", deviceID: device.id)
+        projectGroupStore.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+        projectGroupStore.selectGroup(id: group.id)
+        appState.activeProjectID = projectGroupStore.activeRemoteHomeProject?.id
+        let (expansionStore, layoutStore) = resetFocusModeAndLayout()
+        defer { expansionStore.focusMode = false; layoutStore.set(.projectFocused) }
+        expansionStore.focusMode = true
+        layoutStore.set(.tabFocused)
+
+        WorkspaceSelectionService.selectFirstProject(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+
+        #expect(expansionStore.focusMode == true)
+    }
+
     @Test("focus mode turns off when active project is not in workspace")
     func focusModeTurnsOffWhenActiveProjectIsNotInWorkspace() {
         let previousVisibility = HomeProjectPreferences.isVisible
