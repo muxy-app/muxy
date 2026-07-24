@@ -89,14 +89,22 @@ struct ProjectPickerSession {
     }
 
     var actionTitle: String {
-        if isExistingProject { return "Open" }
-        if inputMode == .folderSearch { return "Add" }
+        if isExistingProject {
+            return "Open"
+        }
+        if inputMode == .folderSearch {
+            return "Add"
+        }
         return typedPathState == .missing ? "Create & Add" : "Add"
     }
 
     var topRightActionTitle: String {
-        if isExistingProject { return "Open Project" }
-        if inputMode == .folderSearch { return "Add Project" }
+        if isExistingProject {
+            return "Open Project"
+        }
+        if inputMode == .folderSearch {
+            return "Add Project"
+        }
         return typedPathState == .missing ? "Create & Add Project" : "Add Project"
     }
 
@@ -305,12 +313,16 @@ enum ProjectPickerDirectoryLoadState: Equatable {
     case failed
 
     var isLoading: Bool {
-        if case .loading = self { return true }
+        if case .loading = self {
+            return true
+        }
         return false
     }
 
     var showsMessage: Bool {
-        if case let .loading(showsMessage) = self { return showsMessage }
+        if case let .loading(showsMessage) = self {
+            return showsMessage
+        }
         return false
     }
 

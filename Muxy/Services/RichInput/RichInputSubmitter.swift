@@ -44,7 +44,13 @@ enum RichInputSubmitter {
 
         let views = paneIDs.compactMap { TerminalViewRegistry.shared.existingView(for: $0) }
         guard !views.isEmpty else { return }
-        let hasImageSegment = segments.contains { if case .image = $0 { true } else { false } }
+        let hasImageSegment = segments.contains {
+            if case .image = $0 {
+                true
+            } else {
+                false
+            }
+        }
         let focusTarget = views.count == 1 ? views.first : nil
 
         if !hasImageSegment {
@@ -161,14 +167,18 @@ enum RichInputSubmitter {
             else { continue }
             if match.range.location > cursor {
                 let chunk = ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
-                if !chunk.isEmpty { segments.append(.text(chunk)) }
+                if !chunk.isEmpty {
+                    segments.append(.text(chunk))
+                }
             }
             segments.append(.image(images[imageIndex - 1]))
             cursor = match.range.location + match.range.length
         }
         if cursor < length {
             let tail = ns.substring(with: NSRange(location: cursor, length: length - cursor))
-            if !tail.isEmpty { segments.append(.text(tail)) }
+            if !tail.isEmpty {
+                segments.append(.text(tail))
+            }
         }
         return segments
     }

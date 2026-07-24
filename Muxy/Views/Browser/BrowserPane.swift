@@ -4,6 +4,7 @@ import SwiftUI
 struct BrowserPane: View {
     let state: BrowserTabState
     let focused: Bool
+    let topLevelGroupID: UUID
     let onFocus: () -> Void
 
     @Environment(AppState.self) private var appState
@@ -40,7 +41,8 @@ struct BrowserPane: View {
                     ),
                     overlayActive: overlayActive,
                     appState: appState,
-                    historyStore: historyStore
+                    historyStore: historyStore,
+                    topLevelGroupID: topLevelGroupID
                 )
                 .id(state.profileID)
                 .contentShape(Rectangle())

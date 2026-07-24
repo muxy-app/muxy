@@ -31,7 +31,9 @@ enum DotEnvLoader {
                 return candidate
             }
             let parent = directory.deletingLastPathComponent()
-            if parent.path == directory.path { break }
+            if parent.path == directory.path {
+                break
+            }
             directory = parent
         }
         return nil

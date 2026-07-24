@@ -375,27 +375,43 @@ struct GitRepositoryService {
                 argument: String(number),
                 jsonFields: Self.prInfoJSONFields
             )
-            if case let .found(info) = configuredResult { return .found(info) }
+            if case let .found(info) = configuredResult {
+                return .found(info)
+            }
         }
 
         let viewResult = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: Self.prInfoJSONFields)
-        if case let .found(info) = viewResult { return .found(info) }
+        if case let .found(info) = viewResult {
+            return .found(info)
+        }
 
         let viewByBranch = await ghPRView(
             ghPath: ghPath, repoPath: repoPath, argument: branch, jsonFields: Self.prInfoJSONFields
         )
-        if case let .found(info) = viewByBranch { return .found(info) }
+        if case let .found(info) = viewByBranch {
+            return .found(info)
+        }
 
-        let resolvedSha: String? = if let headSha { headSha } else { await self.headSha(repoPath: repoPath) }
+        let resolvedSha: String? = if let headSha {
+            headSha
+        } else {
+            await self.headSha(repoPath: repoPath)
+        }
         if let resolvedSha {
             let byShaResult = await pullRequestInfoByHeadSha(
                 ghPath: ghPath, repoPath: repoPath, branch: branch, headSha: resolvedSha
             )
-            if case let .found(info) = byShaResult { return .found(info) }
-            if byShaResult == .failed { return .failed }
+            if case let .found(info) = byShaResult {
+                return .found(info)
+            }
+            if byShaResult == .failed {
+                return .failed
+            }
         }
 
-        if viewResult == .failed || viewByBranch == .failed { return .failed }
+        if viewResult == .failed || viewByBranch == .failed {
+            return .failed
+        }
         return .noPR
     }
 
@@ -837,7 +853,9 @@ struct GitRepositoryService {
     static func webURL(fromRemoteURL raw: String) -> URL? {
         guard !raw.isEmpty else { return nil }
         var value = raw
-        if value.hasSuffix(".git") { value = String(value.dropLast(4)) }
+        if value.hasSuffix(".git") {
+            value = String(value.dropLast(4))
+        }
 
         if value.hasPrefix("http://") || value.hasPrefix("https://") {
             return URL(string: value)
@@ -871,7 +889,9 @@ struct GitRepositoryService {
             if value.hasPrefix("origin/") {
                 return String(value.dropFirst("origin/".count))
             }
-            if !value.isEmpty { return value }
+            if !value.isEmpty {
+                return value
+            }
         }
 
         if let ghPath = ghExecutable {
@@ -882,7 +902,9 @@ struct GitRepositoryService {
             )
             if let result, result.status == 0 {
                 let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { return trimmed }
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
             }
         }
 
@@ -1460,7 +1482,9 @@ struct GitRepositoryService {
         let result = try await SSHCommandRunner.run(destination: destination, remoteCommand: remoteCommand)
         guard result.status == 0 else { return nil }
         var lines = result.stdout.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
-        if let last = lines.last, last.isEmpty { lines.removeLast() }
+        if let last = lines.last, last.isEmpty {
+            lines.removeLast()
+        }
         guard let lineLimit, lines.count > lineLimit else { return (lines, false) }
         return (Array(lines.prefix(lineLimit)), true)
     }

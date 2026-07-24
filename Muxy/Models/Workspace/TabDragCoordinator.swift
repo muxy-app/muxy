@@ -26,6 +26,11 @@ enum DropZone: Equatable {
 @MainActor
 @Observable
 final class TabDragCoordinator {
+    enum DragSource: Equatable {
+        case pane(areaID: UUID)
+        case topLevel(groupID: UUID)
+    }
+
     private struct HoverMatch {
         let areaID: UUID
         let frame: CGRect
@@ -34,14 +39,23 @@ final class TabDragCoordinator {
 
     struct DragInfo: Equatable {
         let tabID: UUID
-        let sourceAreaID: UUID
+        let source: DragSource
         let projectID: UUID
+
+        var isTopLevel: Bool {
+            if case .topLevel = source {
+                return true
+            }
+            return false
+        }
     }
 
     var activeDrag: DragInfo?
     @ObservationIgnored var globalPosition: CGPoint = .zero
     @ObservationIgnored var areaFramesByProject: [UUID: [UUID: CGRect]] = [:]
+    @ObservationIgnored var groupFramesByProject: [UUID: [UUID: CGRect]] = [:]
     private(set) var hoveredAreaID: UUID?
+    private(set) var hoveredGroupID: UUID?
     private(set) var hoveredZone: DropZone?
 
     func setAreaFrames(_ frames: [UUID: CGRect], forProject projectID: UUID) {
@@ -50,8 +64,22 @@ final class TabDragCoordinator {
         computeHover()
     }
 
+    func setGroupFrames(_ frames: [UUID: CGRect], forProject projectID: UUID) {
+        guard groupFramesByProject[projectID] != frames else { return }
+        groupFramesByProject[projectID] = frames
+        computeHover()
+    }
+
     func beginDrag(tabID: UUID, sourceAreaID: UUID, projectID: UUID) {
-        activeDrag = DragInfo(tabID: tabID, sourceAreaID: sourceAreaID, projectID: projectID)
+        cancelDrag()
+        areaFramesByProject.removeValue(forKey: projectID)
+        activeDrag = DragInfo(tabID: tabID, source: .pane(areaID: sourceAreaID), projectID: projectID)
+    }
+
+    func beginTopLevelDrag(tabID: UUID, sourceGroupID: UUID, projectID: UUID) {
+        cancelDrag()
+        groupFramesByProject.removeValue(forKey: projectID)
+        activeDrag = DragInfo(tabID: tabID, source: .topLevel(groupID: sourceGroupID), projectID: projectID)
     }
 
     func updatePosition(_ position: CGPoint) {
@@ -62,51 +90,113 @@ final class TabDragCoordinator {
     struct DropResult {
         let drag: DragInfo
         let zone: DropZone
-        let targetAreaID: UUID
+        let targetID: UUID
+
+        var targetAreaID: UUID? {
+            guard case .pane = drag.source else { return nil }
+            return targetID
+        }
+
+        var targetGroupID: UUID? {
+            guard case .topLevel = drag.source else { return nil }
+            return targetID
+        }
 
         func action(projectID: UUID) -> AppState.Action {
-            let request: TabMoveRequest = switch zone {
-            case .center:
-                .toArea(tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, destinationAreaID: targetAreaID)
-            case .left:
-                .toNewSplit(
-                    tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                    split: SplitPlacement(direction: .horizontal, position: .first)
-                )
-            case .right:
-                .toNewSplit(
-                    tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                    split: SplitPlacement(direction: .horizontal, position: .second)
-                )
-            case .top:
-                .toNewSplit(
-                    tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                    split: SplitPlacement(direction: .vertical, position: .first)
-                )
-            case .bottom:
-                .toNewSplit(
-                    tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                    split: SplitPlacement(direction: .vertical, position: .second)
-                )
+            switch drag.source {
+            case let .pane(sourceAreaID):
+                let request: TabMoveRequest = switch zone {
+                case .center:
+                    .toArea(tabID: drag.tabID, sourceAreaID: sourceAreaID, destinationAreaID: targetID)
+                case .left:
+                    .toNewSplit(
+                        tabID: drag.tabID, sourceAreaID: sourceAreaID, targetAreaID: targetID,
+                        split: SplitPlacement(direction: .horizontal, position: .first)
+                    )
+                case .right:
+                    .toNewSplit(
+                        tabID: drag.tabID, sourceAreaID: sourceAreaID, targetAreaID: targetID,
+                        split: SplitPlacement(direction: .horizontal, position: .second)
+                    )
+                case .top:
+                    .toNewSplit(
+                        tabID: drag.tabID, sourceAreaID: sourceAreaID, targetAreaID: targetID,
+                        split: SplitPlacement(direction: .vertical, position: .first)
+                    )
+                case .bottom:
+                    .toNewSplit(
+                        tabID: drag.tabID, sourceAreaID: sourceAreaID, targetAreaID: targetID,
+                        split: SplitPlacement(direction: .vertical, position: .second)
+                    )
+                }
+                return .moveTab(projectID: projectID, request: request)
+            case let .topLevel(sourceGroupID):
+                let request: TopLevelTabMoveRequest = switch zone {
+                case .center:
+                    .toGroup(
+                        tabID: drag.tabID,
+                        sourceGroupID: sourceGroupID,
+                        destinationGroupID: targetID
+                    )
+                case .left:
+                    .toNewSplit(
+                        tabID: drag.tabID, sourceGroupID: sourceGroupID, targetGroupID: targetID,
+                        split: SplitPlacement(direction: .horizontal, position: .first)
+                    )
+                case .right:
+                    .toNewSplit(
+                        tabID: drag.tabID, sourceGroupID: sourceGroupID, targetGroupID: targetID,
+                        split: SplitPlacement(direction: .horizontal, position: .second)
+                    )
+                case .top:
+                    .toNewSplit(
+                        tabID: drag.tabID, sourceGroupID: sourceGroupID, targetGroupID: targetID,
+                        split: SplitPlacement(direction: .vertical, position: .first)
+                    )
+                case .bottom:
+                    .toNewSplit(
+                        tabID: drag.tabID, sourceGroupID: sourceGroupID, targetGroupID: targetID,
+                        split: SplitPlacement(direction: .vertical, position: .second)
+                    )
+                }
+                return .moveTopLevelTab(projectID: projectID, request: request)
             }
-            return .moveTab(projectID: projectID, request: request)
         }
     }
 
     func endDrag() -> DropResult? {
-        guard let activeDrag, let hoveredAreaID, let hoveredZone else {
+        guard let activeDrag, let hoveredZone else {
             cancelDrag()
             return nil
         }
-        let result = DropResult(drag: activeDrag, zone: hoveredZone, targetAreaID: hoveredAreaID)
+        let targetID: UUID? = switch activeDrag.source {
+        case .pane:
+            hoveredAreaID
+        case .topLevel:
+            hoveredGroupID
+        }
+        guard let targetID else {
+            cancelDrag()
+            return nil
+        }
+        let result = DropResult(drag: activeDrag, zone: hoveredZone, targetID: targetID)
         cancelDrag()
         return result
     }
 
     func cancelDrag() {
+        if let activeDrag {
+            switch activeDrag.source {
+            case .pane:
+                areaFramesByProject.removeValue(forKey: activeDrag.projectID)
+            case .topLevel:
+                groupFramesByProject.removeValue(forKey: activeDrag.projectID)
+            }
+        }
         activeDrag = nil
         globalPosition = .zero
         hoveredAreaID = nil
+        hoveredGroupID = nil
         hoveredZone = nil
     }
 
@@ -114,10 +204,10 @@ final class TabDragCoordinator {
         var nextHoveredAreaID: UUID?
         var nextHoveredZone: DropZone?
 
-        guard let projectID = activeDrag?.projectID,
-              let frames = areaFramesByProject[projectID]
+        guard let activeDrag,
+              let frames = frames(for: activeDrag)
         else {
-            updateHover(areaID: nil, zone: nil)
+            updateHover(targetID: nil, zone: nil)
             return
         }
 
@@ -137,7 +227,7 @@ final class TabDragCoordinator {
         if let containingMatch {
             nextHoveredAreaID = containingMatch.areaID
             nextHoveredZone = zone(for: globalPosition, in: containingMatch.frame)
-            updateHover(areaID: nextHoveredAreaID, zone: nextHoveredZone)
+            updateHover(targetID: nextHoveredAreaID, zone: nextHoveredZone)
             return
         }
 
@@ -155,18 +245,43 @@ final class TabDragCoordinator {
         }
 
         guard let nearestMatch else {
-            updateHover(areaID: nil, zone: nil)
+            updateHover(targetID: nil, zone: nil)
             return
         }
         let clampedPosition = clamped(globalPosition, to: nearestMatch.frame)
         nextHoveredAreaID = nearestMatch.areaID
         nextHoveredZone = zone(for: clampedPosition, in: nearestMatch.frame)
-        updateHover(areaID: nextHoveredAreaID, zone: nextHoveredZone)
+        updateHover(targetID: nextHoveredAreaID, zone: nextHoveredZone)
     }
 
-    private func updateHover(areaID: UUID?, zone: DropZone?) {
-        if hoveredAreaID != areaID {
-            hoveredAreaID = areaID
+    private func frames(for drag: DragInfo) -> [UUID: CGRect]? {
+        switch drag.source {
+        case .pane:
+            areaFramesByProject[drag.projectID]
+        case .topLevel:
+            groupFramesByProject[drag.projectID]
+        }
+    }
+
+    private func updateHover(targetID: UUID?, zone: DropZone?) {
+        switch activeDrag?.source {
+        case .pane:
+            if hoveredAreaID != targetID {
+                hoveredAreaID = targetID
+            }
+            if hoveredGroupID != nil {
+                hoveredGroupID = nil
+            }
+        case .topLevel:
+            if hoveredGroupID != targetID {
+                hoveredGroupID = targetID
+            }
+            if hoveredAreaID != nil {
+                hoveredAreaID = nil
+            }
+        case nil:
+            hoveredAreaID = nil
+            hoveredGroupID = nil
         }
         if hoveredZone != zone {
             hoveredZone = zone

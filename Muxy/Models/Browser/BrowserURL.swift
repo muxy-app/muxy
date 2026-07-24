@@ -33,7 +33,9 @@ enum BrowserURL {
 
     private static func looksLikeHost(_ value: String) -> Bool {
         guard !value.contains(" ") else { return false }
-        if value == "localhost" || value.hasPrefix("localhost:") || value.hasPrefix("localhost/") { return true }
+        if value == "localhost" || value.hasPrefix("localhost:") || value.hasPrefix("localhost/") {
+            return true
+        }
         let head = value.split(separator: "/", maxSplits: 1).first.map(String.init) ?? value
         let hostOnly = head.split(separator: ":", maxSplits: 1).first.map(String.init) ?? head
         return hostOnly.contains(".") && !hostOnly.hasPrefix(".") && !hostOnly.hasSuffix(".")

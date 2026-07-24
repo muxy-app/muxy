@@ -19,11 +19,17 @@ struct LayoutConfig: Equatable {
     }
 
     indirect enum Pane: Equatable {
-        case leaf(tabs: [Tab])
+        case leaf(tab: Tab)
         case branch(layout: Layout, panes: [Pane])
     }
 
     let root: Pane
+    let legacyExtraTabs: [Tab]
+
+    init(root: Pane, legacyExtraTabs: [Tab] = []) {
+        self.root = root
+        self.legacyExtraTabs = legacyExtraTabs
+    }
 
     static func directory(forProjectPath projectPath: String) -> URL {
         URL(fileURLWithPath: projectPath)
@@ -58,24 +64,31 @@ struct LayoutConfig: Equatable {
     }
 
     static func parse(_ value: Any?) -> LayoutConfig? {
-        guard let pane = parsePane(value) else { return nil }
-        return LayoutConfig(root: pane)
+        guard let parsed = parsePane(value) else { return nil }
+        return LayoutConfig(root: parsed.pane, legacyExtraTabs: parsed.legacyExtraTabs)
     }
 
-    private static func parsePane(_ value: Any?) -> Pane? {
+    private static func parsePane(_ value: Any?) -> (pane: Pane, legacyExtraTabs: [Tab])? {
         guard let dict = value as? [String: Any] else { return nil }
         if let panesValue = dict["panes"] {
             guard let panesArray = panesValue as? [Any] else { return nil }
             let children = panesArray.compactMap { parsePane($0) }
             guard !children.isEmpty else { return nil }
             let layout = parseLayout(dict["layout"]) ?? .horizontal
-            return .branch(layout: layout, panes: children)
+            return (
+                .branch(layout: layout, panes: children.map(\.pane)),
+                children.flatMap(\.legacyExtraTabs)
+            )
+        }
+        if let tabValue = dict["tab"] {
+            guard let tab = parseTab(tabValue) else { return nil }
+            return (.leaf(tab: tab), [])
         }
         if let tabsValue = dict["tabs"] {
             guard let tabsArray = tabsValue as? [Any] else { return nil }
             let tabs = tabsArray.compactMap { parseTab($0) }
-            guard !tabs.isEmpty else { return nil }
-            return .leaf(tabs: tabs)
+            guard let first = tabs.first else { return nil }
+            return (.leaf(tab: first), Array(tabs.dropFirst()))
         }
         return nil
     }

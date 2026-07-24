@@ -163,8 +163,12 @@ struct ExtensionOutputPanel: View {
     }
 
     private func color(for line: String) -> Color {
-        if line.hasPrefix("[err]") { return MuxyTheme.diffRemoveFg }
-        if line.hasPrefix("[warn]") { return MuxyTheme.warning }
+        if line.hasPrefix("[err]") {
+            return MuxyTheme.diffRemoveFg
+        }
+        if line.hasPrefix("[warn]") {
+            return MuxyTheme.warning
+        }
         return MuxyTheme.fgMuted
     }
 }

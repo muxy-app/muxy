@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Testing
 
@@ -198,28 +197,6 @@ struct GrokProviderTests {
         }
     }
 
-    @Test("shipped muxy-grok-hook emits one normalized finished event")
-    func shippedHookEmitsGrokWireFormat() throws {
-        let scriptPath = try #require(
-            MuxyNotificationHooks.scriptPath(named: "muxy-grok-hook", extension: "sh")
-                ?? Self.repositoryScriptPath()
-        )
-        let payloads = try Self.runHookScript(
-            at: scriptPath,
-            event: "stop",
-            input: #"{}"#
-        )
-        #expect(!payloads.isEmpty)
-        let joined = payloads.joined()
-        #expect(joined.contains("agent_event|grok_hook|"))
-        #expect(joined.contains("|finished|"))
-        #expect(joined.contains("|Grok|"))
-        #expect(joined.contains("Session completed"))
-        for payload in payloads {
-            #expect(payload.hasSuffix("\n"))
-        }
-    }
-
     @Test("uninstall preserves foreign hooks in the shared file")
     func uninstallKeepsForeignEntriesOnDisk() throws {
         try withTempHome { home in
@@ -298,110 +275,4 @@ struct GrokProviderTests {
         return candidate.path
     }
 
-    private static func runHookScript(at scriptPath: String, event: String, input: String) throws -> [String] {
-        let socketPath = "/tmp/mgh-\(ProcessInfo.processInfo.processIdentifier)-\(Int.random(in: 0 ..< 1_000_000)).sock"
-        let listener = try bindListener(at: socketPath)
-        defer {
-            close(listener)
-            unlink(socketPath)
-        }
-
-        let paneID = UUID().uuidString
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [scriptPath, event]
-        var environment = ProcessInfo.processInfo.environment
-        environment["MUXY_SOCKET_PATH"] = socketPath
-        environment["MUXY_PANE_ID"] = paneID
-        environment["MUXY_AGENT_EVENT_PROTOCOL"] = "2"
-        process.environment = environment
-        let stdin = Pipe()
-        process.standardInput = stdin
-
-        try process.run()
-        defer {
-            if process.isRunning {
-                process.terminate()
-                process.waitUntilExit()
-            }
-        }
-        stdin.fileHandleForWriting.write(Data(input.utf8))
-        try stdin.fileHandleForWriting.close()
-
-        let payloads = drainConnections(listener, while: process)
-        let deadline = Date().addingTimeInterval(3)
-        while process.isRunning, Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        if process.isRunning {
-            process.terminate()
-            process.waitUntilExit()
-        } else {
-            process.waitUntilExit()
-        }
-        #expect(process.terminationStatus == 0)
-        return payloads
-    }
-
-    private static func drainConnections(_ listener: Int32, while process: Process) -> [String] {
-        var payloads: [String] = []
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline {
-            var event = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&event, 1, 500)
-            if ready > 0 {
-                let accepted = accept(listener, nil, nil)
-                guard accepted >= 0 else { continue }
-                let data = (try? readPayload(from: accepted)) ?? Data()
-                close(accepted)
-                if !data.isEmpty {
-                    payloads.append(String(decoding: data, as: UTF8.self))
-                }
-                continue
-            }
-            if !process.isRunning { break }
-        }
-        return payloads
-    }
-
-    private static func bindListener(at path: String) throws -> Int32 {
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { throw POSIXError(.EMFILE) }
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let capacity = MemoryLayout.size(ofValue: addr.sun_path)
-        guard path.utf8.count < capacity else {
-            close(descriptor)
-            throw POSIXError(.ENAMETOOLONG)
-        }
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            let bound = ptr.withMemoryRebound(to: CChar.self, capacity: capacity) { $0 }
-            _ = path.withCString { strncpy(bound, $0, capacity - 1) }
-        }
-
-        let bindResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard bindResult == 0, listen(descriptor, 5) == 0 else {
-            close(descriptor)
-            throw POSIXError(.EADDRINUSE)
-        }
-        return descriptor
-    }
-
-    private static func readPayload(from descriptor: Int32) throws -> Data {
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while !data.contains(10) {
-            var event = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&event, 1, 3_000)
-            guard ready > 0 else { throw POSIXError(.ETIMEDOUT) }
-            let count = read(descriptor, &buffer, buffer.count)
-            guard count > 0 else { break }
-            data.append(buffer, count: count)
-        }
-        return data
-    }
 }

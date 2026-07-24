@@ -28,12 +28,16 @@ struct SidebarActionButton: View {
     }
 
     private var foreground: Color {
-        if isActive { return MuxyTheme.accent }
+        if isActive {
+            return MuxyTheme.accent
+        }
         return hovered ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 
     private var background: Color {
-        if isActive { return MuxyTheme.accentSoft }
+        if isActive {
+            return MuxyTheme.accentSoft
+        }
         return hovered ? MuxyTheme.hover : .clear
     }
 }

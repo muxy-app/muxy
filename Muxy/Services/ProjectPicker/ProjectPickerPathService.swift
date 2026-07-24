@@ -169,7 +169,9 @@ struct ProjectPickerPathService {
         var components: [String] = []
         let isAbsolute = path.hasPrefix("/")
         for segment in path.split(separator: "/", omittingEmptySubsequences: true) {
-            if segment == "." { continue }
+            if segment == "." {
+                continue
+            }
             if segment == "..", let last = components.last, last != ".." {
                 components.removeLast()
                 continue
@@ -177,7 +179,9 @@ struct ProjectPickerPathService {
             components.append(String(segment))
         }
         let joined = components.joined(separator: "/")
-        if isAbsolute { return "/" + joined }
+        if isAbsolute {
+            return "/" + joined
+        }
         return joined.isEmpty ? "." : joined
     }
 
@@ -229,7 +233,9 @@ struct ProjectPickerPathService {
     func expandedPath(_ path: String) -> String {
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !isRemote else { return trimmedPath }
-        if trimmedPath == "~" { return homeDirectory }
+        if trimmedPath == "~" {
+            return homeDirectory
+        }
         if trimmedPath.hasPrefix("~/") {
             return homeDirectory + trimmedPath.dropFirst()
         }
@@ -263,14 +269,20 @@ struct ProjectPickerPathService {
     private func confirmPath(for trimmedInput: String) -> String {
         guard !trimmedInput.isEmpty else { return isRemote ? homeDirectory : "/" }
         let expandedPath = expandedPath(trimmedInput)
-        if isRemote { return expandedPath }
+        if isRemote {
+            return expandedPath
+        }
         guard expandedPath.hasPrefix("/") else { return "/" + expandedPath }
         return expandedPath
     }
 
     private func directoryPath(for trimmedInput: String, expandedInput: String) -> String {
-        if trimmedInput.isEmpty { return "/" }
-        if trimmedInput == "~" { return standardize(homeDirectory) }
+        if trimmedInput.isEmpty {
+            return "/"
+        }
+        if trimmedInput == "~" {
+            return standardize(homeDirectory)
+        }
         guard !expandedInput.hasSuffix("/") else {
             return standardize(expandedInput)
         }
@@ -278,7 +290,9 @@ struct ProjectPickerPathService {
     }
 
     private func leafFilter(for trimmedInput: String) -> String {
-        if trimmedInput.isEmpty || trimmedInput == "~" || trimmedInput.hasSuffix("/") { return "" }
+        if trimmedInput.isEmpty || trimmedInput == "~" || trimmedInput.hasSuffix("/") {
+            return ""
+        }
         return lastComponent(of: trimmedInput)
     }
 
@@ -308,7 +322,9 @@ struct ProjectPickerPathService {
     }
 
     private func completionDisplayPrefix(for trimmedInput: String, directoryPath: String) -> String {
-        if trimmedInput.hasPrefix("~"), directoryPath == homeDirectory { return "~/" }
+        if trimmedInput.hasPrefix("~"), directoryPath == homeDirectory {
+            return "~/"
+        }
         if trimmedInput.hasPrefix("~"), directoryPath.hasPrefix(homeDirectory + "/") {
             return "~" + directoryPath.dropFirst(homeDirectory.count) + "/"
         }

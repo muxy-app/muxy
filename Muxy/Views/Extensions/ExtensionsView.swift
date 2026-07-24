@@ -563,9 +563,15 @@ private struct ExtensionStatusBadge: View {
 
     @MainActor
     private var info: (String, Color) {
-        if status.isRunning { return ("running", MuxyTheme.diffAddFg) }
-        if status.isEnabled, status.muxyExtension.backgroundScriptURL == nil { return ("active", MuxyTheme.diffAddFg) }
-        if status.isEnabled { return ("stopped", MuxyTheme.fgMuted) }
+        if status.isRunning {
+            return ("running", MuxyTheme.diffAddFg)
+        }
+        if status.isEnabled, status.muxyExtension.backgroundScriptURL == nil {
+            return ("active", MuxyTheme.diffAddFg)
+        }
+        if status.isEnabled {
+            return ("stopped", MuxyTheme.fgMuted)
+        }
         return ("disabled", MuxyTheme.fgDim)
     }
 }
@@ -719,9 +725,15 @@ private struct ExtensionDetailPage: View {
                     errorBlock(error)
                 }
                 permissionsBlock
-                if !ext.manifest.commands.isEmpty { commandsBlock }
-                if !ext.manifest.tabTypes.isEmpty { tabTypesBlock }
-                if !ext.manifest.panels.isEmpty { panelsBlock }
+                if !ext.manifest.commands.isEmpty {
+                    commandsBlock
+                }
+                if !ext.manifest.tabTypes.isEmpty {
+                    tabTypesBlock
+                }
+                if !ext.manifest.panels.isEmpty {
+                    panelsBlock
+                }
                 grantsBlock
                 logsBlock
             }
@@ -1067,7 +1079,9 @@ private struct DetailSection<Content: View>: View {
                     .textCase(.uppercase)
                     .tracking(0.6)
                 Spacer()
-                if let trailing { trailing }
+                if let trailing {
+                    trailing
+                }
             }
             content
         }

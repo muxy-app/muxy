@@ -102,6 +102,29 @@ struct ExtensionVerbRoutingTests {
         }
     }
 
+    @Test("panel data safely handles bridge JSON values")
+    func panelDataSafelyHandlesBridgeJSONValues() {
+        #expect(MuxyAPIDispatcher.panelData([:]) == nil)
+        #expect(MuxyAPIDispatcher.panelData(["data": NSNull()]) == nil)
+        #expect(MuxyAPIDispatcher.panelData(["data": ["revealPath": "Sources"]]) == .object([
+            "revealPath": .string("Sources"),
+        ]))
+        #expect(MuxyAPIDispatcher.panelData(["data": ["one", 2]]) == .array([
+            .string("one"),
+            .number(2),
+        ]))
+        #expect(MuxyAPIDispatcher.panelData(["data": "value"]) == .string("value"))
+        #expect(MuxyAPIDispatcher.panelData(["data": 3]) == .number(3))
+        #expect(MuxyAPIDispatcher.panelData(["data": true]) == .bool(true))
+    }
+
+    @Test("panel data does not inherit the modal result size limit")
+    func panelDataDoesNotInheritModalResultSizeLimit() {
+        let value = String(repeating: "x", count: ExtensionWebviewModalService.maxResultBytes + 1)
+
+        #expect(MuxyAPIDispatcher.panelData(["data": value]) == .string(value))
+    }
+
     @Test("MuxyAPI verbNames includes the legacy CLI verbs")
     func verbNamesIncludesLegacyVerbs() {
         let verbs = MuxyAPI.Permissions.verbNames

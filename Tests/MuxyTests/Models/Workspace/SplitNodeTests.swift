@@ -7,6 +7,46 @@ import Testing
 @Suite("SplitNode")
 @MainActor
 struct SplitNodeTests {
+    @Test("visible layout includes only the selected top-level tab and its direct children")
+    func visibleLayoutFiltersOtherTopLevelTabs() {
+        let rootArea = TabArea(projectPath: "/tmp")
+        let firstRoot = rootArea.tabs[0]
+        let secondRoot = TerminalTab(pane: TerminalPaneState(projectPath: "/tmp"))
+        rootArea.insertExistingTab(secondRoot)
+        let child = TerminalTab(
+            pane: TerminalPaneState(projectPath: "/tmp"),
+            parentTabID: firstRoot.id
+        )
+        let childArea = TabArea(projectPath: "/tmp", existingTab: child)
+        let node = SplitNode.split(SplitBranch(
+            direction: .horizontal,
+            first: .tabArea(rootArea),
+            second: .tabArea(childArea)
+        ))
+
+        let firstLayout = node.visibleLayout(forTopLevelTabID: firstRoot.id)
+        let secondLayout = node.visibleLayout(forTopLevelTabID: secondRoot.id)
+
+        #expect(firstLayout?.allPanes().map(\.tab.id) == [firstRoot.id, child.id])
+        #expect(secondLayout?.allPanes().map(\.tab.id) == [secondRoot.id])
+    }
+
+    @Test("visible pane identity follows the projected tab")
+    func visiblePaneIdentityFollowsProjectedTab() {
+        let area = TabArea(projectPath: testPath)
+        let firstTab = area.tabs[0]
+        let secondTab = TerminalTab(pane: TerminalPaneState(projectPath: testPath))
+        area.insertExistingTab(secondTab)
+        let node = SplitNode.tabArea(area)
+
+        let firstLayout = node.visibleLayout(forTopLevelTabID: firstTab.id)
+        let secondLayout = node.visibleLayout(forTopLevelTabID: secondTab.id)
+
+        #expect(firstLayout?.id == firstTab.id)
+        #expect(secondLayout?.id == secondTab.id)
+        #expect(firstLayout?.id != secondLayout?.id)
+    }
+
     private let testPath = "/tmp/test"
 
     @Test("tabArea node id matches area id")

@@ -31,7 +31,7 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `notifications:write` | `notifications.notify` (all surfaces) and `toast` (webview pages and `runScript` only — not in `background.js`) to post a notification |
 | `panels:write` | `panel.open`, `panel.toggle`, `panel.close` for declared [panels](panels.md); `popover.resize`, `popover.close` for the extension's open [popover](popovers.md); `topbar.set` for [topbar](topbar.md) items; `statusbar.set` for [status bar](statusbar.md) items. |
 | `commands:run-script` | Execute `runScript` palette command actions in the per-extension JavaScriptCore context. |
-| `commands:exec` | Run shell commands via `muxy.exec` (subprocess execution with stdout/stderr capture). |
+| `commands:exec` | Run shell commands via `muxy.exec` or `muxy.execAsync` (subprocess execution with stdout/stderr capture). |
 | `remote:serve` | Serve [remote methods](remote-methods.md) declared in `remoteMethods` to the mobile app over the remote server. Each call also prompts for runtime consent. |
 
 `muxy.http.fetch` ([HTTP](http.md)) needs **no manifest permission** — it is gated by host consent at runtime only.

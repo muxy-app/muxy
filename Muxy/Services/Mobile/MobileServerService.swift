@@ -79,8 +79,12 @@ final class MobileServerService {
     }
 
     func setEnabled(_ enabled: Bool) {
-        if enabled, isEnabled, server != nil { return }
-        if !enabled, !isEnabled { return }
+        if enabled, isEnabled, server != nil {
+            return
+        }
+        if !enabled, !isEnabled {
+            return
+        }
         isEnabled = enabled
         if enabled {
             start()

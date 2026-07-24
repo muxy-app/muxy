@@ -5,8 +5,12 @@ enum LaunchArgumentGuard {
     static func isCLISubcommandLaunch(_ arguments: [String]) -> Bool {
         guard arguments.count > 1 else { return false }
         let first = arguments[1]
-        if first.hasPrefix("-") { return false }
-        if first.hasPrefix("/") || first.hasPrefix("~") { return false }
+        if first.hasPrefix("-") {
+            return false
+        }
+        if first.hasPrefix("/") || first.hasPrefix("~") {
+            return false
+        }
         return true
     }
 

@@ -14,6 +14,12 @@ struct TerminalOmniboxItemResolverTests {
         let shortcutID = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
 
         let project = TerminalOmniboxProjectItem(projectID: projectID, name: "Muxy", path: "/repo/muxy")
+        let recentlyRemovedProject = TerminalOmniboxRecentlyRemovedProjectItem(
+            projectID: projectID,
+            name: "Muxy",
+            path: "/repo/muxy",
+            icon: "shippingbox"
+        )
         let primaryWorktree = TerminalOmniboxWorktreeItem(
             projectID: projectID,
             worktreeID: worktreeID,
@@ -55,6 +61,15 @@ struct TerminalOmniboxItemResolverTests {
         #expect(TerminalOmniboxItem.project(project).sectionTitle == "Projects")
         #expect(TerminalOmniboxItem.project(project).symbol == "folder")
         #expect(TerminalOmniboxItem.project(project).searchKey == "Muxy /repo/muxy project")
+
+        #expect(TerminalOmniboxItem.recentlyRemovedProject(recentlyRemovedProject).id ==
+            "recent-project-\(projectID.uuidString)")
+        #expect(TerminalOmniboxItem.recentlyRemovedProject(recentlyRemovedProject).title == "Muxy")
+        #expect(TerminalOmniboxItem.recentlyRemovedProject(recentlyRemovedProject).subtitle == "/repo/muxy")
+        #expect(TerminalOmniboxItem.recentlyRemovedProject(recentlyRemovedProject).sectionTitle == "Recently Removed")
+        #expect(TerminalOmniboxItem.recentlyRemovedProject(recentlyRemovedProject).symbol == "shippingbox")
+        #expect(TerminalOmniboxItem.recentlyRemovedProject(recentlyRemovedProject).searchKey ==
+            "Muxy /repo/muxy recently removed project")
 
         #expect(TerminalOmniboxItem.worktree(primaryWorktree).subtitle == "(main) /repo/muxy")
         #expect(TerminalOmniboxItem.worktree(primaryWorktree).symbol == "folder.badge.gearshape")
@@ -142,6 +157,12 @@ struct TerminalOmniboxItemResolverTests {
         let activeWorktreeID = UUID()
         let otherWorktreeID = UUID()
         let project = TerminalOmniboxProjectItem(projectID: activeProjectID, name: "Muxy", path: "/repo/muxy")
+        let recentlyRemovedProject = TerminalOmniboxRecentlyRemovedProjectItem(
+            projectID: otherProjectID,
+            name: "Removed",
+            path: "/repo/removed",
+            icon: nil
+        )
         let activeWorktree = TerminalOmniboxWorktreeItem(
             projectID: activeProjectID,
             worktreeID: activeWorktreeID,
@@ -178,6 +199,7 @@ struct TerminalOmniboxItemResolverTests {
         let emptyShortcut = CommandShortcut(name: "Empty", command: "   ")
         let context = TerminalOmniboxItemContext(
             projects: [project],
+            recentlyRemovedProjects: [recentlyRemovedProject],
             worktrees: [
                 activeWorktree,
                 TerminalOmniboxWorktreeItem(
@@ -197,6 +219,8 @@ struct TerminalOmniboxItemResolverTests {
         )
 
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .projects) == [.project(project)])
+        #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .recentlyRemovedProjects) ==
+            [.recentlyRemovedProject(recentlyRemovedProject)])
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .worktrees) == [.worktree(activeWorktree)])
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .openTabs) ==
             [.openTab(activeOpenTab), .openTab(otherOpenTab)])
@@ -215,6 +239,36 @@ struct TerminalOmniboxItemResolverTests {
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .worktrees).isEmpty)
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .openTabs) == [.openTab(activeOpenTab)])
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .commandShortcuts).isEmpty)
+    }
+
+    @Test("Recently Removed Projects scope preserves stored order and excludes unrelated items")
+    func recentlyRemovedProjectsScopePreservesOrder() {
+        let first = TerminalOmniboxRecentlyRemovedProjectItem(
+            projectID: UUID(),
+            name: "Newest",
+            path: "/repo/newest",
+            icon: nil
+        )
+        let second = TerminalOmniboxRecentlyRemovedProjectItem(
+            projectID: UUID(),
+            name: "Older",
+            path: "/repo/older",
+            icon: "archivebox"
+        )
+        let context = TerminalOmniboxItemContext(
+            projects: [TerminalOmniboxProjectItem(projectID: UUID(), name: "Active", path: "/repo/active")],
+            recentlyRemovedProjects: [first, second],
+            worktrees: [],
+            openTabs: [],
+            commandShortcuts: [],
+            activeProjectID: nil,
+            activeWorktreeID: nil,
+            commandProjectIDs: []
+        )
+
+        let items = TerminalOmniboxItemResolver.items(in: context, launchScope: .recentlyRemovedProjects)
+
+        #expect(items == [.recentlyRemovedProject(first), .recentlyRemovedProject(second)])
     }
 
     @Test("Open tabs scope includes every project and worktree with the active one first")

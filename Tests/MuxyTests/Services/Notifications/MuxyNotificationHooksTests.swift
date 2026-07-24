@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Testing
 
@@ -8,288 +7,154 @@ import Testing
 struct MuxyNotificationHooksTests {
     @Test("findBundledScript finds file at bundle root")
     func findsFileAtBundleRoot() throws {
-        let tmp = try temporaryBundle()
-        defer { try? FileManager.default.removeItem(at: tmp) }
+        let bundleDirectory = try temporaryBundle()
+        defer { try? FileManager.default.removeItem(at: bundleDirectory) }
+        let fileURL = bundleDirectory.appendingPathComponent("hook.sh")
+        try Data("root".utf8).write(to: fileURL)
 
-        let rootFile = tmp.appendingPathComponent("hook.sh")
-        try Data("root".utf8).write(to: rootFile)
+        let bundle = try #require(Bundle(url: bundleDirectory))
 
-        let bundle = try #require(Bundle(url: tmp))
-        let found = MuxyNotificationHooks.findBundledScript("hook", extension: "sh", bundle: bundle)
-
-        #expect(found == rootFile.path)
+        #expect(MuxyNotificationHooks.findBundledScript("hook", extension: "sh", bundle: bundle) == fileURL.path)
     }
 
-    @Test("findBundledScript falls back to scripts/ subdirectory")
+    @Test("findBundledScript falls back to scripts subdirectory")
     func findsFileInScriptsSubdirectory() throws {
-        let tmp = try temporaryBundle()
-        defer { try? FileManager.default.removeItem(at: tmp) }
+        let bundleDirectory = try temporaryBundle()
+        defer { try? FileManager.default.removeItem(at: bundleDirectory) }
+        let scriptsDirectory = bundleDirectory.appendingPathComponent("scripts", isDirectory: true)
+        try FileManager.default.createDirectory(at: scriptsDirectory, withIntermediateDirectories: true)
+        let fileURL = scriptsDirectory.appendingPathComponent("muxy-test-hook.sh")
+        try Data("test".utf8).write(to: fileURL)
 
-        let scriptsDir = tmp.appendingPathComponent("scripts")
-        try FileManager.default.createDirectory(at: scriptsDir, withIntermediateDirectories: true)
-        let scriptFile = scriptsDir.appendingPathComponent("muxy-test-hook.sh")
-        try Data("test".utf8).write(to: scriptFile)
+        let bundle = try #require(Bundle(url: bundleDirectory))
 
-        let bundle = try #require(Bundle(url: tmp))
-        let found = MuxyNotificationHooks.findBundledScript("muxy-test-hook", extension: "sh", bundle: bundle)
-
-        #expect(found == scriptFile.path)
+        #expect(
+            MuxyNotificationHooks.findBundledScript("muxy-test-hook", extension: "sh", bundle: bundle)
+                == fileURL.path
+        )
     }
 
     @Test("findBundledScript returns nil when file does not exist")
     func returnsNilWhenNotFound() throws {
-        let tmp = try temporaryBundle()
-        defer { try? FileManager.default.removeItem(at: tmp) }
+        let bundleDirectory = try temporaryBundle()
+        defer { try? FileManager.default.removeItem(at: bundleDirectory) }
+        let bundle = try #require(Bundle(url: bundleDirectory))
 
-        let bundle = try #require(Bundle(url: tmp))
-        let found = MuxyNotificationHooks.findBundledScript("nonexistent", extension: "ts", bundle: bundle)
-
-        #expect(found == nil)
+        #expect(MuxyNotificationHooks.findBundledScript("nonexistent", extension: "ts", bundle: bundle) == nil)
     }
 
-    @Test("findBundledScript prefers root file over scripts/ subdirectory")
-    func prefersRootOverScripts() throws {
-        let tmp = try temporaryBundle()
-        defer { try? FileManager.default.removeItem(at: tmp) }
+    @Test("staging refreshes every hook resource at stable private paths")
+    func stagesAndRefreshesHookResources() throws {
+        let fixture = try StagingFixture()
+        defer { fixture.cleanUp() }
 
-        let rootFile = tmp.appendingPathComponent("dupe.sh")
-        try Data("root".utf8).write(to: rootFile)
+        #expect(MuxyNotificationHooks.stageAll(
+            bundle: fixture.bundle,
+            hookBinaryURL: fixture.binaryURL,
+            destinationDirectory: fixture.destinationDirectory,
+            searchDevelopmentDirectory: false
+        ))
 
-        let scriptsDir = tmp.appendingPathComponent("scripts")
-        try FileManager.default.createDirectory(at: scriptsDir, withIntermediateDirectories: true)
-        let scriptFile = scriptsDir.appendingPathComponent("dupe.sh")
-        try Data("scripts".utf8).write(to: scriptFile)
-
-        let bundle = try #require(Bundle(url: tmp))
-        let found = MuxyNotificationHooks.findBundledScript("dupe", extension: "sh", bundle: bundle)
-
-        #expect(found == rootFile.path)
-    }
-
-    @Test("shell hooks delegate to one normalized lifecycle runtime")
-    func shellHooksUseSharedRuntime() throws {
-        for scriptName in [
-            "muxy-claude-hook.sh",
-            "muxy-codex-hook.sh",
-            "muxy-cursor-hook.sh",
-            "muxy-droid-hook.sh",
-            "muxy-grok-hook.sh",
-        ] {
-            let contents = try String(
-                contentsOf: Self.repositoryRoot
-                    .appendingPathComponent("Muxy/Resources/scripts/\(scriptName)"),
-                encoding: .utf8
-            )
-            #expect(contents.contains("muxy-agent-hook.sh"))
+        #expect(try permissions(of: fixture.destinationDirectory) == FilePermissions.privateDirectory)
+        #expect(try permissions(of: fixture.stagedBinaryURL) == FilePermissions.privateExecutable)
+        #expect(FileManager.default.isExecutableFile(atPath: fixture.stagedBinaryURL.path))
+        for scriptName in Self.shellScriptNames {
+            let scriptURL = fixture.destinationDirectory.appendingPathComponent(scriptName)
+            #expect(try permissions(of: scriptURL) == FilePermissions.privateExecutable)
         }
-        let runtime = try String(
-            contentsOf: Self.repositoryRoot
-                .appendingPathComponent("Muxy/Resources/scripts/muxy-agent-hook.sh"),
-            encoding: .utf8
+        for sourceName in ["opencode-muxy-plugin.js", "muxy-pi-extension.ts"] {
+            let sourceURL = fixture.destinationDirectory.appendingPathComponent(sourceName)
+            #expect(try permissions(of: sourceURL) == FilePermissions.privateFile)
+        }
+
+        try Data("updated binary".utf8).write(to: fixture.binaryURL)
+        let updatedScriptURL = fixture.scriptsDirectory.appendingPathComponent("muxy-codex-hook.sh")
+        try Data("updated script".utf8).write(to: updatedScriptURL)
+
+        #expect(MuxyNotificationHooks.stageAll(
+            bundle: fixture.bundle,
+            hookBinaryURL: fixture.binaryURL,
+            destinationDirectory: fixture.destinationDirectory,
+            searchDevelopmentDirectory: false
+        ))
+        #expect(try Data(contentsOf: fixture.stagedBinaryURL) == Data("updated binary".utf8))
+        #expect(
+            try Data(contentsOf: fixture.destinationDirectory.appendingPathComponent("muxy-codex-hook.sh"))
+                == Data("updated script".utf8)
         )
-        #expect(runtime.contains("printf 'agent_event|%s|%s|%s|%s|%s\\n'"))
-        #expect(runtime.contains("printf 'agent_status|%s|%s|%s\\n'"))
+
+        try FileManager.default.removeItem(at: fixture.bundleDirectory)
+        #expect(FileManager.default.fileExists(atPath: fixture.stagedBinaryURL.path))
+        #expect(FileManager.default.fileExists(atPath: fixture.destinationDirectory
+            .appendingPathComponent("muxy-codex-hook.sh").path))
     }
 
-    @Test("OpenCode plugin terminates socket notification payloads with newline")
-    func openCodePluginTerminatesNotificationPayloadsWithNewline() throws {
+    @Test("staging fails without the compiled bridge")
+    func stagingRequiresCompiledBridge() throws {
+        let fixture = try StagingFixture()
+        defer { fixture.cleanUp() }
+
+        #expect(!MuxyNotificationHooks.stageAll(
+            bundle: fixture.bundle,
+            hookBinaryURL: nil,
+            destinationDirectory: fixture.destinationDirectory,
+            searchDevelopmentDirectory: false
+        ))
+        #expect(!FileManager.default.fileExists(atPath: fixture.stagedBinaryURL.path))
+    }
+
+    @Test("shell shims invoke the colocated compiled bridge")
+    func shellShimsInvokeCompiledBridge() throws {
+        for scriptName in Self.shellScriptNames {
+            let scriptURL = Self.repositoryRoot.appendingPathComponent("Muxy/Resources/scripts/\(scriptName)")
+            let contents = try String(contentsOf: scriptURL, encoding: .utf8)
+            #expect(contents.contains("$(dirname \"$0\")/muxy-hook"))
+            #expect(contents.contains("agent-event --provider"))
+            #expect(!contents.contains("muxy-agent-hook.sh"))
+        }
+        #expect(!FileManager.default.fileExists(atPath: Self.repositoryRoot
+            .appendingPathComponent("Muxy/Resources/scripts/muxy-agent-hook.sh").path))
+    }
+
+    @Test("OpenCode invokes the bridge and logs when the binary is missing")
+    func openCodeUsesBridgeOnly() throws {
         let contents = try String(
-            contentsOf: Self.repositoryRoot
-                .appendingPathComponent("Muxy/Resources/scripts/opencode-muxy-plugin.js"),
+            contentsOf: Self.repositoryRoot.appendingPathComponent("Muxy/Resources/scripts/opencode-muxy-plugin.js"),
             encoding: .utf8
         )
-        #expect(contents.contains("`agent_event|opencode|${paneID}|${phase}|"))
-        #expect(contents.contains("process.env.MUXY_AGENT_EVENT_PROTOCOL === \"2\""))
-        #expect(contents.contains("`agent_status|opencode|${paneID}|${status}\\nopencode|"))
-        #expect(contents.contains("conn.write(`${payload}\\n`"))
+
+        #expect(contents.contains("process.env.MUXY_HOOK_BIN"))
+        #expect(contents.contains("node:child_process"))
+        #expect(contents.contains("agent-event"))
         #expect(contents.contains("sendQueue = sendQueue.then(transmit, transmit)"))
-        #expect(contents.contains("clearSettledSession(sessionID, version)"))
-        #expect(!contents.contains("client.session.messages"))
+        #expect(contents.contains("muxy-hook binary is not staged"))
+        #expect(!contents.contains("agent_status|"))
+        #expect(!contents.contains("agent_event|"))
+        #expect(!contents.contains("createConnection"))
+        #expect(!contents.contains("MUXY_AGENT_EVENT_PROTOCOL"))
     }
 
-    @Test("Pi extension terminates socket notification payloads with newline")
-    func piExtensionTerminatesNotificationPayloadsWithNewline() throws {
+    @Test("Pi invokes the bridge and logs when the binary is missing")
+    func piUsesBridgeOnly() throws {
         let contents = try String(
-            contentsOf: Self.repositoryRoot
-                .appendingPathComponent("Muxy/Resources/scripts/muxy-pi-extension.ts"),
+            contentsOf: Self.repositoryRoot.appendingPathComponent("Muxy/Resources/scripts/muxy-pi-extension.ts"),
             encoding: .utf8
         )
-        #expect(contents.contains("send(`agent_event|pi|${paneID}|${phase}|${title}|${body}`)"))
-        #expect(contents.contains("process.env.MUXY_AGENT_EVENT_PROTOCOL === \"2\""))
-        #expect(contents.contains("`agent_status|pi|${paneID}|${status}\\npi|"))
-        #expect(contents.contains("conn.write(`${payload}\\n`"))
-    }
 
-    @Test("shell hooks send newline terminated payloads to socket")
-    func shellHooksSendNewlineTerminatedPayloadsToSocket() throws {
-        for sample in Self.shellHookSamples {
-            let payloads = try Self.runShellHook(sample)
-            #expect(payloads.count == 1)
-            for payload in payloads {
-                #expect(payload.hasSuffix("\n"))
-                #expect(payload.hasPrefix("agent_event|"))
-                #expect(payload.contains("|\(Self.paneID)|"))
-            }
-        }
-    }
-
-    @Test("shell hooks ignore sessions without a pane identity")
-    func shellHooksIgnoreSessionsWithoutPaneIdentity() throws {
-        let payloads = try Self.runShellHook(.init(
-            scriptName: "muxy-codex-hook.sh",
-            event: "stop",
-            input: #"{"last_assistant_message":"Background metadata"}"#,
-            hasPaneIdentity: false
-        ))
-
-        #expect(payloads.isEmpty)
-    }
-
-    @Test("Codex hook reports working waiting and finished phases")
-    func codexHookReportsLifecycle() throws {
-        let workingPrompt = try Self.runShellHook(.init(
-            scriptName: "muxy-codex-hook.sh",
-            event: "user-prompt-submit",
-            input: "{}"
-        ))
-        let workingTool = try Self.runShellHook(.init(
-            scriptName: "muxy-codex-hook.sh",
-            event: "pre-tool-use",
-            input: "{}"
-        ))
-        let attention = try Self.runShellHook(.init(
-            scriptName: "muxy-codex-hook.sh",
-            event: "permission-request",
-            input: "{}"
-        ))
-        let finished = try Self.runShellHook(.init(
-            scriptName: "muxy-codex-hook.sh",
-            event: "stop",
-            input: #"{"last_assistant_message":"Implemented | verified"}"#
-        ))
-
-        #expect(workingPrompt == ["agent_event|codex_hook|\(Self.paneID)|working||\n"])
-        #expect(workingTool == ["agent_event|codex_hook|\(Self.paneID)|working||\n"])
-        #expect(attention == ["agent_event|codex_hook|\(Self.paneID)|waiting|Codex|Needs attention\n"])
-        #expect(finished == ["agent_event|codex_hook|\(Self.paneID)|finished|Codex|Implemented   verified\n"])
-    }
-
-    @Test("Cursor reports work from prompt submission and finishes on session end")
-    func cursorReportsLifecycle() throws {
-        let working = try Self.runShellHook(.init(
-            scriptName: "muxy-cursor-hook.sh",
-            event: "beforeSubmitPrompt",
-            input: "{}"
-        ))
-        let finished = try Self.runShellHook(.init(
-            scriptName: "muxy-cursor-hook.sh",
-            event: "sessionEnd",
-            input: "{}"
-        ))
-
-        #expect(working == ["agent_event|cursor_hook|\(Self.paneID)|working||\n"])
-        #expect(finished == ["agent_event|cursor_hook|\(Self.paneID)|finished||\n"])
-    }
-
-    @Test("notification types map to stable lifecycle phases")
-    func notificationTypesMapToLifecycle() throws {
-        let permission = try Self.runShellHook(.init(
-            scriptName: "muxy-claude-hook.sh",
-            event: "notification",
-            input: #"{"notification_type":"permission_prompt","message":"Allow command?"}"#
-        ))
-        let completed = try Self.runShellHook(.init(
-            scriptName: "muxy-grok-hook.sh",
-            event: "notification",
-            input: #"{"notificationType":"task_complete","message":"Done"}"#
-        ))
-        let authentication = try Self.runShellHook(.init(
-            scriptName: "muxy-claude-hook.sh",
-            event: "notification",
-            input: #"{"notification_type":"auth_success"}"#
-        ))
-
-        #expect(permission == ["agent_event|claude_hook|\(Self.paneID)|waiting|Claude Code|Allow command?\n"])
-        #expect(completed == ["agent_event|grok_hook|\(Self.paneID)|finished|Grok|Done\n"])
-        #expect(authentication.isEmpty)
-    }
-
-    @Test("failed JSON extraction diagnostics are not treated as hook values")
-    func failedJSONExtractionDiagnosticsAreIgnored() throws {
-        let plutilURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muxy-test-plutil-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: plutilURL) }
-        let wrapper = #"""
-        #!/bin/sh
-        output=$(/usr/bin/plutil "$@" 2>/dev/null)
-        status=$?
-        if [ "$status" -ne 0 ]; then
-            printf '<stdin>: Could not extract value'
-            exit "$status"
-        fi
-        printf '%s' "$output"
-        """#
-        try Data(wrapper.utf8).write(to: plutilURL)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: plutilURL.path
-        )
-
-        let completed = try Self.runShellHook(.init(
-            scriptName: "muxy-grok-hook.sh",
-            event: "notification",
-            input: #"{"notificationType":"task_complete","message":"Done"}"#,
-            plutilPath: plutilURL.path
-        ))
-        let stopped = try Self.runShellHook(.init(
-            scriptName: "muxy-grok-hook.sh",
-            event: "stop",
-            input: "{}",
-            plutilPath: plutilURL.path
-        ))
-
-        #expect(completed == ["agent_event|grok_hook|\(Self.paneID)|finished|Grok|Done\n"])
-        #expect(stopped == ["agent_event|grok_hook|\(Self.paneID)|finished|Grok|Session completed\n"])
-    }
-
-    @Test("Codex session start hook event does not report working")
-    func codexSessionStartDoesNotReportWorking() throws {
-        let sessionStart = try Self.runShellHook(.init(
-            scriptName: "muxy-codex-hook.sh",
-            event: "session-start",
-            input: "{}"
-        ))
-
-        #expect(sessionStart.isEmpty)
-    }
-
-    @Test("shell hooks fall back to the legacy status wire for older Muxy terminals")
-    func shellHooksFallBackForOlderMuxyTerminals() throws {
-        let working = try Self.runShellHook(.init(
-            scriptName: "muxy-codex-hook.sh",
-            event: "user-prompt-submit",
-            input: "{}",
-            protocolVersion: nil
-        ))
-        let finished = try Self.runShellHook(.init(
-            scriptName: "muxy-codex-hook.sh",
-            event: "stop",
-            input: #"{"last_assistant_message":"Done"}"#,
-            protocolVersion: nil
-        ))
-
-        #expect(working == ["agent_status|codex_hook|\(Self.paneID)|working\n"])
-        #expect(finished == [
-            "agent_status|codex_hook|\(Self.paneID)|idle\ncodex_hook|\(Self.paneID)|Codex|Done\n",
-        ])
-        #expect(!working.joined().contains("working||"))
+        #expect(contents.contains("process.env.MUXY_HOOK_BIN"))
+        #expect(contents.contains("node:child_process"))
+        #expect(contents.contains("agent-event"))
+        #expect(contents.contains("muxy-hook binary is not staged"))
+        #expect(!contents.contains("agent_status|"))
+        #expect(!contents.contains("agent_event|"))
+        #expect(!contents.contains("createConnection"))
+        #expect(!contents.contains("MUXY_AGENT_EVENT_PROTOCOL"))
     }
 
     private func temporaryBundle() throws -> URL {
-        let tmp = FileManager.default.temporaryDirectory
+        let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-test-bundle-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        let infoPlist = tmp.appendingPathComponent("Info.plist")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let plist: [String: Any] = [
             "CFBundleIdentifier": "app.muxy.test",
             "CFBundleName": "TestBundle",
@@ -297,160 +162,66 @@ struct MuxyNotificationHooksTests {
             "CFBundlePackageType": "BNDL",
         ]
         let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
-        try data.write(to: infoPlist)
-        return tmp
+        try data.write(to: directory.appendingPathComponent("Info.plist"))
+        return directory
+    }
+
+    private func permissions(of url: URL) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return try #require(attributes[.posixPermissions] as? NSNumber).intValue
     }
 
     private static var repositoryRoot: URL {
         RepositoryRoot.find()
     }
 
-    private static let paneID = UUID().uuidString
-
-    private static let shellHookSamples = [
-        ShellHookSample(scriptName: "muxy-claude-hook.sh", event: "stop", input: "{}"),
-        ShellHookSample(scriptName: "muxy-codex-hook.sh", event: "stop", input: "{}"),
-        ShellHookSample(scriptName: "muxy-cursor-hook.sh", event: "Stop", input: "{}"),
-        ShellHookSample(scriptName: "muxy-droid-hook.sh", event: "stop", input: "{}"),
-        ShellHookSample(scriptName: "muxy-grok-hook.sh", event: "stop", input: "{}"),
+    private static let shellScriptNames = [
+        "muxy-claude-hook.sh",
+        "muxy-codex-hook.sh",
+        "muxy-cursor-hook.sh",
+        "muxy-droid-hook.sh",
+        "muxy-grok-hook.sh",
     ]
+    private struct StagingFixture {
+        let rootDirectory: URL
+        let bundleDirectory: URL
+        let scriptsDirectory: URL
+        let binaryURL: URL
+        let destinationDirectory: URL
+        let bundle: Bundle
 
-    private struct ShellHookSample {
-        let scriptName: String
-        let event: String
-        let input: String
-        var protocolVersion: String? = "2"
-        var plutilPath: String?
-        var hasPaneIdentity = true
-    }
-
-    private static func runShellHook(_ sample: ShellHookSample) throws -> [String] {
-        let socketPath = URL(fileURLWithPath: "/tmp")
-            .appendingPathComponent("muxy-hook-\(UUID().uuidString).sock")
-            .path
-        let listener = try bindListener(at: socketPath)
-        defer {
-            close(listener)
-            unlink(socketPath)
+        var stagedBinaryURL: URL {
+            destinationDirectory.appendingPathComponent(MuxyNotificationHooks.hookBinaryName)
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [
-            repositoryRoot
-                .appendingPathComponent("Muxy/Resources/scripts/\(sample.scriptName)")
-                .path,
-            sample.event,
-        ]
-        var environment = ProcessInfo.processInfo.environment
-        environment["MUXY_SOCKET_PATH"] = socketPath
-        if sample.hasPaneIdentity {
-            environment["MUXY_PANE_ID"] = paneID
-        } else {
-            environment.removeValue(forKey: "MUXY_PANE_ID")
-        }
-        if let protocolVersion = sample.protocolVersion {
-            environment["MUXY_AGENT_EVENT_PROTOCOL"] = protocolVersion
-        } else {
-            environment.removeValue(forKey: "MUXY_AGENT_EVENT_PROTOCOL")
-        }
-        if let plutilPath = sample.plutilPath {
-            environment["MUXY_AGENT_PLUTIL_PATH"] = plutilPath
-        } else {
-            environment.removeValue(forKey: "MUXY_AGENT_PLUTIL_PATH")
-        }
-        process.environment = environment
-        let stdin = Pipe()
-        process.standardInput = stdin
-
-        try process.run()
-        defer {
-            if process.isRunning {
-                process.terminate()
-                process.waitUntilExit()
+        init() throws {
+            rootDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("MuxyNotificationHooksTests-\(UUID().uuidString)", isDirectory: true)
+            bundleDirectory = rootDirectory.appendingPathComponent("Test.bundle", isDirectory: true)
+            scriptsDirectory = bundleDirectory.appendingPathComponent("scripts", isDirectory: true)
+            binaryURL = rootDirectory.appendingPathComponent("source-muxy-hook")
+            destinationDirectory = rootDirectory.appendingPathComponent("Application Support/hooks", isDirectory: true)
+            try FileManager.default.createDirectory(at: scriptsDirectory, withIntermediateDirectories: true)
+            let plist: [String: Any] = [
+                "CFBundleIdentifier": "app.muxy.hook-tests",
+                "CFBundleName": "HookTests",
+                "CFBundleVersion": "1",
+                "CFBundlePackageType": "BNDL",
+            ]
+            let plistData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            try plistData.write(to: bundleDirectory.appendingPathComponent("Info.plist"))
+            for scriptName in MuxyNotificationHooksTests.shellScriptNames + [
+                "opencode-muxy-plugin.js",
+                "muxy-pi-extension.ts",
+            ] {
+                try Data("source \(scriptName)".utf8).write(to: scriptsDirectory.appendingPathComponent(scriptName))
             }
-        }
-        stdin.fileHandleForWriting.write(Data(sample.input.utf8))
-        try stdin.fileHandleForWriting.close()
-
-        let payloads = drainConnections(listener, while: process)
-        try waitForProcess(process)
-        #expect(process.terminationStatus == 0)
-        return payloads
-    }
-
-    private static func drainConnections(_ listener: Int32, while process: Process) -> [String] {
-        var payloads: [String] = []
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline {
-            var event = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&event, 1, 500)
-            if ready > 0 {
-                let accepted = accept(listener, nil, nil)
-                guard accepted >= 0 else { continue }
-                let data = (try? readPayload(from: accepted)) ?? Data()
-                close(accepted)
-                if !data.isEmpty {
-                    payloads.append(String(decoding: data, as: UTF8.self))
-                }
-                continue
-            }
-            if !process.isRunning { break }
-        }
-        return payloads
-    }
-
-    private static func bindListener(at path: String) throws -> Int32 {
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { throw POSIXError(.EMFILE) }
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let capacity = MemoryLayout.size(ofValue: addr.sun_path)
-        guard path.utf8.count < capacity else {
-            close(descriptor)
-            throw POSIXError(.ENAMETOOLONG)
-        }
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            let bound = ptr.withMemoryRebound(to: CChar.self, capacity: capacity) { $0 }
-            _ = path.withCString { strncpy(bound, $0, capacity - 1) }
+            try Data("binary".utf8).write(to: binaryURL)
+            bundle = try #require(Bundle(url: bundleDirectory))
         }
 
-        let bindResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
+        func cleanUp() {
+            try? FileManager.default.removeItem(at: rootDirectory)
         }
-        guard bindResult == 0, listen(descriptor, 5) == 0 else {
-            close(descriptor)
-            throw POSIXError(.EADDRINUSE)
-        }
-        return descriptor
-    }
-
-    private static func readPayload(from descriptor: Int32) throws -> Data {
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while !data.contains(10) {
-            var event = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&event, 1, 3_000)
-            guard ready > 0 else { throw POSIXError(.ETIMEDOUT) }
-            let count = read(descriptor, &buffer, buffer.count)
-            guard count > 0 else { break }
-            data.append(buffer, count: count)
-        }
-        return data
-    }
-
-    private static func waitForProcess(_ process: Process) throws {
-        let deadline = Date().addingTimeInterval(3)
-        while process.isRunning, Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        guard !process.isRunning else {
-            process.terminate()
-            process.waitUntilExit()
-            throw POSIXError(.ETIMEDOUT)
-        }
-        process.waitUntilExit()
     }
 }

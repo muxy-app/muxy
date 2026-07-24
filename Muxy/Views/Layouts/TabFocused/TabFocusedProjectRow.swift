@@ -138,7 +138,13 @@ struct TabFocusedProjectRow: View {
             if let worktree {
                 worktreeContextMenu(worktree)
             } else if project.isHome {
-                Button("Hide Home") { HomeProjectPreferences.isVisible = false }
+                ProjectContextMenuFooter(
+                    path: project.path,
+                    workspaceContext: projectGroupStore.workspaceContext(for: project),
+                    separatesFromPreviousActions: false
+                ) {
+                    Button("Hide Home") { HomeProjectPreferences.isVisible = false }
+                }
             } else {
                 projectContextMenu
             }
@@ -154,8 +160,7 @@ struct TabFocusedProjectRow: View {
                 sourceImage: item.image,
                 onConfirm: { cropped in
                     logoCropImage = nil
-                    let path = ProjectLogoStorage.save(croppedImage: cropped, forProjectID: project.id)
-                    projectStore.setLogo(id: project.id, to: path)
+                    projectStore.setLogo(id: project.id, croppedImage: cropped)
                 },
                 onCancel: { logoCropImage = nil }
             )
@@ -194,7 +199,9 @@ struct TabFocusedProjectRow: View {
             .onSubmit { commitRename() }
             .onExitCommand { isRenaming = false }
             .onChange(of: renameFieldFocused) { _, focused in
-                if !focused, isRenaming { commitRename() }
+                if !focused, isRenaming {
+                    commitRename()
+                }
             }
     }
 
@@ -236,8 +243,12 @@ struct TabFocusedProjectRow: View {
             Divider()
             ProjectGroupMembershipMenu(project: project)
         }
-        Divider()
-        Button("Remove Project", role: .destructive) { projectPendingRemoval = true }
+        ProjectContextMenuFooter(
+            path: project.path,
+            workspaceContext: projectGroupStore.workspaceContext(for: project)
+        ) {
+            Button("Remove Project", role: .destructive) { projectPendingRemoval = true }
+        }
     }
 
     private var worktreesEnabledBinding: Binding<Bool> {
@@ -272,7 +283,12 @@ struct TabFocusedProjectRow: View {
 
     private func requestRemoveWorktree(_ worktree: Worktree) async {
         let context = projectGroupStore.workspaceContext(for: project)
-        worktreeStore.beginRemoval(worktree: worktree, repoPath: project.path, context: context) {
+        worktreeStore.beginRemoval(
+            worktree: worktree,
+            projectID: project.id,
+            repoPath: project.path,
+            context: context
+        ) {
             appState.removeWorktree(
                 projectID: project.id,
                 worktree: worktree,
@@ -378,7 +394,9 @@ struct TabFocusedProjectRow: View {
     }
 
     private var headerBackground: AnyShapeStyle {
-        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        if hovered {
+            return AnyShapeStyle(MuxyTheme.hover)
+        }
         return AnyShapeStyle(Color.clear)
     }
 
@@ -463,13 +481,17 @@ struct TabFocusedProjectRow: View {
 
     private func performRemove() {
         Task {
-            try? await ProjectRemovalService.remove(
-                project,
-                appState: appState,
-                projectStore: projectStore,
-                worktreeStore: worktreeStore,
-                projectGroupStore: projectGroupStore
-            )
+            do {
+                try await ProjectRemovalService.remove(
+                    project,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
+                )
+            } catch {
+                ToastState.shared.show(title: "Could not remove project", body: error.localizedDescription)
+            }
         }
     }
 }

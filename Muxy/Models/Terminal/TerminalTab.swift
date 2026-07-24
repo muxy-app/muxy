@@ -47,6 +47,7 @@ final class TerminalTab: Identifiable {
     }
 
     let id: UUID
+    var parentTabID: UUID?
     var customTitle: String?
     var colorID: String?
     var customIcon: String?
@@ -69,23 +70,27 @@ final class TerminalTab: Identifiable {
         }
     }
 
-    init(pane: TerminalPaneState) {
+    init(pane: TerminalPaneState, parentTabID: UUID? = nil) {
         id = UUID()
+        self.parentTabID = parentTabID
         content = .terminal(pane)
     }
 
-    init(extensionState: ExtensionTabState) {
+    init(extensionState: ExtensionTabState, parentTabID: UUID? = nil) {
         id = UUID()
+        self.parentTabID = parentTabID
         content = .extensionWebView(extensionState)
     }
 
-    init(browserState: BrowserTabState) {
+    init(browserState: BrowserTabState, parentTabID: UUID? = nil) {
         id = UUID()
+        self.parentTabID = parentTabID
         content = .browser(browserState)
     }
 
     init(restoring snapshot: TerminalTabSnapshot) {
         id = snapshot.id
+        parentTabID = snapshot.parentTabID
         customTitle = snapshot.customTitle
         colorID = snapshot.colorID
         customIcon = snapshot.customIcon
@@ -131,6 +136,7 @@ final class TerminalTab: Identifiable {
         TerminalTabSnapshot(
             kind: content.kind,
             id: id,
+            parentTabID: parentTabID,
             customTitle: customTitle,
             colorID: colorID,
             customIcon: customIcon,

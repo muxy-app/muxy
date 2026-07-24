@@ -115,7 +115,7 @@ struct ProjectStatusBar: View {
         let remote = isRemoteWorkspace
         return Button {
             if remote {
-                copyToPasteboard(fullPath)
+                PathClipboard.copy(fullPath)
             } else {
                 revealInFinder(fullPath)
             }
@@ -133,7 +133,7 @@ struct ProjectStatusBar: View {
         .help(fullPath)
         .accessibilityLabel(remote ? "Copy \(fullPath)" : "Reveal \(fullPath) in Finder")
         .contextMenu {
-            Button("Copy Path") { copyToPasteboard(fullPath) }
+            Button("Copy Path") { PathClipboard.copy(fullPath) }
             if !remote {
                 Button("Reveal in Finder") { revealInFinder(fullPath) }
             }
@@ -303,12 +303,6 @@ struct ProjectStatusBar: View {
     private func revealInFinder(_ path: String) {
         let url = URL(fileURLWithPath: path)
         NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-
-    private func copyToPasteboard(_ string: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(string, forType: .string)
     }
 
     private func abbreviatePath(_ path: String) -> String {

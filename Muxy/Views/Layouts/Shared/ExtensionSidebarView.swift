@@ -23,8 +23,7 @@ struct ExtensionSidebarView: View {
                 projectStore: projectStore,
                 worktreeStore: worktreeStore,
                 projectGroupStore: projectGroupStore,
-                focused: true,
-                onFocus: {}
+                focused: true
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

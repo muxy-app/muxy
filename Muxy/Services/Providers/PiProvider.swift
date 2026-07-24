@@ -20,37 +20,22 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private static let destinationFileName = "muxy-notify.ts"
-    private static let bundleResourceName = "muxy-pi-extension"
-    private static let bundleResourceExtension = "ts"
-
     private let homeDirectory: String
     private let pathEnvironment: @Sendable () -> String
-    private let resourceURL: @Sendable (String, String) -> URL?
 
     init(
         homeDirectory: String = NSHomeDirectory(),
-        pathEnvironment: @escaping @Sendable () -> String = { LoginShellPath.current },
-        resourceURL: @escaping @Sendable (String, String) -> URL? = { name, ext in
-            let bundle = Bundle.appResources
-            return bundle.url(forResource: name, withExtension: ext, subdirectory: nil)
-                ?? bundle.url(forResource: name, withExtension: ext, subdirectory: "scripts")
-        }
+        pathEnvironment: @escaping @Sendable () -> String = { LoginShellPath.current }
     ) {
         self.homeDirectory = homeDirectory
         self.pathEnvironment = pathEnvironment
-        self.resourceURL = resourceURL
     }
 
     init(
         homeDirectory: String = NSHomeDirectory(),
-        pathEnvironment: String,
-        resourceURL: @escaping @Sendable (String, String) -> URL? = { name, ext in
-            let bundle = Bundle.appResources
-            return bundle.url(forResource: name, withExtension: ext, subdirectory: nil)
-                ?? bundle.url(forResource: name, withExtension: ext, subdirectory: "scripts")
-        }
+        pathEnvironment: String
     ) {
-        self.init(homeDirectory: homeDirectory, pathEnvironment: { pathEnvironment }, resourceURL: resourceURL)
+        self.init(homeDirectory: homeDirectory, pathEnvironment: { pathEnvironment })
     }
 
     private var extensionsDir: String { homeDirectory + "/.pi/agent/extensions" }
@@ -78,17 +63,28 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
         isHookInstalled() || isRegisteredInSettings()
     }
 
-    func install(hookScriptPath: String) throws {
-        guard let sourceURL = resourceURL(Self.bundleResourceName, Self.bundleResourceExtension) else {
-            throw PiProviderError.bundleResourceNotFound
-        }
+    var configPaths: [String] { [destinationPath, settingsPath] }
 
+    func verify(hookScriptPath: String) -> HookVerification {
+        guard FileManager.default.fileExists(atPath: destinationPath) else { return .needsRepair }
+        guard FileManager.default.contentsEqual(atPath: hookScriptPath, andPath: destinationPath) else {
+            return .needsRepair
+        }
+        guard installedExtensionHasPrivatePermissions() else { return .needsRepair }
+        guard !isRegisteredInSettings() else { return .needsRepair }
+        return .satisfied
+    }
+
+    func install(hookScriptPath: String) throws {
+        let sourceURL = URL(fileURLWithPath: hookScriptPath)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else { throw PiProviderError.hookResourceNotFound }
         let sourceData = try Data(contentsOf: sourceURL)
 
         if FileManager.default.fileExists(atPath: destinationPath),
            let existingData = try? Data(contentsOf: URL(fileURLWithPath: destinationPath)),
            existingData == sourceData
         {
+            try setPrivatePermissionsOnInstalledExtension()
             try unregisterExtensionFromSettings()
             return
         }
@@ -105,6 +101,8 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
         }
 
         try sourceData.write(to: destURL, options: .atomic)
+        try setPrivatePermissionsOnInstalledExtension()
+        HookConfigWriteLedger.shared.recordWrite(path: destinationPath, contents: sourceData)
         try unregisterExtensionFromSettings()
     }
 
@@ -137,17 +135,7 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
             json["extensions"] = extensions
         }
 
-        let updatedData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-
-        let backupPath = settingsPath + ".muxy-backup"
-        try? FileManager.default.removeItem(atPath: backupPath)
-        try FileManager.default.copyItem(atPath: settingsPath, toPath: backupPath)
-
-        try updatedData.write(to: url, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: settingsPath
-        )
+        try HookConfigWriter.write(json, to: settingsPath)
     }
 
     private func isRegisteredInSettings() -> Bool {
@@ -157,15 +145,29 @@ struct PiProvider: AIProviderIntegration, AIAgentLaunchProvider {
         else { return false }
         return extensions.contains(destinationPath)
     }
+
+    private func setPrivatePermissionsOnInstalledExtension() throws {
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateFile],
+            ofItemAtPath: destinationPath
+        )
+    }
+
+    private func installedExtensionHasPrivatePermissions() -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: destinationPath),
+              let permissions = attributes[.posixPermissions] as? NSNumber
+        else { return false }
+        return permissions.intValue == FilePermissions.privateFile
+    }
 }
 
 enum PiProviderError: LocalizedError, Equatable {
-    case bundleResourceNotFound
+    case hookResourceNotFound
 
     var errorDescription: String? {
         switch self {
-        case .bundleResourceNotFound:
-            "Pi extension file (muxy-pi-extension.ts) not found in app bundle"
+        case .hookResourceNotFound:
+            "Pi extension file (muxy-pi-extension.ts) not found at the staged hook path"
         }
     }
 }

@@ -17,7 +17,9 @@ struct TerminalProgress: Equatable {
     }
 
     static func tabIndicator(progress: TerminalProgress?, agentStatus: AgentStatus?) -> TerminalProgress? {
-        if let progress { return progress }
+        if let progress {
+            return progress
+        }
         guard agentStatus == .working else { return nil }
         return TerminalProgress(kind: .indeterminate, percent: nil)
     }
