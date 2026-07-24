@@ -177,6 +177,17 @@ struct TerminalCommandTrackerTests {
         #expect(TerminalCommandTracker.shared.lastSubmittedCommand(for: pane) == "vim main.swift")
     }
 
+    @Test("finishCommand clears the active command")
+    func finishCommandClearsActiveCommand() {
+        let pane = UUID()
+        TerminalCommandTracker.shared.recordText("npm run dev\n", paneID: pane)
+        TerminalCommandTracker.shared.confirmCommand(paneID: pane)
+
+        TerminalCommandTracker.shared.finishCommand(paneID: pane)
+
+        #expect(TerminalCommandTracker.shared.lastSubmittedCommand(for: pane) == nil)
+    }
+
     @Test("Confirmed command persists when new pending appears")
     func confirmedCommandPersistsWhenNewPendingAppears() {
         let pane = UUID()

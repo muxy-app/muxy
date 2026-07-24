@@ -24,6 +24,7 @@ final class GhosttyTerminalNSView: NSView {
     var onSearchTotal: ((Int?) -> Void)?
     var onSearchSelected: ((Int?) -> Void)?
     var onProgressReport: ((TerminalProgress?) -> Void)?
+    var onForegroundProcessNameChange: ((String?) -> Void)?
     private let scrollbarOverlay = TerminalScrollbarOverlay()
     var onCmdClickFile: ((String) -> Void)?
     var resolveCmdHoverFile: ((String) -> Bool)?
@@ -284,6 +285,7 @@ final class GhosttyTerminalNSView: NSView {
         onSearchTotal = nil
         onSearchSelected = nil
         onProgressReport = nil
+        onForegroundProcessNameChange = nil
         onOfflineChange = nil
         onDetectedAgentChange = nil
         if let observer = screenChangeObserver {
@@ -1712,6 +1714,11 @@ final class GhosttyTerminalNSView: NSView {
         guard let paneID = TerminalViewRegistry.shared.paneID(for: self) else { return }
         guard canRecordTerminalInput() else { return }
         TerminalCommandTracker.shared.recordReturn(paneID: paneID)
+        onForegroundProcessNameChange?(
+            TerminalProcessDisplayName.commandExecutableName(
+                TerminalCommandTracker.shared.lastSubmittedCommand(for: paneID)
+            )
+        )
     }
 
     private func recordBackspaceInput() {
@@ -1759,7 +1766,17 @@ final class GhosttyTerminalNSView: NSView {
     func currentProcessName() -> String? {
         guard let surface else { return nil }
         let foregroundPID = ghostty_surface_foreground_pid(surface)
-        return ForegroundProcessInspector.executableNameCandidates(pid: foregroundPID).first
+        let foregroundName = ForegroundProcessInspector.executableNameCandidates(pid: foregroundPID).first
+        let paneID = TerminalViewRegistry.shared.paneID(for: self)
+        let activeCommand = paneID.flatMap(TerminalCommandTracker.shared.lastSubmittedCommand)
+        return TerminalProcessDisplayName.resolve(
+            foregroundName: foregroundName,
+            activeCommand: activeCommand
+        )
+    }
+
+    func refreshForegroundProcessName() {
+        onForegroundProcessNameChange?(currentProcessName())
     }
 
     private func startAgentDetection() {

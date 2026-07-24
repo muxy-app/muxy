@@ -76,6 +76,7 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
                 TerminalCommandTracker.shared.recordShellCommandCandidate(titleString, paneID: paneID)
             }
             view.onTitleChange?(titleString)
+            view.refreshForegroundProcessName()
             view.requestAgentDetection()
         }
     }
@@ -175,7 +176,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         DispatchQueue.main.async {
             if let paneID = TerminalViewRegistry.shared.paneID(for: view) {
                 AgentStatusStore.shared.removePane(paneID)
+                TerminalCommandTracker.shared.finishCommand(paneID: paneID)
             }
+            view.refreshForegroundProcessName()
             guard view.closesOnCommandExit else { return }
             guard !view.processExitHandled else { return }
             view.processExitHandled = true

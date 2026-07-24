@@ -368,6 +368,9 @@ struct TerminalBridge: NSViewRepresentable {
                 state?.setForegroundProcessName(view?.currentProcessName())
             }
         }
+        view.onForegroundProcessNameChange = { [weak state] processName in
+            state?.setForegroundProcessName(processName)
+        }
         view.onWorkingDirectoryChange = { [weak state] path in
             DispatchQueue.main.async {
                 state?.setWorkingDirectory(path)
