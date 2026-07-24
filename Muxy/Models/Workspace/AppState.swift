@@ -568,6 +568,12 @@ final class AppState {
         }
     }
 
+    func closeTabs(_ tabIDs: [UUID], areaID: UUID, key: WorktreeKey) {
+        for tabID in tabIDs {
+            closeTab(tabID, areaID: areaID, key: key)
+        }
+    }
+
     private func proceedCloseAfterVeto(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, key: key) {
             pendingProcessTabClose = PendingTabClose(key: key, areaID: areaID, tabID: tabID)
