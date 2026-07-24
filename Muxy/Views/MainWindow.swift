@@ -574,82 +574,18 @@ struct MainWindow: View {
     private var topBarContent: some View {
         if showsTabsInTitleBar,
            let project = activeProject,
-           let root = appState.workspaceRoot(for: project.id),
-           case let .tabArea(area) = root
+           let key = appState.activeWorktreeKey(for: project.id),
+           let layout = appState.topLevelTabLayouts[key],
+           layout.isSingleGroup,
+           let group = layout.allGroups().first
         {
-            PaneTabStrip(
-                areaID: area.id,
-                tabs: PaneTabStrip.snapshots(from: area.tabs),
-                activeTabID: area.activeTabID,
-                isFocused: true,
+            TopLevelTabGroupStrip(
+                project: project,
+                worktreeKey: key,
+                groupID: group.id,
                 isWindowTitleBar: true,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
-                openProjectPath: project.isRemote ? nil : activeWorktreePath(for: project),
-                projectID: project.id,
-                onSelectTab: { tabID in
-                    appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
-                },
-                onCreateTab: {
-                    appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
-                },
-                onOpenBrowser: browserEnabled ? {
-                    appState.dispatch(.createBrowserTab(
-                        projectID: project.id,
-                        areaID: area.id,
-                        url: BrowserURL.homeURL,
-                        profileID: browserProfileStore.defaultProfileID
-                    ))
-                } : nil,
-                onCloseTab: { tabID in
-                    appState.closeTab(tabID, areaID: area.id, projectID: project.id)
-                },
-                onCloseOtherTabs: { tabID in
-                    let ids = area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id)
-                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
-                },
-                onCloseTabsToLeft: { tabID in
-                    guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                    let ids = area.tabs.prefix(index).filter { !$0.isPinned }.map(\.id)
-                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
-                },
-                onCloseTabsToRight: { tabID in
-                    guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                    let ids = area.tabs.suffix(from: index + 1).filter { !$0.isPinned }.map(\.id)
-                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
-                },
-                onSplit: { dir in
-                    appState.dispatch(.splitArea(.init(
-                        projectID: project.id,
-                        areaID: area.id,
-                        direction: dir,
-                        position: .second
-                    )))
-                },
-                onDropAction: { result in
-                    appState.dispatch(result.action(projectID: project.id))
-                },
-                onCreateTabAdjacent: { tabID, side in
-                    appState.dispatch(.createTabAdjacent(
-                        projectID: project.id,
-                        areaID: area.id,
-                        tabID: tabID,
-                        side: side
-                    ))
-                },
-                onTogglePin: { tabID in
-                    area.togglePin(tabID)
-                },
-                onSetCustomTitle: { tabID, title in
-                    area.setCustomTitle(tabID, title: title)
-                    appState.saveWorkspaces()
-                },
-                onSetColorID: { tabID, colorID in
-                    area.setColorID(tabID, colorID: colorID)
-                    appState.saveWorkspaces()
-                },
-                onReorderTab: { fromOffsets, toOffset in
-                    area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
-                }
+                openProjectPath: project.isRemote ? nil : activeWorktreePath(for: project)
             )
         } else {
             HStack(spacing: 0) {
@@ -695,6 +631,51 @@ struct MainWindow: View {
                 LayoutPickerMenu(projectID: project.id)
             }
             ExtensionTopbarItems()
+            if let project = activeProject,
+               let key = appState.activeWorktreeKey(for: project.id),
+               let focusedAreaID = appState.focusedAreaID[key]
+            {
+                let visiblePaneCount = appState.visibleLayout(for: key)?.allPanes().count ?? 0
+                let isMaximized = appState.maximizedPanes[key] != nil
+                if visiblePaneCount > 1 || isMaximized {
+                    let symbol = isMaximized
+                        ? "arrow.down.right.and.arrow.up.left"
+                        : "arrow.up.left.and.arrow.down.right"
+                    let label = isMaximized ? "Restore Pane" : "Maximize Pane"
+                    IconButton(symbol: symbol, accessibilityLabel: label) {
+                        appState.toggleMaximize(areaID: focusedAreaID, for: project.id)
+                    }
+                }
+                IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") {
+                    appState.dispatch(.splitArea(.init(
+                        projectID: project.id,
+                        areaID: focusedAreaID,
+                        direction: .horizontal,
+                        position: .second
+                    )))
+                }
+                IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") {
+                    appState.dispatch(.splitArea(.init(
+                        projectID: project.id,
+                        areaID: focusedAreaID,
+                        direction: .vertical,
+                        position: .second
+                    )))
+                }
+                IconButton(symbol: "plus", accessibilityLabel: "New Tab") {
+                    appState.dispatch(.createTab(projectID: project.id, areaID: focusedAreaID))
+                }
+                if browserEnabled {
+                    IconButton(symbol: "globe", accessibilityLabel: "Open Browser Tab") {
+                        appState.dispatch(.createBrowserTab(
+                            projectID: project.id,
+                            areaID: focusedAreaID,
+                            url: BrowserURL.homeURL,
+                            profileID: browserProfileStore.defaultProfileID
+                        ))
+                    }
+                }
+            }
         }
         .padding(.trailing, UIMetrics.spacing2)
         .fixedSize(horizontal: true, vertical: false)

@@ -106,7 +106,7 @@ muxy next-tab                # cycle forward
 muxy previous-tab            # cycle backward
 ```
 
-Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `next-tab`/`previous-tab` only for relative cycling. List first with `muxy list-tabs` when you need the index or ID.
+Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `next-tab`/`previous-tab` only for relative cycling. List first with `muxy list-tabs` when you need the index or ID. The list is flat and includes split-child tabs; switching to one activates its owning top-level tab and focuses that pane.
 
 `new-tab`, `list-tabs`, `switch-tab`, `next-tab`, `previous-tab`, and `split-right`/`split-down` accept `--project <name|id|path>` and `--worktree <name|id|branch>` to target a specific worktree. Both are optional: with neither they act on the active worktree; `--worktree` alone resolves in the active project, then searches all projects for a unique match (ambiguous — pass `--project`); `--project` alone uses that project's active/preferred worktree; both are explicit. Targeting acts in the target worktree's background workspace — your visible view stays put. Use `switch-project`/`switch-worktree` to actually move focus.
 
@@ -123,13 +123,13 @@ Customize and manage a tab with `muxy tab <op> <index|id|title>`. The target res
 muxy tab rename 0 "Server"          # omit the title to reset to the default
 muxy tab set-color 0 blue           # palette name; omit to reset
 muxy tab set-icon 0 "flame.fill"    # any SF Symbol name; omit to reset
-muxy tab pin 0                       # pin / unpin (pinned tabs can't be closed)
+muxy tab pin 0                       # pin / unpin (blocks direct close)
 muxy tab unpin 0
-muxy tab move 0 2                    # reorder within the tab's area
+muxy tab move 0 2                    # reorder a root tab or a child within its pane
 muxy tab close "Server"             # close by index/id/title
 ```
 
-The color must be one of Muxy's palette names: `red`, `orange`, `amber`, `yellow`, `lime`, `green`, `teal`, `cyan`, `blue`, `indigo`, `violet`, `pink`. `set-icon` takes an SF Symbol name. Pin a tab to protect it from `tab close` / `close-pane`; `tab close` is a no-op on a pinned tab, so `unpin` first.
+The color must be one of Muxy's palette names: `red`, `orange`, `amber`, `yellow`, `lime`, `green`, `teal`, `cyan`, `blue`, `indigo`, `violet`, `pink`. `set-icon` takes an SF Symbol name. Pin a tab to protect it from a direct `tab close` / `close-pane`; `tab close` is a no-op on a pinned tab, so `unpin` first. Closing a parent tab still closes every child tab it owns, including pinned children.
 
 ## Browser
 

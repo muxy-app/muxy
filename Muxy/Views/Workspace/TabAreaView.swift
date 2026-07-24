@@ -2,130 +2,69 @@ import SwiftUI
 
 struct TabAreaView: View {
     let area: TabArea
+    let tab: TerminalTab
+    let topLevelGroupID: UUID
     let isFocused: Bool
     let isActiveProject: Bool
-    let showTabStrip: Bool
     let projectID: UUID
-    let shortcutIndexOffset: Int
     let onFocus: () -> Void
-    let onSelectTab: (UUID) -> Void
-    let onCreateTab: () -> Void
-    let onCloseTab: (UUID) -> Void
-    let onForceCloseTab: (UUID) -> Void
-    let onSplit: (SplitDirection) -> Void
+    let onForceCloseTab: () -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
-    var showMaximizeButton = false
-    var isMaximized = false
-    var onToggleMaximize: (() -> Void)?
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @Environment(AppState.self) private var appState
-    @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
+    @Environment(\.activeWorktreeKey) private var worktreeKey
     @State private var isExternalDragHovering = false
     @State private var externalDragHideTask: Task<Void, any Error>?
+    @State private var isCommandDragging = false
 
     private static let externalDragHideDebounce: Duration = .milliseconds(80)
 
-    private func closeTabs(_ tabIDs: [UUID]) {
-        for tabID in tabIDs {
-            onCloseTab(tabID)
-        }
+    private var ownsActivePaneDrag: Bool {
+        guard let drag = dragCoordinator.activeDrag,
+              !drag.isTopLevel,
+              let worktreeKey,
+              let root = appState.workspaceRoots[worktreeKey],
+              let draggedTab = root.locateTab(id: drag.tabID)?.tab
+        else { return false }
+        return (draggedTab.parentTabID ?? draggedTab.id) == (tab.parentTabID ?? tab.id)
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if showTabStrip {
-                PaneTabStrip(
-                    areaID: area.id,
-                    tabs: PaneTabStrip.snapshots(from: area.tabs),
-                    activeTabID: area.activeTabID,
-                    isFocused: isFocused,
+        TabContentView(
+            tab: tab,
+            area: area,
+            focused: isFocused && isActiveProject,
+            visible: isActiveProject,
+            areaID: area.id,
+            topLevelGroupID: topLevelGroupID,
+            onFocus: onFocus,
+            onProcessExit: onForceCloseTab,
+            onSplitRequest: { direction, position in
+                appState.dispatch(.splitArea(.init(
                     projectID: projectID,
-                    shortcutIndexOffset: shortcutIndexOffset,
-                    onSelectTab: onSelectTab,
-                    onCreateTab: onCreateTab,
-                    onOpenBrowser: browserEnabled ? {
-                        appState.dispatch(.createBrowserTab(
-                            projectID: projectID,
-                            areaID: area.id,
-                            url: BrowserURL.homeURL,
-                            profileID: BrowserPreferences.defaultProfileID
-                        ))
-                    } : nil,
-                    onCloseTab: onCloseTab,
-                    onCloseOtherTabs: { tabID in
-                        closeTabs(area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id))
-                    },
-                    onCloseTabsToLeft: { tabID in
-                        guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                        closeTabs(area.tabs.prefix(index).filter { !$0.isPinned }.map(\.id))
-                    },
-                    onCloseTabsToRight: { tabID in
-                        guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                        closeTabs(area.tabs.suffix(from: index + 1).filter { !$0.isPinned }.map(\.id))
-                    },
-                    onSplit: onSplit,
-                    onDropAction: onDropAction,
-                    showMaximizeButton: showMaximizeButton,
-                    isMaximized: isMaximized,
-                    onToggleMaximize: onToggleMaximize,
-                    onCreateTabAdjacent: { tabID, side in
-                        appState.dispatch(.createTabAdjacent(
-                            projectID: projectID,
-                            areaID: area.id,
-                            tabID: tabID,
-                            side: side
-                        ))
-                    },
-                    onTogglePin: { tabID in
-                        area.togglePin(tabID)
-                    },
-                    onSetCustomTitle: { tabID, title in
-                        area.setCustomTitle(tabID, title: title)
-                        appState.saveWorkspaces()
-                    },
-                    onSetColorID: { tabID, colorID in
-                        area.setColorID(tabID, colorID: colorID)
-                        appState.saveWorkspaces()
-                    },
-                    onReorderTab: { fromOffsets, toOffset in
-                        area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
-                    }
-                )
-                Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                    areaID: area.id,
+                    direction: direction,
+                    position: position
+                )))
             }
-            ZStack {
-                ForEach(area.tabs) { tab in
-                    let isActive = tab.id == area.activeTabID
-                    TabContentView(
-                        tab: tab,
-                        area: area,
-                        focused: isActive && isFocused && isActiveProject,
-                        visible: isActive && isActiveProject,
-                        areaID: area.id,
-                        onFocus: onFocus,
-                        onProcessExit: { onForceCloseTab(tab.id) },
-                        onSplitRequest: { direction, position in
-                            appState.dispatch(.splitArea(.init(
-                                projectID: projectID,
-                                areaID: area.id,
-                                direction: direction,
-                                position: position
-                            )))
-                        }
-                    )
-                    .zIndex(isActive ? 1 : 0)
-                    .opacity(isActive ? 1 : 0)
-                    .allowsHitTesting(isActive)
-                }
-            }
-            .overlay {
-                if dragCoordinator.activeDrag != nil, dragCoordinator.hoveredAreaID == area.id,
-                   let zone = dragCoordinator.hoveredZone
-                {
-                    DropZoneHighlight(zone: zone)
-                }
+        )
+        .overlay {
+            if ownsActivePaneDrag,
+               dragCoordinator.hoveredAreaID == area.id,
+               let zone = dragCoordinator.hoveredZone
+            {
+                DropZoneHighlight(zone: zone)
             }
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 4, coordinateSpace: .named(DragCoordinateSpace.mainWindow))
+                .onChanged { value in
+                    handleCommandDragChanged(value)
+                }
+                .onEnded { _ in
+                    handleCommandDragEnded()
+                }
+        )
         .overlay {
             if isExternalDragHovering {
                 ExternalDragHoverHighlight()
@@ -137,9 +76,13 @@ struct TabAreaView: View {
         }
         .onDisappear {
             externalDragHideTask?.cancel()
+            if isCommandDragging {
+                dragCoordinator.cancelDrag()
+                isCommandDragging = false
+            }
         }
         .background {
-            if dragCoordinator.activeDrag != nil {
+            if ownsActivePaneDrag {
                 GeometryReader { geo in
                     Color.clear.preference(
                         key: AreaFramePreferenceKey.self,
@@ -150,9 +93,6 @@ struct TabAreaView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .findInTerminal)) { _ in
             guard isFocused, isActiveProject else { return }
-            guard let tabID = area.activeTabID,
-                  let tab = area.tabs.first(where: { $0.id == tabID })
-            else { return }
             if let browserState = tab.content.browserState {
                 browserState.activateFind()
                 return
@@ -160,6 +100,23 @@ struct TabAreaView: View {
             guard let pane = tab.content.pane else { return }
             TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
         }
+    }
+
+    private func handleCommandDragChanged(_ value: DragGesture.Value) {
+        if !isCommandDragging {
+            guard NSEvent.modifierFlags.contains(.command) else { return }
+            isCommandDragging = true
+            onFocus()
+            dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: area.id, projectID: projectID)
+        }
+        dragCoordinator.updatePosition(value.location)
+    }
+
+    private func handleCommandDragEnded() {
+        guard isCommandDragging else { return }
+        isCommandDragging = false
+        guard let result = dragCoordinator.endDrag() else { return }
+        onDropAction(result)
     }
 
     private func handleExternalDragHover(note: Notification) {
@@ -198,6 +155,7 @@ private struct TabContentView: View {
     let focused: Bool
     let visible: Bool
     let areaID: UUID
+    let topLevelGroupID: UUID
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -211,6 +169,7 @@ private struct TabContentView: View {
                 focused: focused,
                 visible: visible,
                 areaID: areaID,
+                topLevelGroupID: topLevelGroupID,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
@@ -219,7 +178,12 @@ private struct TabContentView: View {
             ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)
         case let .browser(browserState):
             if browserEnabled {
-                BrowserPane(state: browserState, focused: focused, onFocus: onFocus)
+                BrowserPane(
+                    state: browserState,
+                    focused: focused,
+                    topLevelGroupID: topLevelGroupID,
+                    onFocus: onFocus
+                )
             } else {
                 BrowserDisabledPlaceholder()
                     .contentShape(Rectangle())

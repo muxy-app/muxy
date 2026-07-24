@@ -82,13 +82,14 @@ struct MuxyAPITabsControlTests {
         #expect(!area.tabs.contains { $0.id == tab.id })
     }
 
-    @Test("move reorders a tab within its area")
-    func moveReordersTab() {
+    @Test("move reorders a top-level tab")
+    func moveReordersTopLevelTab() {
         let (appState, area) = makeAppState(tabTitles: ["First", "Second", "Third"])
+        let key = appState.activeWorktreeKey(for: appState.activeProjectID!)!
         let third = area.tabs[2]
 
         _ = MuxyAPI.Tabs.move(identifier: third.id.uuidString, toIndex: 0, appState: appState)
-        #expect(area.tabs.first?.id == third.id)
+        #expect(appState.topLevelTabs(for: key).first?.tab.id == third.id)
     }
 
     @Test("move rejects an out-of-range index")
@@ -109,7 +110,7 @@ struct MuxyAPITabsControlTests {
 
         let result = MuxyAPI.Tabs.move(identifier: unpinned.id.uuidString, toIndex: 0, appState: appState)
         guard case let .failure(error) = result else { Issue.record("expected failure"); return }
-        #expect(error == .invalidArguments("index out of range"))
+        #expect(error == .invalidArguments("target index crosses the pinned tab boundary"))
         #expect(area.tabs[0].isPinned)
         #expect(area.tabs.firstIndex(where: { !$0.isPinned }) == 1)
     }
@@ -122,8 +123,136 @@ struct MuxyAPITabsControlTests {
 
         let result = MuxyAPI.Tabs.move(identifier: second.id.uuidString, toIndex: 1, appState: appState)
         guard case .success = result else { Issue.record("expected success"); return }
-        #expect(area.tabs[0].isPinned)
-        #expect(area.tabs[1].id == second.id)
+        let key = appState.activeWorktreeKey(for: appState.activeProjectID!)!
+        let roots = appState.topLevelTabs(for: key)
+        #expect(roots[0].tab.isPinned)
+        #expect(roots[1].tab.id == second.id)
+    }
+
+    @Test("flat ordering keeps child slots while root moves update navigation")
+    func flatOrderingKeepsChildSlotsWhileRootMovesUpdateNavigation() {
+        let (appState, rootArea) = makeAppState(tabTitles: ["First", "Second"])
+        let projectID = appState.activeProjectID!
+        let key = appState.activeWorktreeKey(for: projectID)!
+        let firstTab = rootArea.tabs[0]
+        let secondTab = rootArea.tabs[1]
+
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: rootArea.id,
+            direction: .horizontal,
+            position: .first
+        )))
+        let childAreaID = appState.focusedAreaID[key]!
+        let childTab = appState.workspaceRoots[key]!.findArea(id: childAreaID)!.activeTab!
+
+        let moved = MuxyAPI.Tabs.move(
+            identifier: secondTab.id.uuidString,
+            toIndex: 1,
+            appState: appState
+        )
+
+        guard case .success = moved else { Issue.record("expected success"); return }
+        #expect(appState.topLevelTabs(for: key).map(\.tab.id) == [secondTab.id, firstTab.id])
+        guard case let .success(listed) = MuxyAPI.Tabs.list(appState: appState) else {
+            Issue.record("expected list success")
+            return
+        }
+        #expect(listed.map(\.id) == [childTab.id, secondTab.id, firstTab.id])
+
+        let incompatible = MuxyAPI.Tabs.move(
+            identifier: secondTab.id.uuidString,
+            toIndex: 0,
+            appState: appState
+        )
+        guard case let .failure(error) = incompatible else { Issue.record("expected failure"); return }
+        #expect(error == .invalidArguments("target index is not a top-level tab"))
+
+        _ = MuxyAPI.Tabs.switchTo(identifier: "1", appState: appState)
+        #expect(rootArea.activeTabID == secondTab.id)
+        _ = MuxyAPI.Tabs.next(appState: appState)
+        #expect(rootArea.activeTabID == firstTab.id)
+    }
+
+    @Test("flat move translates a child destination into its area")
+    func flatMoveTranslatesChildDestinationIntoArea() {
+        let (appState, rootArea) = makeAppState(tabTitles: ["Root"])
+        let projectID = appState.activeProjectID!
+        let key = appState.activeWorktreeKey(for: projectID)!
+        let rootTabID = rootArea.tabs[0].id
+
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: rootArea.id,
+            direction: .horizontal,
+            position: .second
+        )))
+        let childArea = appState.workspaceRoots[key]!.findArea(id: appState.focusedAreaID[key]!)!
+        let firstChild = childArea.tabs[0]
+        let secondChild = TerminalTab(
+            pane: TerminalPaneState(projectPath: testPath),
+            parentTabID: rootTabID
+        )
+        childArea.tabs.append(secondChild)
+
+        let moved = MuxyAPI.Tabs.move(
+            identifier: secondChild.id.uuidString,
+            toIndex: 1,
+            appState: appState
+        )
+
+        guard case .success = moved else { Issue.record("expected success"); return }
+        #expect(childArea.tabs.map(\.id) == [secondChild.id, firstChild.id])
+
+        let crossArea = MuxyAPI.Tabs.move(
+            identifier: secondChild.id.uuidString,
+            toIndex: 0,
+            appState: appState
+        )
+        guard case let .failure(error) = crossArea else { Issue.record("expected failure"); return }
+        #expect(error == .invalidArguments("target index is in a different pane"))
+    }
+
+    @Test("child moves use physical slots after roots are reordered")
+    func childMovesUsePhysicalSlotsAfterRootReorder() {
+        let (appState, firstArea) = makeAppState(tabTitles: ["First"])
+        let projectID = appState.activeProjectID!
+        let key = appState.activeWorktreeKey(for: projectID)!
+        let firstRoot = firstArea.tabs[0]
+        let secondArea = TabArea(
+            projectPath: testPath,
+            command: nil,
+            parentTabID: firstRoot.id
+        )
+        let child = secondArea.tabs[0]
+        let secondRoot = TerminalTab(pane: TerminalPaneState(projectPath: testPath))
+        secondArea.tabs.append(secondRoot)
+        appState.workspaceRoots[key] = .split(SplitBranch(
+            direction: .horizontal,
+            first: .tabArea(firstArea),
+            second: .tabArea(secondArea)
+        ))
+        appState.topLevelTabOrder[key] = [secondRoot.id, firstRoot.id]
+
+        let crossArea = MuxyAPI.Tabs.move(
+            identifier: child.id.uuidString,
+            toIndex: 0,
+            appState: appState
+        )
+        guard case let .failure(error) = crossArea else { Issue.record("expected failure"); return }
+        #expect(error == .invalidArguments("target index is in a different pane"))
+
+        let moved = MuxyAPI.Tabs.move(
+            identifier: child.id.uuidString,
+            toIndex: 2,
+            appState: appState
+        )
+        guard case .success = moved else { Issue.record("expected success"); return }
+        guard case let .success(listed) = MuxyAPI.Tabs.list(appState: appState) else {
+            Issue.record("expected list success")
+            return
+        }
+        #expect(listed.map(\.id) == [secondRoot.id, firstRoot.id, child.id])
     }
 
     @Test("a tab resolves by ID across a non-active workspace")
@@ -153,6 +282,33 @@ struct MuxyAPITabsControlTests {
 
         guard case .success = result else { Issue.record("expected success"); return }
         #expect(!otherArea.tabs.contains { $0.id == secondTabID })
+    }
+
+    @Test("flat API lists and selects split-child tabs")
+    func flatAPIListsAndSelectsSplitChildren() {
+        let (appState, rootArea) = makeAppState(tabTitles: ["Root"])
+        let projectID = appState.activeProjectID!
+        let key = appState.activeWorktreeKey(for: projectID)!
+        let rootTabID = rootArea.tabs[0].id
+
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: rootArea.id,
+            direction: .horizontal,
+            position: .second
+        )))
+        let childAreaID = appState.focusedAreaID[key]!
+        let childTab = appState.workspaceRoots[key]!.findArea(id: childAreaID)!.activeTab!
+        appState.dispatch(.selectTab(projectID: projectID, areaID: rootArea.id, tabID: rootTabID))
+
+        let listed = MuxyAPI.Tabs.list(appState: appState)
+        guard case let .success(tabs) = listed else { Issue.record("expected success"); return }
+        #expect(tabs.map(\.id) == [rootTabID, childTab.id])
+
+        let selected = MuxyAPI.Tabs.switchTo(identifier: childTab.id.uuidString, appState: appState)
+        guard case .success = selected else { Issue.record("expected success"); return }
+        #expect(appState.focusedAreaID[key] == childAreaID)
+        #expect(appState.activeTopLevelTabID(for: key) == rootTabID)
     }
 
     @Test("an unknown identifier fails with tabNotFound")

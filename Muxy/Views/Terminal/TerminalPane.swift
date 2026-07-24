@@ -6,6 +6,7 @@ struct TerminalPane: View {
     let focused: Bool
     let visible: Bool
     let areaID: UUID
+    let topLevelGroupID: UUID
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -52,6 +53,7 @@ struct TerminalPane: View {
                 focused: focused,
                 visible: visible,
                 areaID: areaID,
+                topLevelGroupID: topLevelGroupID,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
@@ -184,6 +186,7 @@ struct TerminalBridge: NSViewRepresentable {
     let focused: Bool
     let visible: Bool
     let areaID: UUID
+    let topLevelGroupID: UUID
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -193,30 +196,166 @@ struct TerminalBridge: NSViewRepresentable {
     @Environment(AppState.self) private var appState
 
     final class Coordinator {
+        let claimID = UUID()
+
+        struct FocusState: Equatable {
+            let focused: Bool
+            let overlayActive: Bool
+        }
+
+        private(set) var paneID: UUID?
         var wasFocused = false
         var wasOverlayActive = false
+
+        func transition(
+            paneID: UUID,
+            focused: Bool,
+            overlayActive: Bool,
+            reset: Bool = false
+        ) -> FocusState {
+            if self.paneID != paneID || reset {
+                self.paneID = paneID
+                wasFocused = false
+                wasOverlayActive = false
+            }
+            let previous = FocusState(focused: wasFocused, overlayActive: wasOverlayActive)
+            wasFocused = focused
+            wasOverlayActive = overlayActive
+            return previous
+        }
+    }
+
+    private static let mountBroker = ReparentingNSViewBroker<GhosttyTerminalNSView> {
+        deactivate($0)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> GhosttyTerminalNSView {
-        let registry = TerminalViewRegistry.shared
-        let launch = state.consumeRestoredLaunch()
-        let view = registry.view(
-            for: state.id,
-            workingDirectory: state.currentWorkingDirectory ?? state.projectPath,
-            command: launch.command,
-            commandInteractive: launch.interactive,
-            closesOnCommandExit: launch.closesOnCommandExit,
-            workspaceContext: workspaceContext
+    func makeNSView(context: Context) -> ReparentingNSViewHost {
+        let host = ReparentingNSViewHost()
+        let view = terminalView()
+        Self.mountBroker.register(
+            claimID: context.coordinator.claimID,
+            view: view,
+            host: host,
+            configuration: mountConfiguration(coordinator: context.coordinator)
         )
-        if view.envVars.isEmpty, let key = worktreeKey {
+        return host
+    }
+
+    func updateNSView(_ host: ReparentingNSViewHost, context: Context) {
+        let view = terminalView()
+        Self.mountBroker.update(
+            claimID: context.coordinator.claimID,
+            view: view,
+            host: host,
+            configuration: mountConfiguration(coordinator: context.coordinator)
+        )
+    }
+
+    static func dismantleNSView(_ host: ReparentingNSViewHost, coordinator: Coordinator) {
+        mountBroker.release(claimID: coordinator.claimID, host: host)
+    }
+
+    private var isCurrentPresentation: Bool {
+        guard let worktreeKey,
+              let visibleLayout = appState.visibleLayout(
+                  for: worktreeKey,
+                  groupID: topLevelGroupID
+              )
+        else { return false }
+        return visibleLayout.allPanes().contains {
+            $0.tab.content.pane?.id == state.id
+        }
+    }
+
+    private func mountConfiguration(
+        coordinator: Coordinator
+    ) -> ReparentingNSViewBroker<GhosttyTerminalNSView>.Configuration {
+        .init(
+            isEligible: { isCurrentPresentation },
+            prepare: { view in
+                configure(view)
+            },
+            didMount: { view, host, ownershipChanged in
+                updateFocus(
+                    view,
+                    host: host,
+                    coordinator: coordinator,
+                    ownershipChanged: ownershipChanged
+                )
+            }
+        )
+    }
+
+    private func updateFocus(
+        _ view: GhosttyTerminalNSView,
+        host: ReparentingNSViewHost,
+        coordinator: Coordinator,
+        ownershipChanged: Bool
+    ) {
+        let previousFocus = coordinator.transition(
+            paneID: state.id,
+            focused: focused,
+            overlayActive: overlayActive,
+            reset: ownershipChanged
+        )
+
+        if overlayActive {
+            if view.window?.firstResponder === view || view.window?.firstResponder === view.inputContext {
+                view.window?.makeFirstResponder(nil)
+            }
+            if !previousFocus.overlayActive {
+                view.notifySurfaceUnfocused()
+            }
+        } else if TerminalFocusRestorationPolicy.shouldClaimFocus(
+            focused: focused,
+            wasFocused: previousFocus.focused,
+            wasOverlayActive: previousFocus.overlayActive
+        ) {
+            if ownershipChanged {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak host, weak view] in
+                    guard let host, let view else { return }
+                    Self.restoreFocus(to: view, in: host)
+                }
+            } else {
+                DispatchQueue.main.async { [weak host, weak view] in
+                    guard let host, let view else { return }
+                    Self.restoreFocus(to: view, in: host)
+                }
+            }
+        } else if TerminalFocusRestorationPolicy.shouldReleaseFocus(
+            focused: focused,
+            wasFocused: previousFocus.focused,
+            attachmentChanged: ownershipChanged
+        ) {
+            view.notifySurfaceUnfocused()
+            if view.window?.firstResponder === view || view.window?.firstResponder === view.inputContext {
+                view.window?.makeFirstResponder(nil)
+            }
+        }
+    }
+
+    private static func restoreFocus(
+        to view: GhosttyTerminalNSView,
+        in host: ReparentingNSViewHost
+    ) {
+        guard view.superview === host,
+              view.isFocused,
+              !view.overlayActive
+        else { return }
+        view.window?.makeFirstResponder(view)
+    }
+
+    private func configure(_ view: GhosttyTerminalNSView) {
+        if view.envVars.isEmpty, view.surface == nil, let key = worktreeKey {
             view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
         view.isFocused = focused
         view.overlayActive = overlayActive
+        view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         view.setVisible(visible)
         view.setFocused(focused)
         view.onFocus = onFocus
@@ -237,83 +376,31 @@ struct TerminalBridge: NSViewRepresentable {
             state?.isOffline = offline
         }
         configureAgentDetectionCallback(view)
-        view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
         configureFileOpenCallback(view)
         configureProgressCallback(view)
-        context.coordinator.wasFocused = focused
-        context.coordinator.wasOverlayActive = overlayActive
-        if focused, !overlayActive {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak view] in
-                guard let view else { return }
-                view.window?.makeFirstResponder(view)
-            }
-        } else {
-            view.notifySurfaceUnfocused()
-            if view.window?.firstResponder === view {
-                view.window?.makeFirstResponder(nil)
-            }
-        }
-        return view
     }
 
-    func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
-        if nsView.envVars.isEmpty, nsView.surface == nil, let key = worktreeKey {
-            nsView.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
+    private static func deactivate(_ view: GhosttyTerminalNSView) {
+        if view.window?.firstResponder === view || view.window?.firstResponder === view.inputContext {
+            view.window?.makeFirstResponder(nil)
         }
-        nsView.overlayActive = overlayActive
-        nsView.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
-        nsView.setVisible(visible)
-        nsView.setFocused(focused)
-        nsView.onFocus = onFocus
-        nsView.onProcessExit = onProcessExit
-        nsView.onSplitRequest = onSplitRequest
-        nsView.onExternalDragHoverChange = makeExternalDragHoverHandler(areaID: areaID)
-        nsView.onTitleChange = { [weak state] title in
-            DispatchQueue.main.async {
-                state?.setTitle(title)
-            }
-        }
-        nsView.onWorkingDirectoryChange = { [weak state] path in
-            DispatchQueue.main.async {
-                state?.setWorkingDirectory(path)
-            }
-        }
-        nsView.onOfflineChange = { [weak state] offline in
-            state?.isOffline = offline
-        }
-        configureAgentDetectionCallback(nsView)
-        configureSearchCallbacks(nsView)
-        configureFileOpenCallback(nsView)
-        configureProgressCallback(nsView)
-        let wasFocused = context.coordinator.wasFocused
-        let wasOverlayActive = context.coordinator.wasOverlayActive
-        context.coordinator.wasFocused = focused
-        context.coordinator.wasOverlayActive = overlayActive
-        nsView.isFocused = focused
+        view.isFocused = false
+        view.setFocused(false)
+        view.setVisible(false)
+        view.notifySurfaceUnfocused()
+    }
 
-        if overlayActive {
-            if nsView.window?.firstResponder === nsView || nsView.window?.firstResponder === nsView.inputContext {
-                nsView.window?.makeFirstResponder(nil)
-            }
-            if !wasOverlayActive {
-                nsView.notifySurfaceUnfocused()
-            }
-        } else if TerminalFocusRestorationPolicy.shouldClaimFocus(
-            focused: focused,
-            wasFocused: wasFocused,
-            wasOverlayActive: wasOverlayActive
-        ) {
-            DispatchQueue.main.async { [weak nsView] in
-                guard let nsView else { return }
-                nsView.window?.makeFirstResponder(nsView)
-            }
-        } else if !focused, wasFocused {
-            nsView.notifySurfaceUnfocused()
-            if nsView.window?.firstResponder === nsView || nsView.window?.firstResponder === nsView.inputContext {
-                nsView.window?.makeFirstResponder(nil)
-            }
-        }
+    private func terminalView() -> GhosttyTerminalNSView {
+        let launch = state.consumeRestoredLaunch()
+        return TerminalViewRegistry.shared.view(
+            for: state.id,
+            workingDirectory: state.currentWorkingDirectory ?? state.projectPath,
+            command: launch.command,
+            commandInteractive: launch.interactive,
+            closesOnCommandExit: launch.closesOnCommandExit,
+            workspaceContext: workspaceContext
+        )
     }
 
     private func makeExternalDragHoverHandler(areaID: UUID) -> (Bool) -> Void {
@@ -607,5 +694,13 @@ enum TerminalFocusRestorationPolicy {
         wasOverlayActive: Bool
     ) -> Bool {
         focused && (!wasFocused || wasOverlayActive)
+    }
+
+    static func shouldReleaseFocus(
+        focused: Bool,
+        wasFocused: Bool,
+        attachmentChanged: Bool
+    ) -> Bool {
+        !focused && (wasFocused || attachmentChanged)
     }
 }

@@ -33,16 +33,23 @@ struct SettingsCatalogTests {
     }
 
     @Test
-    func quickTerminalAppearanceAndSizeAreSearchableAndJSONEditable() {
+    func quickTerminalSettingsAreSearchableAndJSONEditable() {
         let quickTerminalItems = SettingsCatalog.items.filter { $0.category == .quickTerminal }
 
         #expect(quickTerminalItems.allSatisfy { $0.category == .quickTerminal })
+        #expect(quickTerminalItems.contains { $0.key == QuickTerminalPreferences.enabledKey })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalSizePreferences.widthKey })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalSizePreferences.heightKey })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalAppearancePreferences.transparencyKey })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalAppearancePreferences.blurIntensityKey })
         #expect(SettingsCatalog.matchingItems(query: "terminal size").contains {
             $0.key == QuickTerminalSizePreferences.widthKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "disable").contains {
+            $0.key == QuickTerminalPreferences.enabledKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == QuickTerminalPreferences.enabledKey
         })
         #expect(SettingsCatalog.jsonEditableItems.contains {
             $0.key == QuickTerminalSizePreferences.heightKey

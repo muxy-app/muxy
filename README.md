@@ -37,7 +37,7 @@ Lightweight terminal that has a rich API for extensions
 - 490+ themes
 - 50+ customizable shortcuts
 - Workspace & session persistence
-- Quick terminal that expands from the cutout like a dynamic island, with a persistent home-directory shell and configurable glass appearance
+- Optional shortcut-triggered quick terminal that expands from the cutout like a dynamic island, with a persistent home-directory shell and configurable glass appearance
 
 ## Agent Skills
 

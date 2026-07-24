@@ -33,8 +33,7 @@ struct ExtensionPanelView: View {
                         projectStore: projectStore,
                         worktreeStore: worktreeStore,
                         projectGroupStore: projectGroupStore,
-                        focused: true,
-                        onFocus: {}
+                        focused: true
                     )
                 }
             )

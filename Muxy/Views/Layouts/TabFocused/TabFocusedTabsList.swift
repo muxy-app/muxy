@@ -52,6 +52,7 @@ struct TabFocusedTabsList: View {
     private struct AreaTab: Identifiable {
         let area: TabArea
         let tab: TerminalTab
+        let relatedTabs: [TerminalTab]
         let worktree: Worktree
         var id: UUID { tab.id }
     }
@@ -61,8 +62,14 @@ struct TabFocusedTabsList: View {
     }
 
     private var areaTabs: [AreaTab] {
-        appState.areas(for: worktreeKey).flatMap { area in
-            area.tabs.map { AreaTab(area: area, tab: $0, worktree: worktree) }
+        let allTabs = appState.workspaceRoots[worktreeKey]?.allTabs() ?? []
+        return appState.topLevelTabs(for: worktreeKey).map { item in
+            AreaTab(
+                area: item.area,
+                tab: item.tab,
+                relatedTabs: [item.tab] + allTabs.filter { $0.parentTabID == item.tab.id },
+                worktree: worktree
+            )
         }
     }
 
@@ -70,7 +77,7 @@ struct TabFocusedTabsList: View {
         guard appState.activeProjectID == project.id,
               appState.activeWorktreeID[project.id] == worktree.id
         else { return nil }
-        return appState.activeTab(for: project.id)?.id
+        return appState.activeTopLevelTabID(for: worktreeKey)
     }
 
     var body: some View {
@@ -90,6 +97,8 @@ struct TabFocusedTabsList: View {
                 project: project,
                 area: item.area,
                 tab: item.tab,
+                relatedTabs: item.relatedTabs,
+                topLevelTabs: areaTabs.map { ($0.area, $0.tab) },
                 active: item.tab.id == activeTabID,
                 worktree: item.worktree,
                 shortcutNumber: numbers[item.tab.id]
@@ -122,7 +131,7 @@ struct TabFocusedTabsList: View {
             dragState.draggedID = item.tab.id
             dragState.lastReorderTargetID = nil
         }
-        reorderIfNeeded(area: item.area, at: location)
+        reorderIfNeeded(at: location)
     }
 
     private func handleDragEnded() {
@@ -133,7 +142,7 @@ struct TabFocusedTabsList: View {
         }
     }
 
-    private func reorderIfNeeded(area: TabArea, at location: CGPoint) {
+    private func reorderIfNeeded(at location: CGPoint) {
         guard let draggedID = dragState.draggedID else { return }
         var hoveredTargetID: UUID?
 
@@ -141,16 +150,19 @@ struct TabFocusedTabsList: View {
             guard frame.contains(location) else { continue }
             hoveredTargetID = id
             guard dragState.lastReorderTargetID != id,
-                  let sourceIndex = area.tabs.firstIndex(where: { $0.id == draggedID }),
-                  let destIndex = area.tabs.firstIndex(where: { $0.id == id })
+                  let sourceIndex = areaTabs.firstIndex(where: { $0.tab.id == draggedID }),
+                  let destIndex = areaTabs.firstIndex(where: { $0.tab.id == id })
             else { return }
 
             dragState.lastReorderTargetID = id
             let offset = destIndex > sourceIndex ? destIndex + 1 : destIndex
             withAnimation(.easeInOut(duration: 0.15)) {
-                area.reorderTab(fromOffsets: IndexSet(integer: sourceIndex), toOffset: offset)
+                appState.reorderTopLevelTabs(
+                    for: worktreeKey,
+                    fromOffsets: IndexSet(integer: sourceIndex),
+                    toOffset: offset
+                )
             }
-            appState.saveWorkspaces()
             return
         }
 
@@ -181,6 +193,8 @@ private struct TabFocusedTabRow: View {
     let project: Project
     let area: TabArea
     let tab: TerminalTab
+    let relatedTabs: [TerminalTab]
+    let topLevelTabs: [(area: TabArea, tab: TerminalTab)]
     let active: Bool
     var worktree: Worktree?
     var shortcutNumber: Int?
@@ -202,8 +216,9 @@ private struct TabFocusedTabRow: View {
     @State private var notificationStore = NotificationStore.shared
 
     private var paneProgress: TerminalProgress? {
-        guard let paneID = tab.content.pane?.id else { return nil }
-        return progressStore.progress(for: paneID)
+        relatedTabs.compactMap { $0.content.pane?.id }
+            .compactMap { progressStore.progress(for: $0) }
+            .first
     }
 
     private var tabProgress: TerminalProgress? {
@@ -211,21 +226,26 @@ private struct TabFocusedTabRow: View {
     }
 
     private var hasCompletionPending: Bool {
-        guard let paneID = tab.content.pane?.id else { return false }
-        return progressStore.isCompletionPending(for: paneID)
-            || AgentStatusStore.shared.isCompletionPending(forPane: paneID)
+        relatedTabs.compactMap { $0.content.pane?.id }.contains {
+            progressStore.isCompletionPending(for: $0)
+                || AgentStatusStore.shared.isCompletionPending(forPane: $0)
+        }
     }
 
     private var hasUnread: Bool {
-        notificationStore.hasUnread(tabID: tab.id)
+        relatedTabs.contains { notificationStore.hasUnread(tabID: $0.id) }
     }
 
     private var isIdle: Bool {
-        tab.content.pane?.isOffline ?? false
+        let panes = relatedTabs.compactMap(\.content.pane)
+        return !panes.isEmpty && panes.allSatisfy(\.isOffline)
     }
 
     private var agentStatus: AgentStatus? {
-        AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
+        let statuses = relatedTabs.compactMap { tab in
+            AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
+        }
+        return statuses.contains(.waiting) ? .waiting : statuses.first
     }
 
     private var statusDotColor: Color? {
@@ -266,21 +286,21 @@ private struct TabFocusedTabRow: View {
     }
 
     private var currentIndex: Int? {
-        area.tabs.firstIndex(where: { $0.id == tab.id })
+        topLevelTabs.firstIndex(where: { $0.tab.id == tab.id })
     }
 
     private var closableOthersCount: Int {
-        area.tabs.count(where: { $0.id != tab.id && !$0.isPinned })
+        topLevelTabs.count(where: { $0.tab.id != tab.id && !$0.tab.isPinned })
     }
 
     private var closableLeftCount: Int {
         guard let currentIndex else { return 0 }
-        return area.tabs.prefix(currentIndex).count(where: { !$0.isPinned })
+        return topLevelTabs.prefix(currentIndex).count(where: { !$0.tab.isPinned })
     }
 
     private var closableRightCount: Int {
         guard let currentIndex else { return 0 }
-        return area.tabs.suffix(from: currentIndex + 1).count(where: { !$0.isPinned })
+        return topLevelTabs.suffix(from: currentIndex + 1).count(where: { !$0.tab.isPinned })
     }
 
     private var hasClosableSiblings: Bool {
@@ -407,7 +427,13 @@ private struct TabFocusedTabRow: View {
             }
         }
         Divider()
-        Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") { area.togglePin(tab.id) }
+        Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
+            guard let worktree else { return }
+            appState.togglePinTopLevelTab(
+                tab.id,
+                for: WorktreeKey(projectID: projectID, worktreeID: worktree.id)
+            )
+        }
         if !tab.isPinned || hasClosableSiblings {
             Divider()
             if !tab.isPinned {
@@ -478,7 +504,10 @@ private struct TabFocusedTabRow: View {
     private var leadingIcon: some View {
         switch tab.kind {
         case .terminal:
-            if let agentIconName = DetectedAgentStore.shared.iconName(forPane: tab.content.pane?.id) {
+            let agentIconName = relatedTabs.compactMap {
+                DetectedAgentStore.shared.iconName(forPane: $0.content.pane?.id)
+            }.first
+            if let agentIconName {
                 ProviderIconView(iconName: agentIconName, size: UIMetrics.iconMD)
             } else {
                 Image(systemName: "terminal")
@@ -517,9 +546,11 @@ private struct TabFocusedTabRow: View {
         withAnimation(.easeIn(duration: 0.15)) {
             completionFlashOn = true
         }
-        if active, let paneID = tab.content.pane?.id {
-            progressStore.clearCompletion(for: paneID)
-            AgentStatusStore.shared.clearCompletion(for: paneID)
+        if active {
+            for paneID in relatedTabs.compactMap({ $0.content.pane?.id }) {
+                progressStore.clearCompletion(for: paneID)
+                AgentStatusStore.shared.clearCompletion(for: paneID)
+            }
         }
         flashTask = Task { @MainActor in
             try await Task.sleep(for: .milliseconds(450))
@@ -534,6 +565,7 @@ private struct TabFocusedTabRow: View {
         if let worktree, appState.activeWorktreeID[projectID] != worktree.id {
             appState.selectWorktree(projectID: projectID, worktree: worktree)
         }
+        guard !active else { return }
         appState.dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
     }
 
@@ -553,20 +585,23 @@ private struct TabFocusedTabRow: View {
     }
 
     private func closeOthers() {
-        let ids = area.tabs.filter { $0.id != tab.id && !$0.isPinned }.map(\.id)
-        appState.closeTabs(ids, areaID: area.id, projectID: projectID)
+        for item in topLevelTabs where item.tab.id != tab.id && !item.tab.isPinned {
+            appState.closeTab(item.tab.id, areaID: item.area.id, projectID: projectID)
+        }
     }
 
     private func closeLeft() {
         guard let currentIndex else { return }
-        let ids = area.tabs.prefix(currentIndex).filter { !$0.isPinned }.map(\.id)
-        appState.closeTabs(ids, areaID: area.id, projectID: projectID)
+        for item in topLevelTabs.prefix(currentIndex) where !item.tab.isPinned {
+            appState.closeTab(item.tab.id, areaID: item.area.id, projectID: projectID)
+        }
     }
 
     private func closeRight() {
         guard let currentIndex else { return }
-        let ids = area.tabs.suffix(from: currentIndex + 1).filter { !$0.isPinned }.map(\.id)
-        appState.closeTabs(ids, areaID: area.id, projectID: projectID)
+        for item in topLevelTabs.suffix(from: currentIndex + 1) where !item.tab.isPinned {
+            appState.closeTab(item.tab.id, areaID: item.area.id, projectID: projectID)
+        }
     }
 
     private func startRename() {

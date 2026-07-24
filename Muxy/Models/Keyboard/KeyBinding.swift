@@ -21,6 +21,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case focusPaneRight
     case focusPaneUp
     case focusPaneDown
+    case movePaneLeft
+    case movePaneRight
+    case movePaneUp
+    case movePaneDown
     case cycleNextTabAcrossPanes
     case cyclePreviousTabAcrossPanes
     case nextTab
@@ -86,6 +90,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .focusPaneRight,
         .focusPaneUp,
         .focusPaneDown,
+        .movePaneLeft,
+        .movePaneRight,
+        .movePaneUp,
+        .movePaneDown,
         .cycleNextTabAcrossPanes,
         .cyclePreviousTabAcrossPanes,
         .nextTab,
@@ -154,6 +162,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .focusPaneRight: ShortcutMetadata(displayName: "Focus Pane Right", category: "Panes", scope: .mainWindow)
         case .focusPaneUp: ShortcutMetadata(displayName: "Focus Pane Up", category: "Panes", scope: .mainWindow)
         case .focusPaneDown: ShortcutMetadata(displayName: "Focus Pane Down", category: "Panes", scope: .mainWindow)
+        case .movePaneLeft: ShortcutMetadata(displayName: "Move Pane Left", category: "Panes", scope: .mainWindow)
+        case .movePaneRight: ShortcutMetadata(displayName: "Move Pane Right", category: "Panes", scope: .mainWindow)
+        case .movePaneUp: ShortcutMetadata(displayName: "Move Pane Up", category: "Panes", scope: .mainWindow)
+        case .movePaneDown: ShortcutMetadata(displayName: "Move Pane Down", category: "Panes", scope: .mainWindow)
         case .cycleNextTabAcrossPanes: ShortcutMetadata(
                 displayName: "Cycle Next Tab (All Panes)",
                 category: "Tab Navigation",
@@ -339,6 +351,10 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .focusPaneRight, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, option: true)),
         Self(action: .focusPaneUp, combo: KeyCombo(key: KeyCombo.upArrowKey, command: true, option: true)),
         Self(action: .focusPaneDown, combo: KeyCombo(key: KeyCombo.downArrowKey, command: true, option: true)),
+        Self(action: .movePaneLeft, combo: KeyCombo(key: "", modifiers: 0)),
+        Self(action: .movePaneRight, combo: KeyCombo(key: "", modifiers: 0)),
+        Self(action: .movePaneUp, combo: KeyCombo(key: "", modifiers: 0)),
+        Self(action: .movePaneDown, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .cycleNextTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
         Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),

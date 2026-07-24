@@ -12,18 +12,99 @@ struct ExtensionWebView: NSViewRepresentable {
     let worktreeStore: WorktreeStore?
     let projectGroupStore: ProjectGroupStore?
     let focused: Bool
-    let onFocus: () -> Void
+    var surfaceStore: ExtensionTabSurfaceStore?
 
     @Environment(BrowserProfileStore.self) private var browserProfileStore: BrowserProfileStore?
     @Environment(\.overlayActive) private var overlayActive
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(surfaceKind: surfaceKind, onFocus: onFocus)
+    private static let mountBroker = ReparentingNSViewBroker<WKWebView> { _ in }
+
+    func makeCoordinator() -> MountCoordinator {
+        MountCoordinator()
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> ReparentingNSViewHost {
+        let host = ReparentingNSViewHost()
+        let surface = resolvedSurface(coordinator: context.coordinator)
+        Self.mountBroker.register(
+            claimID: context.coordinator.claimID,
+            view: surface.webView,
+            host: host,
+            configuration: mountConfiguration(
+                surface: surface,
+                claimID: context.coordinator.claimID
+            )
+        )
+        return host
+    }
+
+    func updateNSView(_ host: ReparentingNSViewHost, context: Context) {
+        let surface = resolvedSurface(coordinator: context.coordinator)
+        Self.mountBroker.update(
+            claimID: context.coordinator.claimID,
+            view: surface.webView,
+            host: host,
+            configuration: mountConfiguration(
+                surface: surface,
+                claimID: context.coordinator.claimID
+            )
+        )
+    }
+
+    static func dismantleNSView(_ host: ReparentingNSViewHost, coordinator: MountCoordinator) {
+        guard mountBroker.release(claimID: coordinator.claimID, host: host) else { return }
+        if let surface = coordinator.surface {
+            surface.coordinator.deactivate(
+                claimID: coordinator.claimID,
+                in: surface.webView
+            )
+        }
+        guard coordinator.surfaceStore == nil else {
+            coordinator.surface = nil
+            return
+        }
+        coordinator.surface?.retire()
+        coordinator.surface = nil
+    }
+
+    private var identity: Surface.Identity {
+        Surface.Identity(
+            extensionID: extensionID,
+            surfaceKey: LifecycleSurfaceKey(kind: surfaceKind, instanceID: instanceID),
+            entryURL: entryURL
+        )
+    }
+
+    private func resolvedSurface(coordinator: MountCoordinator) -> Surface {
+        if let storedSurface = surfaceStore?.surface as? Surface,
+           storedSurface.identity == identity
+        {
+            coordinator.surface = storedSurface
+            coordinator.surfaceStore = surfaceStore
+            return storedSurface
+        }
+        if let currentSurface = coordinator.surface,
+           currentSurface.identity == identity
+        {
+            return currentSurface
+        }
+        surfaceStore?.surface?.retire()
+        coordinator.surface?.retire()
+        let surface = makeSurface()
+        surfaceStore?.surface = surface
+        coordinator.surface = surface
+        coordinator.surfaceStore = surfaceStore
+        return surface
+    }
+
+    private func makeSurface() -> Surface {
+        let surfaceCoordinator = SurfaceCoordinator(surfaceKind: surfaceKind)
         guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID) else {
-            return WKWebView(frame: .zero)
+            return Surface(
+                identity: identity,
+                webView: WKWebView(frame: .zero),
+                coordinator: surfaceCoordinator
+            )
         }
 
         let config = WKWebViewConfiguration()
@@ -31,7 +112,6 @@ struct ExtensionWebView: NSViewRepresentable {
             ExtensionAssetSchemeHandler(extensionID: muxyExtension.id, directory: muxyExtension.directory),
             forURLScheme: ExtensionAssetSchemeHandler.scheme
         )
-
         let bridge = ExtensionBridgeHandler(
             extensionID: muxyExtension.id,
             appState: appState,
@@ -40,8 +120,7 @@ struct ExtensionWebView: NSViewRepresentable {
             projectGroupStore: projectGroupStore,
             browserProfileStore: browserProfileStore
         )
-        context.coordinator.bridge = bridge
-
+        surfaceCoordinator.bridge = bridge
         let userContent = config.userContentController
         userContent.addScriptMessageHandler(
             bridge,
@@ -50,51 +129,116 @@ struct ExtensionWebView: NSViewRepresentable {
         )
         let console = ExtensionConsoleHandler(extensionID: muxyExtension.id)
         userContent.add(console, name: ExtensionConsoleHandler.messageHandlerName)
-        context.coordinator.consoleHandler = console
+        surfaceCoordinator.consoleHandler = console
 
-        context.coordinator.configureScriptInjection(
+        surfaceCoordinator.configureScriptInjection(
             extensionID: muxyExtension.id,
             tabInstanceID: instanceID,
             initialData: initialData
         )
-        context.coordinator.installBridgeScript(into: userContent)
+        surfaceCoordinator.installBridgeScript(into: userContent)
 
         let webView = Self.makeWebView(configuration: config, surfaceKind: surfaceKind)
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
+        webView.navigationDelegate = surfaceCoordinator
+        webView.uiDelegate = surfaceCoordinator
         webView.load(URLRequest(url: entryURL))
         bridge.attach(to: webView)
-        let surfaceKey = LifecycleSurfaceKey(kind: surfaceKind, instanceID: instanceID)
+        let surfaceKey = identity.surfaceKey
         bridge.bind(surfaceKey: surfaceKey)
         ExtensionSurfaceBridgeRegistry.shared.register(bridge, for: surfaceKey)
-        context.coordinator.surfaceKey = surfaceKey
-        context.coordinator.observeThemeChanges(for: webView)
-        return webView
+        surfaceCoordinator.surfaceKey = surfaceKey
+        surfaceCoordinator.observeThemeChanges(for: webView)
+        return Surface(
+            identity: identity,
+            webView: webView,
+            coordinator: surfaceCoordinator,
+            lifecycleBridge: bridge
+        )
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
-        context.coordinator.applyDataIfChanged(initialData, in: webView)
-        context.coordinator.applyFocusIfChanged(focused, overlayActive: overlayActive, in: webView)
-    }
-
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
-        coordinator.stopObservingThemeChanges()
-        coordinator.bridge?.dropAllEventSubscriptions()
-        if let surfaceKey = coordinator.surfaceKey {
-            ExtensionSurfaceBridgeRegistry.shared.unregister(surfaceKey)
-        }
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
-        webView.configuration.userContentController.removeAllScriptMessageHandlers()
-        webView.configuration.userContentController.removeAllUserScripts()
+    private func mountConfiguration(
+        surface: Surface,
+        claimID: UUID
+    ) -> ReparentingNSViewBroker<WKWebView>.Configuration {
+        .init(
+            isEligible: { true },
+            prepare: { webView in
+                surface.coordinator.applyDataIfChanged(initialData, in: webView)
+            },
+            didMount: { webView, _, ownershipChanged in
+                surface.coordinator.applyFocusIfChanged(
+                    focused,
+                    overlayActive: overlayActive,
+                    in: webView,
+                    claimID: claimID,
+                    reset: ownershipChanged
+                )
+            }
+        )
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class MountCoordinator {
+        let claimID = UUID()
+        var surface: Surface?
+        weak var surfaceStore: ExtensionTabSurfaceStore?
+    }
+
+    @MainActor
+    final class Surface: ExtensionTabSurface {
+        struct Identity: Equatable {
+            let extensionID: String
+            let surfaceKey: LifecycleSurfaceKey
+            let entryURL: URL
+        }
+
+        let identity: Identity
+        let webView: WKWebView
+        let coordinator: SurfaceCoordinator
+        private let lifecycleBridge: (any BeforeCloseAsking)?
+        private var retired = false
+
+        init(
+            identity: Identity,
+            webView: WKWebView,
+            coordinator: SurfaceCoordinator,
+            lifecycleBridge: (any BeforeCloseAsking)? = nil
+        ) {
+            self.identity = identity
+            self.webView = webView
+            self.coordinator = coordinator
+            self.lifecycleBridge = lifecycleBridge
+        }
+
+        func retire() {
+            guard !retired else { return }
+            retired = true
+            coordinator.stopObservingThemeChanges()
+            coordinator.bridge?.dropAllEventSubscriptions()
+            if let lifecycleBridge {
+                ExtensionSurfaceBridgeRegistry.shared.unregister(
+                    identity.surfaceKey,
+                    ifMatches: lifecycleBridge
+                )
+            }
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+            webView.configuration.userContentController.removeAllScriptMessageHandlers()
+            webView.configuration.userContentController.removeAllUserScripts()
+        }
+
+        deinit {
+            MainActor.assumeIsolated {
+                retire()
+            }
+        }
+    }
+
+    @MainActor
+    final class SurfaceCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var bridge: ExtensionBridgeHandler?
         var consoleHandler: ExtensionConsoleHandler?
         var surfaceKey: LifecycleSurfaceKey?
-        let onFocus: () -> Void
         private let surfaceKind: LifecycleSurfaceKind
         private weak var webView: WKWebView?
         private var themeObserver: NSObjectProtocol?
@@ -103,10 +247,10 @@ struct ExtensionWebView: NSViewRepresentable {
         private var initialData: ExtensionJSON?
         private var focused = false
         private var overlayActive = false
+        private var activeClaimID: UUID?
 
-        init(surfaceKind: LifecycleSurfaceKind, onFocus: @escaping () -> Void) {
+        init(surfaceKind: LifecycleSurfaceKind) {
             self.surfaceKind = surfaceKind
-            self.onFocus = onFocus
         }
 
         func configureScriptInjection(
@@ -140,12 +284,31 @@ struct ExtensionWebView: NSViewRepresentable {
             webView.evaluateJavaScript(script, completionHandler: nil)
         }
 
-        func applyFocusIfChanged(_ focused: Bool, overlayActive: Bool, in webView: WKWebView) {
+        func applyFocusIfChanged(
+            _ focused: Bool,
+            overlayActive: Bool,
+            in webView: WKWebView,
+            claimID: UUID,
+            reset: Bool = false
+        ) {
+            activeClaimID = claimID
             let focusChanged = focused != self.focused
             let overlayChanged = overlayActive != self.overlayActive
-            guard focusChanged || overlayChanged else { return }
+            guard reset || focusChanged || overlayChanged else { return }
             self.focused = focused
             self.overlayActive = overlayActive
+            if focusChanged {
+                pushFocusUpdate(in: webView)
+            }
+            updateFirstResponder(for: webView)
+        }
+
+        func deactivate(claimID: UUID, in webView: WKWebView) {
+            guard activeClaimID == claimID else { return }
+            activeClaimID = nil
+            let focusChanged = focused
+            focused = false
+            overlayActive = false
             if focusChanged {
                 pushFocusUpdate(in: webView)
             }

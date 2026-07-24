@@ -26,7 +26,7 @@ struct ExtensionWebViewPane: View {
                 worktreeStore: worktreeStore,
                 projectGroupStore: projectGroupStore,
                 focused: focused,
-                onFocus: onFocus
+                surfaceStore: state.surfaceStore
             )
             .contentShape(Rectangle())
             .onTapGesture { onFocus() }

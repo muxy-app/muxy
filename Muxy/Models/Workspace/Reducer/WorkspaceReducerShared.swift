@@ -28,12 +28,19 @@ enum WorkspaceReducerShared {
         let area = TabArea(projectPath: worktreePath)
         state.workspaceRoots[key] = .tabArea(area)
         state.focusedAreaID[key] = area.id
+        state.topLevelTabOrder[key] = area.tabs.map(\.id)
+        state.topLevelTabLayouts[key] = .group(TopLevelTabGroup(
+            tabIDs: area.tabs.map(\.id),
+            activeTabID: area.activeTabID
+        ))
     }
 
     static func clearWorkspace(key: WorktreeKey, state: inout WorkspaceState) {
         state.workspaceRoots.removeValue(forKey: key)
         state.focusedAreaID.removeValue(forKey: key)
         state.focusHistory.removeValue(forKey: key)
+        state.topLevelTabOrder.removeValue(forKey: key)
+        state.topLevelTabLayouts.removeValue(forKey: key)
     }
 
     static func handleProjectEmptiedIfNeeded(

@@ -27,6 +27,39 @@ enum SplitReducer {
         return newRoot.findArea(id: newAreaID)?.tabs.first?.content.pane?.id
     }
 
+    static func splitBrowserArea(
+        key: WorktreeKey,
+        areaID: UUID,
+        url: URL?,
+        profileID: UUID,
+        state: inout WorkspaceState
+    ) -> UUID? {
+        guard BrowserPreferences.isEnabled,
+              let root = state.workspaceRoots[key],
+              let sourceArea = root.findArea(id: areaID),
+              let activeTab = sourceArea.activeTab
+        else { return nil }
+        let browserState = BrowserTabState(
+            projectPath: sourceArea.projectPath,
+            url: url,
+            profileID: profileID
+        )
+        let tab = TerminalTab(
+            browserState: browserState,
+            parentTabID: activeTab.parentTabID ?? activeTab.id
+        )
+        let (newRoot, newAreaID) = root.splittingWithTab(
+            areaID: areaID,
+            direction: .horizontal,
+            position: .second,
+            tab: tab
+        )
+        guard let newAreaID else { return nil }
+        state.workspaceRoots[key] = newRoot
+        FocusReducer.focusArea(newAreaID, key: key, state: &state)
+        return tab.id
+    }
+
     static func closeArea(
         _ areaID: UUID,
         key: WorktreeKey,
@@ -55,19 +88,34 @@ enum SplitReducer {
             guard let root = state.workspaceRoots[key],
                   let sourceArea = root.findArea(id: sourceAreaID),
                   let destArea = root.findArea(id: destinationAreaID),
-                  let tab = sourceArea.removeTab(tabID)
+                  let sourceIndex = sourceArea.tabs.firstIndex(where: { $0.id == tabID })
             else { return }
-
-            destArea.insertExistingTab(tab)
+            let tab = sourceArea.tabs[sourceIndex]
+            let topLevelTabID = tab.parentTabID ?? tab.id
+            guard let destinationIndex = destArea.tabs.firstIndex(where: {
+                ($0.parentTabID ?? $0.id) == topLevelTabID
+            })
+            else { return }
+            let destinationTab = destArea.tabs[destinationIndex]
+            sourceArea.tabs[sourceIndex] = destinationTab
+            destArea.tabs[destinationIndex] = tab
+            if sourceArea.activeTabID == tab.id {
+                sourceArea.activeTabID = destinationTab.id
+            }
+            if destArea.activeTabID == destinationTab.id {
+                destArea.activeTabID = tab.id
+            }
             FocusReducer.focusArea(destinationAreaID, key: key, state: &state)
-
-            guard sourceArea.tabs.isEmpty else { return }
-            effects.deferredAreaCollapses.append(.init(key: key, areaID: sourceAreaID))
 
         case let .toNewSplit(tabID, sourceAreaID, targetAreaID, split):
             guard let root = state.workspaceRoots[key],
                   let sourceArea = root.findArea(id: sourceAreaID),
-                  let tab = sourceArea.removeTab(tabID)
+                  let tab = sourceArea.tabs.first(where: { $0.id == tabID }),
+                  let targetArea = root.findArea(id: targetAreaID)
+            else { return }
+            let topLevelTabID = tab.parentTabID ?? tab.id
+            guard targetArea.tabs.contains(where: { ($0.parentTabID ?? $0.id) == topLevelTabID }),
+                  let movedTab = sourceArea.extractTabForMove(tabID)
             else { return }
 
             let shouldCollapseSource = sourceArea.tabs.isEmpty
@@ -75,7 +123,7 @@ enum SplitReducer {
                 areaID: targetAreaID,
                 direction: split.direction,
                 position: split.position,
-                tab: tab
+                tab: movedTab
             )
             state.workspaceRoots[key] = newRoot
 

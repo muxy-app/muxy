@@ -3,6 +3,11 @@ import Foundation
 import WebKit
 
 @MainActor
+protocol BrowserTabSurfaceRuntime: AnyObject {
+    func retire(webView: WKWebView?)
+}
+
+@MainActor
 @Observable
 final class BrowserTabState: Identifiable {
     enum NavigationCommand: Equatable {
@@ -42,7 +47,20 @@ final class BrowserTabState: Identifiable {
     var pendingFind: FindRequest?
     var findActivationToken = 0
     var findFoundMatch = true
-    @ObservationIgnored var webView: WKWebView?
+    @ObservationIgnored var surfaceRuntime: (any BrowserTabSurfaceRuntime)?
+    @ObservationIgnored var webView: WKWebView? {
+        didSet {
+            guard oldValue !== webView else { return }
+            if let oldValue {
+                surfaceRuntime?.retire(webView: oldValue)
+                surfaceRuntime = nil
+                BrowserWebViewRegistry.shared.unregister(id, ifMatches: oldValue)
+            }
+            if let webView {
+                BrowserWebViewRegistry.shared.register(webView, for: id)
+            }
+        }
+    }
 
     var isBlank: Bool {
         guard let absoluteString = url?.absoluteString else { return true }
@@ -69,9 +87,25 @@ final class BrowserTabState: Identifiable {
         pendingURL = url
     }
 
+    deinit {
+        MainActor.assumeIsolated {
+            surfaceRuntime?.retire(webView: webView)
+            BrowserWebViewRegistry.shared.unregister(id)
+        }
+    }
+
     func load(from input: String) {
         guard let resolved = BrowserURL.resolve(from: input) else { return }
-        pendingURL = resolved
+        navigate(to: resolved)
+    }
+
+    func navigate(to url: URL) {
+        guard let webView else {
+            pendingURL = url
+            return
+        }
+        pendingURL = nil
+        webView.load(URLRequest(url: url))
     }
 
     func switchProfile(to id: UUID) {

@@ -38,6 +38,7 @@ final class QuickTerminalShortcutService {
     @ObservationIgnored private let carbonHotKeyBackendFactory: CarbonHotKeyBackendFactory
     @ObservationIgnored private let inputMonitoringAccessRequester: InputMonitoringAccessRequester
     @ObservationIgnored private var activeBackend: (any QuickTerminalShortcutBackend)?
+    @ObservationIgnored private var isMonitoringRequested = false
     @ObservationIgnored private var registrationGeneration: UInt64 = 0
     @ObservationIgnored private var activeRegistrationGeneration: UInt64?
 
@@ -82,6 +83,7 @@ final class QuickTerminalShortcutService {
     }
 
     func start() throws {
+        isMonitoringRequested = true
         guard activeBackend == nil else { return }
         guard let backend = makeBackend(for: store.shortcut) else {
             monitoringState = .stopped
@@ -101,10 +103,12 @@ final class QuickTerminalShortcutService {
     }
 
     func stop() {
+        isMonitoringRequested = false
         activeRegistrationGeneration = nil
         activeBackend?.stop()
         activeBackend = nil
         monitoringState = .stopped
+        errorMessage = nil
     }
 
     func updateShortcut(_ shortcut: QuickTerminalShortcut) throws {
@@ -112,7 +116,7 @@ final class QuickTerminalShortcutService {
             errorMessage = QuickTerminalShortcutError.invalidShortcut.localizedDescription
             throw QuickTerminalShortcutError.invalidShortcut
         }
-        if shortcut == store.shortcut, activeBackend == nil {
+        if shortcut == store.shortcut, activeBackend == nil, isMonitoringRequested {
             try start()
             return
         }
@@ -139,7 +143,7 @@ final class QuickTerminalShortcutService {
 
     @discardableResult
     func requestInputMonitoringAccess() -> Bool {
-        guard shortcut == .doubleShift else { return false }
+        guard isMonitoringRequested, shortcut == .doubleShift else { return false }
         let granted = inputMonitoringAccessRequester()
         guard granted, let activeBackend else { return granted }
         let enabled = activeBackend.enableSystemWideMonitoringIfAuthorized()
@@ -165,6 +169,11 @@ final class QuickTerminalShortcutService {
         with shortcut: QuickTerminalShortcut,
         persistenceCommit: QuickTerminalShortcutStore.PersistenceCommit
     ) throws {
+        guard isMonitoringRequested else {
+            try persistenceCommit()
+            errorMessage = nil
+            return
+        }
         if activeBackend != nil,
            shortcut.hasSameRegistrationIdentity(as: store.shortcut)
         {

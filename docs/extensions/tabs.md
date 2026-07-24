@@ -34,6 +34,8 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
 
 The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
 
+Split-child tabs belong to their owning top-level tab. Closing that parent closes every child it owns, including pinned children. If a parent or child page registers [`muxy.lifecycle.onBeforeClose`](lifecycle.md), Muxy asks all participating surfaces in parallel; any veto cancels the entire hierarchy close.
+
 ## File openers
 
 A tab type can register as a **file opener** so the user can select it in Settings. When selected, Muxy routes terminal file links into a tab of that type instead of an external editor. Declare openers under the `fileOpeners` manifest array:
@@ -71,7 +73,7 @@ The topbar project target is independent from this setting and never lists exten
 
 ## Topbar (recommended)
 
-A tab fills its whole region with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
+A tab fills its whole pane with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; sibling panes line up only when every surface uses the same bar.** Split-child extension tabs render as bordered panes inside their owning top-level tab and do not get their own tab strip.
 
 Tab webviews use an opaque native backing that follows `--muxy-background`, which keeps large scrolling pages composited smoothly. Paint the `html` and `body` backgrounds with `--muxy-background`; transparent page backgrounds are supported only for [popovers](popovers.md).
 
