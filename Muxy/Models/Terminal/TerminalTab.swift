@@ -149,7 +149,13 @@ final class TerminalTab: Identifiable {
             browserState.shouldFocusAddressOnOpen = false
             content = .browser(browserState)
         }
-        internalPanes = snapshot.internalPanes?.toInternalPaneNode()
+        if let pane = content.pane,
+           let restoredInternalPanes = snapshot.internalPanes?.toInternalPaneNode()
+        {
+            internalPanes = restoredInternalPanes.replacingPane(id: pane.id, with: pane)
+        } else {
+            internalPanes = snapshot.internalPanes?.toInternalPaneNode()
+        }
         focusedPaneID = snapshot.focusedPaneID.flatMap(UUID.init(uuidString:))
     }
 

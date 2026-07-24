@@ -123,6 +123,17 @@ extension InternalPaneNode {
         }
     }
 
+    func replacingPane(id: UUID, with pane: TerminalPaneState) -> InternalPaneNode {
+        switch self {
+        case let .pane(currentPane):
+            return currentPane.id == id ? .pane(pane) : self
+        case let .split(branch):
+            branch.first = branch.first.replacingPane(id: id, with: pane)
+            branch.second = branch.second.replacingPane(id: id, with: pane)
+            return self
+        }
+    }
+
     func areaFrames(in rect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) -> [UUID: CGRect] {
         switch self {
         case let .pane(pane):

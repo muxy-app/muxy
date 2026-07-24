@@ -57,6 +57,18 @@ struct InternalPaneNodeSnapshotTests {
         #expect(restoredTab.focusedPaneID == p2.id)
     }
 
+    @Test("restored content pane is reused by the internal pane tree")
+    func restoredContentPaneIsReused() {
+        let pane = TerminalPaneState(projectPath: testPath, title: "original")
+        let tab = TerminalTab(pane: pane)
+        let p2 = TerminalPaneState(projectPath: testPath)
+        tab.internalPanes = .split(InternalBranch(direction: .horizontal, first: .pane(pane), second: .pane(p2)))
+
+        let restoredTab = TerminalTab(restoring: tab.snapshot())
+
+        #expect(restoredTab.content.pane === restoredTab.internalPanes?.findPane(id: pane.id))
+    }
+
     @Test("TerminalTabSnapshot without internal panes decodes as nil")
     func tabSnapshotWithoutInternalPanes() {
         let pane = TerminalPaneState(projectPath: testPath)
