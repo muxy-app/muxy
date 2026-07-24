@@ -275,8 +275,12 @@ private struct TabFocusedTabRow: View {
         if active, hasSplitPanes, isPaneTreeExpanded {
             return AnyShapeStyle(MuxyTheme.surface.opacity(0.45))
         }
-        if active { return AnyShapeStyle(MuxyTheme.surface) }
-        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        if active {
+            return AnyShapeStyle(MuxyTheme.surface)
+        }
+        if hovered {
+            return AnyShapeStyle(MuxyTheme.hover)
+        }
         return AnyShapeStyle(Color.clear)
     }
 

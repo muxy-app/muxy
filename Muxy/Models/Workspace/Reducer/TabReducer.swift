@@ -244,9 +244,6 @@ enum TabReducer {
             return
         }
 
-        let areaCount = root.allAreas().count
-        if area.tabs.count <= 1, areaCount > 1 {
-            SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
         guard let tab = area.tabs.first(where: { $0.id == tabID }),
               !tab.isPinned
         else { return }

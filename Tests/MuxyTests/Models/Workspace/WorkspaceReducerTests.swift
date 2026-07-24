@@ -321,9 +321,8 @@ struct WorkspaceReducerTests {
         #expect(!finalEffects.paneIDsToRemove.isEmpty)
     }
 
-    @Test("closeTab last tab in multi-area closes area instead")
     @Test("closing a top-level tab closes its child panes")
-    func closeTabLastInMultiArea() {
+    func closeTopLevelTabClosesChildPanes() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)

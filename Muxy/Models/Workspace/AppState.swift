@@ -1092,8 +1092,8 @@ final class AppState {
 
     func focusInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID) {
         dispatch(.focusInternalPane(projectID: projectID, areaID: areaID, tabID: tabID, paneID: paneID))
-    }  
-      
+    }
+
     func moveFocusedPaneLeft(projectID: UUID) {
         dispatch(.movePaneLeft(projectID: projectID))
     }

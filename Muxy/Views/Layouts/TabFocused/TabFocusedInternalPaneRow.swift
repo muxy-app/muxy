@@ -62,8 +62,12 @@ struct TabFocusedInternalPaneRow: View {
     }
 
     private var rowBackground: AnyShapeStyle {
-        if active { return AnyShapeStyle(MuxyTheme.accent.opacity(0.12)) }
-        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        if active {
+            return AnyShapeStyle(MuxyTheme.accent.opacity(0.12))
+        }
+        if hovered {
+            return AnyShapeStyle(MuxyTheme.hover)
+        }
         return AnyShapeStyle(Color.clear)
     }
 

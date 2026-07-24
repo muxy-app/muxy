@@ -36,90 +36,13 @@ struct TabAreaView: View {
             focused: isFocused && isActiveProject,
             visible: isActiveProject,
             areaID: area.id,
+            projectID: projectID,
             topLevelGroupID: topLevelGroupID,
             onFocus: onFocus,
             onProcessExit: onForceCloseTab,
             onSplitRequest: { direction, position in
                 appState.dispatch(.splitArea(.init(
                     projectID: projectID,
-                    shortcutIndexOffset: shortcutIndexOffset,
-                    onSelectTab: onSelectTab,
-                    onCreateTab: onCreateTab,
-                    onOpenBrowser: browserEnabled ? {
-                        appState.dispatch(.createBrowserTab(
-                            projectID: projectID,
-                            areaID: area.id,
-                            url: BrowserURL.homeURL,
-                            profileID: BrowserPreferences.defaultProfileID
-                        ))
-                    } : nil,
-                    onCloseTab: onCloseTab,
-                    onCloseOtherTabs: { tabID in
-                        closeTabs(area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id))
-                    },
-                    onCloseTabsToLeft: { tabID in
-                        guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                        closeTabs(area.tabs.prefix(index).filter { !$0.isPinned }.map(\.id))
-                    },
-                    onCloseTabsToRight: { tabID in
-                        guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                        closeTabs(area.tabs.suffix(from: index + 1).filter { !$0.isPinned }.map(\.id))
-                    },
-                    onSplit: onSplit,
-                    onDropAction: onDropAction,
-                    showMaximizeButton: showMaximizeButton,
-                    isMaximized: isMaximized,
-                    onToggleMaximize: onToggleMaximize,
-                    onCreateTabAdjacent: { tabID, side in
-                        appState.dispatch(.createTabAdjacent(
-                            projectID: projectID,
-                            areaID: area.id,
-                            tabID: tabID,
-                            side: side
-                        ))
-                    },
-                    onTogglePin: { tabID in
-                        area.togglePin(tabID)
-                    },
-                    onSetCustomTitle: { tabID, title in
-                        area.setCustomTitle(tabID, title: title)
-                        appState.saveWorkspaces()
-                    },
-                    onSetColorID: { tabID, colorID in
-                        area.setColorID(tabID, colorID: colorID)
-                        appState.saveWorkspaces()
-                    },
-                    onReorderTab: { fromOffsets, toOffset in
-                        area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
-                    }
-                )
-                Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            }
-            ZStack {
-                ForEach(area.tabs) { tab in
-                    let isActive = tab.id == area.activeTabID
-                    TabContentView(
-                        tab: tab,
-                        area: area,
-                        focused: isActive && isFocused && isActiveProject,
-                        visible: isActive && isActiveProject,
-                        areaID: area.id,
-                        projectID: projectID,
-                        onFocus: onFocus,
-                        onProcessExit: { onForceCloseTab(tab.id) },
-                        onSplitRequest: { direction, position in
-                            appState.dispatch(.splitArea(.init(
-                                projectID: projectID,
-                                areaID: area.id,
-                                direction: direction,
-                                position: position
-                            )))
-                        }
-                    )
-                    .zIndex(isActive ? 1 : 0)
-                    .opacity(isActive ? 1 : 0)
-                    .allowsHitTesting(isActive)
-                }
                     areaID: area.id,
                     direction: direction,
                     position: position
@@ -175,7 +98,7 @@ struct TabAreaView: View {
                 browserState.activateFind()
                 return
             }
-            guard let pane = tab.content.pane else { return }
+            guard let pane = tab.displayPane else { return }
             TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
         }
     }
@@ -249,10 +172,9 @@ private struct TabContentView: View {
                     focusedPaneID: tab.focusedPaneID,
                     areaID: areaID,
                     projectID: projectID,
+                    topLevelGroupID: topLevelGroupID,
                     onFocus: onFocus,
-                    onPaneFocus: { paneID in
-                        tab.focusedPaneID = paneID
-                    },
+                    onPaneFocus: { tab.focusedPaneID = $0 },
                     onProcessExit: onProcessExit,
                     onSplitRequest: onSplitRequest
                 )
@@ -262,21 +184,12 @@ private struct TabContentView: View {
                     focused: focused,
                     visible: visible,
                     areaID: areaID,
+                    topLevelGroupID: topLevelGroupID,
                     onFocus: onFocus,
                     onProcessExit: onProcessExit,
                     onSplitRequest: onSplitRequest
                 )
             }
-            TerminalPane(
-                state: pane,
-                focused: focused,
-                visible: visible,
-                areaID: areaID,
-                topLevelGroupID: topLevelGroupID,
-                onFocus: onFocus,
-                onProcessExit: onProcessExit,
-                onSplitRequest: onSplitRequest
-            )
         case let .extensionWebView(extensionState):
             ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)
         case let .browser(browserState):

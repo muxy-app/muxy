@@ -6,6 +6,7 @@ struct InternalPaneView: View {
     let focusedPaneID: UUID?
     let areaID: UUID
     let projectID: UUID
+    let topLevelGroupID: UUID
     let onFocus: () -> Void
     let onPaneFocus: (UUID) -> Void
     let onProcessExit: () -> Void
@@ -19,6 +20,7 @@ struct InternalPaneView: View {
                 focused: focusedPaneID == pane.id,
                 visible: true,
                 areaID: areaID,
+                topLevelGroupID: topLevelGroupID,
                 onFocus: { onPaneFocus(pane.id)
                     onFocus()
                 },
@@ -32,6 +34,7 @@ struct InternalPaneView: View {
                 focusedPaneID: focusedPaneID,
                 areaID: areaID,
                 projectID: projectID,
+                topLevelGroupID: topLevelGroupID,
                 onFocus: onFocus,
                 onPaneFocus: onPaneFocus,
                 onProcessExit: onProcessExit,
@@ -46,6 +49,7 @@ private struct InternalSplitContainer: View {
     let focusedPaneID: UUID?
     let areaID: UUID
     let projectID: UUID
+    let topLevelGroupID: UUID
     let onFocus: () -> Void
     let onPaneFocus: (UUID) -> Void
     let onProcessExit: () -> Void
@@ -67,6 +71,7 @@ private struct InternalSplitContainer: View {
                     focusedPaneID: focusedPaneID,
                     areaID: areaID,
                     projectID: projectID,
+                    topLevelGroupID: topLevelGroupID,
                     onFocus: onFocus,
                     onPaneFocus: onPaneFocus,
                     onProcessExit: onProcessExit,
@@ -101,6 +106,7 @@ private struct InternalSplitContainer: View {
                     focusedPaneID: focusedPaneID,
                     areaID: areaID,
                     projectID: projectID,
+                    topLevelGroupID: topLevelGroupID,
                     onFocus: onFocus,
                     onPaneFocus: onPaneFocus,
                     onProcessExit: onProcessExit,

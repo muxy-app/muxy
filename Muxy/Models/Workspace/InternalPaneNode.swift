@@ -59,7 +59,9 @@ extension InternalPaneNode {
                 paneID: paneID, direction: direction, position: position
             )
             branch.first = newFirst
-            if id1 != nil { return (.split(branch), id1) }
+            if id1 != nil {
+                return (.split(branch), id1)
+            }
             let (newSecond, id2) = branch.second.splitting(
                 paneID: paneID, direction: direction, position: position
             )
