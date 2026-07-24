@@ -60,7 +60,9 @@ final class ExtensionAuditLog: @unchecked Sendable {
     }
 
     private func resolveHandle() throws -> FileHandle {
-        if let handle { return handle }
+        if let handle {
+            return handle
+        }
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             FileManager.default.createFile(atPath: fileURL.path, contents: nil)
             try? FileManager.default.setAttributes(

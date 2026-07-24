@@ -103,13 +103,17 @@ enum RemoteTerminalSnapshotBuilder {
                 && cell.fg == defaultFg
                 && cell.bg == defaultBg
                 && cell.flags == 0
-            if !isBlank { last = col }
+            if !isBlank {
+                last = col
+            }
         }
         return last
     }
 
     private static func character(for codepoint: UInt32) -> String {
-        if codepoint == 0 { return " " }
+        if codepoint == 0 {
+            return " "
+        }
         guard let scalar = Unicode.Scalar(codepoint) else { return " " }
         return String(Character(scalar))
     }
@@ -123,15 +127,33 @@ enum RemoteTerminalSnapshotBuilder {
     ) -> String {
         var params = ["0"]
 
-        if flags & TerminalCellFlag.bold != 0 { params.append("1") }
-        if flags & TerminalCellFlag.faint != 0 { params.append("2") }
-        if flags & TerminalCellFlag.italic != 0 { params.append("3") }
-        if flags & TerminalCellFlag.underline != 0 { params.append("4") }
-        if flags & TerminalCellFlag.blink != 0 { params.append("5") }
-        if flags & TerminalCellFlag.inverse != 0 { params.append("7") }
-        if flags & TerminalCellFlag.invisible != 0 { params.append("8") }
-        if flags & TerminalCellFlag.strike != 0 { params.append("9") }
-        if flags & TerminalCellFlag.overline != 0 { params.append("53") }
+        if flags & TerminalCellFlag.bold != 0 {
+            params.append("1")
+        }
+        if flags & TerminalCellFlag.faint != 0 {
+            params.append("2")
+        }
+        if flags & TerminalCellFlag.italic != 0 {
+            params.append("3")
+        }
+        if flags & TerminalCellFlag.underline != 0 {
+            params.append("4")
+        }
+        if flags & TerminalCellFlag.blink != 0 {
+            params.append("5")
+        }
+        if flags & TerminalCellFlag.inverse != 0 {
+            params.append("7")
+        }
+        if flags & TerminalCellFlag.invisible != 0 {
+            params.append("8")
+        }
+        if flags & TerminalCellFlag.strike != 0 {
+            params.append("9")
+        }
+        if flags & TerminalCellFlag.overline != 0 {
+            params.append("53")
+        }
 
         if fg != defaultFg {
             params.append("38;2;\((fg >> 16) & 0xFF);\((fg >> 8) & 0xFF);\(fg & 0xFF)")

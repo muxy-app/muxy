@@ -75,6 +75,57 @@ struct IDEIntegrationServiceTests {
         #expect(IDEIntegrationService(defaults: defaults).selectedFileOpenerValue == service.selectedFileOpenerValue)
     }
 
+    @Test("primary IDE fallback preserves a temporarily unavailable file opener")
+    func primaryIDEFallbackPreservesUnavailableFileOpener() throws {
+        let defaults = try #require(UserDefaults(suiteName: "muxy.tests.\(UUID().uuidString)"))
+        let service = IDEIntegrationService(defaults: defaults, commandLauncher: { _ in true })
+        let ide = makeIDE()
+        let selection = FileOpenerSelection.value(extensionID: "files", openerID: "editor")
+        let store = ExtensionStore.makeForTesting(
+            rootDirectory: FileManager.default.temporaryDirectory,
+            snapshotSink: NoopOpenerSnapshotSink(),
+            resolveHostURL: { nil }
+        )
+        service.selectFileOpener(extensionID: "files", openerID: "editor")
+
+        #expect(FileOpenerSelection.resolvedBinding(from: selection, store: store) == nil)
+        #expect(service.openProject(at: "/tmp/repo", in: ide))
+        #expect(service.selectedFileOpenerValue == selection)
+        #expect(service.selectedBundleIdentifier == ide.bundleIdentifier)
+    }
+
+    @Test("opening a project in an explicit target preserves the file opener")
+    func openingProjectInExplicitTargetPreservesFileOpener() throws {
+        let defaults = try #require(UserDefaults(suiteName: "muxy.tests.\(UUID().uuidString)"))
+        let service = IDEIntegrationService(defaults: defaults, commandLauncher: { _ in true })
+        let ide = makeIDE()
+        service.selectFileOpener(extensionID: "files", openerID: "editor")
+        let selection = service.selectedFileOpenerValue
+
+        #expect(service.openProject(at: "/tmp/repo", in: ide))
+        #expect(service.selectedFileOpenerValue == selection)
+        #expect(service.selectedBundleIdentifier == ide.bundleIdentifier)
+    }
+
+    @Test("project target selection is independent from the file opener")
+    func projectTargetSelectionIsIndependentFromFileOpener() throws {
+        let defaults = try #require(UserDefaults(suiteName: "muxy.tests.\(UUID().uuidString)"))
+        var didLaunch = false
+        let service = IDEIntegrationService(defaults: defaults, commandLauncher: { _ in
+            didLaunch = true
+            return true
+        })
+        let ide = makeIDE()
+        service.selectFileOpener(extensionID: "files", openerID: "editor")
+
+        let selection = service.selectedFileOpenerValue
+        service.selectProjectTarget(ide)
+
+        #expect(!didLaunch)
+        #expect(service.selectedFileOpenerValue == selection)
+        #expect(service.selectedBundleIdentifier == ide.bundleIdentifier)
+    }
+
     @Test("launchCommands uses vscode CLI goto strategy when available")
     func launchCommandsUsesVSCodeCLIGotoStrategyWhenAvailable() {
         let ide = IDEIntegrationService.IDEApplication(
@@ -104,6 +155,17 @@ struct IDEIntegrationServiceTests {
                 arguments: ["/tmp/repo", "--goto", "/tmp/repo/Sources/App.swift:12:7"]
             ),
         ])
+    }
+
+    private func makeIDE() -> IDEIntegrationService.IDEApplication {
+        IDEIntegrationService.IDEApplication(
+            bundleIdentifier: "com.example.editor",
+            displayName: "Example Editor",
+            appURL: URL(fileURLWithPath: "/Applications/Example Editor.app"),
+            symbolName: "chevron.left.forwardslash.chevron.right",
+            rank: 10,
+            group: .editor
+        )
     }
 
     @Test("launchCommands uses zed CLI when available")
@@ -494,4 +556,9 @@ struct IDEIntegrationServiceTests {
 
         #expect(sorted.map(\.displayName) == ["VS Code", "PhpStorm", "Antigravity IDE", "Air"])
     }
+}
+
+@MainActor
+private final class NoopOpenerSnapshotSink: ExtensionSnapshotSink {
+    nonisolated func applyExtensionSnapshot(_: NotificationSocketServer.ExtensionSnapshot) {}
 }

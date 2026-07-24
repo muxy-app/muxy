@@ -17,7 +17,7 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
-    init(projectPath: String, command: String?) {
+    init(projectPath: String, command: String?, parentTabID: UUID? = nil) {
         id = UUID()
         self.projectPath = projectPath
         let wrappedCommand = command.map { "(\($0)); exec \"$0\" -l" }
@@ -26,7 +26,7 @@ final class TabArea: Identifiable {
             startupCommand: wrappedCommand,
             startupCommandInteractive: wrappedCommand != nil
         )
-        let tab = TerminalTab(pane: pane)
+        let tab = TerminalTab(pane: pane, parentTabID: parentTabID)
         tabs.append(tab)
         activeTabID = tab.id
     }
@@ -150,8 +150,9 @@ final class TabArea: Identifiable {
 
     enum InsertSide { case left, right }
 
-    func createTabAdjacent(to tabID: UUID, side: InsertSide) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+    @discardableResult
+    func createTabAdjacent(to tabID: UUID, side: InsertSide) -> UUID? {
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
         let tab = TerminalTab(pane: TerminalPaneState(projectPath: projectPath))
         let desiredIndex = side == .left ? index : index + 1
         let insertIndex = max(desiredIndex, firstUnpinnedIndex)
@@ -160,6 +161,7 @@ final class TabArea: Identifiable {
             tabHistory.append(current)
         }
         activeTabID = tab.id
+        return tab.id
     }
 
     func closeTab(_ tabID: UUID) -> UUID? {
@@ -206,9 +208,17 @@ final class TabArea: Identifiable {
     }
 
     func removeTab(_ tabID: UUID) -> TerminalTab? {
+        removeTab(tabID, allowsPinned: false)
+    }
+
+    func extractTabForMove(_ tabID: UUID) -> TerminalTab? {
+        removeTab(tabID, allowsPinned: true)
+    }
+
+    private func removeTab(_ tabID: UUID, allowsPinned: Bool) -> TerminalTab? {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
         let tab = tabs[index]
-        guard !tab.isPinned else { return nil }
+        guard allowsPinned || !tab.isPinned else { return nil }
         tabs.remove(at: index)
         tabHistory.removeAll { $0 == tabID }
         guard activeTabID == tabID else { return tab }

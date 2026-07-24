@@ -171,7 +171,7 @@ struct MuxyProtocolVariantTests {
     }
 
     private static func project(_ ids: IDs) -> ProjectDTO {
-        ProjectDTO(id: ids.projectID, name: "Muxy", path: "/repo", sortOrder: 1, createdAt: Date(timeIntervalSince1970: 1), icon: "terminal", logo: nil, iconColor: "blue", preferredWorktreeParentPath: "/worktrees")
+        ProjectDTO(id: ids.projectID, name: "Muxy", path: "/repo", sortOrder: 1, createdAt: Date(timeIntervalSince1970: 1), icon: "terminal", logo: nil, iconColor: "blue", preferredWorktreePathTemplate: "../{base-dir}.{branch}", preferredWorktreeParentPath: "/worktrees")
     }
 
     private static func workspace(_ ids: IDs) -> WorkspaceDTO {

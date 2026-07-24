@@ -60,7 +60,9 @@ struct RemoteDeviceEditorSheet: View {
     }
 
     private var environmentErrorMessage: String? {
-        if case let .failure(error) = environmentResult { return error.localizedDescription }
+        if case let .failure(error) = environmentResult {
+            return error.localizedDescription
+        }
         return nil
     }
 
@@ -265,7 +267,9 @@ struct RemoteDeviceEditorSheet: View {
     }
 
     private func failureMessage(for destination: SSHDestination) -> String {
-        if case let .failed(message) = sshConnections.state(for: destination) { return message }
+        if case let .failed(message) = sshConnections.state(for: destination) {
+            return message
+        }
         return "Connection failed."
     }
 }

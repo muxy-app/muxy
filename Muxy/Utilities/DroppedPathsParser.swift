@@ -7,7 +7,9 @@ enum DroppedPathsParser {
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> [String] {
         let urlPaths = fileURLs.compactMap { $0.isFileURL ? $0.path : nil }
-        if !urlPaths.isEmpty { return urlPaths }
+        if !urlPaths.isEmpty {
+            return urlPaths
+        }
 
         guard let plainString else { return [] }
 

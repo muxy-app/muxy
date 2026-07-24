@@ -72,7 +72,9 @@ func identify() -> Never? {
     for attempt in 1 ... maxAttempts {
         do {
             let reply = try client.sendAndWaitReply("identify|\(extensionID)|\(token)")
-            if reply == "ok" { return nil }
+            if reply == "ok" {
+                return nil
+            }
             lastReply = reply
             guard HostSocketClient.isTransientIdentifyRejection(reply), attempt < maxAttempts else {
                 return fail("identify rejected: \(reply)")
@@ -85,7 +87,9 @@ func identify() -> Never? {
     return fail("identify rejected: \(lastReply)")
 }
 
-if let failure = identify() { failure }
+if let failure = identify() {
+    failure
+}
 
 context.exceptionHandler = { _, exception in
     let message = exception?.toString() ?? "unknown error"

@@ -47,8 +47,12 @@ enum GitStatusParser {
             guard fields.count >= 2, fields[1].count == 2 else { continue }
             let status = Array(fields[1])
             changedCount += 1
-            if status[0] != "." { stagedCount += 1 }
-            if status[1] != "." { unstagedCount += 1 }
+            if status[0] != "." {
+                stagedCount += 1
+            }
+            if status[1] != "." {
+                unstagedCount += 1
+            }
         }
 
         guard let branch else { return nil }

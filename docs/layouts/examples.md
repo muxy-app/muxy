@@ -1,20 +1,18 @@
 # Layout Examples
 
-These examples can be placed in a project's `.muxy/layouts/` directory. Each diagram shows the resulting window with panes drawn as boxes; tabs are listed at the top of their pane.
+These examples can be placed in a project's `.muxy/layouts/` directory. Each diagram shows the resulting top-level tab with its pane surfaces drawn as boxes.
 
-## `single.yaml` — one pane, multiple tabs
+## `single.yaml` — one pane
 
 ```yaml
-tabs:
-  - name: shell
-  - name: pwd
-    command: pwd
-  - htop
+tab:
+  name: shell
 ```
 
 ```
-┌─[ shell | pwd | htop ]──────────────┐
-│                                     │
+Tab strip: [ shell ]
+┌─────────────────────────────────────┐
+│ shell                               │
 └─────────────────────────────────────┘
 ```
 
@@ -23,16 +21,18 @@ tabs:
 ```yaml
 layout: horizontal
 panes:
-  - tabs:
-      - name: editor
-        command: nvim .
-  - tabs:
-      - name: shell
+  - tab:
+      name: editor
+      command: nvim .
+  - tab:
+      name: shell
 ```
 
 ```
-┌─[ editor ]──────────┬─[ shell ]─────────┐
-│  nvim .             │                   │
+Tab strip: [ editor ]
+┌─────────────────────┬───────────────────┐
+│ editor              │ shell             │
+│ nvim .              │                   │
 └─────────────────────┴───────────────────┘
 ```
 
@@ -41,17 +41,18 @@ panes:
 ```yaml
 layout: vertical
 panes:
-  - tabs:
-      - name: top
-  - tabs:
-      - name: bottom
+  - tab:
+      name: top
+  - tab:
+      name: bottom
 ```
 
 ```
-┌─[ top ]─────────────────────────────┐
-│                                     │
-├─[ bottom ]──────────────────────────┤
-│                                     │
+Tab strip: [ top ]
+┌─────────────────────────────────────┐
+│ top                                 │
+├─────────────────────────────────────┤
+│ bottom                              │
 └─────────────────────────────────────┘
 ```
 
@@ -60,17 +61,18 @@ panes:
 ```yaml
 layout: horizontal
 panes:
-  - tabs:
-      - name: left
-  - tabs:
-      - name: mid
-  - tabs:
-      - name: right
+  - tab:
+      name: left
+  - tab:
+      name: mid
+  - tab:
+      name: right
 ```
 
 ```
-┌─[ left ]──────┬─[ mid ]──────┬─[ right ]─────┐
-│               │              │               │
+Tab strip: [ left ]
+┌───────────────┬──────────────┬───────────────┐
+│ left          │ mid          │ right         │
 └───────────────┴──────────────┴───────────────┘
 ```
 
@@ -81,48 +83,49 @@ layout: horizontal
 panes:
   - layout: vertical
     panes:
-      - tabs:
-          - name: tl
-      - tabs:
-          - name: bl
+      - tab:
+          name: tl
+      - tab:
+          name: bl
   - layout: vertical
     panes:
-      - tabs:
-          - name: tr
-      - tabs:
-          - name: br
+      - tab:
+          name: tr
+      - tab:
+          name: br
 ```
 
 ```
-┌─[ tl ]──────────────┬─[ tr ]────────────┐
-│                     │                   │
-├─[ bl ]──────────────┼─[ br ]────────────┤
-│                     │                   │
+Tab strip: [ tl ]
+┌─────────────────────┬───────────────────┐
+│ tl                  │ tr                │
+├─────────────────────┼───────────────────┤
+│ bl                  │ br                │
 └─────────────────────┴───────────────────┘
 ```
 
-## `dev.yaml` — editor on the left, top + shell on the right
+## `dev.yaml` — editor on the left, top and shell on the right
 
 ```yaml
 layout: horizontal
 panes:
-  - tabs:
-      - name: editor
-        command: nvim .
-      - name: shell
+  - tab:
+      name: editor
+      command: nvim .
   - layout: vertical
     panes:
-      - tabs:
-          - name: top
-            command: top
-      - tabs:
-          - name: shell
+      - tab:
+          name: top
+          command: top
+      - tab:
+          name: shell
 ```
 
 ```
-┌─[ editor | shell ]──┬─[ top ]───────────┐
-│                     │  top              │
-│  nvim .             ├─[ shell ]─────────┤
-│                     │                   │
+Tab strip: [ editor ]
+┌─────────────────────┬───────────────────┐
+│ editor              │ top               │
+│ nvim .              ├───────────────────┤
+│                     │ shell             │
 └─────────────────────┴───────────────────┘
 ```

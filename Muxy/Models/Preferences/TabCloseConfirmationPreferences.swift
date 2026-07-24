@@ -6,7 +6,9 @@ enum TabCloseConfirmationPreferences {
     static var confirmRunningProcess: Bool {
         get {
             let defaults = UserDefaults.standard
-            if defaults.object(forKey: confirmRunningProcessKey) == nil { return true }
+            if defaults.object(forKey: confirmRunningProcessKey) == nil {
+                return true
+            }
             return defaults.bool(forKey: confirmRunningProcessKey)
         }
         set {

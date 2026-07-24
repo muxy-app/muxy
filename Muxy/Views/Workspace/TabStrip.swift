@@ -6,6 +6,7 @@ struct PaneTabStrip: View {
     struct TabSnapshot: Identifiable {
         let id: UUID
         let paneID: UUID?
+        let relatedPaneIDs: [UUID]
         let title: String
         let kind: TerminalTab.Kind
         let isPinned: Bool
@@ -18,6 +19,7 @@ struct PaneTabStrip: View {
         let faviconImage: NSImage?
         let detectedAgentIconName: String?
         let agentStatus: AgentStatus?
+        let hasUnread: Bool
     }
 
     let areaID: UUID
@@ -26,9 +28,11 @@ struct PaneTabStrip: View {
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
     var showDevelopmentBadge = false
-    var openInIDEProjectPath: String?
+    var openProjectPath: String?
     let projectID: UUID
-    var shortcutIndexOffset: Int = 0
+    var shortcutIndicesByTabID: [UUID: Int]?
+    var allowsSplitDrag = true
+    var topLevelGroupID: UUID?
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
     var onOpenBrowser: (() -> Void)?
@@ -50,11 +54,22 @@ struct PaneTabStrip: View {
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @State private var dragState = TabDragState()
 
-    static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
+    static func snapshots(
+        from tabs: [TerminalTab],
+        including allTabs: [TerminalTab]? = nil
+    ) -> [TabSnapshot] {
         tabs.map { tab in
-            TabSnapshot(
+            let relatedTabs = [tab] + (allTabs ?? []).filter { $0.parentTabID == tab.id }
+            let panes = relatedTabs.compactMap(\.content.pane)
+            let paneIDs = panes.map(\.id)
+            let agentStatuses = paneIDs.compactMap { AgentStatusStore.shared.status(forPane: $0) }
+            let agentStatus = agentStatuses.contains(.waiting)
+                ? AgentStatus.waiting
+                : agentStatuses.first
+            return TabSnapshot(
                 id: tab.id,
                 paneID: tab.content.pane?.id,
+                relatedPaneIDs: paneIDs,
                 title: tab.title,
                 kind: tab.kind,
                 isPinned: tab.isPinned,
@@ -63,10 +78,13 @@ struct PaneTabStrip: View {
                 customIconSymbol: tab.customIcon,
                 extensionID: tab.content.extensionState?.extensionID,
                 customIcon: tab.content.extensionState?.customIcon,
-                isOffline: tab.content.pane?.isOffline ?? false,
+                isOffline: !panes.isEmpty && panes.allSatisfy(\.isOffline),
                 faviconImage: tab.content.browserState?.faviconImage,
-                detectedAgentIconName: DetectedAgentStore.shared.iconName(forPane: tab.content.pane?.id),
-                agentStatus: AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
+                detectedAgentIconName: paneIDs.compactMap {
+                    DetectedAgentStore.shared.iconName(forPane: $0)
+                }.first,
+                agentStatus: agentStatus,
+                hasUnread: relatedTabs.contains { NotificationStore.shared.hasUnread(tabID: $0.id) }
             )
         }
     }
@@ -85,6 +103,9 @@ struct PaneTabStrip: View {
             .frame(height: UIMetrics.scaled(32))
 
             HStack(spacing: 0) {
+                if isWindowTitleBar, let openProjectPath {
+                    OpenProjectControl(projectPath: openProjectPath)
+                }
                 if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
                     UpdateBadge(version: version) {
                         UpdateService.shared.checkForUpdates()
@@ -96,9 +117,6 @@ struct PaneTabStrip: View {
                         .padding(.trailing, UIMetrics.spacing3)
                 }
                 if isWindowTitleBar {
-                    if let openInIDEProjectPath {
-                        OpenInIDEControl(projectPath: openInIDEProjectPath, projectID: projectID, areaID: areaID)
-                    }
                     LayoutPickerMenu(projectID: projectID)
                     ExtensionTopbarItems()
                 }
@@ -144,13 +162,13 @@ struct PaneTabStrip: View {
 
         return HStack(spacing: 0) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
-                let globalIndex = shortcutIndexOffset + index
+                let globalIndex = shortcutIndicesByTabID?[tab.id] ?? index
                 TabCell(
                     tab: tab,
                     active: tab.id == activeTabID,
                     paneFocused: isFocused,
                     areaID: areaID,
-                    hasUnread: NotificationStore.shared.hasUnread(tabID: tab.id),
+                    hasUnread: tab.hasUnread,
                     isAnyDragging: dragState.draggedID != nil,
                     shortcutIndex: globalIndex < 9 ? globalIndex + 1 : nil,
                     closableOthersCount: closableOthersCount(excluding: tab.id),
@@ -246,9 +264,17 @@ struct PaneTabStrip: View {
             return
         }
 
-        if abs(dy) > 24, !tab.isPinned {
+        if allowsSplitDrag, abs(dy) > 24, !tab.isPinned {
             dragState.isInSplitMode = true
-            dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: areaID, projectID: projectID)
+            if let topLevelGroupID {
+                dragCoordinator.beginTopLevelDrag(
+                    tabID: tab.id,
+                    sourceGroupID: topLevelGroupID,
+                    projectID: projectID
+                )
+            } else {
+                dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: areaID, projectID: projectID)
+            }
             dragCoordinator.updatePosition(globalLocation)
             return
         }
@@ -377,7 +403,13 @@ private struct TabCell: View {
         guard let tabColor else {
             return active ? MuxyTheme.surface : .clear
         }
-        let opacity = if active { 0.18 } else if hovered { 0.08 } else { 0.04 }
+        let opacity = if active {
+            0.18
+        } else if hovered {
+            0.08
+        } else {
+            0.04
+        }
         return tabColor.opacity(opacity)
     }
 
@@ -392,8 +424,7 @@ private struct TabCell: View {
     }
 
     private var paneProgress: TerminalProgress? {
-        guard let paneID = tab.paneID else { return nil }
-        return progressStore.progress(for: paneID)
+        tab.relatedPaneIDs.compactMap { progressStore.progress(for: $0) }.first
     }
 
     private var tabProgress: TerminalProgress? {
@@ -401,9 +432,10 @@ private struct TabCell: View {
     }
 
     private var hasCompletionPending: Bool {
-        guard let paneID = tab.paneID else { return false }
-        return progressStore.isCompletionPending(for: paneID)
-            || AgentStatusStore.shared.isCompletionPending(forPane: paneID)
+        tab.relatedPaneIDs.contains {
+            progressStore.isCompletionPending(for: $0)
+                || AgentStatusStore.shared.isCompletionPending(forPane: $0)
+        }
     }
 
     private var statusDotColor: Color? {
@@ -447,7 +479,9 @@ private struct TabCell: View {
                         .onSubmit { commitRename() }
                         .onExitCommand { cancelRename() }
                         .onChange(of: renameFieldFocused) { _, focused in
-                            if !focused, isRenaming { commitRename() }
+                            if !focused, isRenaming {
+                                commitRename()
+                            }
                         }
                 } else if !titleHidden {
                     Text(tab.title)
@@ -493,7 +527,9 @@ private struct TabCell: View {
                 hovered = hovering
             }
             .onChange(of: isAnyDragging) { _, dragging in
-                if dragging { hovered = false }
+                if dragging {
+                    hovered = false
+                }
             }
             .overlay {
                 if !tab.isPinned {
@@ -611,9 +647,11 @@ private struct TabCell: View {
         withAnimation(.easeIn(duration: 0.15)) {
             completionFlashOn = true
         }
-        if active, let paneID = tab.paneID {
-            progressStore.clearCompletion(for: paneID)
-            AgentStatusStore.shared.clearCompletion(for: paneID)
+        if active {
+            for paneID in tab.relatedPaneIDs {
+                progressStore.clearCompletion(for: paneID)
+                AgentStatusStore.shared.clearCompletion(for: paneID)
+            }
         }
         flashTask = Task { @MainActor in
             try await Task.sleep(for: .milliseconds(450))
@@ -646,9 +684,15 @@ private struct TabCell: View {
         case .extensionWebView: label += ", Extension"
         case .browser: label += ", Browser"
         }
-        if tab.isPinned { label += ", Pinned" }
-        if tab.isOffline, !active { label += ", Idle" }
-        if hasUnread { label += ", Unread" }
+        if tab.isPinned {
+            label += ", Pinned"
+        }
+        if tab.isOffline, !active {
+            label += ", Idle"
+        }
+        if hasUnread {
+            label += ", Unread"
+        }
         return label
     }
 

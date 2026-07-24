@@ -7,7 +7,9 @@ enum HomeProjectPreferences {
     static var isVisible: Bool {
         get {
             let defaults = UserDefaults.standard
-            if defaults.object(forKey: visibleKey) == nil { return defaultVisible }
+            if defaults.object(forKey: visibleKey) == nil {
+                return defaultVisible
+            }
             return defaults.bool(forKey: visibleKey)
         }
         set { UserDefaults.standard.set(newValue, forKey: visibleKey) }

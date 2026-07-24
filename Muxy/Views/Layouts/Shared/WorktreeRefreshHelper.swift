@@ -14,7 +14,9 @@ enum WorktreeRefreshHelper {
         isRefreshing: Binding<Bool>? = nil,
         presentErrors: Bool = true
     ) async {
-        if isRefreshing?.wrappedValue == true { return }
+        if isRefreshing?.wrappedValue == true {
+            return
+        }
         let previous = worktreeStore.list(for: project.id)
         isRefreshing?.wrappedValue = true
         defer { isRefreshing?.wrappedValue = false }

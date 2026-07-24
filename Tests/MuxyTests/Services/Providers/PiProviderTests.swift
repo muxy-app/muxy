@@ -66,7 +66,7 @@ struct PiProviderTests {
 
         let provider = fixture.provider()
 
-        try provider.install(hookScriptPath: "")
+        try provider.install(hookScriptPath: fixture.sourceURL.path)
 
         let destinationURL = fixture.homeURL
             .appendingPathComponent(".pi/agent/extensions/muxy-notify.ts")
@@ -87,12 +87,26 @@ struct PiProviderTests {
 
         let provider = fixture.provider()
 
-        try provider.install(hookScriptPath: "")
-        try provider.install(hookScriptPath: "")
+        try provider.install(hookScriptPath: fixture.sourceURL.path)
+        try provider.install(hookScriptPath: fixture.sourceURL.path)
 
         let settings = try fixture.readSettings()
         let extensions = try #require(settings["extensions"] as? [String])
         #expect(extensions.isEmpty)
+    }
+
+    @Test("install refreshes from the supplied staged extension")
+    func installRefreshesFromSuppliedPath() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let provider = fixture.provider()
+
+        try provider.install(hookScriptPath: fixture.sourceURL.path)
+        try Data("updated extension source".utf8).write(to: fixture.sourceURL)
+        try provider.install(hookScriptPath: fixture.sourceURL.path)
+
+        let destinationURL = fixture.homeURL.appendingPathComponent(".pi/agent/extensions/muxy-notify.ts")
+        #expect(try Data(contentsOf: destinationURL) == Data("updated extension source".utf8))
     }
 
     @Test("uninstall removes extension file without changing unrelated settings")
@@ -102,7 +116,7 @@ struct PiProviderTests {
 
         let provider = fixture.provider()
 
-        try provider.install(hookScriptPath: "")
+        try provider.install(hookScriptPath: fixture.sourceURL.path)
         try provider.uninstall()
 
         let destinationPath = fixture.homeURL
@@ -167,8 +181,7 @@ struct PiProviderTests {
         let pathEnvironment = PathEnvironment()
         let provider = PiProvider(
             homeDirectory: fixture.homeURL.path,
-            pathEnvironment: { pathEnvironment.value },
-            resourceURL: { _, _ in fixture.sourceURL }
+            pathEnvironment: { pathEnvironment.value }
         )
 
         let binURL = fixture.rootURL.appendingPathComponent("late-bin")
@@ -192,7 +205,7 @@ struct PiProviderTests {
         try FileManager.default.removeItem(at: fixture.settingsURL)
         #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
 
-        try fixture.provider().install(hookScriptPath: "")
+        try fixture.provider().install(hookScriptPath: fixture.sourceURL.path)
 
         #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
     }
@@ -204,7 +217,7 @@ struct PiProviderTests {
 
         try Data("not json".utf8).write(to: fixture.settingsURL)
 
-        try fixture.provider().install(hookScriptPath: "")
+        try fixture.provider().install(hookScriptPath: fixture.sourceURL.path)
 
         let destinationPath = fixture.homeURL
             .appendingPathComponent(".pi/agent/extensions/muxy-notify.ts")
@@ -218,7 +231,7 @@ struct PiProviderTests {
         defer { fixture.cleanUp() }
 
         let provider = fixture.provider()
-        try provider.install(hookScriptPath: "")
+        try provider.install(hookScriptPath: fixture.sourceURL.path)
 
         try FileManager.default.removeItem(at: fixture.settingsURL)
         #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
@@ -253,14 +266,10 @@ struct PiProviderTests {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
-        let provider = PiProvider(
-            homeDirectory: fixture.homeURL.path,
-            pathEnvironment: "",
-            resourceURL: { _, _ in nil }
-        )
+        let provider = PiProvider(homeDirectory: fixture.homeURL.path, pathEnvironment: "")
 
-        #expect(throws: PiProviderError.bundleResourceNotFound) {
-            try provider.install(hookScriptPath: "")
+        #expect(throws: PiProviderError.hookResourceNotFound) {
+            try provider.install(hookScriptPath: fixture.rootURL.appendingPathComponent("missing.ts").path)
         }
     }
 
@@ -302,8 +311,7 @@ struct PiProviderTests {
         func provider(pathEnvironment: String = "") -> PiProvider {
             PiProvider(
                 homeDirectory: homeURL.path,
-                pathEnvironment: pathEnvironment,
-                resourceURL: { _, _ in sourceURL }
+                pathEnvironment: pathEnvironment
             )
         }
 

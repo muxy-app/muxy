@@ -29,8 +29,12 @@ struct ThemeSelection: Equatable {
     }
 
     func resolvedName(isDark: Bool) -> String? {
-        if isDark, let darkName { return darkName }
-        if !isDark, let lightName { return lightName }
+        if isDark, let darkName {
+            return darkName
+        }
+        if !isDark, let lightName {
+            return lightName
+        }
         return fallbackName ?? darkName ?? lightName
     }
 }
@@ -135,7 +139,9 @@ final class ThemeService {
 
     func migrateToPairedThemeIfNeeded() {
         guard let selection = currentThemeSelection() else { return }
-        if selection.darkName != nil, selection.lightName != nil { return }
+        if selection.darkName != nil, selection.lightName != nil {
+            return
+        }
         let unified = selection.darkName ?? selection.lightName ?? selection.fallbackName ?? Self.defaultThemeName
         applyTheme(dark: selection.darkName ?? unified, light: selection.lightName ?? unified)
     }
@@ -219,14 +225,18 @@ final class ThemeService {
                 current.append(char)
             } else if char == ",", !isQuoted {
                 let entry = current.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !entry.isEmpty { entries.append(entry) }
+                if !entry.isEmpty {
+                    entries.append(entry)
+                }
                 current = ""
             } else {
                 current.append(char)
             }
         }
         let entry = current.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !entry.isEmpty { entries.append(entry) }
+        if !entry.isEmpty {
+            entries.append(entry)
+        }
         return entries
     }
 
@@ -278,8 +288,12 @@ final class ThemeService {
         return themesByName.values.sorted {
             let pinned0 = pinnedThemeNames.contains($0.name)
             let pinned1 = pinnedThemeNames.contains($1.name)
-            if pinned0 != pinned1 { return pinned0 }
-            if pinned0, pinned1 { return $0.name < $1.name }
+            if pinned0 != pinned1 {
+                return pinned0
+            }
+            if pinned0, pinned1 {
+                return $0.name < $1.name
+            }
             return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
     }
@@ -331,7 +345,9 @@ final class ThemeService {
 
     nonisolated private static func parseHex(_ hex: String) -> NSColor? {
         var h = hex
-        if h.hasPrefix("#") { h = String(h.dropFirst()) }
+        if h.hasPrefix("#") {
+            h = String(h.dropFirst())
+        }
         guard h.count == 6, let val = UInt32(h, radix: 16) else { return nil }
         return NSColor(
             srgbRed: CGFloat((val >> 16) & 0xFF) / 255,

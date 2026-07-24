@@ -1,40 +1,75 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-  const socketPath = process.env.MUXY_SOCKET_PATH;
-  const paneID = process.env.MUXY_PANE_ID;
-  if (!socketPath || !paneID) return;
+  const stagedHookBinaryPath = () => {
+    if (process.env.MUXY_HOOK_BIN) return process.env.MUXY_HOOK_BIN;
+    if (!process.env.HOME) return "";
+    return `${process.env.HOME}/Library/Application Support/Muxy/hooks/muxy-hook`;
+  };
 
-  async function send(payload: string) {
-    try {
-      const { createConnection } = await import("node:net");
-      const conn = createConnection({ path: socketPath });
-      conn.on("error", (err: any) => {
-        process.stderr.write(`[muxy-pi] socket error: ${err?.message ?? err}\n`);
-      });
-      conn.write(`${payload}\n`, () => conn.end());
-      await new Promise((resolve) => {
-        conn.on("close", resolve);
-        setTimeout(resolve, 3000);
-      });
-    } catch (err: any) {
-      process.stderr.write(`[muxy-pi] connection error: ${err?.message ?? err}\n`);
+  const normalizedHookInput = (phase: string, title: string, body: string) => {
+    if (phase === "working") return ["user-prompt-submit", {}] as const;
+    if (phase === "waiting") {
+      return [
+        "notification",
+        {
+          notification_type: "permission_prompt",
+          message: body || "Needs attention",
+        },
+      ] as const;
     }
-  }
+    if (!title && !body) return ["session-end", {}] as const;
+    return [
+      "stop",
+      { last_assistant_message: body || "Session completed" },
+    ] as const;
+  };
+
+  const invokeHookBinary = async (
+    phase: string,
+    title: string,
+    body: string,
+  ) => {
+    const hookBinary = stagedHookBinaryPath();
+    if (!hookBinary) return false;
+    try {
+      const { access } = await import("node:fs/promises");
+      await access(hookBinary, 1);
+    } catch {
+      return false;
+    }
+
+    const [event, input] = normalizedHookInput(phase, title, body);
+    try {
+      const { spawn } = await import("node:child_process");
+      const child = spawn(
+        hookBinary,
+        [
+          "agent-event",
+          "--provider",
+          "pi",
+          "--provider-title",
+          "Pi",
+          "--event",
+          event,
+        ],
+        { env: process.env, stdio: ["pipe", "ignore", "ignore"] },
+      );
+      child.stdin.on("error", () => {});
+      child.stdin.end(JSON.stringify(input));
+      await new Promise((resolve) => {
+        child.on("error", resolve);
+        child.on("close", resolve);
+      });
+    } catch {}
+    return true;
+  };
 
   const sendEvent = async (phase: string, title = "", body = "") => {
-    if (process.env.MUXY_AGENT_EVENT_PROTOCOL === "2") {
-      await send(`agent_event|pi|${paneID}|${phase}|${title}|${body}`);
-      return;
-    }
-    const status = phase === "finished" ? "idle" : phase;
-    if (title || body) {
-      await send(
-        `agent_status|pi|${paneID}|${status}\npi|${paneID}|${title}|${body}`,
-      );
-      return;
-    }
-    await send(`agent_status|pi|${paneID}|${status}`);
+    if (await invokeHookBinary(phase, title, body)) return;
+    process.stderr.write(
+      `[muxy-pi] muxy-hook binary is not staged; skipping ${phase} event\n`,
+    );
   };
   let latestBody = "Session completed";
   let fallback: ReturnType<typeof setTimeout> | undefined;

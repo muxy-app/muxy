@@ -26,7 +26,9 @@ struct BrowserHistoryEntry: Codable, Identifiable, Hashable {
 
     func matches(query: String) -> Bool {
         let needle = query.lowercased()
-        if url.lowercased().contains(needle) { return true }
+        if url.lowercased().contains(needle) {
+            return true
+        }
         guard let title else { return false }
         return title.lowercased().contains(needle)
     }

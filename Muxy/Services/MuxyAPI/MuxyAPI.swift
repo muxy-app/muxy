@@ -1050,9 +1050,20 @@ enum MuxyAPI {
 
             let workspaceContext = ActiveWorkspaceContext.shared.current
             let expandedPath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
-            let path = trimmedPath.isEmpty
-                ? WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug(from: trimmedName))
-                : expandedPath
+            let path: String
+            if trimmedPath.isEmpty {
+                do {
+                    path = try WorktreeLocationResolver.worktreeDirectory(
+                        for: project,
+                        slug: WorktreeLocationResolver.slug(from: trimmedName),
+                        branch: trimmedBranch
+                    )
+                } catch {
+                    return .failure(.invalidArguments(error.localizedDescription))
+                }
+            } else {
+                path = expandedPath
+            }
             guard await !workspaceContext.fileOps.exists(at: path) else {
                 return .failure(.worktreePathExists)
             }
@@ -1130,25 +1141,20 @@ enum MuxyAPI {
             } else {
                 return .failure(.noActiveProject)
             }
-            guard let root = appState.workspaceRoots[key] else {
+            guard appState.workspaceRoots[key] != nil else {
                 return .failure(target == nil ? .noActiveProject : .noActiveWorkspace)
             }
 
             let focusedAreaID = appState.focusedAreaID[key]
-            var index = 0
-            var infos: [TabInfo] = []
-            for area in root.allAreas() {
-                for tab in area.tabs {
-                    let isActive = area.id == focusedAreaID && tab.id == area.activeTabID
-                    infos.append(TabInfo(
-                        index: index,
-                        id: tab.id,
-                        kind: tab.kind,
-                        title: tab.title,
-                        isActive: isActive
-                    ))
-                    index += 1
-                }
+            let infos = flatTabLocations(key: key, appState: appState).enumerated().map { index, location in
+                let isActive = location.area.id == focusedAreaID && location.tab.id == location.area.activeTabID
+                return TabInfo(
+                    index: index,
+                    id: location.tab.id,
+                    kind: location.tab.kind,
+                    title: location.tab.title,
+                    isActive: isActive
+                )
             }
             return .success(infos)
         }
@@ -1163,8 +1169,14 @@ enum MuxyAPI {
             else { return .failure(.noActiveProject) }
 
             if let index = Int(identifier) {
-                guard tab(at: index, in: root) != nil else { return .failure(.tabNotFound(identifier)) }
-                appState.selectTabByIndex(index, projectID: projectID)
+                let locations = flatTabLocations(key: key, appState: appState)
+                guard locations.indices.contains(index) else { return .failure(.tabNotFound(identifier)) }
+                let location = locations[index]
+                appState.dispatch(.selectTab(
+                    projectID: projectID,
+                    areaID: location.area.id,
+                    tabID: location.tab.id
+                ))
                 return .success(())
             }
             for area in root.allAreas() {
@@ -1182,10 +1194,14 @@ enum MuxyAPI {
         ) -> Result<Void, APIError> {
             guard let root = appState.workspaceRoots[key] else { return .failure(.noActiveWorkspace) }
             if let index = Int(identifier) {
-                guard let tab = tab(at: index, in: root),
-                      let area = root.allAreas().first(where: { $0.tabs.contains(where: { $0.id == tab.id }) })
-                else { return .failure(.tabNotFound(identifier)) }
-                appState.dispatch(.selectTabInWorktree(key: key, areaID: area.id, tabID: tab.id))
+                let locations = flatTabLocations(key: key, appState: appState)
+                guard locations.indices.contains(index) else { return .failure(.tabNotFound(identifier)) }
+                let location = locations[index]
+                appState.dispatch(.selectTabInWorktree(
+                    key: key,
+                    areaID: location.area.id,
+                    tabID: location.tab.id
+                ))
                 return .success(())
             }
             for area in root.allAreas() {
@@ -1210,21 +1226,25 @@ enum MuxyAPI {
 
         static func next(appState: AppState, target: WorktreeTarget? = nil) -> Result<Void, APIError> {
             if let target {
-                appState.dispatch(.selectNextTabInWorktree(key: target.key))
+                appState.dispatch(.selectNextFlatTabInWorktree(key: target.key))
                 return .success(())
             }
-            guard let projectID = appState.activeProjectID else { return .failure(.noActiveProject) }
-            appState.selectNextTab(projectID: projectID)
+            guard let projectID = appState.activeProjectID,
+                  let key = appState.activeWorktreeKey(for: projectID)
+            else { return .failure(.noActiveProject) }
+            appState.dispatch(.selectNextFlatTabInWorktree(key: key))
             return .success(())
         }
 
         static func previous(appState: AppState, target: WorktreeTarget? = nil) -> Result<Void, APIError> {
             if let target {
-                appState.dispatch(.selectPreviousTabInWorktree(key: target.key))
+                appState.dispatch(.selectPreviousFlatTabInWorktree(key: target.key))
                 return .success(())
             }
-            guard let projectID = appState.activeProjectID else { return .failure(.noActiveProject) }
-            appState.selectPreviousTab(projectID: projectID)
+            guard let projectID = appState.activeProjectID,
+                  let key = appState.activeWorktreeKey(for: projectID)
+            else { return .failure(.noActiveProject) }
+            appState.dispatch(.selectPreviousFlatTabInWorktree(key: key))
             return .success(())
         }
 
@@ -1249,16 +1269,10 @@ enum MuxyAPI {
                   let root = appState.workspaceRoots[key]
             else { return nil }
             if let index = Int(identifier) {
-                var current = 0
-                for area in root.allAreas() {
-                    for tab in area.tabs {
-                        if current == index {
-                            return LocatedTab(tab: tab, area: area, key: key)
-                        }
-                        current += 1
-                    }
-                }
-                return nil
+                let locations = flatTabLocations(key: key, appState: appState)
+                guard locations.indices.contains(index) else { return nil }
+                let location = locations[index]
+                return LocatedTab(tab: location.tab, area: location.area, key: key)
             }
             for area in root.allAreas() {
                 guard let tab = area.tabs.first(where: { tabMatches($0, identifier: identifier) }) else { continue }
@@ -1310,8 +1324,12 @@ enum MuxyAPI {
                 return .failure(.tabNotFound(identifier))
             }
             guard located.tab.isPinned != pinned else { return .success(()) }
-            located.area.togglePin(located.tab.id)
-            appState.saveWorkspaces()
+            if located.tab.parentTabID == nil {
+                appState.togglePinTopLevelTab(located.tab.id, for: located.key)
+            } else {
+                located.area.togglePin(located.tab.id)
+                appState.saveWorkspaces()
+            }
             return .success(())
         }
 
@@ -1327,20 +1345,63 @@ enum MuxyAPI {
             guard let located = locate(identifier: identifier, appState: appState) else {
                 return .failure(.tabNotFound(identifier))
             }
+            let locations = flatTabLocations(key: located.key, appState: appState)
+            guard locations.indices.contains(toIndex) else {
+                return .failure(.invalidArguments("index out of range"))
+            }
+            let target = locations[toIndex]
+            if located.tab.parentTabID == nil {
+                guard target.tab.parentTabID == nil else {
+                    return .failure(.invalidArguments("target index is not a top-level tab"))
+                }
+                let roots = appState.topLevelTabs(for: located.key)
+                guard let from = roots.firstIndex(where: { $0.tab.id == located.tab.id }),
+                      let targetIndex = roots.firstIndex(where: { $0.tab.id == target.tab.id })
+                else {
+                    return .failure(.tabNotFound(identifier))
+                }
+                let boundary = roots.firstIndex(where: { !$0.tab.isPinned }) ?? roots.count
+                let lowerBound = located.tab.isPinned ? 0 : boundary
+                let upperBound = located.tab.isPinned ? boundary : roots.count
+                guard targetIndex >= lowerBound, targetIndex < upperBound else {
+                    return .failure(.invalidArguments("target index crosses the pinned tab boundary"))
+                }
+                let destination = targetIndex > from ? targetIndex + 1 : targetIndex
+                appState.reorderTopLevelTabs(
+                    for: located.key,
+                    fromOffsets: IndexSet(integer: from),
+                    toOffset: destination
+                )
+                return .success(())
+            }
+
             let area = located.area
             guard let from = area.tabs.firstIndex(where: { $0.id == located.tab.id }) else {
                 return .failure(.tabNotFound(identifier))
             }
+            guard target.slotArea.id == area.id else {
+                return .failure(.invalidArguments("target index is in a different pane"))
+            }
+            let targetIndex = target.slotIndex
             let boundary = area.tabs.firstIndex(where: { !$0.isPinned }) ?? area.tabs.count
             let lowerBound = located.tab.isPinned ? 0 : boundary
             let upperBound = located.tab.isPinned ? boundary : area.tabs.count
-            guard toIndex >= lowerBound, toIndex < upperBound else {
-                return .failure(.invalidArguments("index out of range"))
+            guard targetIndex >= lowerBound, targetIndex < upperBound else {
+                return .failure(.invalidArguments("target index crosses the pinned tab boundary"))
             }
-            let destination = toIndex > from ? toIndex + 1 : toIndex
+            let destination = targetIndex > from ? targetIndex + 1 : targetIndex
             area.reorderTab(fromOffsets: IndexSet(integer: from), toOffset: destination)
             appState.saveWorkspaces()
             return .success(())
+        }
+
+        private static func flatTabLocations(
+            key: WorktreeKey,
+            appState: AppState
+        ) -> [FlatTabLocation] {
+            appState.workspaceRoots[key]?.flatTabLocations(
+                topLevelOrder: appState.topLevelTabOrder[key] ?? []
+            ) ?? []
         }
 
         static func setTitle(
@@ -1621,21 +1682,21 @@ enum MuxyAPI {
 
             guard let projectID = appState.activeProjectID else { return .failure(.noActiveProject) }
 
-            if split, let areaID = appState.focusedAreaID(for: projectID) {
-                appState.dispatch(.splitArea(.init(
+            let effects: WorkspaceSideEffects = if split, let areaID = appState.focusedAreaID(for: projectID) {
+                appState.dispatchReturningEffects(.createBrowserSplit(
                     projectID: projectID,
                     areaID: areaID,
-                    direction: .horizontal,
-                    position: .second
-                )))
+                    url: resolvedURL,
+                    profileID: resolvedProfileID
+                ))
+            } else {
+                appState.dispatchReturningEffects(.createBrowserTab(
+                    projectID: projectID,
+                    areaID: appState.focusedAreaID(for: projectID),
+                    url: resolvedURL,
+                    profileID: resolvedProfileID
+                ))
             }
-
-            let effects = appState.dispatchReturningEffects(.createBrowserTab(
-                projectID: projectID,
-                areaID: appState.focusedAreaID(for: projectID),
-                url: resolvedURL,
-                profileID: resolvedProfileID
-            ))
             guard let newID = effects.createdTabID else {
                 return .failure(.browserTabCreateFailed)
             }
@@ -1649,22 +1710,21 @@ enum MuxyAPI {
             target: WorktreeTarget,
             appState: AppState
         ) -> Result<UUID, APIError> {
-            var areaID = target.areaID
             if split {
-                appState.dispatch(.splitAreaInWorktree(
+                let effects = appState.dispatchReturningEffects(.createBrowserSplitInWorktree(
                     key: target.key,
-                    request: .init(
-                        projectID: target.key.projectID,
-                        areaID: target.areaID,
-                        direction: .horizontal,
-                        position: .second
-                    )
+                    areaID: target.areaID,
+                    url: url,
+                    profileID: profileID
                 ))
-                areaID = appState.focusedAreaID[target.key] ?? target.areaID
+                guard let newID = effects.createdTabID else {
+                    return .failure(.browserTabCreateFailed)
+                }
+                return .success(newID)
             }
             let effects = appState.dispatchReturningEffects(.createBrowserTabInWorktree(
                 key: target.key,
-                areaID: areaID,
+                areaID: target.areaID,
                 url: url,
                 profileID: profileID
             ))
@@ -1682,7 +1742,7 @@ enum MuxyAPI {
             guard let resolved = BrowserURL.resolve(from: url) else {
                 return .failure(.invalidArguments("invalid url"))
             }
-            state.pendingURL = resolved
+            state.navigate(to: resolved)
             return .success(())
         }
 
@@ -2051,31 +2111,9 @@ extension MuxyAPI {
     }
 }
 
-private func slug(from name: String) -> String {
-    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-    let scalars = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
-    let collapsed = String(scalars)
-        .split(separator: "-", omittingEmptySubsequences: true)
-        .joined(separator: "-")
-    return collapsed.isEmpty ? UUID().uuidString : collapsed
-}
-
 @MainActor
 private func tabMatches(_ tab: TerminalTab, identifier: String) -> Bool {
     tab.id.uuidString == identifier
         || tab.content.pane?.id.uuidString == identifier
         || tab.title.localizedCaseInsensitiveCompare(identifier) == .orderedSame
-}
-
-@MainActor
-private func tab(at index: Int, in root: SplitNode) -> TerminalTab? {
-    guard index >= 0 else { return nil }
-    var currentIndex = 0
-    for area in root.allAreas() {
-        for tab in area.tabs {
-            if currentIndex == index { return tab }
-            currentIndex += 1
-        }
-    }
-    return nil
 }

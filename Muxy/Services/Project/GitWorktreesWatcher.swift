@@ -92,7 +92,9 @@ final class GitWorktreesWatcher: @unchecked Sendable {
         let dotGit = dotGitURL.path
         var isDirectory: ObjCBool = false
         guard manager.fileExists(atPath: dotGit, isDirectory: &isDirectory) else { return nil }
-        if isDirectory.boolValue { return dotGit }
+        if isDirectory.boolValue {
+            return dotGit
+        }
 
         guard let contents = try? String(contentsOfFile: dotGit, encoding: .utf8) else { return nil }
         guard let line = contents

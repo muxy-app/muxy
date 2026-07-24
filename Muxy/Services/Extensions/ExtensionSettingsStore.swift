@@ -69,17 +69,33 @@ final class ExtensionSettingsStore {
     }
 
     private func decodeFromStorage(_ raw: Any) -> ExtensionJSON {
-        if raw is NSNull { return .null }
-        if let value = raw as? Bool { return .bool(value) }
-        if let value = raw as? Double { return .number(value) }
-        if let value = raw as? Int { return .number(Double(value)) }
+        if raw is NSNull {
+            return .null
+        }
+        if let value = raw as? Bool {
+            return .bool(value)
+        }
+        if let value = raw as? Double {
+            return .number(value)
+        }
+        if let value = raw as? Int {
+            return .number(Double(value))
+        }
         if let value = raw as? NSNumber {
-            if CFGetTypeID(value) == CFBooleanGetTypeID() { return .bool(value.boolValue) }
+            if CFGetTypeID(value) == CFBooleanGetTypeID() {
+                return .bool(value.boolValue)
+            }
             return .number(value.doubleValue)
         }
-        if let value = raw as? String { return .string(value) }
-        if let value = raw as? [Any] { return .array(value.map(decodeFromStorage)) }
-        if let value = raw as? [String: Any] { return .object(value.mapValues(decodeFromStorage)) }
+        if let value = raw as? String {
+            return .string(value)
+        }
+        if let value = raw as? [Any] {
+            return .array(value.map(decodeFromStorage))
+        }
+        if let value = raw as? [String: Any] {
+            return .object(value.mapValues(decodeFromStorage))
+        }
         return .null
     }
 }

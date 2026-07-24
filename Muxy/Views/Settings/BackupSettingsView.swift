@@ -20,7 +20,11 @@ struct BackupSettingsView: View {
     private var importConfirmationBinding: Binding<Bool> {
         Binding(
             get: { pendingImportURL != nil },
-            set: { if !$0 { pendingImportURL = nil } }
+            set: {
+                if !$0 {
+                    pendingImportURL = nil
+                }
+            }
         )
     }
 

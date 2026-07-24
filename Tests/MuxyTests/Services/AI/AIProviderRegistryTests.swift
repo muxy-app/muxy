@@ -6,6 +6,15 @@ import Testing
 @Suite("AIProviderRegistry")
 @MainActor
 struct AIProviderRegistryTests {
+    private static func stubInstaller() -> HookInstaller {
+        HookInstaller(
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" },
+            stagedFileExists: { _ in true },
+            stagedFileExecutable: { _ in true },
+            health: HookHealthStore()
+        )
+    }
+
     @Test("notificationSource resolves built-in socket type keys")
     func notificationSourceResolvesBuiltIn() {
         let source = AIProviderRegistry.shared.notificationSource(for: "claude_hook")
@@ -63,44 +72,23 @@ struct AIProviderRegistryTests {
         ])
     }
 
-    @Test("installAll waits for login shell PATH hydration before checking providers")
-    func installAllWaitsForLoginShellPathHydrationBeforeCheckingProviders() async {
-        let provider = RecordingProvider()
-        defer { provider.resetSettings() }
-        provider.isEnabled = true
-        let gate = HydrationGate()
-        let registry = AIProviderRegistry(
-            providers: [provider],
-            hydrateLoginShellPath: { await gate.wait() },
-            shouldInstallHooksInDebug: { true }
-        )
-
-        let installTask = Task {
-            await registry.installAll()
-        }
-        while !gate.started {
-            await Task.yield()
-        }
-
-        #expect(provider.toolCheckCount == 0)
-        gate.finish()
-        await installTask.value
-        #expect(provider.toolCheckCount == 1)
-    }
-
-    @Test("prepareForInstallation skips PATH hydration when dev hook installation is disabled")
-    func prepareForInstallationSkipsPathHydrationWithoutDevOptIn() async {
-        let gate = HydrationGate()
+    @Test("prepareForInstallation stages resources but skips PATH hydration without dev opt-in")
+    func prepareForInstallationStagesWithoutDevOptIn() async {
+        let staging = StagingRecorder()
         let registry = AIProviderRegistry(
             providers: [],
-            hydrateLoginShellPath: { await gate.wait() },
-            shouldInstallHooksInDebug: { false }
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { false },
+            stageHookResources: {
+                staging.record()
+                return true
+            }
         )
 
         registry.prepareForInstallation()
         await Task.yield()
 
-        #expect(!gate.started)
+        #expect(staging.count == 1)
     }
 
     @Test("installAll cleans disabled provider managed state without PATH hydration")
@@ -109,18 +97,17 @@ struct AIProviderRegistryTests {
         defer { provider.resetSettings() }
         provider.isEnabled = false
         provider.managedStateInstalled = true
-        let gate = HydrationGate()
         let registry = AIProviderRegistry(
             providers: [provider],
-            hydrateLoginShellPath: { await gate.wait() },
-            shouldInstallHooksInDebug: { true }
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { true },
+            stageHookResources: { true }
         )
 
         await registry.installAll()
 
         #expect(provider.uninstallCount == 1)
         #expect(provider.toolCheckCount == 0)
-        #expect(!gate.started)
     }
 
     @Test("installAll does not touch disabled providers without managed state")
@@ -140,8 +127,8 @@ struct AIProviderRegistryTests {
         #expect(provider.toolCheckCount == 0)
     }
 
-    @Test("installAll refreshes only providers whose hook is already installed in dev")
-    func installAllRefreshesInstalledHooksInDev() async {
+    @Test("installAll does not reconcile hooks in dev without explicit opt-in")
+    func installAllDoesNotReconcileHooksInDevWithoutExplicitOptIn() async {
         let installed = RefreshRecordingProvider()
         let notInstalled = RefreshRecordingProvider()
         defer {
@@ -153,22 +140,72 @@ struct AIProviderRegistryTests {
         notInstalled.isEnabled = true
         notInstalled.hookInstalled = false
         notInstalled.toolInstalled = true
-        let gate = HydrationGate()
 
         let registry = AIProviderRegistry(
             providers: [installed, notInstalled],
-            hydrateLoginShellPath: { await gate.wait() },
+            hydrateLoginShellPath: {},
             shouldInstallHooksInDebug: { false },
             hookScriptPath: { _, _ in "/tmp/muxy-test-hook" }
         )
 
         await registry.installAll()
 
-        #expect(installed.hookInstalledCheckCount >= 1)
-        #expect(installed.installAttempted)
+        #expect(installed.hookInstalledCheckCount == 0)
+        #expect(!installed.installAttempted)
         #expect(!notInstalled.installAttempted)
         #expect(notInstalled.toolCheckCount == 0)
-        #expect(!gate.started)
+    }
+
+    @Test("prepare and install stage resources once before provider reconciliation")
+    func stagingRunsOnceBeforeReconciliation() async {
+        let provider = RefreshRecordingProvider()
+        defer { provider.resetSettings() }
+        provider.isEnabled = true
+        provider.hookInstalled = false
+        provider.toolInstalled = true
+        let staging = StagingRecorder()
+        let registry = AIProviderRegistry(
+            providers: [provider],
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { true },
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" },
+            stageHookResources: {
+                staging.record()
+                return true
+            },
+            installer: Self.stubInstaller()
+        )
+
+        registry.prepareForInstallation()
+        await registry.installAll()
+
+        #expect(staging.count == 1)
+        #expect(provider.installAttempted)
+    }
+
+    @Test("force install restages hook resources before reinstalling")
+    func forceInstallRestagesHookResources() async {
+        let provider = RecordingProvider()
+        defer { provider.resetSettings() }
+        let staging = StagingRecorder()
+        let registry = AIProviderRegistry(
+            providers: [provider],
+            hydrateLoginShellPath: {},
+            shouldInstallHooksInDebug: { true },
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" },
+            stageHookResources: {
+                staging.record()
+                return true
+            },
+            installer: Self.stubInstaller()
+        )
+
+        registry.prepareForInstallation()
+        await registry.forceInstall(provider)
+
+        #expect(staging.count == 2)
+        #expect(provider.uninstallCount == 1)
+        #expect(provider.installCount == 1)
     }
 
     @Test("installAll installs missing hooks in dev only with the explicit opt-in")
@@ -181,13 +218,28 @@ struct AIProviderRegistryTests {
             providers: [provider],
             hydrateLoginShellPath: {},
             shouldInstallHooksInDebug: { true },
-            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" }
+            hookScriptPath: { _, _ in "/tmp/muxy-test-hook" },
+            stageHookResources: { true },
+            installer: Self.stubInstaller()
         )
 
         await registry.installAll()
 
         #expect(provider.toolCheckCount == 1)
         #expect(provider.installCount == 1)
+    }
+}
+
+private final class StagingRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var count: Int {
+        lock.withLock { storage }
+    }
+
+    func record() {
+        lock.withLock { storage += 1 }
     }
 }
 
@@ -215,9 +267,16 @@ private final class RefreshRecordingProvider: AIProviderIntegration {
 
     func install(hookScriptPath _: String) throws {
         installAttempted = true
+        hookInstalled = true
     }
 
-    func uninstall() throws {}
+    func verify(hookScriptPath _: String) -> HookVerification {
+        hookInstalled ? .satisfied : .needsRepair
+    }
+
+    func uninstall() throws {
+        hookInstalled = false
+    }
 
     func resetSettings() {
         UserDefaults.standard.removeObject(forKey: settingsKey)
@@ -254,12 +313,18 @@ private final class RecordingProvider: AIProviderIntegration {
         managedStateInstalled || hookInstalled
     }
 
+    func verify(hookScriptPath _: String) -> HookVerification {
+        hookInstalled ? .satisfied : .needsRepair
+    }
+
     func install(hookScriptPath _: String) throws {
         installCount += 1
+        hookInstalled = true
     }
 
     func uninstall() throws {
         uninstallCount += 1
+        hookInstalled = false
     }
 
     func resetSettings() {
@@ -267,30 +332,3 @@ private final class RecordingProvider: AIProviderIntegration {
     }
 }
 
-private final class HydrationGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var didStart = false
-
-    var started: Bool {
-        lock.withLock { didStart }
-    }
-
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            lock.withLock {
-                didStart = true
-                self.continuation = continuation
-            }
-        }
-    }
-
-    func finish() {
-        let pending = lock.withLock {
-            let pending = continuation
-            continuation = nil
-            return pending
-        }
-        pending?.resume()
-    }
-}

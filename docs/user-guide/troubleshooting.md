@@ -22,6 +22,20 @@ log show --predicate 'subsystem == "app.muxy"' --last 10m --info --debug
 - Check `~/Library/Application Support/Muxy/ghostty.conf` parses by opening it in **Open Configuration...**.
 - If the issue is reproducible, check `log stream` while reproducing.
 
+## Double Shift doesn't open the quick terminal
+
+- Open **Settings → Quick Terminal** and make sure **Enable Quick Terminal** is on.
+- Open **Settings → Quick Terminal** and check the Input Monitoring status.
+- Enable Muxy under **System Settings → Privacy & Security → Input Monitoring**, then bring Muxy to the foreground so it can retry the listener.
+- If access remains unavailable, assign a conventional global shortcut such as Option Space. Conventional shortcuts do not require Input Monitoring.
+- Double Shift is intentionally ignored while another key or modifier is involved, which prevents normal capital-letter typing from opening the terminal.
+
+## The quick terminal is not transparent or blurred
+
+- Open **Settings → Quick Terminal** and set Terminal transparency above 0%.
+- Raise Background vibrancy above 0% for a progressively stronger native material effect. At 0%, the wallpaper remains sharp.
+- macOS Reduce Transparency and Increase Contrast intentionally force an opaque, unblurred terminal. Check both under **System Settings → Accessibility → Display**.
+
 ## "muxy" CLI not found
 
 Run **Muxy -> Install CLI** from the menu. Muxy first tries `/usr/local/bin/muxy`, then falls back to `~/bin/muxy` or `~/.local/bin/muxy` if needed. Make sure the installed directory is on your `$PATH`.
@@ -50,6 +64,7 @@ After authenticating, restart Muxy so it picks up the new credentials.
 - For an SSH workspace, the selected provider CLI and `gh` must be installed and authenticated on the remote host. If **Auto** selects a CLI that is unavailable remotely, choose the installed provider explicitly from the action dropdown.
 - Provider CLIs run headlessly and cannot show interactive authentication or permission prompts. Authenticate the chosen CLI in a terminal first, then retry the button; failures are shown in a toast.
 - AI only generates metadata. Muxy always owns staging, branch creation, commits, pushes, and pull request creation. Update the prompt when the provider returns invalid JSON or unsuitable metadata, not to change the native Git sequence.
+- **Add Prompt** appends one-time instructions after the configured global or project prompt for the current action without changing Settings.
 
 ## Mobile server won't start
 
@@ -59,8 +74,11 @@ After authenticating, restart Muxy so it picks up the new credentials.
 ## Notifications aren't showing
 
 - Check **Settings → Notifications** that Toast or Desktop notifications are enabled and that the relevant provider integration is on.
+- Click **Refresh** beside the provider to restage its hook files under `~/Library/Application Support/Muxy/hooks` and update its configuration.
+- Check `~/Library/Application Support/Muxy/hooks.log` for hook delivery failures.
 - macOS may have suppressed Muxy's system notifications — check **System Settings → Notifications → Muxy**.
 - For socket‑based integrations, verify the socket exists: `ls -l ~/Library/Application\ Support/Muxy/muxy.sock`.
+- For AI coding agents, use the per‑provider **Test** button and see [AI notifications](../features/ai-notifications.md) for the hook pipeline and health engine.
 
 ## Reset state
 

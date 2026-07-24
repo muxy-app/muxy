@@ -53,7 +53,7 @@ All Muxy-specific manifest fields live under the `muxy` object.
 | `events` | string[] | no | Workspace events the extension may subscribe to. Local `extension.*` events are not declared here. See [Events](events.md). Defaults to empty. |
 | `commands` | object[] | no | Palette commands to register. See [Palette Commands](palette-commands.md). |
 | `tabTypes` | object[] | no | Webview tab types the extension exposes. See [Tabs](tabs.md). |
-| `fileOpeners` | object[] | no | Project-file openers the extension contributes. Each opener references one of the extension's `tabTypes`; Muxy opens it with `{ filePath, line?, column?, source }` when a native surface opens a file. See [File openers](tabs.md#file-openers). |
+| `fileOpeners` | object[] | no | Project-file openers the extension contributes. Each opener references one of the extension's `tabTypes`; Muxy opens it with `{ filePath, line?, column?, source }` when a terminal link opens a file. See [File openers](tabs.md#file-openers). |
 | `panels` | object[] | no | Dockable/floating webview panels. See [Panels](panels.md). |
 | `popovers` | object[] | no | Transient webview popovers anchored to a topbar/status-bar item. See [Popovers](popovers.md). |
 | `sidebar` | object | no | A single full-height webview that replaces the built-in left sidebar when the user selects it. See [Sidebars](sidebars.md). |

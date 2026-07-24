@@ -164,7 +164,9 @@ enum RepositoryAIResponseDecoder {
                 continue
             }
             if character == "{" {
-                if depth == 0 { start = index }
+                if depth == 0 {
+                    start = index
+                }
                 depth += 1
                 continue
             }

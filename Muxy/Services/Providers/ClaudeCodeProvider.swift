@@ -67,6 +67,52 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         Self.fileContainsMuxyMarker(at: Self.settingsPath)
     }
 
+    var configPaths: [String] { [Self.settingsPath] }
+
+    func verify(hookScriptPath: String) -> HookVerification {
+        let expected = Self.hookEvents.map {
+            Self.hookCommand(hookScript: hookScriptPath, event: $0.event)
+        }
+        return Self.verifyNestedHooks(
+            at: Self.settingsPath,
+            keys: Self.hookEvents.map(\.settingsKey),
+            expectedCommands: expected
+        )
+    }
+
+    static func verifyNestedHooks(
+        at path: String,
+        keys: [String],
+        expectedCommands: [String]
+    ) -> HookVerification {
+        guard fileContainsMuxyMarker(at: path) else { return .needsRepair }
+        guard let settings = try? readJSON(at: path),
+              let hooks = settings["hooks"] as? [String: Any]
+        else { return .needsRepair }
+
+        for (key, expected) in zip(keys, expectedCommands) {
+            let entries = hooks[key] as? [[String: Any]]
+            guard hasSingleMuxyHook(entries: entries, expectedCommand: expected) else {
+                return .needsRepair
+            }
+        }
+        return .satisfied
+    }
+
+    static func readJSON(at path: String) throws -> [String: Any] {
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        guard !data.isEmpty, let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return json
+    }
+
+    static func commandStrings(inNested entries: [[String: Any]]?) -> [String] {
+        guard let entries else { return [] }
+        return entries.flatMap { entry -> [String] in
+            guard let hooks = entry["hooks"] as? [[String: Any]] else { return [] }
+            return hooks.compactMap { $0["command"] as? String }
+        }
+    }
+
     static func fileContainsMuxyMarker(at path: String) -> Bool {
         guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
         return contents.contains(muxyMarker)
@@ -87,7 +133,10 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         into hooks: [String: Any]
     ) -> [String: Any]? {
         let alreadyInstalled = commands.allSatisfy {
-            muxyHookMatches(entries: hooks[$0.settingsKey] as? [[String: Any]], expectedCommand: $0.command)
+            hasSingleMuxyHook(
+                entries: hooks[$0.settingsKey] as? [[String: Any]],
+                expectedCommand: $0.command
+            )
         }
         guard !alreadyInstalled else { return nil }
 
@@ -104,8 +153,8 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     static func hooks(uninstallingFrom hooks: [String: Any]) -> [String: Any] {
         var result = hooks
         for key in hookEvents.map(\.settingsKey) {
-            guard var entries = result[key] as? [[String: Any]] else { continue }
-            entries.removeAll { isMuxyHookEntry($0) }
+            guard let existing = result[key] as? [[String: Any]] else { continue }
+            let entries = removingMuxyHooks(fromNested: existing)
             if entries.isEmpty {
                 result.removeValue(forKey: key)
             } else {
@@ -116,7 +165,7 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     static func hookCommand(hookScript: String, event: String) -> String {
-        "'\(hookScript)' \(event) # \(muxyMarker)"
+        "\(ShellEscaper.quote(hookScript)) \(event) # \(muxyMarker)"
     }
 
     private static func buildHookEntry(command: String) -> [String: Any] {
@@ -132,33 +181,38 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         ]
     }
 
-    private static func muxyHookMatches(entries: [[String: Any]]?, expectedCommand: String) -> Bool {
+    static func hasSingleMuxyHook(entries: [[String: Any]]?, expectedCommand: String) -> Bool {
         guard let entries else { return false }
-        return entries.contains { entry in
-            guard let hooks = entry["hooks"] as? [[String: Any]] else { return false }
-            return hooks.contains { hook in
-                guard let command = hook["command"] as? String else { return false }
-                return command == expectedCommand
-            }
-        }
+        let muxyCommands = commandStrings(inNested: entries).filter { isMuxyCommand($0) }
+        return muxyCommands == [expectedCommand]
     }
 
     private static func mergeHookArray(
         existing: [[String: Any]]?,
         muxyHook: [String: Any]
     ) -> [[String: Any]] {
-        var entries = existing ?? []
-        entries.removeAll { isMuxyHookEntry($0) }
+        var entries = removingMuxyHooks(fromNested: existing ?? [])
         entries.append(muxyHook)
         return entries
     }
 
-    private static func isMuxyHookEntry(_ entry: [String: Any]) -> Bool {
-        guard let hooks = entry["hooks"] as? [[String: Any]] else { return false }
-        return hooks.contains { hook in
-            guard let command = hook["command"] as? String else { return false }
-            return command.contains(muxyMarker)
+    static func removingMuxyHooks(fromNested entries: [[String: Any]]) -> [[String: Any]] {
+        entries.compactMap { entry in
+            guard let hooks = entry["hooks"] as? [[String: Any]] else { return entry }
+            let foreignHooks = hooks.filter { hook in
+                guard let command = hook["command"] as? String else { return true }
+                return !isMuxyCommand(command)
+            }
+            guard !foreignHooks.isEmpty else { return nil }
+            guard foreignHooks.count != hooks.count else { return entry }
+            var updatedEntry = entry
+            updatedEntry["hooks"] = foreignHooks
+            return updatedEntry
         }
+    }
+
+    private static func isMuxyCommand(_ command: String) -> Bool {
+        command.contains(muxyMarker)
     }
 
     private static func readSettings() throws -> [String: Any] {
@@ -169,22 +223,6 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     private static func writeSettings(_ settings: [String: Any]) throws {
-        let dirPath = (settingsPath as NSString).deletingLastPathComponent
-        try FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
-
-        let fileURL = URL(fileURLWithPath: settingsPath)
-        if FileManager.default.fileExists(atPath: settingsPath) {
-            let backupPath = settingsPath + ".muxy-backup"
-            let backupURL = URL(fileURLWithPath: backupPath)
-            try? FileManager.default.removeItem(at: backupURL)
-            try FileManager.default.copyItem(at: fileURL, to: backupURL)
-        }
-
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.privateFile],
-            ofItemAtPath: settingsPath
-        )
+        try HookConfigWriter.write(settings, to: settingsPath)
     }
 }

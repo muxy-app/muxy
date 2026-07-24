@@ -77,7 +77,9 @@ final class HostBridge: @unchecked Sendable {
         }
         timer.setEventHandler { [weak self] in
             callback.call(withArguments: [])
-            if !repeats { self?.cancelTimer(id: id) }
+            if !repeats {
+                self?.cancelTimer(id: id)
+            }
         }
         timers[id] = timer
         timer.resume()
@@ -135,7 +137,9 @@ final class HostBridge: @unchecked Sendable {
         }
         do {
             let reply = try client.sendAndWaitReply(line)
-            if reply == "ok" { return ["ok": true, "value": NSNull()] }
+            if reply == "ok" {
+                return ["ok": true, "value": NSNull()]
+            }
             if reply.hasPrefix("error:") {
                 return ["ok": false, "error": String(reply.dropFirst("error:".count))]
             }

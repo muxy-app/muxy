@@ -34,9 +34,11 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
 
 The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
 
+Split-child tabs belong to their owning top-level tab. Closing that parent closes every child it owns, including pinned children. If a parent or child page registers [`muxy.lifecycle.onBeforeClose`](lifecycle.md), Muxy asks all participating surfaces in parallel; any veto cancels the entire hierarchy close.
+
 ## File openers
 
-A tab type can register as a **file opener** so the user can pick it as their "Open in IDE" target. When selected, Muxy routes native file opens — terminal file links and the Open in IDE control — into a tab of that type instead of an external editor. Declare openers under the `fileOpeners` manifest array:
+A tab type can register as a **file opener** so the user can select it in Settings. When selected, Muxy routes terminal file links into a tab of that type instead of an external editor. Declare openers under the `fileOpeners` manifest array:
 
 ```jsonc
 "fileOpeners": [
@@ -61,15 +63,17 @@ The opened tab receives `window.muxy.data` with the file location:
   filePath: string,   // path relative to the project root
   line?: number,      // 1-based, when the source had a line suffix
   column?: number,    // 1-based, when the source had a column suffix
-  source: string,     // "terminal" or "open-control"
+  source: string,     // "terminal"
 }
 ```
 
 Only files inside the active project are routed; anything else falls back to the native IDE. With `singleton: true`, reopening pushes the new location through [`muxy.onDataChange`](#opening-another-tab).
+Fallbacks and extension reloads preserve the selected opener so it resumes handling matching files when it is available again.
+The topbar project target is independent from this setting and never lists extension file-openers.
 
 ## Topbar (recommended)
 
-A tab fills its whole region with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
+A tab fills its whole pane with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; sibling panes line up only when every surface uses the same bar.** Split-child extension tabs render as bordered panes inside their owning top-level tab and do not get their own tab strip.
 
 Tab webviews use an opaque native backing that follows `--muxy-background`, which keeps large scrolling pages composited smoothly. Paint the `html` and `body` backgrounds with `--muxy-background`; transparent page backgrounds are supported only for [popovers](popovers.md).
 
@@ -107,7 +111,7 @@ The bar's height tracks the user's interface scale (Settings → Interface), so 
 
 Because the topbar is your own HTML, you control its contents — put a title and icon on the left and as many action buttons or icons on either side as you need. To render edge-to-edge content instead (a canvas, a custom layout that owns the whole tab), simply omit the topbar; nothing in Muxy forces one.
 
-See [theming](README.md) and the SKILL for the full `--muxy-*` variable list and copy-paste CSS.
+See the SKILL for the full `--muxy-*` variable list and copy-paste CSS.
 
 ## window.muxy
 

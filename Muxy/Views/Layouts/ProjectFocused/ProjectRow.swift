@@ -16,6 +16,7 @@ struct ProjectRow: View {
     let onSetPinned: (Bool) -> Void
 
     @Environment(AppState.self) private var appState
+    @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
 
@@ -85,7 +86,9 @@ struct ProjectRow: View {
                 hovered = hovering
             }
             .onChange(of: isAnyDragging) { _, dragging in
-                if dragging { hovered = false }
+                if dragging {
+                    hovered = false
+                }
             }
             .onTapGesture {
                 guard !isAnyDragging else { return }
@@ -112,7 +115,13 @@ struct ProjectRow: View {
             }
             .contextMenu {
                 if project.isHome {
-                    Button("Hide Home") { hideHome() }
+                    ProjectContextMenuFooter(
+                        path: project.path,
+                        workspaceContext: projectGroupStore.workspaceContext(for: project),
+                        separatesFromPreviousActions: false
+                    ) {
+                        Button("Hide Home") { hideHome() }
+                    }
                 } else {
                     projectContextMenu
                 }
@@ -145,11 +154,7 @@ struct ProjectRow: View {
                     sourceImage: item.image,
                     onConfirm: { cropped in
                         logoCropImage = nil
-                        let logoPath = ProjectLogoStorage.save(
-                            croppedImage: cropped,
-                            forProjectID: project.id
-                        )
-                        onSetLogo(logoPath)
+                        projectStore.setLogo(id: project.id, croppedImage: cropped)
                     },
                     onCancel: { logoCropImage = nil }
                 )
@@ -216,8 +221,12 @@ struct ProjectRow: View {
             Divider()
             ProjectGroupMembershipMenu(project: project)
         }
-        Divider()
-        Button("Remove Project", role: .destructive, action: onRemove)
+        ProjectContextMenuFooter(
+            path: project.path,
+            workspaceContext: projectGroupStore.workspaceContext(for: project)
+        ) {
+            Button("Remove Project", role: .destructive, action: onRemove)
+        }
     }
 
     private var resolvedLogo: NSImage? {
@@ -292,11 +301,15 @@ struct ProjectRow: View {
         if project.isHome {
             return AnyShapeStyle(hovered ? MuxyTheme.accent.opacity(0.85) : MuxyTheme.accent)
         }
-        if hasLogo { return AnyShapeStyle(Color.clear) }
+        if hasLogo {
+            return AnyShapeStyle(Color.clear)
+        }
         if let tint = ProjectIconColor.color(for: project.iconColor) {
             return AnyShapeStyle(hovered ? tint.opacity(0.85) : tint)
         }
-        if hovered { return AnyShapeStyle(MuxyTheme.fg.opacity(0.22)) }
+        if hovered {
+            return AnyShapeStyle(MuxyTheme.fg.opacity(0.22))
+        }
         return AnyShapeStyle(MuxyTheme.fg.opacity(0.18))
     }
 
@@ -384,6 +397,7 @@ struct ProjectRow: View {
             ?? remaining.first
         worktreeStore.beginRemoval(
             worktree: worktree,
+            projectID: project.id,
             repoPath: project.path,
             context: projectGroupStore.workspaceContext(for: project),
             onSuccess: {

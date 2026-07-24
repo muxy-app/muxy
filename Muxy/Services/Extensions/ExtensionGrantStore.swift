@@ -368,7 +368,9 @@ enum ExtensionGrantSuggestion {
             if let base = argv?.first {
                 return .argvPrefix([base])
             }
-            if let shell { return .shellExact(shell) }
+            if let shell {
+                return .shellExact(shell)
+            }
             return .any
         case let (.remoteInvoke, .remote(action, _)):
             return .remoteActionEquals(action)

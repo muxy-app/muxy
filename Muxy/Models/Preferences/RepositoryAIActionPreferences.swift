@@ -56,6 +56,7 @@ enum RepositoryAIAction: String, CaseIterable, Identifiable {
 
 enum RepositoryAIActionPreferences {
     static let automaticProviderID = ""
+    static let maximumAdditionalPromptLength = 2000
 
     static func configuredProviderID(
         for action: RepositoryAIAction,
@@ -78,11 +79,27 @@ enum RepositoryAIActionPreferences {
         return stored
     }
 
+    static func instructions(
+        for action: RepositoryAIAction,
+        projectPrompt: String? = nil,
+        additionalPrompt: String? = nil,
+        defaults: UserDefaults = .standard
+    ) -> String {
+        let resolvedPrompt = prompt(for: action, projectPrompt: projectPrompt, defaults: defaults)
+        guard let additionalPrompt = normalizedAdditionalPrompt(additionalPrompt) else { return resolvedPrompt }
+        return "\(resolvedPrompt)\n\n\(additionalPrompt)"
+    }
+
     static func normalizedPrompt(_ prompt: String?) -> String? {
         guard let prompt,
               !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return nil }
         return prompt
+    }
+
+    private static func normalizedAdditionalPrompt(_ prompt: String?) -> String? {
+        guard let prompt else { return nil }
+        return normalizedPrompt(String(prompt.prefix(maximumAdditionalPromptLength)))
     }
 }
 
