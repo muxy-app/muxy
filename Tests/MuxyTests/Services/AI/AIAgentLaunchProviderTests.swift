@@ -189,6 +189,53 @@ struct AIAgentLaunchProviderTests {
             }
         }
     }
+
+    @Test("cancelled option loading cannot return a stale remote result")
+    @MainActor
+    func cancelledOptionLoadingRejectsResult() async {
+        let provider = AgentTabLaunchTestProvider(executablePath: nil)
+        var rejectedResult = false
+        let task = Task { @MainActor in
+            do {
+                _ = try await AgentTabLaunchOptionsLoader.resolve(
+                    context: .ssh(SSHDestination(host: "first.example.com")),
+                    localResolver: { [] },
+                    remoteResolver: { _ in
+                        try? await Task.sleep(for: .milliseconds(100))
+                        return [AgentTabLaunchOption(provider: provider, command: "test-agent")]
+                    }
+                )
+            } catch is CancellationError {
+                rejectedResult = true
+            } catch {
+                Issue.record(error)
+            }
+        }
+
+        await Task.yield()
+        task.cancel()
+        await task.value
+
+        #expect(rejectedResult)
+    }
+
+    @Test("option loading resolves against the supplied workspace context")
+    @MainActor
+    func optionLoadingUsesWorkspaceContext() async throws {
+        let destination = SSHDestination(host: "target.example.com")
+        var resolvedDestination: SSHDestination?
+
+        _ = try await AgentTabLaunchOptionsLoader.resolve(
+            context: .ssh(destination),
+            localResolver: { [] },
+            remoteResolver: { receivedDestination in
+                resolvedDestination = receivedDestination
+                return []
+            }
+        )
+
+        #expect(resolvedDestination == destination)
+    }
 }
 
 private struct AgentTabLaunchTestProvider: AIAgentLaunchProvider {

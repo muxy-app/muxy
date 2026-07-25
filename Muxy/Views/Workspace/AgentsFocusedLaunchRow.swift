@@ -8,14 +8,29 @@ struct AgentsFocusedLaunchRow: View {
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
-    @State private var options: [AgentTabLaunchOption] = []
+    @State private var loadedOptions: LoadedOptions?
+
+    private struct OptionsLoadID: Hashable {
+        let projectID: UUID
+        let workspaceContext: WorkspaceContext
+    }
+
+    private struct LoadedOptions {
+        let id: OptionsLoadID
+        let options: [AgentTabLaunchOption]
+    }
 
     private var workspaceContext: WorkspaceContext {
         projectGroupStore.workspaceContext(for: project)
     }
 
+    private var optionsLoadID: OptionsLoadID {
+        OptionsLoadID(projectID: project.id, workspaceContext: workspaceContext)
+    }
+
     private var launchableOptions: [AgentTabLaunchOption] {
-        options.filter { $0.command != nil }
+        guard let loadedOptions, loadedOptions.id == optionsLoadID else { return [] }
+        return loadedOptions.options.filter { $0.command != nil }
     }
 
     private var terminalLabel: String {
@@ -38,15 +53,25 @@ struct AgentsFocusedLaunchRow: View {
                 }
             }
         }
-        .task(id: project.id) { await loadOptions() }
+        .task(id: optionsLoadID) {
+            await loadOptions(id: optionsLoadID)
+        }
     }
 
-    private func loadOptions() async {
-        guard case let .ssh(destination) = workspaceContext else {
-            options = AgentTabLaunchOption.resolveLocal()
+    private func loadOptions(id: OptionsLoadID) async {
+        loadedOptions = nil
+        do {
+            let options = try await AgentTabLaunchOptionsLoader.resolve(context: id.workspaceContext)
+            loadedOptions = LoadedOptions(id: id, options: options)
+        } catch is CancellationError {
             return
+        } catch {
+            guard !Task.isCancelled else { return }
+            ToastState.shared.show(
+                title: "Could not check remote agent providers",
+                body: error.localizedDescription
+            )
         }
-        options = await (try? AgentTabLaunchOption.resolveRemote(destination: destination)) ?? []
     }
 
     private func launch(_ option: AgentTabLaunchOption) {

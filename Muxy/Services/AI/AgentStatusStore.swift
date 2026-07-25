@@ -165,6 +165,14 @@ final class AgentStatusStore {
         recompute(worktreeID: removed.worktreeID)
     }
 
+    func commandExited(paneID: UUID, closesPane: Bool) {
+        guard !closesPane else {
+            removePane(paneID)
+            return
+        }
+        endSession(paneID: paneID)
+    }
+
     func endSession(paneID: UUID) {
         cancelGrace(for: paneID)
         detectionLost.remove(paneID)

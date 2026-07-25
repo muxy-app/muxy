@@ -515,6 +515,37 @@ struct AgentStatusStoreTests {
         #expect(store.activeProviderID(forPane: paneID) == "claude")
     }
 
+    @Test("command exit keeps a reusable pane ended until another agent starts")
+    func reusablePaneCommandExitKeepsSessionEnded() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+
+        store.commandExited(paneID: paneID, closesPane: false)
+        send(store, paneID, .idle, sequence: 2)
+
+        #expect(store.activeProviderID(forPane: paneID) == nil)
+        #expect(store.status(forPane: paneID) == .idle)
+        #expect(store.isCompletionPending(forPane: paneID))
+
+        send(store, paneID, .working, sequence: 3)
+
+        #expect(store.activeProviderID(forPane: paneID) == "claude")
+        #expect(store.status(forPane: paneID) == .working)
+        #expect(!store.isCompletionPending(forPane: paneID))
+    }
+
+    @Test("command exit clears state when its pane closes")
+    func closingPaneCommandExitRemovesSession() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+
+        store.commandExited(paneID: paneID, closesPane: true)
+
+        #expect(store.status(forPane: paneID) == nil)
+        #expect(store.activeProviderID(forPane: paneID) == nil)
+        #expect(!store.isCompletionPending(forPane: paneID))
+    }
+
     @Test("pane close drops all session state")
     func paneCloseDropsSessions() {
         let (store, _, paneID) = makeContext()
