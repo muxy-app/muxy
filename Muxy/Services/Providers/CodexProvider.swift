@@ -1,12 +1,15 @@
 import Foundation
 
-struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider {
+struct CodexProvider: AIProviderIntegration, AIAgentLaunchProvider, AgentResumeProviding {
     let id = "codex"
     let displayName = "Codex"
     let socketTypeKey = "codex_hook"
     let iconName = "codex"
     let executableNames = ["codex"]
     let hookScriptName = "muxy-codex-hook"
+
+    var resumeStrategy: AgentResumeStrategy? { CodexResumeStrategy() }
+    var sessionStore: AgentSessionStore? { CodexSessionStore() }
 
     var agentLaunchConfiguration: AIAgentLaunchConfiguration {
         AIAgentLaunchConfiguration(
