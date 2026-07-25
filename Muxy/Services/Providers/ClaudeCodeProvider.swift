@@ -1,11 +1,14 @@
 import Foundation
 
-struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
+struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider, AgentResumeProviding {
     let id = "claude"
     let displayName = "Claude Code"
     let socketTypeKey = "claude_hook"
     let iconName = "claude"
     let executableNames = ["claude"]
+
+    var resumeStrategy: AgentResumeStrategy? { ClaudeResumeStrategy() }
+    var sessionStore: AgentSessionStore? { ClaudeSessionStore() }
 
     var agentLaunchConfiguration: AIAgentLaunchConfiguration {
         AIAgentLaunchConfiguration(
