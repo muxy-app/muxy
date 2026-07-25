@@ -873,11 +873,21 @@ final class GhosttyTerminalNSView: NSView {
         return NSPoint(x: local.x, y: bounds.height - local.y)
     }
 
-    override func mouseDown(with event: NSEvent) {
-        if overlayActive {
-            return
+    @discardableResult
+    static func routeMouseDown(
+        commandFileToken: String?,
+        openCommandFile: (String) -> Void,
+        focusTerminal: () -> Void
+    ) -> Bool {
+        guard let commandFileToken else {
+            focusTerminal()
+            return false
         }
-        guard let surface else { return }
+        openCommandFile(commandFileToken)
+        return true
+    }
+
+    private func claimFocusForMouseDown() {
         let alreadyFirstResponder = window?.firstResponder === self
         window?.makeFirstResponder(self)
         if alreadyFirstResponder {
@@ -886,10 +896,27 @@ final class GhosttyTerminalNSView: NSView {
                 self?.onFocus?()
             }
         }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if overlayActive {
+            return
+        }
+        guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
-        if event.modifierFlags.contains(.command), !hasOSC8LinkUnderCursor, let word = readQuicklookWordUnderMouse() {
-            onCmdClickFile?(resolvedCmdFileToken(for: word)?.text ?? word.text)
+        let commandWord = event.modifierFlags.contains(.command) && !hasOSC8LinkUnderCursor
+            ? readQuicklookWordUnderMouse()
+            : nil
+        let commandFileToken = commandWord.flatMap { resolvedCmdFileToken(for: $0)?.text }
+        if Self.routeMouseDown(
+            commandFileToken: commandFileToken,
+            openCommandFile: { onCmdClickFile?($0) },
+            focusTerminal: claimFocusForMouseDown
+        ) {
+            return
+        }
+        if commandWord != nil {
             return
         }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))

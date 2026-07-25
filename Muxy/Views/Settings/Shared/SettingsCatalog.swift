@@ -238,11 +238,11 @@ enum SettingsCatalog {
         SettingsCatalogItem(
             key: FileOpenerSelection.storageKey,
             title: "Default Opener",
-            description: "Chooses the built-in IDE or an extension opener for terminal file links.",
+            description: "Chooses the top-bar project target or an extension opener for terminal file links.",
             category: .projects,
             section: "Open Files With",
             defaultValue: FileOpenerSelection.builtinValue,
-            aliases: ["file opener", "terminal links", "editor", "extension opener"]
+            aliases: ["file opener", "terminal links", "editor", "extension opener", "top bar"]
         ),
         SettingsCatalogItem(
             key: GeneralSettingsKeys.defaultWorktreePathTemplate,

@@ -20,6 +20,32 @@ struct TerminalTextInputClientTests {
         #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: false, next: false) == false)
     }
 
+    @Test func resolvedCommandFileClickOpensWithoutClaimingTerminalFocus() {
+        var events: [String] = []
+
+        let consumed = GhosttyTerminalNSView.routeMouseDown(
+            commandFileToken: "Sources/App.swift",
+            openCommandFile: { events.append("open:\($0)") },
+            focusTerminal: { events.append("focus") }
+        )
+
+        #expect(consumed)
+        #expect(events == ["open:Sources/App.swift"])
+    }
+
+    @Test func ordinaryMouseDownClaimsTerminalFocus() {
+        var events: [String] = []
+
+        let consumed = GhosttyTerminalNSView.routeMouseDown(
+            commandFileToken: nil,
+            openCommandFile: { events.append("open:\($0)") },
+            focusTerminal: { events.append("focus") }
+        )
+
+        #expect(!consumed)
+        #expect(events == ["focus"])
+    }
+
     @Test func surfaceIsUnfocusedWhenWindowIsNotKey() {
         #expect(GhosttyTerminalNSView.desiredSurfaceFocus(overlayActive: false, isKeyWindow: false, isFirstResponder: true) == false)
     }
