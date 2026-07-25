@@ -319,6 +319,12 @@ enum MuxyAPIDispatcher {
             return try await handleBrowserAutomation(verb: browserVerb, args: args, context: context)
         case "agents.list":
             return MuxyAPI.Agents.list().map(agentDict)
+        case "agent.resolveResume":
+            let providerID = try stringArg(args, "providerID")
+            let cwd = try stringArg(args, "cwd")
+            let sessionID = optionalStringArg(args, "sessionID")
+            let command = AgentResumeResolver.command(providerID: providerID, sessionID: sessionID, cwd: cwd)
+            return ["command": command as Any]
         case "panes.list":
             return MuxyAPI.Panes.list(appState: context.appState).map(paneDict)
         case "panes.send":

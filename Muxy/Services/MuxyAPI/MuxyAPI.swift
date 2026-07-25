@@ -226,6 +226,7 @@ enum MuxyAPI {
         private static let extensionVerbs: Set<String> = Set([
             "exec",
             "agents.list",
+            "agent.resolveResume",
             "http.fetch",
             "dialog.confirm",
             "dialog.alert",
@@ -460,6 +461,7 @@ enum MuxyAPI {
             "worktrees.switch": .worktreesWrite,
             "worktrees.refresh": .worktreesWrite,
             "agents.list": .agentsRead,
+            "agent.resolveResume": .agentsRead,
             "git.status": .gitRead,
             "git.diff": .gitRead,
             "git.repoInfo": .gitRead,
@@ -528,6 +530,7 @@ enum MuxyAPI {
 
         private static let eventPermissions: [String: ExtensionPermission] = [
             ExtensionEventName.agentStatus: .agentsRead,
+            ExtensionEventName.agentSession: .agentsRead,
             ExtensionEventName.fileChanged: .filesRead,
             ExtensionEventName.projectsChanged: .projectsRead,
             ExtensionEventName.worktreeHeadChanged: .worktreesRead,
