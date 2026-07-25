@@ -41,7 +41,7 @@ struct AgentsFocusedTabsList: View {
     }
 
     private func providerID(for paneID: UUID) -> String? {
-        detectedAgentStore.agent(for: paneID) ?? agentStatusStore.providerID(forPane: paneID)
+        detectedAgentStore.agent(for: paneID) ?? agentStatusStore.activeProviderID(forPane: paneID)
     }
 
     private func isActive(_ location: AgentsFocusedTabSelection.Location) -> Bool {

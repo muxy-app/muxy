@@ -39,7 +39,9 @@ final class GhosttyTerminalNSView: NSView {
 
     var onOfflineChange: ((Bool) -> Void)?
     var onDetectedAgentChange: ((String?) -> Void)?
+    var onAgentProcessExit: (() -> Void)?
     nonisolated(unsafe) private var agentDetectionCoalesced: DispatchWorkItem?
+    private let agentProcessWatcher = AgentProcessExitWatcher()
     private var detectedAgentProviderID: String?
     private var agentExecutables: [AIAgentExecutable] = []
     private var hasMaterializedOnce = false
@@ -1787,12 +1789,16 @@ final class GhosttyTerminalNSView: NSView {
         if agentExecutables.isEmpty {
             agentExecutables = DetectedAgentStore.executablesSnapshot(from: AIProviderRegistry.shared)
         }
+        agentProcessWatcher.onExit = { [weak self] in
+            self?.handleAgentProcessExit()
+        }
         detectAgentNow()
     }
 
     private func stopAgentDetection() {
         agentDetectionCoalesced?.cancel()
         agentDetectionCoalesced = nil
+        agentProcessWatcher.cancel()
         guard detectedAgentProviderID != nil else { return }
         detectedAgentProviderID = nil
         onDetectedAgentChange?(nil)
@@ -1813,9 +1819,24 @@ final class GhosttyTerminalNSView: NSView {
         let foregroundPID = ghostty_surface_foreground_pid(surface)
         let candidateNames = ForegroundProcessInspector.executableNameCandidates(pid: foregroundPID)
         let providerID = AIAgentDetector.providerID(forCandidateNames: candidateNames, executables: agentExecutables)
+        watchAgentProcess(providerID: providerID, processID: foregroundPID)
         guard providerID != detectedAgentProviderID else { return }
         detectedAgentProviderID = providerID
         onDetectedAgentChange?(providerID)
+    }
+
+    private func watchAgentProcess(providerID: String?, processID: UInt64) {
+        guard providerID != nil, processID > 0, processID <= UInt64(Int32.max) else { return }
+        agentProcessWatcher.watch(processID: Int32(processID))
+    }
+
+    private func handleAgentProcessExit() {
+        if detectedAgentProviderID != nil {
+            detectedAgentProviderID = nil
+            onDetectedAgentChange?(nil)
+        }
+        onAgentProcessExit?()
+        detectAgentNow()
     }
 
     private func recordSpecialKey(_ event: NSEvent) {

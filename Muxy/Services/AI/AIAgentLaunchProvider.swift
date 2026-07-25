@@ -111,6 +111,21 @@ struct AgentTabLaunchOption: Identifiable {
             )
         }
     }
+
+    @MainActor
+    static func resolveLocal() -> [Self] {
+        resolveLocal(providers: AIProviderRegistry.shared.agentLaunchProviders)
+    }
+
+    @MainActor
+    static func resolveRemote(destination: SSHDestination) async throws -> [Self] {
+        let providers = AIProviderRegistry.shared.agentLaunchProviders
+        let availableProviderIDs = try await RemoteAgentLaunchAvailability.resolve(
+            providers: providers,
+            destination: destination
+        )
+        return resolveRemote(providers: providers, availableProviderIDs: availableProviderIDs)
+    }
 }
 
 enum RemoteAgentLaunchAvailabilityError: LocalizedError {

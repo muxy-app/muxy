@@ -339,6 +339,86 @@ struct AgentsFocusedTabLauncherTests {
     }
 }
 
+@Suite("TabFocusedSidebarRowTap")
+struct TabFocusedSidebarRowTapTests {
+    @Test("tab focused rows only toggle expansion")
+    func tabFocusedRowsToggle() {
+        #expect(TabFocusedSidebarRowTap.resolve(content: .tabs, isActive: false) == .toggleExpansion)
+        #expect(TabFocusedSidebarRowTap.resolve(content: .tabs, isActive: true) == .toggleExpansion)
+    }
+
+    @Test("agents focused rows activate when inactive")
+    func agentsFocusedInactiveRowActivates() {
+        #expect(TabFocusedSidebarRowTap.resolve(content: .agents, isActive: false) == .activateRow)
+    }
+
+    @Test("agents focused rows toggle expansion when already active")
+    func agentsFocusedActiveRowToggles() {
+        #expect(TabFocusedSidebarRowTap.resolve(content: .agents, isActive: true) == .toggleExpansion)
+    }
+}
+
+@Suite("TabFocusedSidebarTarget")
+@MainActor
+struct TabFocusedSidebarTargetTests {
+    @Test("activating another project selects it with its primary worktree")
+    func activatesOtherProject() {
+        let activeProject = Project(name: "Active", path: "/tmp/active")
+        let targetProject = Project(name: "Target", path: "/tmp/target")
+        let activeWorktree = Worktree(name: "Active", path: activeProject.path, isPrimary: true)
+        let targetPrimary = Worktree(name: "Target", path: targetProject.path, isPrimary: true)
+        let worktreeStore = WorktreeStore(
+            persistence: AgentLaunchWorktreePersistenceStub(storage: [
+                activeProject.id: [activeWorktree],
+                targetProject.id: [targetPrimary],
+            ]),
+            projects: [activeProject, targetProject]
+        )
+        let appState = makeAppState()
+        appState.selectProject(activeProject, worktree: activeWorktree)
+
+        TabFocusedSidebarTarget.activate(
+            project: targetProject,
+            worktree: targetPrimary,
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+
+        #expect(appState.activeProjectID == targetProject.id)
+        #expect(appState.activeWorktreeID[targetProject.id] == targetPrimary.id)
+    }
+
+    @Test("activating the primary row switches back from an active worktree")
+    func activatesPrimaryWorktreeRow() {
+        let project = Project(name: "Target", path: "/tmp/target")
+        let primary = Worktree(name: "Target", path: project.path, isPrimary: true)
+        let secondary = Worktree(name: "Agent", path: "/tmp/target-agent", isPrimary: false)
+        let worktreeStore = WorktreeStore(
+            persistence: AgentLaunchWorktreePersistenceStub(storage: [project.id: [primary, secondary]]),
+            projects: [project]
+        )
+        let appState = makeAppState()
+        appState.selectProject(project, worktree: secondary)
+
+        TabFocusedSidebarTarget.activate(
+            project: project,
+            worktree: primary,
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+
+        #expect(appState.activeWorktreeID[project.id] == primary.id)
+    }
+
+    private func makeAppState() -> AppState {
+        AppState(
+            selectionStore: AgentLaunchSelectionStoreStub(),
+            terminalViews: AgentLaunchTerminalViewRemovingStub(),
+            workspacePersistence: AgentLaunchWorkspacePersistenceStub()
+        )
+    }
+}
+
 @Suite("TabFocusedSidebarState")
 @MainActor
 struct TabFocusedSidebarStateTests {

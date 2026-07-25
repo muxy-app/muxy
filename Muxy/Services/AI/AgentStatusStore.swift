@@ -85,6 +85,7 @@ final class AgentStatusStore {
     private var appliedSequence: [UUID: UInt64] = [:]
     private var pendingGrace: [UUID: AgentGraceCancellable] = [:]
     private var detectionLost: Set<UUID> = []
+    private var endedSessionPaneIDs: Set<UUID> = []
     private var detectedAgentProcessIDs: [UUID: Int32] = [:]
     private var sequenceCounter: UInt64 = 0
 
@@ -123,6 +124,9 @@ final class AgentStatusStore {
             return
         }
         appliedSequence[paneID] = sequence
+        if status != .idle {
+            endedSessionPaneIDs.remove(paneID)
+        }
 
         if let existing = panes[paneID], existing.status == status, existing.providerID == providerID {
             resetGraceIfNeeded(for: paneID, status: status)
@@ -153,6 +157,7 @@ final class AgentStatusStore {
     func removePane(_ paneID: UUID) {
         cancelGrace(for: paneID)
         detectionLost.remove(paneID)
+        endedSessionPaneIDs.remove(paneID)
         detectedAgentProcessIDs.removeValue(forKey: paneID)
         appliedSequence.removeValue(forKey: paneID)
         completionPending.remove(paneID)
@@ -160,8 +165,28 @@ final class AgentStatusStore {
         recompute(worktreeID: removed.worktreeID)
     }
 
+    func endSession(paneID: UUID) {
+        cancelGrace(for: paneID)
+        detectionLost.remove(paneID)
+        detectedAgentProcessIDs.removeValue(forKey: paneID)
+        endedSessionPaneIDs.insert(paneID)
+        guard let existing = panes[paneID], existing.status != .idle else { return }
+        let sequence = nextSequence()
+        appliedSequence[paneID] = sequence
+        applyEntry(Entry(
+            worktreeID: existing.worktreeID,
+            projectID: existing.projectID,
+            paneID: paneID,
+            providerID: existing.providerID,
+            status: .idle,
+            updatedAt: Date(),
+            sequence: sequence
+        ))
+    }
+
     func noteDetectionActive(paneID: UUID, processID: Int32?) {
         detectionLost.remove(paneID)
+        endedSessionPaneIDs.remove(paneID)
         cancelGrace(for: paneID)
         if let processID {
             detectedAgentProcessIDs[paneID] = processID
@@ -189,8 +214,8 @@ final class AgentStatusStore {
         return panes[paneID]?.status
     }
 
-    func providerID(forPane paneID: UUID?) -> String? {
-        guard let paneID else { return nil }
+    func activeProviderID(forPane paneID: UUID?) -> String? {
+        guard let paneID, !endedSessionPaneIDs.contains(paneID) else { return nil }
         return panes[paneID]?.providerID
     }
 

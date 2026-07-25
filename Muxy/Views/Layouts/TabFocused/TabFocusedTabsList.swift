@@ -93,9 +93,8 @@ struct AgentsFocusedTabActions: View {
 
     private func presentProviders() {
         providerTask?.cancel()
-        let providers = AIProviderRegistry.shared.agentLaunchProviders
         guard case let .ssh(destination) = workspaceContext else {
-            options = AgentTabLaunchOption.resolveLocal(providers: providers)
+            options = AgentTabLaunchOption.resolveLocal()
             loadingProviders = false
             showingProviders = true
             return
@@ -106,15 +105,9 @@ struct AgentsFocusedTabActions: View {
         showingProviders = true
         providerTask = Task {
             do {
-                let providerIDs = try await RemoteAgentLaunchAvailability.resolve(
-                    providers: providers,
-                    destination: destination
-                )
+                let resolved = try await AgentTabLaunchOption.resolveRemote(destination: destination)
                 guard !Task.isCancelled else { return }
-                options = AgentTabLaunchOption.resolveRemote(
-                    providers: providers,
-                    availableProviderIDs: providerIDs
-                )
+                options = resolved
                 loadingProviders = false
             } catch {
                 guard !Task.isCancelled else { return }
@@ -177,29 +170,6 @@ enum AgentsFocusedTabLauncher {
               let paneID = appState.workspaceRoots[key]?.locateTab(id: tabID)?.tab.content.pane?.id
         else { return }
         DetectedAgentStore.shared.setProvisionalAgent(request.providerID, for: paneID)
-    }
-}
-
-@MainActor
-private enum TabFocusedSidebarTarget {
-    static func activate(
-        project: Project,
-        worktree: Worktree?,
-        appState: AppState,
-        worktreeStore: WorktreeStore
-    ) {
-        if appState.activeProjectID != project.id {
-            worktreeStore.ensurePrimary(for: project)
-            if let preferred = worktreeStore.preferred(
-                for: project.id,
-                matching: appState.activeWorktreeID[project.id]
-            ) {
-                appState.selectProject(project, worktree: worktree ?? preferred)
-            }
-        }
-        if let worktree, appState.activeWorktreeID[project.id] != worktree.id {
-            appState.selectWorktree(projectID: project.id, worktree: worktree)
-        }
     }
 }
 

@@ -485,7 +485,11 @@ struct MainWindow: View {
                        !appState.hasTabs(for: project.id),
                        let worktree = resolvedActiveWorktree(for: project)
                     {
-                        EmptyProjectPlaceholder(project: project) {
+                        EmptyProjectPlaceholder(
+                            project: project,
+                            worktree: worktree,
+                            layout: layoutStore.layout
+                        ) {
                             appState.openInitialTab(projectID: project.id, worktree: worktree)
                         }
                     } else if projectsWithTabs.isEmpty {

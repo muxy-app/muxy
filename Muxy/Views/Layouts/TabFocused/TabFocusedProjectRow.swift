@@ -140,7 +140,7 @@ struct TabFocusedProjectRow: View {
         .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
-        .onTapGesture { toggle() }
+        .onTapGesture { handleTap() }
         .contextMenu {
             if let worktree {
                 worktreeContextMenu(worktree)
@@ -367,19 +367,17 @@ struct TabFocusedProjectRow: View {
             expansionStore.focusMode = false
             return
         }
-        activateProjectIfNeeded()
+        activate(worktree)
         expansionStore.focusMode = true
     }
 
-    private func activateProjectIfNeeded() {
-        guard !isActive else { return }
-        worktreeStore.ensurePrimary(for: project)
-        guard let target = worktreeStore.preferred(
-            for: project.id,
-            matching: appState.activeWorktreeID[project.id]
+    private func activate(_ target: Worktree?) {
+        TabFocusedSidebarTarget.activate(
+            project: project,
+            worktree: target,
+            appState: appState,
+            worktreeStore: worktreeStore
         )
-        else { return }
-        appState.selectProject(project, worktree: target)
     }
 
     private var projectTitleColor: Color {
@@ -414,6 +412,22 @@ struct TabFocusedProjectRow: View {
             return AnyShapeStyle(MuxyTheme.hover)
         }
         return AnyShapeStyle(Color.clear)
+    }
+
+    private func handleTap() {
+        switch TabFocusedSidebarRowTap.resolve(content: content, isActive: isActive) {
+        case .toggleExpansion:
+            toggle()
+        case .activateRow:
+            activateRow()
+        }
+    }
+
+    private func activateRow() {
+        activate(listWorktree)
+        withAnimation(.easeInOut(duration: 0.15)) {
+            expansionStore.set(rowID, expanded: true)
+        }
     }
 
     private func toggle() {
