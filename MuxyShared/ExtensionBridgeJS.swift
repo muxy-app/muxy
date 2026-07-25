@@ -267,6 +267,7 @@ public enum ExtensionBridgeJS {
             Object.freeze(muxy.git); Object.freeze(muxy.git.pr); Object.freeze(muxy.git.branch); Object.freeze(muxy.git.worktree);
             Object.freeze(muxy.gh);
             Object.freeze(muxy.agents);
+            Object.freeze(muxy.agent);
             Object.freeze(muxy.notifications);
             Object.freeze(muxy.dialog);
             Object.freeze(muxy.shortcuts);
@@ -517,6 +518,13 @@ public enum ExtensionBridgeJS {
     private static let agentsBlock = """
             muxy.agents = {
                 list: () => dispatch('agents.list', {}),
+            };
+            muxy.agent = {
+                resolveResume: (o) => dispatch('agent.resolveResume', {
+                    providerID: String((o || {}).providerID || ''),
+                    cwd: String((o || {}).cwd || ''),
+                    sessionID: (o || {}).sessionID == null ? null : String(o.sessionID),
+                }),
             };
     """
 
