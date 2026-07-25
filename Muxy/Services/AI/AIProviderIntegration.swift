@@ -81,6 +81,8 @@ final class AIProviderRegistry {
     private let droidProvider = DroidProvider()
     private let piProvider = PiProvider()
     private let grokProvider = GrokProvider()
+    private let agyProvider = AgyProvider()
+    private let hermesProvider = HermesProvider()
     private let injectedProviders: [AIProviderIntegration]?
     private let hydrateLoginShellPath: @Sendable () async -> Void
     private let shouldInstallHooksInDebug: @Sendable () -> Bool
@@ -99,6 +101,8 @@ final class AIProviderRegistry {
         droidProvider,
         piProvider,
         grokProvider,
+        agyProvider,
+        hermesProvider,
     ]
 
     init(
@@ -275,5 +279,9 @@ final class AIProviderRegistry {
 
     var agentLaunchProviders: [any AIAgentLaunchProvider] {
         providers.compactMap { $0 as? any AIAgentLaunchProvider }
+    }
+
+    func resumeProvider(forProviderID id: String) -> AgentResumeProviding? {
+        providers.first { $0.id == id } as? AgentResumeProviding
     }
 }
