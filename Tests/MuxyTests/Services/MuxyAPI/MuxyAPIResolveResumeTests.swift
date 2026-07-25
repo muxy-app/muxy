@@ -9,7 +9,7 @@ struct MuxyAPIResolveResumeTests {
     @Test("resolves a command for a known provider with explicit id")
     func resolvesCommand() {
         let command = AgentResumeResolver.command(
-            providerID: "claude", sessionID: "sid", cwd: "/p")
+            providerID: "claude", sessionID: "sid", cwd: "/p", autoResumeEnabled: true)
         #expect(command == "claude --resume sid")
     }
 

@@ -277,7 +277,7 @@ final class AIProviderRegistry {
     }
 
     func iconName(forProviderID id: String) -> String? {
-        providers.first(where: { $0.id == id })?.iconName
+        detectableProviders.first(where: { $0.id == id })?.iconName
     }
 
     var agentLaunchProviders: [any AIAgentLaunchProvider] {

@@ -1,8 +1,6 @@
 import Foundation
-import os
 
 struct ClaudeSessionStore: AgentSessionStore {
-    private static let logger = Logger(subsystem: "app.muxy", category: "ClaudeSessionStore")
     private let homeDirectory: String
 
     init(homeDirectory: String = NSHomeDirectory()) {
@@ -37,7 +35,11 @@ struct ClaudeSessionStore: AgentSessionStore {
     }
 
     private static func firstUserMessage(atPath path: String) -> String? {
-        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return nil }
+        defer { try? handle.close() }
+        guard let chunk = try? handle.read(upToCount: 65536),
+              let contents = String(data: chunk, encoding: .utf8)
+        else { return nil }
         for line in contents.split(separator: "\n") {
             guard let data = line.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -51,7 +53,9 @@ struct ClaudeSessionStore: AgentSessionStore {
     }
 
     private static func plainText(from content: Any?) -> String? {
-        if let string = content as? String { return string }
+        if let string = content as? String {
+            return string
+        }
         if let blocks = content as? [[String: Any]] {
             return blocks.compactMap { $0["text"] as? String }.joined(separator: " ")
         }

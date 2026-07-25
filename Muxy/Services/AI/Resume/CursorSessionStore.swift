@@ -22,13 +22,17 @@ struct CursorSessionStore: AgentSessionStore {
             return AgentSessionRef(
                 id: chatID, providerID: "cursor", cwd: directory, gitBranch: nil,
                 title: nil, preview: Self.firstUserText(atPath: path),
-                updatedAt: updatedAt, pinned: false, archived: false)
+                updatedAt: updatedAt, pinned: false, archived: false
+            )
         }
         .sorted { $0.updatedAt > $1.updatedAt }
     }
 
     private static func firstUserText(atPath path: String) -> String? {
-        guard let contents = try? String(contentsOfFile: path, encoding: .utf8),
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return nil }
+        defer { try? handle.close() }
+        guard let chunk = try? handle.read(upToCount: 65536),
+              let contents = String(data: chunk, encoding: .utf8),
               let firstLine = contents.split(separator: "\n").first,
               let data = firstLine.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
