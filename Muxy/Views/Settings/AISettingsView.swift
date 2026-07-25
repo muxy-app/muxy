@@ -12,6 +12,13 @@ struct AISettingsView: View {
         AIProviderRegistry.shared.agentLaunchProviders
     }
 
+    private var autoResumeSessions: Binding<Bool> {
+        Binding(
+            get: { SessionRestorePreferences.autoResumeEnabled() },
+            set: { SessionRestorePreferences.setAutoResumeEnabled($0) }
+        )
+    }
+
     var body: some View {
         SettingsContainer {
             RepositoryAIActionSettingsSection(
@@ -24,9 +31,15 @@ struct AISettingsView: View {
                 action: .createPullRequest,
                 providers: providers,
                 providerID: $pullRequestProviderID,
-                prompt: $pullRequestPrompt,
-                showsDivider: false
+                prompt: $pullRequestPrompt
             )
+            SettingsSection(
+                "Session Restore",
+                footer: "When enabled, Muxy automatically resumes AI CLI sessions after restoring panes.",
+                showsDivider: false
+            ) {
+                SettingsToggleRow(label: "Auto-resume AI sessions on restore", isOn: autoResumeSessions)
+            }
         }
     }
 }

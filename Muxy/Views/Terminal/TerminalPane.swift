@@ -418,15 +418,22 @@ struct TerminalBridge: NSViewRepresentable {
 
     private func configureAgentDetectionCallback(_ view: GhosttyTerminalNSView) {
         view.onDetectedAgentChange = { [weak state, weak view] providerID in
-            guard let paneID = state?.id else { return }
+            guard let state else { return }
+            let paneID = state.id
             DetectedAgentStore.shared.setAgent(providerID, for: paneID)
-            guard providerID != nil else {
+            guard let providerID else {
                 AgentStatusStore.shared.noteDetectionLost(paneID: paneID)
                 return
             }
             AgentStatusStore.shared.noteDetectionActive(
                 paneID: paneID,
                 processID: view?.foregroundProcessID
+            )
+            AgentSessionEventEmitter.emit(
+                paneID: paneID,
+                providerID: providerID,
+                sessionID: nil,
+                cwd: state.currentWorkingDirectory ?? state.projectPath
             )
         }
     }

@@ -551,6 +551,15 @@ enum SettingsCatalog {
             aliases: ["agent", "github", "pr", "instructions"]
         ),
         SettingsCatalogItem(
+            key: SessionRestorePreferences.autoResumeKey,
+            title: "Auto-resume AI Sessions",
+            description: "Automatically resumes AI CLI sessions after restoring panes.",
+            category: .ai,
+            section: "Session Restore",
+            defaultValue: SessionRestorePreferences.autoResumeDefault,
+            aliases: ["resume", "restore", "session"]
+        ),
+        SettingsCatalogItem(
             key: RecordingPreferences.autoSendKey,
             title: "Press Return After Inserting",
             description: "Presses Return after voice transcription is inserted.",
