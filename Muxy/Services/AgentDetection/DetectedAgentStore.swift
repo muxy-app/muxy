@@ -11,7 +11,7 @@ final class DetectedAgentStore {
     private init() {}
 
     static func executablesSnapshot(from registry: AIProviderRegistry) -> [AIAgentExecutable] {
-        registry.providers.map {
+        registry.detectableProviders.map {
             AIAgentExecutable(providerID: $0.id, executableNames: $0.executableNames)
         }
     }

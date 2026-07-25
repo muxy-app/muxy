@@ -19,4 +19,11 @@ struct AIProviderRegistryResumeTests {
         #expect(registry.resumeProvider(forProviderID: "agy") != nil)
         #expect(registry.resumeProvider(forProviderID: "hermes") != nil)
     }
+
+    @Test("agy and hermes are excluded from the hook provider list")
+    func excludedFromHookProviders() {
+        let ids = AIProviderRegistry.shared.providers.map(\.id)
+        #expect(ids.contains("agy") == false)
+        #expect(ids.contains("hermes") == false)
+    }
 }

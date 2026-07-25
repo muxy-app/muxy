@@ -101,9 +101,12 @@ final class AIProviderRegistry {
         droidProvider,
         piProvider,
         grokProvider,
-        agyProvider,
-        hermesProvider,
     ]
+
+    lazy var detectableProviders: [AIProviderIntegration] = {
+        guard injectedProviders == nil else { return providers }
+        return providers + [agyProvider, hermesProvider]
+    }()
 
     init(
         providers: [AIProviderIntegration]? = nil,
@@ -282,6 +285,6 @@ final class AIProviderRegistry {
     }
 
     func resumeProvider(forProviderID id: String) -> AgentResumeProviding? {
-        providers.first { $0.id == id } as? AgentResumeProviding
+        detectableProviders.first { $0.id == id } as? AgentResumeProviding
     }
 }
