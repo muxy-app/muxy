@@ -37,6 +37,7 @@ struct RichInputTextEditor: NSViewRepresentable {
     @Binding var text: String
     var focusVersion: Int = 0
     var isDictating = false
+    var isSubmissionEnabled = true
     var insertion: Insertion?
     var submission: Submission?
     var configuration: Configuration = .init()
@@ -99,6 +100,7 @@ struct RichInputTextEditor: NSViewRepresentable {
         textView.string = text
         textView.delegate = context.coordinator
         textView.isDictating = isDictating
+        textView.isSubmissionEnabled = isSubmissionEnabled
         textView.onSubmit = { callbacks.onSubmit?(context.coordinator.selectedText) }
         textView.onSubmitWithoutReturn = { callbacks.onSubmitWithoutReturn?(context.coordinator.selectedText) }
         textView.onFinishDictation = callbacks.onFinishDictation
@@ -124,6 +126,7 @@ struct RichInputTextEditor: NSViewRepresentable {
         guard let textView = scrollView.documentView as? RichInputTextView else { return }
         context.coordinator.parent = self
         textView.isDictating = isDictating
+        textView.isSubmissionEnabled = isSubmissionEnabled
         textView.onFinishDictation = callbacks.onFinishDictation
         if textView.string != text {
             textView.string = text
@@ -217,10 +220,12 @@ struct RichInputTextEditor: NSViewRepresentable {
         func applySubmissionIfNeeded(_ submission: Submission?) {
             guard let submission, lastSubmissionID != submission.id else { return }
             lastSubmissionID = submission.id
-            if submission.appendReturn {
-                parent.callbacks.onSubmit?(selectedText)
-            } else {
-                parent.callbacks.onSubmitWithoutReturn?(selectedText)
+            let selectedText = selectedText
+            let callback = submission.appendReturn
+                ? parent.callbacks.onSubmit
+                : parent.callbacks.onSubmitWithoutReturn
+            Task { @MainActor in
+                callback?(selectedText)
             }
         }
     }
@@ -302,6 +307,7 @@ final class RichInputTextView: NSTextView {
     var onPasteImageData: ((Data) -> Void)?
     var onPasteFileURL: ((URL) -> Void)?
     var isDictating = false
+    var isSubmissionEnabled = true
     var pendingFocusGrab: Bool = false
 
     override func viewDidMoveToWindow() {
@@ -323,11 +329,13 @@ final class RichInputTextView: NSTextView {
         }
         let store = KeyBindingStore.shared
         if store.combo(for: .submitRichInput).matches(event: event) {
+            guard isSubmissionEnabled else { return }
             let callback = onSubmit
             Task { @MainActor in callback?() }
             return
         }
         if store.combo(for: .submitRichInputWithoutReturn).matches(event: event) {
+            guard isSubmissionEnabled else { return }
             let callback = onSubmitWithoutReturn
             Task { @MainActor in callback?() }
             return

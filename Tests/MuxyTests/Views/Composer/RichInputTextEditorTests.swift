@@ -1,10 +1,12 @@
 import Carbon.HIToolbox
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import Muxy
 
 @Suite("Rich input transcript insertion")
+@MainActor
 struct RichInputTextEditorTests {
     @Test("insertion trims transcript and separates neighboring words")
     func insertionSeparatesNeighboringWords() {
@@ -76,5 +78,27 @@ struct RichInputTextEditorTests {
             keyCode: UInt16(kVK_Return),
             modifierFlags: [.shift]
         ))
+    }
+
+    @Test("programmatic submission is delivered after representable update")
+    func programmaticSubmissionIsDeferred() async {
+        var text = ""
+        var submitted = false
+        let editor = RichInputTextEditor(
+            text: Binding(
+                get: { text },
+                set: { text = $0 }
+            ),
+            callbacks: RichInputTextEditor.Callbacks(
+                onSubmit: { _ in submitted = true }
+            )
+        )
+        let coordinator = RichInputTextEditor.Coordinator(parent: editor)
+
+        coordinator.applySubmissionIfNeeded(.init(id: UUID(), appendReturn: true))
+
+        #expect(!submitted)
+        await Task.yield()
+        #expect(submitted)
     }
 }

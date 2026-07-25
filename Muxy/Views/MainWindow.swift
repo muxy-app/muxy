@@ -7,6 +7,35 @@ enum OverlayEscapeDecision {
     }
 }
 
+enum MainWindowModalOverlay: CaseIterable, Hashable {
+    case composer
+    case terminalOmnibox
+    case projectPicker
+    case extensionModal
+    case extensionWebviewModal
+}
+
+enum MainWindowModalPolicy {
+    static func canPresent(_ candidate: MainWindowModalOverlay, active: Set<MainWindowModalOverlay>) -> Bool {
+        active.subtracting([candidate]).isEmpty
+    }
+
+    static func topmost(in active: Set<MainWindowModalOverlay>) -> MainWindowModalOverlay? {
+        MainWindowModalOverlay.allCases.reversed().first { active.contains($0) }
+    }
+}
+
+enum MainWindowVoiceInputTarget: Equatable {
+    case composer
+    case legacyPanel
+}
+
+enum MainWindowVoiceInputPolicy {
+    static func target(composerVisible: Bool) -> MainWindowVoiceInputTarget {
+        composerVisible ? .composer : .legacyPanel
+    }
+}
+
 enum MainWindowLayout {
     static func leftNavigationWidth(sidebarWidth: CGFloat) -> CGFloat {
         max(0, sidebarWidth)
@@ -92,21 +121,27 @@ struct MainWindow: View {
     @State private var projectPickerTerminalFocusRestoration = ProjectPickerTerminalFocusRestoration()
 
     private func dismissActiveOverlay() {
-        if composerVisible {
-            if composerVoice.isActive {
+        switch activeModalOverlay {
+        case .composer:
+            if composerVoice.isBusy {
                 composerVoice.cancel()
+            } else if composerVoice.errorMessage != nil {
+                composerVoice.dismissError()
             } else {
                 closeComposer()
             }
-        } else if showTerminalOmnibox {
+        case .terminalOmnibox:
             showTerminalOmnibox = false
-        } else if showProjectPicker {
+        case .projectPicker:
             showProjectPicker = false
             remoteProjectDevice = nil
-        } else if let request = ExtensionWebviewModalService.shared.active {
-            ExtensionWebviewModalService.shared.dismiss(requestID: request.id)
-        } else if ExtensionModalService.shared.active != nil {
+        case .extensionModal:
             ExtensionModalService.shared.dismiss()
+        case .extensionWebviewModal:
+            guard let request = ExtensionWebviewModalService.shared.active else { return }
+            ExtensionWebviewModalService.shared.dismiss(requestID: request.id)
+        case nil:
+            break
         }
     }
 
@@ -241,7 +276,7 @@ struct MainWindow: View {
             activeWorktreeSignature: activeWorktreeSignature,
             activeProjectID: appState.activeProjectID,
             hasPendingLayoutApply: appState.pendingLayoutApply != nil,
-            onOpenProjectPicker: { showProjectPicker = true },
+            onOpenProjectPicker: { presentProjectPicker() },
             onOpenRemoteProjectPicker: handleOpenRemoteProjectPicker,
             onOpenExtensionDirectory: handleOpenExtensionDirectory,
             onTerminalOmnibox: handleTerminalOmniboxNotification,
@@ -281,8 +316,7 @@ struct MainWindow: View {
         guard let deviceID = notification.userInfo?[OpenRemoteProjectPickerUserInfoKey.deviceID] as? UUID,
               let device = remoteDeviceStore.device(id: deviceID)
         else { return }
-        remoteProjectDevice = device
-        showProjectPicker = true
+        presentProjectPicker(remoteDevice: device)
     }
 
     private func handleOpenExtensionDirectory(_ notification: Notification) {
@@ -302,8 +336,19 @@ struct MainWindow: View {
             terminalOmniboxLaunchScope = launchScope
             return
         }
+        if showTerminalOmnibox {
+            showTerminalOmnibox = false
+            return
+        }
+        guard MainWindowModalPolicy.canPresent(.terminalOmnibox, active: activeModalOverlays) else { return }
         terminalOmniboxLaunchScope = launchScope
-        showTerminalOmnibox.toggle()
+        showTerminalOmnibox = true
+    }
+
+    private func presentProjectPicker(remoteDevice: RemoteDevice? = nil) {
+        guard MainWindowModalPolicy.canPresent(.projectPicker, active: activeModalOverlays) else { return }
+        remoteProjectDevice = remoteDevice
+        showProjectPicker = true
     }
 
     private func toggleSidebar() {
@@ -719,21 +764,49 @@ struct MainWindow: View {
     }
 
     private var overlayActive: Bool {
-        showTerminalOmnibox
-            || showProjectPicker
-            || composerVisible
-            || ExtensionModalService.shared.active != nil
-            || ExtensionWebviewModalService.shared.active != nil
-            || overlayAnimatingOut
+        !activeModalOverlays.isEmpty || overlayAnimatingOut
+    }
+
+    private var activeModalOverlays: Set<MainWindowModalOverlay> {
+        var overlays: Set<MainWindowModalOverlay> = []
+        if composerVisible {
+            overlays.insert(.composer)
+        }
+        if showTerminalOmnibox {
+            overlays.insert(.terminalOmnibox)
+        }
+        if showProjectPicker {
+            overlays.insert(.projectPicker)
+        }
+        if ExtensionModalService.shared.active != nil {
+            overlays.insert(.extensionModal)
+        }
+        if ExtensionWebviewModalService.shared.active != nil {
+            overlays.insert(.extensionWebviewModal)
+        }
+        return overlays
+    }
+
+    private var activeModalOverlay: MainWindowModalOverlay? {
+        MainWindowModalPolicy.topmost(in: activeModalOverlays)
     }
 
     @ViewBuilder
     private var modalOverlayLayer: some View {
-        composerOverlay
-        terminalOmniboxOverlay
-        projectPickerOverlay
-        extensionModalOverlay
-        extensionWebviewModalOverlay
+        switch activeModalOverlay {
+        case .composer:
+            composerOverlay
+        case .terminalOmnibox:
+            terminalOmniboxOverlay
+        case .projectPicker:
+            projectPickerOverlay
+        case .extensionModal:
+            extensionModalOverlay
+        case .extensionWebviewModal:
+            extensionWebviewModalOverlay
+        case nil:
+            EmptyView()
+        }
     }
 
     @ViewBuilder
@@ -1445,8 +1518,8 @@ struct MainWindow: View {
     }
 
     private func openVoiceRecorder() -> Bool {
-        if composerVisible {
-            closeComposer()
+        if MainWindowVoiceInputPolicy.target(composerVisible: composerVisible) == .composer {
+            return presentComposer(startsVoice: true)
         }
         if voiceRecording.isPanelVisible {
             voiceRecording.cancel()
@@ -1646,6 +1719,7 @@ struct MainWindow: View {
     @discardableResult
     private func presentComposer(startsVoice: Bool) -> Bool {
         guard let richInputState = activeRichInputState, activeRichInputPaneID != nil else { return false }
+        guard MainWindowModalPolicy.canPresent(.composer, active: activeModalOverlays) else { return false }
         if voiceRecording.isPanelVisible {
             voiceRecording.cancel()
         }

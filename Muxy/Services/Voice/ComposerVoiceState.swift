@@ -5,26 +5,42 @@ import Foundation
 final class ComposerVoiceState {
     var errorMessage: String?
     private(set) var isStarting = false
-    let recorder: VoiceRecorder
+    let recorder: any VoiceRecording
 
     @ObservationIgnored private var startTask: Task<Void, Never>?
+    @ObservationIgnored private let permissionRequest: @Sendable () async -> Bool
+    @ObservationIgnored private let localeResolver: @MainActor (String) -> Locale?
 
-    init(recorder: VoiceRecorder = VoiceRecorder()) {
+    init(
+        recorder: any VoiceRecording = VoiceRecorder(),
+        permissionRequest: @escaping @Sendable () async -> Bool = VoiceRecorder.requestPermissions,
+        localeResolver: @escaping @MainActor (String) -> Locale? = VoiceRecordingSupport.resolveLocale
+    ) {
         self.recorder = recorder
+        self.permissionRequest = permissionRequest
+        self.localeResolver = localeResolver
         recorder.onFailure = { [weak self] message in
             self?.isStarting = false
             self?.errorMessage = message
         }
     }
 
-    var isActive: Bool {
-        isStarting || recorder.isRecording || errorMessage != nil
+    var isBusy: Bool {
+        isStarting || recorder.isRecording
+    }
+
+    var canSubmit: Bool {
+        !isBusy
+    }
+
+    var showsFeedback: Bool {
+        isBusy || errorMessage != nil
     }
 
     func start(languageIdentifier: String) {
         guard !isStarting, !recorder.isRecording else { return }
         errorMessage = nil
-        guard let locale = VoiceRecordingSupport.resolveLocale(from: languageIdentifier) else {
+        guard let locale = localeResolver(languageIdentifier) else {
             errorMessage = VoiceRecordingSupport.unavailableLanguageMessage
             return
         }
@@ -32,11 +48,12 @@ final class ComposerVoiceState {
         startTask?.cancel()
         startTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let granted = await VoiceRecorder.requestPermissions()
+            let granted = await permissionRequest()
             guard !Task.isCancelled else { return }
             guard granted else {
                 isStarting = false
                 errorMessage = VoiceRecordingSupport.permissionDeniedMessage
+                startTask = nil
                 return
             }
             do {
@@ -58,6 +75,10 @@ final class ComposerVoiceState {
         }
         errorMessage = nil
         return transcript
+    }
+
+    func dismissError() {
+        errorMessage = nil
     }
 
     func cancel() {

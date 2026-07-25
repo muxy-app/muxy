@@ -73,12 +73,13 @@ struct FocusedComposerView: View {
             text: $state.text,
             focusVersion: state.focusVersion,
             isDictating: voice.recorder.isRecording,
+            isSubmissionEnabled: voice.canSubmit,
             insertion: insertion,
             submission: submission,
             configuration: editorConfiguration,
             callbacks: editorCallbacks
         )
-        .padding(.bottom, voice.isActive ? UIMetrics.scaled(30) : 0)
+        .padding(.bottom, voice.showsFeedback ? UIMetrics.scaled(30) : 0)
         .frame(height: UIMetrics.scaled(146))
         .background(MuxyTheme.bg.opacity(0.001))
         .overlay(alignment: .topLeading) {
@@ -92,7 +93,7 @@ struct FocusedComposerView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if voice.isActive {
+            if voice.showsFeedback {
                 voiceFeedback
             }
         }
@@ -107,6 +108,14 @@ struct FocusedComposerView: View {
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                Spacer(minLength: UIMetrics.spacing2)
+                Button(action: voice.dismissError) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(MuxyTheme.fgDim)
+                .accessibilityLabel("Dismiss Dictation Error")
             } else {
                 Text(voice.recorder.isPaused ? "PAUSED" : "● LIVE")
                     .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .monospaced))
@@ -160,7 +169,7 @@ struct FocusedComposerView: View {
             ComposerIconButton(
                 symbol: voice.recorder.isRecording ? "stop.fill" : "mic",
                 label: voice.recorder.isRecording ? "Finish Dictation" : "Start Dictation",
-                isActive: voice.isActive,
+                isActive: voice.isBusy,
                 activeColor: MuxyTheme.diffRemoveFg,
                 action: toggleVoice
             )
@@ -180,6 +189,7 @@ struct FocusedComposerView: View {
                 Button("Send Without Enter") {
                     requestSubmission(appendReturn: false)
                 }
+                .disabled(!voice.canSubmit)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
@@ -209,7 +219,7 @@ struct FocusedComposerView: View {
                     .background(MuxyTheme.accent, in: RoundedRectangle(cornerRadius: UIMetrics.radiusXL))
             }
             .buttonStyle(.plain)
-            .disabled(voice.isActive)
+            .disabled(!voice.canSubmit)
             .accessibilityLabel("Send")
         }
         .padding(.top, UIMetrics.spacing4)
@@ -227,8 +237,10 @@ struct FocusedComposerView: View {
 
     private var editorCallbacks: RichInputTextEditor.Callbacks {
         RichInputTextEditor.Callbacks(
-            onSubmit: { selectedText in onSubmit(true, selectedText) },
-            onSubmitWithoutReturn: { selectedText in onSubmit(false, selectedText) },
+            onSubmit: { selectedText in submitIfPossible(appendReturn: true, selectedText: selectedText) },
+            onSubmitWithoutReturn: { selectedText in
+                submitIfPossible(appendReturn: false, selectedText: selectedText)
+            },
             onFinishDictation: finishDictation,
             onIncreaseFontSize: increaseFontSize,
             onDecreaseFontSize: decreaseFontSize,
@@ -254,7 +266,13 @@ struct FocusedComposerView: View {
     }
 
     private func requestSubmission(appendReturn: Bool) {
+        guard voice.canSubmit else { return }
         submission = RichInputTextEditor.Submission(id: UUID(), appendReturn: appendReturn)
+    }
+
+    private func submitIfPossible(appendReturn: Bool, selectedText: String?) {
+        guard voice.canSubmit else { return }
+        onSubmit(appendReturn, selectedText)
     }
 
     private func toggleVoice() {

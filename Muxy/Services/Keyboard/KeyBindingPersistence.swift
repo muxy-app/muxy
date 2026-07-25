@@ -35,7 +35,7 @@ final class FileKeyBindingPersistence: KeyBindingPersisting {
         for binding in saved {
             savedByAction[binding.action] = binding
         }
-        migrateLegacyVoiceShortcut(in: &savedByAction)
+        migrateComposerVoiceDefaultToLegacy(in: &savedByAction)
         var claimedCombos = Set(savedByAction.values.map(\.combo).filter(\.isAssigned))
         return KeyBinding.defaults.map { defaultBinding in
             if let savedBinding = savedByAction[defaultBinding.action] {
@@ -50,17 +50,17 @@ final class FileKeyBindingPersistence: KeyBindingPersisting {
         }
     }
 
-    private static func migrateLegacyVoiceShortcut(in bindings: inout [ShortcutAction: KeyBinding]) {
-        guard bindings[.toggleComposerVoice] == nil,
-              bindings[.toggleVoiceRecording]?.combo == KeyCombo(key: "i", command: true, shift: true)
+    private static func migrateComposerVoiceDefaultToLegacy(in bindings: inout [ShortcutAction: KeyBinding]) {
+        guard bindings[.toggleComposerVoice]?.combo == KeyCombo(key: "i", command: true, shift: true),
+              bindings[.toggleVoiceRecording]?.combo.isAssigned != true
         else { return }
         bindings[.toggleComposerVoice] = KeyBinding(
             action: .toggleComposerVoice,
-            combo: KeyCombo(key: "i", command: true, shift: true)
+            combo: KeyCombo(key: "", modifiers: 0)
         )
         bindings[.toggleVoiceRecording] = KeyBinding(
             action: .toggleVoiceRecording,
-            combo: KeyCombo(key: "", modifiers: 0)
+            combo: KeyCombo(key: "i", command: true, shift: true)
         )
     }
 
