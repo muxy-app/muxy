@@ -87,4 +87,22 @@ struct AgentResumeResolverTests {
             autoResumeEnabled: true)
         #expect(command == "tool --continue")
     }
+
+    @Test("unsafe explicit session id falls through to discovery")
+    func unsafeExplicitID() {
+        let ref = AgentSessionRef(id: "safe-1", providerID: "tool", cwd: "/p", gitBranch: nil,
+            title: nil, preview: nil, updatedAt: Date(timeIntervalSince1970: 5), pinned: false, archived: false)
+        let command = AgentResumeResolver.command(
+            providerID: "tool", sessionID: "x; rm -rf /", cwd: "/p", registry: registry(store: [ref]),
+            autoResumeEnabled: true)
+        #expect(command == "tool --resume safe-1")
+    }
+
+    @Test("leading-dash session id is rejected as an argument-injection risk")
+    func leadingDashID() {
+        let command = AgentResumeResolver.command(
+            providerID: "tool", sessionID: "--dangerously-skip", cwd: "/p", registry: registry(store: []),
+            autoResumeEnabled: true)
+        #expect(command == "tool --continue")
+    }
 }

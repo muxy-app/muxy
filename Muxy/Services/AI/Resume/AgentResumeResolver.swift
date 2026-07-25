@@ -26,6 +26,7 @@ enum AgentResumeResolver {
     }
 
     private static func isSafeSessionID(_ id: String) -> Bool {
-        !id.isEmpty && id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == "." }
+        guard !id.isEmpty, id.first != "-" else { return false }
+        return id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == "." }
     }
 }
