@@ -33,8 +33,10 @@ struct CodexSessionStore: AgentSessionStore {
     }
 
     private static func header(atPath path: String) -> [String: Any]? {
-        guard let handle = FileManager.default.contents(atPath: path),
-              let text = String(data: handle, encoding: .utf8),
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return nil }
+        defer { try? handle.close() }
+        guard let chunk = try? handle.read(upToCount: 65536),
+              let text = String(data: chunk, encoding: .utf8),
               let firstLine = text.split(separator: "\n", maxSplits: 1).first,
               let data = firstLine.data(using: .utf8)
         else { return nil }
