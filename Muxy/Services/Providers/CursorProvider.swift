@@ -1,12 +1,15 @@
 import Foundation
 
-struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider {
+struct CursorProvider: AIProviderIntegration, AIAgentLaunchProvider, AgentResumeProviding {
     let id = "cursor"
     let displayName = "Cursor CLI"
     let socketTypeKey = "cursor_hook"
     let iconName = "cursor"
     let executableNames = ["cursor-agent", "cursor"]
     let hookScriptName = "muxy-cursor-hook"
+
+    var resumeStrategy: AgentResumeStrategy? { CursorResumeStrategy() }
+    var sessionStore: AgentSessionStore? { CursorSessionStore() }
 
     var agentLaunchConfiguration: AIAgentLaunchConfiguration {
         AIAgentLaunchConfiguration(
