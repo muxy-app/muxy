@@ -3,6 +3,7 @@ import Foundation
 enum LayoutSidebar: Identifiable {
     case projectList
     case tabList
+    case agentList
 
     var id: Self { self }
 }

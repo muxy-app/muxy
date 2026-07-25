@@ -84,4 +84,75 @@ struct AIAgentLaunchProviderTests {
         let invocation = OpenCodeProvider().agentLaunchConfiguration.invocation(prompt: "metadata")
         #expect(invocation?.environment == ["OPENCODE_PERMISSION": #"{"*":"deny"}"#])
     }
+
+    @Test("agent tabs launch installed local executables safely")
+    func localAgentTabCommand() {
+        let provider = AgentTabLaunchTestProvider(executablePath: "/tmp/Agent Tools/codex")
+
+        #expect(AgentTabLaunchCommand.resolve(provider: provider, isRemote: false) == "'/tmp/Agent Tools/codex'")
+    }
+
+    @Test("agent tabs omit unavailable local providers")
+    func unavailableLocalAgentTabCommand() {
+        let provider = AgentTabLaunchTestProvider(executablePath: nil)
+
+        #expect(AgentTabLaunchCommand.resolve(provider: provider, isRemote: false) == nil)
+    }
+
+    @Test("agent tabs defer executable resolution to remote shells")
+    func remoteAgentTabCommand() {
+        let provider = AgentTabLaunchTestProvider(executablePath: nil)
+
+        #expect(AgentTabLaunchCommand.resolve(provider: provider, isRemote: true) == "test-agent")
+    }
+
+    @Test("agent launch options resolve each local executable once")
+    func launchOptionsSnapshotExecutableResolution() {
+        let provider = CountingAgentTabLaunchTestProvider()
+
+        let options = AgentTabLaunchOption.resolve(providers: [provider], isRemote: false)
+
+        #expect(provider.resolutionCount == 1)
+        #expect(options.first?.command == "/tmp/test-agent")
+        #expect(options.first?.title == "Test Agent")
+    }
+}
+
+private struct AgentTabLaunchTestProvider: AIAgentLaunchProvider {
+    let id = "test"
+    let displayName = "Test Agent"
+    let iconName = "sparkles"
+    let executablePath: String?
+    let agentLaunchConfiguration = AIAgentLaunchConfiguration(
+        executable: "test-agent",
+        headlessArguments: []
+    )
+
+    func agentCLIExecutablePath() -> String? {
+        executablePath
+    }
+
+    func isAgentCLIInstalled() -> Bool {
+        executablePath != nil
+    }
+}
+
+private final class CountingAgentTabLaunchTestProvider: AIAgentLaunchProvider {
+    let id = "counting-test"
+    let displayName = "Test Agent"
+    let iconName = "sparkles"
+    let agentLaunchConfiguration = AIAgentLaunchConfiguration(
+        executable: "test-agent",
+        headlessArguments: []
+    )
+    private(set) var resolutionCount = 0
+
+    func agentCLIExecutablePath() -> String? {
+        resolutionCount += 1
+        return "/tmp/test-agent"
+    }
+
+    func isAgentCLIInstalled() -> Bool {
+        agentCLIExecutablePath() != nil
+    }
 }

@@ -68,3 +68,34 @@ extension AIAgentLaunchProvider {
         agentCLIExecutablePath() != nil
     }
 }
+
+enum AgentTabLaunchCommand {
+    static func resolve(provider: any AIAgentLaunchProvider, isRemote: Bool) -> String? {
+        let executable = if isRemote {
+            provider.agentLaunchConfiguration.executable
+        } else {
+            provider.agentCLIExecutablePath()
+        }
+        return executable.map(ShellEscaper.escape)
+    }
+}
+
+struct AgentTabLaunchOption: Identifiable {
+    let provider: any AIAgentLaunchProvider
+    let command: String?
+
+    var id: String { provider.id }
+
+    var title: String {
+        command == nil ? "\(provider.displayName) · Not installed" : provider.displayName
+    }
+
+    static func resolve(providers: [any AIAgentLaunchProvider], isRemote: Bool) -> [Self] {
+        providers.map { provider in
+            Self(
+                provider: provider,
+                command: AgentTabLaunchCommand.resolve(provider: provider, isRemote: isRemote)
+            )
+        }
+    }
+}

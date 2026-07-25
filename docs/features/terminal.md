@@ -78,9 +78,11 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 
 Inside a terminal pane: **Paste**, **Split Right**, **Split Down**, **Close Pane**.
 
-Splitting creates a child pane inside the current top-level tab. Each pane keeps its own terminal, browser, source-control, or extension surface, while a one-pixel divider replaces the old per-pane tab strip. Child panes do not appear as separate entries in the window tab strip or the Tab Focused sidebar.
+Splitting creates a child pane inside the current top-level tab. Each pane keeps its own terminal, browser, source-control, or extension surface, while a one-pixel divider replaces the old per-pane tab strip. Child panes do not appear as separate entries in the window tab strip or the Tab Focused sidebar. An agent running in a child pane does appear as its own entry in the Agents Focused sidebar, and selecting it activates both the child pane and its parent top-level tab.
 
 Dragging a top-level tab toward an edge docks the whole tab beside another top-level tab. Its child-pane layout moves with it and remains independent from the neighboring tab's child panes.
+
+The Agents Focused layout keeps the normal top-level tab strip in the title bar and limits sidebar tab entries to detected AI agents, including idle sessions. Projects and worktrees remain visible when they have no agent sessions, and their add menu can start a new tab with any available agent provider. Tabs started from this menu appear immediately with the selected provider while process detection confirms the running TUI.
 
 ## Notifications from the terminal
 

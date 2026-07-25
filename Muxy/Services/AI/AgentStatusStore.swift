@@ -189,6 +189,11 @@ final class AgentStatusStore {
         return panes[paneID]?.status
     }
 
+    func providerID(forPane paneID: UUID?) -> String? {
+        guard let paneID else { return nil }
+        return panes[paneID]?.providerID
+    }
+
     func status(forWorktree worktreeID: UUID) -> AgentStatus? {
         entries[worktreeID]?.status
     }

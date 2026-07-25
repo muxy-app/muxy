@@ -132,7 +132,9 @@ struct MainWindow: View {
 
     private var layout: any AppLayoutProviding { layoutStore.provider }
     private var appBackgroundStyle: AppBackgroundStyle { AppBackgroundStyle.resolve(appBackgroundStyleRaw) }
-    private var isTabFocused: Bool { layoutStore.layout == .tabFocused && !isExtensionSidebarActive }
+    private var usesWideSidebar: Bool {
+        layoutStore.layout != .projectFocused && !isExtensionSidebarActive
+    }
 
     private var showsTabsInTitleBar: Bool { layout.topbar == .tabStrip || isExtensionSidebarActive }
 
@@ -403,6 +405,8 @@ struct MainWindow: View {
         switch sidebar {
         case .tabList:
             TabFocusedSidebar()
+        case .agentList:
+            AgentsFocusedSidebar()
         case .projectList:
             ProjectFocusedSidebar(
                 expanded: sidebarExpanded,
@@ -560,14 +564,37 @@ struct MainWindow: View {
                 appState.goForward()
             }
             if !isExtensionSidebarActive {
-                NavigationArrowButton(
-                    symbol: isTabFocused ? "sidebar.squares.left" : "sidebar.left",
-                    label: isTabFocused ? "Switch to Project Focused Layout" : "Switch to Tab Focused Layout"
-                ) {
-                    NotificationCenter.default.post(name: .toggleAppLayout, object: nil)
-                }
+                appLayoutMenu
             }
         }
+    }
+
+    private var appLayoutMenu: some View {
+        Menu {
+            ForEach(AppLayout.allCases) { appLayout in
+                Button {
+                    layoutStore.set(appLayout)
+                } label: {
+                    HStack {
+                        Text(appLayout.title)
+                        if layoutStore.layout == appLayout {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Choose App Layout")
+        .accessibilityLabel("Choose App Layout")
     }
 
     @ViewBuilder
@@ -1064,12 +1091,12 @@ struct MainWindow: View {
     }
 
     private var sidebarCollapsedStyle: SidebarCollapsedStyle {
-        guard !isTabFocused else { return .hidden }
+        guard !usesWideSidebar else { return .hidden }
         return SidebarCollapsedStyle(rawValue: sidebarCollapsedStyleRaw) ?? .defaultValue
     }
 
     private var sidebarExpandedStyle: SidebarExpandedStyle {
-        guard !isTabFocused else { return .wide }
+        guard !usesWideSidebar else { return .wide }
         return SidebarExpandedStyle(rawValue: sidebarExpandedStyleRaw) ?? .defaultValue
     }
 

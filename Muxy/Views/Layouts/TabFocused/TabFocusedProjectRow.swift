@@ -6,6 +6,7 @@ struct TabFocusedProjectRow: View {
     let project: Project
     var worktree: Worktree?
     let shortcutNumbers: [UUID: Int]
+    var content: TabFocusedSidebarContent = .tabs
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -23,6 +24,7 @@ struct TabFocusedProjectRow: View {
     @State private var showSymbolPicker = false
     @State private var showColorPicker = false
     @State private var showCreateWorktreeSheet = false
+    @State private var showAgentProviderMenu = false
     @State private var logoCropImage: IdentifiableProjectImage?
     @State private var projectPendingRemoval = false
     @FocusState private var renameFieldFocused: Bool
@@ -87,7 +89,12 @@ struct TabFocusedProjectRow: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if isExpanded, let listWorktree {
-                TabFocusedTabsList(project: project, worktree: listWorktree, shortcutNumbers: shortcutNumbers)
+                switch content {
+                case .tabs:
+                    TabFocusedTabsList(project: project, worktree: listWorktree, shortcutNumbers: shortcutNumbers)
+                case .agents:
+                    AgentsFocusedTabsList(project: project, worktree: listWorktree)
+                }
             }
         }
         .onAppear { applyDefaultExpansion() }
@@ -310,7 +317,7 @@ struct TabFocusedProjectRow: View {
 
     private var trailingControls: some View {
         HStack(spacing: 0) {
-            if hovered {
+            if hovered || showAgentProviderMenu {
                 actions
             } else if !isFocused {
                 if isWorktreeRow {
@@ -327,14 +334,23 @@ struct TabFocusedProjectRow: View {
 
     @ViewBuilder
     private var actions: some View {
-        TabFocusedTabActions(project: project, worktree: worktree)
-        if !isWorktreeRow, !project.isHome, !isFocused {
+        switch content {
+        case .tabs:
+            TabFocusedTabActions(project: project, worktree: worktree)
+        case .agents:
+            AgentsFocusedTabActions(
+                project: project,
+                worktree: listWorktree,
+                showingProviders: $showAgentProviderMenu
+            )
+        }
+        if content == .tabs, !isWorktreeRow, !project.isHome, !isFocused {
             focusModeButton
         }
     }
 
     private var isFocused: Bool {
-        !isWorktreeRow && expansionStore.focusMode && isActive
+        content == .tabs && !isWorktreeRow && expansionStore.focusMode && isActive
     }
 
     private var focusModeButton: some View {

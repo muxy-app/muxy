@@ -8,11 +8,12 @@ struct ProviderIconView: View {
     let iconName: String
     let size: CGFloat
     var monochromeTint: Color = MuxyTheme.fg
+    var forceMonochrome = false
 
     var body: some View {
         #if os(macOS)
         if let image = Self.loadProviderImage(named: iconName) {
-            if Self.isColorful(named: iconName, image: image) {
+            if !forceMonochrome, Self.isColorful(named: iconName, image: image) {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

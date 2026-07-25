@@ -72,6 +72,15 @@ struct AIProviderRegistryTests {
         ])
     }
 
+    @Test("agent launch providers have bundled icon assets")
+    func agentLaunchProvidersHaveIcons() {
+        let iconsURL = RepositoryRoot.find().appendingPathComponent("Muxy/Resources/ProviderIcons")
+        for provider in AIProviderRegistry.shared.agentLaunchProviders {
+            let iconURL = iconsURL.appendingPathComponent("\(provider.iconName).svg")
+            #expect(FileManager.default.fileExists(atPath: iconURL.path))
+        }
+    }
+
     @Test("prepareForInstallation stages resources but skips PATH hydration without dev opt-in")
     func prepareForInstallationStagesWithoutDevOptIn() async {
         let staging = StagingRecorder()
@@ -331,4 +340,3 @@ private final class RecordingProvider: AIProviderIntegration {
         UserDefaults.standard.removeObject(forKey: settingsKey)
     }
 }
-
