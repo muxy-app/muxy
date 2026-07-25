@@ -72,6 +72,7 @@ When an extension is reloaded or disabled, its subscriptions are dropped and re-
 | `worktree.headChanged` | `projectID`, `worktreeID`, `branch`, `path` | `events: ["worktree.headChanged"]` + `worktrees:read` |
 | `notification.posted` | `paneID`, `projectID`, `worktreeID`, `worktreePath`, `tabID`, `source`, `title`, `body` | `events: ["notification.posted"]` |
 | `agent.status` | `worktreeID`, `projectID`, `paneID`, `providerID`, `status` | `events: ["agent.status"]` + `agents:read` |
+| `agent.session` | `paneID`, `providerID`, `sessionID`, `cwd` | `events: ["agent.session"]` + `agents:read` |
 | `file.changed` | `path`, `projectPath` | `events: ["file.changed"]` + `files:read` |
 | `command.<id>` | `command`, `extension` | Auto-allowed when `commands[].id == <id>` |
 | `extension.<name>` | JSON payload from emitter | Auto-allowed same-extension local event |
@@ -93,6 +94,8 @@ Which states a provider reports depends on the hooks its CLI exposes:
 | Codex (`codex`) | ✓ | ✓ | ✓ |
 
 A `—` means the CLI's hooks have no event for that transition, so the provider never emits that state.
+
+`agent.session` reports which AI CLI session is running in a pane — `providerID` (e.g. `claude`), the pane's `sessionID` (empty when the tool hasn't reported one yet), and the pane's `cwd`. It fires whenever core learns or updates this association (hook-reported session start, Muxy-launched agent, or detection of a user-typed CLI). Unlike `agent.status`, it carries no lifecycle state — it is the identity facts an extension needs to resume that same conversation later, typically paired with [`agent.resolveResume`](permissions.md) and [`tabs.open`](tabs.md) to reattach the session when a workspace restore recreates the pane's tab.
 
 `worktree.headChanged` fires when a worktree's checked-out branch changes — e.g. a `git checkout` in a terminal — detected by watching `.git/HEAD` (no polling). The payload carries the new `branch` and the worktree `path`. Pair it with [`muxy.git.worktrees()`](git.md) to refresh a worktree tree reactively instead of polling.
 
