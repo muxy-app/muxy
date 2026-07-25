@@ -153,6 +153,45 @@ struct KeyBindingStoreTests {
         #expect(store.action(for: event, scopes: [.mainWindow]) == .terminalOmniboxCommands)
     }
 
+    @Test("legacy default voice shortcut migrates to composer voice")
+    func legacyDefaultVoiceShortcutMigratesToComposerVoice() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("keybindings-\(UUID().uuidString).json")
+        let saved = KeyBinding.defaults
+            .filter { $0.action != .toggleComposerVoice }
+            .map { binding in
+                guard binding.action == .toggleVoiceRecording else { return binding }
+                return KeyBinding(
+                    action: .toggleVoiceRecording,
+                    combo: KeyCombo(key: "i", command: true, shift: true)
+                )
+            }
+        try JSONEncoder().encode(saved).write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = KeyBindingStore(persistence: FileKeyBindingPersistence(fileURL: url))
+
+        #expect(store.combo(for: .toggleComposerVoice) == KeyCombo(key: "i", command: true, shift: true))
+        #expect(store.combo(for: .toggleVoiceRecording).isAssigned == false)
+    }
+
+    @Test("custom legacy voice shortcut survives composer shortcut migration")
+    func customLegacyVoiceShortcutSurvivesComposerShortcutMigration() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("keybindings-\(UUID().uuidString).json")
+        let customLegacyCombo = KeyCombo(key: "v", command: true, option: true)
+        let saved = [
+            KeyBinding(action: .toggleVoiceRecording, combo: customLegacyCombo)
+        ]
+        try JSONEncoder().encode(saved).write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = KeyBindingStore(persistence: FileKeyBindingPersistence(fileURL: url))
+
+        #expect(store.combo(for: .toggleComposerVoice) == KeyCombo(key: "i", command: true, shift: true))
+        #expect(store.combo(for: .toggleVoiceRecording) == customLegacyCombo)
+    }
+
     private func keyEvent(
         characters: String,
         charactersIgnoringModifiers: String,

@@ -163,6 +163,8 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.items.contains { $0.key.hasPrefix("editor.") })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputImageStrategy" })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputLineHeightMultiplier" })
+        #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.position" })
+        #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.floating" })
     }
 
     @Test

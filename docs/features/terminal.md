@@ -70,9 +70,14 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 - Triggering one creates a new tab and runs the command.
 - Useful for `npm run dev`, `make watch`, `just test`, …
 
-## Rich Input
+## Composer
 
-`Cmd+I` opens a multiline composer for prompts, files, images, and broadcast sends.
+`Cmd+I` opens the focused composer for multiline prompts, files, images, and broadcast sends. `Cmd+Shift+I`
+opens the same composer and starts on-device dictation immediately. Stop dictation to insert the transcript at
+the editor cursor, or press Return while recording, then edit or send it normally.
+
+The status-bar microphone remains available as the legacy voice recorder. It inserts the final transcript into
+the control that was focused before recording and can optionally press Return afterward.
 
 ## Right-click menu
 

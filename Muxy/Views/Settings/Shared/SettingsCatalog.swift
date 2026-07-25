@@ -30,7 +30,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .terminal: "Terminal"
         case .quickTerminal: "Quick Terminal"
         case .browser: "Browser"
-        case .richInput: "Rich Input"
+        case .richInput: "Composer"
         case .shortcuts: "Shortcuts"
         case .commands: "Commands"
         case .ai: "AI"
@@ -390,43 +390,30 @@ enum SettingsCatalog {
         ),
         SettingsCatalogItem(
             key: "editor.richInputImageStrategy",
-            title: "Rich Input Image Submission",
-            description: "Chooses how rich input submits images.",
+            title: "Composer Image Submission",
+            description: "Chooses how the composer submits images.",
             category: .richInput,
-            section: "Rich Input",
-            defaultValue: RichInputImageStrategy.clipboard.rawValue
-        ),
-        SettingsCatalogItem(
-            key: RichInputPreferences.positionKey,
-            title: "Rich Input Position",
-            description: "Controls where the rich input panel appears.",
-            category: .richInput,
-            section: "Rich Input",
-            defaultValue: RichInputPreferences.defaultPosition.rawValue
-        ),
-        SettingsCatalogItem(
-            key: RichInputPreferences.floatingKey,
-            title: "Floating Rich Input",
-            description: "Shows rich input as a floating panel.",
-            category: .richInput,
-            section: "Rich Input",
-            defaultValue: RichInputPreferences.defaultFloating
+            section: "Composer",
+            defaultValue: RichInputImageStrategy.clipboard.rawValue,
+            aliases: ["rich input"]
         ),
         SettingsCatalogItem(
             key: "editor.richInputFontFamily",
-            title: "Rich Input Font Family",
-            description: "Controls the rich input editor font family.",
+            title: "Composer Font Family",
+            description: "Controls the composer editor font family.",
             category: .richInput,
-            section: "Rich Input",
-            defaultValue: EditorSettings.defaultRichInputFontFamily
+            section: "Composer",
+            defaultValue: EditorSettings.defaultRichInputFontFamily,
+            aliases: ["rich input"]
         ),
         SettingsCatalogItem(
             key: "editor.richInputLineHeightMultiplier",
-            title: "Rich Input Line Height",
-            description: "Controls line height in rich input.",
+            title: "Composer Line Height",
+            description: "Controls line height in the composer.",
             category: .richInput,
-            section: "Rich Input",
-            defaultValue: Double(EditorSettings.defaultRichInputLineHeightMultiplier)
+            section: "Composer",
+            defaultValue: Double(EditorSettings.defaultRichInputLineHeightMultiplier),
+            aliases: ["rich input"]
         ),
 
         SettingsCatalogItem(

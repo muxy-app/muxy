@@ -359,11 +359,17 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .toggleAppLayout, store: keyBindings)
 
-            Button("Toggle Rich Input") {
+            Button("Toggle Composer") {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.toggleRichInput)
             }
             .shortcut(for: .toggleRichInput, store: keyBindings)
+
+            Button("Composer Voice") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.toggleComposerVoice)
+            }
+            .shortcut(for: .toggleComposerVoice, store: keyBindings)
 
             Button("Toggle Full Screen") {
                 guard isMainWindowFocused else { return }

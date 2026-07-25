@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -15,6 +16,7 @@ struct RichInputTextEditor: NSViewRepresentable {
     struct Callbacks {
         var onSubmit: ((String?) -> Void)?
         var onSubmitWithoutReturn: ((String?) -> Void)?
+        var onFinishDictation: (() -> Void)?
         var onIncreaseFontSize: (() -> Void)?
         var onDecreaseFontSize: (() -> Void)?
         var onPasteImageData: ((Data) -> Void)?
@@ -22,8 +24,21 @@ struct RichInputTextEditor: NSViewRepresentable {
         var onContentHeightChange: ((CGFloat) -> Void)?
     }
 
+    struct Insertion: Equatable {
+        let id: UUID
+        let text: String
+    }
+
+    struct Submission: Equatable {
+        let id: UUID
+        let appendReturn: Bool
+    }
+
     @Binding var text: String
     var focusVersion: Int = 0
+    var isDictating = false
+    var insertion: Insertion?
+    var submission: Submission?
     var configuration: Configuration = .init()
     var callbacks: Callbacks = .init()
 
@@ -83,8 +98,10 @@ struct RichInputTextEditor: NSViewRepresentable {
         textView.insertionPointColor = Self.defaultForeground()
         textView.string = text
         textView.delegate = context.coordinator
+        textView.isDictating = isDictating
         textView.onSubmit = { callbacks.onSubmit?(context.coordinator.selectedText) }
         textView.onSubmitWithoutReturn = { callbacks.onSubmitWithoutReturn?(context.coordinator.selectedText) }
+        textView.onFinishDictation = callbacks.onFinishDictation
         textView.onIncreaseFontSize = callbacks.onIncreaseFontSize
         textView.onDecreaseFontSize = callbacks.onDecreaseFontSize
         textView.onPasteImageData = callbacks.onPasteImageData
@@ -106,6 +123,8 @@ struct RichInputTextEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? RichInputTextView else { return }
         context.coordinator.parent = self
+        textView.isDictating = isDictating
+        textView.onFinishDictation = callbacks.onFinishDictation
         if textView.string != text {
             textView.string = text
         }
@@ -127,6 +146,8 @@ struct RichInputTextEditor: NSViewRepresentable {
             context.coordinator.lastFocusVersion = focusVersion
             textView.grabFirstResponder()
         }
+        context.coordinator.applyInsertionIfNeeded(insertion)
+        context.coordinator.applySubmissionIfNeeded(submission)
         DispatchQueue.main.async { [weak coordinator = context.coordinator] in
             coordinator?.reportContentHeight()
         }
@@ -142,6 +163,8 @@ struct RichInputTextEditor: NSViewRepresentable {
         var parent: RichInputTextEditor
         weak var textView: RichInputTextView?
         var lastFocusVersion: Int = -1
+        var lastInsertionID: UUID?
+        var lastSubmissionID: UUID?
         var lineHeightDelegate: RichInputLineHeightDelegate?
         private var lastReportedHeight: CGFloat = -1
 
@@ -177,6 +200,50 @@ struct RichInputTextEditor: NSViewRepresentable {
             guard NSMaxRange(range) <= text.length else { return nil }
             return text.substring(with: range)
         }
+
+        func applyInsertionIfNeeded(_ insertion: Insertion?) {
+            guard let insertion, lastInsertionID != insertion.id, let textView else { return }
+            lastInsertionID = insertion.id
+            let range = textView.selectedRange()
+            let prepared = RichInputTextEditor.preparedInsertion(
+                insertion.text,
+                in: textView.string,
+                replacing: range
+            )
+            guard !prepared.isEmpty else { return }
+            textView.insertText(prepared, replacementRange: range)
+        }
+
+        func applySubmissionIfNeeded(_ submission: Submission?) {
+            guard let submission, lastSubmissionID != submission.id else { return }
+            lastSubmissionID = submission.id
+            if submission.appendReturn {
+                parent.callbacks.onSubmit?(selectedText)
+            } else {
+                parent.callbacks.onSubmitWithoutReturn?(selectedText)
+            }
+        }
+    }
+
+    nonisolated static func preparedInsertion(
+        _ insertion: String,
+        in content: String,
+        replacing range: NSRange
+    ) -> String {
+        let trimmed = insertion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let source = content as NSString
+        guard range.location <= source.length, NSMaxRange(range) <= source.length else { return trimmed }
+        let needsLeadingSpace = range.location > 0
+            && !isWhitespace(source.substring(with: NSRange(location: range.location - 1, length: 1)))
+        let nextLocation = NSMaxRange(range)
+        let needsTrailingSpace = nextLocation < source.length
+            && !isWhitespace(source.substring(with: NSRange(location: nextLocation, length: 1)))
+        return (needsLeadingSpace ? " " : "") + trimmed + (needsTrailingSpace ? " " : "")
+    }
+
+    nonisolated private static func isWhitespace(_ value: String) -> Bool {
+        value.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
     }
 }
 
@@ -229,10 +296,12 @@ final class RichInputLineHeightDelegate: NSObject, NSLayoutManagerDelegate {
 final class RichInputTextView: NSTextView {
     var onSubmit: (() -> Void)?
     var onSubmitWithoutReturn: (() -> Void)?
+    var onFinishDictation: (() -> Void)?
     var onIncreaseFontSize: (() -> Void)?
     var onDecreaseFontSize: (() -> Void)?
     var onPasteImageData: ((Data) -> Void)?
     var onPasteFileURL: ((URL) -> Void)?
+    var isDictating = false
     var pendingFocusGrab: Bool = false
 
     override func viewDidMoveToWindow() {
@@ -243,6 +312,15 @@ final class RichInputTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if Self.shouldFinishDictation(
+            isDictating: isDictating,
+            keyCode: event.keyCode,
+            modifierFlags: event.modifierFlags
+        ) {
+            let callback = onFinishDictation
+            Task { @MainActor in callback?() }
+            return
+        }
         let store = KeyBindingStore.shared
         if store.combo(for: .submitRichInput).matches(event: event) {
             let callback = onSubmit
@@ -271,6 +349,17 @@ final class RichInputTextView: NSTextView {
             }
         }
         super.keyDown(with: event)
+    }
+
+    nonisolated static func shouldFinishDictation(
+        isDictating: Bool,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard isDictating,
+              keyCode == UInt16(kVK_Return) || keyCode == UInt16(kVK_ANSI_KeypadEnter)
+        else { return false }
+        return modifierFlags.isDisjoint(with: [.command, .control, .option, .shift])
     }
 
     func grabFirstResponder() {

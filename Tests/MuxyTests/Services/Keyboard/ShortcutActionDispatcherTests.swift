@@ -65,6 +65,21 @@ struct ShortcutActionDispatcherTests {
         #expect(!dispatcher.perform(.removeCurrentWorktree, activeProject: nil))
     }
 
+    @Test("composer voice posts its presentation notification")
+    func composerVoicePostsPresentationNotification() {
+        let center = NotificationCenter()
+        let capture = NotificationCapture()
+        let token = center.addObserver(forName: .toggleComposerVoice, object: nil, queue: nil) { notification in
+            capture.record(notification.name)
+        }
+        defer { center.removeObserver(token) }
+
+        let performed = makeDispatcher(notificationCenter: center).perform(.toggleComposerVoice, activeProject: nil)
+
+        #expect(performed)
+        #expect(capture.contains(.toggleComposerVoice))
+    }
+
     @Test("move pane actions require an active project")
     func movePaneActionsRequireActiveProject() {
         let dispatcher = makeDispatcher(notificationCenter: NotificationCenter())

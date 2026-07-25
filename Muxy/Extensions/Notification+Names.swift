@@ -30,6 +30,7 @@ extension Notification.Name {
     static let vcsDidRefresh = Notification.Name("MuxyVCSDidRefresh")
     static let externalDragHoverChanged = Notification.Name("MuxyExternalDragHoverChanged")
     static let toggleRichInput = Notification.Name("MuxyToggleRichInput")
+    static let toggleComposerVoice = Notification.Name("MuxyToggleComposerVoice")
     static let toggleVoiceRecording = Notification.Name("MuxyToggleVoiceRecording")
     static let toggleExtensionConsole = Notification.Name("MuxyToggleExtensionConsole")
 }
