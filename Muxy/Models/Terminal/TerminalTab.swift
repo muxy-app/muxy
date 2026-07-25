@@ -149,12 +149,21 @@ final class TerminalTab: Identifiable {
             extensionTabTypeID: content.extensionState?.tabTypeID,
             extensionTabData: content.extensionState?.data,
             browserURL: content.browserState?.url?.absoluteString,
-            browserProfileID: content.browserState?.profileID.uuidString
+            browserProfileID: content.browserState?.profileID.uuidString,
+            agentSession: agentSessionSnapshot
         )
     }
 
     private var extensionTabDefaultTitle: String? {
         content.extensionState?.defaultTitle
+    }
+
+    private var agentSessionSnapshot: AgentSessionSnapshot? {
+        guard let paneID = content.pane?.id,
+              let providerID = DetectedAgentStore.shared.agent(for: paneID),
+              let cwd = content.pane?.currentWorkingDirectory
+        else { return nil }
+        return AgentSessionSnapshot(providerID: providerID, sessionID: nil, cwd: cwd)
     }
 
     private static func restoredWorkingDirectory(_ path: String?, projectPath: String) -> String? {
