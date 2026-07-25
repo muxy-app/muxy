@@ -48,6 +48,17 @@ struct FileOpenerSelectionTests {
         ))
     }
 
+    @Test("options identify a malformed persisted selection as unavailable")
+    func optionsIdentifyMalformedUnavailableSelection() {
+        let options = FileOpenerSelection.options(from: [], selectedValue: "invalid")
+
+        #expect(options.last == .init(
+            id: "invalid",
+            title: "Unavailable Extension Opener",
+            isAvailable: false
+        ))
+    }
+
     private func binding(
         extensionName: String,
         openerID: String,

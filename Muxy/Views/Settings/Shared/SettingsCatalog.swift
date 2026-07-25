@@ -238,7 +238,7 @@ enum SettingsCatalog {
         SettingsCatalogItem(
             key: FileOpenerSelection.storageKey,
             title: "Default Opener",
-            description: "Chooses the top-bar project target or an extension opener for terminal file links.",
+            description: "Uses the separately selected top-bar project target or an extension opener for terminal file links.",
             category: .projects,
             section: "Open Files With",
             defaultValue: FileOpenerSelection.builtinValue,
