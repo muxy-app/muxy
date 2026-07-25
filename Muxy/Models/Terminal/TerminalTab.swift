@@ -163,7 +163,7 @@ final class TerminalTab: Identifiable {
               let providerID = DetectedAgentStore.shared.agent(for: paneID),
               let cwd = content.pane?.currentWorkingDirectory
         else { return nil }
-        return AgentSessionSnapshot(providerID: providerID, sessionID: nil, cwd: cwd)
+        return AgentSessionSnapshot(providerID: providerID, sessionID: DetectedAgentStore.shared.sessionID(for: paneID), cwd: cwd)
     }
 
     private static func restoredWorkingDirectory(_ path: String?, projectPath: String) -> String? {
