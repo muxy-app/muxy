@@ -89,32 +89,105 @@ struct AIAgentLaunchProviderTests {
     func localAgentTabCommand() {
         let provider = AgentTabLaunchTestProvider(executablePath: "/tmp/Agent Tools/codex")
 
-        #expect(AgentTabLaunchCommand.resolve(provider: provider, isRemote: false) == "'/tmp/Agent Tools/codex'")
+        #expect(AgentTabLaunchCommand.local(provider: provider) == "'/tmp/Agent Tools/codex'")
     }
 
     @Test("agent tabs omit unavailable local providers")
     func unavailableLocalAgentTabCommand() {
         let provider = AgentTabLaunchTestProvider(executablePath: nil)
 
-        #expect(AgentTabLaunchCommand.resolve(provider: provider, isRemote: false) == nil)
+        #expect(AgentTabLaunchCommand.local(provider: provider) == nil)
     }
 
-    @Test("agent tabs defer executable resolution to remote shells")
+    @Test("agent tabs escape remote executable names")
     func remoteAgentTabCommand() {
         let provider = AgentTabLaunchTestProvider(executablePath: nil)
 
-        #expect(AgentTabLaunchCommand.resolve(provider: provider, isRemote: true) == "test-agent")
+        #expect(AgentTabLaunchCommand.remote(provider: provider) == "test-agent")
     }
 
     @Test("agent launch options resolve each local executable once")
     func launchOptionsSnapshotExecutableResolution() {
         let provider = CountingAgentTabLaunchTestProvider()
 
-        let options = AgentTabLaunchOption.resolve(providers: [provider], isRemote: false)
+        let options = AgentTabLaunchOption.resolveLocal(providers: [provider])
 
         #expect(provider.resolutionCount == 1)
         #expect(options.first?.command == "/tmp/test-agent")
         #expect(options.first?.title == "Test Agent")
+    }
+
+    @Test("remote launch options disable providers missing from the remote PATH")
+    func remoteLaunchOptionsReflectAvailability() {
+        let provider = AgentTabLaunchTestProvider(executablePath: nil)
+
+        let available = AgentTabLaunchOption.resolveRemote(
+            providers: [provider],
+            availableProviderIDs: ["test"]
+        )
+        let unavailable = AgentTabLaunchOption.resolveRemote(
+            providers: [provider],
+            availableProviderIDs: []
+        )
+
+        #expect(available.first?.command == "test-agent")
+        #expect(available.first?.title == "Test Agent")
+        #expect(unavailable.first?.command == nil)
+        #expect(unavailable.first?.title == "Test Agent · Not installed")
+    }
+
+    @Test("remote provider availability uses a login shell and parses marked output")
+    @MainActor
+    func remoteProviderAvailability() async throws {
+        let provider = AgentTabLaunchTestProvider(executablePath: nil)
+        let destination = SSHDestination(host: "example.com")
+        var capturedCommand = ""
+
+        let providerIDs = try await RemoteAgentLaunchAvailability.resolve(
+            providers: [provider],
+            destination: destination
+        ) { receivedDestination, command in
+            capturedCommand = command
+            #expect(receivedDestination == destination)
+            return GitProcessResult(
+                status: 0,
+                stdout: """
+                shell noise
+                __MUXY_AGENT_PROVIDERS_START__
+                test
+                unsupported
+                __MUXY_AGENT_PROVIDERS_END__
+                """,
+                stdoutData: Data(),
+                stderr: "",
+                truncated: false
+            )
+        }
+
+        #expect(providerIDs == ["test"])
+        #expect(capturedCommand.contains(#""${SHELL:-/bin/sh}" -l -i -c"#))
+        #expect(capturedCommand.contains("command -v test-agent"))
+    }
+
+    @Test("remote provider availability surfaces command failures")
+    @MainActor
+    func remoteProviderAvailabilityFailure() async {
+        let provider = AgentTabLaunchTestProvider(executablePath: nil)
+
+        await #expect(throws: RemoteAgentLaunchAvailabilityError.self) {
+            try await RemoteAgentLaunchAvailability.resolve(
+                providers: [provider],
+                destination: SSHDestination(host: "example.com")
+            ) { _, _ in
+                GitProcessResult(
+                    status: 255,
+                    stdout: "",
+                    stdoutData: Data(),
+                    stderr: "Connection failed",
+                    truncated: false
+                )
+            }
+        }
     }
 }
 

@@ -47,18 +47,17 @@ struct AgentsFocusedTabActions: View {
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var hovered = false
+    @State private var options: [AgentTabLaunchOption] = []
+    @State private var loadingProviders = false
+    @State private var providerTask: Task<Void, Never>?
 
-    private var isRemote: Bool {
-        projectGroupStore.workspaceContext(for: project).isRemote
+    private var workspaceContext: WorkspaceContext {
+        projectGroupStore.workspaceContext(for: project)
     }
 
     var body: some View {
-        let options = AgentTabLaunchOption.resolve(
-            providers: AIProviderRegistry.shared.agentLaunchProviders,
-            isRemote: isRemote
-        )
         Button {
-            showingProviders.toggle()
+            presentProviders()
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))
@@ -73,13 +72,60 @@ struct AgentsFocusedTabActions: View {
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .popover(isPresented: $showingProviders, arrowEdge: .trailing) {
-            AgentsFocusedProviderMenu(options: options) { option in
-                showingProviders = false
-                launch(option)
+            if loadingProviders {
+                AgentsFocusedProviderLoadingMenu()
+            } else {
+                AgentsFocusedProviderMenu(options: options) { option in
+                    showingProviders = false
+                    launch(option)
+                }
             }
         }
+        .onChange(of: showingProviders) { _, showing in
+            guard !showing else { return }
+            providerTask?.cancel()
+            loadingProviders = false
+        }
+        .onDisappear { providerTask?.cancel() }
         .help("New Agent Tab")
         .accessibilityLabel("New Agent Tab")
+    }
+
+    private func presentProviders() {
+        providerTask?.cancel()
+        let providers = AIProviderRegistry.shared.agentLaunchProviders
+        guard case let .ssh(destination) = workspaceContext else {
+            options = AgentTabLaunchOption.resolveLocal(providers: providers)
+            loadingProviders = false
+            showingProviders = true
+            return
+        }
+
+        options = []
+        loadingProviders = true
+        showingProviders = true
+        providerTask = Task {
+            do {
+                let providerIDs = try await RemoteAgentLaunchAvailability.resolve(
+                    providers: providers,
+                    destination: destination
+                )
+                guard !Task.isCancelled else { return }
+                options = AgentTabLaunchOption.resolveRemote(
+                    providers: providers,
+                    availableProviderIDs: providerIDs
+                )
+                loadingProviders = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                loadingProviders = false
+                showingProviders = false
+                ToastState.shared.show(
+                    title: "Could not check remote agent providers",
+                    body: error.localizedDescription
+                )
+            }
+        }
     }
 
     private func launch(_ option: AgentTabLaunchOption) {
@@ -130,7 +176,7 @@ enum AgentsFocusedTabLauncher {
               let key = appState.activeWorktreeKey(for: request.project.id),
               let paneID = appState.workspaceRoots[key]?.locateTab(id: tabID)?.tab.content.pane?.id
         else { return }
-        DetectedAgentStore.shared.setAgent(request.providerID, for: paneID)
+        DetectedAgentStore.shared.setProvisionalAgent(request.providerID, for: paneID)
     }
 }
 

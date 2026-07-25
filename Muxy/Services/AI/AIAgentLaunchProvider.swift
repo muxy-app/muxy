@@ -70,13 +70,12 @@ extension AIAgentLaunchProvider {
 }
 
 enum AgentTabLaunchCommand {
-    static func resolve(provider: any AIAgentLaunchProvider, isRemote: Bool) -> String? {
-        let executable = if isRemote {
-            provider.agentLaunchConfiguration.executable
-        } else {
-            provider.agentCLIExecutablePath()
-        }
-        return executable.map(ShellEscaper.escape)
+    static func local(provider: any AIAgentLaunchProvider) -> String? {
+        provider.agentCLIExecutablePath().map(ShellEscaper.escape)
+    }
+
+    static func remote(provider: any AIAgentLaunchProvider) -> String {
+        ShellEscaper.escape(provider.agentLaunchConfiguration.executable)
     }
 }
 
@@ -90,12 +89,86 @@ struct AgentTabLaunchOption: Identifiable {
         command == nil ? "\(provider.displayName) · Not installed" : provider.displayName
     }
 
-    static func resolve(providers: [any AIAgentLaunchProvider], isRemote: Bool) -> [Self] {
+    static func resolveLocal(providers: [any AIAgentLaunchProvider]) -> [Self] {
         providers.map { provider in
             Self(
                 provider: provider,
-                command: AgentTabLaunchCommand.resolve(provider: provider, isRemote: isRemote)
+                command: AgentTabLaunchCommand.local(provider: provider)
             )
         }
+    }
+
+    static func resolveRemote(
+        providers: [any AIAgentLaunchProvider],
+        availableProviderIDs: Set<String>
+    ) -> [Self] {
+        providers.map { provider in
+            Self(
+                provider: provider,
+                command: availableProviderIDs.contains(provider.id)
+                    ? AgentTabLaunchCommand.remote(provider: provider)
+                    : nil
+            )
+        }
+    }
+}
+
+enum RemoteAgentLaunchAvailabilityError: LocalizedError {
+    case commandFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .commandFailed(message):
+            message.isEmpty ? "Could not check remote agent providers." : message
+        }
+    }
+}
+
+enum RemoteAgentLaunchAvailability {
+    typealias Runner = @MainActor (SSHDestination, String) async throws -> GitProcessResult
+
+    private static let startMarker = "__MUXY_AGENT_PROVIDERS_START__"
+    private static let endMarker = "__MUXY_AGENT_PROVIDERS_END__"
+
+    @MainActor
+    static func resolve(
+        providers: [any AIAgentLaunchProvider],
+        destination: SSHDestination,
+        runner: Runner = { destination, command in
+            try await SSHCommandRunner.run(destination: destination, remoteCommand: command)
+        }
+    ) async throws -> Set<String> {
+        let result = try await runner(destination, lookupCommand(providers: providers))
+        guard result.status == 0 else {
+            throw RemoteAgentLaunchAvailabilityError.commandFailed(
+                result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        let supportedProviderIDs = Set(providers.map(\.id))
+        return providerIDs(from: result.stdout).intersection(supportedProviderIDs)
+    }
+
+    static func lookupCommand(providers: [any AIAgentLaunchProvider]) -> String {
+        let checks = providers.map { provider in
+            let executable = ShellEscaper.escape(provider.agentLaunchConfiguration.executable)
+            let providerID = ShellEscaper.escape(provider.id)
+            return "if command -v \(executable) >/dev/null 2>&1; then printf '%s\\n' \(providerID); fi"
+        }
+        let script = ([
+            "printf '%s\\n' \(ShellEscaper.escape(startMarker))",
+        ] + checks + [
+            "printf '%s\\n' \(ShellEscaper.escape(endMarker))",
+        ]).joined(separator: "; ")
+        return "exec \"${SHELL:-/bin/sh}\" -l -i -c \(ShellEscaper.escape(script))"
+    }
+
+    static func providerIDs(from output: String) -> Set<String> {
+        let lines = output.split(whereSeparator: \.isNewline).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let start = lines.firstIndex(of: startMarker),
+              let end = lines[(start + 1)...].firstIndex(of: endMarker)
+        else { return [] }
+        return Set(lines[(start + 1) ..< end])
     }
 }

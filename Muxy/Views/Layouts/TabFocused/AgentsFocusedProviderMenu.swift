@@ -24,6 +24,21 @@ struct AgentsFocusedProviderMenu: View {
     }
 }
 
+struct AgentsFocusedProviderLoadingMenu: View {
+    var body: some View {
+        HStack(spacing: UIMetrics.spacing3) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Checking remote providers…")
+                .font(.system(size: UIMetrics.fontBody))
+                .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .padding(UIMetrics.spacing4)
+        .frame(width: UIMetrics.scaled(252), height: UIMetrics.scaled(68))
+        .background(MuxyTheme.bg)
+    }
+}
+
 private struct AgentsFocusedProviderRow: View {
     let option: AgentTabLaunchOption
     let action: () -> Void

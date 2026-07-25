@@ -304,6 +304,39 @@ struct AgentsFocusedTabLauncherTests {
 
         #expect(DetectedAgentStore.shared.agents == agentsBeforeLaunch)
     }
+
+    @Test("local agent launches appear before process detection")
+    func localLaunchAppearsBeforeDetection() throws {
+        let project = Project(name: "Target", path: "/tmp/target")
+        let worktree = Worktree(name: "Target", path: project.path, isPrimary: true)
+        let worktreeStore = WorktreeStore(
+            persistence: AgentLaunchWorktreePersistenceStub(storage: [project.id: [worktree]]),
+            projects: [project]
+        )
+        let appState = AppState(
+            selectionStore: AgentLaunchSelectionStoreStub(),
+            terminalViews: AgentLaunchTerminalViewRemovingStub(),
+            workspacePersistence: AgentLaunchWorkspacePersistenceStub()
+        )
+        appState.selectProject(project, worktree: worktree)
+
+        AgentsFocusedTabLauncher.launch(
+            request: AgentsFocusedTabLaunchRequest(
+                project: project,
+                worktree: worktree,
+                providerID: "codex",
+                name: "Codex",
+                command: "codex"
+            ),
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+
+        let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
+        let paneID = try #require(appState.workspaceRoots[key]?.allTabs().last?.content.pane?.id)
+        defer { DetectedAgentStore.shared.resetPane(paneID) }
+        #expect(DetectedAgentStore.shared.agent(for: paneID) == "codex")
+    }
 }
 
 @Suite("TabFocusedSidebarState")
