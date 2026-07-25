@@ -257,8 +257,8 @@ struct WorkspaceReducerTests {
             state: &state
         )
 
-        #expect(!state.workspaceRoots[key]!.containsArea(id: firstAreaID))
-        #expect(!effects.paneIDsToRemove.isEmpty)
+        #expect(state.workspaceRoots[key] == nil)
+        #expect(effects.paneIDsToRemove.count == 2)
     }
 
     @Test("workspace-local actions reconcile only their worktree")
