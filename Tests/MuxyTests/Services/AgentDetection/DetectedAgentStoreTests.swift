@@ -58,4 +58,42 @@ struct DetectedAgentStoreTests {
         #expect(store.iconName(forPane: UUID()) == nil)
         #expect(store.iconName(forPane: nil) == nil)
     }
+
+    @Test("setSession stores and sessionID returns it")
+    func setSessionStoresSessionID() {
+        let store = DetectedAgentStore.shared
+        let paneID = UUID()
+        store.setSession("abc123", for: paneID)
+        #expect(store.sessionID(for: paneID) == "abc123")
+        store.resetPane(paneID)
+    }
+
+    @Test("setSession with nil clears the entry")
+    func setSessionNilClears() {
+        let store = DetectedAgentStore.shared
+        let paneID = UUID()
+        store.setSession("abc123", for: paneID)
+        store.setSession(nil, for: paneID)
+        #expect(store.sessionID(for: paneID) == nil)
+        store.resetPane(paneID)
+    }
+
+    @Test("setSession with empty string clears the entry")
+    func setSessionEmptyStringClears() {
+        let store = DetectedAgentStore.shared
+        let paneID = UUID()
+        store.setSession("abc123", for: paneID)
+        store.setSession("", for: paneID)
+        #expect(store.sessionID(for: paneID) == nil)
+        store.resetPane(paneID)
+    }
+
+    @Test("resetPane clears the session id")
+    func resetPaneClearsSessionID() {
+        let store = DetectedAgentStore.shared
+        let paneID = UUID()
+        store.setSession("xyz789", for: paneID)
+        store.resetPane(paneID)
+        #expect(store.sessionID(for: paneID) == nil)
+    }
 }
