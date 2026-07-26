@@ -53,19 +53,23 @@ final class ExtensionPanelRegistry {
 
     func close(hostPanelID: String) {
         guard let state = state(forHostPanelID: hostPanelID) else {
+            PanelFocusRestoration.shared.restoreAfterClosing(panelID: hostPanelID)
             PanelHost.shared.close(hostPanelID)
             return
         }
         let surfaceKey = LifecycleSurfaceKey(kind: .panel, instanceID: state.id.uuidString)
         Task { @MainActor in
             let verdict = await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
-            guard verdict == .allow else { return }
+            guard verdict == .allow,
+                  self.state(forHostPanelID: hostPanelID)?.id == state.id
+            else { return }
             forceClose(hostPanelID: hostPanelID)
         }
     }
 
     func forceClose(hostPanelID: String) {
         let closed = openStates.filter { $0.hostPanelID == hostPanelID }
+        PanelFocusRestoration.shared.restoreAfterClosing(panelID: hostPanelID)
         PanelHost.shared.close(hostPanelID)
         openStates.removeAll { $0.hostPanelID == hostPanelID }
         for state in closed {
@@ -81,6 +85,7 @@ final class ExtensionPanelRegistry {
     func closeAll(extensionID: String) {
         let closed = openStates.filter { $0.extensionID == extensionID }
         for state in closed {
+            PanelFocusRestoration.shared.restoreAfterClosing(panelID: state.hostPanelID)
             PanelHost.shared.close(state.hostPanelID)
         }
         openStates.removeAll { $0.extensionID == extensionID }
@@ -91,6 +96,9 @@ final class ExtensionPanelRegistry {
 
     private func pruneClosed() {
         let closed = openStates.filter { !PanelHost.shared.isOpen($0.hostPanelID) }
+        for state in closed {
+            PanelFocusRestoration.shared.restoreAfterClosing(panelID: state.hostPanelID)
+        }
         openStates.removeAll { !PanelHost.shared.isOpen($0.hostPanelID) }
         for state in closed {
             ExtensionLifecycleEvents.panelClosed(extensionID: state.extensionID, panelID: state.panelID)

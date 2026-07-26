@@ -1571,18 +1571,24 @@ struct MainWindow: View {
         )
     }
 
-    @ViewBuilder
     func pinnedPanelSlot(at position: PanelPosition) -> some View {
-        if let panelID = panelHost.pinnedPanel(at: position) {
-            panelContent(for: panelID, position: position, mode: .pinned)
+        PanelHostSlot(panelHost: panelHost, position: position, mode: .pinned) { placement in
+            panelContent(
+                for: placement.panelID,
+                position: placement.position,
+                mode: placement.mode
+            )
         }
     }
 
-    @ViewBuilder
     func floatingPanelOverlay(at position: PanelPosition) -> some View {
-        if let panelID = panelHost.floatingPanel(at: position) {
-            panelContent(for: panelID, position: position, mode: .floating)
-                .background(MuxyTheme.bg)
+        PanelHostSlot(panelHost: panelHost, position: position, mode: .floating) { placement in
+            panelContent(
+                for: placement.panelID,
+                position: placement.position,
+                mode: placement.mode
+            )
+            .background(MuxyTheme.bg)
         }
     }
 

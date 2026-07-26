@@ -33,7 +33,8 @@ struct ExtensionPanelView: View {
                         projectStore: projectStore,
                         worktreeStore: worktreeStore,
                         projectGroupStore: projectGroupStore,
-                        focused: true
+                        focused: true,
+                        focusRestorationID: state.hostPanelID
                     )
                 }
             )
