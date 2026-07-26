@@ -13,6 +13,8 @@ struct HookHealth: Equatable {
     var lastVerifiedAt: Date?
     var lastRepairedAt: Date?
     var lastEventAt: Date?
+    var discovery: ProviderDiscoverySnapshot?
+    var lastDiscoveredAt: Date?
     var lastError: String?
 }
 
@@ -53,6 +55,13 @@ final class HookHealthStore {
     func noteEvent(providerID: String) {
         var entry = health[providerID] ?? HookHealth()
         entry.lastEventAt = now()
+        health[providerID] = entry
+    }
+
+    func noteDiscovery(providerID: String, snapshot: ProviderDiscoverySnapshot) {
+        var entry = health[providerID] ?? HookHealth()
+        entry.discovery = snapshot
+        entry.lastDiscoveredAt = now()
         health[providerID] = entry
     }
 

@@ -87,6 +87,7 @@ final class AIProviderRegistry {
     private let hookScriptPath: @Sendable (String, String) -> String?
     private let stageHookResources: @Sendable () -> Bool
     private let installer: HookInstaller
+    private let discoveryService: ProviderDiscoveryService
     private var loginShellPathHydration: Task<Void, Never>?
     private var hookResourcesStaged = false
     private var configWatchers: [String: HookConfigWatcher] = [:]
@@ -113,7 +114,8 @@ final class AIProviderRegistry {
         stageHookResources: @escaping @Sendable () -> Bool = {
             MuxyNotificationHooks.stageAll()
         },
-        installer: HookInstaller? = nil
+        installer: HookInstaller? = nil,
+        discoveryService: ProviderDiscoveryService? = nil
     ) {
         injectedProviders = providers
         self.hydrateLoginShellPath = hydrateLoginShellPath
@@ -121,6 +123,7 @@ final class AIProviderRegistry {
         self.hookScriptPath = hookScriptPath
         self.stageHookResources = stageHookResources
         self.installer = installer ?? HookInstaller(hookScriptPath: hookScriptPath)
+        self.discoveryService = discoveryService ?? ProviderDiscoveryService()
     }
 
     func prepareForInstallation() {
@@ -158,6 +161,7 @@ final class AIProviderRegistry {
 
         for provider in providers {
             installer.reconcile(provider)
+            await discoveryService.discover(provider)
             updateConfigWatcher(for: provider)
         }
     }
@@ -169,11 +173,13 @@ final class AIProviderRegistry {
         }
         await loginShellPathHydrationTask().value
         installer.forceReinstall(provider)
+        await discoveryService.discover(provider)
         updateConfigWatcher(for: provider)
     }
 
     func reconcile(_ provider: AIProviderIntegration) {
         installer.reconcile(provider, stagingSucceeded: hookResourcesStaged)
+        Task { await discoveryService.discover(provider) }
         if hookResourcesStaged || !provider.isEnabled {
             updateConfigWatcher(for: provider)
         }
@@ -208,6 +214,7 @@ final class AIProviderRegistry {
         }
 
         installer.reconcile(provider, stagingSucceeded: hookResourcesStaged)
+        Task { await discoveryService.discover(provider) }
     }
 
     private func loginShellPathHydrationTask() -> Task<Void, Never> {

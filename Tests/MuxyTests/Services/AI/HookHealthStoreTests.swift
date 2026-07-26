@@ -63,6 +63,22 @@ struct HookHealthStoreTests {
         #expect(store.health(for: "pi").lastEventAt != nil)
     }
 
+    @Test("noteDiscovery records the latest provider probe")
+    func noteDiscoveryRecordsProbe() {
+        let clock = Clock()
+        let store = HookHealthStore(now: clock.now)
+        let snapshot = ProviderDiscoverySnapshot(
+            executablePath: "/usr/local/bin/opencode",
+            version: "1.18.5",
+            state: .ready
+        )
+
+        store.noteDiscovery(providerID: "opencode", snapshot: snapshot)
+
+        #expect(store.health(for: "opencode").discovery == snapshot)
+        #expect(store.health(for: "opencode").lastDiscoveredAt == clock.value)
+    }
+
     @Test("reset clears provider health")
     func resetClearsHealth() {
         let store = HookHealthStore(now: { Date() })

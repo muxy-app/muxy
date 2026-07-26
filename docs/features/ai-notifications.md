@@ -46,6 +46,8 @@ The compiled hook bridge (`muxy-hook`) and the provider shims are staged into `~
 - `muxy-claude-hook.sh`, `muxy-codex-hook.sh`, `muxy-cursor-hook.sh`, `muxy-droid-hook.sh`, `muxy-grok-hook.sh` — thin shell shims that exec the colocated `muxy-hook`.
 - `opencode-muxy-plugin.js`, `muxy-pi-extension.ts` — plugin/extension entry points that spawn the staged `muxy-hook`. When the binary is missing they log a clear error to their own stderr and skip the event. That stderr never reaches Muxy, so nothing restages automatically — use **Refresh** in Settings to restage.
 
+The OpenCode entry point is installed globally at `~/.config/opencode/plugins/muxy-notify.js`. OpenCode loads local plugins at startup, so restart any running OpenCode session after Muxy first installs or repairs this file.
+
 Reconciliation starts only after the complete staged resource set is available. Each provider also verifies that the shared `muxy-hook` bridge exists and is executable, so a stale shim or plugin cannot report healthy while its bridge is missing.
 
 Terminals export `MUXY_PANE_ID`, `MUXY_SOCKET_PATH`, `MUXY_HOOK_BIN`, `MUXY_HOOK_SCRIPT`, `MUXY_PROJECT_ID`, and `MUXY_WORKTREE_ID` so shims and plugins can reach the socket and binary and identify their context.
@@ -58,6 +60,10 @@ Muxy records a hash of every config file it writes and ignores watcher events wh
 
 Results are tracked per provider in the health store — install state, last verified/repaired time, last event time, and last error — and shown in **Settings → Notifications** as a status dot and line per provider. A `conflict` means Muxy found a non-Muxy hook it will not overwrite; the message names it.
 
+OpenCode also runs a bounded, read-only `opencode debug info` discovery probe after reconciliation. Its provider row reports the resolved CLI version and whether OpenCode's effective plugin list contains Muxy's exact managed plugin. Discovery results are separate from hook verification and event delivery, and are logged through the `ProviderDiscovery` unified-log category with executable paths kept private.
+
+The OpenCode plugin writes structured `service=muxy` entries to OpenCode's own logs when it initializes, forwards a permission or question, or cannot launch `muxy-hook`. Use `opencode debug paths` to locate the active OpenCode log directory and `opencode debug info` to inspect the effective plugin list manually.
+
 ## Test button
 
 Each provider row in **Settings → Notifications** has a **Test** button. It runs the staged `muxy-hook` with `--event test --test`, which sends a `test: true` event over the live socket. The pass/fail signal is the bridge's exit code, so a passing test confirms the delivery path — staged binary, socket, server, and ack — without touching agent status. It does not verify that the resulting in-app notification was presented. **Refresh** restages the provider's hook files and re-runs reconciliation.
@@ -69,9 +75,11 @@ Agent status is exposed to extensions as the `agent.status` event and `muxy.agen
 ## Troubleshooting
 
 - **No notifications from an agent.** Open **Settings → Notifications**, check the provider's status dot, and click **Refresh** to restage and re-verify. Run **Test** to confirm the socket path end to end.
+- **OpenCode still does not report permissions or questions after Refresh.** Restart the OpenCode session so it loads the repaired global plugin from `~/.config/opencode/plugins`.
 - **Hook delivery failures.** The bridge logs failures to `~/Library/Application Support/Muxy/hooks.log`.
 - **Socket missing.** Verify it exists: `ls -l ~/Library/Application\ Support/Muxy/muxy.sock`.
 - **Conflict reported.** Muxy found a foreign hook in the provider's config and left it untouched. Remove or rename it if you want Muxy to own that hook, then **Refresh**.
 - **Logs.** Stream live: `log stream --predicate 'subsystem == "app.muxy"' --info --debug`.
+- **OpenCode discovery logs.** Filter the provider probe: `log stream --predicate 'subsystem == "app.muxy" AND category == "ProviderDiscovery"' --info --debug`.
 
 See also [Terminal notifications](terminal.md) for OSC-based terminal notifications, and the general [Troubleshooting](../user-guide/troubleshooting.md) guide.

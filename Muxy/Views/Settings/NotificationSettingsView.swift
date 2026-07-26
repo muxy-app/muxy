@@ -96,6 +96,12 @@ private struct ProviderToggleRow: View {
                     Text(secondaryLine(now: now))
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
                         .foregroundStyle(SettingsStyle.mutedForeground)
+                    if let discoveryLine = HookHealthPresenter.discoveryLine(for: health) {
+                        Text(discoveryLine)
+                            .font(.system(size: SettingsMetrics.footnoteFontSize))
+                            .foregroundStyle(SettingsStyle.dimForeground)
+                            .help(health.discovery?.executablePath ?? "")
+                    }
                 }
             }
             Spacer()
