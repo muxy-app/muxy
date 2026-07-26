@@ -9,6 +9,8 @@ struct TerminalSettingsView: View {
     private var freeIdleTerminalsEnabled = TerminalOfflinePreferences.defaultIsEnabled
     @AppStorage(TerminalOfflinePreferences.idleThresholdKey)
     private var idleThresholdSeconds = TerminalOfflinePreferences.defaultIdleThreshold
+    @AppStorage(BackgroundActivityPreferences.keepActiveKey)
+    private var keepActiveInBackground = BackgroundActivityPreferences.defaultKeepActive
 
     private var idleTimeoutSelection: Binding<String> {
         Binding(
@@ -18,6 +20,13 @@ struct TerminalSettingsView: View {
                 idleThresholdSeconds = option.seconds
                 TerminalOfflineService.shared.reload()
             }
+        )
+    }
+
+    private var keepActiveBinding: Binding<Bool> {
+        Binding(
+            get: { keepActiveInBackground },
+            set: { BackgroundActivityPreferences.setKeepActive($0) }
         )
     }
 
@@ -37,6 +46,17 @@ struct TerminalSettingsView: View {
                 SettingsToggleRow(
                     label: "Confirm before closing a tab with a running process",
                     isOn: $confirmRunningProcess
+                )
+            }
+
+            SettingsSection(
+                "Background",
+                footer: "When disabled, hidden terminal panes pause rendering and I/O to save resources. "
+                    + "This may cause running processes to freeze until the window is visible again."
+            ) {
+                SettingsToggleRow(
+                    label: "Keep processes running in the background",
+                    isOn: keepActiveBinding
                 )
             }
 

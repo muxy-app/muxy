@@ -438,7 +438,16 @@ final class GhosttyTerminalNSView: NSView {
 
     private func applyOcclusionState() {
         guard let surface else { return }
-        ghostty_surface_set_occlusion(surface, isPaneVisible && isWindowVisible)
+        let visible = BackgroundActivityPreferences.effectiveVisibility(
+            keepActive: BackgroundActivityPreferences.keepActive(),
+            isPaneVisible: isPaneVisible,
+            isWindowVisible: isWindowVisible
+        )
+        ghostty_surface_set_occlusion(surface, visible)
+    }
+
+    func reapplyOcclusion() {
+        applyOcclusionState()
     }
 
     private func updateWindowVisibility() {

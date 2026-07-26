@@ -236,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var whatsNewObserver: NSObjectProtocol?
     private var modalThemeObserver: NSObjectProtocol?
     private var quickTerminalEnabledObserver: NSObjectProtocol?
+    private var backgroundActivityObserver: NSObjectProtocol?
     private var quickTerminalController: QuickTerminalController?
     private weak var settingsWindow: NSWindow?
     private weak var extensionsWindow: NSWindow?
@@ -395,6 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         observeSystemAppearanceChanges()
         ModifierKeyMonitor.shared.start()
         observeQuickTerminalEnabledChanges()
+        observeBackgroundActivityChanges()
         startQuickTerminal()
         DesktopNotificationService.shared.prepare()
         NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
@@ -454,6 +456,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 } else {
                     self.stopQuickTerminal(restoresFocus: true)
                 }
+            }
+        }
+    }
+
+    @MainActor
+    private func observeBackgroundActivityChanges() {
+        backgroundActivityObserver = NotificationCenter.default.addObserver(
+            forName: .backgroundActivityKeepActiveDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                TerminalViewRegistry.shared.reapplyOcclusionToAllViews()
             }
         }
     }
@@ -555,6 +570,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let quickTerminalEnabledObserver {
             NotificationCenter.default.removeObserver(quickTerminalEnabledObserver)
             self.quickTerminalEnabledObserver = nil
+        }
+        if let backgroundActivityObserver {
+            NotificationCenter.default.removeObserver(backgroundActivityObserver)
+            self.backgroundActivityObserver = nil
         }
         persistUserStateForTermination()
         NotificationStore.shared.saveToDisk()

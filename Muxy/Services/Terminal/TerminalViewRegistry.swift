@@ -105,6 +105,12 @@ final class TerminalViewRegistry {
         }
     }
 
+    func reapplyOcclusionToAllViews() {
+        for view in views.values {
+            view.reapplyOcclusion()
+        }
+    }
+
     var liveViews: [GhosttyTerminalNSView] {
         Array(views.values)
     }
