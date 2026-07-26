@@ -1611,6 +1611,7 @@ struct MainWindow: View {
             ),
             mode: mode,
             position: position,
+            focusRestorationID: nil,
             onClose: { panelHost.close(BuiltinPanel.extensionConsole) },
             onTogglePin: nil,
             onTogglePosition: nil,

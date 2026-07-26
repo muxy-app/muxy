@@ -289,19 +289,46 @@ struct PanelSharedStateTests {
             let window = focusTestWindow()
             let previousResponder = FocusTestView()
             let panelView = FocusTestView()
+            let panelControl = FocusTestView()
             let newerResponder = FocusTestView()
             window.contentView?.addSubview(previousResponder)
             window.contentView?.addSubview(panelView)
+            window.contentView?.addSubview(panelControl)
             window.contentView?.addSubview(newerResponder)
             #expect(window.makeFirstResponder(previousResponder))
 
             restoration.captureBeforeClaim(panelID: "files", panelView: panelView)
             #expect(window.makeFirstResponder(panelView))
+            #expect(window.makeFirstResponder(panelControl))
+            restoration.setPanelControlFocused(panelID: "files", focused: true)
             #expect(window.makeFirstResponder(newerResponder))
+            restoration.setPanelControlFocused(panelID: "files", focused: false)
 
             restoration.restoreAfterClosing(panelID: "files")
 
             #expect(window.firstResponder === newerResponder)
+        }
+
+        @Test("closing from a focused panel control restores the original responder")
+        func focusedPanelControlRestoresOriginalResponder() {
+            let restoration = PanelFocusRestoration()
+            let window = focusTestWindow()
+            let previousResponder = FocusTestView()
+            let panelView = FocusTestView()
+            let panelControl = FocusTestView()
+            window.contentView?.addSubview(previousResponder)
+            window.contentView?.addSubview(panelView)
+            window.contentView?.addSubview(panelControl)
+            #expect(window.makeFirstResponder(previousResponder))
+
+            restoration.captureBeforeClaim(panelID: "files", panelView: panelView)
+            #expect(window.makeFirstResponder(panelView))
+            #expect(window.makeFirstResponder(panelControl))
+            restoration.setPanelControlFocused(panelID: "files", focused: true)
+
+            restoration.restoreAfterClosing(panelID: "files")
+
+            #expect(window.firstResponder === previousResponder)
         }
 
         @Test("closing an earlier panel rebases a later panel snapshot")
@@ -324,6 +351,50 @@ struct PanelSharedStateTests {
             restoration.restoreAfterClosing(panelID: "first")
             #expect(window.firstResponder === secondPanelView)
             restoration.restoreAfterClosing(panelID: "second")
+
+            #expect(window.firstResponder === previousResponder)
+        }
+
+        @Test("replacement survives dependent closure after the old view is released")
+        func replacementSurvivesDependentClosureAfterOldViewRelease() {
+            let restoration = PanelFocusRestoration()
+            let window = focusTestWindow()
+            window.autorecalculatesKeyViewLoop = false
+            let previousResponder = FocusTestView()
+            let secondPanelView = FocusTestView()
+            let thirdPanelView = FocusTestView()
+            window.contentView?.addSubview(previousResponder)
+            window.contentView?.addSubview(secondPanelView)
+            window.contentView?.addSubview(thirdPanelView)
+            #expect(window.makeFirstResponder(previousResponder))
+
+            weak var releasedFirstPanelView: FocusTestView?
+            autoreleasepool {
+                let firstPanelView = FocusTestView()
+                let movedFirstPanelView = FocusTestView()
+                releasedFirstPanelView = firstPanelView
+                window.contentView?.addSubview(firstPanelView)
+                window.contentView?.addSubview(movedFirstPanelView)
+
+                restoration.captureBeforeClaim(panelID: "first", panelView: firstPanelView)
+                #expect(window.makeFirstResponder(firstPanelView))
+                restoration.captureBeforeClaim(panelID: "second", panelView: secondPanelView)
+                #expect(window.makeFirstResponder(secondPanelView))
+                restoration.captureBeforeClaim(panelID: "third", panelView: thirdPanelView)
+                #expect(window.makeFirstResponder(thirdPanelView))
+                restoration.captureBeforeClaim(panelID: "first", panelView: movedFirstPanelView)
+                #expect(window.makeFirstResponder(movedFirstPanelView))
+
+                firstPanelView.removeFromSuperview()
+            }
+            #expect(releasedFirstPanelView == nil)
+
+            #expect(window.makeFirstResponder(thirdPanelView))
+            restoration.restoreAfterClosing(panelID: "second")
+            #expect(window.firstResponder === thirdPanelView)
+            restoration.restoreAfterClosing(panelID: "first")
+            #expect(window.firstResponder === thirdPanelView)
+            restoration.restoreAfterClosing(panelID: "third")
 
             #expect(window.firstResponder === previousResponder)
         }

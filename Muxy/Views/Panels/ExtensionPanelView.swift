@@ -19,6 +19,7 @@ struct ExtensionPanelView: View {
                 chrome: chrome(for: panel, in: muxyExtension),
                 mode: placement.mode,
                 position: placement.position,
+                focusRestorationID: state.hostPanelID,
                 onClose: { ExtensionPanelRegistry.shared.close(hostPanelID: state.hostPanelID) },
                 onTogglePin: { togglePin() },
                 onTogglePosition: { togglePosition() },
