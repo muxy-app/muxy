@@ -78,6 +78,38 @@ struct ProviderDiscoveryServiceTests {
             state: .failed("CLI executable not found")
         ))
     }
+
+    @Test("process runner captures bounded standard output and error")
+    func processRunnerCapturesOutput() async throws {
+        let result = try await ProviderDiscoveryService.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "printf output; printf error >&2"],
+            workingDirectory: "/tmp",
+            timeout: 1
+        )
+
+        #expect(result.status == 0)
+        #expect(result.stdout == "output")
+        #expect(result.stderr == "error")
+        #expect(!result.truncated)
+    }
+
+    @Test("process runner terminates timed out probes")
+    func processRunnerTerminatesTimeout() async {
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+
+        await #expect(throws: ProviderDiscoveryError.self) {
+            try await ProviderDiscoveryService.runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", "exec sleep 5"],
+                workingDirectory: "/tmp",
+                timeout: 0.05
+            )
+        }
+
+        #expect(startedAt.duration(to: clock.now) < .seconds(4))
+    }
 }
 
 private func providerDiscoveryProcessResult(

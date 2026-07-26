@@ -61,7 +61,11 @@ struct OpenCodeProvider: AIProviderIntegration, AIAgentLaunchProvider, AIProvide
         let version = lines.first(where: { $0.hasPrefix("opencode version:") })?
             .dropFirst("opencode version:".count)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let plugins = Set(lines.compactMap { line -> String? in
+        let pluginLines = lines
+            .drop { $0 != "plugins:" }
+            .dropFirst()
+            .prefix { $0.hasPrefix("- ") }
+        let plugins = Set(pluginLines.compactMap { line -> String? in
             guard line.hasPrefix("- ") else { return nil }
             return String(line.dropFirst(2))
         })

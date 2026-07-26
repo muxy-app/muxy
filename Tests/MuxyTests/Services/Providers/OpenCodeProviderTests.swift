@@ -48,6 +48,8 @@ struct OpenCodeProviderTests {
         ))
         #expect(provider.discoveryDetails(from: """
         opencode version: 1.18.5
+        diagnostics:
+        - \(URL(fileURLWithPath: homeDirectory + "/.config/opencode/plugins/muxy-notify.js").absoluteString)
         plugins:
         none
         """) == ProviderDiscoveryDetails(

@@ -2,6 +2,8 @@ import Foundation
 import os
 
 private let providerDiscoveryLogger = Logger(subsystem: "app.muxy", category: "ProviderDiscovery")
+private let providerDiscoveryOutputByteLimit = 64 * 1024
+private let providerDiscoveryProcessQueue = DispatchQueue(label: "app.muxy.provider-discovery", qos: .utility)
 
 enum ProviderDiscoveryState: Equatable {
     case ready
@@ -145,32 +147,154 @@ struct ProviderDiscoveryService {
         )
     }
 
-    private static func runProcess(
+    static func runProcess(
         executablePath: String,
         arguments: [String],
         workingDirectory: String,
         timeout: TimeInterval
     ) async throws -> GitProcessResult {
-        try await withThrowingTaskGroup(of: GitProcessResult.self) { group in
-            group.addTask {
-                try await GitProcessRunner.runResolved(
-                    ResolvedLaunch(
-                        executable: executablePath,
+        try await withCheckedThrowingContinuation { continuation in
+            providerDiscoveryProcessQueue.async {
+                do {
+                    try continuation.resume(returning: runProcessSynchronously(
+                        executablePath: executablePath,
                         arguments: arguments,
-                        workingDirectory: workingDirectory
-                    ),
-                    outputByteLimit: 64 * 1024
-                )
+                        workingDirectory: workingDirectory,
+                        timeout: timeout
+                    ))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
-            group.addTask {
-                try await Task.sleep(for: .seconds(timeout))
-                throw ProviderDiscoveryError.timedOut(timeout)
+        }
+    }
+
+    nonisolated private static func runProcessSynchronously(
+        executablePath: String,
+        arguments: [String],
+        workingDirectory: String,
+        timeout: TimeInterval
+    ) throws -> GitProcessResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
+        process.environment = ProcessInfo.processInfo.environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let stdout = ProviderDiscoveryOutputCollector(byteLimit: providerDiscoveryOutputByteLimit)
+        let stderr = ProviderDiscoveryOutputCollector(byteLimit: providerDiscoveryOutputByteLimit)
+        stdout.start(reading: stdoutPipe.fileHandleForReading)
+        stderr.start(reading: stderrPipe.fileHandleForReading)
+
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
+        do {
+            try process.run()
+        } catch {
+            stdout.stop(reading: stdoutPipe.fileHandleForReading)
+            stderr.stop(reading: stderrPipe.fileHandleForReading)
+            throw error
+        }
+
+        let timedOut = exited.wait(timeout: .now() + timeout) == .timedOut
+        if timedOut {
+            terminate(process, exited: exited)
+        }
+        process.waitUntilExit()
+
+        if !timedOut {
+            let drainDeadline = DispatchTime.now() + 0.5
+            stdout.waitForCompletion(until: drainDeadline)
+            stderr.waitForCompletion(until: drainDeadline)
+        }
+        stdout.stop(reading: stdoutPipe.fileHandleForReading)
+        stderr.stop(reading: stderrPipe.fileHandleForReading)
+
+        if timedOut {
+            throw ProviderDiscoveryError.timedOut(timeout)
+        }
+        let stdoutData = stdout.data
+        return GitProcessResult(
+            status: process.terminationStatus,
+            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+            stdoutData: stdoutData,
+            stderr: String(data: stderr.data, encoding: .utf8) ?? "",
+            truncated: stdout.truncated || stderr.truncated
+        )
+    }
+
+    nonisolated private static func terminate(_ process: Process, exited: DispatchSemaphore) {
+        guard process.isRunning else { return }
+        process.terminate()
+        guard exited.wait(timeout: .now() + 0.5) == .timedOut, process.isRunning else { return }
+        kill(process.processIdentifier, SIGKILL)
+    }
+}
+
+private final class ProviderDiscoveryOutputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private let completed = DispatchSemaphore(value: 0)
+    private let byteLimit: Int
+    private var storage = Data()
+    private var didTruncate = false
+    private var didComplete = false
+
+    init(byteLimit: Int) {
+        self.byteLimit = byteLimit
+    }
+
+    var data: Data {
+        lock.withLock { storage }
+    }
+
+    var truncated: Bool {
+        lock.withLock { didTruncate }
+    }
+
+    func start(reading handle: FileHandle) {
+        handle.readabilityHandler = { [weak self] handle in
+            guard let self else { return }
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else {
+                complete()
+                return
             }
-            defer { group.cancelAll() }
-            guard let result = try await group.next() else {
-                throw ProviderDiscoveryError.timedOut(timeout)
+            lock.withLock {
+                let remaining = byteLimit - storage.count
+                if remaining > 0 {
+                    storage.append(chunk.prefix(remaining))
+                }
+                if chunk.count > remaining {
+                    didTruncate = true
+                }
             }
-            return result
+        }
+    }
+
+    func waitForCompletion(until deadline: DispatchTime) {
+        _ = completed.wait(timeout: deadline)
+    }
+
+    func stop(reading handle: FileHandle) {
+        handle.readabilityHandler = nil
+        try? handle.close()
+        complete()
+    }
+
+    private func complete() {
+        let shouldSignal = lock.withLock {
+            guard !didComplete else { return false }
+            didComplete = true
+            return true
+        }
+        if shouldSignal {
+            completed.signal()
         }
     }
 }

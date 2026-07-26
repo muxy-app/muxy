@@ -116,8 +116,8 @@ struct MuxyNotificationHooksTests {
             .appendingPathComponent("Muxy/Resources/scripts/muxy-agent-hook.sh").path))
     }
 
-    @Test("OpenCode invokes the bridge and logs when the binary is missing")
-    func openCodeUsesBridgeOnly() throws {
+    @Test("OpenCode invokes the bridge and reports delivery failures")
+    func openCodeReportsBridgeDeliveryFailures() throws {
         let contents = try String(
             contentsOf: Self.repositoryRoot.appendingPathComponent("Muxy/Resources/scripts/opencode-muxy-plugin.js"),
             encoding: .utf8
@@ -130,6 +130,9 @@ struct MuxyNotificationHooksTests {
         #expect(contents.contains("client.app.log"))
         #expect(contents.contains("Muxy hook delivery failed"))
         #expect(contents.contains("muxy-hook exited with"))
+        #expect(contents.contains("constants.X_OK"))
+        #expect(contents.contains("muxy-hook timed out"))
+        #expect(contents.contains("child.kill(\"SIGKILL\")"))
         #expect(!contents.contains("agent_status|"))
         #expect(!contents.contains("agent_event|"))
         #expect(!contents.contains("createConnection"))

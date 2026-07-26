@@ -6,6 +6,7 @@ const activeSessions = new Set()
 let sendQueue = Promise.resolve()
 
 const REPLY_SUPPRESSION_MS = 1500
+const HOOK_TIMEOUT_MS = 2000
 const MAX_BODY_LENGTH = 200
 const PERMISSION_DETAIL_FIELDS = [
   "command",
@@ -118,8 +119,8 @@ async function invokeHookBinary(phase, title, body) {
   const hookBinary = stagedHookBinaryPath()
   if (!hookBinary) return { delivered: false, reason: "hook path unavailable" }
   try {
-    const { access } = await import("node:fs/promises")
-    await access(hookBinary, 1)
+    const { access, constants } = await import("node:fs/promises")
+    await access(hookBinary, constants.X_OK)
   } catch (error) {
     return {
       delivered: false,
@@ -150,8 +151,13 @@ async function invokeHookBinary(phase, title, body) {
       const finish = (result) => {
         if (settled) return
         settled = true
+        clearTimeout(timer)
         resolve(result)
       }
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL")
+        finish({ delivered: false, reason: "muxy-hook timed out" })
+      }, HOOK_TIMEOUT_MS)
       child.on("error", (error) => {
         finish({ delivered: false, reason: error.message })
       })
