@@ -133,6 +133,7 @@ struct MuxyNotificationHooksTests {
         #expect(contents.contains("constants.X_OK"))
         #expect(contents.contains("muxy-hook timed out"))
         #expect(contents.contains("child.kill(\"SIGKILL\")"))
+        #expect(contents.contains("child.stdin.on(\"error\", (error)"))
         #expect(!contents.contains("agent_status|"))
         #expect(!contents.contains("agent_event|"))
         #expect(!contents.contains("createConnection"))

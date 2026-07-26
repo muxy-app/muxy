@@ -144,8 +144,6 @@ async function invokeHookBinary(phase, title, body) {
       ],
       { env: process.env, stdio: ["pipe", "ignore", "ignore"] },
     )
-    child.stdin.on("error", () => {})
-    child.stdin.end(JSON.stringify(input))
     return await new Promise((resolve) => {
       let settled = false
       const finish = (result) => {
@@ -161,6 +159,10 @@ async function invokeHookBinary(phase, title, body) {
       child.on("error", (error) => {
         finish({ delivered: false, reason: error.message })
       })
+      child.stdin.on("error", (error) => {
+        child.kill("SIGKILL")
+        finish({ delivered: false, reason: error.message })
+      })
       child.on("close", (code) => {
         finish(
           code === 0
@@ -168,6 +170,7 @@ async function invokeHookBinary(phase, title, body) {
             : { delivered: false, reason: `muxy-hook exited with ${code}` },
         )
       })
+      child.stdin.end(JSON.stringify(input))
     })
   } catch (error) {
     return {

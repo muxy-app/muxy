@@ -95,20 +95,70 @@ struct ProviderDiscoveryServiceTests {
     }
 
     @Test("process runner terminates timed out probes")
-    func processRunnerTerminatesTimeout() async {
-        let clock = ContinuousClock()
-        let startedAt = clock.now
+    func processRunnerTerminatesTimeout() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProviderDiscoveryTimeoutTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let completionMarker = directory.appendingPathComponent("completed").path
 
         await #expect(throws: ProviderDiscoveryError.self) {
             try await ProviderDiscoveryService.runProcess(
                 executablePath: "/bin/sh",
-                arguments: ["-c", "exec sleep 5"],
-                workingDirectory: "/tmp",
+                arguments: ["-c", "/bin/sleep 1; /usr/bin/touch '\(completionMarker)'"],
+                workingDirectory: directory.path,
                 timeout: 0.05
             )
         }
 
-        #expect(startedAt.duration(to: clock.now) < .seconds(4))
+        #expect(!FileManager.default.fileExists(atPath: completionMarker))
+    }
+
+    @Test("process runner drains and truncates oversized output")
+    func processRunnerTruncatesOutput() async throws {
+        let result = try await ProviderDiscoveryService.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "/usr/bin/yes x | /usr/bin/head -c 200000"],
+            workingDirectory: "/tmp",
+            timeout: 2
+        )
+
+        #expect(result.status == 0)
+        #expect(result.truncated)
+        #expect(result.stdoutData.count == 64 * 1024)
+    }
+
+    @Test("process runner executes independent probes concurrently")
+    func processRunnerExecutesConcurrently() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProviderDiscoveryConcurrencyTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let firstMarker = directory.appendingPathComponent("first").path
+        let secondMarker = directory.appendingPathComponent("second").path
+
+        async let first = ProviderDiscoveryService.runProcess(
+            executablePath: "/bin/sh",
+            arguments: [
+                "-c",
+                "/usr/bin/touch '\(firstMarker)'; while [ ! -e '\(secondMarker)' ]; do /bin/sleep 0.01; done",
+            ],
+            workingDirectory: directory.path,
+            timeout: 1
+        )
+        async let second = ProviderDiscoveryService.runProcess(
+            executablePath: "/bin/sh",
+            arguments: [
+                "-c",
+                "/usr/bin/touch '\(secondMarker)'; while [ ! -e '\(firstMarker)' ]; do /bin/sleep 0.01; done",
+            ],
+            workingDirectory: directory.path,
+            timeout: 1
+        )
+
+        let results = try await (first, second)
+        #expect(results.0.status == 0)
+        #expect(results.1.status == 0)
     }
 }
 

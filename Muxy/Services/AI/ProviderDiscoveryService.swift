@@ -3,7 +3,11 @@ import os
 
 private let providerDiscoveryLogger = Logger(subsystem: "app.muxy", category: "ProviderDiscovery")
 private let providerDiscoveryOutputByteLimit = 64 * 1024
-private let providerDiscoveryProcessQueue = DispatchQueue(label: "app.muxy.provider-discovery", qos: .utility)
+private let providerDiscoveryProcessQueue = DispatchQueue(
+    label: "app.muxy.provider-discovery",
+    qos: .utility,
+    attributes: .concurrent
+)
 
 enum ProviderDiscoveryState: Equatable {
     case ready
