@@ -2,6 +2,13 @@ import AppKit
 import MuxyShared
 import SwiftUI
 
+enum ExpandedProjectActivityScope {
+    static func worktreeID(worktreesExpanded: Bool, activeWorktreeID: UUID?) -> UUID? {
+        guard worktreesExpanded else { return nil }
+        return activeWorktreeID
+    }
+}
+
 struct ExpandedProjectRow: View {
     let project: Project
     let shortcutIndex: Int?
@@ -55,13 +62,37 @@ struct ExpandedProjectRow: View {
     private var projectActivity: TerminalActivity? {
         let progressStore = TerminalProgressStore.shared
         let agentStore = AgentStatusStore.shared
-        let hasProgress = progressStore.hasActiveProgress(for: project.id)
+        let scopedWorktreeID = ExpandedProjectActivityScope.worktreeID(
+            worktreesExpanded: worktreesExpanded,
+            activeWorktreeID: activeWorktreeID
+        )
+        let hasProgress = if let scopedWorktreeID {
+            progressStore.hasActiveProgress(forWorktree: scopedWorktreeID)
+        } else {
+            progressStore.hasActiveProgress(for: project.id)
+        }
+        let agentStatus = if let scopedWorktreeID {
+            agentStore.status(forWorktree: scopedWorktreeID)
+        } else {
+            agentStore.status(forProject: project.id)
+        }
+        let unreadCount = if let scopedWorktreeID {
+            NotificationStore.shared.unreadCount(for: project.id, worktreeID: scopedWorktreeID)
+        } else {
+            NotificationStore.shared.unreadCount(for: project.id)
+        }
+        let completionPending = if let scopedWorktreeID {
+            progressStore.hasCompletionPending(forWorktree: scopedWorktreeID)
+                || agentStore.hasCompletionPending(forWorktree: scopedWorktreeID)
+        } else {
+            progressStore.hasCompletionPending(for: project.id)
+                || agentStore.hasCompletionPending(forProject: project.id)
+        }
         return TerminalActivity.resolve(
             progress: hasProgress ? TerminalProgress(kind: .indeterminate, percent: nil) : nil,
-            agentStatus: agentStore.status(forProject: project.id),
-            unreadCount: NotificationStore.shared.unreadCount(for: project.id),
-            completionPending: progressStore.hasCompletionPending(for: project.id)
-                || agentStore.hasCompletionPending(forProject: project.id)
+            agentStatus: agentStatus,
+            unreadCount: unreadCount,
+            completionPending: completionPending
         )
     }
 

@@ -2,6 +2,12 @@ import AppKit
 import MuxyShared
 import SwiftUI
 
+enum TabFocusedActivityScope {
+    static func worktreeID(rowWorktreeID: UUID?, primaryWorktreeID: UUID?) -> UUID? {
+        rowWorktreeID ?? primaryWorktreeID
+    }
+}
+
 struct TabFocusedProjectRow: View {
     let project: Project
     var worktree: Worktree?
@@ -53,25 +59,18 @@ struct TabFocusedProjectRow: View {
     }
 
     private var rowActivity: TerminalActivity? {
-        let agentStore = AgentStatusStore.shared
-        let hasProgress: Bool
-        let agentStatus: AgentStatus?
-        let unreadCount: Int
-        let completionPending: Bool
+        guard let worktreeID = TabFocusedActivityScope.worktreeID(
+            rowWorktreeID: worktree?.id,
+            primaryWorktreeID: worktreeStore.primary(for: project.id)?.id
+        )
+        else { return nil }
 
-        if let worktree {
-            hasProgress = progressStore.hasActiveProgress(forWorktree: worktree.id)
-            agentStatus = agentStore.status(forWorktree: worktree.id)
-            unreadCount = notificationStore.unreadCount(for: project.id, worktreeID: worktree.id)
-            completionPending = progressStore.hasCompletionPending(forWorktree: worktree.id)
-                || agentStore.hasCompletionPending(forWorktree: worktree.id)
-        } else {
-            hasProgress = progressStore.hasActiveProgress(for: project.id)
-            agentStatus = agentStore.status(forProject: project.id)
-            unreadCount = notificationStore.unreadCount(for: project.id)
-            completionPending = progressStore.hasCompletionPending(for: project.id)
-                || agentStore.hasCompletionPending(forProject: project.id)
-        }
+        let agentStore = AgentStatusStore.shared
+        let hasProgress = progressStore.hasActiveProgress(forWorktree: worktreeID)
+        let agentStatus = agentStore.status(forWorktree: worktreeID)
+        let unreadCount = notificationStore.unreadCount(for: project.id, worktreeID: worktreeID)
+        let completionPending = progressStore.hasCompletionPending(forWorktree: worktreeID)
+            || agentStore.hasCompletionPending(forWorktree: worktreeID)
 
         return TerminalActivity.resolve(
             progress: hasProgress ? TerminalProgress(kind: .indeterminate, percent: nil) : nil,

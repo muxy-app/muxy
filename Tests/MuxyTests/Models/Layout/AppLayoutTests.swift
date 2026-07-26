@@ -90,6 +90,36 @@ struct AppLayoutTests {
 
         #expect(projects == [first, second])
     }
+
+    @Test("tab focused project activity is scoped to the primary worktree")
+    func tabFocusedProjectActivityUsesPrimaryWorktree() {
+        let primaryID = UUID()
+        let secondaryID = UUID()
+
+        #expect(TabFocusedActivityScope.worktreeID(rowWorktreeID: nil, primaryWorktreeID: primaryID) == primaryID)
+        #expect(
+            TabFocusedActivityScope.worktreeID(rowWorktreeID: secondaryID, primaryWorktreeID: primaryID)
+                == secondaryID
+        )
+    }
+
+    @Test("expanded project activity is scoped to the active worktree")
+    func expandedProjectActivityUsesActiveWorktree() {
+        let activeWorktreeID = UUID()
+
+        #expect(
+            ExpandedProjectActivityScope.worktreeID(
+                worktreesExpanded: false,
+                activeWorktreeID: activeWorktreeID
+            ) == nil
+        )
+        #expect(
+            ExpandedProjectActivityScope.worktreeID(
+                worktreesExpanded: true,
+                activeWorktreeID: activeWorktreeID
+            ) == activeWorktreeID
+        )
+    }
 }
 
 @Suite("AppLayoutStore")
