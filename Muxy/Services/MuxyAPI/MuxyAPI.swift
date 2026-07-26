@@ -999,6 +999,7 @@ enum MuxyAPI {
             worktreeStore: WorktreeStore,
             projectGroupStore: ProjectGroupStore
         ) -> Result<CreatedProjectInfo, APIError> {
+            let before = Set(projectStore.projects.map(\.id))
             let result = ProjectPathConfirmationService(
                 appState: appState,
                 projectStore: projectStore,
@@ -1029,7 +1030,7 @@ enum MuxyAPI {
                 return .failure(.underlying("project not found after creation"))
             }
 
-            if project.id != Project.homeID {
+            if project.id != Project.homeID, !before.contains(project.id) {
                 projectStore.setWorktreesEnabled(id: project.id, to: true)
             }
 
@@ -1037,10 +1038,15 @@ enum MuxyAPI {
                 projectStore.rename(id: project.id, to: name)
             }
 
-            if let workspaceID = request.workspaceIdentifier,
-               let workspace = resolveGroup(workspaceID, in: projectGroupStore.groups)
+            if let workspaceID = request.workspaceIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workspaceID.isEmpty
             {
-                projectGroupStore.addProject(projectID: project.id, toGroup: workspace.id)
+                guard let workspace = resolveGroup(workspaceID, in: projectGroupStore.groups) else {
+                    return .failure(.invalidArguments("workspace not found '\(workspaceID)'"))
+                }
+                guard projectGroupStore.addProject(projectID: project.id, toGroup: workspace.id) else {
+                    return .failure(.invalidArguments("project cannot be added to workspace '\(workspace.name)'"))
+                }
             }
 
             return .success(CreatedProjectInfo(
@@ -1065,10 +1071,15 @@ enum MuxyAPI {
             else {
                 return .failure(.projectNotFound(projectIdentifier))
             }
+            guard project.id != Project.homeID, !project.isRemote else {
+                return .failure(.invalidArguments("the home and remote projects cannot be attached to a workspace"))
+            }
             guard let workspace = resolveGroup(workspaceIdentifier, in: projectGroupStore.groups) else {
                 return .failure(.invalidArguments("workspace not found '\(workspaceIdentifier)'"))
             }
-            projectGroupStore.addProject(projectID: project.id, toGroup: workspace.id)
+            guard projectGroupStore.addProject(projectID: project.id, toGroup: workspace.id) else {
+                return .failure(.invalidArguments("project cannot be added to workspace '\(workspace.name)'"))
+            }
             return .success(())
         }
 
@@ -1085,6 +1096,9 @@ enum MuxyAPI {
             )
             else {
                 return .failure(.projectNotFound(projectIdentifier))
+            }
+            guard project.id != Project.homeID, !project.isRemote else {
+                return .failure(.invalidArguments("the home and remote projects cannot be detached from a workspace"))
             }
             projectGroupStore.removeProjectFromAllGroups(projectID: project.id)
             return .success(())
@@ -1272,7 +1286,9 @@ enum MuxyAPI {
         static func create(name: String, projectGroupStore: ProjectGroupStore) -> UUID {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
             projectGroupStore.addGroup(name: trimmed.isEmpty ? "New Workspace" : trimmed)
-            return projectGroupStore.groups.last?.id ?? UUID()
+            let id = projectGroupStore.groups.last?.id ?? UUID()
+            projectGroupStore.selectGroup(id: id)
+            return id
         }
 
         static func switchTo(
@@ -1308,6 +1324,9 @@ enum MuxyAPI {
         ) -> Result<Void, APIError> {
             guard let group = resolveGroup(identifier, in: projectGroupStore.groups) else {
                 return .failure(.invalidArguments("workspace not found '\(identifier)'"))
+            }
+            guard group.projectIDs.isEmpty, group.remoteProjects.isEmpty else {
+                return .failure(.invalidArguments("workspace '\(group.name)' still contains projects"))
             }
             projectGroupStore.removeGroup(id: group.id)
             return .success(())

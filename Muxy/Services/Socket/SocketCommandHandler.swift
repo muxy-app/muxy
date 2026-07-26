@@ -179,11 +179,14 @@ enum SocketCommandHandler {
                 ok: "ok"
             )
         case "rename-workspace":
-            guard parts.count >= 3 else { return "error:usage rename-workspace|<name-or-id>|<new-name>" }
+            guard parts.count >= 3 else { return "error:usage rename-workspace|<base64-name-or-id>|<new-name>" }
             guard let projectGroupStore else { return "error:project group store unavailable" }
+            guard let identifier = decodeBase64Field(parts[1]) else {
+                return "error:invalid rename-workspace identifier"
+            }
             return serialize(
                 MuxyAPI.Workspaces.rename(
-                    identifier: parts[1],
+                    identifier: identifier,
                     to: parts.dropFirst(2).joined(separator: "|"),
                     projectGroupStore: projectGroupStore
                 ),
@@ -200,14 +203,18 @@ enum SocketCommandHandler {
                 ok: "ok"
             )
         case "create-project":
-            guard parts.count >= 2 else { return "error:usage create-project|<path>[|createIfMissing][|name][|workspace]" }
+            guard parts.count >= 2 else {
+                return "error:usage create-project|<base64-path>[|createIfMissing][|base64-name][|workspace]"
+            }
             guard let projectStore, let worktreeStore, let projectGroupStore else {
                 return "error:project store unavailable"
             }
-            let path = parts[1]
+            guard let path = decodeBase64Field(parts[1]) else {
+                return "error:invalid create-project path"
+            }
             let createIfMissing = parts.count >= 3 ? (parts[2] == "true") : false
-            let name = parts.count >= 4 ? parts[3] : nil
-            let workspaceIdentifier = parts.count >= 5 ? parts[4] : nil
+            let name = parts.count >= 4 ? decodeBase64Field(parts[3]) : nil
+            let workspaceIdentifier = parts.count >= 5 ? parts.dropFirst(4).joined(separator: "|") : nil
             return serialize(MuxyAPI.Projects.create(
                 CreateProjectRequest(
                     path: path,
@@ -223,12 +230,15 @@ enum SocketCommandHandler {
                 "ok\t\(info.id.uuidString)\t\(info.name)\t\(info.path)"
             }
         case "attach-project":
-            guard parts.count >= 3 else { return "error:usage attach-project|<project>|<workspace>" }
+            guard parts.count >= 3 else { return "error:usage attach-project|<base64-project>|<workspace>" }
             guard let projectStore, let projectGroupStore else { return "error:project store unavailable" }
+            guard let projectIdentifier = decodeBase64Field(parts[1]) else {
+                return "error:invalid attach-project project identifier"
+            }
             return serialize(
                 MuxyAPI.Projects.attach(
-                    projectIdentifier: parts[1],
-                    workspaceIdentifier: parts[2],
+                    projectIdentifier: projectIdentifier,
+                    workspaceIdentifier: parts.dropFirst(2).joined(separator: "|"),
                     projectStore: projectStore,
                     projectGroupStore: projectGroupStore,
                     appState: appState
@@ -752,6 +762,11 @@ enum SocketCommandHandler {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
         return json
+    }
+
+    private static func decodeBase64Field(_ base64Payload: String) -> String? {
+        guard let data = Data(base64Encoded: base64Payload) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func encodeJSONFragment(_ value: Any) -> String {

@@ -261,7 +261,7 @@ public enum ExtensionBridgeJS {
         \(ghBlock)
         \(agentsBlock)
             \(surface == .inProcess ?
-            "Object.freeze(muxy.tabs); Object.freeze(muxy.browser); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees); Object.freeze(muxy.files);" :
+            "Object.freeze(muxy.tabs); Object.freeze(muxy.browser); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.workspaces); Object.freeze(muxy.worktrees); Object.freeze(muxy.files);" :
             "")
             \(surface == .background ? "Object.freeze(muxy.tabs);" : "")
             Object.freeze(muxy.git); Object.freeze(muxy.git.pr); Object.freeze(muxy.git.branch); Object.freeze(muxy.git.worktree);
@@ -375,11 +375,30 @@ public enum ExtensionBridgeJS {
                 switchTo: (identifier) => dispatch('projects.switch', { identifier: String(identifier) }),
                 delete:   (identifier) => dispatch('projects.delete', { identifier: String(identifier) }),
                 add:      (path)               => dispatch('projects.add', { path: String(path) }),
+                create:   (path, opts)         => {
+                    const o = opts || {};
+                    const payload = { path: String(path), createIfMissing: Boolean(o.createIfMissing) };
+                    if (o.name != null) payload.name = String(o.name);
+                    if (o.workspace != null) payload.workspace = String(o.workspace);
+                    return dispatch('projects.create', payload);
+                },
+                attach:   (identifier, workspace) => dispatch('projects.attach', {
+                    identifier: String(identifier),
+                    workspace: String(workspace),
+                }),
+                detach:   (identifier) => dispatch('projects.detach', { identifier: String(identifier) }),
                 rename:   (identifier, name)   => dispatch('projects.rename', { identifier: String(identifier), name: String(name) }),
                 setColor: (identifier, color)  => dispatch('projects.setColor', { identifier: String(identifier), color: color == null ? null : String(color) }),
                 setIcon:  (identifier, icon)   => dispatch('projects.setIcon', { identifier: String(identifier), icon: icon == null ? null : String(icon) }),
                 setLogo:  (identifier, logo)   => dispatch('projects.setLogo', { identifier: String(identifier), logo: logo == null ? null : String(logo) }),
                 reorder:  (identifiers)        => dispatch('projects.reorder', { identifiers: (identifiers || []).map(String) }),
+            };
+            muxy.workspaces = {
+                list:     ()                   => dispatch('workspaces.list', {}),
+                create:   (name)               => dispatch('workspaces.create', { name: String(name) }),
+                switchTo: (identifier)         => dispatch('workspaces.switch', { identifier: String(identifier) }),
+                rename:   (identifier, name)   => dispatch('workspaces.rename', { identifier: String(identifier), name: String(name) }),
+                delete:   (identifier)         => dispatch('workspaces.delete', { identifier: String(identifier) }),
             };
             muxy.worktrees = {
                 list:     (project)             => dispatch('worktrees.list', { project: project == null ? null : String(project) }),

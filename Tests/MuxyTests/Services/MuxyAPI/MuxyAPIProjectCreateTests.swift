@@ -114,8 +114,26 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
         #expect(groupStore.groups.first?.projectIDs == [info.id])
     }
 
-    @Test("create succeeds even when workspaceIdentifier does not match any workspace")
-    func createSucceedsWhenWorkspaceMissing() throws {
+    @Test("create succeeds when workspaceIdentifier is empty")
+    func createSucceedsWhenWorkspaceIdentifierEmpty() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let env = ProjectManagementEnvironment()
+
+        let result = MuxyAPI.Projects.create(
+            CreateProjectRequest(path: dir.path, createIfMissing: false, name: nil, workspaceIdentifier: ""),
+            appState: env.appState,
+            projectStore: env.projectStore,
+            worktreeStore: env.worktreeStore,
+            projectGroupStore: env.projectGroupStore
+        )
+
+        #expect(result.isSuccess)
+    }
+
+    @Test("create fails when workspaceIdentifier does not match any workspace")
+    func createFailsWhenWorkspaceMissing() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -134,8 +152,59 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
             projectGroupStore: env.projectGroupStore
         )
 
-        #expect(result.isSuccess)
-        #expect(env.projectGroupStore.groups.isEmpty)
+        guard case .failure(.invalidArguments) = result else {
+            Issue.record("expected invalidArguments for a workspace that does not exist")
+            return
+        }
+    }
+
+    @Test("create fails when the workspace is a remote SSH workspace")
+    func createFailsWhenWorkspaceIsRemote() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com"))
+        let env = ProjectManagementEnvironment()
+        let groupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence(initial: [device])),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let sshGroup = groupStore.addRemoteWorkspace(name: "Remote", deviceID: device.id)
+
+        let result = MuxyAPI.Projects.create(
+            CreateProjectRequest(path: dir.path, createIfMissing: false, name: nil, workspaceIdentifier: sshGroup.name),
+            appState: env.appState,
+            projectStore: env.projectStore,
+            worktreeStore: env.worktreeStore,
+            projectGroupStore: groupStore
+        )
+
+        guard case .failure(.invalidArguments) = result else {
+            Issue.record("expected invalidArguments when attaching to a remote SSH workspace")
+            return
+        }
+    }
+
+    @Test("create does not override worktreesEnabled on an existing project")
+    func createPreservesExistingWorktreesSetting() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let existing = Project(name: "Existing", path: dir.standardizedFileURL.path)
+        let env = ProjectManagementEnvironment(projects: [existing])
+
+        let result = MuxyAPI.Projects.create(
+            CreateProjectRequest(path: dir.path, createIfMissing: false, name: nil, workspaceIdentifier: nil),
+            appState: env.appState,
+            projectStore: env.projectStore,
+            worktreeStore: env.worktreeStore,
+            projectGroupStore: env.projectGroupStore
+        )
+
+        let info = try #require(try? result.get())
+        #expect(info.id == existing.id)
+        #expect(env.projectStore.storedProjects.first { $0.id == existing.id }?.worktreesEnabled == false)
     }
 
     @Test("attach adds project to workspace")
@@ -204,6 +273,57 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
         }
     }
 
+    @Test("attach fails when the workspace is a remote SSH workspace")
+    func attachFailsWhenWorkspaceIsRemote() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com"))
+        let env = ProjectManagementEnvironment(projects: [project])
+        let groupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence(initial: [device])),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let sshGroup = groupStore.addRemoteWorkspace(name: "Remote", deviceID: device.id)
+
+        let result = MuxyAPI.Projects.attach(
+            projectIdentifier: project.name,
+            workspaceIdentifier: sshGroup.name,
+            projectStore: env.projectStore,
+            projectGroupStore: groupStore,
+            appState: env.appState
+        )
+
+        guard case .failure(.invalidArguments) = result else {
+            Issue.record("expected invalidArguments when attaching to a remote SSH workspace")
+            return
+        }
+    }
+
+    @Test("attach fails for the home project")
+    func attachFailsForHomeProject() {
+        let home = Project(id: Project.homeID, name: Project.homeName, path: "/tmp/home")
+        let group = ProjectGroup(name: "Work")
+        let env = ProjectManagementEnvironment(projects: [home])
+        let groupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(initial: [group]),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+
+        let result = MuxyAPI.Projects.attach(
+            projectIdentifier: home.id.uuidString,
+            workspaceIdentifier: "Work",
+            projectStore: env.projectStore,
+            projectGroupStore: groupStore,
+            appState: env.appState
+        )
+
+        guard case .failure(.invalidArguments) = result else {
+            Issue.record("expected invalidArguments when attaching the home project")
+            return
+        }
+    }
+
     @Test("detach removes project from all workspaces")
     func detach() {
         let project = Project(name: "Repo", path: "/tmp/repo")
@@ -239,6 +359,24 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
 
         guard case .failure(.projectNotFound) = result else {
             Issue.record("expected projectNotFound for missing project")
+            return
+        }
+    }
+
+    @Test("detach fails for the home project")
+    func detachFailsForHomeProject() {
+        let home = Project(id: Project.homeID, name: Project.homeName, path: "/tmp/home")
+        let env = ProjectManagementEnvironment(projects: [home])
+
+        let result = MuxyAPI.Projects.detach(
+            projectIdentifier: home.id.uuidString,
+            projectStore: env.projectStore,
+            projectGroupStore: env.projectGroupStore,
+            appState: env.appState
+        )
+
+        guard case .failure(.invalidArguments) = result else {
+            Issue.record("expected invalidArguments when detaching the home project")
             return
         }
     }

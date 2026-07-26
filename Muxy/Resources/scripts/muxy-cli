@@ -120,7 +120,7 @@ usage() {
     echo "  muxy rename-workspace <name|id> <name>   Rename a workspace"
     echo "  muxy delete-workspace <name|id>          Delete a workspace"
     echo "  muxy create-project <path> [--create]    Create or attach a project"
-    echo "  muxy attach-project <project> <workspace> Move a project into a workspace"
+    echo "  muxy attach-project <project> --workspace <workspace>  Move a project into a workspace"
     echo "  muxy detach-project <project>            Remove a project from all workspaces"
     echo "  muxy list-tabs                           List tabs"
     echo "  muxy switch-tab <index|id|title>         Switch active tab"
@@ -223,6 +223,10 @@ json_escape() {
 
 json_field() {
     printf '"%s":"%s"' "$1" "$(json_escape "$2")"
+}
+
+b64_field() {
+    printf '%s' "$1" | base64 | tr -d '\n'
 }
 
 send_api() {
@@ -561,9 +565,9 @@ case "$COMMAND" in
         if [ $# -lt 2 ]; then
             die_usage rename-workspace
         fi
-        local IDENTIFIER="$1"
+        IDENTIFIER="$1"
         shift
-        send_command "rename-workspace|$IDENTIFIER|$*"
+        send_command "rename-workspace|$(b64_field "$IDENTIFIER")|$*"
         ;;
     delete-workspace)
         shift
@@ -590,7 +594,7 @@ case "$COMMAND" in
         if [ -z "$PATH_ARG" ]; then
             die_usage create-project
         fi
-        send_command "create-project|$PATH_ARG|$CREATE_FLAG|$NAME|$WORKSPACE"
+        send_command "create-project|$(b64_field "$PATH_ARG")|$CREATE_FLAG|$(b64_field "$NAME")|$WORKSPACE"
         ;;
     attach-project)
         shift
@@ -610,7 +614,7 @@ case "$COMMAND" in
         if [ -z "$PROJECT" ] || [ -z "$WORKSPACE" ]; then
             die_usage attach-project
         fi
-        send_command "attach-project|$PROJECT|$WORKSPACE"
+        send_command "attach-project|$(b64_field "$PROJECT")|$WORKSPACE"
         ;;
     detach-project)
         shift

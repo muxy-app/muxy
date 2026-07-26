@@ -715,13 +715,29 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "rename-workspace|Work|Personal",
+            "rename-workspace|\(b64("Work"))|Personal",
             appState: appState,
             projectGroupStore: groupStore
         )
 
         #expect(result == "ok")
         #expect(groupStore.groups.first?.name == "Personal")
+    }
+
+    @Test("rename-workspace handles an identifier containing a pipe")
+    func renameWorkspaceWithPipeInIdentifier() async {
+        let group = ProjectGroup(name: "Work|Personal")
+        let appState = makeAppState()
+        let groupStore = makeGroupStore(initial: [group])
+
+        let result = await SocketCommandHandler.handleRequest(
+            "rename-workspace|\(b64("Work|Personal"))|Renamed",
+            appState: appState,
+            projectGroupStore: groupStore
+        )
+
+        #expect(result == "ok")
+        #expect(groupStore.groups.first?.name == "Renamed")
     }
 
     @Test("delete-workspace removes a workspace")
@@ -740,6 +756,22 @@ struct SocketCommandHandlerTests {
         #expect(groupStore.groups.isEmpty)
     }
 
+    @Test("delete-workspace fails when the workspace still contains projects")
+    func deleteWorkspaceRejectsNonEmpty() async {
+        let group = ProjectGroup(name: "Work", projectIDs: [UUID()])
+        let appState = makeAppState()
+        let groupStore = makeGroupStore(initial: [group])
+
+        let result = await SocketCommandHandler.handleRequest(
+            "delete-workspace|Work",
+            appState: appState,
+            projectGroupStore: groupStore
+        )
+
+        #expect(result.hasPrefix("error:"))
+        #expect(groupStore.groups.count == 1)
+    }
+
     @Test("create-project creates a project for an existing directory")
     func createProject() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-cli-create-\(UUID().uuidString)")
@@ -750,7 +782,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore()
 
         let result = await SocketCommandHandler.handleRequest(
-            "create-project|\(dir.path)",
+            "create-project|\(b64(dir.path))",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -765,6 +797,31 @@ struct SocketCommandHandlerTests {
         #expect(fields[3] == dir.path)
     }
 
+    @Test("create-project handles a path containing a pipe")
+    func createProjectWithPipeInPath() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-cli-create-|-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let group = ProjectGroup(name: "Work")
+        let appState = makeAppState()
+        let stores = makeStores()
+        let groupStore = makeGroupStore(initial: [group])
+
+        let result = await SocketCommandHandler.handleRequest(
+            "create-project|\(b64(dir.path))|false|\(b64("Custom|Name"))|Work",
+            appState: appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore,
+            projectGroupStore: groupStore
+        )
+
+        let fields = result.components(separatedBy: "\t")
+        #expect(fields.first == "ok")
+        #expect(fields[2] == "Custom|Name")
+        #expect(fields[3] == dir.path)
+        #expect(groupStore.groups.first?.projectIDs.isEmpty == false)
+    }
+
     @Test("create-project creates a directory when requested")
     func createProjectCreatesDirectory() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-cli-create-\(UUID().uuidString)")
@@ -774,7 +831,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore()
 
         let result = await SocketCommandHandler.handleRequest(
-            "create-project|\(dir.path)|true",
+            "create-project|\(b64(dir.path))|true",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -796,7 +853,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "create-project|\(dir.path)|false||Work",
+            "create-project|\(b64(dir.path))|false||Work",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -805,6 +862,46 @@ struct SocketCommandHandlerTests {
 
         #expect(result.hasPrefix("ok"))
         #expect(groupStore.groups.first?.projectIDs.isEmpty == false)
+    }
+
+    @Test("create-project succeeds when the workspace field is present but empty")
+    func createProjectWithEmptyWorkspaceField() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-cli-create-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appState = makeAppState()
+        let stores = makeStores()
+        let groupStore = makeGroupStore()
+
+        let result = await SocketCommandHandler.handleRequest(
+            "create-project|\(b64(dir.path))|false||",
+            appState: appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore,
+            projectGroupStore: groupStore
+        )
+
+        #expect(result.hasPrefix("ok"))
+    }
+
+    @Test("create-project fails when workspace is not found")
+    func createProjectFailsWhenWorkspaceMissing() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-cli-create-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appState = makeAppState()
+        let stores = makeStores()
+        let groupStore = makeGroupStore()
+
+        let result = await SocketCommandHandler.handleRequest(
+            "create-project|\(b64(dir.path))|false||missing",
+            appState: appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore,
+            projectGroupStore: groupStore
+        )
+
+        #expect(result.hasPrefix("error:"))
     }
 
     @Test("attach-project adds project to workspace")
@@ -816,7 +913,27 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "attach-project|Repo|Work",
+            "attach-project|\(b64("Repo"))|Work",
+            appState: appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore,
+            projectGroupStore: groupStore
+        )
+
+        #expect(result == "ok")
+        #expect(groupStore.groups.first?.projectIDs == [project.id])
+    }
+
+    @Test("attach-project handles a project identifier containing a pipe")
+    func attachProjectWithPipeInIdentifier() async {
+        let project = Project(name: "Re|po", path: "/tmp/re|po")
+        let group = ProjectGroup(name: "Work")
+        let appState = makeAppState()
+        let stores = makeStores(projects: [project], worktrees: [:])
+        let groupStore = makeGroupStore(initial: [group])
+
+        let result = await SocketCommandHandler.handleRequest(
+            "attach-project|\(b64("Re|po"))|Work",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -854,7 +971,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore()
 
         let result = await SocketCommandHandler.handleRequest(
-            "create-project|/tmp/muxy-cli-missing-\(UUID().uuidString)",
+            "create-project|\(b64("/tmp/muxy-cli-missing-\(UUID().uuidString)"))",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -864,13 +981,17 @@ struct SocketCommandHandlerTests {
         #expect(result.hasPrefix("error:"))
     }
 
-    @Test("workspace commands require project store to be available")
-    func workspaceCommandsRequireStore() async {
+    @Test("workspace commands require project group store to be available")
+    func workspaceCommandsRequireGroupStore() async {
         let appState = makeAppState()
 
         let result = await SocketCommandHandler.handleRequest("list-workspaces", appState: appState)
 
         #expect(result == "error:project group store unavailable")
+    }
+
+    private func b64(_ value: String) -> String {
+        Data(value.utf8).base64EncodedString()
     }
 
     private func makeGroupStore(

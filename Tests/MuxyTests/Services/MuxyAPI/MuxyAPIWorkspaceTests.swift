@@ -72,6 +72,15 @@ struct MuxyAPIWorkspaceRoutingTests {
         #expect(store.groups.first?.name == "New Workspace")
     }
 
+    @Test("create activates the new workspace")
+    func createActivatesWorkspace() {
+        let store = makeStore()
+
+        let id = MuxyAPI.Workspaces.create(name: "Work", projectGroupStore: store)
+
+        #expect(store.activeGroupID == id)
+    }
+
     @Test("switchTo activates a workspace by name")
     func switchToByName() {
         let group = ProjectGroup(name: "Work")
@@ -206,6 +215,23 @@ struct MuxyAPIWorkspaceRoutingTests {
             Issue.record("expected invalidArguments for unknown workspace")
             return
         }
+    }
+
+    @Test("delete fails when the workspace still contains projects")
+    func deleteRejectsNonEmptyWorkspace() {
+        let group = ProjectGroup(name: "Work", projectIDs: [UUID()])
+        let store = makeStore(initial: [group])
+
+        let result = MuxyAPI.Workspaces.delete(
+            identifier: "Work",
+            projectGroupStore: store
+        )
+
+        guard case .failure(.invalidArguments) = result else {
+            Issue.record("expected invalidArguments for a non-empty workspace")
+            return
+        }
+        #expect(store.groups.count == 1)
     }
 
     private func isSuccess(_ result: Result<some Any, APIError>) -> Bool {
