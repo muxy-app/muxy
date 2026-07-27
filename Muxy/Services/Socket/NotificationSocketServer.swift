@@ -56,7 +56,7 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     var openProjectHandler: (@Sendable (String) -> Void)?
     var installExtensionHandler: (@Sendable (String) -> Void)?
-    var commandHandler: (@MainActor @Sendable (String, ClientContext) async -> String)?
+    var commandHandler: (@Sendable (String, ClientContext) async -> String)?
 
     struct ClientContext {
         let extensionID: String?
@@ -931,7 +931,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         guard let root = appState.workspaceRoots[key] else { return nil }
         for area in root.allAreas() {
             for tab in area.tabs {
-                guard tab.content.pane != nil else { continue }
+                guard let paneID = tab.content.pane?.id else { continue }
                 let path = NotificationStore.shared.worktreeStore?.worktree(
                     projectID: key.projectID,
                     worktreeID: key.worktreeID
@@ -941,7 +941,8 @@ final class NotificationSocketServer: @unchecked Sendable {
                     worktreeID: key.worktreeID,
                     worktreePath: path,
                     areaID: area.id,
-                    tabID: tab.id
+                    tabID: tab.id,
+                    paneID: paneID
                 )
             }
         }
