@@ -1578,7 +1578,6 @@ struct MainWindow: View {
         )
     }
 
-    @ViewBuilder
     func pinnedPanelSlot(at position: PanelPosition) -> some View {
         PanelHostSlot(panelHost: panelHost, position: position, mode: .pinned) { placement in
             panelContent(
@@ -1589,7 +1588,6 @@ struct MainWindow: View {
         }
     }
 
-    @ViewBuilder
     func floatingPanelOverlay(at position: PanelPosition) -> some View {
         PanelHostSlot(panelHost: panelHost, position: position, mode: .floating) { placement in
             panelContent(
