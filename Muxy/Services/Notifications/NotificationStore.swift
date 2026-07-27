@@ -113,7 +113,7 @@ final class NotificationStore {
         appState: AppState
     ) {
         let notification = MuxyNotification(
-            paneID: UUID(),
+            paneID: context.paneID,
             projectID: context.projectID,
             worktreeID: context.worktreeID,
             areaID: context.areaID,

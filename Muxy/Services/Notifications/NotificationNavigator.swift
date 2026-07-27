@@ -6,6 +6,7 @@ struct NavigationContext {
     let worktreePath: String
     let areaID: UUID
     let tabID: UUID
+    let paneID: UUID
 }
 
 @MainActor
@@ -28,7 +29,8 @@ enum NotificationNavigator {
                         worktreeID: key.worktreeID,
                         worktreePath: path,
                         areaID: area.id,
-                        tabID: tab.id
+                        tabID: tab.id,
+                        paneID: paneID
                     )
                 }
             }
