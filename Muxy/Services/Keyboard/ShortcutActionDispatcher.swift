@@ -137,6 +137,10 @@ struct ShortcutActionDispatcher {
             guard let projectID = appState.activeProjectID else { return false }
             appState.splitFocusedArea(direction: .vertical, projectID: projectID)
             return true
+        case .splitTabPane:
+            return perform(.splitRight, activeProject: activeProject)
+        case .splitTabPaneDown:
+            return perform(.splitDown, activeProject: activeProject)
         case .closePane:
             guard let projectID = appState.activeProjectID,
                   let areaID = appState.focusedAreaID(for: projectID)
