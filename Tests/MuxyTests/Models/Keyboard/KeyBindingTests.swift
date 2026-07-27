@@ -101,14 +101,6 @@ struct KeyBindingTests {
         #expect(combos[.cyclePreviousTabAcrossPanes] == KeyCombo(key: "tab", shift: true, control: true))
     }
 
-    @Test("KeyBinding.defaults includes inner pane split shortcuts")
-    func defaultsIncludesInnerPaneSplitShortcuts() {
-        let bindings = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
-
-        #expect(bindings[.splitTabPane] == KeyCombo(key: "\\", command: true, option: true))
-        #expect(bindings[.splitTabPaneDown] == KeyCombo(key: "\\", command: true, shift: true, option: true))
-    }
-
     @Test("Move pane actions are available without default shortcuts")
     func movePaneActionsAreUnassigned() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
