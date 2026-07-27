@@ -14,6 +14,19 @@ enum PanelLayoutMetrics {
     static let extensionDefaultHeight: Double = 240
 }
 
+struct PanelHostSlot<Content: View>: View {
+    let panelHost: PanelHost
+    let position: PanelPosition
+    let mode: PanelMode
+    @ViewBuilder let content: (PanelPlacement) -> Content
+
+    var body: some View {
+        if let placement = panelHost.panel(at: position, mode: mode) {
+            content(placement)
+        }
+    }
+}
+
 struct PanelFrame: ViewModifier {
     let position: PanelPosition
     let size: Binding<Double>
