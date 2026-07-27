@@ -153,6 +153,71 @@ struct KeyBindingStoreTests {
         #expect(store.action(for: event, scopes: [.mainWindow]) == .terminalOmniboxCommands)
     }
 
+    @Test("legacy default voice shortcut remains assigned to legacy voice")
+    func legacyDefaultVoiceShortcutRemainsAssignedToLegacyVoice() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("keybindings-\(UUID().uuidString).json")
+        let saved = KeyBinding.defaults
+            .filter { $0.action != .toggleComposerVoice }
+            .map { binding in
+                guard binding.action == .toggleVoiceRecording else { return binding }
+                return KeyBinding(
+                    action: .toggleVoiceRecording,
+                    combo: KeyCombo(key: "i", command: true, shift: true)
+                )
+            }
+        try JSONEncoder().encode(saved).write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = KeyBindingStore(persistence: FileKeyBindingPersistence(fileURL: url))
+
+        #expect(store.combo(for: .toggleComposerVoice).isAssigned == false)
+        #expect(store.combo(for: .toggleVoiceRecording) == KeyCombo(key: "i", command: true, shift: true))
+    }
+
+    @Test("generated composer voice shortcut migrates back to legacy voice")
+    func generatedComposerVoiceShortcutMigratesBackToLegacyVoice() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("keybindings-\(UUID().uuidString).json")
+        let saved = KeyBinding.defaults.map { binding in
+            switch binding.action {
+            case .toggleComposerVoice:
+                KeyBinding(
+                    action: .toggleComposerVoice,
+                    combo: KeyCombo(key: "i", command: true, shift: true)
+                )
+            case .toggleVoiceRecording:
+                KeyBinding(action: .toggleVoiceRecording, combo: KeyCombo(key: "", modifiers: 0))
+            default:
+                binding
+            }
+        }
+        try JSONEncoder().encode(saved).write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = KeyBindingStore(persistence: FileKeyBindingPersistence(fileURL: url))
+
+        #expect(store.combo(for: .toggleComposerVoice).isAssigned == false)
+        #expect(store.combo(for: .toggleVoiceRecording) == KeyCombo(key: "i", command: true, shift: true))
+    }
+
+    @Test("custom legacy voice shortcut survives composer shortcut migration")
+    func customLegacyVoiceShortcutSurvivesComposerShortcutMigration() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("keybindings-\(UUID().uuidString).json")
+        let customLegacyCombo = KeyCombo(key: "v", command: true, option: true)
+        let saved = [
+            KeyBinding(action: .toggleVoiceRecording, combo: customLegacyCombo)
+        ]
+        try JSONEncoder().encode(saved).write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = KeyBindingStore(persistence: FileKeyBindingPersistence(fileURL: url))
+
+        #expect(store.combo(for: .toggleComposerVoice).isAssigned == false)
+        #expect(store.combo(for: .toggleVoiceRecording) == customLegacyCombo)
+    }
+
     private func keyEvent(
         characters: String,
         charactersIgnoringModifiers: String,

@@ -18,8 +18,24 @@ struct TranscriptMergeResult {
 }
 
 @MainActor
+protocol VoiceRecording: AnyObject {
+    var isRecording: Bool { get }
+    var isPaused: Bool { get }
+    var elapsed: TimeInterval { get }
+    var level: Float { get }
+    var transcript: String { get }
+    var onFailure: (@MainActor (String) -> Void)? { get set }
+
+    func start(locale: Locale) throws
+    func pause()
+    func resume()
+    func finish() -> String
+    func cancel()
+}
+
+@MainActor
 @Observable
-final class VoiceRecorder {
+final class VoiceRecorder: VoiceRecording {
     private(set) var isRecording = false
     private(set) var isPaused = false
     private(set) var elapsed: TimeInterval = 0

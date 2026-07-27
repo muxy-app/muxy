@@ -429,6 +429,10 @@ struct TerminalBridge: NSViewRepresentable {
                 processID: view?.foregroundProcessID
             )
         }
+        view.onAgentProcessExit = { [weak state] in
+            guard let paneID = state?.id else { return }
+            AgentStatusStore.shared.endSession(paneID: paneID)
+        }
     }
 
     private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {

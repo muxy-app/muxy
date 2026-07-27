@@ -67,8 +67,8 @@ The opened tab receives `window.muxy.data` with the file location:
 }
 ```
 
-Only files inside the active project are routed; anything else falls back to the native IDE. With `singleton: true`, reopening pushes the new location through [`muxy.onDataChange`](#opening-another-tab).
-Fallbacks and extension reloads preserve the selected opener so it resumes handling matching files when it is available again.
+Only files inside the active project are routed; anything else falls back to the project target selected in the top bar. With `singleton: true`, reopening pushes the new location through [`muxy.onDataChange`](#opening-another-tab).
+The Settings control remains visible without any extension openers. Fallbacks and extension reloads preserve an unavailable selected opener and identify it in Settings so it resumes handling matching files when it is available again.
 The topbar project target is independent from this setting and never lists extension file-openers.
 
 ## Topbar (recommended)

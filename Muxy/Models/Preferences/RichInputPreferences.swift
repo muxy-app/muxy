@@ -7,12 +7,6 @@ enum RichInputPreferences {
     static let maxFontSize: Double = 32
     static let fontStep: Double = 1
 
-    static let floatingKey = "muxy.richInput.floating"
-    static let defaultFloating = true
-
-    static let positionKey = "muxy.richInput.position"
-    static let defaultPosition: PanelPosition = .right
-
     static let broadcastKey = "muxy.richInput.broadcast"
     static let defaultBroadcast = false
 }

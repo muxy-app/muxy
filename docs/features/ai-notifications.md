@@ -13,6 +13,10 @@ When detection reports that a working agent is no longer active, Muxy waits a sh
 
 A `waiting` pane is handled more conservatively, because a waiting agent still has a live process and must never be idled just for leaving the foreground. It uses a much longer window (30 seconds), and Muxy records the detected process ID before detection is lost. At the end of each window, Muxy idles the pane only if that process is gone; a live process schedules another low-frequency check. This recovers panes whose agent was killed before its `Stop` hook could run, without cutting short an agent that is genuinely waiting on input.
 
+## Session end
+
+Leaving the foreground and exiting are different events. Once detection identifies an agent, Muxy watches that process for exit, so quitting the agent ends its session immediately without polling. Ending a session idles the pane and drops it from the Agents Focused sidebar, while completion badges and notifications from the finished turn stay. A `finished` hook event arriving after the process is gone does not revive the session; the next `working` or `waiting` event, or detecting an agent again, starts a new one. Agents running over SSH are not detected locally, so their sessions end only when the pane closes.
+
 ## Protocol (v3)
 
 Hooks talk to Muxy over a Unix domain socket at `~/Library/Application Support/Muxy/muxy.sock` (`muxy-dev.sock` for debug builds). The wire format is a single newline-delimited JSON object per event, acknowledged by the server:

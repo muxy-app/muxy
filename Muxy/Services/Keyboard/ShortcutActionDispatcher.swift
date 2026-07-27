@@ -247,6 +247,9 @@ struct ShortcutActionDispatcher {
         case .toggleRichInput:
             notificationCenter.post(name: .toggleRichInput, object: nil)
             return true
+        case .toggleComposerVoice:
+            notificationCenter.post(name: .toggleComposerVoice, object: nil)
+            return true
         case .submitRichInput,
              .submitRichInputWithoutReturn:
             return false

@@ -24,6 +24,19 @@ Muxy's active Ghostty config is `~/Library/Application Support/Muxy/ghostty.conf
 
 Most Ghostty options work — fonts, colors, padding, keybinds, shell integration. Muxy applies the active light/dark variant automatically when the system appearance changes.
 
+### Chinese font rendering
+
+Muxy maps common Chinese Unicode ranges to one font so Ghostty does not mix fallback faces within the same text. It uses the first configured `font-family` with broad Simplified Chinese, Traditional Chinese, and punctuation coverage; otherwise it uses the macOS system fallback.
+
+Keep the Latin terminal font first and add the preferred Chinese font as a fallback:
+
+```ini
+font-family = JetBrains Mono
+font-family = PingFang SC
+```
+
+Reload the configuration with `⌘⇧R`, then open a new terminal. Ghostty applies codepoint-map changes only to new terminals. Explicit `font-codepoint-map` entries in `ghostty.conf` take priority over Muxy's automatic mapping for overlapping ranges.
+
 ## Find in terminal
 
 `⌘F` opens an inline search overlay scoped to the focused pane. Enter / Shift-Enter cycle through matches; Escape dismisses.
@@ -57,17 +70,29 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 - Triggering one creates a new tab and runs the command.
 - Useful for `npm run dev`, `make watch`, `just test`, …
 
-## Rich Input
+## Composer
 
-`Cmd+I` opens a multiline composer for prompts, files, images, and broadcast sends.
+`Cmd+I` opens the focused composer for multiline prompts, files, images, and broadcast sends. `Cmd+Shift+I`
+opens the legacy voice recorder normally, or starts on-device dictation inside the focused composer when it is
+already open. Stop Composer dictation to insert the transcript at the editor cursor, or press Return while
+recording, then edit or send it normally.
+
+Composer submission controls stay unavailable while dictation is starting or recording. A dictation error does
+not block typed text from being sent, and its inline message can be dismissed without closing the composer.
+Only one focused overlay is shown at a time, so Composer shortcuts do not open it over another modal.
+
+The status-bar microphone remains available as the legacy voice recorder. It inserts the final transcript into
+the control that was focused before recording and can optionally press Return afterward.
 
 ## Right-click menu
 
 Inside a terminal pane: **Paste**, **Split Right**, **Split Down**, **Close Pane**.
 
-Splitting creates a child pane inside the current top-level tab. Each pane keeps its own terminal, browser, source-control, or extension surface, while a one-pixel divider replaces the old per-pane tab strip. Child panes do not appear as separate entries in the window tab strip or the Tab Focused sidebar.
+Splitting creates a child pane inside the current top-level tab. Each pane keeps its own terminal, browser, source-control, or extension surface, while a one-pixel divider replaces the old per-pane tab strip. Child panes do not appear as separate entries in the window tab strip or the Tab Focused sidebar. An agent running in a child pane does appear as its own entry in the Agents Focused sidebar, and selecting it activates both the child pane and its parent top-level tab.
 
 Dragging a top-level tab toward an edge docks the whole tab beside another top-level tab. Its child-pane layout moves with it and remains independent from the neighboring tab's child panes.
+
+The Agents Focused layout keeps the normal top-level tab strip in the title bar and limits sidebar tab entries to detected AI agents, including idle sessions. An entry disappears as soon as its agent process exits, even when the tab keeps running a shell. Projects and worktrees remain visible when they have no agent sessions, and their add menu can start a new tab with any available agent provider. Clicking a project or worktree row activates it; clicking the already active row expands or collapses its agent list. A project with no tabs offers the same launchers as icons — a terminal plus one monochrome icon per installed provider — instead of the plain new-tab button. Tabs started from this menu appear immediately. Local launch attribution is confirmed by process detection and removed if the command exits before confirmation. Remote availability is checked through the configured SSH connection before the menu enables a provider.
 
 ## Notifications from the terminal
 

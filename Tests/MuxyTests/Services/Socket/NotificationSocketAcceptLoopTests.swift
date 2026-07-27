@@ -16,7 +16,7 @@ struct NotificationSocketAcceptLoopTests {
         defer { server.stop() }
 
         for index in 0 ..< 40 {
-            let reply = try Self.sendCommand("list-tabs", to: path)
+            let reply = try await Self.sendCommand("list-tabs", to: path)
             #expect(reply == "list-tabs|ok", "connection \(index) failed")
         }
     }
@@ -26,7 +26,19 @@ struct NotificationSocketAcceptLoopTests {
         return directory.appendingPathComponent("muxy-test-\(UUID().uuidString).sock").path
     }
 
-    private static func sendCommand(_ command: String, to path: String) throws -> String {
+    private static func sendCommand(_ command: String, to path: String) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try sendCommandSynchronously(command, to: path))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func sendCommandSynchronously(_ command: String, to path: String) throws -> String {
         let fd = try connect(to: path)
         defer { close(fd) }
         try writeLine(command, to: fd)

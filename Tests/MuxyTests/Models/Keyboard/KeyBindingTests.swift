@@ -129,6 +129,15 @@ struct KeyBindingTests {
         #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "p", command: true, shift: true))
     }
 
+    @Test("Composer and voice shortcuts use their expected defaults")
+    func composerAndVoiceShortcutsUseExpectedDefaults() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+
+        #expect(combos[.toggleRichInput] == KeyCombo(key: "i", command: true))
+        #expect(combos[.toggleComposerVoice]?.isAssigned == false)
+        #expect(combos[.toggleVoiceRecording] == KeyCombo(key: "i", command: true, shift: true))
+    }
+
     @Test("Toggle Full Screen uses Cmd+Ctrl+F by default")
     func defaultsIncludesToggleFullScreenShortcut() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })

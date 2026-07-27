@@ -79,6 +79,7 @@ Tool versions are pinned in `.tool-versions` and the script validates them on st
 - Write a clear title and description explaining the "why"
 - Ensure all checks pass before requesting review
 - Link any related issues
+- If contributed using AI, The LLM name is mandatory to be mentioned in the PR
 
 ## Reporting Issues
 

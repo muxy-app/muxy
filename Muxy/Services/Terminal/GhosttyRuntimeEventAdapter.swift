@@ -174,7 +174,11 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         guard let view = surfaceView(from: target) else { return }
         DispatchQueue.main.async {
             if let paneID = TerminalViewRegistry.shared.paneID(for: view) {
-                AgentStatusStore.shared.removePane(paneID)
+                DetectedAgentStore.shared.clearProvisionalAgent(for: paneID)
+                AgentStatusStore.shared.commandExited(
+                    paneID: paneID,
+                    closesPane: view.closesOnCommandExit
+                )
             }
             guard view.closesOnCommandExit else { return }
             guard !view.processExitHandled else { return }

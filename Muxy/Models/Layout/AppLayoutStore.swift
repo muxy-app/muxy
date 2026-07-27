@@ -23,6 +23,10 @@ final class AppLayoutStore {
     }
 
     func toggle() {
-        set(layout == .projectFocused ? .tabFocused : .projectFocused)
+        guard let index = AppLayout.allCases.firstIndex(of: layout) else {
+            set(AppLayout.defaultValue)
+            return
+        }
+        set(AppLayout.allCases[(index + 1) % AppLayout.allCases.count])
     }
 }
