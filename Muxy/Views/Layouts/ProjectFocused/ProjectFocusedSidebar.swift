@@ -566,8 +566,8 @@ private struct AddProjectButton: View {
             ZStack {
                 RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                     .fill(MuxyTheme.hover)
-                Image(systemName: "plus")
-                    .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
+                Image(systemName: "plus").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontEmphasis, height: UIMetrics.fontEmphasis)
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
             }
             .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
@@ -579,8 +579,8 @@ private struct AddProjectButton: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                         .fill(MuxyTheme.surface)
-                    Image(systemName: "plus")
-                        .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
+                    Image(systemName: "plus").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontEmphasis, height: UIMetrics.fontEmphasis)
                         .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 }
                 .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
@@ -603,8 +603,8 @@ private enum SortMenuButton {
         @State private var hovered = false
 
         var body: some View {
-            Image(systemName: "arrow.up.arrow.down")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+            Image(systemName: "arrow.up.arrow.down").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .background(

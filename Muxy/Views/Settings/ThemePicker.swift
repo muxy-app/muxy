@@ -75,8 +75,8 @@ private struct ThemeRow: View {
                 Spacer(minLength: 0)
 
                 if isActive {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                    Image(systemName: "checkmark").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                         .foregroundStyle(Color.accentColor)
                 }
             }

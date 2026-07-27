@@ -132,8 +132,8 @@ struct ProjectPickerDefaultLocationSettingsView: View {
 
     private var display: some View {
         HStack(spacing: 7) {
-            Image(systemName: "folder")
-                .font(.system(size: 11, weight: .medium))
+            Image(systemName: "folder").resizable().scaledToFit()
+                .frame(width: 11, height: 11)
                 .foregroundStyle(.secondary)
                 .frame(width: 15)
 

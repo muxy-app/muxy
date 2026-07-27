@@ -23,8 +23,8 @@ struct ExtensionRemoteIconView: View {
     }
 
     private var placeholder: some View {
-        Image(systemName: "puzzlepiece.extension")
-            .font(.system(size: placeholderSize))
+        Image(systemName: "puzzlepiece.extension").resizable().scaledToFit()
+            .frame(width: placeholderSize, height: placeholderSize)
             .foregroundStyle(MuxyTheme.fgDim)
     }
 

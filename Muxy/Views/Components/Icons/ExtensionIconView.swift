@@ -10,8 +10,8 @@ struct ExtensionIconView: View {
     var body: some View {
         switch icon {
         case let .symbol(name):
-            Image(systemName: name)
-                .font(.system(size: UIMetrics.scaled(size), weight: weight))
+            Image(systemName: name).resizable().scaledToFit()
+                .frame(width: UIMetrics.scaled(size), height: UIMetrics.scaled(size))
         case let .svg(path):
             svgImage(path: path)
         }
@@ -28,8 +28,8 @@ struct ExtensionIconView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: UIMetrics.scaled(size), height: UIMetrics.scaled(size))
         } else {
-            Image(systemName: "puzzlepiece.extension")
-                .font(.system(size: UIMetrics.scaled(size), weight: weight))
+            Image(systemName: "puzzlepiece.extension").resizable().scaledToFit()
+                .frame(width: UIMetrics.scaled(size), height: UIMetrics.scaled(size))
         }
     }
 }

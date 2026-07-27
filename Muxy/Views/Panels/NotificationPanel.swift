@@ -108,8 +108,8 @@ struct NotificationPanel: View {
 
             VStack(spacing: UIMetrics.spacing4) {
                 Spacer()
-                Image(systemName: "bell.slash")
-                    .font(.system(size: UIMetrics.fontHero, weight: .light))
+                Image(systemName: "bell.slash").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontHero, height: UIMetrics.fontHero)
                     .foregroundStyle(MuxyTheme.fgMuted)
                 Text("No notifications")
                     .font(.system(size: UIMetrics.fontBody, weight: .medium))
@@ -163,8 +163,8 @@ private struct NotificationRow: View {
                     if item.isProviderIcon {
                         ProviderIconView(iconName: item.sourceIcon, size: UIMetrics.fontCaption, monochromeTint: MuxyTheme.fgMuted)
                     } else {
-                        Image(systemName: item.sourceIcon)
-                            .font(.system(size: UIMetrics.fontCaption))
+                        Image(systemName: item.sourceIcon).resizable().scaledToFit()
+                            .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                             .foregroundStyle(MuxyTheme.fgMuted)
                     }
                     Text(item.title)
@@ -198,8 +198,8 @@ private struct NotificationRow: View {
         Button {
             onRemove()
         } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: UIMetrics.fontMicro, weight: .bold))
+            Image(systemName: "xmark").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMicro, height: UIMetrics.fontMicro)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 .background(MuxyTheme.surface, in: Circle())

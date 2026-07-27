@@ -253,8 +253,8 @@ struct ProjectRow: View {
                 .fill(iconBackground(hasLogo: logo != nil))
 
             if project.isHome {
-                Image(systemName: Project.homeIcon)
-                    .font(.system(size: UIMetrics.fontTitleLarge, weight: .medium))
+                Image(systemName: Project.homeIcon).resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontTitleLarge, height: UIMetrics.fontTitleLarge)
                     .foregroundStyle(MuxyTheme.accentForeground)
             } else if let logo {
                 Image(nsImage: logo)
@@ -263,8 +263,8 @@ struct ProjectRow: View {
                     .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
                     .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous))
             } else if let iconName = project.icon {
-                Image(systemName: iconName)
-                    .font(.system(size: UIMetrics.fontTitleLarge, weight: .medium))
+                Image(systemName: iconName).resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontTitleLarge, height: UIMetrics.fontTitleLarge)
                     .foregroundStyle(letterForeground)
             } else {
                 Text(displayLetter)

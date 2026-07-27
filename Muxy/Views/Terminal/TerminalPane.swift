@@ -108,8 +108,8 @@ struct SleepingTabPlaceholder: View {
     var body: some View {
         VStack(spacing: UIMetrics.spacing7) {
             Spacer()
-            Image(systemName: "moon.zzz")
-                .font(.system(size: UIMetrics.fontMega))
+            Image(systemName: "moon.zzz").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMega, height: UIMetrics.fontMega)
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text("Tab is asleep")
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
@@ -151,8 +151,8 @@ struct RemoteControlledPlaceholder: View {
     var body: some View {
         VStack(spacing: UIMetrics.spacing7) {
             Spacer()
-            Image(systemName: "iphone.gen3")
-                .font(.system(size: UIMetrics.fontMega))
+            Image(systemName: "iphone.gen3").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMega, height: UIMetrics.fontMega)
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text("Controlled by \(deviceName)")
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))

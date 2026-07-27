@@ -174,8 +174,8 @@ private struct AttachmentChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: isImage ? "photo" : "doc")
-                .font(.system(size: 10))
+            Image(systemName: isImage ? "photo" : "doc").resizable().scaledToFit()
+                .frame(width: 10, height: 10)
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text(url.lastPathComponent)
                 .font(.system(size: 11))
@@ -183,8 +183,8 @@ private struct AttachmentChip: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                Image(systemName: "xmark").resizable().scaledToFit()
+                    .frame(width: 9, height: 9)
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
             .buttonStyle(.plain)

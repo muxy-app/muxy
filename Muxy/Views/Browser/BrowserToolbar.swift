@@ -81,8 +81,8 @@ struct BrowserToolbar: View {
                 }
             }
         } label: {
-            Image(systemName: "arrow.up.forward.app")
-                .font(.system(size: UIMetrics.fontBody, weight: .medium))
+            Image(systemName: "arrow.up.forward.app").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
@@ -129,8 +129,8 @@ struct BrowserToolbar: View {
             }
         } label: {
             HStack(spacing: UIMetrics.spacing1) {
-                Image(systemName: "person.crop.circle")
-                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                Image(systemName: "person.crop.circle").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 Text(currentProfileName)
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .lineLimit(1)

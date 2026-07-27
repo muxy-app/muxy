@@ -256,8 +256,8 @@ struct ExpandedProjectRow: View {
                 worktreesExpanded.toggle()
             }
         } label: {
-            Image(systemName: "chevron.right")
-                .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+            Image(systemName: "chevron.right").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                 .foregroundStyle(MuxyTheme.fg)
                 .rotationEffect(.degrees(worktreesExpanded ? 90 : 0))
                 .animation(.easeInOut(duration: 0.15), value: worktreesExpanded)
@@ -269,8 +269,8 @@ struct ExpandedProjectRow: View {
     }
 
     private var remoteIndicator: some View {
-        Image(systemName: "network")
-            .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+        Image(systemName: "network").resizable().scaledToFit()
+            .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
             .foregroundStyle(MuxyTheme.fgMuted)
             .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
             .help(remoteDeviceName ?? "Remote project")
@@ -326,8 +326,8 @@ struct ExpandedProjectRow: View {
                 .fill(iconBackground(hasLogo: logo != nil))
 
             if project.isHome {
-                Image(systemName: Project.homeIcon)
-                    .font(.system(size: UIMetrics.fontTitleLarge, weight: .medium))
+                Image(systemName: Project.homeIcon).resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontTitleLarge, height: UIMetrics.fontTitleLarge)
                     .foregroundStyle(MuxyTheme.accentForeground)
             } else if let logo {
                 Image(nsImage: logo)
@@ -336,8 +336,8 @@ struct ExpandedProjectRow: View {
                     .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
                     .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous))
             } else if let iconName = project.icon {
-                Image(systemName: iconName)
-                    .font(.system(size: UIMetrics.fontTitleLarge, weight: .medium))
+                Image(systemName: iconName).resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontTitleLarge, height: UIMetrics.fontTitleLarge)
                     .foregroundStyle(letterForeground)
             } else {
                 Text(displayLetter)
@@ -743,8 +743,8 @@ private struct ExpandedNewWorktreeButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: UIMetrics.spacing3) {
-                Image(systemName: "plus")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                Image(systemName: "plus").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
                     .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
                 Text("New Worktree")

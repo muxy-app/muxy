@@ -132,8 +132,8 @@ struct CreateExtensionSheet: View {
 
     private func guideRow(symbol: String, text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: symbol)
-                .font(.system(size: 11))
+            Image(systemName: symbol).resizable().scaledToFit()
+                .frame(width: 11, height: 11)
                 .foregroundStyle(MuxyTheme.accent)
                 .frame(width: 14, alignment: .center)
             Text(text)

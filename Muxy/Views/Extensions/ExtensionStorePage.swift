@@ -73,8 +73,8 @@ struct ExtensionStorePage: View {
 
     private var searchField: some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
+            Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                .frame(width: 11, height: 11)
                 .foregroundStyle(MuxyTheme.fgDim)
             TextField("Search extensions", text: $query)
                 .textFieldStyle(.plain)
@@ -83,8 +83,8 @@ struct ExtensionStorePage: View {
                 Button {
                     query = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                    Image(systemName: "xmark.circle.fill").resizable().scaledToFit()
+                        .frame(width: 11, height: 11)
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
                 .buttonStyle(.plain)
@@ -211,8 +211,8 @@ struct ExtensionStorePage: View {
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 32))
+            Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                .frame(width: 32, height: 32)
                 .foregroundStyle(MuxyTheme.fgDim)
             Text("No extensions found")
                 .font(.system(size: 13, weight: .semibold))
@@ -226,8 +226,8 @@ struct ExtensionStorePage: View {
 
     private func failedState(_ message: String) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 28))
+            Image(systemName: "exclamationmark.triangle").resizable().scaledToFit()
+                .frame(width: 28, height: 28)
                 .foregroundStyle(MuxyTheme.fgDim)
             Text(message)
                 .font(.system(size: 12))
@@ -323,12 +323,12 @@ private struct ExtensionStoreMenuLabel: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: icon)
-                .font(.system(size: 10, weight: .medium))
+            Image(systemName: icon).resizable().scaledToFit()
+                .frame(width: 10, height: 10)
             Text(title)
                 .font(.system(size: 12))
-            Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+            Image(systemName: "chevron.down").resizable().scaledToFit()
+                .frame(width: 9, height: 9)
         }
         .foregroundStyle(MuxyTheme.fgMuted)
         .padding(.horizontal, 10)

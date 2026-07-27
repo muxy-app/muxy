@@ -13,8 +13,8 @@ struct AppBundleIconView: View {
                 .interpolation(.high)
                 .antialiased(true)
         } else {
-            Image(systemName: fallbackSystemName)
-                .font(.system(size: size * 0.85, weight: .semibold))
+            Image(systemName: fallbackSystemName).resizable().scaledToFit()
+                .frame(width: size * 0.85, height: size * 0.85)
                 .foregroundStyle(.secondary)
                 .frame(width: size, height: size)
         }

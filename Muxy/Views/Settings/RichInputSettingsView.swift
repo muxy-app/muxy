@@ -79,8 +79,8 @@ struct RichInputSettingsView: View {
                             settings.richInputLineHeightMultiplier - EditorSettings.lineHeightMultiplierStep
                         )
                     } label: {
-                        Image(systemName: "minus")
-                            .font(.system(size: 10, weight: .medium))
+                        Image(systemName: "minus").resizable().scaledToFit()
+                            .frame(width: 10, height: 10)
                             .frame(width: 20, height: 20)
                     }
                     .buttonStyle(.borderless)
@@ -99,8 +99,8 @@ struct RichInputSettingsView: View {
                             settings.richInputLineHeightMultiplier + EditorSettings.lineHeightMultiplierStep
                         )
                     } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .medium))
+                        Image(systemName: "plus").resizable().scaledToFit()
+                            .frame(width: 10, height: 10)
                             .frame(width: 20, height: 20)
                     }
                     .buttonStyle(.borderless)

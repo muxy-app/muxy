@@ -79,8 +79,8 @@ struct TerminalOmniboxOverlay: View {
 
     private var searchField: some View {
         HStack(spacing: UIMetrics.spacing4) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
+            Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontEmphasis, height: UIMetrics.fontEmphasis)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .accessibilityHidden(true)
             PaletteSearchField(
@@ -292,8 +292,8 @@ private struct TerminalOmniboxRow: View {
 
     var body: some View {
         HStack(spacing: UIMetrics.spacing5) {
-            Image(systemName: item.symbol)
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            Image(systemName: item.symbol).resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.iconLG, alignment: .center)
             VStack(alignment: .leading, spacing: UIMetrics.scaled(1)) {
@@ -331,8 +331,8 @@ private struct TerminalOmniboxHint: View {
         HStack(spacing: UIMetrics.scaled(4)) {
             HStack(spacing: UIMetrics.scaled(3)) {
                 if let symbol {
-                    Image(systemName: symbol)
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    Image(systemName: symbol).resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                         .foregroundStyle(MuxyTheme.fgMuted)
                 }
                 if let text {

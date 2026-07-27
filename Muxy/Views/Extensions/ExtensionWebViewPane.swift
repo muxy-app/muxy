@@ -40,8 +40,8 @@ struct ExtensionWebViewPane: View {
 
     private var placeholder: some View {
         VStack(spacing: 8) {
-            Image(systemName: "puzzlepiece.extension")
-                .font(.system(size: 32, weight: .light))
+            Image(systemName: "puzzlepiece.extension").resizable().scaledToFit()
+                .frame(width: 32, height: 32)
             Text("Extension \(state.extensionID) is not loaded")
                 .font(.headline)
             Text("Tab type: \(state.tabTypeID)")

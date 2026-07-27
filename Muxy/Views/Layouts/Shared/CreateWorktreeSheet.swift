@@ -203,8 +203,8 @@ struct CreateWorktreeSheet: View {
     private var setupCommandsSection: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing4) {
             HStack(spacing: UIMetrics.spacing3) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: UIMetrics.fontCaption))
+                Image(systemName: "exclamationmark.triangle.fill").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
                 Text("Setup commands from .muxy/worktree.json")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
@@ -235,8 +235,8 @@ struct CreateWorktreeSheet: View {
     private var setupCommandsGuideSection: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing4) {
             HStack(spacing: UIMetrics.spacing3) {
-                Image(systemName: "info.circle")
-                    .font(.system(size: UIMetrics.fontCaption))
+                Image(systemName: "info.circle").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.fgDim)
                 Text("Optional setup commands")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))

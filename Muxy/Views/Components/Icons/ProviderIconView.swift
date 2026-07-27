@@ -34,8 +34,8 @@ struct ProviderIconView: View {
     }
 
     private var fallbackSymbol: some View {
-        Image(systemName: "sparkles")
-            .font(.system(size: size * 0.85, weight: .semibold))
+        Image(systemName: "sparkles").resizable().scaledToFit()
+            .frame(width: size * 0.85, height: size * 0.85)
             .frame(width: size, height: size)
     }
 

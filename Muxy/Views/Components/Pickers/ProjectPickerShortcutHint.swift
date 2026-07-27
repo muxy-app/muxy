@@ -29,8 +29,8 @@ struct ProjectPickerShortcutHint: View {
     private func keycapPart(_ part: ProjectPickerShortcutKeycapPart) -> some View {
         switch part {
         case let .symbol(name):
-            Image(systemName: name)
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+            Image(systemName: name).resizable().scaledToFit()
+                .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 .foregroundStyle(MuxyTheme.fgMuted)
         case let .text(text):
             Text(text)

@@ -357,8 +357,8 @@ struct MobileSettingsView: View {
     private func deviceRow(_ device: ApprovedDevice) -> some View {
         HStack {
             if isSelecting {
-                Image(systemName: selectedDeviceIDs.contains(device.id) ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: SettingsMetrics.labelFontSize))
+                Image(systemName: selectedDeviceIDs.contains(device.id) ? "checkmark.circle.fill" : "circle").resizable().scaledToFit()
+                    .frame(width: SettingsMetrics.labelFontSize, height: SettingsMetrics.labelFontSize)
                     .foregroundStyle(
                         selectedDeviceIDs.contains(device.id) ? MuxyTheme.accent : SettingsStyle.mutedForeground
                     )

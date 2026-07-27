@@ -193,8 +193,8 @@ private struct TabFocusedAddProjectRow: View {
 
     private var label: some View {
         HStack(spacing: TabFocusedSidebarMetrics.iconTitleGap) {
-            Image(systemName: "plus")
-                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+            Image(systemName: "plus").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontHeadline, height: UIMetrics.fontHeadline)
                 .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 .frame(
                     width: TabFocusedSidebarMetrics.folderIconSize,

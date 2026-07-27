@@ -151,8 +151,8 @@ struct BrowserSettingsView: View {
             editorMode = .create
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .semibold))
+                Image(systemName: "plus").resizable().scaledToFit()
+                    .frame(width: 11, height: 11)
                 Text("Add Profile")
                     .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
             }
@@ -234,8 +234,8 @@ private struct BrowserProfileRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "person.crop.circle")
-                .font(.system(size: SettingsMetrics.labelFontSize))
+            Image(systemName: "person.crop.circle").resizable().scaledToFit()
+                .frame(width: SettingsMetrics.labelFontSize, height: SettingsMetrics.labelFontSize)
                 .foregroundStyle(SettingsStyle.mutedForeground)
                 .frame(width: 16)
             Text(profile.name)
@@ -277,8 +277,8 @@ private struct BrowserProfileRow: View {
                 Button("Delete", role: .destructive, action: onDelete)
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: SettingsMetrics.labelFontSize, weight: .semibold))
+            Image(systemName: "ellipsis").resizable().scaledToFit()
+                .frame(width: SettingsMetrics.labelFontSize, height: SettingsMetrics.labelFontSize)
                 .foregroundStyle(SettingsStyle.mutedForeground)
                 .frame(height: 20)
                 .contentShape(Rectangle())

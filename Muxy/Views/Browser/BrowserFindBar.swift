@@ -10,8 +10,8 @@ struct BrowserFindBar: View {
 
     var body: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+            Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(MuxyTheme.fgMuted)
 
             TextField("Find on page", text: $query)

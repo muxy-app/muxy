@@ -76,8 +76,8 @@ struct SettingsJSONEditorView: View {
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11, weight: .medium))
+            Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                .frame(width: 11, height: 11)
                 .foregroundStyle(SettingsStyle.mutedForeground)
 
             TextField("Search JSON", text: $searchText)

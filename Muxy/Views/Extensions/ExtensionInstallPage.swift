@@ -57,8 +57,8 @@ struct ExtensionInstallPage: View {
 
     private func failedState(_ message: String) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 28))
+            Image(systemName: "exclamationmark.triangle").resizable().scaledToFit()
+                .frame(width: 28, height: 28)
                 .foregroundStyle(MuxyTheme.fgDim)
             Text(message)
                 .font(.system(size: 12))
@@ -146,8 +146,8 @@ struct ExtensionInstallPage: View {
 
     private var safetyNotice: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "lock.shield")
-                .font(.system(size: 14, weight: .semibold))
+            Image(systemName: "lock.shield").resizable().scaledToFit()
+                .frame(width: 14, height: 14)
                 .foregroundStyle(MuxyTheme.accent)
             Text("No extension can run a command on your computer without you approving each command first.")
                 .font(.system(size: 12))

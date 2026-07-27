@@ -121,8 +121,8 @@ struct ProjectStatusBar: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: remote ? "network" : "folder")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                Image(systemName: remote ? "network" : "folder").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 Text(truncated)
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .lineLimit(1)
@@ -186,8 +186,8 @@ struct ProjectStatusBar: View {
         Button {
             extensionOutputVisible.toggle()
         } label: {
-            Image(systemName: "ladybug")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+            Image(systemName: "ladybug").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 .foregroundStyle(extensionOutputVisible ? MuxyTheme.accent : MuxyTheme.fgMuted)
         }
         .buttonStyle(.plain)
@@ -198,8 +198,8 @@ struct ProjectStatusBar: View {
     private var richInputToggleButton: some View {
         Button(action: handleToggleRichInput) {
             HStack(spacing: 4) {
-                Image(systemName: "keyboard")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                Image(systemName: "keyboard").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 Text(richInputShortcutLabel)
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                     .foregroundStyle(MuxyTheme.fgDim)
@@ -214,8 +214,8 @@ struct ProjectStatusBar: View {
     private var voiceRecordingButton: some View {
         Button(action: handleToggleVoiceRecording) {
             HStack(spacing: 4) {
-                Image(systemName: "mic")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                Image(systemName: "mic").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 Text(voiceShortcutLabel)
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
                     .foregroundStyle(MuxyTheme.fgDim)
@@ -230,8 +230,8 @@ struct ProjectStatusBar: View {
     private var zoomControls: some View {
         HStack(spacing: 2) {
             Button(action: decreaseFontSize) {
-                Image(systemName: "textformat.size.smaller")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                Image(systemName: "textformat.size.smaller").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
             }
             .buttonStyle(RichInputToolbarButtonStyle())
             .disabled(richInputFontSize <= RichInputPreferences.minFontSize)
@@ -245,8 +245,8 @@ struct ProjectStatusBar: View {
                 .accessibilityLabel("Editor font size \(Int(clampedFontSize))")
 
             Button(action: increaseFontSize) {
-                Image(systemName: "textformat.size.larger")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                Image(systemName: "textformat.size.larger").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
             }
             .buttonStyle(RichInputToolbarButtonStyle())
             .disabled(richInputFontSize >= RichInputPreferences.maxFontSize)

@@ -7,8 +7,8 @@ struct BrowserStartPage: View {
     var body: some View {
         VStack(spacing: UIMetrics.spacing7) {
             Spacer()
-            Image(systemName: "globe")
-                .font(.system(size: UIMetrics.fontMega, weight: .light))
+            Image(systemName: "globe").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMega, height: UIMetrics.fontMega)
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text("New Tab")
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
@@ -20,8 +20,8 @@ struct BrowserStartPage: View {
                 .frame(maxWidth: UIMetrics.scaled(360))
             Button(action: onFocusAddress) {
                 HStack(spacing: UIMetrics.spacing3) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                    Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     Text("Search or enter address")
                         .font(.system(size: UIMetrics.fontBody))
                     Spacer(minLength: 0)

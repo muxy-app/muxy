@@ -57,8 +57,8 @@ struct BrowserImportSheet: View {
 
     private func importRow(_ profile: ImportableProfile) -> some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: "person.crop.circle")
-                .font(.system(size: SettingsMetrics.labelFontSize))
+            Image(systemName: "person.crop.circle").resizable().scaledToFit()
+                .frame(width: SettingsMetrics.labelFontSize, height: SettingsMetrics.labelFontSize)
                 .foregroundStyle(SettingsStyle.mutedForeground)
             Text(profile.name)
                 .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))

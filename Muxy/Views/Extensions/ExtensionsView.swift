@@ -101,8 +101,8 @@ struct ExtensionsView: View {
                     activeInstallName = nil
                 } label: {
                     HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 11, weight: .semibold))
+                        Image(systemName: "chevron.left").resizable().scaledToFit()
+                            .frame(width: 11, height: 11)
                         Text("Extensions")
                             .font(.system(size: 12, weight: .medium))
                     }
@@ -115,8 +115,8 @@ struct ExtensionsView: View {
                 .help("Back to Extensions")
             } else {
                 HStack(spacing: 8) {
-                    Image(systemName: "puzzlepiece.extension")
-                        .font(.system(size: 13, weight: .medium))
+                    Image(systemName: "puzzlepiece.extension").resizable().scaledToFit()
+                        .frame(width: 13, height: 13)
                         .foregroundStyle(MuxyTheme.fgMuted)
                     Text("Extensions")
                         .font(.system(size: 15, weight: .semibold))
@@ -170,8 +170,8 @@ struct ExtensionsView: View {
             Button {
                 NSApp.keyWindow?.close()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
+                Image(systemName: "xmark").resizable().scaledToFit()
+                    .frame(width: 12, height: 12)
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
@@ -327,8 +327,8 @@ private struct ExtensionsListPage: View {
 
     private var emptyState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "puzzlepiece.extension")
-                .font(.system(size: 32))
+            Image(systemName: "puzzlepiece.extension").resizable().scaledToFit()
+                .frame(width: 32, height: 32)
                 .foregroundStyle(MuxyTheme.fgDim)
             Text("No extensions installed")
                 .font(.system(size: 13, weight: .semibold))
@@ -424,8 +424,8 @@ private struct ExtensionRow: View {
 
     private var rowContent: some View {
         HStack(spacing: 12) {
-            Image(systemName: "puzzlepiece.extension.fill")
-                .font(.system(size: 16))
+            Image(systemName: "puzzlepiece.extension.fill").resizable().scaledToFit()
+                .frame(width: 16, height: 16)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 3) {
@@ -452,8 +452,8 @@ private struct ExtensionRow: View {
             }
             Spacer(minLength: 12)
             ExtensionPermissionSummary(permissions: ext.manifest.permissions)
-            Image(systemName: "chevron.right")
-                .font(.system(size: 11, weight: .semibold))
+            Image(systemName: "chevron.right").resizable().scaledToFit()
+                .frame(width: 11, height: 11)
                 .foregroundStyle(MuxyTheme.fgDim)
         }
         .padding(.leading, 14)
@@ -474,8 +474,8 @@ private struct ExtensionUpdateButton: View {
                 if isUpdating {
                     ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 11))
+                    Image(systemName: "arrow.down.circle.fill").resizable().scaledToFit()
+                        .frame(width: 11, height: 11)
                 }
                 Text(isUpdating ? "Updating…" : "Update v\(version)")
                     .font(.system(size: 11, weight: .semibold))

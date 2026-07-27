@@ -32,8 +32,8 @@ struct WhatsNewView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 13, weight: .medium))
+            Image(systemName: "sparkles").resizable().scaledToFit()
+                .frame(width: 13, height: 13)
                 .foregroundStyle(SettingsStyle.accent)
 
             Text("What's New")
@@ -59,8 +59,8 @@ struct WhatsNewView: View {
             Button {
                 NSApp.keyWindow?.close()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
+                Image(systemName: "xmark").resizable().scaledToFit()
+                    .frame(width: 12, height: 12)
                     .foregroundStyle(SettingsStyle.mutedForeground)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())

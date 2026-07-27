@@ -146,8 +146,8 @@ struct RepositoryStatusBarItems: View {
             },
             content: {
                 HStack(spacing: UIMetrics.spacing2) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                    Image(systemName: "exclamationmark.triangle").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                         .foregroundStyle(MuxyTheme.warning)
                     Text("Repository unavailable")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
@@ -169,8 +169,8 @@ struct RepositoryStatusBarItems: View {
             },
             content: {
                 HStack(spacing: UIMetrics.spacing2) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                    Image(systemName: "arrow.triangle.branch").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                         .foregroundStyle(MuxyTheme.accent)
                     Text(RepositoryToolbarPresentation.branchLabel(summary: summary, worktree: activeWorktree))
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
@@ -182,8 +182,8 @@ struct RepositoryStatusBarItems: View {
                     if let summary {
                         upstreamTelemetry(summary.aheadBehind)
                     }
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: UIMetrics.fontMicro, weight: .bold))
+                    Image(systemName: "chevron.down").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontMicro, height: UIMetrics.fontMicro)
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }
@@ -237,8 +237,8 @@ struct RepositoryStatusBarItems: View {
                     Text(summary.map(RepositoryChangesPresentation.chipLabel) ?? "Changes")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(summary?.isDirty == true ? MuxyTheme.warning : MuxyTheme.fgMuted)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: UIMetrics.fontMicro, weight: .bold))
+                    Image(systemName: "chevron.down").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontMicro, height: UIMetrics.fontMicro)
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }
@@ -312,8 +312,8 @@ struct RepositoryStatusBarItems: View {
                 Task { await repositoryState.refreshPullRequest(forceFresh: true) }
             },
             content: {
-                Image(systemName: "arrow.triangle.pull")
-                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                Image(systemName: "arrow.triangle.pull").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
         )
@@ -335,8 +335,8 @@ struct RepositoryStatusBarItems: View {
             action: { showPullRequestPopover = true },
             content: {
                 HStack(spacing: UIMetrics.spacing2) {
-                    Image(systemName: PullRequestPresentation.symbol(for: info))
-                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                    Image(systemName: PullRequestPresentation.symbol(for: info)).resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                         .foregroundStyle(color)
                     Text("PR #\(info.number)")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
@@ -346,8 +346,8 @@ struct RepositoryStatusBarItems: View {
                             .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .rounded))
                             .foregroundStyle(color)
                     }
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: UIMetrics.fontMicro, weight: .bold))
+                    Image(systemName: "chevron.down").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontMicro, height: UIMetrics.fontMicro)
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }

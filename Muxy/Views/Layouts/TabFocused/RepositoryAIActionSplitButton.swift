@@ -58,8 +58,8 @@ struct RepositoryAIActionSplitButton: View {
     private var primaryButton: some View {
         Button(action: onRun) {
             HStack(spacing: UIMetrics.spacing2) {
-                Image(systemName: action.symbolName)
-                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                Image(systemName: action.symbolName).resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                 Text(isRunning ? action.runningTitle : action.title)
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
             }
@@ -84,8 +84,8 @@ struct RepositoryAIActionSplitButton: View {
         Button {
             showingMenu.toggle()
         } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: UIMetrics.fontMicro, weight: .bold))
+            Image(systemName: "chevron.down").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMicro, height: UIMetrics.fontMicro)
                 .foregroundStyle(menuForeground)
                 .frame(width: UIMetrics.scaled(16), height: UIMetrics.controlSmall)
                 .contentShape(Rectangle())
@@ -143,8 +143,8 @@ struct RepositoryAIActionSplitButton: View {
             editingProjectPrompt = true
         } label: {
             HStack(spacing: UIMetrics.spacing3) {
-                Image(systemName: "text.quote")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                Image(systemName: "text.quote").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                     .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                     Text("Edit Project Prompt…")
@@ -234,16 +234,16 @@ struct RepositoryAIActionSplitButton: View {
                 if let iconName {
                     ProviderIconView(iconName: iconName, size: UIMetrics.iconMD)
                 } else {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                    Image(systemName: "sparkles").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                         .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 }
                 Text(title)
                     .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fg)
                 Spacer(minLength: UIMetrics.spacing6)
-                Image(systemName: "checkmark")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .bold))
+                Image(systemName: "checkmark").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                     .foregroundStyle(MuxyTheme.accent)
                     .opacity(configuredProviderID == id ? 1 : 0)
             }

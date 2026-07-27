@@ -240,8 +240,8 @@ struct SFSymbolPicker: View {
                 onSelect(nil)
             } label: {
                 HStack(spacing: UIMetrics.spacing3) {
-                    Image(systemName: "xmark.circle")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                    Image(systemName: "xmark.circle").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     Text("Remove Icon")
                         .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 }
@@ -265,8 +265,8 @@ struct SFSymbolPicker: View {
                     .fill(isSelected ? MuxyTheme.accent.opacity(0.2) : Color.clear)
                     .frame(width: UIMetrics.controlLarge, height: UIMetrics.controlLarge)
 
-                Image(systemName: symbol.systemName)
-                    .font(.system(size: UIMetrics.fontTitleLarge, weight: .regular))
+                Image(systemName: symbol.systemName).resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontTitleLarge, height: UIMetrics.fontTitleLarge)
                     .foregroundStyle(isSelected ? MuxyTheme.accent : MuxyTheme.fg)
             }
             .frame(width: UIMetrics.controlLarge, height: UIMetrics.controlLarge)

@@ -43,8 +43,8 @@ struct CommandsSettingsView: View {
                 recordingCommandPrefix = false
                 recordingCommandShortcutID = shortcut.id
             } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .semibold))
+                Image(systemName: "plus").resizable().scaledToFit()
+                    .frame(width: SettingsMetrics.footnoteFontSize, height: SettingsMetrics.footnoteFontSize)
             }
             .buttonStyle(.plain)
             .help("Add Command")
@@ -290,8 +290,8 @@ private struct CommandPrefixRow: View {
         HStack(spacing: 6) {
             if hovered {
                 Button(action: onReset) {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 10))
+                    Image(systemName: "arrow.counterclockwise").resizable().scaledToFit()
+                        .frame(width: 10, height: 10)
                         .foregroundStyle(SettingsStyle.mutedForeground)
                 }
                 .buttonStyle(.plain)
@@ -386,8 +386,8 @@ private struct CommandShortcutRow: View {
             .buttonStyle(.plain)
 
             Button(action: onDelete) {
-                Image(systemName: "trash")
-                    .font(.system(size: 10))
+                Image(systemName: "trash").resizable().scaledToFit()
+                    .frame(width: 10, height: 10)
                     .foregroundStyle(
                         deleteButtonHovered ? AnyShapeStyle(SettingsStyle.destructive) : AnyShapeStyle(SettingsStyle.mutedForeground)
                     )

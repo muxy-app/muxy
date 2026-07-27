@@ -24,8 +24,8 @@ struct PanelContainer<Content: View>: View {
     private var header: some View {
         HStack(spacing: UIMetrics.spacing2) {
             if chrome.showsIcon, let symbol = chrome.iconSymbol {
-                Image(systemName: symbol)
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                Image(systemName: symbol).resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
             if chrome.showsTitle, let title = chrome.title {

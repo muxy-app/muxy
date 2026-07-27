@@ -55,8 +55,8 @@ struct ProjectPickerOverlay: View {
 
     private var pathBar: some View {
         HStack(spacing: UIMetrics.spacing4) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 .foregroundStyle(MuxyTheme.fgMuted)
 
             ZStack(alignment: .leading) {
@@ -87,8 +87,8 @@ struct ProjectPickerOverlay: View {
                 action: { handleCommand(.confirmTypedPath) },
                 label: {
                     HStack(spacing: UIMetrics.spacing2) {
-                        Image(systemName: "plus")
-                            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                        Image(systemName: "plus").resizable().scaledToFit()
+                            .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                         Text(workflow.session.topRightActionTitle)
                             .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     }
@@ -123,8 +123,8 @@ struct ProjectPickerOverlay: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+                    Image(systemName: "chevron.down").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                         .padding(.horizontal, UIMetrics.spacing3)
                         .padding(.vertical, UIMetrics.spacing2)
                         .contentShape(Rectangle())
@@ -436,8 +436,8 @@ private struct ProjectPickerDirectoryRowView: View {
             ZStack(alignment: .bottomTrailing) {
                 Image(systemName: "folder")
                     .foregroundStyle(MuxyTheme.fgMuted)
-                Image(systemName: "arrow.up.forward")
-                    .font(.system(size: UIMetrics.scaled(7), weight: .bold))
+                Image(systemName: "arrow.up.forward").resizable().scaledToFit()
+                    .frame(width: UIMetrics.scaled(7), height: UIMetrics.scaled(7))
                     .foregroundStyle(MuxyTheme.fg)
                     .padding(1)
                     .background(MuxyTheme.surface, in: Circle())

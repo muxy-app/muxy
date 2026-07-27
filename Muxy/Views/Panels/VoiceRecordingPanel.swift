@@ -200,8 +200,8 @@ struct VoiceRecordingPanel: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            Image(systemName: systemName).resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(tint)
                 .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))

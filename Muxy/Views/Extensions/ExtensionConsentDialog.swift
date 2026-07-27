@@ -222,8 +222,8 @@ struct ExtensionConsentDialog: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: iconName)
-                .font(.system(size: 28, weight: .light))
+            Image(systemName: iconName).resizable().scaledToFit()
+                .frame(width: 28, height: 28)
                 .foregroundStyle(MuxyTheme.accent)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Allow \(request.extensionDisplayName)?")
@@ -263,8 +263,8 @@ struct ExtensionConsentDialog: View {
             }
             .toggleStyle(.checkbox)
             HStack(spacing: 6) {
-                Image(systemName: "info.circle")
-                    .font(.system(size: UIMetrics.fontCaption))
+                Image(systemName: "info.circle").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.fgMuted)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\"Remember\" saves rule")

@@ -1806,8 +1806,8 @@ private struct NavigationArrowButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            Image(systemName: symbol).resizable().scaledToFit()
+                .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 .foregroundStyle(foregroundColor)
                 .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
                 .contentShape(Rectangle())
@@ -2009,8 +2009,8 @@ private struct MainWindowToast: View {
 
     var body: some View {
         HStack(alignment: toast.body == nil ? .center : .top, spacing: UIMetrics.spacing3) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            Image(systemName: "checkmark.circle.fill").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 .foregroundStyle(MuxyTheme.diffAddFg)
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 Text(toast.title)

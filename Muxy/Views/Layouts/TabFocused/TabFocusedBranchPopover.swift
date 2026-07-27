@@ -105,8 +105,8 @@ struct TabFocusedBranchPopover: View {
         if isCreatingBranch {
             VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                 HStack(spacing: UIMetrics.spacing2) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    Image(systemName: "arrow.triangle.branch").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                         .foregroundStyle(MuxyTheme.accent)
                     Text("New branch")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
@@ -152,8 +152,8 @@ struct TabFocusedBranchPopover: View {
         } else {
             Button(action: beginBranchCreation) {
                 HStack(spacing: UIMetrics.spacing3) {
-                    Image(systemName: "plus")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+                    Image(systemName: "plus").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                         .frame(width: UIMetrics.iconSM)
                     Text("New branch")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
@@ -285,8 +285,8 @@ private struct BranchPopoverRow: View {
         HStack(spacing: UIMetrics.spacing2) {
             Button(action: onSelect) {
                 HStack(spacing: UIMetrics.spacing3) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                    Image(systemName: "arrow.triangle.branch").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                         .foregroundStyle(isSelected ? MuxyTheme.accent : MuxyTheme.fgMuted)
                         .frame(width: UIMetrics.iconSM)
                     Text(name)
@@ -314,15 +314,15 @@ private struct BranchPopoverRow: View {
     @ViewBuilder
     private var trailingAccessory: some View {
         if isSelected {
-            Image(systemName: "checkmark")
-                .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+            Image(systemName: "checkmark").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                 .foregroundStyle(MuxyTheme.accent)
                 .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                 .accessibilityHidden(true)
         } else {
             Button(action: onRequestDelete) {
-                Image(systemName: "trash")
-                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+                Image(systemName: "trash").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
                     .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                     .contentShape(Rectangle())

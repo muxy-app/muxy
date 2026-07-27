@@ -9,8 +9,8 @@ struct ResourceUsageButton: View {
         Button {
             showingPopover.toggle()
         } label: {
-            Image(systemName: "cpu")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            Image(systemName: "cpu").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
                 .padding(.horizontal, 4)
                 .frame(maxHeight: .infinity)
@@ -60,8 +60,8 @@ private struct ResourceUsagePopover: View {
             onClose()
         } label: {
             HStack(spacing: UIMetrics.spacing3) {
-                Image(systemName: "eye.slash")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                Image(systemName: "eye.slash").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 Text("Hide from status bar")
                     .font(.system(size: UIMetrics.fontFootnote))
                 Spacer(minLength: 0)
@@ -75,8 +75,8 @@ private struct ResourceUsagePopover: View {
 
     private var header: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: "cpu")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            Image(systemName: "cpu").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(MuxyTheme.accent)
             Text("Resources")
                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))

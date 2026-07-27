@@ -60,8 +60,8 @@ struct TabFocusedPullRequestPopover: View {
 
     private var header: some View {
         HStack(spacing: UIMetrics.spacing4) {
-            Image(systemName: PullRequestPresentation.symbol(for: info))
-                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+            Image(systemName: PullRequestPresentation.symbol(for: info)).resizable().scaledToFit()
+                .frame(width: UIMetrics.fontHeadline, height: UIMetrics.fontHeadline)
                 .foregroundStyle(PullRequestPresentation.color(for: info))
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 Text("Pull Request #\(info.number)")
@@ -77,8 +77,8 @@ struct TabFocusedPullRequestPopover: View {
                     if isRefreshing {
                         ProgressView().controlSize(.mini)
                     } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                        Image(systemName: "arrow.clockwise").resizable().scaledToFit()
+                            .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                     }
                 }
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -186,8 +186,8 @@ struct TabFocusedPullRequestPopover: View {
                     if isBusy {
                         ProgressView().controlSize(.mini)
                     } else {
-                        Image(systemName: symbol)
-                            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                        Image(systemName: symbol).resizable().scaledToFit()
+                            .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                     }
                     Text(label)
                         .font(.system(size: UIMetrics.fontFootnote, weight: isConfirming ? .semibold : .medium))
@@ -223,8 +223,8 @@ struct TabFocusedPullRequestPopover: View {
 
     private var confirmationCancelButton: some View {
         Button(action: cancelConfirmation) {
-            Image(systemName: "xmark")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            Image(systemName: "xmark").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .padding(.horizontal, UIMetrics.spacing4)
                 .padding(.vertical, UIMetrics.spacing3)

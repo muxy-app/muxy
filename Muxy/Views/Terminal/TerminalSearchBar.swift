@@ -12,8 +12,8 @@ struct TerminalSearchBar: View {
         VStack(spacing: 0) {
             HStack(spacing: UIMetrics.spacing3) {
                 HStack(spacing: UIMetrics.spacing2) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: UIMetrics.fontFootnote))
+                    Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .accessibilityHidden(true)
 
@@ -46,22 +46,22 @@ struct TerminalSearchBar: View {
                 )
 
                 Button(action: onNavigatePrevious) {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    Image(systemName: "chevron.up").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 }
                 .buttonStyle(SearchBarButtonStyle())
                 .accessibilityLabel("Previous Match")
 
                 Button(action: onNavigateNext) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    Image(systemName: "chevron.down").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 }
                 .buttonStyle(SearchBarButtonStyle())
                 .accessibilityLabel("Next Match")
 
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    Image(systemName: "xmark").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 }
                 .buttonStyle(SearchBarButtonStyle())
                 .accessibilityLabel("Close Search")

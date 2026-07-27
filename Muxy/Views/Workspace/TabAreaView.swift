@@ -196,8 +196,8 @@ private struct TabContentView: View {
 private struct BrowserDisabledPlaceholder: View {
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "globe.badge.chevron.backward")
-                .font(.system(size: 32, weight: .light))
+            Image(systemName: "globe.badge.chevron.backward").resizable().scaledToFit()
+                .frame(width: 32, height: 32)
             Text("Built-in browser is disabled")
                 .font(.headline)
             Text("Enable it in Settings → Browser.")

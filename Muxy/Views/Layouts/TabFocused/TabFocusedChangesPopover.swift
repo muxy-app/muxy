@@ -57,8 +57,8 @@ struct TabFocusedChangesPopover: View {
 
     private var header: some View {
         HStack(spacing: UIMetrics.spacing4) {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+            Image(systemName: "arrow.left.arrow.right").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontHeadline, height: UIMetrics.fontHeadline)
                 .foregroundStyle(summary.isDirty ? MuxyTheme.warning : MuxyTheme.diffAddFg)
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 Text("Changes")
@@ -77,8 +77,8 @@ struct TabFocusedChangesPopover: View {
                     if isLoading {
                         ProgressView().controlSize(.mini)
                     } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                        Image(systemName: "arrow.clockwise").resizable().scaledToFit()
+                            .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                     }
                 }
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -286,8 +286,8 @@ struct TabFocusedChangesPopover: View {
 
     private var cleanState: some View {
         VStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: "checkmark.circle")
-                .font(.system(size: UIMetrics.fontDisplay, weight: .medium))
+            Image(systemName: "checkmark.circle").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontDisplay, height: UIMetrics.fontDisplay)
                 .foregroundStyle(MuxyTheme.diffAddFg)
             Text("Working tree is clean")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
@@ -298,8 +298,8 @@ struct TabFocusedChangesPopover: View {
 
     private func errorState(_ error: String) -> some View {
         VStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: UIMetrics.fontDisplay, weight: .medium))
+            Image(systemName: "exclamationmark.triangle").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontDisplay, height: UIMetrics.fontDisplay)
                 .foregroundStyle(MuxyTheme.warning)
             Text("Changes unavailable")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
@@ -325,8 +325,8 @@ struct TabFocusedChangesPopover: View {
             Divider().overlay(MuxyTheme.border)
             Button(role: .destructive, action: onRemoveWorktree) {
                 HStack(spacing: UIMetrics.spacing3) {
-                    Image(systemName: "trash")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    Image(systemName: "trash").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                         .frame(width: UIMetrics.iconSM)
                     Text(worktreeRemovalLabel)
                         .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
@@ -429,8 +429,8 @@ private struct ChangesPopoverActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+            Image(systemName: symbol).resizable().scaledToFit()
+                .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 .foregroundStyle(foreground)
                 .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                 .background(isHovered && !isDisabled ? MuxyTheme.hover : .clear, in: RoundedRectangle(

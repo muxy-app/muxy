@@ -41,8 +41,8 @@ struct ProjectIconColorPicker: View {
                 onSelect(nil)
             } label: {
                 HStack(spacing: UIMetrics.spacing3) {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                    Image(systemName: "arrow.uturn.backward").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     Text("Reset to Default")
                         .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 }

@@ -78,8 +78,8 @@ struct WorkspaceSwitcher: View {
         } label: {
             HStack(spacing: UIMetrics.spacing2) {
                 if activeGroup?.type == .ssh {
-                    Image(systemName: "network")
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    Image(systemName: "network").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                         .foregroundStyle(MuxyTheme.accent)
                 }
                 Text(activeLabel)
@@ -87,8 +87,8 @@ struct WorkspaceSwitcher: View {
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .lineLimit(1)
                 Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                Image(systemName: "chevron.down").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
             .padding(.horizontal, UIMetrics.spacing4)
@@ -110,8 +110,8 @@ struct WorkspaceSwitcher: View {
         Button {
             isShowingPopover.toggle()
         } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+            Image(systemName: "chevron.down").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
                 .background(
@@ -168,12 +168,12 @@ struct WorkspaceSwitcher: View {
             isShowingPopover = false
         } label: {
             HStack(spacing: UIMetrics.spacing2) {
-                Image(systemName: projectGroupStore.activeGroupID == nil ? "checkmark" : "")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                Image(systemName: projectGroupStore.activeGroupID == nil ? "checkmark" : "").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.accent)
                     .frame(width: UIMetrics.fontCaption)
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                Image(systemName: "square.grid.2x2").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .frame(width: UIMetrics.fontBody)
                 Text("All Projects")
@@ -204,8 +204,8 @@ struct WorkspaceSwitcher: View {
             }
         } label: {
             HStack(spacing: UIMetrics.spacing2) {
-                Image(systemName: "plus")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                Image(systemName: "plus").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.accent)
                     .frame(width: UIMetrics.fontCaption)
                 Text("New Workspace")
@@ -415,12 +415,12 @@ private struct WorkspaceRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: UIMetrics.spacing2) {
-                Image(systemName: isActive ? "checkmark" : "")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                Image(systemName: isActive ? "checkmark" : "").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.accent)
                     .frame(width: UIMetrics.fontCaption)
-                Image(systemName: group.type == .ssh ? "network" : "square.stack.3d.up")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                Image(systemName: group.type == .ssh ? "network" : "square.stack.3d.up").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .frame(width: UIMetrics.fontBody)
                 Text(group.name)
@@ -458,8 +458,8 @@ private struct WorkspaceRow: View {
         case .connected:
             Circle().fill(.green).frame(width: UIMetrics.spacing2, height: UIMetrics.spacing2)
         case .failed:
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: UIMetrics.fontCaption))
+            Image(systemName: "exclamationmark.triangle.fill").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 .foregroundStyle(.orange)
         case .disconnected,
              .none:

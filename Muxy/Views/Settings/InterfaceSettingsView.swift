@@ -195,8 +195,8 @@ struct InterfaceSettingsView: View {
                 Text(title)
                     .font(.system(size: SettingsMetrics.labelFontSize))
                     .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10))
+                Image(systemName: "chevron.up.chevron.down").resizable().scaledToFit()
+                    .frame(width: 10, height: 10)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
