@@ -88,6 +88,8 @@ the control that was focused before recording and can optionally press Return af
 
 Inside a terminal pane: **Paste**, **Split Right**, **Split Down**, **Close Pane**.
 
+The default keyboard shortcuts for child panes are **Cmd+Option+\\** to split right and **Cmd+Option+Shift+\\** to split down.
+
 Splitting creates a child pane inside the current top-level tab. Each pane keeps its own terminal, browser, source-control, or extension surface, while a one-pixel divider replaces the old per-pane tab strip. Child panes do not appear as separate entries in the window tab strip or the Tab Focused sidebar. An agent running in a child pane does appear as its own entry in the Agents Focused sidebar, and selecting it activates both the child pane and its parent top-level tab.
 
 Dragging a top-level tab toward an edge docks the whole tab beside another top-level tab. Its child-pane layout moves with it and remains independent from the neighboring tab's child panes.
