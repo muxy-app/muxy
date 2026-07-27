@@ -27,6 +27,29 @@ struct TerminalOfflinePolicyTests {
         #expect(!TerminalOfflinePolicy.isIdle(hasRunningProcess: true, isAlternateScreen: true))
     }
 
+    @Test("a shell sitting at its prompt does not count as a running process")
+    func shellAtPromptCountsAsIdle() {
+        #expect(!TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "zsh"))
+        #expect(!TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "-zsh"))
+        #expect(!TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "bash"))
+        #expect(!TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "fish"))
+    }
+
+    @Test("a non-shell foreground process counts as running")
+    func nonShellForegroundCountsAsRunning() {
+        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "bun"))
+        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "node"))
+        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "ssh"))
+        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "make"))
+    }
+
+    @Test("an unknown foreground process never reports the pane as free")
+    func unknownForegroundProcessFailsSafe() {
+        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: nil))
+        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: ""))
+        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "someunknownshell"))
+    }
+
     @Test("a pane keeps awake only while on screen and focused")
     func keepsAwakeOnlyWhenOnScreenAndFocused() {
         #expect(TerminalOfflinePolicy.keepsAwake(isOnScreen: true, isFocused: true))

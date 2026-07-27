@@ -493,7 +493,13 @@ final class GhosttyTerminalNSView: NSView {
         if ghostty_surface_needs_confirm_quit(surface) {
             return false
         }
-        return !isAlternateScreenActive(surface: surface)
+        let foregroundPID = ghostty_surface_foreground_pid(surface)
+        return TerminalOfflinePolicy.isIdle(
+            hasRunningProcess: TerminalOfflinePolicy.hasRunningProcess(
+                foregroundProcessName: Self.processName(pid: foregroundPID)
+            ),
+            isAlternateScreen: isAlternateScreenActive(surface: surface)
+        )
     }
 
     var isOfflineBlockedByRemote: Bool {
