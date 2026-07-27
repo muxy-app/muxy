@@ -278,6 +278,10 @@ struct ProjectFocusedSidebar: View {
         projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
     }
 
+    private var navigableProjects: [Project] {
+        ProjectNavigationOrder.projects(homeProject: homeProject, displayedProjects: displayedProjects)
+    }
+
     private var filteredHomeProject: Project? {
         guard let homeProject, ProjectListSearch.matches(homeProject, query: activeProjectSearchQuery) else { return nil }
         return homeProject
@@ -388,10 +392,11 @@ struct ProjectFocusedSidebar: View {
     }
 
     private var scrollableProjects: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        let shortcutIndices = ProjectNavigationOrder.shortcutIndices(in: navigableProjects)
+        return ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: UIMetrics.spacing3) {
                 if let filteredHomeProject {
-                    projectRow(for: filteredHomeProject, shortcutIndex: 1)
+                    projectRow(for: filteredHomeProject, shortcutIndex: shortcutIndices[filteredHomeProject.id])
                 }
 
                 if hasNoSearchResults {
@@ -403,7 +408,7 @@ struct ProjectFocusedSidebar: View {
                 }
 
                 ForEach(Array(filteredProjects.enumerated()), id: \.element.id) { offset, project in
-                    projectRow(for: project, shortcutIndex: shortcutIndex(forRowAt: offset))
+                    projectRow(for: project, shortcutIndex: shortcutIndices[project.id])
                         .background {
                             if dragState.draggedID != nil {
                                 GeometryReader { geo in
@@ -499,11 +504,6 @@ struct ProjectFocusedSidebar: View {
             return
         }
         projectStore.setWorktreesEnabled(id: project.id, to: enabled)
-    }
-
-    private func shortcutIndex(forRowAt offset: Int) -> Int? {
-        let index = filteredHomeProject == nil ? offset + 1 : offset + 2
-        return index <= 9 ? index : nil
     }
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {

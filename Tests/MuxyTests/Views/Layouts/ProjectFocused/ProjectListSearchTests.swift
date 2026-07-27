@@ -47,6 +47,30 @@ struct ProjectListSearchTests {
         #expect(!ProjectSearchPreferences.defaultVisible)
     }
 
+    @Test("filtered projects keep their navigation shortcut index")
+    func filteredProjectsKeepNavigationShortcutIndex() {
+        let alpha = project(named: "Alpha")
+        let beta = project(named: "Beta")
+        let navigationOrder = ProjectNavigationOrder.projects(
+            homeProject: Project.home,
+            displayedProjects: [alpha, beta]
+        )
+        let filteredProjects = ProjectListSearch.filter([alpha, beta], matching: "beta")
+        let shortcutIndices = ProjectNavigationOrder.shortcutIndices(in: navigationOrder)
+
+        #expect(filteredProjects.count == 1)
+        #expect(shortcutIndices[filteredProjects[0].id] == 3)
+    }
+
+    @Test("projects after the ninth navigation target have no shortcut")
+    func projectsAfterNinthNavigationTargetHaveNoShortcut() {
+        let projects = (1 ... 10).map { project(named: "Project \($0)") }
+        let shortcutIndices = ProjectNavigationOrder.shortcutIndices(in: projects)
+
+        #expect(shortcutIndices[projects[8].id] == 9)
+        #expect(shortcutIndices[projects[9].id] == nil)
+    }
+
     private func project(named name: String) -> Project {
         Project(name: name, path: "/tmp/\(name)")
     }
