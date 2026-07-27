@@ -35,6 +35,18 @@ struct ProjectListSearchTests {
         #expect(ProjectListSearch.filter(projects, matching: "gamma").isEmpty)
     }
 
+    @Test("search query is active only while the wide search field is visible")
+    func searchQueryRequiresVisibleWideField() {
+        #expect(ProjectListSearch.activeQuery("Alpha", isVisible: true, isWide: true) == "Alpha")
+        #expect(ProjectListSearch.activeQuery("Alpha", isVisible: false, isWide: true).isEmpty)
+        #expect(ProjectListSearch.activeQuery("Alpha", isVisible: true, isWide: false).isEmpty)
+    }
+
+    @Test("search field is hidden by default")
+    func searchFieldIsHiddenByDefault() {
+        #expect(!ProjectSearchPreferences.defaultVisible)
+    }
+
     private func project(named name: String) -> Project {
         Project(name: name, path: "/tmp/\(name)")
     }
