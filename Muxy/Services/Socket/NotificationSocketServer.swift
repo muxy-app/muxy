@@ -931,7 +931,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         guard let root = appState.workspaceRoots[key] else { return nil }
         for area in root.allAreas() {
             for tab in area.tabs {
-                guard let paneID = tab.content.pane?.id else { continue }
+                guard let paneID = tab.displayPane?.id else { continue }
                 let path = NotificationStore.shared.worktreeStore?.worktree(
                     projectID: key.projectID,
                     worktreeID: key.worktreeID

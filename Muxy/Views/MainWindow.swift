@@ -80,6 +80,7 @@ struct MainWindow: View {
     private enum CloseConfirmationKind {
         case lastTab
         case runningProcess
+        case runningInternalPane
 
         var title: String {
             switch self {
@@ -87,6 +88,8 @@ struct MainWindow: View {
                 "Close Project?"
             case .runningProcess:
                 "Close Tab?"
+            case .runningInternalPane:
+                "Close Pane?"
             }
         }
 
@@ -96,6 +99,8 @@ struct MainWindow: View {
                 "This is the last tab. Closing it will remove the project from the sidebar."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
+            case .runningInternalPane:
+                "A process is still running in this pane. Are you sure you want to close it?"
             }
         }
     }
@@ -269,8 +274,10 @@ struct MainWindow: View {
             tabCloseObserver: TabCloseConfirmationObserver(
                 lastTab: appState.pendingLastTabClose != nil,
                 runningProcess: appState.pendingProcessTabClose != nil,
+                runningInternalPane: appState.pendingProcessInternalPaneClose != nil,
                 onLastTab: { presentCloseConfirmation(.lastTab) },
-                onRunningProcess: { presentCloseConfirmation(.runningProcess) }
+                onRunningProcess: { presentCloseConfirmation(.runningProcess) },
+                onRunningInternalPane: { presentCloseConfirmation(.runningInternalPane) }
             ),
             worktreeKeysSignature: worktreeKeysSignature,
             activeWorktreeSignature: activeWorktreeSignature,
@@ -1358,7 +1365,7 @@ struct MainWindow: View {
         guard case let .created(worktree, runSetup) = result else { return }
         appState.selectWorktree(projectID: project.id, worktree: worktree)
         guard runSetup,
-              let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
+              let paneID = appState.focusedArea(for: project.id)?.activeTab?.displayPane?.id
         else { return }
         Task {
             await WorktreeSetupRunner.run(sourceProjectPath: project.path, paneID: paneID)
@@ -1497,7 +1504,7 @@ struct MainWindow: View {
 
     private var isTerminalPaneFocused: Bool {
         guard let projectID = appState.activeProjectID else { return false }
-        return appState.activeTab(for: projectID)?.content.pane != nil
+        return appState.activeTab(for: projectID)?.displayPane != nil
     }
 
     private var isBrowserPaneFocused: Bool {
@@ -1571,24 +1578,18 @@ struct MainWindow: View {
         )
     }
 
+    @ViewBuilder
     func pinnedPanelSlot(at position: PanelPosition) -> some View {
-        PanelHostSlot(panelHost: panelHost, position: position, mode: .pinned) { placement in
-            panelContent(
-                for: placement.panelID,
-                position: placement.position,
-                mode: placement.mode
-            )
+        if let panelID = panelHost.pinnedPanel(at: position) {
+            panelContent(for: panelID, position: position, mode: .pinned)
         }
     }
 
+    @ViewBuilder
     func floatingPanelOverlay(at position: PanelPosition) -> some View {
-        PanelHostSlot(panelHost: panelHost, position: position, mode: .floating) { placement in
-            panelContent(
-                for: placement.panelID,
-                position: placement.position,
-                mode: placement.mode
-            )
-            .background(MuxyTheme.bg)
+        if let panelID = panelHost.floatingPanel(at: position) {
+            panelContent(for: panelID, position: position, mode: .floating)
+                .background(MuxyTheme.bg)
         }
     }
 
@@ -1611,7 +1612,6 @@ struct MainWindow: View {
             ),
             mode: mode,
             position: position,
-            focusRestorationID: nil,
             onClose: { panelHost.close(BuiltinPanel.extensionConsole) },
             onTogglePin: nil,
             onTogglePosition: nil,
@@ -1712,7 +1712,7 @@ struct MainWindow: View {
 
     private var activeTerminalPane: TerminalPaneState? {
         guard let project = activeProject else { return nil }
-        return appState.activeTab(for: project.id)?.content.pane
+        return appState.activeTab(for: project.id)?.displayPane
     }
 
     private func toggleComposer() {
@@ -1769,7 +1769,7 @@ struct MainWindow: View {
         guard let project = activeProject,
               let root = appState.workspaceRoot(for: project.id)
         else { return [] }
-        return root.allAreas().compactMap { $0.activeTab?.content.pane?.id }
+        return root.allAreas().flatMap { $0.activeTab?.terminalPanes ?? [] }.map(\.id)
     }
 
     private func activeWorktreePath(for project: Project) -> String {
@@ -1822,7 +1822,7 @@ struct MainWindow: View {
         alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = "\u{1b}"
 
-        if kind == .runningProcess {
+        if kind == .runningProcess || kind == .runningInternalPane {
             alert.showsSuppressionButton = true
             alert.suppressionButton?.title = "Don't ask again"
         }
@@ -1843,6 +1843,15 @@ struct MainWindow: View {
                     appState.confirmCloseRunningTab()
                 } else {
                     appState.cancelCloseRunningTab()
+                }
+            case .runningInternalPane:
+                if response == .alertFirstButtonReturn {
+                    if alert.suppressionButton?.state == .on {
+                        TabCloseConfirmationPreferences.confirmRunningProcess = false
+                    }
+                    appState.confirmCloseRunningInternalPane()
+                } else {
+                    appState.cancelCloseRunningInternalPane()
                 }
             }
         }
@@ -1896,8 +1905,10 @@ private struct WindowTitleUpdater: NSViewRepresentable {
 private struct TabCloseConfirmationObserver: ViewModifier {
     let lastTab: Bool
     let runningProcess: Bool
+    let runningInternalPane: Bool
     let onLastTab: () -> Void
     let onRunningProcess: () -> Void
+    let onRunningInternalPane: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -1908,6 +1919,10 @@ private struct TabCloseConfirmationObserver: ViewModifier {
             .onChange(of: runningProcess) { _, isPresented in
                 guard isPresented else { return }
                 onRunningProcess()
+            }
+            .onChange(of: runningInternalPane) { _, isPresented in
+                guard isPresented else { return }
+                onRunningInternalPane()
             }
     }
 }

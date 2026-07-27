@@ -504,7 +504,7 @@ struct ExpandedProjectRow: View {
             appState.selectWorktree(projectID: project.id, worktree: worktree)
             worktreesExpanded = true
             if runSetup,
-               let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
+               let paneID = appState.focusedArea(for: project.id)?.activeTab?.displayPane?.id
             {
                 Task {
                     await WorktreeSetupRunner.run(

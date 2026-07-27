@@ -52,17 +52,36 @@ final class TerminalTab: Identifiable {
     var colorID: String?
     var customIcon: String?
     var isPinned: Bool = false
+    var internalPanes: InternalPaneNode?
+    var focusedPaneID: UUID?
     let content: Content
 
     var kind: Kind { content.kind }
+
+    var displayPane: TerminalPaneState? {
+        guard case let .terminal(pane) = content else { return nil }
+        guard let internalPanes,
+              let focusedPaneID,
+              let focusedPane = internalPanes.findPane(id: focusedPaneID)
+        else { return pane }
+        return focusedPane
+    }
+
+    var terminalPanes: [TerminalPaneState] {
+        internalPanes?.allPanes() ?? content.pane.map { [$0] } ?? []
+    }
+
+    func containsTerminalPane(id: UUID) -> Bool {
+        terminalPanes.contains { $0.id == id }
+    }
 
     var title: String {
         if let customTitle {
             return customTitle
         }
         switch content {
-        case let .terminal(pane):
-            return pane.displayTitle
+        case .terminal:
+            return displayPane?.displayTitle ?? "Terminal"
         case let .extensionWebView(state):
             return state.displayTitle
         case let .browser(state):
@@ -130,6 +149,14 @@ final class TerminalTab: Identifiable {
             browserState.shouldFocusAddressOnOpen = false
             content = .browser(browserState)
         }
+        if let pane = content.pane,
+           let restoredInternalPanes = snapshot.internalPanes?.toInternalPaneNode()
+        {
+            internalPanes = restoredInternalPanes.replacingPane(id: pane.id, with: pane)
+        } else {
+            internalPanes = snapshot.internalPanes?.toInternalPaneNode()
+        }
+        focusedPaneID = snapshot.focusedPaneID.flatMap(UUID.init(uuidString:))
     }
 
     func snapshot() -> TerminalTabSnapshot {
@@ -149,7 +176,9 @@ final class TerminalTab: Identifiable {
             extensionTabTypeID: content.extensionState?.tabTypeID,
             extensionTabData: content.extensionState?.data,
             browserURL: content.browserState?.url?.absoluteString,
-            browserProfileID: content.browserState?.profileID.uuidString
+            browserProfileID: content.browserState?.profileID.uuidString,
+            internalPanes: internalPanes.map(InternalPaneNodeSnapshot.init(node:)),
+            focusedPaneID: focusedPaneID?.uuidString
         )
     }
 

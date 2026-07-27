@@ -226,6 +226,25 @@ enum TabReducer {
               let area = root.findArea(id: areaID)
         else { return }
 
+        if let tab = area.tabs.first(where: { $0.id == tabID }),
+           !tab.isPinned,
+           let internalPanes = tab.internalPanes,
+           internalPanes.allPanes().count > 1,
+           let focusedPaneID = tab.focusedPaneID
+        {
+            let removedPaneID = TabPaneReducer.closeInternalPane(
+                projectID: key.projectID,
+                areaID: areaID,
+                tabID: tabID,
+                paneID: focusedPaneID,
+                state: &state
+            )
+            if let removedPaneID {
+                effects.paneIDsToRemove.append(removedPaneID)
+            }
+            return
+        }
+
         guard let tab = area.tabs.first(where: { $0.id == tabID }),
               !tab.isPinned
         else { return }
@@ -234,9 +253,9 @@ enum TabReducer {
             return
         }
 
-        if let paneID = area.closeTab(tabID) {
-            effects.paneIDsToRemove.append(paneID)
-        }
+        let paneIDs = tab.terminalPanes.map(\.id)
+        _ = area.closeTab(tabID)
+        effects.paneIDsToRemove.append(contentsOf: paneIDs)
 
         guard area.tabs.isEmpty else { return }
         SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
@@ -305,9 +324,7 @@ enum TabReducer {
         for affectedArea in affectedAreas {
             let ownedTabs = affectedArea.tabs.filter { ownedIDs.contains($0.id) }
             for ownedTab in ownedTabs {
-                if let paneID = ownedTab.content.pane?.id {
-                    effects.paneIDsToRemove.append(paneID)
-                }
+                effects.paneIDsToRemove.append(contentsOf: ownedTab.terminalPanes.map(\.id))
                 _ = affectedArea.extractTabForMove(ownedTab.id)
             }
         }
@@ -359,5 +376,24 @@ enum TabReducer {
         let rootIDs = root.allTabs().filter { $0.parentTabID == nil }.map(\.id)
         let persisted = state.topLevelTabOrder[key] ?? []
         return persisted.filter { rootIDs.contains($0) } + rootIDs.filter { !persisted.contains($0) }
+    }
+
+    static func focusInternalPane(
+        projectID: UUID,
+        areaID: UUID,
+        tabID: UUID,
+        paneID: UUID,
+        state: inout WorkspaceState
+    ) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state),
+              let tab = area.tabs.first(where: { $0.id == tabID })
+        else { return }
+
+        guard tab.internalPanes?.containsPane(id: paneID) == true || tab.content.pane?.id == paneID else { return }
+        state.activeProjectID = projectID
+        FocusReducer.focusArea(area.id, key: key, state: &state)
+        area.selectTab(tabID)
+        tab.focusedPaneID = paneID
     }
 }

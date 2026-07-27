@@ -82,6 +82,27 @@ struct ExtensionEventEmitterTests {
         #expect(!after.tabs.contains(tabID))
     }
 
+    @Test("pane snapshot carries each internal pane context")
+    func paneSnapshotCarriesInternalPaneContext() {
+        let appState = makeAppState()
+        let area = firstArea(in: appState)
+        let tab = area.tabs[0]
+        let firstPane = TerminalPaneState(projectPath: "/tmp/project", title: "First")
+        let secondPane = TerminalPaneState(projectPath: "/tmp/project", title: "Second")
+        secondPane.setWorkingDirectory("/tmp/project/child")
+        tab.internalPanes = .split(InternalBranch(
+            direction: .horizontal,
+            first: .pane(firstPane),
+            second: .pane(secondPane)
+        ))
+
+        let snapshot = ExtensionEventEmitter.snapshot(from: appState)
+
+        #expect(snapshot.panes == Set([firstPane.id, secondPane.id]))
+        #expect(snapshot.paneContext[secondPane.id]?.paneID == secondPane.id)
+        #expect(snapshot.paneContext[secondPane.id]?.cwd == "/tmp/project/child")
+    }
+
     private func makeAppState() -> AppState {
         let appState = AppState(
             selectionStore: SelectionStoreStub(),

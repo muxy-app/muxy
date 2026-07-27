@@ -795,16 +795,19 @@ enum MuxyAPI {
                 let focusedAreaID = appState.focusedAreaID(for: key.projectID)
                 for area in root.allAreas() {
                     for tab in area.tabs {
-                        guard let pane = tab.content.pane else { continue }
-                        let isFocused = area.id == focusedAreaID && tab.id == area.activeTabID
-                        let title = tab.customTitle ?? pane.displayTitle
-                        let cwd = pane.currentWorkingDirectory ?? pane.projectPath
-                        result.append(PaneInfo(
-                            id: pane.id,
-                            title: title,
-                            workingDirectory: cwd,
-                            isFocused: isFocused
-                        ))
+                        for pane in tab.terminalPanes {
+                            let isFocused = area.id == focusedAreaID
+                                && tab.id == area.activeTabID
+                                && tab.displayPane?.id == pane.id
+                            let title = tab.customTitle ?? pane.displayTitle
+                            let cwd = pane.currentWorkingDirectory ?? pane.projectPath
+                            result.append(PaneInfo(
+                                id: pane.id,
+                                title: title,
+                                workingDirectory: cwd,
+                                isFocused: isFocused
+                            ))
+                        }
                     }
                 }
             }
@@ -1957,7 +1960,7 @@ private func foreignTabConsentGranted(
 private func locateTab(paneID: UUID, appState: AppState) -> PaneLocation? {
     for (key, root) in appState.workspaceRoots {
         for area in root.allAreas() {
-            for tab in area.tabs where tab.content.pane?.id == paneID {
+            for tab in area.tabs where tab.terminalPanes.contains(where: { $0.id == paneID }) {
                 return PaneLocation(key: key, areaID: area.id, tabID: tab.id)
             }
         }
@@ -2164,6 +2167,6 @@ extension MuxyAPI {
 @MainActor
 private func tabMatches(_ tab: TerminalTab, identifier: String) -> Bool {
     tab.id.uuidString == identifier
-        || tab.content.pane?.id.uuidString == identifier
+        || tab.terminalPanes.contains { $0.id.uuidString == identifier }
         || tab.title.localizedCaseInsensitiveCompare(identifier) == .orderedSame
 }

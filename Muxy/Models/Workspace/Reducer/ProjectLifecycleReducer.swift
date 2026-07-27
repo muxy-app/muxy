@@ -33,7 +33,7 @@ enum ProjectLifecycleReducer {
         let keysToRemove = state.workspaceRoots.keys.filter { $0.projectID == projectID }
         for key in keysToRemove {
             if let root = state.workspaceRoots[key] {
-                let paneIDs = root.allAreas().flatMap { area in area.tabs.compactMap { $0.content.pane?.id } }
+                let paneIDs = root.allAreas().flatMap { area in area.tabs.flatMap(\.terminalPanes).map(\.id) }
                 effects.paneIDsToRemove.append(contentsOf: paneIDs)
             }
             state.workspaceRoots.removeValue(forKey: key)
@@ -57,7 +57,7 @@ enum ProjectLifecycleReducer {
     ) {
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         if let root = state.workspaceRoots[key] {
-            let paneIDs = root.allAreas().flatMap { area in area.tabs.compactMap { $0.content.pane?.id } }
+            let paneIDs = root.allAreas().flatMap { area in area.tabs.flatMap(\.terminalPanes).map(\.id) }
             effects.paneIDsToRemove.append(contentsOf: paneIDs)
         }
         state.workspaceRoots.removeValue(forKey: key)

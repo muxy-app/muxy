@@ -137,14 +137,19 @@ struct ShortcutActionDispatcher {
             guard let projectID = appState.activeProjectID else { return false }
             appState.splitFocusedArea(direction: .vertical, projectID: projectID)
             return true
-        case .splitTabPane:
-            return perform(.splitRight, activeProject: activeProject)
-        case .splitTabPaneDown:
-            return perform(.splitDown, activeProject: activeProject)
         case .closePane:
             guard let projectID = appState.activeProjectID,
                   let areaID = appState.focusedAreaID(for: projectID)
             else { return false }
+
+            if let tab = appState.activeTab(for: projectID),
+               let internalPanes = tab.internalPanes,
+               internalPanes.allPanes().count > 1,
+               let focusedPaneID = tab.focusedPaneID
+            {
+                appState.closeInternalPane(projectID: projectID, areaID: areaID, tabID: tab.id, paneID: focusedPaneID)
+                return true
+            }
             appState.closeArea(areaID, projectID: projectID)
             return true
         case .focusPaneLeft:

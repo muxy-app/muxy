@@ -502,7 +502,7 @@ struct TabFocusedProjectRow: View {
         appState.selectWorktree(projectID: project.id, worktree: worktree)
         expansionStore.set(project.id, expanded: true)
         guard runSetup,
-              let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
+              let paneID = appState.focusedArea(for: project.id)?.activeTab?.displayPane?.id
         else { return }
         Task {
             await WorktreeSetupRunner.run(sourceProjectPath: project.path, paneID: paneID)

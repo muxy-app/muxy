@@ -90,35 +90,6 @@ struct ShortcutActionDispatcherTests {
         }
     }
 
-    @Test("inner pane split shortcuts create child tabs")
-    func innerPaneSplitShortcutsCreateChildTabs() {
-        for (action, direction) in [
-            (ShortcutAction.splitTabPane, SplitDirection.horizontal),
-            (ShortcutAction.splitTabPaneDown, SplitDirection.vertical),
-        ] {
-            let dispatcher = makeDispatcher(notificationCenter: NotificationCenter())
-            let projectID = UUID()
-            let worktreeID = UUID()
-            let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
-            let area = TabArea(projectPath: "/tmp/app")
-            let rootTabID = area.activeTabID
-            dispatcher.appState.activeProjectID = projectID
-            dispatcher.appState.activeWorktreeID[projectID] = worktreeID
-            dispatcher.appState.workspaceRoots[key] = .tabArea(area)
-            dispatcher.appState.focusedAreaID[key] = area.id
-
-            #expect(dispatcher.perform(action, activeProject: nil))
-            let tabs = dispatcher.appState.workspaceRoots[key]?.allTabs() ?? []
-            #expect(tabs.contains { $0.parentTabID == rootTabID })
-            let split = dispatcher.appState.workspaceRoots[key]
-            guard case let .split(branch) = split else {
-                Issue.record("Shortcut did not create a split")
-                continue
-            }
-            #expect(branch.direction == direction)
-        }
-    }
-
     private func makeDispatcher(notificationCenter: NotificationCenter) -> ShortcutActionDispatcher {
         let projectStore = ProjectStore(persistence: DispatcherProjectPersistenceStub())
         let worktreeStore = WorktreeStore(persistence: DispatcherWorktreePersistenceStub(), projects: [])

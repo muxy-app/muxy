@@ -56,6 +56,9 @@ final class AppState {
         case selectPreviousFlatTabInWorktree(key: WorktreeKey)
         case splitArea(SplitAreaRequest)
         case splitAreaInWorktree(key: WorktreeKey, request: SplitAreaRequest)
+        case splitTabPane(projectID: UUID, areaID: UUID, tabID: UUID, direction: SplitDirection)
+        case focusInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID)
+        case closeInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID)
         case closeArea(projectID: UUID, areaID: UUID)
         case closeAreaInWorktree(key: WorktreeKey, areaID: UUID)
         case focusArea(projectID: UUID, areaID: UUID)
@@ -95,6 +98,13 @@ final class AppState {
         let tabID: UUID
     }
 
+    struct PendingInternalPaneClose: Equatable {
+        let projectID: UUID
+        let areaID: UUID
+        let tabID: UUID
+        let paneID: UUID
+    }
+
     struct PendingLayoutApply: Equatable {
         let projectID: UUID
         let worktreePath: String
@@ -114,6 +124,7 @@ final class AppState {
     var maximizedPanes: [WorktreeKey: MaximizedPane] = [:]
     var pendingLastTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
+    var pendingProcessInternalPaneClose: PendingInternalPaneClose?
     let navigation = NavigationHistory()
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
 
@@ -402,7 +413,7 @@ final class AppState {
         for (key, root) in workspaceRoots {
             for area in root.allAreas() {
                 for tab in area.tabs {
-                    if let pane = tab.content.pane, pane.id == paneID {
+                    if let pane = tab.terminalPanes.first(where: { $0.id == paneID }) {
                         return (key, pane)
                     }
                 }
@@ -415,13 +426,15 @@ final class AppState {
         let worktreeKey: WorktreeKey
         let areaID: UUID
         let tab: TerminalTab
+        let pane: TerminalPaneState
     }
 
     func locateTab(forPane paneID: UUID) -> PaneTabLocation? {
         for (key, root) in workspaceRoots {
             for area in root.allAreas() {
-                for tab in area.tabs where tab.content.pane?.id == paneID {
-                    return PaneTabLocation(worktreeKey: key, areaID: area.id, tab: tab)
+                for tab in area.tabs {
+                    guard let pane = tab.terminalPanes.first(where: { $0.id == paneID }) else { continue }
+                    return PaneTabLocation(worktreeKey: key, areaID: area.id, tab: tab, pane: pane)
                 }
             }
         }
@@ -569,6 +582,24 @@ final class AppState {
     }
 
     private func proceedCloseAfterVeto(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
+        guard let root = workspaceRoots[key],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID })
+        else { return }
+
+        if let internalPanes = tab.internalPanes,
+           internalPanes.allPanes().count > 1,
+           let focusedPaneID = tab.focusedPaneID
+        {
+            closeInternalPane(
+                projectID: key.projectID,
+                areaID: areaID,
+                tabID: tabID,
+                paneID: focusedPaneID
+            )
+            return
+        }
+
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, key: key) {
             pendingProcessTabClose = PendingTabClose(key: key, areaID: areaID, tabID: tabID)
             return
@@ -655,7 +686,7 @@ final class AppState {
                 let label = worktreeLabel(key.worktreeID)
                 return root.allAreas().flatMap { area in
                     area.tabs.compactMap { tab -> OpenTerminalTabItem? in
-                        guard let pane = tab.content.pane else { return nil }
+                        guard let pane = tab.displayPane else { return nil }
                         let command = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
                             ?? pane.startupCommand
                         return OpenTerminalTabItem(
@@ -742,8 +773,8 @@ final class AppState {
         } else {
             [tab]
         }
-        return tabs.compactMap { $0.content.pane?.id }
-            .contains { terminalViews.needsConfirmQuit(for: $0) }
+        return tabs.flatMap(\.terminalPanes)
+            .contains { terminalViews.needsConfirmQuit(for: $0.id) }
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {
@@ -1020,6 +1051,17 @@ final class AppState {
         {
             pendingProcessTabClose = nil
         }
+
+        if let pending = pendingProcessInternalPaneClose,
+           !containsInternalPane(
+               projectID: pending.projectID,
+               areaID: pending.areaID,
+               tabID: pending.tabID,
+               paneID: pending.paneID
+           )
+        {
+            pendingProcessInternalPaneClose = nil
+        }
     }
 
     private func tabExists(tabID: UUID, areaID: UUID, key: WorktreeKey) -> Bool {
@@ -1078,6 +1120,10 @@ final class AppState {
         dispatch(.focusPaneDown(projectID: projectID))
     }
 
+    func focusInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID) {
+        dispatch(.focusInternalPane(projectID: projectID, areaID: areaID, tabID: tabID, paneID: paneID))
+    }
+
     func moveFocusedPaneLeft(projectID: UUID) {
         dispatch(.movePaneLeft(projectID: projectID))
     }
@@ -1092,6 +1138,55 @@ final class AppState {
 
     func moveFocusedPaneDown(projectID: UUID) {
         dispatch(.movePaneDown(projectID: projectID))
+    }
+
+    func closeInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID) {
+        guard containsInternalPane(
+            projectID: projectID,
+            areaID: areaID,
+            tabID: tabID,
+            paneID: paneID
+        )
+        else { return }
+        guard !needsProcessConfirmation(paneID: paneID) else {
+            pendingProcessInternalPaneClose = PendingInternalPaneClose(
+                projectID: projectID,
+                areaID: areaID,
+                tabID: tabID,
+                paneID: paneID
+            )
+            return
+        }
+        dispatch(.closeInternalPane(projectID: projectID, areaID: areaID, tabID: tabID, paneID: paneID))
+    }
+
+    func confirmCloseRunningInternalPane() {
+        guard let pending = pendingProcessInternalPaneClose else { return }
+        pendingProcessInternalPaneClose = nil
+        dispatch(.closeInternalPane(
+            projectID: pending.projectID,
+            areaID: pending.areaID,
+            tabID: pending.tabID,
+            paneID: pending.paneID
+        ))
+    }
+
+    func cancelCloseRunningInternalPane() {
+        pendingProcessInternalPaneClose = nil
+    }
+
+    private func needsProcessConfirmation(paneID: UUID) -> Bool {
+        TabCloseConfirmationPreferences.confirmRunningProcess
+            && terminalViews.needsConfirmQuit(for: paneID)
+    }
+
+    private func containsInternalPane(projectID: UUID, areaID: UUID, tabID: UUID, paneID: UUID) -> Bool {
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID })
+        else { return false }
+        return tab.internalPanes?.allPanes().contains(where: { $0.id == paneID }) == true
     }
 
     func cycleNextTabAcrossPanes(projectID: UUID) {

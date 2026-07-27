@@ -23,16 +23,12 @@ final class PanelHost {
         placement(for: panelID) != nil
     }
 
-    func panel(at position: PanelPosition, mode: PanelMode) -> PanelPlacement? {
-        placements.first { $0.position == position && $0.mode == mode }
-    }
-
     func pinnedPanel(at position: PanelPosition) -> String? {
-        panel(at: position, mode: .pinned)?.panelID
+        placements.first { $0.position == position && $0.mode == .pinned }?.panelID
     }
 
     func floatingPanel(at position: PanelPosition) -> String? {
-        panel(at: position, mode: .floating)?.panelID
+        placements.first { $0.position == position && $0.mode == .floating }?.panelID
     }
 
     func open(_ panelID: String, at position: PanelPosition, mode: PanelMode) {

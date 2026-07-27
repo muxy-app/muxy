@@ -5,8 +5,9 @@ enum AgentsFocusedTabSelection {
     struct Location: Identifiable {
         let area: TabArea
         let tab: TerminalTab
+        let pane: TerminalPaneState
 
-        var id: UUID { tab.id }
+        var id: UUID { pane.id }
     }
 
     static func resolve(
@@ -19,16 +20,16 @@ enum AgentsFocusedTabSelection {
         for area in root.allAreas() {
             for tab in area.tabs {
                 guard let parentTabID = tab.parentTabID else { continue }
-                childrenByParent[parentTabID, default: []].append(Location(area: area, tab: tab))
+                childrenByParent[parentTabID, default: []].append(contentsOf: locations(area: area, tab: tab))
             }
         }
         return topLevelTabs.flatMap { topLevel in
-            let locations = [Location(area: topLevel.area, tab: topLevel.tab)]
-                + childrenByParent[topLevel.tab.id, default: []]
-            return locations.filter { location in
-                guard let paneID = location.tab.content.pane?.id else { return false }
-                return providerID(paneID) != nil
-            }
+            locations(area: topLevel.area, tab: topLevel.tab).filter { providerID($0.pane.id) != nil }
+                + childrenByParent[topLevel.tab.id, default: []].filter { providerID($0.pane.id) != nil }
         }
+    }
+
+    private static func locations(area: TabArea, tab: TerminalTab) -> [Location] {
+        tab.terminalPanes.map { Location(area: area, tab: tab, pane: $0) }
     }
 }

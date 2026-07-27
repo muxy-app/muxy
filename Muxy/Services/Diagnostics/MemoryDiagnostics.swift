@@ -320,8 +320,8 @@ final class MemoryDiagnostics: NSObject {
                 for (_, root) in entries {
                     for area in root.allAreas() {
                         pTabs += area.tabs.count
-                        for tab in area.tabs where tab.content.pane != nil {
-                            pPanes += 1
+                        for tab in area.tabs {
+                            pPanes += tab.terminalPanes.count
                         }
                     }
                 }

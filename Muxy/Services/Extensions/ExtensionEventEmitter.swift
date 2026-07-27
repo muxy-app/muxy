@@ -45,11 +45,11 @@ enum ExtensionEventEmitter {
                 }
                 for tab in area.tabs {
                     tabs.insert(tab.id)
-                    let context = context(for: tab, areaID: area.id, key: key)
-                    tabContext[tab.id] = context
-                    if let pane = tab.content.pane {
+                    let tabContextValue = context(for: tab, areaID: area.id, key: key)
+                    tabContext[tab.id] = tabContextValue
+                    for pane in tab.terminalPanes {
                         panes.insert(pane.id)
-                        paneContext[pane.id] = context
+                        paneContext[pane.id] = context(for: tab, pane: pane, areaID: area.id, key: key)
                     }
                 }
             }
@@ -68,24 +68,35 @@ enum ExtensionEventEmitter {
 
     static func emitTabUpdated(forPane paneID: UUID, appState: AppState) {
         guard let located = appState.locateTab(forPane: paneID) else { return }
-        let context = context(for: located.tab, areaID: located.areaID, key: located.worktreeKey)
+        let context = context(
+            for: located.tab,
+            pane: located.pane,
+            areaID: located.areaID,
+            key: located.worktreeKey
+        )
         NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
             name: ExtensionEventName.tabUpdated,
             payload: payload(from: context)
         ))
     }
 
-    private static func context(for tab: TerminalTab, areaID: UUID, key: WorktreeKey) -> TabContext {
-        TabContext(
+    private static func context(
+        for tab: TerminalTab,
+        pane: TerminalPaneState? = nil,
+        areaID: UUID,
+        key: WorktreeKey
+    ) -> TabContext {
+        let pane = pane ?? tab.displayPane
+        return TabContext(
             tabID: tab.id,
-            paneID: tab.content.pane?.id,
+            paneID: pane?.id,
             kind: tab.kind.rawValue,
             projectID: key.projectID,
             worktreeID: key.worktreeID,
             areaID: areaID,
             title: tab.title,
             projectPath: tab.content.projectPath,
-            cwd: tab.content.pane?.currentWorkingDirectory,
+            cwd: pane?.currentWorkingDirectory,
             extensionID: tab.content.extensionState?.extensionID,
             tabTypeID: tab.content.extensionState?.tabTypeID,
             data: encodedData(tab.content.extensionState?.data)

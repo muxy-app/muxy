@@ -1,5 +1,14 @@
 import SwiftUI
 
+enum InternalPaneProcessExitAction: Equatable {
+    case closePane(UUID)
+    case closeTab
+
+    static func resolve(paneID: UUID, internalPaneCount: Int) -> Self {
+        internalPaneCount > 1 ? .closePane(paneID) : .closeTab
+    }
+}
+
 struct TabAreaView: View {
     let area: TabArea
     let tab: TerminalTab
@@ -36,6 +45,7 @@ struct TabAreaView: View {
             focused: isFocused && isActiveProject,
             visible: isActiveProject,
             areaID: area.id,
+            projectID: projectID,
             topLevelGroupID: topLevelGroupID,
             onFocus: onFocus,
             onProcessExit: onForceCloseTab,
@@ -97,7 +107,7 @@ struct TabAreaView: View {
                 browserState.activateFind()
                 return
             }
-            guard let pane = tab.content.pane else { return }
+            guard let pane = tab.displayPane else { return }
             TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
         }
     }
@@ -155,25 +165,58 @@ private struct TabContentView: View {
     let focused: Bool
     let visible: Bool
     let areaID: UUID
+    let projectID: UUID
     let topLevelGroupID: UUID
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         switch tab.content {
         case let .terminal(pane):
-            TerminalPane(
-                state: pane,
-                focused: focused,
-                visible: visible,
-                areaID: areaID,
-                topLevelGroupID: topLevelGroupID,
-                onFocus: onFocus,
-                onProcessExit: onProcessExit,
-                onSplitRequest: onSplitRequest
-            )
+            if let internalPanes = tab.internalPanes {
+                InternalPaneView(
+                    node: internalPanes,
+                    focusedPaneID: tab.focusedPaneID,
+                    focused: focused,
+                    visible: visible,
+                    areaID: areaID,
+                    projectID: projectID,
+                    topLevelGroupID: topLevelGroupID,
+                    onFocus: onFocus,
+                    onPaneFocus: { tab.focusedPaneID = $0 },
+                    onProcessExit: { paneID in
+                        switch InternalPaneProcessExitAction.resolve(
+                            paneID: paneID,
+                            internalPaneCount: tab.internalPanes?.allPanes().count ?? 0
+                        ) {
+                        case let .closePane(paneID):
+                            appState.dispatch(.closeInternalPane(
+                                projectID: projectID,
+                                areaID: areaID,
+                                tabID: tab.id,
+                                paneID: paneID
+                            ))
+                        case .closeTab:
+                            onProcessExit()
+                        }
+                    },
+                    onSplitRequest: onSplitRequest
+                )
+            } else {
+                TerminalPane(
+                    state: pane,
+                    focused: focused,
+                    visible: visible,
+                    areaID: areaID,
+                    topLevelGroupID: topLevelGroupID,
+                    onFocus: onFocus,
+                    onProcessExit: onProcessExit,
+                    onSplitRequest: onSplitRequest
+                )
+            }
         case let .extensionWebView(extensionState):
             ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)
         case let .browser(browserState):

@@ -198,6 +198,35 @@ enum WorkspaceReducer {
         case let .splitArea(request):
             effects.createdPaneID = SplitReducer.splitArea(request, state: &state)
 
+        case let .splitTabPane(projectID, areaID, tabID, direction):
+            effects.createdPaneID = TabPaneReducer.splitTabPane(
+                projectID: projectID,
+                areaID: areaID,
+                tabID: tabID,
+                direction: direction,
+                state: &state
+            )
+
+        case let .focusInternalPane(projectID, areaID, tabID, paneID):
+            TabReducer.focusInternalPane(
+                projectID: projectID,
+                areaID: areaID,
+                tabID: tabID,
+                paneID: paneID,
+                state: &state
+            )
+
+        case let .closeInternalPane(projectID, areaID, tabID, paneID):
+            if let removedPaneID = TabPaneReducer.closeInternalPane(
+                projectID: projectID,
+                areaID: areaID,
+                tabID: tabID,
+                paneID: paneID,
+                state: &state
+            ) {
+                effects.paneIDsToRemove.append(removedPaneID)
+            }
+
         case let .splitAreaInWorktree(key, request):
             guard state.workspaceRoots[key] != nil else { break }
             effects.createdPaneID = SplitReducer.splitArea(request, key: key, state: &state)
@@ -311,6 +340,9 @@ enum WorkspaceReducer {
              let .createBrowserTab(projectID, _, _, _),
              let .createBrowserSplit(projectID, _, _, _),
              let .closeTab(projectID, _, _),
+             let .splitTabPane(projectID, _, _, _),
+             let .focusInternalPane(projectID, _, _, _),
+             let .closeInternalPane(projectID, _, _, _),
              let .selectTab(projectID, _, _),
              let .selectTabByIndex(projectID, _),
              let .selectNextTab(projectID),
@@ -373,7 +405,7 @@ enum WorkspaceReducer {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return }
         guard let built = LayoutWorkspaceBuilder.build(config: config, projectPath: worktreePath) else { return }
         if let existingRoot = state.workspaceRoots[key] {
-            let paneIDs = existingRoot.allAreas().flatMap { area in area.tabs.compactMap { $0.content.pane?.id } }
+            let paneIDs = existingRoot.allAreas().flatMap { area in area.tabs.flatMap(\.terminalPanes).map(\.id) }
             effects.paneIDsToRemove.append(contentsOf: paneIDs)
         }
         state.workspaceRoots[key] = built.root

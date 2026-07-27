@@ -12,7 +12,6 @@ struct ExtensionWebView: NSViewRepresentable {
     let worktreeStore: WorktreeStore?
     let projectGroupStore: ProjectGroupStore?
     let focused: Bool
-    var focusRestorationID: String?
     var surfaceStore: ExtensionTabSurfaceStore?
 
     @Environment(BrowserProfileStore.self) private var browserProfileStore: BrowserProfileStore?
@@ -99,10 +98,7 @@ struct ExtensionWebView: NSViewRepresentable {
     }
 
     private func makeSurface() -> Surface {
-        let surfaceCoordinator = SurfaceCoordinator(
-            surfaceKind: surfaceKind,
-            focusRestorationID: focusRestorationID
-        )
+        let surfaceCoordinator = SurfaceCoordinator(surfaceKind: surfaceKind)
         guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID) else {
             return Surface(
                 identity: identity,
@@ -244,8 +240,6 @@ struct ExtensionWebView: NSViewRepresentable {
         var consoleHandler: ExtensionConsoleHandler?
         var surfaceKey: LifecycleSurfaceKey?
         private let surfaceKind: LifecycleSurfaceKind
-        private let focusRestorationID: String?
-        private let focusRestoration: PanelFocusRestoration
         private weak var webView: WKWebView?
         private var themeObserver: NSObjectProtocol?
         private var extensionID: String = ""
@@ -255,14 +249,8 @@ struct ExtensionWebView: NSViewRepresentable {
         private var overlayActive = false
         private var activeClaimID: UUID?
 
-        init(
-            surfaceKind: LifecycleSurfaceKind,
-            focusRestorationID: String? = nil,
-            focusRestoration: PanelFocusRestoration = .shared
-        ) {
+        init(surfaceKind: LifecycleSurfaceKind) {
             self.surfaceKind = surfaceKind
-            self.focusRestorationID = focusRestorationID
-            self.focusRestoration = focusRestoration
         }
 
         func configureScriptInjection(
@@ -336,12 +324,6 @@ struct ExtensionWebView: NSViewRepresentable {
             DispatchQueue.main.async { [weak webView] in
                 guard let webView, let window = webView.window else { return }
                 if self.focused, !self.overlayActive {
-                    if let focusRestorationID = self.focusRestorationID {
-                        self.focusRestoration.captureBeforeClaim(
-                            panelID: focusRestorationID,
-                            panelView: webView
-                        )
-                    }
                     window.makeFirstResponder(webView)
                 } else if window.firstResponder === webView {
                     window.makeFirstResponder(nil)

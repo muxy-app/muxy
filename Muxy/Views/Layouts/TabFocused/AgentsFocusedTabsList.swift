@@ -34,7 +34,9 @@ struct AgentsFocusedTabsList: View {
                     relatedTabs: [location.tab],
                     topLevelTabs: topLevelTabs,
                     active: isActive(location),
-                    worktree: worktree
+                    worktree: worktree,
+                    pane: location.pane,
+                    allowsClosing: false
                 )
             }
         }
@@ -49,5 +51,6 @@ struct AgentsFocusedTabsList: View {
             && appState.activeWorktreeID[project.id] == worktree.id
             && appState.focusedAreaID[worktreeKey] == location.area.id
             && location.area.activeTabID == location.tab.id
+            && location.tab.displayPane?.id == location.pane.id
     }
 }

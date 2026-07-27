@@ -321,6 +321,21 @@ private struct TabFocusedRowFramePreferenceKey: PreferenceKey {
     }
 }
 
+@MainActor
+enum TabFocusedTabStatusSummary {
+    static func paneIDs(in tabs: [TerminalTab]) -> [UUID] {
+        tabs.flatMap(\.terminalPanes).map(\.id)
+    }
+
+    static func agentStatus(
+        in tabs: [TerminalTab],
+        statusForPane: (UUID) -> AgentStatus?
+    ) -> AgentStatus? {
+        let statuses = paneIDs(in: tabs).compactMap(statusForPane)
+        return statuses.contains(.waiting) ? .waiting : statuses.first
+    }
+}
+
 struct TabFocusedTabRow: View {
     let project: Project
     let area: TabArea
@@ -330,6 +345,8 @@ struct TabFocusedTabRow: View {
     let active: Bool
     var worktree: Worktree?
     var shortcutNumber: Int?
+    var pane: TerminalPaneState?
+    var allowsClosing = true
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -347,8 +364,15 @@ struct TabFocusedTabRow: View {
 
     @State private var notificationStore = NotificationStore.shared
 
+    private var paneIDs: [UUID] {
+        if let pane {
+            return [pane.id]
+        }
+        return TabFocusedTabStatusSummary.paneIDs(in: relatedTabs)
+    }
+
     private var paneProgress: TerminalProgress? {
-        relatedTabs.compactMap { $0.content.pane?.id }
+        paneIDs
             .compactMap { progressStore.progress(for: $0) }
             .first
     }
@@ -358,7 +382,7 @@ struct TabFocusedTabRow: View {
     }
 
     private var hasCompletionPending: Bool {
-        relatedTabs.compactMap { $0.content.pane?.id }.contains {
+        paneIDs.contains {
             progressStore.isCompletionPending(for: $0)
                 || AgentStatusStore.shared.isCompletionPending(forPane: $0)
         }
@@ -369,15 +393,17 @@ struct TabFocusedTabRow: View {
     }
 
     private var isIdle: Bool {
-        let panes = relatedTabs.compactMap(\.content.pane)
+        let panes = relatedTabs.flatMap(\.terminalPanes)
         return !panes.isEmpty && panes.allSatisfy(\.isOffline)
     }
 
     private var agentStatus: AgentStatus? {
-        let statuses = relatedTabs.compactMap { tab in
-            AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
+        if let pane {
+            return AgentStatusStore.shared.status(forPane: pane.id)
         }
-        return statuses.contains(.waiting) ? .waiting : statuses.first
+        return TabFocusedTabStatusSummary.agentStatus(in: relatedTabs) {
+            AgentStatusStore.shared.status(forPane: $0)
+        }
     }
 
     private var statusDotColor: Color? {
@@ -397,12 +423,16 @@ struct TabFocusedTabRow: View {
     @State private var completionFlashOn = false
     @State private var flashTask: Task<Void, any Error>?
     @FocusState private var renameFieldFocused: Bool
+    @State private var isPaneTreeExpanded = false
 
     private var tabColor: Color? {
         ProjectIconColor.color(for: tab.colorID)
     }
 
     private var rowBackground: AnyShapeStyle {
+        if active, hasSplitPanes, isPaneTreeExpanded {
+            return AnyShapeStyle(MuxyTheme.surface.opacity(0.45))
+        }
         if active {
             return AnyShapeStyle(MuxyTheme.surface)
         }
@@ -448,8 +478,24 @@ struct TabFocusedTabRow: View {
         return hovered
     }
 
-    var body: some View {
+    private var paneTree: [TerminalPaneState] {
+        pane == nil ? tab.internalPanes?.allPanes() ?? [] : []
+    }
+
+    private var hasSplitPanes: Bool {
+        paneTree.count > 1
+    }
+
+    private var tabRowContent: some View {
         HStack(spacing: UIMetrics.spacing3) {
+            if hasSplitPanes {
+                Image(systemName: isPaneTreeExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+                    .animation(.easeInOut(duration: 0.15), value: isPaneTreeExpanded)
+            }
+
             leadingIcon
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
@@ -468,7 +514,7 @@ struct TabFocusedTabRow: View {
                         }
                     }
             } else {
-                Text(tab.title)
+                Text((pane ?? tab.displayPane)?.displayTitle ?? tab.title)
                     .font(.system(size: UIMetrics.fontHeadline))
                     .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .lineLimit(1)
@@ -479,7 +525,11 @@ struct TabFocusedTabRow: View {
 
             trailingAccessory
         }
-        .padding(.leading, TabFocusedSidebarMetrics.tabContentLeadingInset)
+        .padding(
+            .leading,
+            hasSplitPanes ? TabFocusedSidebarMetrics.tabContentLeadingInset - UIMetrics.spacing3 : TabFocusedSidebarMetrics
+                .tabContentLeadingInset
+        )
         .padding(.trailing, TabFocusedSidebarMetrics.rowHorizontalInset)
         .frame(minHeight: TabFocusedSidebarMetrics.rowHeight)
         .background {
@@ -506,14 +556,13 @@ struct TabFocusedTabRow: View {
         .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
-        .onTapGesture { select() }
         .onChange(of: hasCompletionPending) { _, pending in
             guard pending else { return }
             triggerCompletionFlash()
         }
         .onDisappear { flashTask?.cancel() }
         .overlay {
-            if !tab.isPinned {
+            if allowsClosing, !tab.isPinned {
                 MiddleClickView { close() }
                     .accessibilityHidden(true)
             }
@@ -525,7 +574,11 @@ struct TabFocusedTabRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
-        .contextMenu { contextMenu }
+        .contextMenu {
+            if allowsClosing {
+                contextMenu
+            }
+        }
         .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
             ProjectIconColorPicker(title: "Tab Color", selectedID: tab.colorID) { id in
                 area.setColorID(tab.id, colorID: id)
@@ -536,6 +589,48 @@ struct TabFocusedTabRow: View {
         .onReceive(NotificationCenter.default.publisher(for: .renameActiveTab)) { _ in
             guard active else { return }
             startRename()
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            tabRowContent
+                .onTapGesture {
+                    guard hasSplitPanes else {
+                        select()
+                        return
+                    }
+                    select()
+                    if isPaneTreeExpanded {
+                        isPaneTreeExpanded = false
+                    } else {
+                        isPaneTreeExpanded = true
+                        focusFirstPane()
+                    }
+                }
+            if isPaneTreeExpanded {
+                ForEach(Array(paneTree.enumerated()), id: \.element.id) { index, pane in
+                    TabFocusedInternalPaneRow(
+                        pane: pane,
+                        position: TabFocusedInternalPaneRowPosition(index: index, count: paneTree.count),
+                        active: active && tab.focusedPaneID == pane.id
+                    ) {
+                        appState.focusInternalPane(
+                            projectID: projectID,
+                            areaID: area.id,
+                            tabID: tab.id,
+                            paneID: pane.id
+                        )
+                    } onClose: {
+                        appState.closeInternalPane(
+                            projectID: projectID,
+                            areaID: area.id,
+                            tabID: tab.id,
+                            paneID: pane.id
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -601,7 +696,7 @@ struct TabFocusedTabRow: View {
 
     @ViewBuilder
     private var trailingContent: some View {
-        if !tab.isPinned, closeButtonVisible {
+        if allowsClosing, !tab.isPinned, closeButtonVisible {
             Image(systemName: "xmark")
                 .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -650,9 +745,10 @@ struct TabFocusedTabRow: View {
     private var leadingIcon: some View {
         switch tab.kind {
         case .terminal:
-            let agentIconName = relatedTabs.compactMap {
-                DetectedAgentStore.shared.iconName(forPane: $0.content.pane?.id)
-            }.first
+            let agentIconName = DetectedAgentStore.shared.iconName(forPane: (pane ?? tab.displayPane)?.id)
+                ?? relatedTabs.compactMap {
+                    DetectedAgentStore.shared.iconName(forPane: $0.displayPane?.id)
+                }.first
             if let agentIconName {
                 ProviderIconView(iconName: agentIconName, size: UIMetrics.iconMD)
             } else {
@@ -693,7 +789,7 @@ struct TabFocusedTabRow: View {
             completionFlashOn = true
         }
         if active {
-            for paneID in relatedTabs.compactMap({ $0.content.pane?.id }) {
+            for paneID in paneIDs {
                 progressStore.clearCompletion(for: paneID)
                 AgentStatusStore.shared.clearCompletion(for: paneID)
             }
@@ -711,8 +807,16 @@ struct TabFocusedTabRow: View {
         if let worktree, appState.activeWorktreeID[projectID] != worktree.id {
             appState.selectWorktree(projectID: projectID, worktree: worktree)
         }
-        guard !active else { return }
-        appState.dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+        if !active {
+            appState.dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+        }
+        guard let pane, tab.internalPanes != nil else { return }
+        appState.focusInternalPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tab.id,
+            paneID: pane.id
+        )
     }
 
     private func activateProjectIfNeeded() {
@@ -765,5 +869,15 @@ struct TabFocusedTabRow: View {
 
     private func cancelRename() {
         isRenaming = false
+    }
+
+    private func focusFirstPane() {
+        guard let targetPane = paneTree.first(where: { $0.id == tab.focusedPaneID }) ?? paneTree.first else { return }
+        appState.focusInternalPane(
+            projectID: projectID,
+            areaID: area.id,
+            tabID: tab.id,
+            paneID: targetPane.id
+        )
     }
 }

@@ -91,7 +91,6 @@ struct AppLayoutTests {
         #expect(projects == [first, second])
     }
 }
-
 @Suite("AppLayoutStore")
 @MainActor
 struct AppLayoutStoreTests {
@@ -215,6 +214,29 @@ struct AgentsFocusedTabSelectionTests {
 
         #expect(locations.map(\.tab.id) == [child.id])
         #expect(locations.first?.area.id == childArea.id)
+    }
+
+    @Test("creates one agent location per internal pane")
+    func includesEachInternalAgentPane() {
+        let area = TabArea(projectPath: "/tmp/project")
+        let tab = area.tabs[0]
+        let firstPane = TerminalPaneState(projectPath: "/tmp/project", title: "First")
+        let secondPane = TerminalPaneState(projectPath: "/tmp/project", title: "Second")
+        tab.internalPanes = .split(InternalBranch(
+            direction: .horizontal,
+            first: .pane(firstPane),
+            second: .pane(secondPane)
+        ))
+        let root = SplitNode.tabArea(area)
+
+        let locations = AgentsFocusedTabSelection.resolve(
+            root: root,
+            topLevelTabs: [(area: area, tab: tab)],
+            providerID: { $0 == secondPane.id ? "codex" : nil }
+        )
+
+        #expect(locations.map(\.pane.id) == [secondPane.id])
+        #expect(locations.first?.pane.title == "Second")
     }
 }
 

@@ -19,7 +19,7 @@ enum NotificationNavigator {
         for (key, root) in appState.workspaceRoots {
             for area in root.allAreas() {
                 for tab in area.tabs {
-                    guard tab.content.pane?.id == paneID else { continue }
+                    guard tab.terminalPanes.contains(where: { $0.id == paneID }) else { continue }
                     let path = worktreeStore.worktree(
                         projectID: key.projectID,
                         worktreeID: key.worktreeID
@@ -76,6 +76,13 @@ enum NotificationNavigator {
             tabID: notification.tabID
         ))
 
+        appState.dispatch(.focusInternalPane(
+            projectID: notification.projectID,
+            areaID: notification.areaID,
+            tabID: notification.tabID,
+            paneID: notification.paneID
+        ))
+
         notificationStore.markAsRead(notification.id)
     }
 
@@ -96,7 +103,7 @@ enum NotificationNavigator {
               let activeTabID = area.activeTabID,
               let tab = area.tabs.first(where: { $0.id == activeTabID })
         else { return nil }
-        return tab.content.pane?.id
+        return tab.displayPane?.id
     }
 
     static func isActiveTab(_ tabID: UUID, appState: AppState) -> Bool {

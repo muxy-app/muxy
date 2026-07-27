@@ -157,6 +157,17 @@ struct TabAreaSnapshot: Codable {
     let activeTabIndex: Int?
 }
 
+struct TerminalPaneStateSnapshot: Codable {
+    let id: UUID
+    let projectPath: String
+    let title: String
+    let currentWorkingDirectory: String?
+    let startupCommand: String?
+    let startupCommandInteractive: Bool
+    let closesOnStartupCommandExit: Bool
+    let externalEditorFilePath: String?
+}
+
 struct TerminalTabSnapshot: Codable {
     let kind: TerminalTab.Kind
     let id: UUID
@@ -175,6 +186,8 @@ struct TerminalTabSnapshot: Codable {
     let extensionTabData: ExtensionJSON?
     let browserURL: String?
     let browserProfileID: String?
+    let internalPanes: InternalPaneNodeSnapshot?
+    let focusedPaneID: String?
 
     init(
         kind: TerminalTab.Kind,
@@ -193,7 +206,9 @@ struct TerminalTabSnapshot: Codable {
         extensionTabTypeID: String? = nil,
         extensionTabData: ExtensionJSON? = nil,
         browserURL: String? = nil,
-        browserProfileID: String? = nil
+        browserProfileID: String? = nil,
+        internalPanes: InternalPaneNodeSnapshot? = nil,
+        focusedPaneID: String? = nil
     ) {
         self.kind = kind
         self.id = id
@@ -212,6 +227,8 @@ struct TerminalTabSnapshot: Codable {
         self.extensionTabData = extensionTabData
         self.browserURL = browserURL
         self.browserProfileID = browserProfileID
+        self.internalPanes = internalPanes
+        self.focusedPaneID = focusedPaneID
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -232,6 +249,8 @@ struct TerminalTabSnapshot: Codable {
         case extensionTabData
         case browserURL
         case browserProfileID
+        case internalPanes
+        case focusedPaneID
     }
 
     init(from decoder: Decoder) throws {
@@ -254,6 +273,121 @@ struct TerminalTabSnapshot: Codable {
         extensionTabData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .extensionTabData)
         browserURL = try container.decodeIfPresent(String.self, forKey: .browserURL)
         browserProfileID = try container.decodeIfPresent(String.self, forKey: .browserProfileID)
+        internalPanes = try container.decodeIfPresent(InternalPaneNodeSnapshot.self, forKey: .internalPanes)
+        focusedPaneID = try container.decodeIfPresent(String.self, forKey: .focusedPaneID)
+    }
+}
+
+indirect enum InternalPaneNodeSnapshot: Codable {
+    case pane(TerminalPaneStateSnapshot)
+    case split(InternalBranchSnapshot)
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case pane
+        case split
+    }
+
+    private enum NodeType: String, Codable {
+        case pane
+        case split
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(NodeType.self, forKey: .type)
+        switch type {
+        case .pane:
+            self = try .pane(container.decode(TerminalPaneStateSnapshot.self, forKey: .pane))
+        case .split:
+            self = try .split(container.decode(InternalBranchSnapshot.self, forKey: .split))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .pane(pane):
+            try container.encode(NodeType.pane, forKey: .type)
+            try container.encode(pane, forKey: .pane)
+        case let .split(branch):
+            try container.encode(NodeType.split, forKey: .type)
+            try container.encode(branch, forKey: .split)
+        }
+    }
+}
+
+struct InternalBranchSnapshot: Codable {
+    let direction: SplitDirectionSnapshot
+    let ratio: Double
+    let first: InternalPaneNodeSnapshot
+    let second: InternalPaneNodeSnapshot
+}
+
+@MainActor
+extension InternalPaneNodeSnapshot {
+    init(node: InternalPaneNode) {
+        switch node {
+        case let .pane(pane):
+            self = .pane(TerminalPaneStateSnapshot(
+                id: pane.id,
+                projectPath: pane.projectPath,
+                title: pane.title,
+                currentWorkingDirectory: pane.currentWorkingDirectory,
+                startupCommand: pane.startupCommand,
+                startupCommandInteractive: pane.startupCommandInteractive,
+                closesOnStartupCommandExit: pane.closesOnStartupCommandExit,
+                externalEditorFilePath: pane.externalEditorFilePath
+            ))
+        case let .split(branch):
+            self = .split(InternalBranchSnapshot(branch: branch))
+        }
+    }
+
+    func toInternalPaneNode() -> InternalPaneNode {
+        switch self {
+        case let .pane(snapshot):
+            .pane(TerminalPaneState(
+                id: snapshot.id,
+                projectPath: snapshot.projectPath,
+                title: snapshot.title,
+                initialWorkingDirectory: Self.restoredWorkingDirectory(
+                    snapshot.currentWorkingDirectory,
+                    projectPath: snapshot.projectPath
+                ),
+                startupCommand: snapshot.startupCommand,
+                startupCommandInteractive: snapshot.startupCommandInteractive,
+                closesOnStartupCommandExit: snapshot.closesOnStartupCommandExit,
+                externalEditorFilePath: snapshot.externalEditorFilePath
+            ))
+        case let .split(snapshot):
+            .split(InternalBranch(
+                direction: snapshot.direction == .horizontal ? .horizontal : .vertical,
+                ratio: snapshot.ratio,
+                first: snapshot.first.toInternalPaneNode(),
+                second: snapshot.second.toInternalPaneNode()
+            ))
+        }
+    }
+
+    private static func restoredWorkingDirectory(_ path: String?, projectPath: String) -> String? {
+        guard let path else { return nil }
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        let standardizedProjectPath = URL(fileURLWithPath: projectPath).standardizedFileURL.path
+        guard standardizedPath == standardizedProjectPath || standardizedPath.hasPrefix(standardizedProjectPath + "/") else {
+            return nil
+        }
+        return path
+    }
+}
+
+@MainActor
+extension InternalBranchSnapshot {
+    init(branch: InternalBranch) {
+        direction = branch.direction == .horizontal ? .horizontal : .vertical
+        ratio = Double(branch.ratio)
+        first = InternalPaneNodeSnapshot(node: branch.first)
+        second = InternalPaneNodeSnapshot(node: branch.second)
     }
 }
 

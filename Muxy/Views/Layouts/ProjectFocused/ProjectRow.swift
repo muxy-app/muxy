@@ -348,7 +348,7 @@ struct ProjectRow: View {
         case let .created(worktree, runSetup):
             appState.selectWorktree(projectID: project.id, worktree: worktree)
             if runSetup,
-               let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
+               let paneID = appState.focusedArea(for: project.id)?.activeTab?.displayPane?.id
             {
                 Task {
                     await WorktreeSetupRunner.run(

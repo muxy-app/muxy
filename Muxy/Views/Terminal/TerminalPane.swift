@@ -267,7 +267,7 @@ struct TerminalBridge: NSViewRepresentable {
               )
         else { return false }
         return visibleLayout.allPanes().contains {
-            $0.tab.content.pane?.id == state.id
+            $0.tab.containsTerminalPane(id: state.id)
         }
     }
 

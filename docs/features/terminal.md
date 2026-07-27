@@ -88,13 +88,13 @@ the control that was focused before recording and can optionally press Return af
 
 Inside a terminal pane: **Paste**, **Split Right**, **Split Down**, **Close Pane**.
 
-The default keyboard shortcuts for child panes are **Cmd+Option+\\** to split right and **Cmd+Option+Shift+\\** to split down.
-
 Splitting creates a child pane inside the current top-level tab. Each pane keeps its own terminal, browser, source-control, or extension surface, while a one-pixel divider replaces the old per-pane tab strip. Child panes do not appear as separate entries in the window tab strip or the Tab Focused sidebar. An agent running in a child pane does appear as its own entry in the Agents Focused sidebar, and selecting it activates both the child pane and its parent top-level tab.
 
 Dragging a top-level tab toward an edge docks the whole tab beside another top-level tab. Its child-pane layout moves with it and remains independent from the neighboring tab's child panes.
 
 The Agents Focused layout keeps the normal top-level tab strip in the title bar and limits sidebar tab entries to detected AI agents, including idle sessions. An entry disappears as soon as its agent process exits, even when the tab keeps running a shell. Projects and worktrees remain visible when they have no agent sessions, and their add menu can start a new tab with any available agent provider. Clicking a project or worktree row activates it; clicking the already active row expands or collapses its agent list. A project with no tabs offers the same launchers as icons — a terminal plus one monochrome icon per installed provider — instead of the plain new-tab button. Tabs started from this menu appear immediately. Local launch attribution is confirmed by process detection and removed if the command exits before confirmation. Remote availability is checked through the configured SSH connection before the menu enables a provider.
+
+Inner terminal panes follow the parent area's visibility and keyboard focus. If a pane's startup process exits, only that pane closes; collapsing the final split keeps the surviving terminal session active.
 
 ## Notifications from the terminal
 

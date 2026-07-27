@@ -1074,14 +1074,14 @@ enum MuxyAPIDispatcher {
         else { throw APIError.noActiveProject }
         for area in root.allAreas() {
             for tab in area.tabs {
-                guard let paneID = tab.content.pane?.id else { continue }
+                guard let pane = tab.displayPane else { continue }
                 let navigationContext = NavigationContext(
                     projectID: key.projectID,
                     worktreeID: key.worktreeID,
                     worktreePath: area.projectPath,
                     areaID: area.id,
                     tabID: tab.id,
-                    paneID: paneID
+                    paneID: pane.id
                 )
                 NotificationStore.shared.addWithContext(
                     context: navigationContext,
