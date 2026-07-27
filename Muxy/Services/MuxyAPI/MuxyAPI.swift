@@ -695,7 +695,7 @@ enum MuxyAPI {
         }
 
         private static func performSendKeys(
-            view: GhosttyTerminalNSView,
+            view: any TerminalSurface,
             key: String,
             paneIDString: String
         ) -> Result<Void, APIError> {
@@ -1972,7 +1972,7 @@ extension Duration {
 }
 
 private enum WaitForViewResult {
-    case view(GhosttyTerminalNSView)
+    case view(any TerminalSurface)
     case notFound
     case surfaceNotReady(waited: Duration)
 }

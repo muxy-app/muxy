@@ -1,5 +1,10 @@
 import Foundation
-import GhosttyKit
+
+enum TerminalSecureInputAction {
+    case on
+    case off
+    case toggle
+}
 
 @MainActor
 final class TerminalCommandTracker {
@@ -53,20 +58,18 @@ final class TerminalCommandTracker {
         pendingCommands.removeValue(forKey: paneID)
     }
 
-    func setSecureInput(_ action: ghostty_action_secure_input_e, paneID: UUID) {
+    func setSecureInput(_ action: TerminalSecureInputAction, paneID: UUID) {
         switch action {
-        case GHOSTTY_SECURE_INPUT_ON:
+        case .on:
             secureInputPanes.insert(paneID)
-        case GHOSTTY_SECURE_INPUT_OFF:
+        case .off:
             secureInputPanes.remove(paneID)
-        case GHOSTTY_SECURE_INPUT_TOGGLE:
+        case .toggle:
             if secureInputPanes.contains(paneID) {
                 secureInputPanes.remove(paneID)
             } else {
                 secureInputPanes.insert(paneID)
             }
-        default:
-            break
         }
     }
 

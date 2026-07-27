@@ -9,7 +9,7 @@ final class TerminalViewRegistry {
 
     static let shared = TerminalViewRegistry()
 
-    private var views: [UUID: GhosttyTerminalNSView] = [:]
+    private var views: [UUID: any TerminalSurface] = [:]
     private var paneIDs: [ObjectIdentifier: UUID] = [:]
     private var processIdentityOverride: [PaneProcessIdentity]?
 
@@ -29,44 +29,50 @@ final class TerminalViewRegistry {
         command: String? = nil,
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
-        workspaceContext: WorkspaceContext = .local
-    ) -> GhosttyTerminalNSView {
+        workspaceContext: WorkspaceContext = .local,
+        backend: TerminalBackend = .fallback
+    ) -> any TerminalSurface {
         if let existing = views[paneID] {
             return existing
         }
-        let view = GhosttyTerminalNSView(
+        let view = backend.makeSurface(launch: TerminalLaunchRequest(
             workingDirectory: workingDirectory,
             command: command,
             commandInteractive: commandInteractive,
             closesOnCommandExit: closesOnCommandExit,
             workspaceContext: workspaceContext
-        )
+        ))
         views[paneID] = view
-        paneIDs[ObjectIdentifier(view)] = paneID
+        paneIDs[ObjectIdentifier(view.terminalView)] = paneID
         return view
     }
 
-    func existingView(for paneID: UUID) -> GhosttyTerminalNSView? {
+    func existingView(for paneID: UUID) -> (any TerminalSurface)? {
         views[paneID]
     }
 
     func removeView(for paneID: UUID) {
         guard let view = views.removeValue(forKey: paneID) else { return }
-        paneIDs.removeValue(forKey: ObjectIdentifier(view))
         TerminalCommandTracker.shared.removePane(paneID)
         view.tearDown()
+        paneIDs.removeValue(forKey: ObjectIdentifier(view.terminalView))
     }
 
     func needsConfirmQuit(for paneID: UUID) -> Bool {
         views[paneID]?.needsConfirmQuit() ?? false
     }
 
-    func view(for paneID: UUID) -> GhosttyTerminalNSView? {
+    func view(for paneID: UUID) -> (any TerminalSurface)? {
         views[paneID]
     }
 
-    func paneID(for view: GhosttyTerminalNSView) -> UUID? {
-        paneIDs[ObjectIdentifier(view)]
+    func paneID(for view: any TerminalSurface) -> UUID? {
+        paneIDs[ObjectIdentifier(view.terminalView)]
+    }
+
+    func surface(for terminalView: NSView) -> (any TerminalSurface)? {
+        guard let paneID = paneIDs[ObjectIdentifier(terminalView)] else { return nil }
+        return views[paneID]
     }
 
     func paneID(matchingProcessIDs processIDs: [Int32]) -> UUID? {
@@ -105,7 +111,7 @@ final class TerminalViewRegistry {
         }
     }
 
-    var liveViews: [GhosttyTerminalNSView] {
+    var liveViews: [any TerminalSurface] {
         Array(views.values)
     }
 
@@ -114,7 +120,7 @@ final class TerminalViewRegistry {
     }
 
     var liveSurfaceCount: Int {
-        views.values.reduce(0) { $1.surface != nil ? $0 + 1 : $0 }
+        views.values.reduce(0) { $1.hasLiveSurface ? $0 + 1 : $0 }
     }
 }
 

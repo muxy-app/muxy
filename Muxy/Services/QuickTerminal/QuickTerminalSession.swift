@@ -12,16 +12,6 @@ protocol QuickTerminalSurface: AnyObject {
     func tearDown()
 }
 
-extension GhosttyTerminalNSView: QuickTerminalSurface {
-    var quickTerminalView: NSView { self }
-
-    func applyQuickTerminalConfiguration() {
-        setSurfaceConfigurationOverlay { surface in
-            QuickTerminalGhosttyConfig.apply(to: surface)
-        }
-    }
-}
-
 @MainActor
 final class QuickTerminalSession {
     typealias SurfaceFactory = @MainActor (String) -> any QuickTerminalSurface
@@ -36,7 +26,7 @@ final class QuickTerminalSession {
     init(
         homeDirectory: @escaping () -> URL = { FileManager.default.homeDirectoryForCurrentUser },
         surfaceFactory: @escaping SurfaceFactory = { workingDirectory in
-            GhosttyTerminalNSView(workingDirectory: workingDirectory)
+            TerminalBackend.fallback.makeQuickTerminalSurface(workingDirectory: workingDirectory)
         }
     ) {
         self.homeDirectory = homeDirectory

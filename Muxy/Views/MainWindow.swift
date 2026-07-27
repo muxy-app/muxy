@@ -1750,7 +1750,7 @@ struct MainWindow: View {
               let view = TerminalViewRegistry.shared.existingView(for: paneID)
         else { return }
         DispatchQueue.main.async {
-            view.window?.makeFirstResponder(view)
+            view.terminalView.window?.makeFirstResponder(view.terminalView)
         }
     }
 

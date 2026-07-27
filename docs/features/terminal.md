@@ -2,6 +2,10 @@
 
 Muxy's terminals are powered by [libghostty](https://github.com/ghostty-org/ghostty), running on a Metal layer for fast, GPU-accelerated rendering.
 
+## Backend architecture
+
+Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote control, quick terminal creation, search, rich input, process detection, and offline lifecycle depend on Muxy's backend-neutral terminal surface contract. Ghostty-specific handles and callbacks stay inside the Ghostty implementation boundary. There is no user-facing backend selector until another implementation satisfies the capabilities required by these integrations.
+
 ## Quick terminal
 
 Assign Double Shift or a conventional global shortcut to open the quick terminal from anywhere. On a display with a camera cutout, it expands out of the cutout like a dynamic island. It always starts in your home directory and keeps the same shell, working directory, and history while hidden.

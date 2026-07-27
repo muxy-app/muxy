@@ -64,7 +64,7 @@ enum RichInputSubmitter {
                     view.sendRemoteBytes(payload)
                 }
                 if let focusTarget {
-                    focusTarget.window?.makeFirstResponder(focusTarget)
+                    focusTarget.terminalView.window?.makeFirstResponder(focusTarget.terminalView)
                 }
             }
             return
@@ -103,7 +103,7 @@ enum RichInputSubmitter {
             SystemPasteboardSnapshot.restore(items: savedClipboard)
 
             if let focusTarget {
-                focusTarget.window?.makeFirstResponder(focusTarget)
+                focusTarget.terminalView.window?.makeFirstResponder(focusTarget.terminalView)
             }
         }
     }

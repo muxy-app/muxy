@@ -4,8 +4,11 @@ import GhosttyKit
 import MuxyShared
 import UniformTypeIdentifiers
 
-final class GhosttyTerminalNSView: NSView {
+final class GhosttyTerminalNSView: NSView, TerminalSurface {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
+    var terminalView: NSView { self }
+    let backend = TerminalBackend.ghostty
+    let capabilities = TerminalCapabilities.ghostty
     private var surfaceFocused: Bool?
     private var workingDirectory: String
     private let command: String?
@@ -78,6 +81,7 @@ final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private var surfaceCStringPointers: [UnsafeMutablePointer<CChar>] = []
     nonisolated(unsafe) private var surfaceEnvVarPointer: UnsafeMutablePointer<ghostty_env_var_s>?
     nonisolated(unsafe) private var surfaceEnvVarCount = 0
+    private var rawOutputToken: Int?
     private var surfaceConfigurationOverlay: ((ghostty_surface_t) -> Void)?
 
     init(
@@ -235,7 +239,7 @@ final class GhosttyTerminalNSView: NSView {
         syncSurfaceFocus()
 
         if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
-            RemoteTerminalStreamer.shared.attach(paneID: paneID, surface: surface)
+            RemoteTerminalStreamer.shared.attach(paneID: paneID, surface: self)
         }
 
         applyOcclusionState()
@@ -245,7 +249,7 @@ final class GhosttyTerminalNSView: NSView {
     func destroySurface() {
         if let surface {
             if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
-                RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: surface)
+                RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: self)
             }
             ghostty_surface_free(surface)
             detachRendererLayer()
@@ -1562,7 +1566,7 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
     }
 
-    func navigateSearch(direction: SearchDirection) {
+    func navigateSearch(direction: TerminalSearchDirection) {
         guard let surface else { return }
         let action = "navigate_search:\(direction.rawValue)"
         ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
@@ -1598,6 +1602,82 @@ final class GhosttyTerminalNSView: NSView {
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
             ghostty_surface_send_input_raw(surface, base, UInt(bytes.count))
         }
+    }
+
+    func setRawOutputHandler(_ handler: ((Data) -> Void)?) {
+        if let surface {
+            ghostty_surface_set_data_callback(surface, nil, nil)
+        }
+        if let rawOutputToken {
+            GhosttyRawOutputHandlers.shared.remove(rawOutputToken)
+            self.rawOutputToken = nil
+        }
+        guard let surface, let handler else { return }
+        let token = GhosttyRawOutputHandlers.shared.insert(handler)
+        rawOutputToken = token
+        ghostty_surface_set_data_callback(
+            surface,
+            ghosttyRawOutputCallback,
+            UnsafeMutableRawPointer(bitPattern: UInt(token))
+        )
+    }
+
+    func scrollTerminal(deltaX: Double, deltaY: Double, precise: Bool) {
+        guard ensureLiveSurfaceForExternalIO(), let surface else { return }
+        let mods: ghostty_input_scroll_mods_t = precise ? 1 : 0
+        ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
+    }
+
+    func resizeTerminal(cols: UInt32, rows: UInt32) -> Bool {
+        guard ensureLiveSurfaceForExternalIO(), let surface else { return false }
+        let size = ghostty_surface_size(surface)
+        guard size.cell_width_px > 0, size.cell_height_px > 0 else { return false }
+        ghostty_surface_set_size(
+            surface,
+            cols * size.cell_width_px,
+            rows * size.cell_height_px
+        )
+        return true
+    }
+
+    func terminalCells(paneID: UUID) -> TerminalCellsDTO? {
+        guard ensureLiveSurfaceForExternalIO(), let surface else { return nil }
+        var output = ghostty_cells_s()
+        guard ghostty_surface_read_cells(surface, &output) else { return nil }
+        defer { ghostty_surface_free_cells(surface, &output) }
+
+        let total = Int(output.cells_len)
+        var cells: [TerminalCellDTO] = []
+        cells.reserveCapacity(total)
+        if let pointer = output.cells {
+            for index in 0 ..< total {
+                let cell = pointer[index]
+                cells.append(TerminalCellDTO(
+                    codepoint: cell.codepoint,
+                    fg: cell.fg_rgb,
+                    bg: cell.bg_rgb,
+                    flags: cell.flags
+                ))
+            }
+        }
+
+        return TerminalCellsDTO(
+            paneID: paneID,
+            cols: output.cols,
+            rows: output.rows,
+            cursorX: output.cursor_x,
+            cursorY: output.cursor_y,
+            cursorVisible: output.cursor_visible,
+            defaultFg: output.default_fg,
+            defaultBg: output.default_bg,
+            cells: cells,
+            altScreen: output.alt_screen,
+            cursorKeys: output.cursor_keys,
+            bracketedPaste: output.bracketed_paste,
+            focusEvent: output.focus_event,
+            mouseEvent: output.mouse_event,
+            mouseFormat: output.mouse_format
+        )
     }
 
     func ensureLiveSurfaceForExternalIO() -> Bool {
@@ -1849,11 +1929,6 @@ final class GhosttyTerminalNSView: NSView {
             return
         }
     }
-
-    enum SearchDirection: String {
-        case next
-        case previous
-    }
 }
 
 extension GhosttyTerminalNSView {
@@ -1995,5 +2070,43 @@ extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
         let end = min(range.location + range.length, otherRange.location + otherRange.length)
         guard start <= end else { return nil }
         return NSRange(location: start, length: end - start)
+    }
+}
+
+@MainActor
+private final class GhosttyRawOutputHandlers {
+    static let shared = GhosttyRawOutputHandlers()
+
+    private var handlers: [Int: (Data) -> Void] = [:]
+    private var nextToken = 1
+
+    func insert(_ handler: @escaping (Data) -> Void) -> Int {
+        let token = nextToken
+        nextToken += 1
+        handlers[token] = handler
+        return token
+    }
+
+    func remove(_ token: Int) {
+        handlers.removeValue(forKey: token)
+    }
+
+    func deliver(_ data: Data, token: Int) {
+        handlers[token]?(data)
+    }
+}
+
+private let ghosttyRawOutputCallback: @convention(c) (
+    UnsafeMutableRawPointer?,
+    UnsafePointer<UInt8>?,
+    UInt
+) -> Void = { userdata, pointer, length in
+    guard let userdata, let pointer, length > 0 else { return }
+    let token = Int(bitPattern: userdata)
+    let data = Data(bytes: pointer, count: Int(length))
+    DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+            GhosttyRawOutputHandlers.shared.deliver(data, token: token)
+        }
     }
 }
