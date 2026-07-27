@@ -31,7 +31,8 @@ struct TerminalPane: View {
     }
 
     private func wakePane() {
-        TerminalViewRegistry.shared.existingView(for: state.id)?.wake()
+        let surface = TerminalViewRegistry.shared.existingView(for: state.id)
+        (surface as? any TerminalOfflineSurface)?.wake()
         onFocus()
     }
 
@@ -76,15 +77,15 @@ struct TerminalPane: View {
                     searchState: state.searchState,
                     onNavigateNext: {
                         let view = TerminalViewRegistry.shared.existingView(for: state.id)
-                        view?.navigateSearch(direction: .next)
+                        (view as? any TerminalSearchSurface)?.navigateSearch(direction: .next)
                     },
                     onNavigatePrevious: {
                         let view = TerminalViewRegistry.shared.existingView(for: state.id)
-                        view?.navigateSearch(direction: .previous)
+                        (view as? any TerminalSearchSurface)?.navigateSearch(direction: .previous)
                     },
                     onClose: {
                         let surface = TerminalViewRegistry.shared.existingView(for: state.id)
-                        surface?.endSearch()
+                        (surface as? any TerminalSearchSurface)?.endSearch()
                         DispatchQueue.main.async { [weak surface] in
                             guard let surface else { return }
                             surface.terminalView.window?.makeFirstResponder(surface.terminalView)
@@ -387,13 +388,23 @@ struct TerminalBridge: NSViewRepresentable {
                 state?.setWorkingDirectory(path)
             }
         }
-        surface.onOfflineChange = { [weak state] offline in
-            state?.isOffline = offline
-        }
+        configureOfflineCallback(surface)
         configureAgentDetectionCallback(surface)
-        configureSearchCallbacks(surface)
+        if let searchSurface = surface as? any TerminalSearchSurface {
+            configureSearchCallbacks(searchSurface)
+        }
         configureFileOpenCallback(surface)
         configureProgressCallback(surface)
+    }
+
+    private func configureOfflineCallback(_ surface: any TerminalSurface) {
+        guard let offlineSurface = surface as? any TerminalOfflineSurface else {
+            state.isOffline = false
+            return
+        }
+        offlineSurface.onOfflineChange = { [weak state] offline in
+            state?.isOffline = offline
+        }
     }
 
     private static func deactivate(_ surface: any TerminalSurface) {
@@ -676,7 +687,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
     }
 
-    private func configureSearchCallbacks(_ view: any TerminalSurface) {
+    private func configureSearchCallbacks(_ view: any TerminalSearchSurface) {
         view.onSearchStart = { [weak state] needle in
             guard let state else { return }
             let searchState = state.searchState

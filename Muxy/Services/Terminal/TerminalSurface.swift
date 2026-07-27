@@ -33,10 +33,50 @@ protocol TerminalRawOutputSource: AnyObject {
 }
 
 @MainActor
-protocol TerminalSurface: TerminalRawOutputSource {
+protocol TerminalGridSnapshotSource: AnyObject {
+    func terminalCells(paneID: UUID) -> TerminalCellsDTO?
+}
+
+@MainActor
+protocol TerminalClientThemeSurface: AnyObject {
+    func applyClientTheme(_ theme: ClientThemeDTO?)
+    func reapplyClientThemeIfOwned()
+}
+
+@MainActor
+protocol TerminalOfflineSurface: AnyObject {
+    var onOfflineChange: ((Bool) -> Void)? { get set }
+    var isTakenOffline: Bool { get }
+    var offlineInvisibleSince: Date? { get }
+    var isOfflineBlockedByRemote: Bool { get }
+
+    func wake()
+    func isTerminalIdle() -> Bool
+    func takeOffline()
+}
+
+@MainActor
+protocol TerminalSearchSurface: AnyObject {
+    var onSearchStart: ((String?) -> Void)? { get set }
+    var onSearchEnd: (() -> Void)? { get set }
+    var onSearchTotal: ((Int?) -> Void)? { get set }
+    var onSearchSelected: ((Int?) -> Void)? { get set }
+
+    func sendSearchQuery(_ needle: String)
+    func navigateSearch(direction: TerminalSearchDirection)
+    func endSearch()
+    func startSearch()
+}
+
+@MainActor
+protocol TerminalImagePasteSurface: AnyObject {
+    func pasteImageURL(_ url: URL)
+}
+
+@MainActor
+protocol TerminalSurface: AnyObject {
     var terminalView: NSView { get }
     var backend: TerminalBackend { get }
-    var capabilities: TerminalCapabilities { get }
     var envVars: [(key: String, value: String)] { get set }
     var onTitleChange: ((String) -> Void)? { get set }
     var onWorkingDirectoryChange: ((String) -> Void)? { get set }
@@ -44,39 +84,25 @@ protocol TerminalSurface: TerminalRawOutputSource {
     var onExternalDragHoverChange: ((Bool) -> Void)? { get set }
     var onProcessExit: (() -> Void)? { get set }
     var onSplitRequest: ((SplitDirection, SplitPosition) -> Void)? { get set }
-    var onSearchStart: ((String?) -> Void)? { get set }
-    var onSearchEnd: (() -> Void)? { get set }
-    var onSearchTotal: ((Int?) -> Void)? { get set }
-    var onSearchSelected: ((Int?) -> Void)? { get set }
     var onProgressReport: ((TerminalProgress?) -> Void)? { get set }
     var onCmdClickFile: ((String) -> Void)? { get set }
     var resolveCmdHoverFile: ((String) -> Bool)? { get set }
     var onOpenURL: ((URL) -> Bool)? { get set }
-    var onOfflineChange: ((Bool) -> Void)? { get set }
     var onDetectedAgentChange: ((String?) -> Void)? { get set }
     var onAgentProcessExit: (() -> Void)? { get set }
     var isFocused: Bool { get set }
     var overlayActive: Bool { get set }
-    var processExitHandled: Bool { get set }
     var foregroundProcessID: Int32? { get }
-    var isTakenOffline: Bool { get }
-    var offlineInvisibleSince: Date? { get }
-    var isOfflineBlockedByRemote: Bool { get }
     var hasLiveSurface: Bool { get }
 
     func tearDown()
     func setVisible(_ visible: Bool)
     func setFocused(_ focused: Bool)
     func notifySurfaceUnfocused()
-    func wake()
     func updateResumeWorkingDirectory(_ directory: String)
-    func isTerminalIdle() -> Bool
-    func takeOffline()
     func needsConfirmQuit() -> Bool
     func applyColorScheme(isDark: Bool)
-    func applyClientTheme(_ theme: ClientThemeDTO?)
     func reapplyActiveColors()
-    func reapplyClientThemeIfOwned()
     func remoteOwnershipDidChange()
     func materializeHeadless()
     func ensureLiveSurfaceForExternalIO() -> Bool
@@ -86,12 +112,47 @@ protocol TerminalSurface: TerminalRawOutputSource {
     func readScreenText(lastLines: Int) -> String
     func submitRichInput(text: String)
     func clearTerminalInput()
-    func pasteImageURL(_ url: URL)
-    func sendSearchQuery(_ needle: String)
-    func navigateSearch(direction: TerminalSearchDirection)
-    func endSearch()
-    func startSearch()
     func scrollTerminal(deltaX: Double, deltaY: Double, precise: Bool)
     func resizeTerminal(cols: UInt32, rows: UInt32) -> Bool
-    func terminalCells(paneID: UUID) -> TerminalCellsDTO?
+}
+
+@MainActor
+extension TerminalSurface {
+    var capabilities: TerminalCapabilities {
+        var capabilities: TerminalCapabilities = []
+        if self is any TerminalRawOutputSource {
+            capabilities.insert(.rawOutput)
+        }
+        if self is any TerminalGridSnapshotSource {
+            capabilities.insert(.gridSnapshot)
+        }
+        if self is any TerminalClientThemeSurface {
+            capabilities.insert(.clientTheme)
+        }
+        if self is any TerminalOfflineSurface {
+            capabilities.insert(.offlineLifecycle)
+        }
+        if self is any TerminalSearchSurface {
+            capabilities.insert(.search)
+        }
+        if self is any TerminalImagePasteSurface {
+            capabilities.insert(.imagePaste)
+        }
+        return capabilities
+    }
+}
+
+enum TerminalSurfaceSizing {
+    static func pixelSize(
+        cols: UInt32,
+        rows: UInt32,
+        cellWidth: UInt32,
+        cellHeight: UInt32
+    ) -> (width: UInt32, height: UInt32)? {
+        guard cols > 0, rows > 0, cellWidth > 0, cellHeight > 0 else { return nil }
+        let width = cols.multipliedReportingOverflow(by: cellWidth)
+        let height = rows.multipliedReportingOverflow(by: cellHeight)
+        guard !width.overflow, !height.overflow else { return nil }
+        return (width.partialValue, height.partialValue)
+    }
 }

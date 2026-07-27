@@ -4,7 +4,7 @@ Muxy's terminals are powered by [libghostty](https://github.com/ghostty-org/ghos
 
 ## Backend architecture
 
-Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote control, quick terminal creation, search, rich input, process detection, and offline lifecycle depend on Muxy's backend-neutral terminal surface contract. Ghostty-specific handles and callbacks stay inside the Ghostty implementation boundary. There is no user-facing backend selector until another implementation satisfies the capabilities required by these integrations.
+Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote control, quick terminal creation, search, rich input, process detection, and offline lifecycle depend on Muxy's backend-neutral terminal surface contract. Optional integrations use dedicated capability protocols, so unsupported search, remote snapshots, client themes, offline lifecycle, raw output, and image paste behavior is never invoked. Image attachments fall back to escaped file paths when a backend does not support clipboard image paste. Ghostty-specific handles and callbacks stay inside the Ghostty implementation boundary. There is no user-facing backend selector until another implementation satisfies the capabilities required by these integrations.
 
 ## Quick terminal
 

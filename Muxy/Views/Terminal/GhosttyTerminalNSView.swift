@@ -4,11 +4,18 @@ import GhosttyKit
 import MuxyShared
 import UniformTypeIdentifiers
 
-final class GhosttyTerminalNSView: NSView, TerminalSurface {
+final class GhosttyTerminalNSView: NSView,
+    TerminalSurface,
+    TerminalRawOutputSource,
+    TerminalGridSnapshotSource,
+    TerminalClientThemeSurface,
+    TerminalOfflineSurface,
+    TerminalSearchSurface,
+    TerminalImagePasteSurface
+{
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     var terminalView: NSView { self }
     let backend = TerminalBackend.ghostty
-    let capabilities = TerminalCapabilities.ghostty
     private var surfaceFocused: Bool?
     private var workingDirectory: String
     private let command: String?
@@ -1631,12 +1638,14 @@ final class GhosttyTerminalNSView: NSView, TerminalSurface {
     func resizeTerminal(cols: UInt32, rows: UInt32) -> Bool {
         guard ensureLiveSurfaceForExternalIO(), let surface else { return false }
         let size = ghostty_surface_size(surface)
-        guard size.cell_width_px > 0, size.cell_height_px > 0 else { return false }
-        ghostty_surface_set_size(
-            surface,
-            cols * size.cell_width_px,
-            rows * size.cell_height_px
+        guard let pixelSize = TerminalSurfaceSizing.pixelSize(
+            cols: cols,
+            rows: rows,
+            cellWidth: size.cell_width_px,
+            cellHeight: size.cell_height_px
         )
+        else { return false }
+        ghostty_surface_set_size(surface, pixelSize.width, pixelSize.height)
         return true
     }
 

@@ -31,7 +31,7 @@ enum TerminalBackend: String, CaseIterable, Identifiable, Sendable {
 
     @MainActor
     func makeSurface(launch: TerminalLaunchRequest) -> any TerminalSurface {
-        switch self {
+        let surface: any TerminalSurface = switch self {
         case .ghostty:
             GhosttyTerminalNSView(
                 workingDirectory: launch.workingDirectory,
@@ -41,6 +41,9 @@ enum TerminalBackend: String, CaseIterable, Identifiable, Sendable {
                 workspaceContext: launch.workspaceContext
             )
         }
+        precondition(surface.backend == self)
+        precondition(surface.capabilities == capabilities)
+        return surface
     }
 
     @MainActor

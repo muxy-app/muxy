@@ -79,4 +79,26 @@ struct RichInputSubmitterTests {
         let selected = RichInputSubmitter.selectedSubmissionText(" \n\t ")
         #expect(selected == nil)
     }
+
+    @Test("falls back to an escaped image path without image paste capability")
+    func imageCapabilityFallback() {
+        let url = URL(fileURLWithPath: "/tmp/image with spaces.png")
+        let segments = RichInputSubmitter.segmentsForCapabilities(
+            [.image(url)],
+            capabilities: []
+        )
+
+        #expect(segments == [.text("'/tmp/image with spaces.png'")])
+    }
+
+    @Test("preserves image segments with image paste capability")
+    func imageCapabilitySupport() {
+        let url = URL(fileURLWithPath: "/tmp/image.png")
+        let segments = RichInputSubmitter.segmentsForCapabilities(
+            [.image(url)],
+            capabilities: [.imagePaste]
+        )
+
+        #expect(segments == [.image(url)])
+    }
 }

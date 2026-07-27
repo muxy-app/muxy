@@ -107,7 +107,7 @@ final class TerminalViewRegistry {
 
     func reapplyClientThemes() {
         for view in views.values {
-            view.reapplyClientThemeIfOwned()
+            (view as? any TerminalClientThemeSurface)?.reapplyClientThemeIfOwned()
         }
     }
 

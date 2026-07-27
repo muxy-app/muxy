@@ -67,7 +67,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         } else {
             nil
         }
-        TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(theme)
+        let view = TerminalViewRegistry.shared.existingView(for: paneID)
+        (view as? any TerminalClientThemeSurface)?.applyClientTheme(theme)
     }
 
     private func broadcastTheme() {
@@ -443,7 +444,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         ClientThemeStore.shared.setTheme(theme, for: clientID)
         let stored = ClientThemeStore.shared.theme(for: clientID)
         for paneID in PaneOwnershipStore.shared.panes(ownedBy: clientID) {
-            TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(stored)
+            let view = TerminalViewRegistry.shared.existingView(for: paneID)
+            (view as? any TerminalClientThemeSurface)?.applyClientTheme(stored)
         }
     }
 
@@ -457,7 +459,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO? {
-        ensureTerminalView(paneID: paneID)?.terminalCells(paneID: paneID)
+        guard let view = ensureTerminalView(paneID: paneID) as? any TerminalGridSnapshotSource else {
+            return nil
+        }
+        return view.terminalCells(paneID: paneID)
     }
 
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO? {
