@@ -62,7 +62,7 @@ final class TerminalTab: Identifiable {
         }
         switch content {
         case let .terminal(pane):
-            return pane.title
+            return pane.displayTitle
         case let .extensionWebView(state):
             return state.displayTitle
         case let .browser(state):

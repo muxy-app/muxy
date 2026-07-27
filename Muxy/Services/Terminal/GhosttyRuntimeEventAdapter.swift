@@ -76,6 +76,7 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
                 TerminalCommandTracker.shared.recordShellCommandCandidate(titleString, paneID: paneID)
             }
             view.onTitleChange?(titleString)
+            view.refreshForegroundProcessName()
             view.requestAgentDetection()
         }
     }
@@ -179,7 +180,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
                     paneID: paneID,
                     closesPane: view.closesOnCommandExit
                 )
+                TerminalCommandTracker.shared.finishCommand(paneID: paneID)
             }
+            view.refreshForegroundProcessName()
             guard view.closesOnCommandExit else { return }
             guard !view.processExitHandled else { return }
             view.processExitHandled = true

@@ -12,6 +12,7 @@ final class TerminalPaneState: Identifiable {
     let id: UUID
     let projectPath: String
     var title: String
+    var foregroundProcessName: String?
     var currentWorkingDirectory: String?
     let startupCommand: String?
     let startupCommandInteractive: Bool
@@ -57,6 +58,15 @@ final class TerminalPaneState: Identifiable {
             self.title = newTitle
             self.notifyTabUpdated()
         }
+    }
+
+    func setForegroundProcessName(_ processName: String?) {
+        guard foregroundProcessName != processName else { return }
+        foregroundProcessName = processName
+    }
+
+    var displayTitle: String {
+        foregroundProcessName ?? title
     }
 
     func setWorkingDirectory(_ path: String) {

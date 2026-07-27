@@ -362,10 +362,14 @@ struct TerminalBridge: NSViewRepresentable {
         view.onProcessExit = onProcessExit
         view.onSplitRequest = onSplitRequest
         view.onExternalDragHoverChange = makeExternalDragHoverHandler(areaID: areaID)
-        view.onTitleChange = { [weak state] title in
+        view.onTitleChange = { [weak state, weak view] title in
             DispatchQueue.main.async {
                 state?.setTitle(title)
+                state?.setForegroundProcessName(view?.currentProcessName())
             }
+        }
+        view.onForegroundProcessNameChange = { [weak state] processName in
+            state?.setForegroundProcessName(processName)
         }
         view.onWorkingDirectoryChange = { [weak state] path in
             DispatchQueue.main.async {

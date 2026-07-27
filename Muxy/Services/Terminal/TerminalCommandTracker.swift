@@ -74,6 +74,11 @@ final class TerminalCommandTracker {
         pendingCommands[paneID] ?? confirmedCommands[paneID]
     }
 
+    func finishCommand(paneID: UUID) {
+        pendingCommands.removeValue(forKey: paneID)
+        confirmedCommands.removeValue(forKey: paneID)
+    }
+
     func clearBuffer(paneID: UUID) {
         buffers[paneID] = ""
         unreliableBuffers.remove(paneID)

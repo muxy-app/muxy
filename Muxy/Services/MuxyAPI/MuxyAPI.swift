@@ -797,7 +797,7 @@ enum MuxyAPI {
                     for tab in area.tabs {
                         guard let pane = tab.content.pane else { continue }
                         let isFocused = area.id == focusedAreaID && tab.id == area.activeTabID
-                        let title = tab.customTitle ?? pane.title
+                        let title = tab.customTitle ?? pane.displayTitle
                         let cwd = pane.currentWorkingDirectory ?? pane.projectPath
                         result.append(PaneInfo(
                             id: pane.id,
