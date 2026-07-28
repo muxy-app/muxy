@@ -52,6 +52,23 @@ struct MuxyAPIWorkspaceRoutingTests {
         #expect(result.first?.isActive == true)
     }
 
+    @Test("list counts the remote projects of an SSH workspace")
+    func listCountsRemoteProjects() {
+        let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com"))
+        let store = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence(initial: [device])),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let group = store.addRemoteWorkspace(name: "Remote", deviceID: device.id)
+        store.addRemoteProject(name: "api", path: "/srv/api", toGroup: group.id)
+        store.addRemoteProject(name: "web", path: "/srv/web", toGroup: group.id)
+
+        let result = MuxyAPI.Workspaces.list(projectGroupStore: store)
+
+        #expect(result.first?.projectCount == 2)
+    }
+
     @Test("create adds a workspace")
     func createAddsWorkspace() {
         let store = makeStore()

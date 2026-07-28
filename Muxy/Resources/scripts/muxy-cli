@@ -229,6 +229,18 @@ b64_field() {
     printf '%s' "$1" | base64 | tr -d '\n'
 }
 
+absolute_path() {
+    local input="$1"
+    case "$input" in
+        '~')   input="$HOME" ;;
+        '~'/*) input="${HOME}/${input#\~/}" ;;
+    esac
+    case "$input" in
+        /*) printf '%s' "$input" ;;
+        *)  printf '%s' "$(pwd)/$input" ;;
+    esac
+}
+
 send_api() {
     local verb="$1"
     local json="$2"
@@ -549,7 +561,7 @@ case "$COMMAND" in
         if [ $# -lt 1 ]; then
             die_usage create-workspace
         fi
-        send_command "create-workspace|$*"
+        send_command "create-workspace|$(b64_field "$*")"
         ;;
     switch-workspace)
         shift
@@ -557,7 +569,7 @@ case "$COMMAND" in
         if [ $# -lt 1 ]; then
             die_usage switch-workspace
         fi
-        send_command "switch-workspace|$*"
+        send_command "switch-workspace|$(b64_field "$*")"
         ;;
     rename-workspace)
         shift
@@ -567,7 +579,7 @@ case "$COMMAND" in
         fi
         IDENTIFIER="$1"
         shift
-        send_command "rename-workspace|$(b64_field "$IDENTIFIER")|$*"
+        send_command "rename-workspace|$(b64_field "$IDENTIFIER")|$(b64_field "$*")"
         ;;
     delete-workspace)
         shift
@@ -575,26 +587,33 @@ case "$COMMAND" in
         if [ $# -lt 1 ]; then
             die_usage delete-workspace
         fi
-        send_command "delete-workspace|$*"
+        send_command "delete-workspace|$(b64_field "$*")"
         ;;
     create-project)
         shift
         CREATE_FLAG="false"
         NAME=""
         WORKSPACE=""
+        PATH_ARG=""
         while [[ $# -gt 0 ]]; do
             case $1 in
                 -h|--help) print_command_help create-project ;;
                 --create) CREATE_FLAG="true"; shift ;;
                 --name) [ $# -lt 2 ] && die_usage create-project; NAME="$2"; shift 2 ;;
                 --workspace) [ $# -lt 2 ] && die_usage create-project; WORKSPACE="$2"; shift 2 ;;
-                *) PATH_ARG="$1"; shift ;;
+                -*) die_usage create-project ;;
+                *)
+                    [ -n "$PATH_ARG" ] && die_usage create-project
+                    PATH_ARG="$1"
+                    shift
+                    ;;
             esac
         done
         if [ -z "$PATH_ARG" ]; then
             die_usage create-project
         fi
-        send_command "create-project|$(b64_field "$PATH_ARG")|$CREATE_FLAG|$(b64_field "$NAME")|$WORKSPACE"
+        PATH_ARG="$(absolute_path "$PATH_ARG")"
+        send_command "create-project|$(b64_field "$PATH_ARG")|$CREATE_FLAG|$(b64_field "$NAME")|$(b64_field "$WORKSPACE")"
         ;;
     attach-project)
         shift
@@ -608,13 +627,18 @@ case "$COMMAND" in
             case $1 in
                 -h|--help) print_command_help attach-project ;;
                 --workspace) [ $# -lt 2 ] && die_usage attach-project; WORKSPACE="$2"; shift 2 ;;
-                *) PROJECT="$1"; shift ;;
+                -*) die_usage attach-project ;;
+                *)
+                    [ -n "$PROJECT" ] && die_usage attach-project
+                    PROJECT="$1"
+                    shift
+                    ;;
             esac
         done
         if [ -z "$PROJECT" ] || [ -z "$WORKSPACE" ]; then
             die_usage attach-project
         fi
-        send_command "attach-project|$(b64_field "$PROJECT")|$WORKSPACE"
+        send_command "attach-project|$(b64_field "$PROJECT")|$(b64_field "$WORKSPACE")"
         ;;
     detach-project)
         shift
@@ -622,7 +646,7 @@ case "$COMMAND" in
         if [ $# -lt 1 ]; then
             die_usage detach-project
         fi
-        send_command "detach-project|$*"
+        send_command "detach-project|$(b64_field "$*")"
         ;;
     list-tabs)
         shift

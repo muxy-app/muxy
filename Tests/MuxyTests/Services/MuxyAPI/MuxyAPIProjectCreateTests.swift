@@ -7,13 +7,13 @@ import Testing
 @MainActor
 struct MuxyAPIProjectWorkspaceRoutingTests {
     @Test("create adds a project for an existing directory")
-    func createExistingDirectory() throws {
+    func createExistingDirectory() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let env = ProjectManagementEnvironment()
 
-        let result = MuxyAPI.Projects.create(
+        let result = await MuxyAPI.Projects.create(
             CreateProjectRequest(path: dir.path, createIfMissing: false, name: nil, workspaceIdentifier: nil),
             appState: env.appState,
             projectStore: env.projectStore,
@@ -29,12 +29,12 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
     }
 
     @Test("create creates a directory when createIfMissing is true")
-    func createMissingDirectory() throws {
+    func createMissingDirectory() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let env = ProjectManagementEnvironment()
 
-        let result = MuxyAPI.Projects.create(
+        let result = await MuxyAPI.Projects.create(
             CreateProjectRequest(path: dir.path, createIfMissing: true, name: nil, workspaceIdentifier: nil),
             appState: env.appState,
             projectStore: env.projectStore,
@@ -47,10 +47,10 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
     }
 
     @Test("create fails when directory is missing and createIfMissing is false")
-    func createFailsWhenMissing() {
+    func createFailsWhenMissing() async {
         let env = ProjectManagementEnvironment()
 
-        let result = MuxyAPI.Projects.create(
+        let result = await MuxyAPI.Projects.create(
             CreateProjectRequest(
                 path: "/tmp/muxy-missing-\(UUID().uuidString)",
                 createIfMissing: false,
@@ -70,13 +70,13 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
     }
 
     @Test("create renames project when name is provided")
-    func createRenamesProject() throws {
+    func createRenamesProject() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let env = ProjectManagementEnvironment()
 
-        let result = MuxyAPI.Projects.create(
+        let result = await MuxyAPI.Projects.create(
             CreateProjectRequest(path: dir.path, createIfMissing: false, name: "Custom Name", workspaceIdentifier: nil),
             appState: env.appState,
             projectStore: env.projectStore,
@@ -90,7 +90,7 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
     }
 
     @Test("create adds project to workspace when workspaceIdentifier is provided")
-    func createAddsToWorkspace() throws {
+    func createAddsToWorkspace() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -102,7 +102,7 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
             workspaceContextSink: InMemoryWorkspaceContextSink()
         )
 
-        let result = MuxyAPI.Projects.create(
+        let result = await MuxyAPI.Projects.create(
             CreateProjectRequest(path: dir.path, createIfMissing: false, name: nil, workspaceIdentifier: "Work"),
             appState: env.appState,
             projectStore: env.projectStore,
@@ -115,13 +115,13 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
     }
 
     @Test("create succeeds when workspaceIdentifier is empty")
-    func createSucceedsWhenWorkspaceIdentifierEmpty() throws {
+    func createSucceedsWhenWorkspaceIdentifierEmpty() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let env = ProjectManagementEnvironment()
 
-        let result = MuxyAPI.Projects.create(
+        let result = await MuxyAPI.Projects.create(
             CreateProjectRequest(path: dir.path, createIfMissing: false, name: nil, workspaceIdentifier: ""),
             appState: env.appState,
             projectStore: env.projectStore,
@@ -133,12 +133,12 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
     }
 
     @Test("create fails when workspaceIdentifier does not match any workspace")
-    func createFailsWhenWorkspaceMissing() throws {
+    func createFailsWhenWorkspaceMissing() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let env = ProjectManagementEnvironment()
 
-        let result = MuxyAPI.Projects.create(
+        let result = await MuxyAPI.Projects.create(
             CreateProjectRequest(
                 path: dir.path,
                 createIfMissing: true,
@@ -160,7 +160,7 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
     }
 
     @Test("create fails when the workspace is a remote SSH workspace")
-    func createFailsWhenWorkspaceIsRemote() throws {
+    func createFailsWhenWorkspaceIsRemote() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }
         let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com"))
@@ -172,7 +172,7 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
         )
         let sshGroup = groupStore.addRemoteWorkspace(name: "Remote", deviceID: device.id)
 
-        let result = MuxyAPI.Projects.create(
+        let result = await MuxyAPI.Projects.create(
             CreateProjectRequest(path: dir.path, createIfMissing: true, name: nil, workspaceIdentifier: sshGroup.name),
             appState: env.appState,
             projectStore: env.projectStore,
@@ -189,14 +189,14 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
     }
 
     @Test("create does not override worktreesEnabled on an existing project")
-    func createPreservesExistingWorktreesSetting() throws {
+    func createPreservesExistingWorktreesSetting() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let existing = Project(name: "Existing", path: dir.standardizedFileURL.path)
         let env = ProjectManagementEnvironment(projects: [existing])
 
-        let result = MuxyAPI.Projects.create(
+        let result = await MuxyAPI.Projects.create(
             CreateProjectRequest(path: dir.path, createIfMissing: false, name: nil, workspaceIdentifier: nil),
             appState: env.appState,
             projectStore: env.projectStore,
@@ -207,6 +207,70 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
         let info = try #require(try? result.get())
         #expect(info.id == existing.id)
         #expect(env.projectStore.storedProjects.first { $0.id == existing.id }?.worktreesEnabled == false)
+    }
+
+    @Test("create requires consent before creating a directory for an extension caller")
+    func createRequiresConsentForDirectoryCreation() async {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let env = ProjectManagementEnvironment()
+
+        let result = await MuxyAPI.Projects.create(
+            CreateProjectRequest(path: dir.path, createIfMissing: true, name: nil, workspaceIdentifier: nil),
+            appState: env.appState,
+            projectStore: env.projectStore,
+            worktreeStore: env.worktreeStore,
+            projectGroupStore: env.projectGroupStore,
+            callingExtensionID: "demo",
+            consent: makeConsent(extensionID: "demo", decision: .deny)
+        )
+
+        guard case .failure(.consentDenied) = result else {
+            Issue.record("expected consentDenied when the extension is not allowed to create directories")
+            return
+        }
+        #expect(!FileManager.default.fileExists(atPath: dir.path))
+        #expect(!env.projectStore.projects.contains { $0.path == dir.path })
+    }
+
+    @Test("create makes the directory for an extension caller once consent is granted")
+    func createProceedsWhenConsentGranted() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let env = ProjectManagementEnvironment()
+
+        let result = await MuxyAPI.Projects.create(
+            CreateProjectRequest(path: dir.path, createIfMissing: true, name: nil, workspaceIdentifier: nil),
+            appState: env.appState,
+            projectStore: env.projectStore,
+            worktreeStore: env.worktreeStore,
+            projectGroupStore: env.projectGroupStore,
+            callingExtensionID: "demo",
+            consent: makeConsent(extensionID: "demo", decision: .allow)
+        )
+
+        #expect(result.isSuccess)
+        #expect(FileManager.default.fileExists(atPath: dir.path))
+    }
+
+    @Test("create does not ask for consent when the directory already exists")
+    func createSkipsConsentForExistingDirectory() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let env = ProjectManagementEnvironment()
+
+        let result = await MuxyAPI.Projects.create(
+            CreateProjectRequest(path: dir.path, createIfMissing: true, name: nil, workspaceIdentifier: nil),
+            appState: env.appState,
+            projectStore: env.projectStore,
+            worktreeStore: env.worktreeStore,
+            projectGroupStore: env.projectGroupStore,
+            callingExtensionID: "demo",
+            consent: makeConsent(extensionID: "demo", decision: .deny)
+        )
+
+        #expect(result.isSuccess)
     }
 
     @Test("attach adds project to workspace")
@@ -381,6 +445,18 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
             Issue.record("expected invalidArguments when detaching the home project")
             return
         }
+    }
+
+    private func makeConsent(extensionID: String, decision: ExtensionGrantDecision) -> ExtensionConsentService {
+        let grantStore = ExtensionGrantStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-grants-\(UUID().uuidString).json"))
+        grantStore.add(ExtensionGrantRule(
+            extensionID: extensionID,
+            verb: .filesWrite,
+            match: .fileOperationEquals("mkdir"),
+            decision: decision
+        ))
+        return ExtensionConsentService(grantStore: grantStore)
     }
 }
 

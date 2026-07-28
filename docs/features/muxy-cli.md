@@ -75,6 +75,7 @@ muxy create-project ~/Developer/new-app --create --name "New App" --workspace Wo
 Options:
 
 - `--create` — create the directory if it does not exist
+- Relative paths and `~` are resolved against your shell's current directory before the request is sent
 - `--name <name>` — rename the project after opening it
 - `--workspace <name|id>` — add the project to a workspace (fails if the workspace does not exist, or is a remote SSH workspace)
 

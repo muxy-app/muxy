@@ -681,7 +681,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore()
 
         let result = await SocketCommandHandler.handleRequest(
-            "create-workspace|Work",
+            "create-workspace|\(b64("Work"))",
             appState: appState,
             projectGroupStore: groupStore
         )
@@ -699,7 +699,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "switch-workspace|Work",
+            "switch-workspace|\(b64("Work"))",
             appState: appState,
             projectGroupStore: groupStore
         )
@@ -715,7 +715,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "rename-workspace|\(b64("Work"))|Personal",
+            "rename-workspace|\(b64("Work"))|\(b64("Personal"))",
             appState: appState,
             projectGroupStore: groupStore
         )
@@ -731,13 +731,43 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "rename-workspace|\(b64("Work|Personal"))|Renamed",
+            "rename-workspace|\(b64("Work|Personal"))|\(b64("Renamed"))",
             appState: appState,
             projectGroupStore: groupStore
         )
 
         #expect(result == "ok")
         #expect(groupStore.groups.first?.name == "Renamed")
+    }
+
+    @Test("create-workspace keeps a name containing a newline in a single command")
+    func createWorkspaceWithNewlineInName() async {
+        let appState = makeAppState()
+        let groupStore = makeGroupStore()
+
+        let result = await SocketCommandHandler.handleRequest(
+            "create-workspace|\(b64("Work\ndelete-workspace|Work"))",
+            appState: appState,
+            projectGroupStore: groupStore
+        )
+
+        #expect(result.hasPrefix("ok\t"))
+        #expect(groupStore.groups.count == 1)
+        #expect(groupStore.groups.first?.name == "Work\ndelete-workspace|Work")
+    }
+
+    @Test("workspace commands reject a field that is not valid base64")
+    func workspaceCommandsRejectMalformedField() async {
+        let appState = makeAppState()
+        let groupStore = makeGroupStore()
+
+        let result = await SocketCommandHandler.handleRequest(
+            "switch-workspace|not valid base64!",
+            appState: appState,
+            projectGroupStore: groupStore
+        )
+
+        #expect(result == "error:invalid switch-workspace identifier")
     }
 
     @Test("delete-workspace removes a workspace")
@@ -747,7 +777,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "delete-workspace|Work",
+            "delete-workspace|\(b64("Work"))",
             appState: appState,
             projectGroupStore: groupStore
         )
@@ -763,7 +793,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "delete-workspace|Work",
+            "delete-workspace|\(b64("Work"))",
             appState: appState,
             projectGroupStore: groupStore
         )
@@ -808,7 +838,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "create-project|\(b64(dir.path))|false|\(b64("Custom|Name"))|Work",
+            "create-project|\(b64(dir.path))|false|\(b64("Custom|Name"))|\(b64("Work"))",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -853,7 +883,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "create-project|\(b64(dir.path))|false||Work",
+            "create-project|\(b64(dir.path))|false||\(b64("Work"))",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -894,7 +924,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore()
 
         let result = await SocketCommandHandler.handleRequest(
-            "create-project|\(b64(dir.path))|false||missing",
+            "create-project|\(b64(dir.path))|false||\(b64("missing"))",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -913,7 +943,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "attach-project|\(b64("Repo"))|Work",
+            "attach-project|\(b64("Repo"))|\(b64("Work"))",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -933,7 +963,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "attach-project|\(b64("Re|po"))|Work",
+            "attach-project|\(b64("Re|po"))|\(b64("Work"))",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,
@@ -953,7 +983,7 @@ struct SocketCommandHandlerTests {
         let groupStore = makeGroupStore(initial: [group])
 
         let result = await SocketCommandHandler.handleRequest(
-            "detach-project|Repo",
+            "detach-project|\(b64("Repo"))",
             appState: appState,
             projectStore: stores.projectStore,
             worktreeStore: stores.worktreeStore,

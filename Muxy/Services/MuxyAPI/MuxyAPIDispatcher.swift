@@ -422,7 +422,7 @@ enum MuxyAPIDispatcher {
                   let worktreeStore = context.worktreeStore,
                   let projectGroupStore = context.projectGroupStore
             else { throw APIError.projectStoreUnavailable }
-            return try createdProjectDict(unwrap(MuxyAPI.Projects.create(
+            return try await createdProjectDict(unwrap(MuxyAPI.Projects.create(
                 CreateProjectRequest(
                     path: stringArg(args, "path"),
                     createIfMissing: boolArg(args, "createIfMissing") ?? false,
@@ -432,7 +432,8 @@ enum MuxyAPIDispatcher {
                 appState: context.appState,
                 projectStore: projectStore,
                 worktreeStore: worktreeStore,
-                projectGroupStore: projectGroupStore
+                projectGroupStore: projectGroupStore,
+                callingExtensionID: context.extensionID
             )))
         case "projects.attach":
             guard let projectStore = context.projectStore,

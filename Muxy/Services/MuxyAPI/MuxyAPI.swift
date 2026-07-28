@@ -997,8 +997,10 @@ enum MuxyAPI {
             appState: AppState,
             projectStore: ProjectStore,
             worktreeStore: WorktreeStore,
-            projectGroupStore: ProjectGroupStore
-        ) -> Result<CreatedProjectInfo, APIError> {
+            projectGroupStore: ProjectGroupStore,
+            callingExtensionID: String? = nil,
+            consent: ExtensionConsentService = .shared
+        ) async -> Result<CreatedProjectInfo, APIError> {
             let workspaceID = request.workspaceIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
             var targetWorkspace: ProjectGroup?
             if let workspaceID, !workspaceID.isEmpty {
@@ -1008,6 +1010,22 @@ enum MuxyAPI {
                     return .failure(.invalidArguments("workspace not found '\(workspaceID)'"))
                 }
                 targetWorkspace = workspace
+            }
+
+            let standardized = ProjectPickerPathService.standardizedPath(request.path)
+            if let callingExtensionID,
+               request.createIfMissing,
+               FileManagerProjectPathConfirmationFileSystem().directoryState(atPath: standardized) == .missing
+            {
+                let consentRequest = ExtensionConsentRequestBuilder.make(
+                    extensionID: callingExtensionID,
+                    verb: .filesWrite,
+                    payload: .file(operation: "mkdir", path: standardized),
+                    source: "muxy-api"
+                )
+                guard await consent.gate(consentRequest) == .allow else {
+                    return .failure(.consentDenied(verb: "projects.create"))
+                }
             }
 
             let before = Set(projectStore.projects.map(\.id))
@@ -1033,7 +1051,6 @@ enum MuxyAPI {
                 }
             }
 
-            let standardized = ProjectPickerPathService.standardizedPath(request.path)
             guard let project = projectStore.projects.first(where: {
                 ProjectPickerPathService.standardizedPath($0.path) == standardized
             })
@@ -1283,7 +1300,7 @@ enum MuxyAPI {
                 WorkspaceInfo(
                     id: group.id,
                     name: group.name,
-                    projectCount: group.projectIDs.count,
+                    projectCount: group.projectIDs.count + group.remoteProjects.count,
                     isActive: group.id == activeID
                 )
             }

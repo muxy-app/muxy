@@ -161,50 +161,53 @@ enum SocketCommandHandler {
                 "\(ws.id.uuidString)\t\(ws.name)\t\(ws.projectCount)\t\(ws.isActive)"
             }.joined(separator: "\n")
         case "create-workspace":
-            guard parts.count >= 2 else { return "error:usage create-workspace|<name>" }
+            guard parts.count >= 2 else { return "error:usage create-workspace|<base64-name>" }
             guard let projectGroupStore else { return "error:project group store unavailable" }
-            let id = MuxyAPI.Workspaces.create(
-                name: parts.dropFirst().joined(separator: "|"),
-                projectGroupStore: projectGroupStore
-            )
+            guard let name = decodeBase64Field(parts[1]) else {
+                return "error:invalid create-workspace name"
+            }
+            let id = MuxyAPI.Workspaces.create(name: name, projectGroupStore: projectGroupStore)
             return "ok\t\(id.uuidString)"
         case "switch-workspace":
-            guard parts.count >= 2 else { return "error:usage switch-workspace|<name-or-id>" }
+            guard parts.count >= 2 else { return "error:usage switch-workspace|<base64-name-or-id>" }
             guard let projectGroupStore else { return "error:project group store unavailable" }
+            guard let identifier = decodeBase64Field(parts[1]) else {
+                return "error:invalid switch-workspace identifier"
+            }
             return serialize(
-                MuxyAPI.Workspaces.switchTo(
-                    identifier: parts.dropFirst().joined(separator: "|"),
-                    projectGroupStore: projectGroupStore
-                ),
+                MuxyAPI.Workspaces.switchTo(identifier: identifier, projectGroupStore: projectGroupStore),
                 ok: "ok"
             )
         case "rename-workspace":
-            guard parts.count >= 3 else { return "error:usage rename-workspace|<base64-name-or-id>|<new-name>" }
+            guard parts.count >= 3 else { return "error:usage rename-workspace|<base64-name-or-id>|<base64-new-name>" }
             guard let projectGroupStore else { return "error:project group store unavailable" }
             guard let identifier = decodeBase64Field(parts[1]) else {
                 return "error:invalid rename-workspace identifier"
             }
+            guard let newName = decodeBase64Field(parts[2]) else {
+                return "error:invalid rename-workspace name"
+            }
             return serialize(
                 MuxyAPI.Workspaces.rename(
                     identifier: identifier,
-                    to: parts.dropFirst(2).joined(separator: "|"),
+                    to: newName,
                     projectGroupStore: projectGroupStore
                 ),
                 ok: "ok"
             )
         case "delete-workspace":
-            guard parts.count >= 2 else { return "error:usage delete-workspace|<name-or-id>" }
+            guard parts.count >= 2 else { return "error:usage delete-workspace|<base64-name-or-id>" }
             guard let projectGroupStore else { return "error:project group store unavailable" }
+            guard let identifier = decodeBase64Field(parts[1]) else {
+                return "error:invalid delete-workspace identifier"
+            }
             return serialize(
-                MuxyAPI.Workspaces.delete(
-                    identifier: parts.dropFirst().joined(separator: "|"),
-                    projectGroupStore: projectGroupStore
-                ),
+                MuxyAPI.Workspaces.delete(identifier: identifier, projectGroupStore: projectGroupStore),
                 ok: "ok"
             )
         case "create-project":
             guard parts.count >= 2 else {
-                return "error:usage create-project|<base64-path>[|createIfMissing][|base64-name][|workspace]"
+                return "error:usage create-project|<base64-path>[|createIfMissing][|base64-name][|base64-workspace]"
             }
             guard let projectStore, let worktreeStore, let projectGroupStore else {
                 return "error:project store unavailable"
@@ -213,9 +216,13 @@ enum SocketCommandHandler {
                 return "error:invalid create-project path"
             }
             let createIfMissing = parts.count >= 3 ? (parts[2] == "true") : false
-            let name = parts.count >= 4 ? decodeBase64Field(parts[3]) : nil
-            let workspaceIdentifier = parts.count >= 5 ? parts.dropFirst(4).joined(separator: "|") : nil
-            return serialize(MuxyAPI.Projects.create(
+            guard let name = decodeBase64Field(parts.count >= 4 ? parts[3] : "") else {
+                return "error:invalid create-project name"
+            }
+            guard let workspaceIdentifier = decodeBase64Field(parts.count >= 5 ? parts[4] : "") else {
+                return "error:invalid create-project workspace"
+            }
+            return await serialize(MuxyAPI.Projects.create(
                 CreateProjectRequest(
                     path: path,
                     createIfMissing: createIfMissing,
@@ -225,20 +232,24 @@ enum SocketCommandHandler {
                 appState: appState,
                 projectStore: projectStore,
                 worktreeStore: worktreeStore,
-                projectGroupStore: projectGroupStore
+                projectGroupStore: projectGroupStore,
+                callingExtensionID: clientContext.extensionID
             )) { info in
                 "ok\t\(info.id.uuidString)\t\(info.name)\t\(info.path)"
             }
         case "attach-project":
-            guard parts.count >= 3 else { return "error:usage attach-project|<base64-project>|<workspace>" }
+            guard parts.count >= 3 else { return "error:usage attach-project|<base64-project>|<base64-workspace>" }
             guard let projectStore, let projectGroupStore else { return "error:project store unavailable" }
             guard let projectIdentifier = decodeBase64Field(parts[1]) else {
                 return "error:invalid attach-project project identifier"
             }
+            guard let workspaceIdentifier = decodeBase64Field(parts[2]) else {
+                return "error:invalid attach-project workspace identifier"
+            }
             return serialize(
                 MuxyAPI.Projects.attach(
                     projectIdentifier: projectIdentifier,
-                    workspaceIdentifier: parts.dropFirst(2).joined(separator: "|"),
+                    workspaceIdentifier: workspaceIdentifier,
                     projectStore: projectStore,
                     projectGroupStore: projectGroupStore,
                     appState: appState
@@ -246,11 +257,14 @@ enum SocketCommandHandler {
                 ok: "ok"
             )
         case "detach-project":
-            guard parts.count >= 2 else { return "error:usage detach-project|<project>" }
+            guard parts.count >= 2 else { return "error:usage detach-project|<base64-project>" }
             guard let projectStore, let projectGroupStore else { return "error:project store unavailable" }
+            guard let projectIdentifier = decodeBase64Field(parts[1]) else {
+                return "error:invalid detach-project project identifier"
+            }
             return serialize(
                 MuxyAPI.Projects.detach(
-                    projectIdentifier: parts.dropFirst().joined(separator: "|"),
+                    projectIdentifier: projectIdentifier,
                     projectStore: projectStore,
                     projectGroupStore: projectGroupStore,
                     appState: appState
