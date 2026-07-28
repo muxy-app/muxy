@@ -132,15 +132,4 @@ struct RichInputSubmitterTests {
         #expect(segments == [.image(url)])
     }
 
-    @Test("failed targets remain excluded from submission")
-    func failedTargets() {
-        let successfulTarget = NSObject()
-        let failedTarget = NSObject()
-        var failures = RichInputSubmitter.FailedTargets()
-
-        failures.insert(failedTarget)
-
-        #expect(!failures.contains(successfulTarget))
-        #expect(failures.contains(failedTarget))
-    }
 }

@@ -58,6 +58,17 @@ final class TerminalViewRegistry {
         paneIDs.removeValue(forKey: ObjectIdentifier(view.terminalView))
     }
 
+    func prepareForTermination() async {
+        let cleanupTasks = views.values.map { view in
+            Task { @MainActor in
+                await view.prepareForTermination()
+            }
+        }
+        for task in cleanupTasks {
+            await task.value
+        }
+    }
+
     func needsConfirmQuit(for paneID: UUID) -> Bool {
         views[paneID]?.needsConfirmQuit() ?? false
     }

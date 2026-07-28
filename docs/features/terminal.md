@@ -57,10 +57,14 @@ Reload the configuration with `⌘⇧R`, then open a new terminal. Ghostty appli
 Enable **Settings -> Terminal -> Auto-copy terminal selection** to copy selected terminal text on mouse release.
 
 When an SSH terminal receives an image through `Ctrl+V`, `Cmd+V`, right-click Paste, or Composer, Muxy converts
-the image to PNG and uploads it to a private temporary directory on the remote device. The remote file path is
-then pasted into the running TUI, allowing tools such as Codex and Claude Code to attach the image without access
-to the Mac clipboard. Uploaded images use owner-only permissions and are removed when the terminal session ends.
-Text paste behavior is unchanged.
+the image to PNG away from the main UI thread and uploads it to a private, session-scoped temporary directory on
+the remote device. The remote file path is then pasted into the running TUI, allowing tools such as Codex and
+Claude Code to attach the image without access to the Mac clipboard. Encoded image input and converted PNG output
+are limited to 25 MB, and decoded images are limited to 64 megapixels.
+
+Uploaded directories and images use owner-only permissions. Partial uploads are removed when an upload is
+interrupted, and the session directory is removed when its terminal ends. On app quit, Muxy waits up to five
+seconds for terminal image cleanup before allowing termination to continue. Text paste behavior is unchanged.
 
 ## Working directory
 
@@ -86,6 +90,10 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 opens the legacy voice recorder normally, or starts on-device dictation inside the focused composer when it is
 already open. Stop Composer dictation to insert the transcript at the editor cursor, or press Return while
 recording, then edit or send it normally.
+
+Each Composer submission is serialized with later keyboard input for its target terminal. Text, image paths, and
+the optional Return are submitted as one transaction, including when a Composer message is broadcast to several
+panes.
 
 Composer submission controls stay unavailable while dictation is starting or recording. A dictation error does
 not block typed text from being sent, and its inline message can be dismissed without closing the composer.

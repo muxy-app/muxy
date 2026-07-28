@@ -4,18 +4,6 @@ import Foundation
 enum RichInputSubmitter {
     private static let initialDelay: Duration = .milliseconds(50)
 
-    struct FailedTargets {
-        private var identifiers: Set<ObjectIdentifier> = []
-
-        mutating func insert(_ target: AnyObject) {
-            identifiers.insert(ObjectIdentifier(target))
-        }
-
-        func contains(_ target: AnyObject) -> Bool {
-            identifiers.contains(ObjectIdentifier(target))
-        }
-    }
-
     enum Segment: Equatable {
         case text(String)
         case image(URL)
@@ -50,96 +38,81 @@ enum RichInputSubmitter {
 
         let views = paneIDs.compactMap { TerminalViewRegistry.shared.existingView(for: $0) }
         guard !views.isEmpty else { return }
-        let hasImageSegment = segments.contains {
-            if case .image = $0 {
-                true
-            } else {
-                false
-            }
-        }
-        let usesImagePaste = hasImageSegment && views.contains {
-            resolvedSegments(
-                segments,
-                strategy: strategy,
-                capabilities: $0.capabilities,
-                isRemote: imagePasteContext(for: $0).isRemote
-            ).contains {
-                if case .image = $0 {
-                    true
-                } else {
-                    false
-                }
-            }
-        }
         let focusTarget = views.count == 1 ? views.first : nil
 
-        if !usesImagePaste {
-            Task { @MainActor in
-                for view in views {
-                    view.clearTerminalInput()
-                }
-                try? await Task.sleep(for: initialDelay)
-                for view in views {
+        Task { @MainActor in
+            let submissions = views.map { view in
+                Task { @MainActor in
                     let resolved = segmentsForCapabilities(
                         segments,
                         strategy: strategy,
                         capabilities: view.capabilities,
                         isRemote: imagePasteContext(for: view).isRemote
                     )
-                    let payload = textOnlyPayload(segments: resolved, appendReturn: appendReturn)
-                    view.sendRemoteBytes(payload)
-                }
-                if let focusTarget {
-                    focusTarget.terminalView.window?.makeFirstResponder(focusTarget.terminalView)
-                }
-            }
-            return
-        }
-
-        Task { @MainActor in
-            for view in views {
-                view.clearTerminalInput()
-            }
-            try? await Task.sleep(for: initialDelay)
-            var failedViews = FailedTargets()
-
-            for segment in segments {
-                for view in views {
-                    guard !failedViews.contains(view) else { continue }
-                    switch resolvedSegment(
-                        segment,
-                        strategy: strategy,
-                        capabilities: view.capabilities,
-                        isRemote: imagePasteContext(for: view).isRemote
-                    ) {
-                    case let .text(chunk):
-                        guard !chunk.isEmpty else { continue }
-                        view.submitRichInput(text: chunk)
-                    case let .image(url):
-                        guard let imageSurface = view as? any TerminalImagePasteSurface else {
-                            failedViews.insert(view)
-                            view.clearTerminalInput()
-                            continue
-                        }
-                        guard await imageSurface.pasteImageURL(url) else {
-                            failedViews.insert(view)
-                            view.clearTerminalInput()
-                            continue
-                        }
+                    return await view.performInputTransaction {
+                        await submit(
+                            segments: resolved,
+                            to: view,
+                            appendReturn: appendReturn
+                        )
                     }
                 }
             }
-
-            if appendReturn {
-                for view in views where !failedViews.contains(view) {
-                    view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
-                }
+            for submission in submissions {
+                _ = await submission.value
             }
 
             if let focusTarget {
                 focusTarget.terminalView.window?.makeFirstResponder(focusTarget.terminalView)
             }
         }
+    }
+
+    private static func submit(
+        segments: [Segment],
+        to view: any TerminalSurface,
+        appendReturn: Bool
+    ) async -> Bool {
+        view.clearTerminalInput()
+        do {
+            try await Task.sleep(for: initialDelay)
+        } catch {
+            return false
+        }
+        guard !Task.isCancelled else { return false }
+
+        let hasImage = segments.contains {
+            if case .image = $0 {
+                true
+            } else {
+                false
+            }
+        }
+        guard hasImage else {
+            view.sendRemoteBytes(textOnlyPayload(segments: segments, appendReturn: appendReturn))
+            return true
+        }
+        guard let imageSurface = view as? any TerminalImagePasteSurface else {
+            view.clearTerminalInput()
+            return false
+        }
+        for segment in segments {
+            guard !Task.isCancelled else { return false }
+            switch segment {
+            case let .text(chunk):
+                guard !chunk.isEmpty else { continue }
+                view.submitRichInput(text: chunk)
+            case let .image(url):
+                guard await imageSurface.pasteImageURL(url) else {
+                    view.clearTerminalInput()
+                    return false
+                }
+            }
+        }
+        if appendReturn {
+            view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
+        }
+        return true
     }
 
     nonisolated static func selectedSubmissionText(_ selectedText: String?) -> String? {

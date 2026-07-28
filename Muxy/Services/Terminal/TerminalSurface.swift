@@ -114,6 +114,8 @@ protocol TerminalSurface: AnyObject {
     func readScreenText(lastLines: Int) -> String
     func submitRichInput(text: String)
     func clearTerminalInput()
+    func performInputTransaction(_ operation: @escaping @MainActor () async -> Bool) async -> Bool
+    func prepareForTermination() async
     func scrollTerminal(deltaX: Double, deltaY: Double, precise: Bool)
     func resizeTerminal(cols: UInt32, rows: UInt32) -> Bool
 }

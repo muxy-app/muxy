@@ -90,10 +90,12 @@ final class GhosttyTerminalNSView: NSView,
     nonisolated(unsafe) private var surfaceEnvVarCount = 0
     private var rawOutputToken: Int?
     private var surfaceConfigurationOverlay: ((ghostty_surface_t) -> Void)?
-    private var remotePastedImagePaths: Set<String> = []
     private let terminalInputQueue = TerminalInputQueue()
     private var surfaceGeneration = 0
     private static let imagePasteDelay: Duration = .milliseconds(300)
+    private var remoteImageSessionID = UUID().uuidString
+    private var remoteImageSessionActive = false
+    private var remoteImageCleanupTasks: [Task<Void, Never>] = []
 
     init(
         workingDirectory: String,
@@ -259,8 +261,8 @@ final class GhosttyTerminalNSView: NSView,
 
     func destroySurface() {
         surfaceGeneration += 1
-        terminalInputQueue.cancelAll()
-        cleanupRemotePastedImages()
+        let cancelledWorker = terminalInputQueue.cancelAll()
+        scheduleRemoteImageCleanup(after: cancelledWorker)
         if let surface {
             if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: self)
@@ -1413,18 +1415,27 @@ final class GhosttyTerminalNSView: NSView,
             sendRemoteBytes(TerminalControlBytes.pasteShortcut)
             return
         }
-        guard let pngData = ImagePasteData.pngData() else {
-            ToastState.shared.show("Could not read clipboard image")
+        let sourceData: Data
+        do {
+            sourceData = try ImagePasteData.sourceData()
+        } catch {
+            ToastState.shared.show(error.localizedDescription)
             return
         }
         let generation = surfaceGeneration
         terminalInputQueue.enqueue { [weak self] in
             guard !Task.isCancelled, let self else { return }
-            _ = await pasteRemoteImage(
-                pngData: pngData,
-                destination: destination,
-                surfaceGeneration: generation
-            )
+            do {
+                let pngData = try await ImagePasteData.pngData(from: sourceData)
+                _ = await pasteRemoteImage(
+                    pngData: pngData,
+                    destination: destination,
+                    surfaceGeneration: generation
+                )
+            } catch {
+                guard !Task.isCancelled else { return }
+                ToastState.shared.show(error.localizedDescription)
+            }
         }
     }
 
@@ -1836,21 +1847,24 @@ final class GhosttyTerminalNSView: NSView,
         sendRemoteBytes(TerminalControlBytes.killLineToCursor)
     }
 
+    func performInputTransaction(_ operation: @escaping @MainActor () async -> Bool) async -> Bool {
+        await terminalInputQueue.perform(operation)
+    }
+
     func pasteImageURL(_ url: URL) async -> Bool {
+        let pngData: Data
+        do {
+            pngData = try await ImagePasteData.pngData(contentsOf: url)
+        } catch {
+            ToastState.shared.show(error.localizedDescription)
+            return false
+        }
         if let destination = workspaceContext.sshDestination {
-            guard let pngData = ImagePasteData.pngData(contentsOf: url) else {
-                ToastState.shared.show("Could not read image")
-                return false
-            }
             return await pasteRemoteImage(
                 pngData: pngData,
                 destination: destination,
                 surfaceGeneration: surfaceGeneration
             )
-        }
-        guard let pngData = ImagePasteData.pngData(contentsOf: url) else {
-            ToastState.shared.show("Could not read image")
-            return false
         }
         let savedClipboard = SystemPasteboardSnapshot.capture()
         let pasteboard = NSPasteboard.general
@@ -1867,16 +1881,17 @@ final class GhosttyTerminalNSView: NSView,
         destination: SSHDestination,
         surfaceGeneration: Int
     ) async -> Bool {
+        let sessionID = remoteImageSessionID
+        let imageID = UUID().uuidString
+        remoteImageSessionActive = true
         do {
             let remotePath = try await RemoteImagePasteService.upload(
                 pngData: pngData,
-                destination: destination
+                destination: destination,
+                sessionID: sessionID,
+                imageID: imageID
             )
-            guard self.surfaceGeneration == surfaceGeneration, surface != nil else {
-                await RemoteImagePasteService.remove(paths: [remotePath], destination: destination)
-                return false
-            }
-            remotePastedImagePaths.insert(remotePath)
+            guard self.surfaceGeneration == surfaceGeneration, surface != nil else { return false }
             submitRichInput(text: ShellEscaper.escape(remotePath))
             return true
         } catch {
@@ -1889,15 +1904,28 @@ final class GhosttyTerminalNSView: NSView,
         }
     }
 
-    private func cleanupRemotePastedImages() {
-        guard let destination = workspaceContext.sshDestination, !remotePastedImagePaths.isEmpty else {
-            return
+    func prepareForTermination() async {
+        surfaceGeneration += 1
+        let cancelledWorker = terminalInputQueue.cancelAll()
+        scheduleRemoteImageCleanup(after: cancelledWorker)
+        await cancelledWorker?.value
+        let cleanupTasks = remoteImageCleanupTasks
+        for task in cleanupTasks {
+            await task.value
         }
-        let paths = remotePastedImagePaths
-        remotePastedImagePaths.removeAll()
-        Task {
-            await RemoteImagePasteService.remove(paths: paths, destination: destination)
+        remoteImageCleanupTasks.removeAll()
+    }
+
+    private func scheduleRemoteImageCleanup(after cancelledWorker: Task<Void, Never>?) {
+        guard let destination = workspaceContext.sshDestination, remoteImageSessionActive else { return }
+        let sessionID = remoteImageSessionID
+        remoteImageSessionID = UUID().uuidString
+        remoteImageSessionActive = false
+        let cleanupTask = Task {
+            await cancelledWorker?.value
+            await RemoteImagePasteService.remove(sessionID: sessionID, destination: destination)
         }
+        remoteImageCleanupTasks.append(cleanupTask)
     }
 
     func sendKeyPress(codepoint: UInt32, keycode: UInt32 = 0, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
