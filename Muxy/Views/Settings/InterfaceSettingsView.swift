@@ -59,7 +59,7 @@ struct InterfaceSettingsView: View {
                 }
 
                 if layoutStore.layout.supportsGroupedWorktrees {
-                    SettingsToggleRow(label: "Group worktrees", isOn: $groupWorktrees)
+                    SettingsToggleRow(label: "Nest worktrees inside projects", isOn: $groupWorktrees)
                 }
             }
 
@@ -171,9 +171,6 @@ struct InterfaceSettingsView: View {
                 }
             }
 
-            if layoutStore.layout.supportsGroupedWorktrees {
-                SettingsToggleRow(label: "Nest worktrees inside projects", isOn: $groupWorktrees)
-            }
         }
 
         SettingsSection("Worktrees") {
