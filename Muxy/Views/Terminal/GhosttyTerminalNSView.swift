@@ -90,10 +90,11 @@ final class GhosttyTerminalNSView: NSView,
     nonisolated(unsafe) private var surfaceEnvVarCount = 0
     private var rawOutputToken: Int?
     private var surfaceConfigurationOverlay: ((ghostty_surface_t) -> Void)?
-    private var remotePastedImagePaths: Set<String> = []
     private let terminalInputQueue = TerminalInputQueue()
     private var surfaceGeneration = 0
     private static let imagePasteDelay: Duration = .milliseconds(300)
+    private let remoteImagePasteSession = RemoteImagePasteSession()
+    private var precedingRemoteImageCleanup: Task<Void, Never>?
 
     init(
         workingDirectory: String,
@@ -259,8 +260,8 @@ final class GhosttyTerminalNSView: NSView,
 
     func destroySurface() {
         surfaceGeneration += 1
-        terminalInputQueue.cancelAll()
-        cleanupRemotePastedImages()
+        let cancelledWorker = terminalInputQueue.cancelAll()
+        scheduleRemoteImageCleanup(after: cancelledWorker)
         if let surface {
             if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: self)
@@ -1409,22 +1410,27 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     private func scheduleSystemImagePaste() {
-        guard let destination = workspaceContext.sshDestination else {
+        guard workspaceContext.sshDestination != nil else {
             sendRemoteBytes(TerminalControlBytes.pasteShortcut)
             return
         }
-        guard let pngData = ImagePasteData.pngData() else {
-            ToastState.shared.show("Could not read clipboard image")
+        let sourceData: Data
+        do {
+            sourceData = try ImagePasteData.sourceData()
+        } catch {
+            ToastState.shared.show(error.localizedDescription)
             return
         }
-        let generation = surfaceGeneration
         terminalInputQueue.enqueue { [weak self] in
-            guard !Task.isCancelled, let self else { return }
-            _ = await pasteRemoteImage(
-                pngData: pngData,
-                destination: destination,
-                surfaceGeneration: generation
-            )
+            guard !Task.isCancelled, let attempt = self?.beginImagePaste() else { return }
+            do {
+                let pngData = try await ImagePasteData.pngData(from: sourceData)
+                guard !Task.isCancelled, let self else { return }
+                _ = await self.pasteImageData(pngData, attempt: attempt)
+            } catch {
+                guard !Task.isCancelled else { return }
+                ToastState.shared.show(error.localizedDescription)
+            }
         }
     }
 
@@ -1836,47 +1842,61 @@ final class GhosttyTerminalNSView: NSView,
         sendRemoteBytes(TerminalControlBytes.killLineToCursor)
     }
 
-    func pasteImageURL(_ url: URL) async -> Bool {
-        if let destination = workspaceContext.sshDestination {
-            guard let pngData = ImagePasteData.pngData(contentsOf: url) else {
-                ToastState.shared.show("Could not read image")
-                return false
-            }
+    func enqueueInputTransaction(
+        _ operation: @escaping @MainActor () async -> Bool
+    ) -> TerminalInputTransactionHandle {
+        terminalInputQueue.enqueueTransaction(operation)
+    }
+
+    func beginImagePaste() -> TerminalImagePasteAttempt? {
+        guard surface != nil else { return nil }
+        if workspaceContext.sshDestination != nil {
+            return .remote(remoteImagePasteSession.begin(surfaceGeneration: surfaceGeneration))
+        }
+        return .local(surfaceGeneration: surfaceGeneration)
+    }
+
+    func pasteImageData(_ pngData: Data, attempt: TerminalImagePasteAttempt) async -> Bool {
+        guard pasteAttemptPermitsSideEffects(attempt) else { return false }
+        switch attempt {
+        case let .remote(remoteAttempt):
+            guard let destination = workspaceContext.sshDestination else { return false }
             return await pasteRemoteImage(
                 pngData: pngData,
                 destination: destination,
-                surfaceGeneration: surfaceGeneration
+                attempt: remoteAttempt
             )
+        case .local:
+            return await pasteLocalImage(pngData: pngData, attempt: attempt)
         }
-        guard let pngData = ImagePasteData.pngData(contentsOf: url) else {
-            ToastState.shared.show("Could not read image")
-            return false
-        }
+    }
+
+    private func pasteLocalImage(pngData: Data, attempt: TerminalImagePasteAttempt) async -> Bool {
+        guard pasteAttemptPermitsSideEffects(attempt) else { return false }
         let savedClipboard = SystemPasteboardSnapshot.capture()
+        defer { SystemPasteboardSnapshot.restore(items: savedClipboard) }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setData(pngData, forType: .png)
         sendRemoteBytes(TerminalControlBytes.pasteShortcut)
         try? await Task.sleep(for: Self.imagePasteDelay)
-        SystemPasteboardSnapshot.restore(items: savedClipboard)
-        return true
+        return pasteAttemptPermitsSideEffects(attempt)
     }
 
     private func pasteRemoteImage(
         pngData: Data,
         destination: SSHDestination,
-        surfaceGeneration: Int
+        attempt: RemoteImagePasteAttempt
     ) async -> Bool {
+        guard pasteAttemptPermitsSideEffects(.remote(attempt)) else { return false }
         do {
             let remotePath = try await RemoteImagePasteService.upload(
                 pngData: pngData,
-                destination: destination
+                destination: destination,
+                sessionID: attempt.sessionID,
+                imageID: attempt.imageID
             )
-            guard self.surfaceGeneration == surfaceGeneration, surface != nil else {
-                await RemoteImagePasteService.remove(paths: [remotePath], destination: destination)
-                return false
-            }
-            remotePastedImagePaths.insert(remotePath)
+            guard pasteAttemptPermitsSideEffects(.remote(attempt)) else { return false }
             submitRichInput(text: ShellEscaper.escape(remotePath))
             return true
         } catch {
@@ -1889,14 +1909,33 @@ final class GhosttyTerminalNSView: NSView,
         }
     }
 
-    private func cleanupRemotePastedImages() {
-        guard let destination = workspaceContext.sshDestination, !remotePastedImagePaths.isEmpty else {
-            return
+    private func pasteAttemptPermitsSideEffects(_ attempt: TerminalImagePasteAttempt) -> Bool {
+        switch attempt {
+        case let .local(surfaceGeneration):
+            !Task.isCancelled && surface != nil && self.surfaceGeneration == surfaceGeneration
+        case let .remote(remoteAttempt):
+            remoteImagePasteSession.permitsSideEffects(
+                for: remoteAttempt,
+                surfaceGeneration: surfaceGeneration,
+                hasLiveSurface: surface != nil,
+                isCancelled: Task.isCancelled
+            )
         }
-        let paths = remotePastedImagePaths
-        remotePastedImagePaths.removeAll()
-        Task {
-            await RemoteImagePasteService.remove(paths: paths, destination: destination)
+    }
+
+    func scheduleTerminationCleanup() {
+        surfaceGeneration += 1
+        let cancelledWorker = terminalInputQueue.cancelAll()
+        scheduleRemoteImageCleanup(after: cancelledWorker)
+    }
+
+    private func scheduleRemoteImageCleanup(after cancelledWorker: Task<Void, Never>?) {
+        guard let destination = workspaceContext.sshDestination,
+              let sessionID = remoteImagePasteSession.takeActiveSessionForCleanup()
+        else { return }
+        let precedingTasks = [precedingRemoteImageCleanup, cancelledWorker].compactMap(\.self)
+        precedingRemoteImageCleanup = TerminalCleanupCoordinator.shared.schedule(after: precedingTasks) {
+            await RemoteImagePasteService.remove(sessionID: sessionID, destination: destination)
         }
     }
 

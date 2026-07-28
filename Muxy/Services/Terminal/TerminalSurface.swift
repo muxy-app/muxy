@@ -27,6 +27,11 @@ enum TerminalSearchDirection: String {
     case previous
 }
 
+enum TerminalImagePasteAttempt: Equatable, Sendable {
+    case local(surfaceGeneration: Int)
+    case remote(RemoteImagePasteAttempt)
+}
+
 @MainActor
 protocol TerminalRawOutputSource: AnyObject {
     func setRawOutputHandler(_ handler: ((Data) -> Void)?)
@@ -72,11 +77,26 @@ protocol TerminalSearchSurface: AnyObject {
 protocol TerminalImagePasteSurface: AnyObject {
     var imagePasteWorkspaceContext: WorkspaceContext { get }
 
-    func pasteImageURL(_ url: URL) async -> Bool
+    func beginImagePaste() -> TerminalImagePasteAttempt?
+    func pasteImageData(_ pngData: Data, attempt: TerminalImagePasteAttempt) async -> Bool
 }
 
 @MainActor
-protocol TerminalSurface: AnyObject {
+protocol TerminalInputSubmissionTarget: AnyObject {
+    func sendRemoteBytes(_ bytes: Data)
+    func submitRichInput(text: String)
+    func clearTerminalInput()
+}
+
+@MainActor
+protocol TerminalInputTransactionTarget: TerminalInputSubmissionTarget {
+    func enqueueInputTransaction(
+        _ operation: @escaping @MainActor () async -> Bool
+    ) -> TerminalInputTransactionHandle
+}
+
+@MainActor
+protocol TerminalSurface: TerminalInputTransactionTarget {
     var terminalView: NSView { get }
     var backend: TerminalBackend { get }
     var envVars: [(key: String, value: String)] { get set }
@@ -110,10 +130,8 @@ protocol TerminalSurface: AnyObject {
     func ensureLiveSurfaceForExternalIO() -> Bool
     func sendText(_ text: String)
     func sendReturnKey()
-    func sendRemoteBytes(_ bytes: Data)
     func readScreenText(lastLines: Int) -> String
-    func submitRichInput(text: String)
-    func clearTerminalInput()
+    func scheduleTerminationCleanup()
     func scrollTerminal(deltaX: Double, deltaY: Double, precise: Bool)
     func resizeTerminal(cols: UInt32, rows: UInt32) -> Bool
 }
