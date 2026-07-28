@@ -57,10 +57,6 @@ struct InterfaceSettingsView: View {
                     .pickerStyle(.segmented)
                     .frame(width: SettingsMetrics.controlWidth)
                 }
-
-                if layoutStore.layout.supportsGroupedWorktrees {
-                    SettingsToggleRow(label: "Nest worktrees inside projects", isOn: $groupWorktrees)
-                }
             }
 
             sidebarSection
@@ -171,6 +167,9 @@ struct InterfaceSettingsView: View {
                 }
             }
 
+            if layoutStore.layout.supportsGroupedWorktrees {
+                SettingsToggleRow(label: "Nest worktrees inside projects", isOn: $groupWorktrees)
+            }
         }
 
         SettingsSection("Worktrees") {
