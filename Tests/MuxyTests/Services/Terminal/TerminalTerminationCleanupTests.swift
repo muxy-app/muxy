@@ -32,6 +32,60 @@ struct TerminalTerminationCleanupTests {
         #expect(!cleanup.isRunning)
     }
 
+    @Test("replies to every termination request made while cleanup runs")
+    func repliesToConcurrentTerminationRequests() async {
+        let cleanup = TerminalTerminationCleanup()
+        let (releases, releaseContinuation) = AsyncStream<Void>.makeStream()
+        var replies = 0
+
+        for _ in 0 ..< 3 {
+            cleanup.start(
+                timeout: .seconds(5),
+                cleanup: {
+                    for await _ in releases {
+                        break
+                    }
+                },
+                completion: {
+                    replies += 1
+                }
+            )
+        }
+
+        #expect(replies == 0)
+        releaseContinuation.yield()
+        releaseContinuation.finish()
+        while !cleanup.isComplete {
+            await Task.yield()
+        }
+
+        #expect(replies == 3)
+    }
+
+    @Test("replies immediately once cleanup has already completed")
+    func repliesAfterCompletion() async {
+        let cleanup = TerminalTerminationCleanup()
+        let (completions, completionContinuation) = AsyncStream<Void>.makeStream()
+        var replies = 0
+
+        cleanup.start(
+            timeout: .seconds(1),
+            cleanup: {},
+            completion: {
+                replies += 1
+                completionContinuation.yield()
+                completionContinuation.finish()
+            }
+        )
+        for await _ in completions {
+            break
+        }
+
+        cleanup.start(timeout: .seconds(1), cleanup: {}, completion: { replies += 1 })
+
+        #expect(replies == 2)
+    }
+
     @Test("cancels cleanup when the timeout expires")
     func cancelsAfterTimeout() async {
         let cleanup = TerminalTerminationCleanup()

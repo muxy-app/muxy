@@ -150,10 +150,34 @@ struct RichInputSubmitterTests {
 
         #expect(!submitted)
         #expect(target.events == [
-            "clear",
+            "clear:0",
             "text:explain ",
             "image",
-            "clear",
+            "clear:0",
+        ])
+    }
+
+    @Test("failed image upload clears every submitted line of a multi-line prompt")
+    @MainActor
+    func failedImageUploadClearsMultipleLines() async {
+        let target = RichInputSubmissionTestTarget(pasteSucceeds: false)
+
+        let submitted = await RichInputSubmitter.submitSegments(
+            [
+                .text("first\nsecond\nthird "),
+                .image(URL(fileURLWithPath: "/tmp/image.png")),
+            ],
+            to: target,
+            appendReturn: true,
+            normalizer: { _ in Data([1, 2, 3]) }
+        )
+
+        #expect(!submitted)
+        #expect(target.events == [
+            "clear:0",
+            "text:first\nsecond\nthird ",
+            "image",
+            "clear:2",
         ])
     }
 
@@ -237,8 +261,8 @@ private final class RichInputSubmissionTestTarget:
         events.append("text:\(text)")
     }
 
-    func clearTerminalInput() {
-        events.append("clear")
+    func clearTerminalInput(lineBreakCount: Int) {
+        events.append("clear:\(lineBreakCount)")
     }
 
     func enqueueInputTransaction(

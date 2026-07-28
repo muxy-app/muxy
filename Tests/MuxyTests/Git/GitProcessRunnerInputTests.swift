@@ -85,6 +85,6 @@ struct GitProcessRunnerInputTests {
         let result = try await task.value
 
         #expect(result.truncated)
-        #expect(start.duration(to: clock.now) < .seconds(3))
+        #expect(start.duration(to: clock.now) < .seconds(10))
     }
 }

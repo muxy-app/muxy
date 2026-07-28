@@ -752,12 +752,16 @@ final class GhosttyTerminalNSView: NSView,
             scheduleSystemImagePaste()
             return
         }
-        if terminalInputQueue.deferIfPending({ [weak self] in
-            self?.processKeyDown(event)
-        }) {
-            return
+        performOrDefer { $0.processKeyDown(event) }
+    }
+
+    private func performOrDefer(_ operation: @escaping @MainActor (GhosttyTerminalNSView) -> Void) {
+        let deferred = terminalInputQueue.deferIfPending { [weak self] in
+            guard let self else { return }
+            operation(self)
         }
-        processKeyDown(event)
+        guard !deferred else { return }
+        operation(self)
     }
 
     private func processKeyDown(_ event: NSEvent) {
@@ -855,12 +859,7 @@ final class GhosttyTerminalNSView: NSView,
         if overlayActive {
             return
         }
-        if terminalInputQueue.deferIfPending({ [weak self] in
-            self?.processKeyUp(event)
-        }) {
-            return
-        }
-        processKeyUp(event)
+        performOrDefer { $0.processKeyUp(event) }
     }
 
     private func processKeyUp(_ event: NSEvent) {
@@ -874,12 +873,7 @@ final class GhosttyTerminalNSView: NSView,
         if overlayActive {
             return
         }
-        if terminalInputQueue.deferIfPending({ [weak self] in
-            self?.processFlagsChanged(event)
-        }) {
-            return
-        }
-        processFlagsChanged(event)
+        performOrDefer { $0.processFlagsChanged(event) }
     }
 
     private func processFlagsChanged(_ event: NSEvent) {
@@ -916,12 +910,7 @@ final class GhosttyTerminalNSView: NSView,
         var keyEvent = buildKeyEvent(from: event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
         keyEvent.text = nil
         guard ghostty_surface_key_is_binding(surface, keyEvent, nil) else { return false }
-        if terminalInputQueue.deferIfPending({ [weak self] in
-            self?.processKeyEquivalent(event)
-        }) {
-            return true
-        }
-        processKeyEquivalent(event)
+        performOrDefer { $0.processKeyEquivalent(event) }
         return true
     }
 
@@ -1667,12 +1656,7 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     func sendText(_ text: String) {
-        if terminalInputQueue.deferIfPending({ [weak self] in
-            self?.sendTextImmediately(text)
-        }) {
-            return
-        }
-        sendTextImmediately(text)
+        performOrDefer { $0.sendTextImmediately(text) }
     }
 
     private func sendTextImmediately(_ text: String) {
@@ -1688,12 +1672,7 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     func sendRemoteBytes(_ bytes: Data) {
-        if terminalInputQueue.deferIfPending({ [weak self] in
-            self?.sendRemoteBytesImmediately(bytes)
-        }) {
-            return
-        }
-        sendRemoteBytesImmediately(bytes)
+        performOrDefer { $0.sendRemoteBytesImmediately(bytes) }
     }
 
     private func sendRemoteBytesImmediately(_ bytes: Data) {
@@ -1835,11 +1814,11 @@ final class GhosttyTerminalNSView: NSView,
         )
     }
 
-    func clearTerminalInput() {
+    func clearTerminalInput(lineBreakCount: Int) {
         if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
             TerminalCommandTracker.shared.clearBuffer(paneID: paneID)
         }
-        sendRemoteBytes(TerminalControlBytes.killLineToCursor)
+        sendRemoteBytes(TerminalControlBytes.killInput(lineBreakCount: lineBreakCount))
     }
 
     func enqueueInputTransaction(
@@ -1940,12 +1919,7 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     func sendKeyPress(codepoint: UInt32, keycode: UInt32 = 0, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
-        if terminalInputQueue.deferIfPending({ [weak self] in
-            self?.sendKeyPressImmediately(codepoint: codepoint, keycode: keycode, mods: mods)
-        }) {
-            return
-        }
-        sendKeyPressImmediately(codepoint: codepoint, keycode: keycode, mods: mods)
+        performOrDefer { $0.sendKeyPressImmediately(codepoint: codepoint, keycode: keycode, mods: mods) }
     }
 
     private func sendKeyPressImmediately(
@@ -2154,31 +2128,29 @@ extension GhosttyTerminalNSView {
 extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? String) ?? (string as? NSAttributedString)?.string ?? ""
-        guard !text.isEmpty else { return }
-        if currentKeyEvent == nil,
-           terminalInputQueue.deferIfPending({ [weak self] in
-               self?.insertText(text, replacementRange: replacementRange)
-           })
-        {
-            return
-        }
 
         unmarkText()
 
-        if currentKeyEvent != nil {
+        guard !text.isEmpty else { return }
+        guard currentKeyEvent == nil else {
             keyTextAccumulator.append(text)
-        } else if let surface {
-            text.withCString { ptr in
-                var keyEvent = ghostty_input_key_s()
-                keyEvent.action = GHOSTTY_ACTION_PRESS
-                keyEvent.keycode = 0
-                keyEvent.mods = GHOSTTY_MODS_NONE
-                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-                keyEvent.composing = false
-                keyEvent.text = ptr
-                recordTextInput(text)
-                _ = ghostty_surface_key(surface, keyEvent)
-            }
+            return
+        }
+        performOrDefer { $0.insertTextImmediately(text) }
+    }
+
+    private func insertTextImmediately(_ text: String) {
+        guard let surface else { return }
+        text.withCString { ptr in
+            var keyEvent = ghostty_input_key_s()
+            keyEvent.action = GHOSTTY_ACTION_PRESS
+            keyEvent.keycode = 0
+            keyEvent.mods = GHOSTTY_MODS_NONE
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+            keyEvent.composing = false
+            keyEvent.text = ptr
+            recordTextInput(text)
+            _ = ghostty_surface_key(surface, keyEvent)
         }
     }
 

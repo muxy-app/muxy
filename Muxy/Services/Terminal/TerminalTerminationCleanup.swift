@@ -8,13 +8,19 @@ final class TerminalTerminationCleanup {
     private(set) var isComplete = false
     private var cleanupTask: Task<Void, Never>?
     private var timeoutTask: Task<Void, Never>?
+    private var completions: [@MainActor () -> Void] = []
 
     func start(
         timeout: Duration,
         cleanup: @escaping Cleanup,
         completion: @escaping @MainActor () -> Void
     ) {
-        guard !isRunning, !isComplete else { return }
+        guard !isComplete else {
+            completion()
+            return
+        }
+        completions.append(completion)
+        guard !isRunning else { return }
         isRunning = true
         let cleanupTask = Task { @MainActor in
             await cleanup()
@@ -28,21 +34,25 @@ final class TerminalTerminationCleanup {
             }
             guard let self else { return }
             cleanupTask.cancel()
-            finish(completion: completion)
+            finish()
         }
         Task { @MainActor [weak self] in
             await cleanupTask.value
-            self?.finish(completion: completion)
+            self?.finish()
         }
     }
 
-    private func finish(completion: @escaping @MainActor () -> Void) {
+    private func finish() {
         guard isRunning else { return }
         isRunning = false
         isComplete = true
         timeoutTask?.cancel()
         timeoutTask = nil
         cleanupTask = nil
-        completion()
+        let pendingCompletions = completions
+        completions.removeAll(keepingCapacity: false)
+        for completion in pendingCompletions {
+            completion()
+        }
     }
 }

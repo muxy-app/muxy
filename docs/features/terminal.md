@@ -68,6 +68,11 @@ interrupted, and the session directory is removed when its terminal ends. A cent
 outstanding cleanup for both open and already-removed panes. On app quit, Muxy waits up to five seconds for those
 tasks before allowing termination to continue. Text paste behavior is unchanged.
 
+The **Settings -> Terminal -> Composer -> Image Submission** strategy applies to local panes only. SSH panes always
+upload the image and inline its remote path, because a Mac file path does not resolve on the remote device. When an
+upload fails, Muxy withholds Return and clears every line it has already submitted, so a partial prompt is never
+left in the TUI.
+
 ## Working directory
 
 Muxy tracks the cwd via Ghostty's shell integration (OSC 7). The directory is persisted in workspace snapshots so newly recreated tabs land in the same folder when applicable.

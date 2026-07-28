@@ -94,6 +94,25 @@ struct TerminalTextInputClientTests {
         #expect(view.selectedRange() == NSRange(location: 3, length: 0))
     }
 
+    @Test func insertingEmptyTextClearsMarkedText() {
+        let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
+        view.setMarkedText("compose", selectedRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        view.insertText("", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        #expect(!view.hasMarkedText())
+        #expect(view.markedRange() == NSRange(location: NSNotFound, length: 0))
+    }
+
+    @Test func insertingTextClearsMarkedText() {
+        let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
+        view.setMarkedText("compose", selectedRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        view.insertText("done", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        #expect(!view.hasMarkedText())
+    }
+
     @Test func attributedSubstringReturnsVirtualMarkedText() throws {
         let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
         view.setMarkedText("compose", selectedRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))

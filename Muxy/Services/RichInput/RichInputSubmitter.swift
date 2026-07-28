@@ -224,12 +224,14 @@ enum RichInputSubmitter {
         }
         let imageSurface = view as? any TerminalImagePasteSurface
         var imageAttempts: [URL: [TerminalImagePasteAttempt]] = [:]
-        for segment in segments where hasImages {
-            guard case let .image(url) = segment else { continue }
-            guard let attempt = imageSurface?.beginImagePaste() else { return false }
-            imageAttempts[url, default: []].append(attempt)
+        if hasImages {
+            for segment in segments {
+                guard case let .image(url) = segment else { continue }
+                guard let attempt = imageSurface?.beginImagePaste() else { return false }
+                imageAttempts[url, default: []].append(attempt)
+            }
         }
-        view.clearTerminalInput()
+        view.clearTerminalInput(lineBreakCount: 0)
         do {
             try await Task.sleep(for: initialDelay)
         } catch {
@@ -243,16 +245,18 @@ enum RichInputSubmitter {
         }
         guard let imageSurface else { return false }
         var consumedImageCounts: [URL: Int] = [:]
+        var submittedLineBreaks = 0
         for segment in segments {
             guard !Task.isCancelled else { return false }
             switch segment {
             case let .text(chunk):
                 guard !chunk.isEmpty else { continue }
                 view.submitRichInput(text: chunk)
+                submittedLineBreaks += chunk.count(where: \.isNewline)
             case let .image(url):
                 let attemptIndex = consumedImageCounts[url, default: 0]
                 guard let attempts = imageAttempts[url], attemptIndex < attempts.count else {
-                    view.clearTerminalInput()
+                    view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
                     return false
                 }
                 consumedImageCounts[url] = attemptIndex + 1
@@ -262,12 +266,12 @@ enum RichInputSubmitter {
                 } catch {
                     guard !Task.isCancelled else { return false }
                     ToastState.shared.show(error.localizedDescription)
-                    view.clearTerminalInput()
+                    view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
                     return false
                 }
                 guard !Task.isCancelled else { return false }
                 guard await imageSurface.pasteImageData(pngData, attempt: attempts[attemptIndex]) else {
-                    view.clearTerminalInput()
+                    view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
                     return false
                 }
             }

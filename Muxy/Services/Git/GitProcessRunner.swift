@@ -496,7 +496,7 @@ private final class ProcessHandle: @unchecked Sendable {
         label: "app.muxy.git-process-termination",
         qos: .userInitiated
     )
-    private static let forceTerminationDelay = DispatchTimeInterval.milliseconds(250)
+    private static let forceTerminationDelay = DispatchTimeInterval.seconds(1)
 
     private let lock = NSLock()
     private var process: Process?

@@ -85,7 +85,7 @@ protocol TerminalImagePasteSurface: AnyObject {
 protocol TerminalInputSubmissionTarget: AnyObject {
     func sendRemoteBytes(_ bytes: Data)
     func submitRichInput(text: String)
-    func clearTerminalInput()
+    func clearTerminalInput(lineBreakCount: Int)
 }
 
 @MainActor
