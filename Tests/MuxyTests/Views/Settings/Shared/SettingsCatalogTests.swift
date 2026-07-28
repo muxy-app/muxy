@@ -101,6 +101,9 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.items.contains {
             $0.key == WorktreeListPreferences.groupWorktreesKey && $0.category == .appearance
         })
+        #expect(SettingsCatalog.items.contains {
+            $0.key == WorktreeListPreferences.groupWorktreesKey && $0.section == "Sidebar"
+        })
         #expect(SettingsCatalog.matchingItems(query: "mru").contains {
             $0.key == WorktreeListPreferences.orderByMRUKey
         })
@@ -108,6 +111,9 @@ struct SettingsCatalogTests {
             $0.key == WorktreeListPreferences.showUnreadIndicatorKey
         })
         #expect(SettingsCatalog.matchingItems(query: "group worktrees").contains {
+            $0.key == WorktreeListPreferences.groupWorktreesKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "nest worktrees").contains {
             $0.key == WorktreeListPreferences.groupWorktreesKey
         })
         #expect(SettingsCatalog.jsonEditableItems.contains {

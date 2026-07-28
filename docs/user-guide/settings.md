@@ -21,8 +21,8 @@ global setting. Remote worktrees keep their remote workspace layout.
 
 ## Focused-layout worktree grouping
 
-In **Appearance → Layout**, select **Tab Focused** or **Agents Focused** to show **Group worktrees**. It is off by
-default. Turn it on to nest all worktrees under their project; turn it off to keep worktrees as top-level rows. Tab
+In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to show **Nest worktrees inside projects**.
+It is off by default. Turn it on to nest all worktrees under their project; turn it off to keep worktrees as top-level rows. Tab
 Focused shows top-level worktrees only when they have open tabs, while Agents Focused shows every secondary worktree.
 
 ## Quick terminal

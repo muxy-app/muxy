@@ -170,6 +170,10 @@ struct InterfaceSettingsView: View {
                     .frame(width: SettingsMetrics.controlWidth)
                 }
             }
+
+            if layoutStore.layout.supportsGroupedWorktrees {
+                SettingsToggleRow(label: "Nest worktrees inside projects", isOn: $groupWorktrees)
+            }
         }
 
         SettingsSection("Worktrees") {
