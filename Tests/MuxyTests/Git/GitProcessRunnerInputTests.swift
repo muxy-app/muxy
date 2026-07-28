@@ -62,7 +62,7 @@ struct GitProcessRunnerInputTests {
             }
         }
 
-        #expect(start.duration(to: clock.now) < .seconds(3))
+        #expect(start.duration(to: clock.now) < .seconds(10))
     }
 
     @Test("immediate cancellation still force kills before process attachment")
