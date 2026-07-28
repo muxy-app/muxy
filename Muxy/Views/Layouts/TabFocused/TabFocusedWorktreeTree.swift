@@ -4,6 +4,7 @@ struct TabFocusedWorktreeTree: View {
     let project: Project
     let worktrees: [Worktree]
     let shortcutNumbers: [UUID: Int]
+    let content: TabFocusedSidebarContent
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -16,7 +17,8 @@ struct TabFocusedWorktreeTree: View {
                     project: project,
                     worktree: worktree,
                     depth: 1,
-                    shortcutNumbers: shortcutNumbers
+                    shortcutNumbers: shortcutNumbers,
+                    content: content
                 )
             }
 

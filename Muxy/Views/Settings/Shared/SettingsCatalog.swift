@@ -203,6 +203,15 @@ enum SettingsCatalog {
             aliases: ["mru", "recent", "sort", "order", "omnibox"]
         ),
         SettingsCatalogItem(
+            key: WorktreeListPreferences.groupWorktreesKey,
+            title: "Group Worktrees",
+            description: "Groups worktrees under their project in Tab Focused and Agents Focused layouts.",
+            category: .appearance,
+            section: "Layout",
+            defaultValue: WorktreeListPreferences.defaultGroupWorktrees,
+            aliases: ["nested", "folders", "tab focused", "agents focused"]
+        ),
+        SettingsCatalogItem(
             key: ProjectPickerPreferences.storageKey,
             title: "Project Picker",
             description: "Chooses the picker used when opening projects.",

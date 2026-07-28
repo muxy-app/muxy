@@ -5,6 +5,7 @@ struct WorktreeLeafRow: View {
     let worktree: Worktree
     let depth: Int
     let shortcutNumbers: [UUID: Int]
+    let content: TabFocusedSidebarContent
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -13,6 +14,7 @@ struct WorktreeLeafRow: View {
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
+    @State private var showAgentProviderMenu = false
     @FocusState private var renameFieldFocused: Bool
 
     private var rowTitle: String {
@@ -53,10 +55,7 @@ struct WorktreeLeafRow: View {
                     .scaleEffect(0.5)
             }
 
-            SidebarActionButton(symbol: "plus", label: "New Terminal Tab") {
-                appState.selectWorktree(projectID: project.id, worktree: worktree)
-                appState.createTab(projectID: project.id)
-            }
+            leafAction
         }
     }
 
@@ -72,11 +71,16 @@ struct WorktreeLeafRow: View {
         VStack(alignment: .leading, spacing: 0) {
             leafHeader
             if isExpanded {
-                TabFocusedTabsList(
-                    project: project,
-                    worktree: worktree,
-                    shortcutNumbers: shortcutNumbers
-                )
+                switch content {
+                case .tabs:
+                    TabFocusedTabsList(
+                        project: project,
+                        worktree: worktree,
+                        shortcutNumbers: shortcutNumbers
+                    )
+                case .agents:
+                    AgentsFocusedTabsList(project: project, worktree: worktree)
+                }
             }
         }
         .onChange(of: isActive) { _, active in
@@ -113,22 +117,58 @@ struct WorktreeLeafRow: View {
         .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
-        .onTapGesture { toggle() }
+        .onTapGesture { handleTap() }
         .contextMenu { worktreeContextMenu }
     }
 
+    @ViewBuilder
+    private var leafAction: some View {
+        switch content {
+        case .tabs:
+            SidebarActionButton(symbol: "plus", label: "New Terminal Tab") {
+                activate()
+                appState.createTab(projectID: project.id)
+            }
+        case .agents:
+            AgentsFocusedTabActions(
+                project: project,
+                worktree: worktree,
+                showingProviders: $showAgentProviderMenu
+            )
+        }
+    }
+
     private var leafBackground: AnyShapeStyle {
-        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        if hovered {
+            return AnyShapeStyle(MuxyTheme.hover)
+        }
         return AnyShapeStyle(Color.clear)
     }
 
-    private func toggle() {
-        let shouldExpand = !isExpanded
-        withAnimation(.easeInOut(duration: 0.15)) {
-            expansionStore.set(worktree.id, expanded: shouldExpand)
+    private func handleTap() {
+        switch TabFocusedSidebarRowTap.resolve(content: content, isActive: isActive) {
+        case .toggleExpansion:
+            toggle()
+        case .activateRow:
+            activate()
+            withAnimation(.easeInOut(duration: 0.15)) {
+                expansionStore.set(worktree.id, expanded: true)
+            }
         }
-        if shouldExpand {
-            appState.selectWorktree(projectID: project.id, worktree: worktree)
+    }
+
+    private func activate() {
+        TabFocusedSidebarTarget.activate(
+            project: project,
+            worktree: worktree,
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+    }
+
+    private func toggle() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            expansionStore.set(worktree.id, expanded: !isExpanded)
         }
     }
 
@@ -163,7 +203,9 @@ struct WorktreeLeafRow: View {
             .onAppear { renameText = rowTitle }
             .onSubmit { commitRename() }
             .onChange(of: renameFieldFocused) { _, focused in
-                if !focused { commitRename() }
+                if !focused {
+                    commitRename()
+                }
             }
     }
 

@@ -6,4 +6,7 @@ enum WorktreeListPreferences {
 
     static let orderByMRUKey = "muxy.worktrees.orderByMRU"
     static let defaultOrderByMRU = true
+
+    static let groupWorktreesKey = "muxy.worktrees.groupWorktrees"
+    static let defaultGroupWorktrees = false
 }

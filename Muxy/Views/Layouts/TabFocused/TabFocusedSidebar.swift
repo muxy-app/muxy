@@ -15,6 +15,8 @@ struct TabFocusedSidebar: View {
     @State private var expansionStore = TabFocusedSidebarState.shared
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
+    @AppStorage(WorktreeListPreferences.groupWorktreesKey)
+    private var groupWorktrees = WorktreeListPreferences.defaultGroupWorktrees
 
     private var sortMode: ProjectSortMode {
         ProjectSortMode(rawValue: sortModeRaw) ?? .defaultValue
@@ -40,14 +42,13 @@ struct TabFocusedSidebar: View {
     }
 
     private var rows: [TabFocusedSidebarRowItem] {
-        projects.flatMap { project -> [TabFocusedSidebarRowItem] in
-            var items: [TabFocusedSidebarRowItem] = [.project(project)]
-            guard content == .agents, project.worktreesEnabled, !project.isHome else { return items }
-            for worktree in worktreeStore.list(for: project.id) where !worktree.isPrimary {
-                items.append(.worktree(project, worktree))
-            }
-            return items
-        }
+        TabFocusedSidebarRows.resolve(
+            projects: projects,
+            content: content,
+            groupWorktrees: groupWorktrees,
+            worktreesForProject: { worktreeStore.list(for: $0) },
+            hasTabs: { appState.hasTabs(for: $0) }
+        )
     }
 
     private var shortcutNumbers: [UUID: Int] {
@@ -75,7 +76,8 @@ struct TabFocusedSidebar: View {
                             project: row.project,
                             worktree: row.worktree,
                             shortcutNumbers: numbers,
-                            content: content
+                            content: content,
+                            groupWorktrees: groupWorktrees
                         )
                     }
                     if content == .agents || !expansionStore.focusMode {
@@ -144,6 +146,27 @@ enum TabFocusedSidebarProjectSelection {
               let activeProject = projects.first(where: { $0.id == activeProjectID })
         else { return projects }
         return [activeProject]
+    }
+}
+
+enum TabFocusedSidebarRows {
+    static func resolve(
+        projects: [Project],
+        content: TabFocusedSidebarContent,
+        groupWorktrees: Bool,
+        worktreesForProject: (UUID) -> [Worktree],
+        hasTabs: (WorktreeKey) -> Bool
+    ) -> [TabFocusedSidebarRowItem] {
+        projects.flatMap { project in
+            var rows: [TabFocusedSidebarRowItem] = [.project(project)]
+            guard !groupWorktrees, project.worktreesEnabled, !project.isHome else { return rows }
+            for worktree in worktreesForProject(project.id) where !worktree.isPrimary {
+                let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
+                guard content == .agents || hasTabs(key) else { continue }
+                rows.append(.worktree(project, worktree))
+            }
+            return rows
+        }
     }
 }
 

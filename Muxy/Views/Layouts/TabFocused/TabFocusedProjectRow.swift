@@ -7,6 +7,7 @@ struct TabFocusedProjectRow: View {
     var worktree: Worktree?
     let shortcutNumbers: [UUID: Int]
     var content: TabFocusedSidebarContent = .tabs
+    let groupWorktrees: Bool
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -89,11 +90,12 @@ struct TabFocusedProjectRow: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if isExpanded {
-                if content == .tabs, !isWorktreeRow, project.worktreesEnabled {
+                if groupWorktrees, !isWorktreeRow, project.worktreesEnabled {
                     TabFocusedWorktreeTree(
                         project: project,
                         worktrees: worktreeStore.list(for: project.id),
-                        shortcutNumbers: shortcutNumbers
+                        shortcutNumbers: shortcutNumbers,
+                        content: content
                     )
                 } else if let listWorktree {
                     switch content {
@@ -348,15 +350,17 @@ struct TabFocusedProjectRow: View {
     private var actions: some View {
         switch content {
         case .tabs:
-            if isWorktreeRow || !project.worktreesEnabled {
+            if isWorktreeRow || !groupWorktrees || !project.worktreesEnabled {
                 TabFocusedTabActions(project: project, worktree: worktree)
             }
         case .agents:
-            AgentsFocusedTabActions(
-                project: project,
-                worktree: listWorktree,
-                showingProviders: $showAgentProviderMenu
-            )
+            if isWorktreeRow || !groupWorktrees || !project.worktreesEnabled {
+                AgentsFocusedTabActions(
+                    project: project,
+                    worktree: listWorktree,
+                    showingProviders: $showAgentProviderMenu
+                )
+            }
         }
         if content == .tabs, !isWorktreeRow, !project.isHome, !isFocused {
             focusModeButton

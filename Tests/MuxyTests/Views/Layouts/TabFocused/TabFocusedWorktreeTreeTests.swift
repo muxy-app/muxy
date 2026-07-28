@@ -159,3 +159,63 @@ struct TabFocusedSidebarProjectSelectionTests {
         #expect(result == [a])
     }
 }
+
+@Suite("Focused sidebar rows")
+struct TabFocusedSidebarRowsTests {
+    @Test("grouped focused layouts contain project rows only")
+    func groupedRows() {
+        var project = Project(name: "Repo", path: "/repo")
+        project.worktreesEnabled = true
+        let secondary = Worktree(name: "feature", path: "/feature", isPrimary: false)
+
+        for content in [TabFocusedSidebarContent.tabs, .agents] {
+            let rows = TabFocusedSidebarRows.resolve(
+                projects: [project],
+                content: content,
+                groupWorktrees: true,
+                worktreesForProject: { _ in [secondary] },
+                hasTabs: { _ in true }
+            )
+
+            #expect(rows.map(\.id) == [project.id])
+        }
+    }
+
+    @Test("ungrouped tab focused includes only worktrees with tabs")
+    func ungroupedTabRows() {
+        var project = Project(name: "Repo", path: "/repo")
+        project.worktreesEnabled = true
+        let primary = Worktree(name: "Repo", path: "/repo", isPrimary: true)
+        let open = Worktree(name: "open", path: "/open", isPrimary: false)
+        let closed = Worktree(name: "closed", path: "/closed", isPrimary: false)
+
+        let rows = TabFocusedSidebarRows.resolve(
+            projects: [project],
+            content: .tabs,
+            groupWorktrees: false,
+            worktreesForProject: { _ in [primary, open, closed] },
+            hasTabs: { $0.worktreeID == open.id }
+        )
+
+        #expect(rows.map(\.id) == [project.id, open.id])
+    }
+
+    @Test("ungrouped agents focused includes every secondary worktree")
+    func ungroupedAgentRows() {
+        var project = Project(name: "Repo", path: "/repo")
+        project.worktreesEnabled = true
+        let primary = Worktree(name: "Repo", path: "/repo", isPrimary: true)
+        let first = Worktree(name: "first", path: "/first", isPrimary: false)
+        let second = Worktree(name: "second", path: "/second", isPrimary: false)
+
+        let rows = TabFocusedSidebarRows.resolve(
+            projects: [project],
+            content: .agents,
+            groupWorktrees: false,
+            worktreesForProject: { _ in [primary, first, second] },
+            hasTabs: { _ in false }
+        )
+
+        #expect(rows.map(\.id) == [project.id, first.id, second.id])
+    }
+}
