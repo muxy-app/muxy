@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 struct GitProcessResult {
@@ -22,12 +21,6 @@ enum GitProcessRunner {
 
     private static let stderrDrainQueue = DispatchQueue(
         label: "app.muxy.git-stderr-drain",
-        qos: .userInitiated,
-        attributes: .concurrent
-    )
-
-    private static let stdinWriteQueue = DispatchQueue(
-        label: "app.muxy.git-stdin-writer",
         qos: .userInitiated,
         attributes: .concurrent
     )
@@ -241,8 +234,13 @@ enum GitProcessRunner {
             throw GitProcessError.launchFailed(error.localizedDescription)
         }
 
+        if let stdinPipe, let stdinData = spec.stdinData {
+            let writer = stdinPipe.fileHandleForWriting
+            try? writer.write(contentsOf: stdinData)
+            try? writer.close()
+        }
+
         guard handle.attach(process) else {
-            try? stdinPipe?.fileHandleForWriting.close()
             process.waitUntilExit()
             return GitProcessResult(
                 status: process.terminationStatus,
@@ -261,15 +259,6 @@ enum GitProcessRunner {
             byteLimit: spec.outputByteLimit
         )
 
-        let stdinWriter = AsyncDataWriter()
-        if let stdinPipe, let stdinData = spec.stdinData {
-            stdinWriter.start(
-                writing: stdinData,
-                to: stdinPipe.fileHandleForWriting,
-                on: stdinWriteQueue
-            )
-        }
-
         let stdoutRead: OutputRead
         do {
             stdoutRead = try readStdout(
@@ -280,14 +269,12 @@ enum GitProcessRunner {
             )
         } catch {
             handle.terminate()
-            stdinWriter.waitIfStarted()
             _ = stderrCollector.wait()
             process.waitUntilExit()
             throw error
         }
 
         process.waitUntilExit()
-        stdinWriter.waitIfStarted()
         let stderrRead = stderrCollector.wait()
 
         let stdout = String(data: stdoutRead.data, encoding: .utf8) ?? ""
@@ -387,26 +374,6 @@ enum GitProcessRunner {
                 return OutputRead(data: collected, truncated: true)
             }
         }
-    }
-}
-
-private final class AsyncDataWriter: @unchecked Sendable {
-    private let semaphore = DispatchSemaphore(value: 0)
-    private var started = false
-
-    func start(writing data: Data, to handle: FileHandle, on queue: DispatchQueue) {
-        started = true
-        queue.async {
-            _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
-            try? handle.write(contentsOf: data)
-            try? handle.close()
-            self.semaphore.signal()
-        }
-    }
-
-    func waitIfStarted() {
-        guard started else { return }
-        semaphore.wait()
     }
 }
 
