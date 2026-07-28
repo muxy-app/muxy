@@ -135,14 +135,13 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
     @Test("create fails when workspaceIdentifier does not match any workspace")
     func createFailsWhenWorkspaceMissing() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let env = ProjectManagementEnvironment()
 
         let result = MuxyAPI.Projects.create(
             CreateProjectRequest(
                 path: dir.path,
-                createIfMissing: false,
+                createIfMissing: true,
                 name: nil,
                 workspaceIdentifier: "missing"
             ),
@@ -156,12 +155,13 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
             Issue.record("expected invalidArguments for a workspace that does not exist")
             return
         }
+        #expect(!FileManager.default.fileExists(atPath: dir.path))
+        #expect(!env.projectStore.projects.contains { $0.path == dir.path })
     }
 
     @Test("create fails when the workspace is a remote SSH workspace")
     func createFailsWhenWorkspaceIsRemote() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-create-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com"))
         let env = ProjectManagementEnvironment()
@@ -173,7 +173,7 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
         let sshGroup = groupStore.addRemoteWorkspace(name: "Remote", deviceID: device.id)
 
         let result = MuxyAPI.Projects.create(
-            CreateProjectRequest(path: dir.path, createIfMissing: false, name: nil, workspaceIdentifier: sshGroup.name),
+            CreateProjectRequest(path: dir.path, createIfMissing: true, name: nil, workspaceIdentifier: sshGroup.name),
             appState: env.appState,
             projectStore: env.projectStore,
             worktreeStore: env.worktreeStore,
@@ -184,6 +184,8 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
             Issue.record("expected invalidArguments when attaching to a remote SSH workspace")
             return
         }
+        #expect(!FileManager.default.fileExists(atPath: dir.path))
+        #expect(!env.projectStore.projects.contains { $0.path == dir.path })
     }
 
     @Test("create does not override worktreesEnabled on an existing project")

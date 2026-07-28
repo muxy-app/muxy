@@ -999,6 +999,17 @@ enum MuxyAPI {
             worktreeStore: WorktreeStore,
             projectGroupStore: ProjectGroupStore
         ) -> Result<CreatedProjectInfo, APIError> {
+            let workspaceID = request.workspaceIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+            var targetWorkspace: ProjectGroup?
+            if let workspaceID, !workspaceID.isEmpty {
+                guard let workspace = resolveGroup(workspaceID, in: projectGroupStore.groups),
+                      workspace.type == .local
+                else {
+                    return .failure(.invalidArguments("workspace not found '\(workspaceID)'"))
+                }
+                targetWorkspace = workspace
+            }
+
             let before = Set(projectStore.projects.map(\.id))
             let result = ProjectPathConfirmationService(
                 appState: appState,
@@ -1038,12 +1049,7 @@ enum MuxyAPI {
                 projectStore.rename(id: project.id, to: name)
             }
 
-            if let workspaceID = request.workspaceIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !workspaceID.isEmpty
-            {
-                guard let workspace = resolveGroup(workspaceID, in: projectGroupStore.groups) else {
-                    return .failure(.invalidArguments("workspace not found '\(workspaceID)'"))
-                }
+            if let workspace = targetWorkspace {
                 guard projectGroupStore.addProject(projectID: project.id, toGroup: workspace.id) else {
                     return .failure(.invalidArguments("project cannot be added to workspace '\(workspace.name)'"))
                 }
