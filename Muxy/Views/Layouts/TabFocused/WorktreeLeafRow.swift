@@ -11,6 +11,10 @@ struct WorktreeLeafRow: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @State private var expansionStore = TabFocusedSidebarState.shared
+    @State private var notificationStore = NotificationStore.shared
+    @State private var progressStore = TerminalProgressStore.shared
+    @AppStorage(WorktreeListPreferences.showUnreadIndicatorKey)
+    private var showUnreadIndicator = WorktreeListPreferences.defaultShowUnreadIndicator
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
@@ -55,7 +59,34 @@ struct WorktreeLeafRow: View {
                     .scaleEffect(0.5)
             }
 
-            leafAction
+            if hovered || showAgentProviderMenu {
+                leafAction
+            } else {
+                statusIndicator
+            }
+        }
+    }
+
+    private var rowActivity: TerminalActivity? {
+        let agentStore = AgentStatusStore.shared
+        return TerminalActivity.resolve(
+            progress: progressStore.hasActiveProgress(forWorktree: worktree.id)
+                ? TerminalProgress(kind: .indeterminate, percent: nil)
+                : nil,
+            agentStatus: agentStore.status(forWorktree: worktree.id),
+            unreadCount: showUnreadIndicator
+                ? notificationStore.unreadCount(for: project.id, worktreeID: worktree.id)
+                : 0,
+            completionPending: progressStore.hasCompletionPending(forWorktree: worktree.id)
+                || agentStore.hasCompletionPending(forWorktree: worktree.id)
+        )
+    }
+
+    @ViewBuilder
+    private var statusIndicator: some View {
+        if let rowActivity {
+            TerminalActivityIndicator(activity: rowActivity)
+                .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
         }
     }
 
@@ -210,11 +241,12 @@ struct WorktreeLeafRow: View {
     }
 
     private func commitRename() {
-        guard !renameText.isEmpty, renameText != rowTitle else {
+        let trimmed = renameText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed != rowTitle else {
             isRenaming = false
             return
         }
-        worktreeStore.rename(worktreeID: worktree.id, in: project.id, to: renameText)
+        worktreeStore.rename(worktreeID: worktree.id, in: project.id, to: trimmed)
         isRenaming = false
     }
 

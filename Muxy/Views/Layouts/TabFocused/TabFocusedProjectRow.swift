@@ -16,6 +16,8 @@ struct TabFocusedProjectRow: View {
     @State private var expansionStore = TabFocusedSidebarState.shared
     @State private var notificationStore = NotificationStore.shared
     @State private var progressStore = TerminalProgressStore.shared
+    @AppStorage(WorktreeListPreferences.showUnreadIndicatorKey)
+    private var showUnreadIndicator = WorktreeListPreferences.defaultShowUnreadIndicator
 
     @State private var hovered = false
     @State private var isGitRepo = false
@@ -63,13 +65,15 @@ struct TabFocusedProjectRow: View {
         if let worktree {
             hasProgress = progressStore.hasActiveProgress(forWorktree: worktree.id)
             agentStatus = agentStore.status(forWorktree: worktree.id)
-            unreadCount = notificationStore.unreadCount(for: project.id, worktreeID: worktree.id)
+            unreadCount = showUnreadIndicator
+                ? notificationStore.unreadCount(for: project.id, worktreeID: worktree.id)
+                : 0
             completionPending = progressStore.hasCompletionPending(forWorktree: worktree.id)
                 || agentStore.hasCompletionPending(forWorktree: worktree.id)
         } else {
             hasProgress = progressStore.hasActiveProgress(for: project.id)
             agentStatus = agentStore.status(forProject: project.id)
-            unreadCount = notificationStore.unreadCount(for: project.id)
+            unreadCount = showUnreadIndicator ? notificationStore.unreadCount(for: project.id) : 0
             completionPending = progressStore.hasCompletionPending(for: project.id)
                 || agentStore.hasCompletionPending(forProject: project.id)
         }
@@ -350,11 +354,11 @@ struct TabFocusedProjectRow: View {
     private var actions: some View {
         switch content {
         case .tabs:
-            if isWorktreeRow || !groupWorktrees || !project.worktreesEnabled {
+            if showsProjectLevelActions {
                 TabFocusedTabActions(project: project, worktree: worktree)
             }
         case .agents:
-            if isWorktreeRow || !groupWorktrees || !project.worktreesEnabled {
+            if showsProjectLevelActions {
                 AgentsFocusedTabActions(
                     project: project,
                     worktree: listWorktree,
@@ -369,6 +373,10 @@ struct TabFocusedProjectRow: View {
 
     private var isFocused: Bool {
         content == .tabs && !isWorktreeRow && expansionStore.focusMode && isActive
+    }
+
+    private var showsProjectLevelActions: Bool {
+        isWorktreeRow || !groupWorktrees || !project.worktreesEnabled
     }
 
     private var focusModeButton: some View {
