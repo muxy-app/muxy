@@ -11,21 +11,11 @@ struct ProjectStatusBar: View {
     let fallbackProjectPath: String?
     let isRemoteWorkspace: Bool
     let isInteractive: Bool
-    let richInputVisible: Bool
-    @Binding var richInputFontSize: Double
     @Binding var extensionOutputVisible: Bool
     var onTriggerExtensionCommand: ((ExtensionStore.StatusBarItemBinding) -> Void)?
     @Environment(ExtensionStore.self) private var extensionStore
     @State private var popoverHost = PopoverHost.shared
     @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
-
-    private var richInputShortcutLabel: String {
-        KeyBindingStore.shared.combo(for: .toggleRichInput).displayString
-    }
-
-    private var voiceShortcutLabel: String {
-        KeyBindingStore.shared.combo(for: .toggleVoiceRecording).displayString
-    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -69,15 +59,7 @@ struct ProjectStatusBar: View {
                 separator
                 extensionItem(binding: binding)
             }
-            if richInputVisible {
-                separator
-                zoomControls
-                separator
-                shortcutHints
-            }
             if activePane != nil {
-                separator
-                richInputToggleButton
                 separator
                 voiceRecordingButton
             }
@@ -195,30 +177,16 @@ struct ProjectStatusBar: View {
         .accessibilityLabel("Toggle Extension Output")
     }
 
-    private var richInputToggleButton: some View {
-        Button(action: handleToggleRichInput) {
-            HStack(spacing: 4) {
-                Image(systemName: "keyboard")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                Text(richInputShortcutLabel)
-                    .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
-                    .foregroundStyle(MuxyTheme.fgDim)
-            }
-        }
-        .buttonStyle(RichInputToolbarButtonStyle())
-        .disabled(!isInteractive)
-        .accessibilityLabel("Toggle Rich Input")
-        .help("Toggle Rich Input")
-    }
-
     private var voiceRecordingButton: some View {
         Button(action: handleToggleVoiceRecording) {
             HStack(spacing: 4) {
                 Image(systemName: "mic")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                Text(voiceShortcutLabel)
-                    .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
-                    .foregroundStyle(MuxyTheme.fgDim)
+                if legacyVoiceShortcut.isAssigned {
+                    Text(legacyVoiceShortcut.displayString)
+                        .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
+                        .foregroundStyle(MuxyTheme.fgDim)
+                }
             }
         }
         .buttonStyle(RichInputToolbarButtonStyle())
@@ -227,72 +195,8 @@ struct ProjectStatusBar: View {
         .help("Start Voice Recording")
     }
 
-    private var zoomControls: some View {
-        HStack(spacing: 2) {
-            Button(action: decreaseFontSize) {
-                Image(systemName: "textformat.size.smaller")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-            }
-            .buttonStyle(RichInputToolbarButtonStyle())
-            .disabled(richInputFontSize <= RichInputPreferences.minFontSize)
-            .accessibilityLabel("Decrease editor font size")
-            .help("Decrease font size")
-
-            Text("\(Int(clampedFontSize))")
-                .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(minWidth: 18)
-                .accessibilityLabel("Editor font size \(Int(clampedFontSize))")
-
-            Button(action: increaseFontSize) {
-                Image(systemName: "textformat.size.larger")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-            }
-            .buttonStyle(RichInputToolbarButtonStyle())
-            .disabled(richInputFontSize >= RichInputPreferences.maxFontSize)
-            .accessibilityLabel("Increase editor font size")
-            .help("Increase font size")
-        }
-    }
-
-    private var shortcutHints: some View {
-        let store = KeyBindingStore.shared
-        let submit = store.combo(for: .submitRichInput).displayString
-        let submitNoReturn = store.combo(for: .submitRichInputWithoutReturn).displayString
-        return HStack(spacing: 10) {
-            shortcutHint(keys: submit, label: "Send")
-            shortcutHint(keys: submitNoReturn, label: "Send w/o ↩")
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(submit) Send. \(submitNoReturn) Send without Enter.")
-    }
-
-    private func shortcutHint(keys: String, label: String) -> some View {
-        HStack(spacing: 4) {
-            Text(keys)
-                .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            Text(label)
-                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
-                .foregroundStyle(MuxyTheme.fgMuted)
-        }
-    }
-
-    private var clampedFontSize: Double {
-        min(max(richInputFontSize, RichInputPreferences.minFontSize), RichInputPreferences.maxFontSize)
-    }
-
-    private func decreaseFontSize() {
-        richInputFontSize = max(RichInputPreferences.minFontSize, richInputFontSize - RichInputPreferences.fontStep)
-    }
-
-    private func increaseFontSize() {
-        richInputFontSize = min(RichInputPreferences.maxFontSize, richInputFontSize + RichInputPreferences.fontStep)
-    }
-
-    private func handleToggleRichInput() {
-        guard isInteractive else { return }
-        NotificationCenter.default.post(name: .toggleRichInput, object: nil)
+    private var legacyVoiceShortcut: KeyCombo {
+        KeyBindingStore.shared.combo(for: .toggleVoiceRecording)
     }
 
     private func handleToggleVoiceRecording() {

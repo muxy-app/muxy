@@ -44,7 +44,7 @@ This closes **this** surface and **bypasses** the veto — it will not ask `onBe
 ## Guarantees
 
 - **Fail-open.** If you register no handler, your handler throws, or the page never responds, the close proceeds. A surface can never wedge the close button. A page that *has* a handler is given a few seconds to acknowledge the request; once it does, it may take as long as it needs (e.g. while a human reads a Save / Don't Save dialog) — the close waits for the verdict.
-- **Scoped to your own surface.** A veto only ever delays or cancels a user-initiated close of the surface that registered the handler. It can't affect other tabs, panels, or extensions.
+- **Scoped to closes that include your surface.** A handler runs only when its own surface is being closed. Closing a top-level tab also closes every split-child tab it owns, so Muxy asks the parent and child surfaces together; a veto from any of them cancels the entire hierarchy close and leaves every sibling open. Direct closes of unrelated tabs, panels, popovers, and modals are unaffected.
 - **Bulk closes ask in parallel.** "Close Other Tabs" (and similar) ask every affected surface at once — you get one round of prompts, not a queue of blocking dialogs.
 
 ## Limits

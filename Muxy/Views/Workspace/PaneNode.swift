@@ -1,61 +1,45 @@
 import SwiftUI
 
 struct PaneNode: View {
-    let node: SplitNode
+    let node: VisiblePaneNode
+    let topLevelGroupID: UUID
     let focusedAreaID: UUID?
     let isActiveProject: Bool
-    var showTabStrip = true
     let projectID: UUID
-    let shortcutOffsets: [UUID: Int]
-    let onFocusArea: (UUID) -> Void
-    let onSelectTab: (UUID, UUID) -> Void
-    let onCreateTab: (UUID) -> Void
-    let onCloseTab: (UUID, UUID) -> Void
+    let onSelectPane: (UUID, UUID) -> Void
     let onForceCloseTab: (UUID, UUID) -> Void
-    let onSplit: (UUID, SplitDirection) -> Void
-    let onCloseArea: (UUID) -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
-    var showMaximizeButton = false
-    var onToggleMaximize: ((UUID) -> Void)?
 
     var body: some View {
-        switch node {
-        case let .tabArea(area):
-            TabAreaView(
-                area: area,
-                isFocused: focusedAreaID == area.id,
-                isActiveProject: isActiveProject,
-                showTabStrip: showTabStrip,
-                projectID: projectID,
-                shortcutIndexOffset: shortcutOffsets[area.id] ?? 0,
-                onFocus: { onFocusArea(area.id) },
-                onSelectTab: { tabID in onSelectTab(area.id, tabID) },
-                onCreateTab: { onCreateTab(area.id) },
-                onCloseTab: { tabID in onCloseTab(area.id, tabID) },
-                onForceCloseTab: { tabID in onForceCloseTab(area.id, tabID) },
-                onSplit: { dir in onSplit(area.id, dir) },
-                onDropAction: onDropAction,
-                showMaximizeButton: showMaximizeButton,
-                onToggleMaximize: onToggleMaximize.map { toggle in { toggle(area.id) } }
-            )
-        case let .split(branch):
-            SplitContainer(
-                branch: branch,
-                focusedAreaID: focusedAreaID,
-                isActiveProject: isActiveProject,
-                projectID: projectID,
-                shortcutOffsets: shortcutOffsets,
-                onFocusArea: onFocusArea,
-                onSelectTab: onSelectTab,
-                onCreateTab: onCreateTab,
-                onCloseTab: onCloseTab,
-                onForceCloseTab: onForceCloseTab,
-                onSplit: onSplit,
-                onCloseArea: onCloseArea,
-                onDropAction: onDropAction,
-                showMaximizeButton: showMaximizeButton,
-                onToggleMaximize: onToggleMaximize
-            )
+        Group {
+            switch node {
+            case let .pane(area, tab):
+                TabAreaView(
+                    area: area,
+                    tab: tab,
+                    topLevelGroupID: topLevelGroupID,
+                    isFocused: focusedAreaID == area.id,
+                    isActiveProject: isActiveProject,
+                    projectID: projectID,
+                    onFocus: { onSelectPane(area.id, tab.id) },
+                    onForceCloseTab: { onForceCloseTab(area.id, tab.id) },
+                    onDropAction: onDropAction
+                )
+            case let .split(branch, first, second):
+                SplitContainer(
+                    branch: branch,
+                    first: first,
+                    second: second,
+                    topLevelGroupID: topLevelGroupID,
+                    focusedAreaID: focusedAreaID,
+                    isActiveProject: isActiveProject,
+                    projectID: projectID,
+                    onSelectPane: onSelectPane,
+                    onForceCloseTab: onForceCloseTab,
+                    onDropAction: onDropAction
+                )
+            }
         }
+        .id(node.id)
     }
 }

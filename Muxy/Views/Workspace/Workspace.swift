@@ -8,161 +8,249 @@ struct TerminalArea: View {
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @Environment(ProjectGroupStore.self) private var projectGroupStore
 
-    private var root: SplitNode? {
-        appState.workspaceRoots[worktreeKey]
-    }
-
     private var workspaceContext: WorkspaceContext {
         projectGroupStore.workspaceContext(for: project)
     }
 
-    private var focusedAreaID: UUID? {
-        appState.focusedAreaID[worktreeKey]
-    }
-
-    private var rootIsTabArea: Bool {
-        guard let root else { return false }
-        if case .tabArea = root {
-            return true
+    var body: some View {
+        if let layout = appState.topLevelTabLayouts[worktreeKey] {
+            TopLevelWorkspaceNodeView(
+                node: layout,
+                project: project,
+                worktreeKey: worktreeKey,
+                isActiveProject: isActiveProject,
+                showsTabStrips: !layout.isSingleGroup
+            )
+            .environment(\.activeWorktreeKey, worktreeKey)
+            .environment(\.paneWorkspaceContext, workspaceContext)
+            .onPreferenceChange(AreaFramePreferenceKey.self) { frames in
+                guard isActiveProject,
+                      dragCoordinator.activeDrag?.isTopLevel == false
+                else { return }
+                dragCoordinator.setAreaFrames(frames, forProject: project.id)
+            }
+            .onPreferenceChange(TopLevelGroupFramePreferenceKey.self) { frames in
+                guard isActiveProject,
+                      dragCoordinator.activeDrag?.isTopLevel == true
+                else { return }
+                dragCoordinator.setGroupFrames(frames, forProject: project.id)
+            }
         }
-        return false
+    }
+}
+
+private struct TopLevelWorkspaceNodeView: View {
+    let node: TopLevelTabNode
+    let project: Project
+    let worktreeKey: WorktreeKey
+    let isActiveProject: Bool
+    let showsTabStrips: Bool
+
+    var body: some View {
+        Group {
+            switch node {
+            case let .group(group):
+                TopLevelTabGroupContent(
+                    group: group,
+                    project: project,
+                    worktreeKey: worktreeKey,
+                    isActiveProject: isActiveProject,
+                    showsTabStrip: showsTabStrips
+                )
+            case let .split(branch):
+                TopLevelTabSplitView(
+                    branch: branch,
+                    project: project,
+                    worktreeKey: worktreeKey,
+                    isActiveProject: isActiveProject,
+                    showsTabStrips: showsTabStrips
+                )
+            }
+        }
+        .id(node.id)
+    }
+}
+
+private struct TopLevelTabSplitView: View {
+    let branch: TopLevelTabBranch
+    let project: Project
+    let worktreeKey: WorktreeKey
+    let isActiveProject: Bool
+    let showsTabStrips: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            let horizontal = branch.direction == .horizontal
+            let total = horizontal ? geo.size.width : geo.size.height
+            let firstLength = max(0, total * branch.ratio - 0.5)
+            let secondLength = max(0, total * (1 - branch.ratio) - 0.5)
+            let layout = horizontal
+                ? AnyLayout(HStackLayout(spacing: 0))
+                : AnyLayout(VStackLayout(spacing: 0))
+
+            layout {
+                child(branch.first)
+                    .frame(
+                        width: horizontal ? firstLength : nil,
+                        height: horizontal ? nil : firstLength
+                    )
+
+                AnchoredResizeHandle(
+                    axis: horizontal ? .horizontal : .vertical,
+                    captureAnchor: { branch.ratio },
+                    onTranslate: { start, delta in
+                        guard total > 0 else { return }
+                        branch.ratio = min(max(start + delta / total, 0.15), 0.85)
+                    }
+                )
+                .accessibilityLabel(horizontal ? "Horizontal Tab Group Divider" : "Vertical Tab Group Divider")
+                .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
+                .accessibilityAdjustableAction { direction in
+                    let step: CGFloat = 0.05
+                    switch direction {
+                    case .increment:
+                        branch.ratio = min(branch.ratio + step, 0.85)
+                    case .decrement:
+                        branch.ratio = max(branch.ratio - step, 0.15)
+                    @unknown default:
+                        break
+                    }
+                }
+
+                child(branch.second)
+                    .frame(
+                        width: horizontal ? secondLength : nil,
+                        height: horizontal ? nil : secondLength
+                    )
+            }
+        }
     }
 
-    private var maximizedArea: TabArea? {
-        guard let areaID = appState.maximizedAreaID[worktreeKey] else { return nil }
-        return root?.findArea(id: areaID)
+    private func child(_ node: TopLevelTabNode) -> some View {
+        TopLevelWorkspaceNodeView(
+            node: node,
+            project: project,
+            worktreeKey: worktreeKey,
+            isActiveProject: isActiveProject,
+            showsTabStrips: showsTabStrips
+        )
+    }
+}
+
+private struct TopLevelTabGroupContent: View {
+    let group: TopLevelTabGroup
+    let project: Project
+    let worktreeKey: WorktreeKey
+    let isActiveProject: Bool
+    let showsTabStrip: Bool
+
+    @Environment(AppState.self) private var appState
+    @Environment(TabDragCoordinator.self) private var dragCoordinator
+
+    private var focusedAreaID: UUID? {
+        guard appState.activeTopLevelTabID(for: worktreeKey) == group.activeTabID else { return nil }
+        return appState.focusedAreaID[worktreeKey]
+    }
+
+    private var visibleLayout: VisiblePaneNode? {
+        appState.visibleLayout(for: worktreeKey, groupID: group.id)
+    }
+
+    private var maximizedPane: (area: TabArea, tab: TerminalTab)? {
+        guard let maximizedPane = appState.maximizedPanes[worktreeKey],
+              maximizedPane.topLevelTabID == group.activeTabID
+        else { return nil }
+        return visibleLayout?.allPanes().first { $0.area.id == maximizedPane.areaID }
     }
 
     var body: some View {
-        if let root {
-            workspaceContent(root: root)
-                .environment(\.activeWorktreeKey, worktreeKey)
-                .environment(\.paneWorkspaceContext, workspaceContext)
-                .onPreferenceChange(AreaFramePreferenceKey.self) { frames in
-                    guard isActiveProject, dragCoordinator.activeDrag != nil else { return }
-                    dragCoordinator.setAreaFrames(frames, forProject: project.id)
+        VStack(spacing: 0) {
+            if showsTabStrip {
+                TopLevelTabGroupStrip(
+                    project: project,
+                    worktreeKey: worktreeKey,
+                    groupID: group.id
+                )
+                Rectangle().fill(MuxyTheme.border).frame(height: 1)
+            }
+            if let visibleLayout {
+                content(visibleLayout)
+            }
+        }
+        .overlay {
+            if dragCoordinator.activeDrag?.isTopLevel == true,
+               dragCoordinator.hoveredGroupID == group.id,
+               let zone = dragCoordinator.hoveredZone
+            {
+                DropZoneHighlight(zone: zone)
+            }
+        }
+        .background {
+            if dragCoordinator.activeDrag?.isTopLevel == true {
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: TopLevelGroupFramePreferenceKey.self,
+                        value: [group.id: geo.frame(in: .named(DragCoordinateSpace.mainWindow))]
+                    )
                 }
+            }
         }
     }
 
     @ViewBuilder
-    private func workspaceContent(root: SplitNode) -> some View {
-        switch maximizedArea {
-        case let area?:
-            MaximizedAreaView(
-                area: area,
+    private func content(_ visibleLayout: VisiblePaneNode) -> some View {
+        if let maximizedPane {
+            TabAreaView(
+                area: maximizedPane.area,
+                tab: maximizedPane.tab,
+                topLevelGroupID: group.id,
+                isFocused: true,
                 isActiveProject: isActiveProject,
                 projectID: project.id,
-                onToggleMaximize: {
-                    appState.toggleMaximize(areaID: area.id, for: project.id)
+                onFocus: {
+                    selectPane(areaID: maximizedPane.area.id, tabID: maximizedPane.tab.id)
                 },
-                onSelectTab: { tabID in
-                    appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
+                onForceCloseTab: {
+                    appState.forceCloseTab(
+                        maximizedPane.tab.id,
+                        areaID: maximizedPane.area.id,
+                        projectID: project.id
+                    )
                 },
-                onCreateTab: {
-                    appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
-                },
-                onCloseTab: { tabID in
-                    appState.closeTab(tabID, areaID: area.id, projectID: project.id)
-                },
-                onForceCloseTab: { tabID in
-                    appState.forceCloseTab(tabID, areaID: area.id, projectID: project.id)
-                },
-                onSplit: { dir in
-                    appState.dispatch(.splitArea(.init(
-                        projectID: project.id,
-                        areaID: area.id,
-                        direction: dir,
-                        position: .second
-                    )))
-                },
-                onDropAction: { result in
-                    appState.dispatch(result.action(projectID: project.id))
-                }
+                onDropAction: handleDrop
             )
+            .id(maximizedPane.tab.id)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(MuxyTheme.border, lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.35), radius: 24, x: 0, y: 8)
             .padding(16)
-        case nil:
+        } else {
             PaneNode(
-                node: root,
+                node: visibleLayout,
+                topLevelGroupID: group.id,
                 focusedAreaID: focusedAreaID,
                 isActiveProject: isActiveProject,
-                showTabStrip: !rootIsTabArea,
                 projectID: project.id,
-                shortcutOffsets: appState.shortcutOffsets(for: project.id),
-                onFocusArea: { areaID in
-                    appState.dispatch(.focusArea(projectID: project.id, areaID: areaID))
-                },
-                onSelectTab: { areaID, tabID in
-                    appState.dispatch(.selectTab(projectID: project.id, areaID: areaID, tabID: tabID))
-                },
-                onCreateTab: { areaID in
-                    appState.dispatch(.createTab(projectID: project.id, areaID: areaID))
-                },
-                onCloseTab: { areaID, tabID in
-                    appState.closeTab(tabID, areaID: areaID, projectID: project.id)
-                },
+                onSelectPane: selectPane,
                 onForceCloseTab: { areaID, tabID in
                     appState.forceCloseTab(tabID, areaID: areaID, projectID: project.id)
                 },
-                onSplit: { areaID, dir in
-                    appState.dispatch(.splitArea(.init(
-                        projectID: project.id,
-                        areaID: areaID,
-                        direction: dir,
-                        position: .second
-                    )))
-                },
-                onCloseArea: { areaID in
-                    appState.dispatch(.closeArea(projectID: project.id, areaID: areaID))
-                },
-                onDropAction: { result in
-                    appState.dispatch(result.action(projectID: project.id))
-                },
-                showMaximizeButton: !rootIsTabArea,
-                onToggleMaximize: { areaID in
-                    appState.toggleMaximize(areaID: areaID, for: project.id)
-                }
+                onDropAction: handleDrop
             )
         }
     }
-}
 
-private struct MaximizedAreaView: View {
-    let area: TabArea
-    let isActiveProject: Bool
-    let projectID: UUID
-    let onToggleMaximize: () -> Void
-    let onSelectTab: (UUID) -> Void
-    let onCreateTab: () -> Void
-    let onCloseTab: (UUID) -> Void
-    let onForceCloseTab: (UUID) -> Void
-    let onSplit: (SplitDirection) -> Void
-    let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    private func selectPane(areaID: UUID, tabID: UUID) {
+        appState.dispatch(.selectTab(projectID: project.id, areaID: areaID, tabID: tabID))
+    }
 
-    var body: some View {
-        TabAreaView(
-            area: area,
-            isFocused: true,
-            isActiveProject: isActiveProject,
-            showTabStrip: true,
-            projectID: projectID,
-            shortcutIndexOffset: 0,
-            onFocus: {},
-            onSelectTab: onSelectTab,
-            onCreateTab: onCreateTab,
-            onCloseTab: onCloseTab,
-            onForceCloseTab: onForceCloseTab,
-            onSplit: onSplit,
-            onDropAction: onDropAction,
-            showMaximizeButton: true,
-            isMaximized: true,
-            onToggleMaximize: onToggleMaximize
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(MuxyTheme.border, lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.35), radius: 24, x: 0, y: 8)
+    private func handleDrop(_ result: TabDragCoordinator.DropResult) {
+        appState.dispatch(result.action(projectID: project.id))
     }
 }
+
+private enum TopLevelGroupFrameTag {}
+private typealias TopLevelGroupFramePreferenceKey = UUIDFramePreferenceKey<TopLevelGroupFrameTag>

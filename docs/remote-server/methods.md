@@ -28,7 +28,7 @@ Enums:
 
 `listWorkspaces` returns every workspace as a [workspace info](data-objects.md) object — the implicit **Local** workspace (`isDefault: true`) that owns all ungrouped local projects plus Home, each user-defined local group, and each remote (SSH) workspace. `listProjectsByWorkspace` returns just the projects in one workspace (same shape as `listProjects`) and is empty for an unknown `workspaceID`. `listProjects` still returns every project across all workspaces in one call.
 
-`getWorkspace` returns the workspace for the project's **active** worktree; select the worktree first with `selectWorktree`. It returns `404` when the project has no active workspace. `createTab` returns `tab` (the newly active tab) or `500` if creation fails.
+`getWorkspace` returns the workspace for the project's **active** worktree; select the worktree first with `selectWorktree`. It returns `404` when the project has no active workspace. The returned tree includes all top-level and split-child tabs without exposing their internal ownership relationship. `selectTab` accepts either kind; selecting a child also activates its owning top-level tab. `createTab` returns `tab` (the newly active top-level tab) or `500` if creation fails.
 
 ## Terminal control
 

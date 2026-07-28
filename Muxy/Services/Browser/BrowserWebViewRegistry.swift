@@ -31,6 +31,12 @@ final class BrowserWebViewRegistry {
         entries[tabID] = nil
     }
 
+    func unregister(_ webView: WKWebView) {
+        for (tabID, entry) in entries where entry.webView === webView {
+            entries[tabID] = nil
+        }
+    }
+
     func webView(for tabID: UUID) -> WKWebView? {
         guard let box = entries[tabID] else { return nil }
         guard let webView = box.webView else {

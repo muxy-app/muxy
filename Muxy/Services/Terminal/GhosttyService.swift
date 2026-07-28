@@ -140,6 +140,7 @@ final class GhosttyService {
         }
         configVersion += 1
         TerminalViewRegistry.shared.reapplyClientThemes()
+        NotificationCenter.default.post(name: .ghosttyConfigurationDidChange, object: nil)
         if postThemeChangeNotification {
             NotificationCenter.default.post(name: .themeDidChange, object: nil)
         }
@@ -147,6 +148,8 @@ final class GhosttyService {
 
     private func loadMuxyGhosttyConfig() -> ghostty_config_t? {
         guard let cfg = ghostty_config_new() else { return nil }
+        let userConfig = muxyConfig.readGhosttyConfig()
+        TerminalCJKFontConfig.load(into: cfg, userConfig: userConfig)
         let configPath = muxyConfig.ghosttyConfigPath
         configPath.withCString { ptr in
             ghostty_config_load_file(cfg, ptr)

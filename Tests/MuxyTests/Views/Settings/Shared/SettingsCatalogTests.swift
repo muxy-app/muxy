@@ -22,6 +22,52 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func quickTerminalShortcutIsSearchable() {
+        let item = SettingsCatalog.matchingItems(query: "double shift").first {
+            $0.key == "shortcuts.quickTerminal"
+        }
+
+        #expect(item?.category == .quickTerminal)
+        #expect(item?.section == "Shortcut")
+        #expect(!SettingsCatalog.jsonEditableItems.contains { $0.key == "shortcuts.quickTerminal" })
+    }
+
+    @Test
+    func quickTerminalSettingsAreSearchableAndJSONEditable() {
+        let quickTerminalItems = SettingsCatalog.items.filter { $0.category == .quickTerminal }
+
+        #expect(quickTerminalItems.allSatisfy { $0.category == .quickTerminal })
+        #expect(quickTerminalItems.contains { $0.key == QuickTerminalPreferences.enabledKey })
+        #expect(quickTerminalItems.contains { $0.key == QuickTerminalSizePreferences.widthKey })
+        #expect(quickTerminalItems.contains { $0.key == QuickTerminalSizePreferences.heightKey })
+        #expect(quickTerminalItems.contains { $0.key == QuickTerminalAppearancePreferences.transparencyKey })
+        #expect(quickTerminalItems.contains { $0.key == QuickTerminalAppearancePreferences.blurIntensityKey })
+        #expect(SettingsCatalog.matchingItems(query: "terminal size").contains {
+            $0.key == QuickTerminalSizePreferences.widthKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "disable").contains {
+            $0.key == QuickTerminalPreferences.enabledKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == QuickTerminalPreferences.enabledKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == QuickTerminalSizePreferences.heightKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "glass").contains {
+            $0.key == QuickTerminalAppearancePreferences.transparencyKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == QuickTerminalAppearancePreferences.blurIntensityKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "vibrancy").contains {
+            $0.key == QuickTerminalAppearancePreferences.blurIntensityKey
+        })
+        #expect(SettingsCatalog.sectionMatches(query: "terminal size", category: .quickTerminal, section: "Size"))
+        #expect(SettingsCatalog.sectionMatches(query: "vibrancy", category: .quickTerminal, section: "Appearance"))
+    }
+
+    @Test
     func categoryMatchingUsesCatalogItems() {
         #expect(SettingsCatalog.categoryMatches(.richInput, query: "rich input"))
         #expect(!SettingsCatalog.categoryMatches(.mobile, query: "rich input"))
@@ -117,11 +163,14 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.items.contains { $0.key.hasPrefix("editor.") })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputImageStrategy" })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputLineHeightMultiplier" })
+        #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.position" })
+        #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.floating" })
     }
 
     @Test
     func settingsRoutesRoundTripStoredIDs() throws {
         #expect(SettingsRoute(storedID: "builtin.terminal") == .builtin(.terminal))
+        #expect(SettingsRoute(storedID: "builtin.quickTerminal") == .builtin(.quickTerminal))
         #expect(SettingsRoute(storedID: "ext.com.example.tool") == .ext("com.example.tool"))
         #expect(SettingsRoute(storedID: "builtin.missing") == nil)
         #expect(SettingsRoute(storedID: "ext.") == nil)

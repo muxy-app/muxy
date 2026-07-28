@@ -21,6 +21,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case focusPaneRight
     case focusPaneUp
     case focusPaneDown
+    case movePaneLeft
+    case movePaneRight
+    case movePaneUp
+    case movePaneDown
     case cycleNextTabAcrossPanes
     case cyclePreviousTabAcrossPanes
     case nextTab
@@ -55,6 +59,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case selectProject9
     case findInTerminal
     case toggleRichInput
+    case toggleComposerVoice
     case submitRichInput
     case submitRichInputWithoutReturn
     case terminalOmnibox
@@ -86,6 +91,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .focusPaneRight,
         .focusPaneUp,
         .focusPaneDown,
+        .movePaneLeft,
+        .movePaneRight,
+        .movePaneUp,
+        .movePaneDown,
         .cycleNextTabAcrossPanes,
         .cyclePreviousTabAcrossPanes,
         .nextTab,
@@ -119,6 +128,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .selectProject9,
         .findInTerminal,
         .toggleRichInput,
+        .toggleComposerVoice,
         .submitRichInput,
         .submitRichInputWithoutReturn,
         .terminalOmnibox,
@@ -154,6 +164,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .focusPaneRight: ShortcutMetadata(displayName: "Focus Pane Right", category: "Panes", scope: .mainWindow)
         case .focusPaneUp: ShortcutMetadata(displayName: "Focus Pane Up", category: "Panes", scope: .mainWindow)
         case .focusPaneDown: ShortcutMetadata(displayName: "Focus Pane Down", category: "Panes", scope: .mainWindow)
+        case .movePaneLeft: ShortcutMetadata(displayName: "Move Pane Left", category: "Panes", scope: .mainWindow)
+        case .movePaneRight: ShortcutMetadata(displayName: "Move Pane Right", category: "Panes", scope: .mainWindow)
+        case .movePaneUp: ShortcutMetadata(displayName: "Move Pane Up", category: "Panes", scope: .mainWindow)
+        case .movePaneDown: ShortcutMetadata(displayName: "Move Pane Down", category: "Panes", scope: .mainWindow)
         case .cycleNextTabAcrossPanes: ShortcutMetadata(
                 displayName: "Cycle Next Tab (All Panes)",
                 category: "Tab Navigation",
@@ -187,11 +201,16 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject8: ShortcutMetadata(displayName: "Project 8", category: "Project Navigation", scope: .mainWindow)
         case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
         case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .terminal)
-        case .toggleRichInput: ShortcutMetadata(displayName: "Toggle Rich Input", category: "Rich Input", scope: .mainWindow)
-        case .submitRichInput: ShortcutMetadata(displayName: "Send", category: "Rich Input", scope: .richInput)
+        case .toggleRichInput: ShortcutMetadata(displayName: "Toggle Composer", category: "Composer", scope: .mainWindow)
+        case .toggleComposerVoice: ShortcutMetadata(
+                displayName: "Composer Voice",
+                category: "Composer",
+                scope: .mainWindow
+            )
+        case .submitRichInput: ShortcutMetadata(displayName: "Send", category: "Composer", scope: .richInput)
         case .submitRichInputWithoutReturn: ShortcutMetadata(
                 displayName: "Send Without Enter",
-                category: "Rich Input",
+                category: "Composer",
                 scope: .richInput
             )
         case .terminalOmnibox: ShortcutMetadata(displayName: "Terminal Omnibox Open Tabs", category: "Terminal", scope: .mainWindow)
@@ -220,8 +239,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .navigateBack: ShortcutMetadata(displayName: "Navigate Back", category: "Navigation", scope: .mainWindow)
         case .navigateForward: ShortcutMetadata(displayName: "Navigate Forward", category: "Navigation", scope: .mainWindow)
         case .toggleVoiceRecording: ShortcutMetadata(
-                displayName: "Voice Recording",
-                category: "Rich Input",
+                displayName: "Legacy Voice Recording",
+                category: "Composer",
                 scope: .mainWindow
             )
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
@@ -264,7 +283,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
             "Navigation",
             "Browser",
             "Terminal",
-            "Rich Input",
+            "Composer",
             "App",
             "Extensions",
         ]
@@ -339,6 +358,10 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .focusPaneRight, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, option: true)),
         Self(action: .focusPaneUp, combo: KeyCombo(key: KeyCombo.upArrowKey, command: true, option: true)),
         Self(action: .focusPaneDown, combo: KeyCombo(key: KeyCombo.downArrowKey, command: true, option: true)),
+        Self(action: .movePaneLeft, combo: KeyCombo(key: "", modifiers: 0)),
+        Self(action: .movePaneRight, combo: KeyCombo(key: "", modifiers: 0)),
+        Self(action: .movePaneUp, combo: KeyCombo(key: "", modifiers: 0)),
+        Self(action: .movePaneDown, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .cycleNextTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
         Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
@@ -372,6 +395,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .selectProject9, combo: KeyCombo(key: "9", control: true)),
         Self(action: .findInTerminal, combo: KeyCombo(key: "f", command: true)),
         Self(action: .toggleRichInput, combo: KeyCombo(key: "i", command: true)),
+        Self(action: .toggleComposerVoice, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .submitRichInput, combo: KeyCombo(key: KeyCombo.returnKey, command: true)),
         Self(action: .submitRichInputWithoutReturn, combo: KeyCombo(key: KeyCombo.returnKey, command: true, shift: true)),
         Self(action: .terminalOmnibox, combo: KeyCombo(key: "o", command: true, option: true)),

@@ -12,6 +12,7 @@ struct CreateWorktreeSheet: View {
 
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
     @AppStorage(GeneralSettingsKeys.defaultWorktreePathTemplate)
     private var defaultWorktreePathTemplate = ""
     @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
@@ -31,12 +32,8 @@ struct CreateWorktreeSheet: View {
     @State private var remotePath: String = ""
     @State private var remotePathEdited = false
 
-    private var workspaceContext: WorkspaceContext {
-        ActiveWorkspaceContext.shared.current
-    }
-
-    private var gitRepository: GitRepositoryService {
-        GitRepositoryService(context: workspaceContext)
+    private var workspaceContext: WorkspaceContext? {
+        projectGroupStore.resolvedWorkspaceContext(for: project)
     }
 
     var body: some View {
@@ -367,6 +364,7 @@ struct CreateWorktreeSheet: View {
     }
 
     private var canCreate: Bool {
+        guard workspaceContext != nil else { return false }
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         if project.isRemote, remotePath.trimmingCharacters(in: .whitespaces).isEmpty {
             return false
@@ -381,6 +379,13 @@ struct CreateWorktreeSheet: View {
     }
 
     private func loadBranches() async {
+        guard let workspaceContext else {
+            await MainActor.run {
+                errorMessage = "The remote context for \(project.name) is unavailable."
+            }
+            return
+        }
+        let gitRepository = GitRepositoryService(context: workspaceContext)
         do {
             async let branchesValue = gitRepository.listBranches(repoPath: project.path)
             async let defaultValue = gitRepository.defaultBranch(repoPath: project.path)
@@ -408,6 +413,10 @@ struct CreateWorktreeSheet: View {
 
     @MainActor
     private func create() async {
+        guard let workspaceContext else {
+            errorMessage = "The remote context for \(project.name) is unavailable."
+            return
+        }
         inProgress = true
         errorMessage = nil
         let trimmedName = name.trimmingCharacters(in: .whitespaces)

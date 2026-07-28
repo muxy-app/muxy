@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CoreGraphics
 import SwiftUI
 
 enum ShortcutScope: String, Codable, CaseIterable {
@@ -18,6 +19,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
     static let downArrowKey = "downarrow"
     static let tabKey = "tab"
     static let returnKey = "return"
+    static let spaceKey = "space"
     private static func keyName(for keyCode: UInt16) -> String? {
         switch Int(keyCode) {
         case kVK_ANSI_A: "a"
@@ -88,6 +90,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case kVK_DownArrow: downArrowKey
         case kVK_UpArrow: upArrowKey
         case kVK_Tab: tabKey
+        case kVK_Space: spaceKey
         case kVK_Return,
              kVK_ANSI_KeypadEnter: returnKey
         default: nil
@@ -100,6 +103,31 @@ struct KeyCombo: Codable, Equatable, Hashable {
             return UInt16(code)
         }
         return nil
+    }
+
+    @MainActor
+    static func key(forVirtualKeyCode virtualKeyCode: UInt16) -> String? {
+        guard virtualKeyCode <= 127,
+              let cgEvent = CGEvent(
+                  keyboardEventSource: nil,
+                  virtualKey: CGKeyCode(virtualKeyCode),
+                  keyDown: true
+              ),
+              let event = NSEvent(cgEvent: cgEvent)
+        else { return nil }
+        let key = normalized(
+            key: event.charactersIgnoringModifiers ?? "",
+            keyCode: virtualKeyCode
+        )
+        return key.isEmpty ? nil : key
+    }
+
+    @MainActor
+    static func virtualKeyCode(for key: String) -> UInt16? {
+        let normalizedKey = normalized(key: key)
+        return (0 ... 127).lazy
+            .map(UInt16.init)
+            .first { Self.key(forVirtualKeyCode: $0) == normalizedKey }
     }
 
     let key: String
@@ -180,6 +208,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case "return",
              "enter",
              returnKey: returnKey
+        case "space",
+             spaceKey: spaceKey
         default: token.count == 1 ? token : nil
         }
     }
@@ -199,12 +229,18 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case Self.downArrowKey: .downArrow
         case Self.tabKey: .tab
         case Self.returnKey: .return
+        case Self.spaceKey: .space
         default: KeyEquivalent(Character(key))
         }
     }
 
     var isAssigned: Bool {
         !key.isEmpty
+    }
+
+    var isCanonical: Bool {
+        key == Self.normalized(key: key)
+            && modifiers == Self.normalized(modifiers: modifiers)
     }
 
     var swiftUIModifiers: SwiftUI.EventModifiers {
@@ -249,6 +285,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case Self.downArrowKey: "↓"
         case Self.tabKey: "⇥"
         case Self.returnKey: "↩"
+        case Self.spaceKey: "Space"
         default: key.uppercased()
         }
         parts += keyDisplay
@@ -278,6 +315,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case Self.downArrowKey: "down"
         case Self.tabKey: "tab"
         case Self.returnKey: "return"
+        case Self.spaceKey: "space"
         default: key
         }
         parts.append(keyToken)
@@ -304,9 +342,9 @@ struct KeyCombo: Codable, Equatable, Hashable {
     static func normalized(key: String, keyCode: UInt16? = nil) -> String {
         let lowercased = key.lowercased()
         if lowercased == leftArrowKey || lowercased == rightArrowKey || lowercased == upArrowKey || lowercased == downArrowKey ||
-            lowercased == tabKey
+            lowercased == tabKey || lowercased == returnKey || lowercased == spaceKey || lowercased == " "
         {
-            return lowercased
+            return lowercased == " " ? spaceKey : lowercased
         }
 
         if let scalar = lowercased.unicodeScalars.first, lowercased.unicodeScalars.count == 1 {

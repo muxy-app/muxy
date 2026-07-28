@@ -27,13 +27,16 @@ struct ShortcutActionDispatcher {
     }
 
     private var navigableProjects: [Project] {
-        if projectGroupStore.isRemoteWorkspaceActive {
-            let remoteHome = projectGroupStore.activeRemoteHomeProject.map { [$0] } ?? []
-            return remoteHome + projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
-        }
-        let filtered = projectGroupStore.filteredProjects(from: projectStore.storedProjects)
-        guard HomeProjectPreferences.isVisible else { return filtered }
-        return [Project.home] + filtered
+        ProjectNavigationOrder.projects(
+            homeProject: navigableHomeProject,
+            displayedProjects: projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
+        )
+    }
+
+    private var navigableHomeProject: Project? {
+        guard HomeProjectPreferences.isVisible else { return nil }
+        guard projectGroupStore.isRemoteWorkspaceActive else { return Project.home }
+        return projectGroupStore.activeRemoteHomeProject
     }
 
     private var tabFocusedEntries: [TabFocusedTabOrder.Entry] {
@@ -55,9 +58,9 @@ struct ShortcutActionDispatcher {
         let entries = tabFocusedEntries
         guard entries.count > 1 else { return false }
         guard let projectID = appState.activeProjectID,
-              let area = appState.focusedArea(for: projectID),
-              let activeTabID = area.activeTabID,
-              let current = entries.firstIndex(where: { $0.areaID == area.id && $0.tabID == activeTabID })
+              let key = appState.activeWorktreeKey(for: projectID),
+              let activeTabID = appState.activeTopLevelTabID(for: key),
+              let current = entries.firstIndex(where: { $0.tabID == activeTabID })
         else { return false }
         let next = (current + offset + entries.count) % entries.count
         return selectGlobalTab(entries[next])
@@ -159,6 +162,22 @@ struct ShortcutActionDispatcher {
             guard let projectID = appState.activeProjectID else { return false }
             appState.focusPaneDown(projectID: projectID)
             return true
+        case .movePaneLeft:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.moveFocusedPaneLeft(projectID: projectID)
+            return true
+        case .movePaneRight:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.moveFocusedPaneRight(projectID: projectID)
+            return true
+        case .movePaneUp:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.moveFocusedPaneUp(projectID: projectID)
+            return true
+        case .movePaneDown:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.moveFocusedPaneDown(projectID: projectID)
+            return true
         case .cycleNextTabAcrossPanes:
             guard let projectID = appState.activeProjectID else { return false }
             appState.cycleNextTabAcrossPanes(projectID: projectID)
@@ -230,6 +249,9 @@ struct ShortcutActionDispatcher {
             return true
         case .toggleRichInput:
             notificationCenter.post(name: .toggleRichInput, object: nil)
+            return true
+        case .toggleComposerVoice:
+            notificationCenter.post(name: .toggleComposerVoice, object: nil)
             return true
         case .submitRichInput,
              .submitRichInputWithoutReturn:

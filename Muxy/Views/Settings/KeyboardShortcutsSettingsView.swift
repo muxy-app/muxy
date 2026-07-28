@@ -1,9 +1,10 @@
 import SwiftUI
 
 struct KeyboardShortcutsSettingsView: View {
+    @Environment(\.settingsSearchQuery) private var settingsSearchQuery
     @State private var recordingAction: ShortcutAction?
     @State private var searchText = ""
-    @State private var conflictWarning: (action: ShortcutAction, existing: ShortcutAction)?
+    @State private var conflictWarning: (action: ShortcutAction, message: String)?
     @State private var recordingExtensionShortcutID: String?
     @State private var extensionConflictWarning: (id: String, message: String)?
 
@@ -36,6 +37,7 @@ struct KeyboardShortcutsSettingsView: View {
             Button("Reset All") {
                 store.resetToDefaults()
                 recordingAction = nil
+                recordingExtensionShortcutID = nil
                 conflictWarning = nil
             }
             .buttonStyle(.plain)
@@ -61,6 +63,12 @@ struct KeyboardShortcutsSettingsView: View {
                     extensionSection(group: group, isLast: group.id == extensionGroups.last?.id)
                 }
             }
+        }
+        .onAppear {
+            searchText = settingsSearchQuery
+        }
+        .onChange(of: settingsSearchQuery) { _, query in
+            searchText = query
         }
     }
 
@@ -102,18 +110,19 @@ struct KeyboardShortcutsSettingsView: View {
         .environment(\.settingsSearchQuery, "")
     }
 
-    private func handleRecord(extensionEntry entry: ExtensionShortcutEntry, combo: KeyCombo) {
+    private func handleRecord(extensionEntry entry: ExtensionShortcutEntry, combo: KeyCombo) -> Bool {
         if let message = extensionStore.conflictMessage(
             for: combo,
             extensionID: entry.extensionID,
             commandID: entry.commandID
         ) {
             extensionConflictWarning = (id: entry.id, message: "\(message) — press a different shortcut or Esc to cancel")
-            return
+            return false
         }
         extensionStore.updateCombo(extensionID: entry.extensionID, commandID: entry.commandID, combo: combo)
         recordingExtensionShortcutID = nil
         extensionConflictWarning = nil
+        return true
     }
 
     private var filteredExtensionGroups: [ExtensionShortcutGroup] {
@@ -140,9 +149,10 @@ struct KeyboardShortcutsSettingsView: View {
                     combo: store.combo(for: action),
                     isRecording: recordingAction == action,
                     conflictMessage: conflictWarning?.action == action
-                        ? "Conflicts with \"\(conflictWarning?.existing.displayName ?? "")\" — press a different shortcut or Esc to cancel"
+                        ? conflictWarning?.message
                         : nil,
                     onStartRecording: {
+                        recordingExtensionShortcutID = nil
                         recordingAction = action
                         conflictWarning = nil
                     },
@@ -150,9 +160,7 @@ struct KeyboardShortcutsSettingsView: View {
                     onCancel: { recordingAction = nil
                         conflictWarning = nil
                     },
-                    onReset: { store.resetBinding(action: action)
-                        conflictWarning = nil
-                    },
+                    onReset: { resetBinding(action: action) },
                     onUnassign: {
                         store.updateBinding(action: action, combo: KeyCombo(key: "", modifiers: 0))
                         recordingAction = nil
@@ -170,13 +178,30 @@ struct KeyboardShortcutsSettingsView: View {
         return actions.filter { $0.displayName.localizedCaseInsensitiveContains(searchText) }
     }
 
-    private func handleRecord(action: ShortcutAction, combo: KeyCombo) {
+    private func handleRecord(action: ShortcutAction, combo: KeyCombo) -> Bool {
+        if let message = QuickTerminalShortcutConflictResolver.quickTerminalConflictMessage(for: combo) {
+            conflictWarning = (action: action, message: "\(message) Press a different shortcut or Esc to cancel.")
+            return false
+        }
         if let existing = store.conflictingAction(for: combo, excluding: action) {
-            conflictWarning = (action: action, existing: existing)
-            return
+            conflictWarning = (
+                action: action,
+                message: "Conflicts with \"\(existing.displayName)\". Press a different shortcut or Esc to cancel."
+            )
+            return false
         }
         store.updateBinding(action: action, combo: combo)
         recordingAction = nil
+        conflictWarning = nil
+        return true
+    }
+
+    private func resetBinding(action: ShortcutAction) {
+        if let message = QuickTerminalShortcutConflictResolver.appShortcutResetConflictMessage(for: action) {
+            conflictWarning = (action: action, message: message)
+            return
+        }
+        store.resetBinding(action: action)
         conflictWarning = nil
     }
 }
@@ -187,7 +212,7 @@ private struct ShortcutRow: View {
     let isRecording: Bool
     let conflictMessage: String?
     let onStartRecording: () -> Void
-    let onRecord: (KeyCombo) -> Void
+    let onRecord: (KeyCombo) -> Bool
     let onCancel: () -> Void
     let onReset: () -> Void
     let onUnassign: () -> Void

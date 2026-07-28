@@ -32,10 +32,11 @@ final class FileKeyBindingPersistence: KeyBindingPersisting {
 
     private static func mergeWithDefaults(_ saved: [KeyBinding]) -> [KeyBinding] {
         var savedByAction: [ShortcutAction: KeyBinding] = [:]
-        var claimedCombos = Set(saved.map(\.combo).filter(\.isAssigned))
         for binding in saved {
             savedByAction[binding.action] = binding
         }
+        migrateComposerVoiceDefaultToLegacy(in: &savedByAction)
+        var claimedCombos = Set(savedByAction.values.map(\.combo).filter(\.isAssigned))
         return KeyBinding.defaults.map { defaultBinding in
             if let savedBinding = savedByAction[defaultBinding.action] {
                 return savedBinding
@@ -47,6 +48,20 @@ final class FileKeyBindingPersistence: KeyBindingPersisting {
             claimedCombos.insert(defaultBinding.combo)
             return defaultBinding
         }
+    }
+
+    private static func migrateComposerVoiceDefaultToLegacy(in bindings: inout [ShortcutAction: KeyBinding]) {
+        guard bindings[.toggleComposerVoice]?.combo == KeyCombo(key: "i", command: true, shift: true),
+              bindings[.toggleVoiceRecording]?.combo.isAssigned != true
+        else { return }
+        bindings[.toggleComposerVoice] = KeyBinding(
+            action: .toggleComposerVoice,
+            combo: KeyCombo(key: "", modifiers: 0)
+        )
+        bindings[.toggleVoiceRecording] = KeyBinding(
+            action: .toggleVoiceRecording,
+            combo: KeyCombo(key: "i", command: true, shift: true)
+        )
     }
 
     private struct SafeKeyBinding: Codable {

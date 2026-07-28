@@ -127,7 +127,8 @@ enum SocketCommandHandler {
                 arguments: Array(parts.dropFirst()),
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
         case "switch-worktree":
             guard parts.count >= 2 else { return "error:usage switch-worktree|name-or-id-or-path[|project]" }
@@ -150,7 +151,8 @@ enum SocketCommandHandler {
                 projectIdentifier: identifier,
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )) { result in
                 "ok\t\(result.count)"
             }
@@ -890,7 +892,8 @@ enum SocketCommandHandler {
         arguments: [String],
         appState: AppState,
         projectStore: ProjectStore,
-        worktreeStore: WorktreeStore
+        worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore?
     ) async -> String {
         guard arguments.count >= 2 else {
             return "error:usage create-worktree|name|branch[|project][|path][|createBranch][|baseBranch]"
@@ -913,7 +916,8 @@ enum SocketCommandHandler {
             ),
             appState: appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
         )
 
         switch result {

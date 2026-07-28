@@ -1,6 +1,21 @@
 import AppKit
 import SwiftUI
 
+enum ProjectListSearch {
+    static func filter(_ projects: [Project], matching query: String) -> [Project] {
+        projects.filter { matches($0, query: query) }
+    }
+
+    static func activeQuery(_ query: String, isVisible: Bool, isWide: Bool) -> String {
+        isVisible && isWide ? query : ""
+    }
+
+    static func matches(_ project: Project, query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty || project.name.localizedCaseInsensitiveContains(query)
+    }
+}
+
 @MainActor
 enum SidebarLayout {
     static var collapsedWidth: CGFloat { UIMetrics.sidebarCollapsedWidth }
@@ -58,12 +73,16 @@ struct ProjectFocusedSidebar: View {
     @State private var dragState = ProjectDragState()
     @State private var isExternalDropTargeted = false
     @State private var projectPendingRemoval: Project?
+    @State private var projectSearchText = ""
+    @FocusState private var isProjectSearchFocused: Bool
     let expanded: Bool
     let expandedCustomWidth: CGFloat
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
+    @AppStorage(ProjectSearchPreferences.visibleKey)
+    private var isProjectSearchVisible = ProjectSearchPreferences.defaultVisible
 
     private var collapsedStyle: SidebarCollapsedStyle {
         SidebarCollapsedStyle(rawValue: collapsedStyleRaw) ?? .defaultValue
@@ -167,12 +186,26 @@ struct ProjectFocusedSidebar: View {
             }
             .pickerStyle(.inline)
         } label: {
-            SortMenuButton.Label(mode: sortMode)
+            SidebarHeaderIconButtonLabel(
+                systemName: "arrow.up.arrow.down",
+                accessibilityLabel: "Sort Projects"
+            )
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .help("Sort Projects: \(sortMode.title)")
+    }
+
+    private var projectSearchToggle: some View {
+        Button(action: toggleProjectSearch) {
+            SidebarHeaderIconButtonLabel(
+                systemName: isProjectSearchVisible ? "xmark" : "magnifyingglass",
+                accessibilityLabel: isProjectSearchVisible ? "Close Project Search" : "Search Projects"
+            )
+        }
+        .buttonStyle(.plain)
+        .help(isProjectSearchVisible ? "Close Project Search" : "Search Projects")
     }
 
     private var remoteProjectMenu: some View {
@@ -245,9 +278,38 @@ struct ProjectFocusedSidebar: View {
         projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
     }
 
+    private var navigableProjects: [Project] {
+        ProjectNavigationOrder.projects(homeProject: homeProject, displayedProjects: displayedProjects)
+    }
+
+    private var filteredHomeProject: Project? {
+        guard let homeProject, ProjectListSearch.matches(homeProject, query: activeProjectSearchQuery) else { return nil }
+        return homeProject
+    }
+
+    private var filteredProjects: [Project] {
+        ProjectListSearch.filter(displayedProjects, matching: activeProjectSearchQuery)
+    }
+
+    private var activeProjectSearchQuery: String {
+        ProjectListSearch.activeQuery(
+            projectSearchText,
+            isVisible: isProjectSearchVisible,
+            isWide: isWide
+        )
+    }
+
+    private var hasProjectSearchQuery: Bool {
+        !activeProjectSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hasNoSearchResults: Bool {
+        hasProjectSearchQuery && filteredHomeProject == nil && filteredProjects.isEmpty
+    }
+
     private var pinnedBoundaryIndex: Int? {
-        guard let lastPinned = displayedProjects.lastIndex(where: \.isPinned),
-              lastPinned < displayedProjects.count - 1
+        guard let lastPinned = filteredProjects.lastIndex(where: \.isPinned),
+              lastPinned < filteredProjects.count - 1
         else { return nil }
         return lastPinned
     }
@@ -263,6 +325,7 @@ struct ProjectFocusedSidebar: View {
                 if showSortMenu {
                     sortMenu
                 }
+                projectSearchToggle
             }
         } else {
             WorkspaceSwitcher(isWide: isWide)
@@ -279,19 +342,73 @@ struct ProjectFocusedSidebar: View {
                 .padding(.horizontal, isWide ? UIMetrics.spacing3 : UIMetrics.spacing4)
                 .padding(.top, UIMetrics.spacing2)
 
+            if isWide, isProjectSearchVisible {
+                projectSearchField
+                    .padding(.horizontal, UIMetrics.spacing3)
+            }
+
             scrollableProjects
         }
     }
 
+    private var projectSearchField: some View {
+        HStack(spacing: UIMetrics.spacing2) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .accessibilityHidden(true)
+
+            TextField("Search projects", text: $projectSearchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+                .focused($isProjectSearchFocused)
+                .onExitCommand(perform: hideProjectSearch)
+                .accessibilityLabel("Search projects")
+        }
+        .padding(.horizontal, UIMetrics.spacing4)
+        .frame(height: UIMetrics.controlMedium)
+        .background(
+            MuxyTheme.surface,
+            in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+        )
+    }
+
+    private func toggleProjectSearch() {
+        guard isProjectSearchVisible else {
+            isProjectSearchVisible = true
+            DispatchQueue.main.async {
+                isProjectSearchFocused = true
+            }
+            return
+        }
+        hideProjectSearch()
+    }
+
+    private func hideProjectSearch() {
+        projectSearchText = ""
+        isProjectSearchFocused = false
+        isProjectSearchVisible = false
+    }
+
     private var scrollableProjects: some View {
-        ScrollView(.vertical, showsIndicators: false) {
+        let shortcutIndices = ProjectNavigationOrder.shortcutIndices(in: navigableProjects)
+        return ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: UIMetrics.spacing3) {
-                if let homeProject {
-                    projectRow(for: homeProject, shortcutIndex: 1)
+                if let filteredHomeProject {
+                    projectRow(for: filteredHomeProject, shortcutIndex: shortcutIndices[filteredHomeProject.id])
                 }
 
-                ForEach(Array(displayedProjects.enumerated()), id: \.element.id) { offset, project in
-                    projectRow(for: project, shortcutIndex: shortcutIndex(forRowAt: offset))
+                if hasNoSearchResults {
+                    Text("No projects match your search.")
+                        .font(.system(size: UIMetrics.fontBody))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, UIMetrics.spacing4)
+                }
+
+                ForEach(Array(filteredProjects.enumerated()), id: \.element.id) { offset, project in
+                    projectRow(for: project, shortcutIndex: shortcutIndices[project.id])
                         .background {
                             if dragState.draggedID != nil {
                                 GeometryReader { geo in
@@ -389,11 +506,6 @@ struct ProjectFocusedSidebar: View {
         projectStore.setWorktreesEnabled(id: project.id, to: enabled)
     }
 
-    private func shortcutIndex(forRowAt offset: Int) -> Int? {
-        let index = homeProject == nil ? offset + 1 : offset + 2
-        return index <= 9 ? index : nil
-    }
-
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
     }
@@ -401,6 +513,7 @@ struct ProjectFocusedSidebar: View {
     private func projectDragGesture(for project: Project) -> some Gesture {
         DragGesture(minimumDistance: 6, coordinateSpace: .named("sidebar"))
             .onChanged { value in
+                guard !hasProjectSearchQuery else { return }
                 if dragState.draggedID == nil {
                     beginManualReorder()
                     dragState.draggedID = project.id
@@ -597,22 +710,21 @@ private struct AddProjectButton: View {
     }
 }
 
-private enum SortMenuButton {
-    struct Label: View {
-        let mode: ProjectSortMode
-        @State private var hovered = false
+private struct SidebarHeaderIconButtonLabel: View {
+    let systemName: String
+    let accessibilityLabel: String
+    @State private var hovered = false
 
-        var body: some View {
-            Image(systemName: "arrow.up.arrow.down")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-                .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
-                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
-                .background(
-                    hovered ? MuxyTheme.hover : MuxyTheme.surface,
-                    in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-                )
-                .onHover { hovered = $0 }
-                .accessibilityLabel("Sort Projects")
-        }
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+            .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+            .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+            .background(
+                hovered ? MuxyTheme.hover : MuxyTheme.surface,
+                in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+            )
+            .onHover { hovered = $0 }
+            .accessibilityLabel(accessibilityLabel)
     }
 }

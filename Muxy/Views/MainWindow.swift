@@ -7,6 +7,35 @@ enum OverlayEscapeDecision {
     }
 }
 
+enum MainWindowModalOverlay: CaseIterable, Hashable {
+    case composer
+    case terminalOmnibox
+    case projectPicker
+    case extensionModal
+    case extensionWebviewModal
+}
+
+enum MainWindowModalPolicy {
+    static func canPresent(_ candidate: MainWindowModalOverlay, active: Set<MainWindowModalOverlay>) -> Bool {
+        active.subtracting([candidate]).isEmpty
+    }
+
+    static func topmost(in active: Set<MainWindowModalOverlay>) -> MainWindowModalOverlay? {
+        MainWindowModalOverlay.allCases.reversed().first { active.contains($0) }
+    }
+}
+
+enum MainWindowVoiceInputTarget: Equatable {
+    case composer
+    case legacyPanel
+}
+
+enum MainWindowVoiceInputPolicy {
+    static func target(composerVisible: Bool) -> MainWindowVoiceInputTarget {
+        composerVisible ? .composer : .legacyPanel
+    }
+}
+
 enum MainWindowLayout {
     static func leftNavigationWidth(sidebarWidth: CGFloat) -> CGFloat {
         max(0, sidebarWidth)
@@ -75,14 +104,10 @@ struct MainWindow: View {
     @State private var workspaceFileWatcher = WorkspaceFileWatcher()
     @AppStorage("muxy.extensionPanelWidth") private var extensionPanelWidth: Double = PanelLayoutMetrics.extensionDefaultWidth
     @AppStorage("muxy.extensionPanelHeight") private var extensionPanelHeight: Double = PanelLayoutMetrics.extensionDefaultHeight
-    @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = PanelLayoutMetrics.richInputDefaultWidth
-    @AppStorage("muxy.richInputPanelHeight") private var richInputPanelHeight: Double = PanelLayoutMetrics.richInputDefaultHeight
-    @AppStorage(RichInputPreferences.fontSizeKey) private var richInputFontSize: Double = RichInputPreferences.defaultFontSize
-    @AppStorage(RichInputPreferences.floatingKey) private var richInputFloating = RichInputPreferences.defaultFloating
-    @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: PanelPosition = RichInputPreferences
-        .defaultPosition
     @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
+    @State private var composerVisible = false
+    @State private var composerVoice = ComposerVoiceState()
     @State private var visitedWorktreeKeys: Set<WorktreeKey> = []
     @AppStorage(WorktreeListPreferences.orderByMRUKey)
     private var orderWorktreesByMRU = WorktreeListPreferences.defaultOrderByMRU
@@ -96,15 +121,27 @@ struct MainWindow: View {
     @State private var projectPickerTerminalFocusRestoration = ProjectPickerTerminalFocusRestoration()
 
     private func dismissActiveOverlay() {
-        if showTerminalOmnibox {
+        switch activeModalOverlay {
+        case .composer:
+            if composerVoice.isBusy {
+                composerVoice.cancel()
+            } else if composerVoice.errorMessage != nil {
+                composerVoice.dismissError()
+            } else {
+                closeComposer()
+            }
+        case .terminalOmnibox:
             showTerminalOmnibox = false
-        } else if showProjectPicker {
+        case .projectPicker:
             showProjectPicker = false
             remoteProjectDevice = nil
-        } else if let request = ExtensionWebviewModalService.shared.active {
-            ExtensionWebviewModalService.shared.dismiss(requestID: request.id)
-        } else if ExtensionModalService.shared.active != nil {
+        case .extensionModal:
             ExtensionModalService.shared.dismiss()
+        case .extensionWebviewModal:
+            guard let request = ExtensionWebviewModalService.shared.active else { return }
+            ExtensionWebviewModalService.shared.dismiss(requestID: request.id)
+        case nil:
+            break
         }
     }
 
@@ -132,7 +169,9 @@ struct MainWindow: View {
 
     private var layout: any AppLayoutProviding { layoutStore.provider }
     private var appBackgroundStyle: AppBackgroundStyle { AppBackgroundStyle.resolve(appBackgroundStyleRaw) }
-    private var isTabFocused: Bool { layoutStore.layout == .tabFocused && !isExtensionSidebarActive }
+    private var usesWideSidebar: Bool {
+        layoutStore.layout != .projectFocused && !isExtensionSidebarActive
+    }
 
     private var showsTabsInTitleBar: Bool { layout.topbar == .tabStrip || isExtensionSidebarActive }
 
@@ -161,6 +200,7 @@ struct MainWindow: View {
             overlayActive: overlayActive,
             toastAlignment: toastAlignment,
             isVoicePanelVisible: voiceRecording.isPanelVisible,
+            isComposerVisible: composerVisible,
             hasToast: ToastState.shared.message != nil
         )
     }
@@ -221,8 +261,9 @@ struct MainWindow: View {
 
     private var windowEventListeners: MainWindowEventListeners {
         MainWindowEventListeners(
-            sidePanelListeners: SidePanelNotificationListeners(
-                onToggleRichInput: { toggleRichInputPanel() },
+            inputListeners: InputNotificationListeners(
+                onToggleRichInput: { toggleComposer() },
+                onToggleComposerVoice: { _ = presentComposer(startsVoice: true) },
                 onToggleVoiceRecording: { _ = openVoiceRecorder() }
             ),
             tabCloseObserver: TabCloseConfirmationObserver(
@@ -235,7 +276,7 @@ struct MainWindow: View {
             activeWorktreeSignature: activeWorktreeSignature,
             activeProjectID: appState.activeProjectID,
             hasPendingLayoutApply: appState.pendingLayoutApply != nil,
-            onOpenProjectPicker: { showProjectPicker = true },
+            onOpenProjectPicker: { presentProjectPicker() },
             onOpenRemoteProjectPicker: handleOpenRemoteProjectPicker,
             onOpenExtensionDirectory: handleOpenExtensionDirectory,
             onTerminalOmnibox: handleTerminalOmniboxNotification,
@@ -275,8 +316,7 @@ struct MainWindow: View {
         guard let deviceID = notification.userInfo?[OpenRemoteProjectPickerUserInfoKey.deviceID] as? UUID,
               let device = remoteDeviceStore.device(id: deviceID)
         else { return }
-        remoteProjectDevice = device
-        showProjectPicker = true
+        presentProjectPicker(remoteDevice: device)
     }
 
     private func handleOpenExtensionDirectory(_ notification: Notification) {
@@ -296,8 +336,19 @@ struct MainWindow: View {
             terminalOmniboxLaunchScope = launchScope
             return
         }
+        if showTerminalOmnibox {
+            showTerminalOmnibox = false
+            return
+        }
+        guard MainWindowModalPolicy.canPresent(.terminalOmnibox, active: activeModalOverlays) else { return }
         terminalOmniboxLaunchScope = launchScope
-        showTerminalOmnibox.toggle()
+        showTerminalOmnibox = true
+    }
+
+    private func presentProjectPicker(remoteDevice: RemoteDevice? = nil) {
+        guard MainWindowModalPolicy.canPresent(.projectPicker, active: activeModalOverlays) else { return }
+        remoteProjectDevice = remoteDevice
+        showProjectPicker = true
     }
 
     private func toggleSidebar() {
@@ -322,6 +373,9 @@ struct MainWindow: View {
     }
 
     private func refreshWorkspaceWatcherAndVisited() {
+        if composerVisible {
+            closeComposer()
+        }
         updateWorkspaceFileWatcher()
         recordVisitedActiveWorktree()
     }
@@ -403,6 +457,8 @@ struct MainWindow: View {
         switch sidebar {
         case .tabList:
             TabFocusedSidebar()
+        case .agentList:
+            AgentsFocusedSidebar()
         case .projectList:
             ProjectFocusedSidebar(
                 expanded: sidebarExpanded,
@@ -481,7 +537,11 @@ struct MainWindow: View {
                        !appState.hasTabs(for: project.id),
                        let worktree = resolvedActiveWorktree(for: project)
                     {
-                        EmptyProjectPlaceholder(project: project) {
+                        EmptyProjectPlaceholder(
+                            project: project,
+                            worktree: worktree,
+                            layout: layoutStore.layout
+                        ) {
                             appState.openInitialTab(projectID: project.id, worktree: worktree)
                         }
                     } else if projectsWithTabs.isEmpty {
@@ -522,8 +582,6 @@ struct MainWindow: View {
                         projectGroupStore.workspaceContext(for: $0).isRemote
                     } ?? false,
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
-                    richInputVisible: richInputPanelVisible,
-                    richInputFontSize: $richInputFontSize,
                     extensionOutputVisible: extensionConsoleBinding,
                     onTriggerExtensionCommand: { binding in
                         ExtensionStore.shared.triggerCommand(
@@ -560,96 +618,55 @@ struct MainWindow: View {
                 appState.goForward()
             }
             if !isExtensionSidebarActive {
-                NavigationArrowButton(
-                    symbol: isTabFocused ? "sidebar.squares.left" : "sidebar.left",
-                    label: isTabFocused ? "Switch to Project Focused Layout" : "Switch to Tab Focused Layout"
-                ) {
-                    NotificationCenter.default.post(name: .toggleAppLayout, object: nil)
-                }
+                appLayoutMenu
             }
         }
+    }
+
+    private var appLayoutMenu: some View {
+        Menu {
+            ForEach(AppLayout.allCases) { appLayout in
+                Button {
+                    layoutStore.set(appLayout)
+                } label: {
+                    HStack {
+                        Text(appLayout.title)
+                        if layoutStore.layout == appLayout {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Choose App Layout")
+        .accessibilityLabel("Choose App Layout")
     }
 
     @ViewBuilder
     private var topBarContent: some View {
         if showsTabsInTitleBar,
            let project = activeProject,
-           let root = appState.workspaceRoot(for: project.id),
-           case let .tabArea(area) = root
+           let key = appState.activeWorktreeKey(for: project.id),
+           let layout = appState.topLevelTabLayouts[key],
+           layout.isSingleGroup,
+           let group = layout.allGroups().first
         {
-            PaneTabStrip(
-                areaID: area.id,
-                tabs: PaneTabStrip.snapshots(from: area.tabs),
-                activeTabID: area.activeTabID,
-                isFocused: true,
+            TopLevelTabGroupStrip(
+                project: project,
+                worktreeKey: key,
+                groupID: group.id,
                 isWindowTitleBar: true,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
-                openProjectPath: project.isRemote ? nil : activeWorktreePath(for: project),
-                projectID: project.id,
-                onSelectTab: { tabID in
-                    appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
-                },
-                onCreateTab: {
-                    appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
-                },
-                onOpenBrowser: browserEnabled ? {
-                    appState.dispatch(.createBrowserTab(
-                        projectID: project.id,
-                        areaID: area.id,
-                        url: BrowserURL.homeURL,
-                        profileID: browserProfileStore.defaultProfileID
-                    ))
-                } : nil,
-                onCloseTab: { tabID in
-                    appState.closeTab(tabID, areaID: area.id, projectID: project.id)
-                },
-                onCloseOtherTabs: { tabID in
-                    let ids = area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id)
-                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
-                },
-                onCloseTabsToLeft: { tabID in
-                    guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                    let ids = area.tabs.prefix(index).filter { !$0.isPinned }.map(\.id)
-                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
-                },
-                onCloseTabsToRight: { tabID in
-                    guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                    let ids = area.tabs.suffix(from: index + 1).filter { !$0.isPinned }.map(\.id)
-                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
-                },
-                onSplit: { dir in
-                    appState.dispatch(.splitArea(.init(
-                        projectID: project.id,
-                        areaID: area.id,
-                        direction: dir,
-                        position: .second
-                    )))
-                },
-                onDropAction: { result in
-                    appState.dispatch(result.action(projectID: project.id))
-                },
-                onCreateTabAdjacent: { tabID, side in
-                    appState.dispatch(.createTabAdjacent(
-                        projectID: project.id,
-                        areaID: area.id,
-                        tabID: tabID,
-                        side: side
-                    ))
-                },
-                onTogglePin: { tabID in
-                    area.togglePin(tabID)
-                },
-                onSetCustomTitle: { tabID, title in
-                    area.setCustomTitle(tabID, title: title)
-                    appState.saveWorkspaces()
-                },
-                onSetColorID: { tabID, colorID in
-                    area.setColorID(tabID, colorID: colorID)
-                    appState.saveWorkspaces()
-                },
-                onReorderTab: { fromOffsets, toOffset in
-                    area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
-                }
+                openProjectPath: project.isRemote ? nil : activeWorktreePath(for: project)
             )
         } else {
             HStack(spacing: 0) {
@@ -695,6 +712,51 @@ struct MainWindow: View {
                 LayoutPickerMenu(projectID: project.id)
             }
             ExtensionTopbarItems()
+            if let project = activeProject,
+               let key = appState.activeWorktreeKey(for: project.id),
+               let focusedAreaID = appState.focusedAreaID[key]
+            {
+                let visiblePaneCount = appState.visibleLayout(for: key)?.allPanes().count ?? 0
+                let isMaximized = appState.maximizedPanes[key] != nil
+                if visiblePaneCount > 1 || isMaximized {
+                    let symbol = isMaximized
+                        ? "arrow.down.right.and.arrow.up.left"
+                        : "arrow.up.left.and.arrow.down.right"
+                    let label = isMaximized ? "Restore Pane" : "Maximize Pane"
+                    IconButton(symbol: symbol, accessibilityLabel: label) {
+                        appState.toggleMaximize(areaID: focusedAreaID, for: project.id)
+                    }
+                }
+                IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") {
+                    appState.dispatch(.splitArea(.init(
+                        projectID: project.id,
+                        areaID: focusedAreaID,
+                        direction: .horizontal,
+                        position: .second
+                    )))
+                }
+                IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") {
+                    appState.dispatch(.splitArea(.init(
+                        projectID: project.id,
+                        areaID: focusedAreaID,
+                        direction: .vertical,
+                        position: .second
+                    )))
+                }
+                IconButton(symbol: "plus", accessibilityLabel: "New Tab") {
+                    appState.dispatch(.createTab(projectID: project.id, areaID: focusedAreaID))
+                }
+                if browserEnabled {
+                    IconButton(symbol: "globe", accessibilityLabel: "Open Browser Tab") {
+                        appState.dispatch(.createBrowserTab(
+                            projectID: project.id,
+                            areaID: focusedAreaID,
+                            url: BrowserURL.homeURL,
+                            profileID: browserProfileStore.defaultProfileID
+                        ))
+                    }
+                }
+            }
         }
         .padding(.trailing, UIMetrics.spacing2)
         .fixedSize(horizontal: true, vertical: false)
@@ -702,19 +764,85 @@ struct MainWindow: View {
     }
 
     private var overlayActive: Bool {
-        showTerminalOmnibox
-            || showProjectPicker
-            || ExtensionModalService.shared.active != nil
-            || ExtensionWebviewModalService.shared.active != nil
-            || overlayAnimatingOut
+        !activeModalOverlays.isEmpty || overlayAnimatingOut
+    }
+
+    private var activeModalOverlays: Set<MainWindowModalOverlay> {
+        var overlays: Set<MainWindowModalOverlay> = []
+        if composerVisible {
+            overlays.insert(.composer)
+        }
+        if showTerminalOmnibox {
+            overlays.insert(.terminalOmnibox)
+        }
+        if showProjectPicker {
+            overlays.insert(.projectPicker)
+        }
+        if ExtensionModalService.shared.active != nil {
+            overlays.insert(.extensionModal)
+        }
+        if ExtensionWebviewModalService.shared.active != nil {
+            overlays.insert(.extensionWebviewModal)
+        }
+        return overlays
+    }
+
+    private var activeModalOverlay: MainWindowModalOverlay? {
+        MainWindowModalPolicy.topmost(in: activeModalOverlays)
     }
 
     @ViewBuilder
     private var modalOverlayLayer: some View {
-        terminalOmniboxOverlay
-        projectPickerOverlay
-        extensionModalOverlay
-        extensionWebviewModalOverlay
+        switch activeModalOverlay {
+        case .composer:
+            composerOverlay
+        case .terminalOmnibox:
+            terminalOmniboxOverlay
+        case .projectPicker:
+            projectPickerOverlay
+        case .extensionModal:
+            extensionModalOverlay
+        case .extensionWebviewModal:
+            extensionWebviewModalOverlay
+        case nil:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var composerOverlay: some View {
+        if composerVisible,
+           let state = activeRichInputState,
+           let worktreeKey = activeWorktreeKey,
+           let project = activeProject,
+           let worktree = resolvedActiveWorktree(for: project)
+        {
+            GeometryReader { geometry in
+                ZStack {
+                    Color.black.opacity(0.62)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            closeComposer()
+                        }
+                    FocusedComposerView(
+                        state: state,
+                        voice: composerVoice,
+                        worktreeKey: worktreeKey,
+                        projectName: project.name,
+                        worktreeName: worktree.branch ?? worktree.name,
+                        languageIdentifier: recordingLanguage,
+                        broadcasts: $richInputBroadcast,
+                        onSubmit: { appendReturn, selectedText in
+                            submitRichInput(state, appendReturn: appendReturn, selectedText: selectedText)
+                            closeComposer()
+                        },
+                        onClose: closeComposer
+                    )
+                    .frame(width: min(UIMetrics.scaled(570), max(0, geometry.size.width - UIMetrics.spacing8 * 2)))
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -985,6 +1113,9 @@ struct MainWindow: View {
     }
 
     private func activateWorkspaceForActiveProject() {
+        if composerVisible {
+            closeComposer()
+        }
         guard let projectID = appState.activeProjectID, projectID != Project.homeID else { return }
         let candidates = projectStore.projects + projectGroupStore.remoteProjects
         guard let project = candidates.first(where: { $0.id == projectID }) else { return }
@@ -1083,12 +1214,12 @@ struct MainWindow: View {
     }
 
     private var sidebarCollapsedStyle: SidebarCollapsedStyle {
-        guard !isTabFocused else { return .hidden }
+        guard !usesWideSidebar else { return .hidden }
         return SidebarCollapsedStyle(rawValue: sidebarCollapsedStyleRaw) ?? .defaultValue
     }
 
     private var sidebarExpandedStyle: SidebarExpandedStyle {
-        guard !isTabFocused else { return .wide }
+        guard !usesWideSidebar else { return .wide }
         return SidebarExpandedStyle(rawValue: sidebarExpandedStyleRaw) ?? .defaultValue
     }
 
@@ -1377,6 +1508,9 @@ struct MainWindow: View {
     }
 
     private func handleShortcutAction(_ action: ShortcutAction) -> Bool {
+        if action == .toggleComposerVoice {
+            return presentComposer(startsVoice: true)
+        }
         if action == .toggleVoiceRecording {
             return openVoiceRecorder()
         }
@@ -1384,6 +1518,9 @@ struct MainWindow: View {
     }
 
     private func openVoiceRecorder() -> Bool {
+        if MainWindowVoiceInputPolicy.target(composerVisible: composerVisible) == .composer {
+            return presentComposer(startsVoice: true)
+        }
         if voiceRecording.isPanelVisible {
             voiceRecording.cancel()
             return true
@@ -1425,7 +1562,6 @@ struct MainWindow: View {
         allActiveProjects.filter { appState.hasTabs(for: $0.id) }
     }
 
-    var richInputPanelVisible: Bool { panelHost.isOpen(BuiltinPanel.richInput) }
     var showExtensionOutput: Bool { panelHost.isOpen(BuiltinPanel.extensionConsole) }
 
     private var extensionConsoleBinding: Binding<Bool> {
@@ -1435,64 +1571,34 @@ struct MainWindow: View {
         )
     }
 
-    @ViewBuilder
     func pinnedPanelSlot(at position: PanelPosition) -> some View {
-        if let panelID = panelHost.pinnedPanel(at: position) {
-            panelContent(for: panelID, position: position, mode: .pinned)
+        PanelHostSlot(panelHost: panelHost, position: position, mode: .pinned) { placement in
+            panelContent(
+                for: placement.panelID,
+                position: placement.position,
+                mode: placement.mode
+            )
         }
     }
 
-    @ViewBuilder
     func floatingPanelOverlay(at position: PanelPosition) -> some View {
-        if let panelID = panelHost.floatingPanel(at: position) {
-            panelContent(for: panelID, position: position, mode: .floating)
-                .background(MuxyTheme.bg)
+        PanelHostSlot(panelHost: panelHost, position: position, mode: .floating) { placement in
+            panelContent(
+                for: placement.panelID,
+                position: placement.position,
+                mode: placement.mode
+            )
+            .background(MuxyTheme.bg)
         }
     }
 
     @ViewBuilder
     private func panelContent(for panelID: String, position: PanelPosition, mode: PanelMode) -> some View {
         switch panelID {
-        case BuiltinPanel.richInput:
-            richInputPanelBody(position: position, mode: mode)
         case BuiltinPanel.extensionConsole:
             extensionConsolePanelBody(position: position, mode: mode)
         default:
             extensionPanelBody(panelID: panelID, position: position, mode: mode)
-        }
-    }
-
-    @ViewBuilder
-    private func richInputPanelBody(position: PanelPosition, mode: PanelMode) -> some View {
-        if let richInputState = activeRichInputState, let worktreeKey = activeWorktreeKey {
-            PanelContainer(
-                chrome: PanelChrome(
-                    iconSymbol: "keyboard",
-                    title: "Rich Input",
-                    trailingButtons: [richInputBroadcastButton]
-                ),
-                mode: mode,
-                position: position,
-                onClose: { closeRichInputPanel() },
-                onTogglePin: { toggleRichInputFloating() },
-                onTogglePosition: { toggleRichInputPosition() },
-                content: {
-                    RichInputSidePanel(
-                        state: richInputState,
-                        worktreeKey: worktreeKey,
-                        onSubmit: { appendReturn, selectedText in
-                            submitRichInput(richInputState, appendReturn: appendReturn, selectedText: selectedText)
-                        }
-                    )
-                }
-            )
-            .modifier(PanelFrame(
-                position: position,
-                size: position == .bottom ? $richInputPanelHeight : $richInputPanelWidth,
-                range: position == .bottom
-                    ? PanelLayoutMetrics.richInputHeightRange
-                    : PanelLayoutMetrics.richInputWidthRange
-            ))
         }
     }
 
@@ -1505,6 +1611,7 @@ struct MainWindow: View {
             ),
             mode: mode,
             position: position,
+            focusRestorationID: nil,
             onClose: { panelHost.close(BuiltinPanel.extensionConsole) },
             onTogglePin: nil,
             onTogglePosition: nil,
@@ -1543,20 +1650,6 @@ struct MainWindow: View {
                     : PanelLayoutMetrics.extensionWidthRange
             ))
         }
-    }
-
-    private var richInputBroadcastButton: PanelHeaderButton {
-        PanelHeaderButton(
-            id: "richInput.broadcast",
-            icon: .symbol(richInputBroadcast
-                ? "dot.radiowaves.left.and.right"
-                : "antenna.radiowaves.left.and.right.slash"),
-            label: richInputBroadcast
-                ? "Broadcast On — Send to All Split Panes"
-                : "Broadcast Off — Send to Active Pane",
-            isActive: richInputBroadcast,
-            action: { richInputBroadcast.toggle() }
-        )
     }
 
     private var sidebarResizeHandle: some View {
@@ -1622,39 +1715,42 @@ struct MainWindow: View {
         return appState.activeTab(for: project.id)?.content.pane
     }
 
-    private func toggleRichInputPanel() {
-        guard let richInputState = activeRichInputState else { return }
-        guard richInputPanelVisible else {
-            panelHost.open(BuiltinPanel.richInput, at: richInputPosition, mode: richInputMode)
-            richInputState.focusVersion += 1
-            return
+    private func toggleComposer() {
+        if composerVisible {
+            closeComposer()
+        } else {
+            _ = presentComposer(startsVoice: false)
         }
-        closeRichInputPanel()
     }
 
-    private var richInputMode: PanelMode {
-        richInputFloating ? .floating : .pinned
+    @discardableResult
+    private func presentComposer(startsVoice: Bool) -> Bool {
+        guard let richInputState = activeRichInputState, activeRichInputPaneID != nil else { return false }
+        guard MainWindowModalPolicy.canPresent(.composer, active: activeModalOverlays) else { return false }
+        if voiceRecording.isPanelVisible {
+            voiceRecording.cancel()
+        }
+        if !composerVisible {
+            composerVisible = true
+        }
+        richInputState.focusVersion += 1
+        guard startsVoice else { return true }
+        DispatchQueue.main.async {
+            guard composerVisible else { return }
+            composerVoice.start(languageIdentifier: recordingLanguage)
+        }
+        return true
     }
 
-    private func toggleRichInputFloating() {
-        richInputFloating.toggle()
-        guard richInputPanelVisible else { return }
-        panelHost.setMode(richInputMode, for: BuiltinPanel.richInput)
-    }
-
-    private func toggleRichInputPosition() {
-        richInputPosition = richInputPosition.opposite
-        guard richInputPanelVisible else { return }
-        panelHost.move(BuiltinPanel.richInput, to: richInputPosition)
-    }
-
-    private func closeRichInputPanel() {
-        panelHost.close(BuiltinPanel.richInput)
+    private func closeComposer() {
+        guard composerVisible else { return }
+        composerVoice.cancel()
+        composerVisible = false
         guard let paneID = activeRichInputPaneID,
               let view = TerminalViewRegistry.shared.existingView(for: paneID)
         else { return }
         DispatchQueue.main.async {
-            view.window?.makeFirstResponder(view)
+            view.terminalView.window?.makeFirstResponder(view.terminalView)
         }
     }
 
@@ -2068,6 +2164,7 @@ private struct MainWindowOverlays: ViewModifier {
     let overlayActive: Bool
     let toastAlignment: Alignment
     let isVoicePanelVisible: Bool
+    let isComposerVisible: Bool
     let hasToast: Bool
 
     func body(content: Content) -> some View {
@@ -2079,6 +2176,7 @@ private struct MainWindowOverlays: ViewModifier {
             .overlay(alignment: toastAlignment) { toast() }
             .overlay { modalOverlayLayer() }
             .overlay { ExtensionConsentOverlay() }
+            .animation(.easeInOut(duration: 0.15), value: isComposerVisible)
             .animation(.easeInOut(duration: 0.2), value: hasToast)
     }
 }
@@ -2111,7 +2209,7 @@ private struct MainWindowChrome: ViewModifier {
 }
 
 private struct MainWindowEventListeners: ViewModifier {
-    let sidePanelListeners: SidePanelNotificationListeners
+    let inputListeners: InputNotificationListeners
     let tabCloseObserver: TabCloseConfirmationObserver
     let worktreeKeysSignature: [String]
     let activeWorktreeSignature: String
@@ -2147,7 +2245,7 @@ private struct MainWindowEventListeners: ViewModifier {
             onToggleAppLayout: onToggleAppLayout,
             onToggleExtensionConsole: onToggleExtensionConsole,
             onFullScreenChange: onFullScreenChange,
-            sidePanelListeners: sidePanelListeners
+            inputListeners: inputListeners
         )
     }
 
@@ -2176,7 +2274,7 @@ private struct MainWindowNotificationListeners: ViewModifier {
     let onToggleAppLayout: () -> Void
     let onToggleExtensionConsole: () -> Void
     let onFullScreenChange: (Bool) -> Void
-    let sidePanelListeners: SidePanelNotificationListeners
+    let inputListeners: InputNotificationListeners
 
     func body(content: Content) -> some View {
         content
@@ -2204,7 +2302,7 @@ private struct MainWindowNotificationListeners: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
                 onFullScreenChange(notification.userInfo?["isFullScreen"] as? Bool ?? false)
             }
-            .modifier(sidePanelListeners)
+            .modifier(inputListeners)
     }
 }
 
@@ -2235,14 +2333,18 @@ private struct MainWindowStateListeners: ViewModifier {
     }
 }
 
-private struct SidePanelNotificationListeners: ViewModifier {
+private struct InputNotificationListeners: ViewModifier {
     let onToggleRichInput: () -> Void
+    let onToggleComposerVoice: () -> Void
     let onToggleVoiceRecording: () -> Void
 
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .toggleRichInput)) { _ in
                 onToggleRichInput()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleComposerVoice)) { _ in
+                onToggleComposerVoice()
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleVoiceRecording)) { _ in
                 onToggleVoiceRecording()

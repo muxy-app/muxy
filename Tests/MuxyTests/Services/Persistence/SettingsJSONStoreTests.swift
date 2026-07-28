@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -120,6 +121,171 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func invalidQuickTerminalShortcutDoesNotWriteSettings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "shortcuts.quickTerminal": {
+                "type": "keyCombo",
+                "keyCombo": {
+                  "key": "space",
+                  "modifiers": 0
+                }
+              }
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+    }
+
+    @Test("noncanonical Quick Terminal shortcuts do not write settings", arguments: [
+        ("SPACE", NSEvent.ModifierFlags.command.rawValue),
+        ("space", NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.capsLock.rawValue),
+    ])
+    func noncanonicalQuickTerminalShortcutDoesNotWriteSettings(key: String, modifiers: UInt) throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "shortcuts.quickTerminal": {
+                "type": "keyCombo",
+                "keyCombo": {
+                  "key": "\(key)",
+                  "modifiers": \(modifiers)
+                },
+                "virtualKeyCode": 49
+              }
+            }
+            """)
+        }
+
+        #expect(try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8) == originalText)
+    }
+
+    @Test
+    func conflictingQuickTerminalShortcutDoesNotWriteSettings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+        let modifiers = NSEvent.ModifierFlags.command.rawValue
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "shortcuts.app": {
+                "newTab": {
+                  "key": "space",
+                  "modifiers": \(modifiers)
+                }
+              },
+              "shortcuts.quickTerminal": {
+                "type": "keyCombo",
+                "keyCombo": {
+                  "key": "space",
+                  "modifiers": \(modifiers)
+                }
+              }
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+    }
+
+    @Test
+    func conflictingQuickTerminalRegistrationIdentityDoesNotWriteSettings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+        let modifiers = NSEvent.ModifierFlags.command.rawValue
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "shortcuts.app": {
+                "newTab": {
+                  "key": "space",
+                  "modifiers": \(modifiers)
+                }
+              },
+              "shortcuts.quickTerminal": {
+                "type": "keyCombo",
+                "keyCombo": {
+                  "key": "q",
+                  "modifiers": \(modifiers)
+                },
+                "virtualKeyCode": 49
+              }
+            }
+            """)
+        }
+
+        #expect(try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8) == originalText)
+    }
+
+    @Test
+    func failedQuickTerminalRegistrationRestoresSettingsFile() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+        let modifiers: UInt = [
+            NSEvent.ModifierFlags.command,
+            .control,
+            .option,
+            .shift,
+        ].reduce(0) { $0 | $1.rawValue }
+        var attemptedShortcut: QuickTerminalShortcut?
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONApplyTestError.registrationFailed) {
+            try SettingsJSONStore.saveUserSettingsText(
+                """
+                {
+                  "shortcuts.quickTerminal": {
+                    "type": "keyCombo",
+                    "keyCombo": {
+                      "key": "space",
+                      "modifiers": \(modifiers)
+                    },
+                    "virtualKeyCode": 49
+                  }
+                }
+                """,
+                quickTerminalShortcutUpdater: {
+                    attemptedShortcut = $0
+                    throw SettingsJSONApplyTestError.registrationFailed
+                }
+            )
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(attemptedShortcut?.keyCombo == KeyCombo(key: "space", modifiers: modifiers))
+        #expect(savedText == originalText)
+    }
+
+    @Test
     func invalidAppShortcutsDoNotReplaceBindings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
         let originalBindings = KeyBindingStore.shared.bindings
@@ -182,6 +348,224 @@ struct SettingsJSONStoreTests {
         """)
 
         #expect(UserDefaults.standard.integer(forKey: MobileServerService.portKey) == 4242)
+    }
+
+    @Test("disabling Quick Terminal is applied after shortcut changes")
+    func quickTerminalDisableFollowsShortcutUpdate() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [QuickTerminalPreferences.enabledKey])
+        defer { snapshot.restore() }
+        var events: [String] = []
+
+        try SettingsJSONStore.saveUserSettingsText(
+            """
+            {
+              "\(QuickTerminalPreferences.enabledKey)": false,
+              "shortcuts.quickTerminal": {
+                "type": "doubleShift"
+              }
+            }
+            """,
+            quickTerminalShortcutUpdater: { _ in events.append("shortcut") },
+            quickTerminalEnabledUpdater: { events.append("enabled \($0)") }
+        )
+
+        #expect(events == ["shortcut", "enabled false"])
+    }
+
+    @Test("enabling Quick Terminal is applied after shortcut changes")
+    func quickTerminalEnableFollowsShortcutUpdate() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [QuickTerminalPreferences.enabledKey])
+        defer { snapshot.restore() }
+        var events: [String] = []
+
+        try SettingsJSONStore.saveUserSettingsText(
+            """
+            {
+              "\(QuickTerminalPreferences.enabledKey)": true,
+              "shortcuts.quickTerminal": {
+                "type": "doubleShift"
+              }
+            }
+            """,
+            quickTerminalShortcutUpdater: { _ in events.append("shortcut") },
+            quickTerminalEnabledUpdater: { events.append("enabled \($0)") }
+        )
+
+        #expect(events == ["shortcut", "enabled true"])
+    }
+
+    @Test("shortcut failure does not change Quick Terminal enabled state")
+    func quickTerminalShortcutFailurePreservesEnabledState() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [QuickTerminalPreferences.enabledKey])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+        var isEnabled = true
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONApplyTestError.registrationFailed) {
+            try SettingsJSONStore.saveUserSettingsText(
+                """
+                {
+                  "\(QuickTerminalPreferences.enabledKey)": false,
+                  "shortcuts.quickTerminal": {
+                    "type": "doubleShift"
+                  }
+                }
+                """,
+                quickTerminalShortcutUpdater: { _ in
+                    throw SettingsJSONApplyTestError.registrationFailed
+                },
+                quickTerminalEnabledUpdater: { isEnabled = $0 }
+            )
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+        #expect(savedText == originalText)
+        #expect(isEnabled)
+    }
+
+    @Test("invalid Quick Terminal enabled value does not write settings")
+    func invalidQuickTerminalEnabledValueIsRejected() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [QuickTerminalPreferences.enabledKey])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(QuickTerminalPreferences.enabledKey)": "false"
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+        #expect(savedText == originalText)
+    }
+
+    @Test("null Quick Terminal enabled value resets to the default")
+    func nullQuickTerminalEnabledValueResetsToDefault() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [QuickTerminalPreferences.enabledKey])
+        defer { snapshot.restore() }
+        QuickTerminalPreferences.setEnabled(false)
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(QuickTerminalPreferences.enabledKey)": null
+        }
+        """)
+
+        #expect(UserDefaults.standard.object(forKey: QuickTerminalPreferences.enabledKey) == nil)
+        #expect(QuickTerminalPreferences.isEnabled())
+    }
+
+    @Test
+    func quickTerminalSizePersistsWithinAllowedRange() throws {
+        let keys = [QuickTerminalSizePreferences.widthKey, QuickTerminalSizePreferences.heightKey]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(QuickTerminalSizePreferences.widthKey)": 960,
+          "\(QuickTerminalSizePreferences.heightKey)": 600
+        }
+        """)
+
+        #expect(QuickTerminalSizePreferences.width() == 960)
+        #expect(QuickTerminalSizePreferences.height() == 600)
+    }
+
+    @Test
+    func invalidQuickTerminalSizeDoesNotWriteOrApplySettings() throws {
+        let keys = [QuickTerminalSizePreferences.widthKey, QuickTerminalSizePreferences.heightKey]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+        UserDefaults.standard.set(720, forKey: QuickTerminalSizePreferences.widthKey)
+        UserDefaults.standard.set(430, forKey: QuickTerminalSizePreferences.heightKey)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(QuickTerminalSizePreferences.widthKey)": 320,
+              "\(QuickTerminalSizePreferences.heightKey)": 600
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+        #expect(QuickTerminalSizePreferences.width() == 720)
+        #expect(QuickTerminalSizePreferences.height() == 430)
+    }
+
+    @Test
+    func quickTerminalAppearancePersistsWithinAllowedValues() throws {
+        let keys = [
+            QuickTerminalAppearancePreferences.transparencyKey,
+            QuickTerminalAppearancePreferences.blurIntensityKey,
+        ]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(QuickTerminalAppearancePreferences.transparencyKey)": 40,
+          "\(QuickTerminalAppearancePreferences.blurIntensityKey)": 86
+        }
+        """)
+
+        #expect(QuickTerminalAppearancePreferences.transparency() == 40)
+        #expect(QuickTerminalAppearancePreferences.blurIntensity() == 86)
+    }
+
+    @Test(arguments: [0, 100])
+    func quickTerminalBlurIntensityAcceptsEndpoints(_ intensity: Int) throws {
+        let key = QuickTerminalAppearancePreferences.blurIntensityKey
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("{\"\(key)\":\(intensity)}")
+
+        #expect(QuickTerminalAppearancePreferences.blurIntensity() == intensity)
+    }
+
+    @Test(arguments: [
+        "{\"\(QuickTerminalAppearancePreferences.transparencyKey)\": 80}",
+        "{\"\(QuickTerminalAppearancePreferences.transparencyKey)\": false}",
+        "{\"\(QuickTerminalAppearancePreferences.blurIntensityKey)\": -1}",
+        "{\"\(QuickTerminalAppearancePreferences.blurIntensityKey)\": 101}",
+        "{\"\(QuickTerminalAppearancePreferences.blurIntensityKey)\": true}",
+        "{\"\(QuickTerminalAppearancePreferences.blurIntensityKey)\": false}",
+    ])
+    func invalidQuickTerminalAppearanceDoesNotWriteOrApplySettings(settings: String) throws {
+        let keys = [
+            QuickTerminalAppearancePreferences.transparencyKey,
+            QuickTerminalAppearancePreferences.blurIntensityKey,
+        ]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+        UserDefaults.standard.set(18, forKey: QuickTerminalAppearancePreferences.transparencyKey)
+        UserDefaults.standard.set(70, forKey: QuickTerminalAppearancePreferences.blurIntensityKey)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText(settings)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+        #expect(QuickTerminalAppearancePreferences.transparency() == 18)
+        #expect(QuickTerminalAppearancePreferences.blurIntensity() == 70)
     }
 
     @Test
@@ -395,6 +779,8 @@ struct SettingsJSONStoreTests {
             #expect(object.keys.contains(item.key))
         }
         #expect(object.keys.contains("shortcuts.app"))
+        let quickTerminalShortcut = try #require(object["shortcuts.quickTerminal"] as? [String: Any])
+        #expect(quickTerminalShortcut["type"] as? String == "unassigned")
         #expect(object.keys.contains("shortcuts.customCommands"))
         #expect(object.keys.contains("ai.providers"))
         #expect(object.keys.contains("mobile.approvedDevices"))
@@ -413,7 +799,23 @@ struct SettingsJSONStoreTests {
 
         #expect(object[MobileServerService.portKey] as? Int == 4242)
         #expect(object.keys.contains("shortcuts.app"))
+        #expect(object.keys.contains("shortcuts.quickTerminal"))
     }
+
+    @Test
+    func syncSkipsAnIdenticalUserSettingsFile() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+
+        try Data("{}".utf8).write(to: SettingsJSONStore.userSettingsURL, options: .atomic)
+
+        #expect(SettingsJSONStore.syncUserSettingsFileWithCurrentSettings())
+        #expect(!SettingsJSONStore.syncUserSettingsFileWithCurrentSettings())
+    }
+}
+
+private enum SettingsJSONApplyTestError: Error {
+    case registrationFailed
 }
 
 private struct SettingsJSONStoreSnapshot {

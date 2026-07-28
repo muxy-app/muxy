@@ -117,9 +117,13 @@ xcrun dsymutil "$APP_BUNDLE/Contents/MacOS/Muxy" -o "$DSYM_BUNDLE"
 echo "==> Stripping local and debug symbols"
 strip -Sx "$APP_BUNDLE/Contents/MacOS/Muxy"
 
-if [[ -d "$SPM_BUILD_DIR/Muxy_Muxy.bundle" ]]; then
-    cp -R "$SPM_BUILD_DIR/Muxy_Muxy.bundle" "$APP_BUNDLE/Contents/Resources/Muxy_Muxy.bundle"
+RESOURCE_BUNDLE="$SPM_BUILD_DIR/Muxy_Muxy.bundle"
+QUICK_TERMINAL_CONFIG="$RESOURCE_BUNDLE/quick-terminal/ghostty.conf"
+if [[ ! -f "$QUICK_TERMINAL_CONFIG" ]]; then
+    echo "Error: Quick Terminal config not found at $QUICK_TERMINAL_CONFIG"
+    exit 1
 fi
+cp -R "$RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/Muxy_Muxy.bundle"
 
 cp "$PROJECT_ROOT/Muxy/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"

@@ -7,6 +7,8 @@ struct WorkspaceState {
     var workspaceRoots: [WorktreeKey: SplitNode]
     var focusedAreaID: [WorktreeKey: UUID]
     var focusHistory: [WorktreeKey: [UUID]]
+    var topLevelTabOrder: [WorktreeKey: [UUID]] = [:]
+    var topLevelTabLayouts: [WorktreeKey: TopLevelTabNode] = [:]
     var keepProjectOpenWhenEmpty: Bool = false
 }
 
@@ -28,6 +30,7 @@ struct WorkspaceSideEffects {
 enum WorkspaceReducer {
     static func reduce(action: AppState.Action, state: inout WorkspaceState) -> WorkspaceSideEffects {
         var effects = WorkspaceSideEffects()
+        let reconciliationKeysBefore = reconciliationKeys(for: action, state: state)
 
         switch action {
         case let .selectProject(projectID, worktreeID, worktreePath),
@@ -133,6 +136,25 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .createBrowserSplit(projectID, areaID, url, profileID):
+            guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
+            effects.createdTabID = SplitReducer.splitBrowserArea(
+                key: key,
+                areaID: areaID,
+                url: url,
+                profileID: profileID,
+                state: &state
+            )
+
+        case let .createBrowserSplitInWorktree(key, areaID, url, profileID):
+            effects.createdTabID = SplitReducer.splitBrowserArea(
+                key: key,
+                areaID: areaID,
+                url: url,
+                profileID: profileID,
+                state: &state
+            )
+
         case let .closeTab(projectID, areaID, tabID):
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
             TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
@@ -152,18 +174,26 @@ enum WorkspaceReducer {
             TabReducer.selectTabByIndex(projectID: projectID, index: index, state: &state)
 
         case let .selectNextTab(projectID):
-            TabReducer.selectNextTab(projectID: projectID, state: state)
+            TabReducer.selectNextTab(projectID: projectID, state: &state)
 
         case let .selectPreviousTab(projectID):
-            TabReducer.selectPreviousTab(projectID: projectID, state: state)
+            TabReducer.selectPreviousTab(projectID: projectID, state: &state)
 
         case let .selectNextTabInWorktree(key):
             guard state.workspaceRoots[key] != nil else { break }
-            TabReducer.selectNextTab(key: key, state: state)
+            TabReducer.selectNextTab(key: key, state: &state)
 
         case let .selectPreviousTabInWorktree(key):
             guard state.workspaceRoots[key] != nil else { break }
-            TabReducer.selectPreviousTab(key: key, state: state)
+            TabReducer.selectPreviousTab(key: key, state: &state)
+
+        case let .selectNextFlatTabInWorktree(key):
+            guard state.workspaceRoots[key] != nil else { break }
+            TabReducer.selectRelativeFlatTab(key: key, offset: 1, state: &state)
+
+        case let .selectPreviousFlatTabInWorktree(key):
+            guard state.workspaceRoots[key] != nil else { break }
+            TabReducer.selectRelativeFlatTab(key: key, offset: -1, state: &state)
 
         case let .splitArea(request):
             effects.createdPaneID = SplitReducer.splitArea(request, state: &state)
@@ -174,11 +204,18 @@ enum WorkspaceReducer {
 
         case let .closeArea(projectID, areaID):
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
-            SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
+            closeArea(areaID, key: key, state: &state, effects: &effects)
+
+        case let .closeAreaInWorktree(key, areaID):
+            closeArea(areaID, key: key, state: &state, effects: &effects)
 
         case let .moveTab(projectID, request):
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
             SplitReducer.moveTab(request, key: key, state: &state, effects: &effects)
+
+        case let .moveTopLevelTab(projectID, request):
+            guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
+            TopLevelTabReducer.moveTab(request, key: key, state: &state)
 
         case let .focusArea(projectID, areaID):
             FocusReducer.focusArea(projectID: projectID, areaID: areaID, state: &state)
@@ -194,6 +231,18 @@ enum WorkspaceReducer {
 
         case let .focusPaneDown(projectID):
             FocusReducer.focusPane(projectID: projectID, direction: .down, state: &state)
+
+        case let .movePaneLeft(projectID):
+            FocusReducer.movePane(projectID: projectID, direction: .left, state: &state)
+
+        case let .movePaneRight(projectID):
+            FocusReducer.movePane(projectID: projectID, direction: .right, state: &state)
+
+        case let .movePaneUp(projectID):
+            FocusReducer.movePane(projectID: projectID, direction: .up, state: &state)
+
+        case let .movePaneDown(projectID):
+            FocusReducer.movePane(projectID: projectID, direction: .down, state: &state)
 
         case let .cycleNextTabAcrossPanes(projectID):
             FocusReducer.cycleTabAcrossPanes(projectID: projectID, forward: true, state: &state)
@@ -222,7 +271,96 @@ enum WorkspaceReducer {
             }
         }
 
+        let reconciliationKeysAfter = reconciliationKeys(for: action, state: state)
+        for key in reconciliationKeysBefore.union(reconciliationKeysAfter) {
+            TopLevelTabReducer.reconcile(key: key, state: &state)
+        }
         return effects
+    }
+
+    private static func reconciliationKeys(
+        for action: AppState.Action,
+        state: WorkspaceState
+    ) -> Set<WorktreeKey> {
+        switch action {
+        case let .selectProject(projectID, worktreeID, _),
+             let .selectWorktree(projectID, worktreeID, _):
+            return [WorktreeKey(projectID: projectID, worktreeID: worktreeID)]
+
+        case let .removeProject(projectID):
+            return Set(state.workspaceRoots.keys.filter { $0.projectID == projectID })
+
+        case let .removeWorktree(projectID, worktreeID, replacementWorktreeID, replacementWorktreePath):
+            var keys: Set<WorktreeKey> = [WorktreeKey(projectID: projectID, worktreeID: worktreeID)]
+            if let replacementWorktreeID, replacementWorktreePath != nil {
+                keys.insert(WorktreeKey(projectID: projectID, worktreeID: replacementWorktreeID))
+            }
+            return keys
+
+        case .selectNextProject,
+             .selectPreviousProject:
+            guard let projectID = state.activeProjectID,
+                  let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state)
+            else { return [] }
+            return [key]
+
+        case let .createTab(projectID, _),
+             let .createTabAdjacent(projectID, _, _, _),
+             let .createTabInDirectory(projectID, _, _),
+             let .createExtensionTab(projectID, _, _),
+             let .createBrowserTab(projectID, _, _, _),
+             let .createBrowserSplit(projectID, _, _, _),
+             let .closeTab(projectID, _, _),
+             let .selectTab(projectID, _, _),
+             let .selectTabByIndex(projectID, _),
+             let .selectNextTab(projectID),
+             let .selectPreviousTab(projectID),
+             let .closeArea(projectID, _),
+             let .moveTab(projectID, _),
+             let .moveTopLevelTab(projectID, _),
+             let .focusArea(projectID, _),
+             let .focusPaneLeft(projectID),
+             let .focusPaneRight(projectID),
+             let .focusPaneUp(projectID),
+             let .focusPaneDown(projectID),
+             let .movePaneLeft(projectID),
+             let .movePaneRight(projectID),
+             let .movePaneUp(projectID),
+             let .movePaneDown(projectID),
+             let .cycleNextTabAcrossPanes(projectID),
+             let .cyclePreviousTabAcrossPanes(projectID),
+             let .applyLayout(projectID, _, _):
+            guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return [] }
+            return [key]
+
+        case let .createCommandTab(request):
+            guard let key = WorkspaceReducerShared.activeKey(projectID: request.projectID, state: state) else {
+                return []
+            }
+            return [key]
+
+        case let .splitArea(request):
+            guard let key = WorkspaceReducerShared.activeKey(projectID: request.projectID, state: state) else {
+                return []
+            }
+            return [key]
+
+        case let .createTabInWorktree(key, _),
+             let .createBrowserTabInWorktree(key, _, _, _),
+             let .createBrowserSplitInWorktree(key, _, _, _),
+             let .closeTabInWorktree(key, _, _),
+             let .selectTabInWorktree(key, _, _),
+             let .selectNextTabInWorktree(key),
+             let .selectPreviousTabInWorktree(key),
+             let .selectNextFlatTabInWorktree(key),
+             let .selectPreviousFlatTabInWorktree(key),
+             let .splitAreaInWorktree(key, _),
+             let .closeAreaInWorktree(key, _):
+            return [key]
+
+        case let .navigate(projectID, worktreeID, _, _):
+            return [WorktreeKey(projectID: projectID, worktreeID: worktreeID)]
+        }
     }
 
     private static func applyLayout(
@@ -240,6 +378,25 @@ enum WorkspaceReducer {
         }
         state.workspaceRoots[key] = built.root
         state.focusedAreaID[key] = built.focusedAreaID
+        state.topLevelTabOrder[key] = built.root.topLevelTabs().map(\.tab.id)
+        state.topLevelTabLayouts[key] = .group(TopLevelTabGroup(
+            tabIDs: state.topLevelTabOrder[key] ?? [],
+            activeTabID: built.root.findArea(id: built.focusedAreaID)?.activeTab.map { $0.parentTabID ?? $0.id }
+        ))
         state.focusHistory.removeValue(forKey: key)
+    }
+
+    private static func closeArea(
+        _ areaID: UUID,
+        key: WorktreeKey,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        guard let area = state.workspaceRoots[key]?.findArea(id: areaID) else { return }
+        if let tabID = area.activeTabID {
+            TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
+        } else {
+            SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
+        }
     }
 }

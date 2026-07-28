@@ -10,7 +10,17 @@ enum TabReducer {
     static func createTab(key: WorktreeKey, areaID: UUID?, state: inout WorkspaceState) -> UUID? {
         guard let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state) else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        return area.createTab()
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
+        let order = normalizedTopLevelOrder(key: key, state: state)
+        let tabID = area.createTab()
+        state.topLevelTabOrder[key] = order + [tabID]
+        TopLevelTabReducer.registerTopLevelTab(
+            tabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
+        return tabID
     }
 
     static func createTabAdjacent(
@@ -24,7 +34,19 @@ enum TabReducer {
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
         else { return }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createTabAdjacent(to: tabID, side: side)
+        var order = normalizedTopLevelOrder(key: key, state: state)
+        guard let createdTabID = area.createTabAdjacent(to: tabID, side: side) else { return }
+        let targetIndex = order.firstIndex(of: tabID) ?? order.count
+        let insertionIndex = side == .left ? targetIndex : min(targetIndex + 1, order.count)
+        order.insert(createdTabID, at: insertionIndex)
+        state.topLevelTabOrder[key] = order
+        let alongsideTabID = area.tabs.first(where: { $0.id == tabID }).map { $0.parentTabID ?? $0.id }
+        TopLevelTabReducer.registerTopLevelTab(
+            createdTabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
     }
 
     static func createTabInDirectory(
@@ -37,7 +59,17 @@ enum TabReducer {
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
         else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        return area.createTab(inDirectory: directory)
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
+        let order = normalizedTopLevelOrder(key: key, state: state)
+        let tabID = area.createTab(inDirectory: directory)
+        state.topLevelTabOrder[key] = order + [tabID]
+        TopLevelTabReducer.registerTopLevelTab(
+            tabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
+        return tabID
     }
 
     static func createCommandTab(_ request: CommandTabRequest, state: inout WorkspaceState) -> UUID? {
@@ -45,12 +77,24 @@ enum TabReducer {
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: request.areaID, state: state)
         else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        return area.createCommandTab(
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
+        let order = normalizedTopLevelOrder(key: key, state: state)
+        let tabID = area.createCommandTab(
             name: request.name,
             command: request.command,
             closesOnCommandExit: request.closesOnCommandExit,
             directory: request.directory
         )
+        if let tabID {
+            state.topLevelTabOrder[key] = order + [tabID]
+            TopLevelTabReducer.registerTopLevelTab(
+                tabID,
+                alongside: alongsideTabID,
+                key: key,
+                state: &state
+            )
+        }
+        return tabID
     }
 
     static func createExtensionTab(
@@ -77,12 +121,22 @@ enum TabReducer {
             }
         }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        return area.createExtensionTab(
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
+        let order = normalizedTopLevelOrder(key: key, state: state)
+        let tabID = area.createExtensionTab(
             extensionID: request.extensionID,
             tabTypeID: request.tabTypeID,
             title: request.title,
             data: request.data
         )
+        state.topLevelTabOrder[key] = order + [tabID]
+        TopLevelTabReducer.registerTopLevelTab(
+            tabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
+        return tabID
     }
 
     static func createBrowserTab(
@@ -107,7 +161,17 @@ enum TabReducer {
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
         else { return nil }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        return area.createBrowserTab(url: url, profileID: profileID)
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
+        let order = normalizedTopLevelOrder(key: key, state: state)
+        let tabID = area.createBrowserTab(url: url, profileID: profileID)
+        state.topLevelTabOrder[key] = order + [tabID]
+        TopLevelTabReducer.registerTopLevelTab(
+            tabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
+        return tabID
     }
 
     static func selectTab(projectID: UUID, areaID: UUID?, tabID: UUID, state: inout WorkspaceState) {
@@ -126,37 +190,29 @@ enum TabReducer {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let root = state.workspaceRoots[key]
         else { return }
-        var remaining = index
-        for area in root.allAreas() {
-            guard remaining < area.tabs.count else {
-                remaining -= area.tabs.count
-                continue
-            }
-            let tab = area.tabs[remaining]
-            FocusReducer.focusArea(area.id, key: key, state: &state)
-            area.selectTab(tab.id)
-            return
-        }
+        let tabs = root.topLevelTabs(order: normalizedTopLevelOrder(key: key, state: state))
+        guard index < tabs.count else { return }
+        let target = tabs[index]
+        FocusReducer.focusArea(target.area.id, key: key, state: &state)
+        target.area.selectTab(target.tab.id)
     }
 
-    static func selectNextTab(projectID: UUID, state: WorkspaceState) {
+    static func selectNextTab(projectID: UUID, state: inout WorkspaceState) {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return }
-        selectNextTab(key: key, state: state)
+        selectNextTab(key: key, state: &state)
     }
 
-    static func selectNextTab(key: WorktreeKey, state: WorkspaceState) {
-        guard let area = WorkspaceReducerShared.resolveArea(key: key, areaID: nil, state: state) else { return }
-        area.selectNextTab()
+    static func selectNextTab(key: WorktreeKey, state: inout WorkspaceState) {
+        selectRelativeTopLevelTab(key: key, offset: 1, state: &state)
     }
 
-    static func selectPreviousTab(projectID: UUID, state: WorkspaceState) {
+    static func selectPreviousTab(projectID: UUID, state: inout WorkspaceState) {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return }
-        selectPreviousTab(key: key, state: state)
+        selectPreviousTab(key: key, state: &state)
     }
 
-    static func selectPreviousTab(key: WorktreeKey, state: WorkspaceState) {
-        guard let area = WorkspaceReducerShared.resolveArea(key: key, areaID: nil, state: state) else { return }
-        area.selectPreviousTab()
+    static func selectPreviousTab(key: WorktreeKey, state: inout WorkspaceState) {
+        selectRelativeTopLevelTab(key: key, offset: -1, state: &state)
     }
 
     static func closeTab(
@@ -170,9 +226,11 @@ enum TabReducer {
               let area = root.findArea(id: areaID)
         else { return }
 
-        let areaCount = root.allAreas().count
-        if area.tabs.count <= 1, areaCount > 1 {
-            SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
+        guard let tab = area.tabs.first(where: { $0.id == tabID }),
+              !tab.isPinned
+        else { return }
+        if tab.parentTabID == nil {
+            closeTopLevelTab(tab, areaID: areaID, key: key, state: &state, effects: &effects)
             return
         }
 
@@ -181,12 +239,125 @@ enum TabReducer {
         }
 
         guard area.tabs.isEmpty else { return }
-        guard !state.keepProjectOpenWhenEmpty else { return }
-        WorkspaceReducerShared.clearWorkspace(key: key, state: &state)
-        WorkspaceReducerShared.handleProjectEmptiedIfNeeded(
-            projectID: key.projectID,
-            state: &state,
-            effects: &effects
-        )
+        SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
+    }
+
+    static func selectRelativeFlatTab(key: WorktreeKey, offset: Int, state: inout WorkspaceState) {
+        guard let root = state.workspaceRoots[key],
+              let focusedAreaID = state.focusedAreaID[key]
+        else { return }
+        let entries = root.flatTabLocations(topLevelOrder: state.topLevelTabOrder[key] ?? [])
+        guard entries.count > 1,
+              let focusedArea = root.findArea(id: focusedAreaID),
+              let activeTabID = focusedArea.activeTabID,
+              let index = entries.firstIndex(where: { $0.area.id == focusedAreaID && $0.tab.id == activeTabID })
+        else { return }
+        let target = entries[(index + offset + entries.count) % entries.count]
+        FocusReducer.focusArea(target.area.id, key: key, state: &state)
+        target.area.selectTab(target.tab.id)
+    }
+
+    private static func selectRelativeTopLevelTab(
+        key: WorktreeKey,
+        offset: Int,
+        state: inout WorkspaceState
+    ) {
+        guard let root = state.workspaceRoots[key],
+              let focusedAreaID = state.focusedAreaID[key],
+              let focusedTab = root.findArea(id: focusedAreaID)?.activeTab
+        else { return }
+        let topLevelTabID = focusedTab.parentTabID ?? focusedTab.id
+        let tabs = root.topLevelTabs(order: normalizedTopLevelOrder(key: key, state: state))
+        guard tabs.count > 1,
+              let index = tabs.firstIndex(where: { $0.tab.id == topLevelTabID })
+        else { return }
+        let target = tabs[(index + offset + tabs.count) % tabs.count]
+        FocusReducer.focusArea(target.area.id, key: key, state: &state)
+        target.area.selectTab(target.tab.id)
+    }
+
+    private static func closeTopLevelTab(
+        _ tab: TerminalTab,
+        areaID: UUID,
+        key: WorktreeKey,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        guard var root = state.workspaceRoots[key] else { return }
+        let originalOrder = normalizedTopLevelOrder(key: key, state: state)
+        let closedIndex = originalOrder.firstIndex(of: tab.id) ?? 0
+        let sourceGroupOrder = state.topLevelTabLayouts[key]?
+            .group(containingTabID: tab.id)?
+            .tabIDs
+            ?? originalOrder
+        let sourceGroupClosedIndex = sourceGroupOrder.firstIndex(of: tab.id) ?? 0
+        let preservesEmptyWorkspace = state.keepProjectOpenWhenEmpty
+            && root.allTabs().count(where: { $0.parentTabID == nil }) == 1
+        let ownedIDs = Set(root.allTabs().filter { $0.parentTabID == tab.id }.map(\.id) + [tab.id])
+        let closedTabWasFocused = state.focusedAreaID[key]
+            .flatMap(root.findArea(id:))?
+            .activeTab
+            .map { ($0.parentTabID ?? $0.id) == tab.id }
+            ?? false
+        let affectedAreas = root.allAreas().filter { area in
+            area.tabs.contains { ownedIDs.contains($0.id) }
+        }
+        for affectedArea in affectedAreas {
+            let ownedTabs = affectedArea.tabs.filter { ownedIDs.contains($0.id) }
+            for ownedTab in ownedTabs {
+                if let paneID = ownedTab.content.pane?.id {
+                    effects.paneIDsToRemove.append(paneID)
+                }
+                _ = affectedArea.extractTabForMove(ownedTab.id)
+            }
+        }
+        for emptyArea in affectedAreas where emptyArea.tabs.isEmpty {
+            if preservesEmptyWorkspace, emptyArea.id == areaID {
+                continue
+            }
+            guard let updated = root.removing(areaID: emptyArea.id) else {
+                WorkspaceReducerShared.clearWorkspace(key: key, state: &state)
+                WorkspaceReducerShared.handleProjectEmptiedIfNeeded(
+                    projectID: key.projectID,
+                    state: &state,
+                    effects: &effects
+                )
+                return
+            }
+            root = updated
+            state.focusHistory[key]?.removeAll { $0 == emptyArea.id }
+        }
+        state.workspaceRoots[key] = root
+        state.topLevelTabOrder[key]?.removeAll { $0 == tab.id }
+        let remainingRoots = root.topLevelTabs(order: normalizedTopLevelOrder(key: key, state: state))
+        guard !remainingRoots.isEmpty else {
+            if preservesEmptyWorkspace {
+                state.focusedAreaID[key] = areaID
+                return
+            }
+            WorkspaceReducerShared.clearWorkspace(key: key, state: &state)
+            WorkspaceReducerShared.handleProjectEmptiedIfNeeded(
+                projectID: key.projectID,
+                state: &state,
+                effects: &effects
+            )
+            return
+        }
+        if closedTabWasFocused {
+            let remainingByID = Dictionary(uniqueKeysWithValues: remainingRoots.map { ($0.tab.id, $0) })
+            let remainingSourceGroup = sourceGroupOrder.compactMap { remainingByID[$0] }
+            let next = remainingSourceGroup.isEmpty
+                ? remainingRoots[min(closedIndex, remainingRoots.count - 1)]
+                : remainingSourceGroup[min(sourceGroupClosedIndex, remainingSourceGroup.count - 1)]
+            state.focusedAreaID[key] = next.area.id
+            next.area.selectTab(next.tab.id)
+        }
+    }
+
+    private static func normalizedTopLevelOrder(key: WorktreeKey, state: WorkspaceState) -> [UUID] {
+        guard let root = state.workspaceRoots[key] else { return [] }
+        let rootIDs = root.allTabs().filter { $0.parentTabID == nil }.map(\.id)
+        let persisted = state.topLevelTabOrder[key] ?? []
+        return persisted.filter { rootIDs.contains($0) } + rootIDs.filter { !persisted.contains($0) }
     }
 }

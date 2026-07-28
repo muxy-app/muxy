@@ -9,10 +9,10 @@ struct RecordingSettingsView: View {
     var body: some View {
         SettingsContainer {
             SettingsSection(
-                "Voice Recording",
-                footer: "Press the Voice Recording shortcut to dictate. "
-                    + "Muxy transcribes your speech on-device and inserts it wherever your cursor was before "
-                    + "you opened the recorder. If that target is gone, the transcript lands on your clipboard."
+                "Legacy Voice Recording",
+                footer: "Use the status-bar microphone or assign the Legacy Voice Recording shortcut to dictate. "
+                    + "Muxy inserts the on-device transcript wherever your cursor was before you opened the recorder. "
+                    + "If that target is gone, the transcript lands on your clipboard. Composer dictation never auto-sends."
             ) {
                 SettingsToggleRow(
                     label: "Press Return after inserting",

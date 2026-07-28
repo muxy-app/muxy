@@ -101,6 +101,19 @@ struct KeyBindingTests {
         #expect(combos[.cyclePreviousTabAcrossPanes] == KeyCombo(key: "tab", shift: true, control: true))
     }
 
+    @Test("Move pane actions are available without default shortcuts")
+    func movePaneActionsAreUnassigned() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        let actions: [ShortcutAction] = [.movePaneLeft, .movePaneRight, .movePaneUp, .movePaneDown]
+
+        for action in actions {
+            #expect(ShortcutAction.allCases.contains(action))
+            #expect(action.category == "Panes")
+            #expect(action.scope == .mainWindow)
+            #expect(combos[action]?.isAssigned == false)
+        }
+    }
+
     @Test("KeyBinding.defaults includes maximize pane shortcut")
     func defaultsIncludesMaximizePaneShortcut() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
@@ -114,6 +127,15 @@ struct KeyBindingTests {
         #expect(combos[.terminalOmniboxProjects] == KeyCombo(key: "p", command: true, option: true))
         #expect(combos[.terminalOmniboxWorktrees] == KeyCombo(key: "w", command: true, option: true))
         #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "p", command: true, shift: true))
+    }
+
+    @Test("Composer and voice shortcuts use their expected defaults")
+    func composerAndVoiceShortcutsUseExpectedDefaults() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+
+        #expect(combos[.toggleRichInput] == KeyCombo(key: "i", command: true))
+        #expect(combos[.toggleComposerVoice]?.isAssigned == false)
+        #expect(combos[.toggleVoiceRecording] == KeyCombo(key: "i", command: true, shift: true))
     }
 
     @Test("Toggle Full Screen uses Cmd+Ctrl+F by default")

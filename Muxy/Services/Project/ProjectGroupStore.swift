@@ -159,6 +159,12 @@ final class ProjectGroupStore {
         return group.workspaceContext(device: device(for: group))
     }
 
+    func resolvedWorkspaceContext(for project: Project) -> WorkspaceContext? {
+        let context = workspaceContext(for: project)
+        guard !project.isRemote || context.isRemote else { return nil }
+        return context
+    }
+
     func device(for project: Project) -> RemoteDevice? {
         if let deviceID = project.remoteDeviceID {
             return remoteDeviceStore.device(id: deviceID)

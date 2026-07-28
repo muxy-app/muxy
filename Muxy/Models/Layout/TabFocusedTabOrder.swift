@@ -42,8 +42,13 @@ enum TabFocusedTabOrder {
                         return []
                     }
                     let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
-                    return appState.areas(for: key).flatMap { area in
-                        area.tabs.map { Entry(projectID: project.id, worktreeID: worktree.id, areaID: area.id, tabID: $0.id) }
+                    return appState.topLevelTabs(for: key).map { item in
+                        Entry(
+                            projectID: project.id,
+                            worktreeID: worktree.id,
+                            areaID: item.area.id,
+                            tabID: item.tab.id
+                        )
                     }
                 }
             }

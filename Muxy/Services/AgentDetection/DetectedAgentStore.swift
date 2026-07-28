@@ -7,6 +7,7 @@ final class DetectedAgentStore {
     static let shared = DetectedAgentStore()
 
     private(set) var agents: [UUID: String] = [:]
+    private var provisionalPaneIDs: Set<UUID> = []
 
     private init() {}
 
@@ -17,11 +18,23 @@ final class DetectedAgentStore {
     }
 
     func setAgent(_ providerID: String?, for paneID: UUID) {
+        provisionalPaneIDs.remove(paneID)
         guard agents[paneID] != providerID else { return }
         if let providerID {
             agents[paneID] = providerID
             return
         }
+        agents.removeValue(forKey: paneID)
+    }
+
+    func setProvisionalAgent(_ providerID: String, for paneID: UUID) {
+        provisionalPaneIDs.insert(paneID)
+        guard agents[paneID] != providerID else { return }
+        agents[paneID] = providerID
+    }
+
+    func clearProvisionalAgent(for paneID: UUID) {
+        guard provisionalPaneIDs.remove(paneID) != nil else { return }
         agents.removeValue(forKey: paneID)
     }
 
@@ -35,6 +48,7 @@ final class DetectedAgentStore {
     }
 
     func resetPane(_ paneID: UUID) {
+        provisionalPaneIDs.remove(paneID)
         agents.removeValue(forKey: paneID)
     }
 }

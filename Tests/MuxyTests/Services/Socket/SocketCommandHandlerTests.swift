@@ -301,6 +301,38 @@ struct SocketCommandHandlerTests {
         #expect(stores.worktreeStore.list(for: project.id).count == 1)
     }
 
+    @Test("create-worktree resolves group-backed projects and rejects unavailable remote context")
+    func createWorktreeRejectsUnavailableGroupBackedRemoteContext() async {
+        let remote = RemoteProject(name: "Remote Repo", path: "~/code/repo")
+        let group = ProjectGroup(
+            name: "Remote",
+            type: .ssh,
+            remoteDeviceID: UUID(),
+            remoteProjects: [remote]
+        )
+        let projectGroupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(initial: [group]),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let appState = makeAppState(projectID: remote.id)
+        let stores = makeStores(projects: [], worktrees: [:])
+        let worktreePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-socket-unavailable-remote-\(UUID().uuidString)")
+            .path
+
+        let result = await SocketCommandHandler.handleRequest(
+            "create-worktree|Feature|feature|\(remote.id.uuidString)|\(worktreePath)|true|main",
+            appState: appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+
+        #expect(result == "error:remote context unavailable for project \(remote.name)")
+        #expect(!FileManager.default.fileExists(atPath: worktreePath))
+    }
+
     @Test("list-tabs includes active tab")
     func listTabs() async {
         let appState = makeAppState()
@@ -511,7 +543,11 @@ struct SocketCommandHandlerTests {
         #expect(areas.count == 2)
         let hostingArea = try #require(areas.first { $0.tabs.contains { $0.id == tabID } })
         #expect(hostingArea.id == appState.focusedAreaID[featureKey])
-        #expect(hostingArea.tabs.contains { $0.content.pane != nil })
+        let browserTab = try #require(hostingArea.tabs.first { $0.id == tabID })
+        let rootTab = try #require(appState.workspaceRoots[featureKey]?.allTabs().first { $0.parentTabID == nil })
+        #expect(browserTab.content.browserState != nil)
+        #expect(browserTab.parentTabID == rootTab.id)
+        #expect(hostingArea.tabs.count == 1)
     }
 
     @Test("split-right --worktree splits the target worktree")

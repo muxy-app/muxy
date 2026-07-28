@@ -7,10 +7,23 @@ final class ExtensionSurfaceBridgeRegistry {
     private var bridges: [LifecycleSurfaceKey: any BeforeCloseAsking] = [:]
 
     func register(_ bridge: any BeforeCloseAsking, for key: LifecycleSurfaceKey) {
-        bridges[key] = bridge
+        let replacedBridge = bridges.updateValue(bridge, forKey: key)
+        guard let replacedBridge,
+              ObjectIdentifier(replacedBridge) != ObjectIdentifier(bridge)
+        else { return }
+        replacedBridge.failPendingLifecycle()
     }
 
-    func unregister(_ key: LifecycleSurfaceKey) {
+    func unregister(
+        _ key: LifecycleSurfaceKey,
+        ifMatches expectedBridge: (any BeforeCloseAsking)? = nil
+    ) {
+        if let expectedBridge,
+           let registeredBridge = bridges[key],
+           ObjectIdentifier(registeredBridge) != ObjectIdentifier(expectedBridge)
+        {
+            return
+        }
         guard let bridge = bridges.removeValue(forKey: key) else { return }
         bridge.failPendingLifecycle()
     }

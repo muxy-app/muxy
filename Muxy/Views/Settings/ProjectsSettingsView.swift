@@ -57,26 +57,24 @@ struct ProjectsSettingsView: View {
                 )
             }
 
-            if !fileOpeners.isEmpty {
-                SettingsSection(
-                    "Open Files With",
-                    footer: "Terminal file links go to this opener. Falls back to the selected project target "
-                        + "when its patterns don't match."
-                ) {
-                    SettingsRow("Default Opener") {
-                        HStack {
-                            Spacer()
-                            Picker("", selection: $defaultFileOpener) {
-                                Text("Built-in (IDE)").tag(FileOpenerSelection.builtinValue)
-                                ForEach(fileOpeners) { binding in
-                                    Text(label(for: binding)).tag(binding.id)
-                                }
+            SettingsSection(
+                "Open Files With",
+                footer: fileOpenerFooter
+            ) {
+                SettingsRow("Default Opener") {
+                    HStack {
+                        Spacer()
+                        Picker("", selection: $defaultFileOpener) {
+                            ForEach(fileOpenerOptions) { option in
+                                Text(option.title)
+                                    .tag(option.id)
+                                    .disabled(!option.isAvailable)
                             }
-                            .labelsHidden()
-                            .fixedSize()
                         }
-                        .frame(width: SettingsMetrics.controlWidth)
+                        .labelsHidden()
+                        .fixedSize()
                     }
+                    .frame(width: SettingsMetrics.controlWidth)
                 }
             }
 
@@ -98,11 +96,17 @@ struct ProjectsSettingsView: View {
         FileOpenerSelection.availableOpeners(store: extensionStore)
     }
 
-    private func label(for binding: ExtensionStore.FileOpenerBinding) -> String {
-        guard let title = binding.opener.title, !title.isEmpty else {
-            return binding.muxyExtension.displayName
+    private var fileOpenerOptions: [FileOpenerSelection.Option] {
+        FileOpenerSelection.options(from: fileOpeners, selectedValue: defaultFileOpener)
+    }
+
+    private var fileOpenerFooter: String {
+        if fileOpenerOptions.contains(where: { $0.id == defaultFileOpener && !$0.isAvailable }) {
+            return "The selected extension opener is unavailable, so terminal file links currently use the "
+                + "project target selected separately in the top bar."
         }
-        return "\(binding.muxyExtension.displayName) (\(title))"
+        return "Terminal file links use this opener. Built-in and unmatched extension files use the "
+            + "project target selected separately in the top bar."
     }
 
     private var projectPickerMode: ProjectPickerMode {

@@ -880,6 +880,16 @@ struct GitRepositoryService {
     }
 
     private func resolveDefaultBranch(repoPath: String) async -> String? {
+        let remoteHead = try? await runGit(
+            repoPath: repoPath,
+            arguments: ["ls-remote", "--symref", "origin", "HEAD"]
+        )
+        if let remoteHead, remoteHead.status == 0,
+           let branch = Self.defaultBranch(fromRemoteHEAD: remoteHead.stdout)
+        {
+            return branch
+        }
+
         let symbolic = try? await runGit(
             repoPath: repoPath,
             arguments: ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]
@@ -908,6 +918,20 @@ struct GitRepositoryService {
             }
         }
 
+        return nil
+    }
+
+    static func defaultBranch(fromRemoteHEAD output: String) -> String? {
+        let prefix = "refs/heads/"
+        for line in output.split(separator: "\n") {
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            guard fields.count == 3,
+                  fields[0] == "ref:",
+                  fields[1].hasPrefix(prefix),
+                  fields[2] == "HEAD"
+            else { continue }
+            return String(fields[1].dropFirst(prefix.count))
+        }
         return nil
     }
 

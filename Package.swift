@@ -74,6 +74,7 @@ let package = Package(
                 .process("Resources/Assets.xcassets"),
                 .copy("Resources/ProviderIcons"),
                 .copy("Resources/ghostty"),
+                .copy("Resources/quick-terminal"),
                 .copy("Resources/scripts"),
                 .copy("Resources/skills"),
                 .copy("Resources/starter-kits"),

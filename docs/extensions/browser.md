@@ -10,7 +10,7 @@ await muxy.browser.navigate(tabId, "https://muxy.app");
 
 ## Tabs
 
-`open(url?, options?)` returns the new browser tab ID. Omit `url` for the configured home page. Pass `{ split: true }` to open beside the current pane.
+`open(url?, options?)` returns the new browser tab ID. Omit `url` for the configured home page. Pass `{ split: true }` to open a child browser pane beside the current pane, inside the same top-level tab.
 
 `navigate(tabId, url)` loads a new URL.
 

@@ -111,6 +111,8 @@ A `tabArea` node is encoded as `{ "type": "tabArea", "tabArea": { … } }`; a `s
 
 `ratio` is the first child's fraction of the split (0–1). `activeTabID` and `paneID` are optional. `paneID` is required for every terminal-related method, and is only present on panes that back a live surface.
 
+The desktop internally associates split-child tabs with an owning top-level tab, but the remote protocol intentionally keeps the existing flat representation. `getWorkspace` returns every tab in the complete split tree, omits ownership metadata, and does not filter the tree to the currently visible top-level tab. Selecting a split-child tab activates its owner on the desktop and focuses the requested child surface.
+
 `kind` is one of `terminal`, `vcs`, `extensionWebView`, `browser`. There is no `editor` or `diffViewer` kind.
 
 ## Terminal cells
