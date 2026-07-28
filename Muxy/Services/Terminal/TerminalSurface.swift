@@ -70,7 +70,9 @@ protocol TerminalSearchSurface: AnyObject {
 
 @MainActor
 protocol TerminalImagePasteSurface: AnyObject {
-    func pasteImageURL(_ url: URL)
+    var imagePasteWorkspaceContext: WorkspaceContext { get }
+
+    func pasteImageURL(_ url: URL) async -> Bool
 }
 
 @MainActor

@@ -20,6 +20,17 @@ struct TerminalTextInputClientTests {
         #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: false, next: false) == false)
     }
 
+    @Test func commandAndControlVRouteImagePaste() {
+        #expect(GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 9, modifierFlags: .command))
+        #expect(GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 9, modifierFlags: .control))
+    }
+
+    @Test func unrelatedOrAmbiguousShortcutsDoNotRouteImagePaste() {
+        #expect(!GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 8, modifierFlags: .command))
+        #expect(!GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 9, modifierFlags: [.command, .control]))
+        #expect(!GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 9, modifierFlags: [.command, .option]))
+    }
+
     @Test func resolvedCommandFileClickOpensWithoutClaimingTerminalFocus() {
         var events: [String] = []
 

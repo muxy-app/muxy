@@ -56,6 +56,12 @@ Reload the configuration with `⌘⇧R`, then open a new terminal. Ghostty appli
 
 Enable **Settings -> Terminal -> Auto-copy terminal selection** to copy selected terminal text on mouse release.
 
+When an SSH terminal receives an image through `Ctrl+V`, `Cmd+V`, right-click Paste, or Composer, Muxy converts
+the image to PNG and uploads it to a private temporary directory on the remote device. The remote file path is
+then pasted into the running TUI, allowing tools such as Codex and Claude Code to attach the image without access
+to the Mac clipboard. Uploaded images use owner-only permissions and are removed when the terminal session ends.
+Text paste behavior is unchanged.
+
 ## Working directory
 
 Muxy tracks the cwd via Ghostty's shell integration (OSC 7). The directory is persisted in workspace snapshots so newly recreated tabs land in the same folder when applicable.

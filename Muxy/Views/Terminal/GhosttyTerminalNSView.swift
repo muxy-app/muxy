@@ -2,7 +2,6 @@ import AppKit
 import Darwin
 import GhosttyKit
 import MuxyShared
-import UniformTypeIdentifiers
 
 final class GhosttyTerminalNSView: NSView,
     TerminalSurface,
@@ -16,6 +15,7 @@ final class GhosttyTerminalNSView: NSView,
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     var terminalView: NSView { self }
     let backend = TerminalBackend.ghostty
+    var imagePasteWorkspaceContext: WorkspaceContext { workspaceContext }
     private var surfaceFocused: Bool?
     private var workingDirectory: String
     private let command: String?
@@ -90,6 +90,10 @@ final class GhosttyTerminalNSView: NSView,
     nonisolated(unsafe) private var surfaceEnvVarCount = 0
     private var rawOutputToken: Int?
     private var surfaceConfigurationOverlay: ((ghostty_surface_t) -> Void)?
+    private var remotePastedImagePaths: Set<String> = []
+    private let terminalInputQueue = TerminalInputQueue()
+    private var surfaceGeneration = 0
+    private static let imagePasteDelay: Duration = .milliseconds(300)
 
     init(
         workingDirectory: String,
@@ -254,6 +258,9 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     func destroySurface() {
+        surfaceGeneration += 1
+        terminalInputQueue.cancelAll()
+        cleanupRemotePastedImages()
         if let surface {
             if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: self)
@@ -734,14 +741,29 @@ final class GhosttyTerminalNSView: NSView,
         if overlayActive {
             return
         }
-        guard let surface else { super.keyDown(with: event)
+        guard surface != nil else { super.keyDown(with: event)
             return
         }
 
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        if Self.isImagePasteShortcut(keyCode: event.keyCode, modifierFlags: flags), pasteboardHasImage() {
+            scheduleSystemImagePaste()
+            return
+        }
+        if terminalInputQueue.deferIfPending({ [weak self] in
+            self?.processKeyDown(event)
+        }) {
+            return
+        }
+        processKeyDown(event)
+    }
+
+    private func processKeyDown(_ event: NSEvent) {
+        guard let surface else { return }
         let action: ghostty_input_action_e = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let optionAsAlt = translatedOptionAsAlt(for: event)
-
         if flags.contains(.control), !flags.contains(.command), !flags.contains(.option), !hasMarkedText() {
             if isAppShortcut(event) {
                 return
@@ -832,6 +854,15 @@ final class GhosttyTerminalNSView: NSView,
         if overlayActive {
             return
         }
+        if terminalInputQueue.deferIfPending({ [weak self] in
+            self?.processKeyUp(event)
+        }) {
+            return
+        }
+        processKeyUp(event)
+    }
+
+    private func processKeyUp(_ event: NSEvent) {
         guard let surface else { return }
         var keyEvent = buildKeyEvent(from: event, action: GHOSTTY_ACTION_RELEASE)
         keyEvent.text = nil
@@ -842,6 +873,15 @@ final class GhosttyTerminalNSView: NSView,
         if overlayActive {
             return
         }
+        if terminalInputQueue.deferIfPending({ [weak self] in
+            self?.processFlagsChanged(event)
+        }) {
+            return
+        }
+        processFlagsChanged(event)
+    }
+
+    private func processFlagsChanged(_ event: NSEvent) {
         guard let surface else { return }
         if hasMarkedText() {
             return
@@ -867,18 +907,28 @@ final class GhosttyTerminalNSView: NSView,
         let hasActionModifier = flags.contains(.command) || flags.contains(.control) || flags.contains(.option)
         guard hasActionModifier else { return false }
 
-        if isPasteShortcut(event, flags: flags), pasteboardHasImage() {
-            sendRemoteBytes(Data([0x16]))
+        if Self.isImagePasteShortcut(keyCode: event.keyCode, modifierFlags: flags), pasteboardHasImage() {
+            scheduleSystemImagePaste()
             return true
         }
 
         var keyEvent = buildKeyEvent(from: event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
         keyEvent.text = nil
-        if ghostty_surface_key_is_binding(surface, keyEvent, nil) {
-            _ = ghostty_surface_key(surface, keyEvent)
+        guard ghostty_surface_key_is_binding(surface, keyEvent, nil) else { return false }
+        if terminalInputQueue.deferIfPending({ [weak self] in
+            self?.processKeyEquivalent(event)
+        }) {
             return true
         }
-        return false
+        processKeyEquivalent(event)
+        return true
+    }
+
+    private func processKeyEquivalent(_ event: NSEvent) {
+        guard let surface else { return }
+        var keyEvent = buildKeyEvent(from: event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
+        keyEvent.text = nil
+        _ = ghostty_surface_key(surface, keyEvent)
     }
 
     private func mousePoint(from event: NSEvent) -> NSPoint {
@@ -1317,7 +1367,7 @@ final class GhosttyTerminalNSView: NSView,
         let paste = ClosureMenuItem(title: "Paste") { [weak self] in
             self?.performContextPaste()
         }
-        paste.isEnabled = NSPasteboard.general.string(forType: .string).map { !$0.isEmpty } ?? false
+        paste.isEnabled = NSPasteboard.general.string(forType: .string).map { !$0.isEmpty } ?? pasteboardHasImage()
         menu.addItem(paste)
 
         menu.addItem(.separator())
@@ -1339,24 +1389,43 @@ final class GhosttyTerminalNSView: NSView,
     private func performContextPaste() {
         window?.makeFirstResponder(self)
         if pasteboardHasImage() {
-            sendRemoteBytes(Data([0x16]))
+            scheduleSystemImagePaste()
             return
         }
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
         insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
     }
 
-    private func isPasteShortcut(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
-        guard flags.contains(.command), !flags.contains(.control), !flags.contains(.option) else { return false }
-        return event.keyCode == 9
+    nonisolated static func isImagePasteShortcut(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard keyCode == 9, !modifierFlags.contains(.option) else { return false }
+        return modifierFlags.contains(.command) != modifierFlags.contains(.control)
     }
 
     private func pasteboardHasImage() -> Bool {
-        let pb = NSPasteboard.general
-        if pb.string(forType: .string) != nil {
-            return false
+        ImagePasteData.hasImage()
+    }
+
+    private func scheduleSystemImagePaste() {
+        guard let destination = workspaceContext.sshDestination else {
+            sendRemoteBytes(TerminalControlBytes.pasteShortcut)
+            return
         }
-        return pb.canReadObject(forClasses: [NSImage.self], options: nil)
+        guard let pngData = ImagePasteData.pngData() else {
+            ToastState.shared.show("Could not read clipboard image")
+            return
+        }
+        let generation = surfaceGeneration
+        terminalInputQueue.enqueue { [weak self] in
+            guard !Task.isCancelled, let self else { return }
+            _ = await pasteRemoteImage(
+                pngData: pngData,
+                destination: destination,
+                surfaceGeneration: generation
+            )
+        }
     }
 
     @objc
@@ -1592,6 +1661,15 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     func sendText(_ text: String) {
+        if terminalInputQueue.deferIfPending({ [weak self] in
+            self?.sendTextImmediately(text)
+        }) {
+            return
+        }
+        sendTextImmediately(text)
+    }
+
+    private func sendTextImmediately(_ text: String) {
         guard let surface else { return }
         text.withCString { ptr in
             recordTextInput(text)
@@ -1604,6 +1682,15 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     func sendRemoteBytes(_ bytes: Data) {
+        if terminalInputQueue.deferIfPending({ [weak self] in
+            self?.sendRemoteBytesImmediately(bytes)
+        }) {
+            return
+        }
+        sendRemoteBytesImmediately(bytes)
+    }
+
+    private func sendRemoteBytesImmediately(_ bytes: Data) {
         guard let surface, !bytes.isEmpty else { return }
         bytes.withUnsafeBytes { raw in
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
@@ -1749,42 +1836,84 @@ final class GhosttyTerminalNSView: NSView,
         sendRemoteBytes(TerminalControlBytes.killLineToCursor)
     }
 
-    func pasteImageURL(_ url: URL) {
+    func pasteImageURL(_ url: URL) async -> Bool {
+        if let destination = workspaceContext.sshDestination {
+            guard let pngData = ImagePasteData.pngData(contentsOf: url) else {
+                ToastState.shared.show("Could not read image")
+                return false
+            }
+            return await pasteRemoteImage(
+                pngData: pngData,
+                destination: destination,
+                surfaceGeneration: surfaceGeneration
+            )
+        }
+        guard let pngData = ImagePasteData.pngData(contentsOf: url) else {
+            ToastState.shared.show("Could not read image")
+            return false
+        }
+        let savedClipboard = SystemPasteboardSnapshot.capture()
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        let utType = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType)
-        let pasteboardType: NSPasteboard.PasteboardType
-        var data: Data?
-        if let utType {
-            if utType.conforms(to: .png) {
-                pasteboardType = .png
-                data = try? Data(contentsOf: url)
-            } else if utType.conforms(to: .jpeg) {
-                pasteboardType = NSPasteboard.PasteboardType("public.jpeg")
-                data = try? Data(contentsOf: url)
-            } else if utType.conforms(to: .tiff) {
-                pasteboardType = .tiff
-                data = try? Data(contentsOf: url)
-            } else if let image = NSImage(contentsOf: url) {
-                pasteboardType = .tiff
-                data = image.tiffRepresentation
-            } else {
-                pasteboardType = .tiff
-                data = nil
-            }
-        } else if let image = NSImage(contentsOf: url) {
-            pasteboardType = .tiff
-            data = image.tiffRepresentation
-        } else {
-            pasteboardType = .tiff
-            data = nil
-        }
-        guard let data else { return }
-        pasteboard.setData(data, forType: pasteboardType)
+        pasteboard.setData(pngData, forType: .png)
         sendRemoteBytes(TerminalControlBytes.pasteShortcut)
+        try? await Task.sleep(for: Self.imagePasteDelay)
+        SystemPasteboardSnapshot.restore(items: savedClipboard)
+        return true
+    }
+
+    private func pasteRemoteImage(
+        pngData: Data,
+        destination: SSHDestination,
+        surfaceGeneration: Int
+    ) async -> Bool {
+        do {
+            let remotePath = try await RemoteImagePasteService.upload(
+                pngData: pngData,
+                destination: destination
+            )
+            guard self.surfaceGeneration == surfaceGeneration, surface != nil else {
+                await RemoteImagePasteService.remove(paths: [remotePath], destination: destination)
+                return false
+            }
+            remotePastedImagePaths.insert(remotePath)
+            submitRichInput(text: ShellEscaper.escape(remotePath))
+            return true
+        } catch {
+            guard !Task.isCancelled else { return false }
+            ToastState.shared.show(
+                title: "Could not paste image on remote device",
+                body: error.localizedDescription
+            )
+            return false
+        }
+    }
+
+    private func cleanupRemotePastedImages() {
+        guard let destination = workspaceContext.sshDestination, !remotePastedImagePaths.isEmpty else {
+            return
+        }
+        let paths = remotePastedImagePaths
+        remotePastedImagePaths.removeAll()
+        Task {
+            await RemoteImagePasteService.remove(paths: paths, destination: destination)
+        }
     }
 
     func sendKeyPress(codepoint: UInt32, keycode: UInt32 = 0, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
+        if terminalInputQueue.deferIfPending({ [weak self] in
+            self?.sendKeyPressImmediately(codepoint: codepoint, keycode: keycode, mods: mods)
+        }) {
+            return
+        }
+        sendKeyPressImmediately(codepoint: codepoint, keycode: keycode, mods: mods)
+    }
+
+    private func sendKeyPressImmediately(
+        codepoint: UInt32,
+        keycode: UInt32,
+        mods: ghostty_input_mods_e
+    ) {
         guard let surface else { return }
         if codepoint == Codepoint.carriageReturn {
             recordReturnInput()
@@ -1986,10 +2115,16 @@ extension GhosttyTerminalNSView {
 extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? String) ?? (string as? NSAttributedString)?.string ?? ""
+        guard !text.isEmpty else { return }
+        if currentKeyEvent == nil,
+           terminalInputQueue.deferIfPending({ [weak self] in
+               self?.insertText(text, replacementRange: replacementRange)
+           })
+        {
+            return
+        }
 
         unmarkText()
-
-        guard !text.isEmpty else { return }
 
         if currentKeyEvent != nil {
             keyTextAccumulator.append(text)

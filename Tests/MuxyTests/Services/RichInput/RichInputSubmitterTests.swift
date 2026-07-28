@@ -85,7 +85,9 @@ struct RichInputSubmitterTests {
         let url = URL(fileURLWithPath: "/tmp/image with spaces.png")
         let segments = RichInputSubmitter.segmentsForCapabilities(
             [.image(url)],
-            capabilities: []
+            strategy: .clipboard,
+            capabilities: [],
+            isRemote: false
         )
 
         #expect(segments == [.text("'/tmp/image with spaces.png'")])
@@ -96,9 +98,49 @@ struct RichInputSubmitterTests {
         let url = URL(fileURLWithPath: "/tmp/image.png")
         let segments = RichInputSubmitter.segmentsForCapabilities(
             [.image(url)],
-            capabilities: [.imagePaste]
+            strategy: .clipboard,
+            capabilities: [.imagePaste],
+            isRemote: false
         )
 
         #expect(segments == [.image(url)])
+    }
+
+    @Test("inline paths remain local for a local terminal")
+    func localInlinePath() {
+        let url = URL(fileURLWithPath: "/tmp/image.png")
+        let segments = RichInputSubmitter.segmentsForCapabilities(
+            [.image(url)],
+            strategy: .inlinePath,
+            capabilities: [.imagePaste],
+            isRemote: false
+        )
+
+        #expect(segments == [.text("/tmp/image.png")])
+    }
+
+    @Test("remote terminals upload images for every submission strategy")
+    func remoteInlinePath() {
+        let url = URL(fileURLWithPath: "/tmp/image.png")
+        let segments = RichInputSubmitter.segmentsForCapabilities(
+            [.image(url)],
+            strategy: .inlinePath,
+            capabilities: [.imagePaste],
+            isRemote: true
+        )
+
+        #expect(segments == [.image(url)])
+    }
+
+    @Test("failed targets remain excluded from submission")
+    func failedTargets() {
+        let successfulTarget = NSObject()
+        let failedTarget = NSObject()
+        var failures = RichInputSubmitter.FailedTargets()
+
+        failures.insert(failedTarget)
+
+        #expect(!failures.contains(successfulTarget))
+        #expect(failures.contains(failedTarget))
     }
 }

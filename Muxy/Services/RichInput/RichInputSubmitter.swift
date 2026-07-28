@@ -1,11 +1,20 @@
-import AppKit
 import Foundation
-import UniformTypeIdentifiers
 
 @MainActor
 enum RichInputSubmitter {
-    private static let imagePasteDelay: Duration = .milliseconds(300)
     private static let initialDelay: Duration = .milliseconds(50)
+
+    struct FailedTargets {
+        private var identifiers: Set<ObjectIdentifier> = []
+
+        mutating func insert(_ target: AnyObject) {
+            identifiers.insert(ObjectIdentifier(target))
+        }
+
+        func contains(_ target: AnyObject) -> Bool {
+            identifiers.contains(ObjectIdentifier(target))
+        }
+    }
 
     enum Segment: Equatable {
         case text(String)
@@ -36,11 +45,8 @@ enum RichInputSubmitter {
             combined = pathParts.joined(separator: " ") + " " + body
         }
 
-        let segments = resolveSegments(
-            text: combined,
-            images: imageAttachments,
-            strategy: EditorSettings.shared.richInputImageStrategy
-        )
+        let segments = tokenize(text: combined, images: imageAttachments)
+        let strategy = EditorSettings.shared.richInputImageStrategy
 
         let views = paneIDs.compactMap { TerminalViewRegistry.shared.existingView(for: $0) }
         guard !views.isEmpty else { return }
@@ -52,7 +58,18 @@ enum RichInputSubmitter {
             }
         }
         let usesImagePaste = hasImageSegment && views.contains {
-            $0.capabilities.contains(.imagePaste)
+            resolvedSegments(
+                segments,
+                strategy: strategy,
+                capabilities: $0.capabilities,
+                isRemote: imagePasteContext(for: $0).isRemote
+            ).contains {
+                if case .image = $0 {
+                    true
+                } else {
+                    false
+                }
+            }
         }
         let focusTarget = views.count == 1 ? views.first : nil
 
@@ -65,7 +82,9 @@ enum RichInputSubmitter {
                 for view in views {
                     let resolved = segmentsForCapabilities(
                         segments,
-                        capabilities: view.capabilities
+                        strategy: strategy,
+                        capabilities: view.capabilities,
+                        isRemote: imagePasteContext(for: view).isRemote
                     )
                     let payload = textOnlyPayload(segments: resolved, appendReturn: appendReturn)
                     view.sendRemoteBytes(payload)
@@ -82,35 +101,40 @@ enum RichInputSubmitter {
                 view.clearTerminalInput()
             }
             try? await Task.sleep(for: initialDelay)
-
-            let savedClipboard = SystemPasteboardSnapshot.capture()
+            var failedViews = FailedTargets()
 
             for segment in segments {
                 for view in views {
-                    switch segmentForCapabilities(segment, capabilities: view.capabilities) {
+                    guard !failedViews.contains(view) else { continue }
+                    switch resolvedSegment(
+                        segment,
+                        strategy: strategy,
+                        capabilities: view.capabilities,
+                        isRemote: imagePasteContext(for: view).isRemote
+                    ) {
                     case let .text(chunk):
                         guard !chunk.isEmpty else { continue }
                         view.submitRichInput(text: chunk)
                     case let .image(url):
                         guard let imageSurface = view as? any TerminalImagePasteSurface else {
+                            failedViews.insert(view)
+                            view.clearTerminalInput()
                             continue
                         }
-                        imageSurface.pasteImageURL(url)
+                        guard await imageSurface.pasteImageURL(url) else {
+                            failedViews.insert(view)
+                            view.clearTerminalInput()
+                            continue
+                        }
                     }
-                }
-                if case .image = segment {
-                    try? await Task.sleep(for: imagePasteDelay)
                 }
             }
 
             if appendReturn {
-                for view in views {
+                for view in views where !failedViews.contains(view) {
                     view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
                 }
             }
-
-            try? await Task.sleep(for: imagePasteDelay)
-            SystemPasteboardSnapshot.restore(items: savedClipboard)
 
             if let focusTarget {
                 focusTarget.terminalView.window?.makeFirstResponder(focusTarget.terminalView)
@@ -139,35 +163,51 @@ enum RichInputSubmitter {
         return payload
     }
 
-    nonisolated static func resolveSegments(
-        text: String,
-        images: [URL],
-        strategy: RichInputImageStrategy
+    nonisolated static func segmentsForCapabilities(
+        _ segments: [Segment],
+        strategy: RichInputImageStrategy,
+        capabilities: TerminalCapabilities,
+        isRemote: Bool
     ) -> [Segment] {
-        let raw = tokenize(text: text, images: images)
-        guard strategy == .inlinePath else { return raw }
-        return raw.map { segment in
-            switch segment {
-            case .text: segment
-            case let .image(url): .text(ShellEscaper.escape(url.path))
-            }
+        resolvedSegments(
+            segments,
+            strategy: strategy,
+            capabilities: capabilities,
+            isRemote: isRemote
+        )
+    }
+
+    nonisolated static func resolvedSegments(
+        _ segments: [Segment],
+        strategy: RichInputImageStrategy,
+        capabilities: TerminalCapabilities,
+        isRemote: Bool
+    ) -> [Segment] {
+        segments.map {
+            resolvedSegment(
+                $0,
+                strategy: strategy,
+                capabilities: capabilities,
+                isRemote: isRemote
+            )
         }
     }
 
-    nonisolated static func segmentsForCapabilities(
-        _ segments: [Segment],
-        capabilities: TerminalCapabilities
-    ) -> [Segment] {
-        segments.map { segmentForCapabilities($0, capabilities: capabilities) }
-    }
-
-    nonisolated private static func segmentForCapabilities(
+    nonisolated private static func resolvedSegment(
         _ segment: Segment,
-        capabilities: TerminalCapabilities
+        strategy: RichInputImageStrategy,
+        capabilities: TerminalCapabilities,
+        isRemote: Bool
     ) -> Segment {
         guard case let .image(url) = segment else { return segment }
-        guard !capabilities.contains(.imagePaste) else { return segment }
+        if capabilities.contains(.imagePaste), strategy == .clipboard || isRemote {
+            return segment
+        }
         return .text(ShellEscaper.escape(url.path))
+    }
+
+    private static func imagePasteContext(for view: any TerminalSurface) -> WorkspaceContext {
+        (view as? any TerminalImagePasteSurface)?.imagePasteWorkspaceContext ?? .local
     }
 
     nonisolated static func tokenize(text: String, images: [URL]) -> [Segment] {
