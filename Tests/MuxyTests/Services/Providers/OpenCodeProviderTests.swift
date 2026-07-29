@@ -13,6 +13,15 @@ struct OpenCodeProviderTests {
         #expect(provider.hookScriptExtension == "js")
     }
 
+    @Test("managed and obsolete plugin paths stay separate")
+    func configPathsSeparateObsoleteLocation() {
+        let homeDirectory = "/Users/example"
+        let provider = OpenCodeProvider(homeDirectory: homeDirectory, pathEnvironment: "")
+
+        #expect(provider.configPaths == [homeDirectory + "/.config/opencode/plugins/muxy-notify.js"])
+        #expect(provider.obsoleteConfigPaths == [homeDirectory + "/.opencode/plugins/muxy-notify.js"])
+    }
+
     @Test("discovery recognizes the managed global plugin")
     func discoveryRecognizesManagedPlugin() {
         let homeDirectory = "/Users/example"

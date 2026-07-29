@@ -91,10 +91,12 @@ struct OpenCodeProvider: AIProviderIntegration, AIAgentLaunchProvider, AIProvide
     }
 
     func hasManagedState() -> Bool {
-        isHookInstalled() || FileManager.default.fileExists(atPath: legacyPluginPath)
+        isHookInstalled() || hasObsoletePlugin
     }
 
-    var configPaths: [String] { [pluginPath, legacyPluginPath] }
+    var configPaths: [String] { [pluginPath] }
+
+    var obsoleteConfigPaths: [String] { [legacyPluginPath] }
 
     func verify(hookScriptPath: String) -> HookVerification {
         guard FileManager.default.fileExists(atPath: pluginPath) else { return .needsRepair }
@@ -102,7 +104,7 @@ struct OpenCodeProvider: AIProviderIntegration, AIAgentLaunchProvider, AIProvide
             return .needsRepair
         }
         guard installedPluginHasPrivatePermissions() else { return .needsRepair }
-        guard !FileManager.default.fileExists(atPath: legacyPluginPath) else { return .needsRepair }
+        guard !hasObsoletePlugin else { return .needsRepair }
         return .satisfied
     }
 
@@ -144,8 +146,13 @@ struct OpenCodeProvider: AIProviderIntegration, AIAgentLaunchProvider, AIProvide
         return permissions.intValue == FilePermissions.privateFile
     }
 
+    private var hasObsoletePlugin: Bool {
+        obsoleteConfigPaths.contains { FileManager.default.fileExists(atPath: $0) }
+    }
+
     private func removeLegacyPlugin() throws {
-        guard FileManager.default.fileExists(atPath: legacyPluginPath) else { return }
-        try FileManager.default.removeItem(atPath: legacyPluginPath)
+        for path in obsoleteConfigPaths where FileManager.default.fileExists(atPath: path) {
+            try FileManager.default.removeItem(atPath: path)
+        }
     }
 }

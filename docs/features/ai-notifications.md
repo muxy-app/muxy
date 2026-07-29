@@ -58,6 +58,8 @@ Each provider integration is reconciled declaratively: Muxy **verifies** that ev
 
 Muxy records a hash of every config file it writes and ignores watcher events whose content matches its own last write, so a repair never re-triggers itself. A per-file rate limiter caps repairs within a rolling minute; when it trips — most commonly when a release and a debug build both manage the same config — Muxy stops rewriting and reports a `conflict` instead of spinning.
 
+Providers that moved to a new config location also declare their obsolete paths. Those are watched alongside the managed ones and deleted on install, so an older Muxy build restoring a superseded copy triggers a repair instead of leaving two live hooks.
+
 Results are tracked per provider in the health store — install state, last verified/repaired time, last event time, and last error — and shown in **Settings → Notifications** as a status dot and line per provider. A `conflict` means Muxy found a non-Muxy hook it will not overwrite; the message names it. Copilot CLI hooks live in `~/.copilot/hooks/muxy-notify.json` (or `$COPILOT_HOME/hooks/` when set); restart the CLI after Muxy repairs hooks so the new config is loaded.
 
 OpenCode also runs a bounded, read-only `opencode debug info` discovery probe after reconciliation. Its provider row reports the resolved CLI version and whether OpenCode's effective plugin list contains Muxy's exact managed plugin. Discovery results are separate from hook verification and event delivery, and are logged through the `ProviderDiscovery` unified-log category with executable paths kept private.

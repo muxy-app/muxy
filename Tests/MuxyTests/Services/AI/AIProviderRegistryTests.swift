@@ -258,6 +258,42 @@ struct AIProviderRegistryTests {
         #expect(provider.toolCheckCount == 1)
         #expect(provider.installCount == 1)
     }
+
+    @Test("watcher events from Muxy's own config writes are ignored")
+    func selfWritesAreNotActionable() {
+        let actionable = AIProviderRegistry.hasActionableConfigChange(
+            configPaths: ["/tmp/managed.js"],
+            obsoleteConfigPaths: ["/tmp/obsolete.js"],
+            isSelfWrite: { _ in true },
+            fileExists: { _ in false }
+        )
+
+        #expect(!actionable)
+    }
+
+    @Test("foreign writes to a managed config are actionable")
+    func foreignWritesAreActionable() {
+        let actionable = AIProviderRegistry.hasActionableConfigChange(
+            configPaths: ["/tmp/managed.js"],
+            obsoleteConfigPaths: ["/tmp/obsolete.js"],
+            isSelfWrite: { _ in false },
+            fileExists: { _ in false }
+        )
+
+        #expect(actionable)
+    }
+
+    @Test("a restored obsolete config is actionable after a self write")
+    func restoredObsoleteConfigIsActionable() {
+        let actionable = AIProviderRegistry.hasActionableConfigChange(
+            configPaths: ["/tmp/managed.js"],
+            obsoleteConfigPaths: ["/tmp/obsolete.js"],
+            isSelfWrite: { _ in true },
+            fileExists: { $0 == "/tmp/obsolete.js" }
+        )
+
+        #expect(actionable)
+    }
 }
 
 private final class StagingRecorder: @unchecked Sendable {

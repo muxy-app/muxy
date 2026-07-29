@@ -19,6 +19,7 @@ protocol AIProviderIntegration {
     var hookScriptName: String { get }
     var hookScriptExtension: String { get }
     var configPaths: [String] { get }
+    var obsoleteConfigPaths: [String] { get }
     var requiresLoginShellEnvironmentForConfiguration: Bool { get }
 
     func isToolInstalled() -> Bool
@@ -39,6 +40,7 @@ extension AIProviderIntegration {
     }
 
     var configPaths: [String] { [] }
+    var obsoleteConfigPaths: [String] { [] }
     var requiresLoginShellEnvironmentForConfiguration: Bool { false }
 
     func verify(hookScriptPath _: String) -> HookVerification {
@@ -167,7 +169,7 @@ final class AIProviderRegistry {
 
         for provider in providers {
             installer.reconcile(provider)
-            await discoveryService.discover(provider)
+            Task { await discoveryService.discover(provider) }
             updateConfigWatcher(for: provider)
         }
     }
@@ -198,7 +200,8 @@ final class AIProviderRegistry {
         }
         guard configWatchers[provider.id] == nil else { return }
         let providerID = provider.id
-        let watcher = HookConfigWatcher(configPaths: provider.configPaths) { [weak self] in
+        let watchedPaths = provider.configPaths + provider.obsoleteConfigPaths
+        let watcher = HookConfigWatcher(configPaths: watchedPaths) { [weak self] in
             Task { @MainActor in
                 guard let self, let provider = self.providers.first(where: { $0.id == providerID }) else { return }
                 self.reconcileFromWatcher(provider)
@@ -207,9 +210,24 @@ final class AIProviderRegistry {
         configWatchers[providerID] = watcher
     }
 
+    static func hasActionableConfigChange(
+        configPaths: [String],
+        obsoleteConfigPaths: [String],
+        isSelfWrite: (String) -> Bool,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> Bool {
+        guard !configPaths.contains(where: { !isSelfWrite($0) }) else { return true }
+        return obsoleteConfigPaths.contains(where: fileExists)
+    }
+
     private func reconcileFromWatcher(_ provider: AIProviderIntegration) {
         let ledger = HookConfigWriteLedger.shared
-        guard provider.configPaths.contains(where: { !ledger.isSelfWrite(path: $0) }) else { return }
+        guard Self.hasActionableConfigChange(
+            configPaths: provider.configPaths,
+            obsoleteConfigPaths: provider.obsoleteConfigPaths,
+            isSelfWrite: { ledger.isSelfWrite(path: $0) }
+        )
+        else { return }
 
         if let saturated = provider.configPaths.first(where: { ledger.hasExceededRepairBudget(path: $0) }) {
             let message = "Repeated config rewrites detected for \(saturated) — "
