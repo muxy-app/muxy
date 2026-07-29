@@ -52,7 +52,7 @@ private struct RepositoryAIActionSettingsSection: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                .settingsControl()
             }
             promptEditor
         }

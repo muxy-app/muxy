@@ -31,7 +31,7 @@ struct ProjectsSettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                    .settingsControl()
                 }
 
                 if projectPickerMode == .custom {
@@ -48,7 +48,7 @@ struct ProjectsSettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                    .settingsControl()
                 }
 
                 SettingsToggleRow(
@@ -62,24 +62,20 @@ struct ProjectsSettingsView: View {
                 footer: fileOpenerFooter
             ) {
                 SettingsRow("Default Opener") {
-                    HStack {
-                        Spacer()
-                        Picker("", selection: $defaultFileOpener) {
-                            ForEach(fileOpenerOptions) { option in
-                                if option.id == FileOpenerSelection.builtinValue {
-                                    Text(L10n.resource(key: option.title))
-                                        .tag(option.id)
-                                } else {
-                                    Text(verbatim: option.title)
-                                        .tag(option.id)
-                                        .disabled(!option.isAvailable)
-                                }
+                    Picker("", selection: $defaultFileOpener) {
+                        ForEach(fileOpenerOptions) { option in
+                            if option.id == FileOpenerSelection.builtinValue {
+                                Text(L10n.resource(key: option.title))
+                                    .tag(option.id)
+                            } else {
+                                Text(verbatim: option.title)
+                                    .tag(option.id)
+                                    .disabled(!option.isAvailable)
                             }
                         }
-                        .labelsHidden()
-                        .fixedSize()
                     }
-                    .frame(width: SettingsMetrics.controlWidth)
+                    .labelsHidden()
+                    .settingsControl()
                 }
             }
 
@@ -160,10 +156,13 @@ struct ProjectsSettingsView: View {
 
     private var worktreeLocationControl: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 0) {
                 Text(L10n.resource("Default worktree location"))
                     .font(.system(size: SettingsMetrics.labelFontSize))
-                Spacer()
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: SettingsMetrics.rowSpacing)
                 Picker("", selection: defaultWorktreeLocationMode) {
                     Text(L10n.resource("App Default")).tag(WorktreeLocationMode.defaultLocation)
                     Text(L10n.resource("Template")).tag(WorktreeLocationMode.pathTemplate)
@@ -171,7 +170,8 @@ struct ProjectsSettingsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(width: SettingsMetrics.controlWidth)
+                .settingsControl(.intrinsic)
+                .layoutPriority(1)
             }
 
             worktreeLocationValueControl

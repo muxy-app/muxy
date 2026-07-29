@@ -44,7 +44,7 @@ struct RichInputSettingsView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                .settingsControl()
             }
 
             SettingsRow("Font Family") {
@@ -56,7 +56,7 @@ struct RichInputSettingsView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                .settingsControl()
             }
 
             SettingsRow("Line Height") {

@@ -73,24 +73,20 @@ struct InterfaceSettingsView: View {
                 footer: localizationFooter
             ) {
                 SettingsRow("App Language") {
-                    HStack {
-                        Spacer()
-                        Picker("", selection: localizationSelection) {
-                            ForEach(localizationOptions) { option in
-                                if option.id == LocalizationSelection.builtinValue {
-                                    Text(L10n.resource("English"))
-                                        .tag(option.id)
-                                } else {
-                                    Text(verbatim: option.title)
-                                        .tag(option.id)
-                                        .disabled(!option.isAvailable)
-                                }
+                    Picker("", selection: localizationSelection) {
+                        ForEach(localizationOptions) { option in
+                            if option.id == LocalizationSelection.builtinValue {
+                                Text(L10n.resource("English"))
+                                    .tag(option.id)
+                            } else {
+                                Text(verbatim: option.title)
+                                    .tag(option.id)
+                                    .disabled(!option.isAvailable)
                             }
                         }
-                        .labelsHidden()
-                        .fixedSize()
                     }
-                    .frame(width: SettingsMetrics.controlWidth)
+                    .labelsHidden()
+                    .settingsControl()
                 }
             }
 
@@ -103,7 +99,7 @@ struct InterfaceSettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: SettingsMetrics.controlWidth)
+                    .settingsControl(.intrinsic)
                 }
             }
 
@@ -135,6 +131,7 @@ struct InterfaceSettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.segmented)
+                    .settingsControl(.intrinsic)
                 }
 
                 TabHeaderWidthSettingRow()
@@ -164,18 +161,14 @@ struct InterfaceSettingsView: View {
         if !sidebarProviders.isEmpty {
             SettingsSection("Active Sidebar") {
                 SettingsRow("Sidebar") {
-                    HStack {
-                        Spacer()
-                        Picker("", selection: $activeSidebar) {
-                            Text(L10n.resource("Built-in")).tag(SidebarSelection.builtinValue)
-                            ForEach(sidebarProviders) { status in
-                                Text(label(for: status)).tag(status.id)
-                            }
+                    Picker("", selection: $activeSidebar) {
+                        Text(L10n.resource("Built-in")).tag(SidebarSelection.builtinValue)
+                        ForEach(sidebarProviders) { status in
+                            Text(label(for: status)).tag(status.id)
                         }
-                        .labelsHidden()
-                        .fixedSize()
                     }
-                    .frame(width: SettingsMetrics.controlWidth)
+                    .labelsHidden()
+                    .settingsControl()
                 }
             }
         }
@@ -192,33 +185,25 @@ struct InterfaceSettingsView: View {
 
             if isProjectFocused {
                 SettingsRow("Collapsed Style") {
-                    HStack {
-                        Spacer()
-                        Picker("", selection: $sidebarCollapsedStyle) {
-                            ForEach(SidebarCollapsedStyle.allCases) { style in
-                                Text(L10n.resource(key: style.title)).tag(style.rawValue)
-                            }
+                    Picker("", selection: $sidebarCollapsedStyle) {
+                        ForEach(SidebarCollapsedStyle.allCases) { style in
+                            Text(L10n.resource(key: style.title)).tag(style.rawValue)
                         }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .fixedSize()
                     }
-                    .frame(width: SettingsMetrics.controlWidth)
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .settingsControl(.intrinsic)
                 }
 
                 SettingsRow("Expanded Style") {
-                    HStack {
-                        Spacer()
-                        Picker("", selection: $sidebarExpandedStyle) {
-                            ForEach(SidebarExpandedStyle.allCases) { style in
-                                Text(L10n.resource(key: style.title)).tag(style.rawValue)
-                            }
+                    Picker("", selection: $sidebarExpandedStyle) {
+                        ForEach(SidebarExpandedStyle.allCases) { style in
+                            Text(L10n.resource(key: style.title)).tag(style.rawValue)
                         }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .fixedSize()
                     }
-                    .frame(width: SettingsMetrics.controlWidth)
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .settingsControl(.intrinsic)
                 }
             }
         }
@@ -300,7 +285,7 @@ private struct TabHeaderWidthSettingRow: View {
                     .foregroundStyle(SettingsStyle.mutedForeground)
                     .frame(width: 64, alignment: .trailing)
             }
-            .frame(width: SettingsMetrics.controlWidth)
+            .settingsControl()
         }
     }
 }

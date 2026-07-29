@@ -660,6 +660,14 @@ enum SettingsCatalog {
         return items.filter { $0.searchableText.contains(normalized) }
     }
 
+    static func matchCountSummary(for category: SettingsCategory, query: String) -> String? {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        let count = matchingItems(query: normalized).count(where: { $0.category == category })
+        guard count != 1 else { return L10n.string("1 match") }
+        return L10n.string("\(count) matches")
+    }
+
     static func categoryMatches(_ category: SettingsCategory, query: String) -> Bool {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return true }
