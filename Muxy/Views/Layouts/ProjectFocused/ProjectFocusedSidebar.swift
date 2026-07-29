@@ -145,7 +145,7 @@ struct ProjectFocusedSidebar: View {
     @ViewBuilder private var addButton: some View {
         if projectGroupStore.isRemoteWorkspaceActive {
             AddProjectButton(expanded: isWide, action: openLocalProjectPicker)
-                .help(shortcutTooltip("Add Project", for: .openProject))
+                .help(shortcutTooltip(L10n.string("Add Project"), for: .openProject))
         } else {
             Menu {
                 Button {
@@ -173,7 +173,7 @@ struct ProjectFocusedSidebar: View {
             .menuStyle(.button)
             .menuIndicator(.hidden)
             .buttonStyle(.plain)
-            .help(shortcutTooltip("Add Project", for: .openProject))
+            .help(shortcutTooltip(L10n.string("Add Project"), for: .openProject))
         }
     }
 
@@ -509,7 +509,7 @@ struct ProjectFocusedSidebar: View {
     }
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
-        "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
+        L10n.string("\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))")
     }
 
     private func projectDragGesture(for project: Project) -> some Gesture {
@@ -709,24 +709,5 @@ private struct AddProjectButton: View {
             .padding(UIMetrics.spacing2)
             .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
         }
-    }
-}
-
-private struct SidebarHeaderIconButtonLabel: View {
-    let systemName: String
-    let accessibilityLabel: String
-    @State private var hovered = false
-
-    var body: some View {
-        Image(systemName: systemName)
-            .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-            .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
-            .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
-            .background(
-                hovered ? MuxyTheme.hover : MuxyTheme.surface,
-                in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-            )
-            .onHover { hovered = $0 }
-            .accessibilityLabel(accessibilityLabel)
     }
 }

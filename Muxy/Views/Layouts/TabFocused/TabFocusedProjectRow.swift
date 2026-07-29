@@ -340,7 +340,7 @@ struct TabFocusedProjectRow: View {
     private var actions: some View {
         switch content {
         case .tabs:
-            TabFocusedTabActions(project: project, worktree: worktree)
+            TabFocusedTabActions(project: project, worktree: listWorktree)
         case .agents:
             AgentsFocusedTabActions(
                 project: project,
@@ -354,7 +354,7 @@ struct TabFocusedProjectRow: View {
     }
 
     private var isFocused: Bool {
-        content == .tabs && !isWorktreeRow && expansionStore.focusMode && isActive
+        content == .tabs && !isWorktreeRow && expansionStore.focusMode && appState.activeProjectID == project.id
     }
 
     private var focusModeButton: some View {

@@ -15,6 +15,16 @@ struct TabFocusedSidebar: View {
     @State private var expansionStore = TabFocusedSidebarState.shared
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
+    @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
+    @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = true
+
+    private var expandedStyle: SidebarExpandedStyle {
+        SidebarExpandedStyle(rawValue: expandedStyleRaw) ?? .defaultValue
+    }
+
+    private var isWide: Bool {
+        sidebarExpanded && expandedStyle == .wide
+    }
 
     private var sortMode: ProjectSortMode {
         ProjectSortMode(rawValue: sortModeRaw) ?? .defaultValue
@@ -70,6 +80,15 @@ struct TabFocusedSidebar: View {
     var body: some View {
         let numbers = shortcutNumbers
         return VStack(spacing: 0) {
+            HStack(spacing: UIMetrics.spacing2) {
+                WorkspaceSwitcher(isWide: isWide)
+                if isWide {
+                    sortMenu
+                }
+            }
+            .padding(.horizontal, UIMetrics.spacing3)
+            .padding(.top, UIMetrics.spacing2)
+
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(rows) { row in
@@ -96,6 +115,26 @@ struct TabFocusedSidebar: View {
             SidebarFooter()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker(L10n.string("Sort Projects By"), selection: $sortModeRaw) {
+                ForEach(ProjectSortMode.allCases) { mode in
+                    Label(L10n.string(key: mode.title), systemImage: mode.systemImage).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            SidebarHeaderIconButtonLabel(
+                systemName: "arrow.up.arrow.down",
+                accessibilityLabel: L10n.string("Sort Projects")
+            )
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .help(L10n.string("Sort Projects: \(L10n.string(key: sortMode.title))"))
     }
 
     private func openProjectPicker() {
