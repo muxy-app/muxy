@@ -4,6 +4,8 @@ import AppKit
 final class DiagnosticsMenuController {
     static let shared = DiagnosticsMenuController()
 
+    private static let appKitWindowMenuTitle = "Window"
+
     private var topLevelItem: NSMenuItem?
     private var exportItem: NSMenuItem?
     private var toggleItem: NSMenuItem?
@@ -19,7 +21,7 @@ final class DiagnosticsMenuController {
 
     private func ensureInstalled() {
         guard let mainMenu = NSApp.mainMenu else { return }
-        if mainMenu.indexOfItem(withTitle: L10n.string("Diagnostics")) >= 0 {
+        if let topLevelItem, mainMenu.index(of: topLevelItem) >= 0 {
             return
         }
 
@@ -59,7 +61,7 @@ final class DiagnosticsMenuController {
         topLevel.submenu = menu
         topLevelItem = topLevel
 
-        let insertIndex = mainMenu.indexOfItem(withTitle: L10n.string("Window"))
+        let insertIndex = mainMenu.indexOfItem(withTitle: Self.appKitWindowMenuTitle)
         if insertIndex >= 0 {
             mainMenu.insertItem(topLevel, at: insertIndex)
         } else {

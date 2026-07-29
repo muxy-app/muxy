@@ -401,6 +401,75 @@ struct ExtensionManifestTests {
         }
     }
 
+    @Test("rejects localization catalogs that change format placeholders")
+    func rejectsLocalizationCatalogFormatMismatch() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "unsafe-format-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: [
+                "German.bundle/Info.plist": resourceBundleInfo,
+                "German.bundle/de.lproj/Localizable.strings": #""Created branch %@" = "Zweig %@ %@ erstellt";"#,
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalogURL = directory.appendingPathComponent("German.bundle/de.lproj/Localizable.strings")
+
+        #expect(throws: ExtensionLoadError.localizationCatalogFormatMismatch(
+            localizationID: "de",
+            url: catalogURL,
+            key: "Created branch %@"
+        )) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("loads localization catalogs that preserve format placeholders")
+    func loadsLocalizationCatalogWithMatchingPlaceholders() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "safe-format-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: [
+                "German.bundle/Info.plist": resourceBundleInfo,
+                "German.bundle/de.lproj/Localizable.strings": #"""
+                "Created branch %@" = "Zweig %@ erstellt";
+                "%lld changes" = "%lld Änderungen";
+                "%@ (%@)" = "%2$@ – %1$@";
+                "Settings" = "Einstellungen";
+                "%lld%%" = "%lld%%";
+                """#,
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let muxyExtension = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(muxyExtension.manifest.localizations.map(\.id) == ["de"])
+    }
+
     @Test("loads from directory and resolves background script")
     func loadsFromDirectory() throws {
         let directory = try makeTemporaryExtension(

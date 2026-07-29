@@ -947,6 +947,7 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case localizationCatalogMissing(localizationID: String, language: String, url: URL)
     case localizationCatalogInvalid(localizationID: String, url: URL)
     case localizationCatalogTooLarge(localizationID: String, url: URL)
+    case localizationCatalogFormatMismatch(localizationID: String, url: URL, key: String)
     case remoteMethodEmptyID
     case remoteMethodInvalidID(String)
     case duplicateRemoteMethod(String)
@@ -1081,6 +1082,8 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Localization '\(localizationID)' catalog is invalid at \(url.path)"
         case let .localizationCatalogTooLarge(localizationID, url):
             "Localization '\(localizationID)' catalog at \(url.path) exceeds the size limit"
+        case let .localizationCatalogFormatMismatch(localizationID, url, key):
+            "Localization '\(localizationID)' catalog at \(url.path) changes the format placeholders of '\(key)'"
         case .remoteMethodEmptyID:
             "Remote method id must not be empty"
         case let .remoteMethodInvalidID(id):
@@ -1364,12 +1367,18 @@ enum ExtensionManifestLoader {
                       let catalog = try? PropertyListSerialization.propertyList(
                           from: catalogData,
                           format: nil
-                      ),
-                      catalog is [String: Any]
+                      ) as? [String: Any]
                 else {
                     throw ExtensionLoadError.localizationCatalogInvalid(
                         localizationID: localization.id,
                         url: resolvedCatalogURL
+                    )
+                }
+                if let mismatchedKey = ExtensionLocalizationCatalog.incompatibleKey(in: catalog) {
+                    throw ExtensionLoadError.localizationCatalogFormatMismatch(
+                        localizationID: localization.id,
+                        url: resolvedCatalogURL,
+                        key: mismatchedKey
                     )
                 }
             }
