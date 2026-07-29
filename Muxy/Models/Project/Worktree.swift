@@ -40,6 +40,10 @@ struct Worktree: Identifiable, Codable, Hashable {
         !isPrimary
     }
 
+    var sidebarDisplayName: String {
+        isPrimary ? "Main Worktree" : name
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case name

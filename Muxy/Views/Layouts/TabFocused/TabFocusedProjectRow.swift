@@ -7,6 +7,7 @@ struct TabFocusedProjectRow: View {
     var worktree: Worktree?
     let shortcutNumbers: [UUID: Int]
     var content: TabFocusedSidebarContent = .tabs
+    let groupWorktrees: Bool
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -15,6 +16,8 @@ struct TabFocusedProjectRow: View {
     @State private var expansionStore = TabFocusedSidebarState.shared
     @State private var notificationStore = NotificationStore.shared
     @State private var progressStore = TerminalProgressStore.shared
+    @AppStorage(WorktreeListPreferences.showUnreadIndicatorKey)
+    private var showUnreadIndicator = WorktreeListPreferences.defaultShowUnreadIndicator
 
     @State private var hovered = false
     @State private var isGitRepo = false
@@ -62,7 +65,9 @@ struct TabFocusedProjectRow: View {
         if let worktree {
             hasProgress = progressStore.hasActiveProgress(forWorktree: worktree.id)
             agentStatus = agentStore.status(forWorktree: worktree.id)
-            unreadCount = notificationStore.unreadCount(for: project.id, worktreeID: worktree.id)
+            unreadCount = showUnreadIndicator
+                ? notificationStore.unreadCount(for: project.id, worktreeID: worktree.id)
+                : 0
             completionPending = progressStore.hasCompletionPending(forWorktree: worktree.id)
                 || agentStore.hasCompletionPending(forWorktree: worktree.id)
         } else {
@@ -88,12 +93,25 @@ struct TabFocusedProjectRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            if isExpanded, let listWorktree {
-                switch content {
-                case .tabs:
-                    TabFocusedTabsList(project: project, worktree: listWorktree, shortcutNumbers: shortcutNumbers)
-                case .agents:
-                    AgentsFocusedTabsList(project: project, worktree: listWorktree)
+            if isExpanded {
+                if groupWorktrees, !isWorktreeRow, project.worktreesEnabled {
+                    TabFocusedWorktreeTree(
+                        project: project,
+                        worktrees: worktreeStore.list(for: project.id),
+                        shortcutNumbers: shortcutNumbers,
+                        content: content
+                    )
+                } else if let listWorktree {
+                    switch content {
+                    case .tabs:
+                        TabFocusedTabsList(
+                            project: project,
+                            worktree: listWorktree,
+                            shortcutNumbers: shortcutNumbers
+                        )
+                    case .agents:
+                        AgentsFocusedTabsList(project: project, worktree: listWorktree)
+                    }
                 }
             }
         }
@@ -340,13 +358,17 @@ struct TabFocusedProjectRow: View {
     private var actions: some View {
         switch content {
         case .tabs:
-            TabFocusedTabActions(project: project, worktree: listWorktree)
+            if showsProjectLevelActions {
+                TabFocusedTabActions(project: project, worktree: listWorktree)
+            }
         case .agents:
-            AgentsFocusedTabActions(
-                project: project,
-                worktree: listWorktree,
-                showingProviders: $showAgentProviderMenu
-            )
+            if showsProjectLevelActions {
+                AgentsFocusedTabActions(
+                    project: project,
+                    worktree: listWorktree,
+                    showingProviders: $showAgentProviderMenu
+                )
+            }
         }
         if content == .tabs, !isWorktreeRow, !project.isHome, !isFocused {
             focusModeButton
@@ -355,6 +377,10 @@ struct TabFocusedProjectRow: View {
 
     private var isFocused: Bool {
         content == .tabs && !isWorktreeRow && expansionStore.focusMode && appState.activeProjectID == project.id
+    }
+
+    private var showsProjectLevelActions: Bool {
+        isWorktreeRow || !groupWorktrees || !project.worktreesEnabled
     }
 
     private var focusModeButton: some View {

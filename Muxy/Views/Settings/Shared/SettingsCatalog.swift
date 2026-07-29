@@ -192,6 +192,15 @@ enum SettingsCatalog {
             aliases: ["extension sidebar", "webview sidebar"]
         ),
         SettingsCatalogItem(
+            key: WorktreeListPreferences.groupWorktreesKey,
+            title: "Nest Worktrees Inside Projects",
+            description: "Places worktrees under their project in Tab Focused and Agents Focused layouts.",
+            category: .appearance,
+            section: "Sidebar",
+            defaultValue: WorktreeListPreferences.defaultGroupWorktrees,
+            aliases: ["group worktrees", "nested", "folders", "tab focused", "agents focused"]
+        ),
+        SettingsCatalogItem(
             key: WorktreeListPreferences.showUnreadIndicatorKey,
             title: "Show Worktree Unread Indicator",
             description: "Shows a dot on worktrees with unread notifications in the worktree switcher.",

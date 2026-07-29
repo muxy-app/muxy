@@ -35,8 +35,8 @@ Muxy ships paired light/dark themes and a user-chosen accent. Every extension we
 
 1. **No hex literals for chrome.** Use `var(--muxy-…)` for every color. The only exception is decorative art meant to be theme-independent.
 2. **The variables already invert** for light/dark — never sniff the color scheme to pick a color. Only branch on `muxy.theme.colorScheme` for things a variable can't express (e.g. swapping a logo image).
-3. **`--muxy-accent` is the only saturated color.** Use it sparingly — primary action, focus ring, one key number — so it stays distinctive. Text *on* an accent fill should be `--muxy-background` to stay legible in both themes.
-4. **Depth comes from `--muxy-surface` + `--muxy-border` + `--muxy-hover`,** not from new colors. Cards, inputs, code blocks, and buttons all share the one surface color.
+3. **`--muxy-accent` is the only saturated color.** Use it sparingly — primary action, focus ring, one key number — so it stays distinctive. Text *on* an accent fill must use `--muxy-accent-foreground`, which is resolved for contrast against the active theme's accent.
+4. **Use `--muxy-surface-solid` for component backgrounds.** It is the native surface overlay precomposited over the active theme background, so cards, inputs, code blocks, and buttons match Muxy without letting content show through. `--muxy-surface`, `--muxy-border`, `--muxy-hover`, and `--muxy-accent-soft` are translucent overlays for material-relative effects. Do not apply additional opacity to these tokens or to an entire control.
 5. **Re-read the theme for JS-drawn color.** Canvas/SVG that doesn't pick up CSS variables must redraw in `muxy.onThemeChange(theme => …)`.
 6. **Popovers leave the body transparent** (`body { background: transparent; }`) — they sit over native macOS popover material that is already light/dark-aware. Tabs and panels *do* paint `--muxy-background` on the body.
 
@@ -47,10 +47,12 @@ Muxy ships paired light/dark themes and a user-chosen accent. Every extension we
 | `--muxy-background` | Page background |
 | `--muxy-foreground` | Primary text |
 | `--muxy-foreground-muted` | Secondary text, labels, captions |
-| `--muxy-surface` | Cards, inputs, code blocks, buttons |
-| `--muxy-border` | 1px borders and dividers |
-| `--muxy-hover` | Hover state for buttons / rows |
+| `--muxy-surface-solid` | Opaque cards, inputs, code blocks, buttons |
+| `--muxy-surface` | Translucent surface overlay for popovers and intentional layering |
+| `--muxy-border` | Translucent 1px borders and dividers |
+| `--muxy-hover` | Translucent hover state for buttons / rows |
 | `--muxy-accent` | Primary action, links, focus rings |
+| `--muxy-accent-foreground` | Text and icons on an accent fill |
 | `--muxy-accent-soft` | Translucent accent for badges/highlights |
 | `--muxy-diff-add` / `--muxy-diff-remove` / `--muxy-diff-hunk` | Diff / success / error / hunk colors |
 | `--muxy-topbar-height` | The app's tab-bar height (see Sizing) |
@@ -114,13 +116,14 @@ Declare the scale once at the top of your stylesheet and reference it everywhere
 - **Provide app translations with `localizations`.** Keep only the provider metadata in `package.json`; put the full translation catalog in a resource-only `.bundle` copied into `dist/`. The bundle must not declare `CFBundleExecutable` and needs `<language>.lproj/Localizable.strings` or `Localizable.stringsdict`. Every translated value must keep the format placeholders of its key at the same argument positions — use `%1$@`/`%2$lld` to reorder — or Muxy rejects the bundle. Users choose among enabled providers in Settings → Interface → Language, and a missing provider temporarily falls back to built-in English while preserving their selection. See [Localizations](https://muxy.app/docs/extensions/localizations).
 - **Guard a close with `muxy.lifecycle.onBeforeClose(handler)`** from a tab/panel/popover page when closing could lose work (a dirty editor). Return/resolve `true` (or `{ prevent: true }`) to prevent the close, anything else to allow it; the handler may be `async`, so `await muxy.dialog.confirm(...)` and decide. Closing a top-level tab asks its own and every split-child surface in parallel; any veto cancels the entire hierarchy close. Call `muxy.lifecycle.close()` to finish the close yourself without re-asking. No permission, no manifest field — registering the handler is the opt-in, and it fails open (no handler / timeout / throw ⇒ closes). It does **not** fire on app quit or an outside-click popover dismiss; for those, persist reactively instead. To merely react after a close, subscribe to `tab.closed` / `panel.closed` / `popover.closed`. See [Lifecycle](https://muxy.app/docs/extensions/lifecycle).
 - **Drive and automate the built-in browser with `muxy.browser.*`.** Tabs: `open(url, { split })` returns the tab ID; `navigate(tabId, url)`, `reload/back/forward(tabId)`, `list()`, `read(tabId)` (`{ title, url, text }`, ~1 MB cap), `close(tabId)`. Automation: `eval(tabId, script)` (returns the parsed JS result), `click`, `type(…, { submit })`, `fill`, `press(tabId, key, selector?)`, `select`, `hover`, `scrollIntoView`, `setChecked`. Waiting: `wait(tabId, { selector|text|urlContains|function, timeoutMs })`, `waitFor`, `waitForNavigation`. Inspection: `getText/getHTML/getValue/getAttribute/getCount`, `is(tabId, property, selector)`, `find(tabId, kind, value)`, `snapshot(tabId, selector?)` (visible interactive elements — let an agent "see" the page), `screenshot(tabId)` (base64 PNG). State: `storage.get/set/clear(tabId, key, value?, kind)` for local/session storage; `cookies.get/set/delete/clear(tabId, ...)` per profile. Reads and JS-running calls (`eval`, `click`, `type`, `waitFor`, `get*`, `screenshot`, `storage.*`) need `browser:read`/`browser:write`; `navigate`, `cookies`, `list` do not. All of them work headlessly on any open tab in the active project — the tab need not be visible or focused (`screenshot` renders off-screen). Every call fails when the user disables the built-in browser. Capture the tab ID from `open`/`list` and reuse it. See [Browser](https://muxy.app/docs/extensions/browser).
-- **Make hover and active states visible** in both light and dark — `background: var(--muxy-hover); border-color: var(--muxy-accent);` is the standard pattern.
+- **Make hover and active states visible** in both light and dark — `background: var(--muxy-hover); border-color: var(--muxy-accent);` is the standard pattern. Change the relevant color instead of lowering the whole control's `opacity`, which also fades its content.
 - **Respect `prefers-reduced-motion`** — Muxy users opt into Reduce Motion at the OS level; avoid long transitions, large translations, autoplay.
 - **No hardcoded `~/.config/muxy` paths** from inside the extension — rely on the working directory Muxy sets, or pass `cwd` to `exec`.
 
 ## Checklist
 
 - [ ] Every color is `var(--muxy-…)`; `muxy.onThemeChange` wired for any JS-drawn color.
+- [ ] Component backgrounds use `--muxy-surface-solid`; translucent overlay tokens are only used intentionally.
 - [ ] Spacing, font, icon, control, and radius values come from the scale above — no off-ramp numbers (rows pad `10px`, body is `12px`, icons `12`–`14px` at weight 600).
 - [ ] Tab topbar uses `--muxy-topbar-height` with `box-sizing: content-box`.
 - [ ] Hover/active states are visible in both themes.

@@ -30,6 +30,12 @@ Choose **Folder** to retain Muxy's existing folder layout. A global folder store
 `<folder>/<worktree-name>`. A project-specific template or folder selected in that dialog takes precedence over the
 global setting. Remote worktrees keep their remote workspace layout.
 
+## Focused-layout worktree grouping
+
+In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to show **Nest worktrees inside projects**.
+It is off by default. Turn it on to nest all worktrees under their project; turn it off to keep worktrees as top-level rows. Tab
+Focused shows top-level worktrees only when they have open tabs, while Agents Focused shows every secondary worktree.
+
 ## Quick terminal
 
 The assigned shortcut is the only way to open the quick terminal. On a display with a camera cutout, the terminal expands out of it like a dynamic island. Open **Quick Terminal** in Settings to configure its shortcut, size, and appearance:

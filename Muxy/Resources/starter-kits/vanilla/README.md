@@ -16,6 +16,6 @@ After rebuilding, click **Reload** in the Muxy Extensions modal to pick up chang
 - `src/main.js` — mounts the panel onto `#root`.
 - `src/panel/app.js` — the panel UI, rendered with the `h()` DOM helper.
 - `src/lib/` — tiny `dom` and `icon` helpers.
-- `src/styles/global.css` — Tailwind, with `--color-*` mapped to the app's `--muxy-*` theme tokens so utilities like `bg-primary` and `text-muted-foreground` follow the active theme.
+- `src/styles/global.css` — Tailwind, with opaque component fills and contrast colors mapped to the app's `--muxy-*` tokens so utilities like `bg-surface`, `bg-primary`, and `text-primary-foreground` follow the active theme.
 
 See the [extension docs](https://github.com/muxy-app/muxy/tree/main/docs/extensions).
