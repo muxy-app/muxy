@@ -67,7 +67,8 @@ struct TabFocusedSidebar: View {
             appState: appState,
             projectStore: projectStore,
             projectGroupStore: projectGroupStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            groupWorktrees: groupWorktrees
         )
         var map: [UUID: Int] = [:]
         for (index, entry) in entries.prefix(9).enumerated() {

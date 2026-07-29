@@ -27,7 +27,8 @@ struct WorktreeLeafRow: View {
 
     private var isActive: Bool {
         guard appState.activeProjectID == project.id else { return false }
-        return appState.activeWorktreeID[project.id] == worktree.id
+        guard let activeWorktreeID = appState.activeWorktreeID[project.id] else { return worktree.isPrimary }
+        return activeWorktreeID == worktree.id
     }
 
     private var isExpanded: Bool {
@@ -114,12 +115,19 @@ struct WorktreeLeafRow: View {
                 }
             }
         }
+        .onAppear { applyDefaultExpansion() }
         .onChange(of: isActive) { _, active in
             guard active, !isExpanded else { return }
             withAnimation(.easeInOut(duration: 0.15)) {
                 expansionStore.set(worktree.id, expanded: true)
             }
         }
+    }
+
+    private func applyDefaultExpansion() {
+        let key = TabFocusedSidebarPreferences.projectExpandedKey(worktree.id)
+        guard UserDefaults.standard.object(forKey: key) == nil, isActive, !isExpanded else { return }
+        expansionStore.set(worktree.id, expanded: true)
     }
 
     private var leafHeader: some View {
@@ -220,7 +228,7 @@ struct WorktreeLeafRow: View {
     }
 
     private func startRename() {
-        renameText = rowTitle
+        renameText = worktree.name
         isRenaming = true
         renameFieldFocused = true
     }
@@ -231,7 +239,6 @@ struct WorktreeLeafRow: View {
             .foregroundStyle(MuxyTheme.fg)
             .textFieldStyle(.plain)
             .focused($renameFieldFocused)
-            .onAppear { renameText = rowTitle }
             .onSubmit { commitRename() }
             .onChange(of: renameFieldFocused) { _, focused in
                 if !focused {
@@ -242,7 +249,7 @@ struct WorktreeLeafRow: View {
 
     private func commitRename() {
         let trimmed = renameText.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, trimmed != rowTitle else {
+        guard !trimmed.isEmpty, trimmed != worktree.name else {
             isRenaming = false
             return
         }

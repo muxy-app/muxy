@@ -73,7 +73,7 @@ struct TabFocusedProjectRow: View {
         } else {
             hasProgress = progressStore.hasActiveProgress(for: project.id)
             agentStatus = agentStore.status(forProject: project.id)
-            unreadCount = showUnreadIndicator ? notificationStore.unreadCount(for: project.id) : 0
+            unreadCount = notificationStore.unreadCount(for: project.id)
             completionPending = progressStore.hasCompletionPending(for: project.id)
                 || agentStore.hasCompletionPending(forProject: project.id)
         }

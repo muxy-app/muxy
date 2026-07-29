@@ -7,7 +7,7 @@ struct TabFocusedWorktreeTree: View {
     let content: TabFocusedSidebarContent
 
     @Environment(AppState.self) private var appState
-    @Environment(WorktreeStore.self) private var worktreeStore
+    @State private var expansionStore = TabFocusedSidebarState.shared
     @State private var showCreateWorktreeSheet = false
 
     var body: some View {
@@ -38,21 +38,14 @@ struct TabFocusedWorktreeTree: View {
     }
 
     private func handleCreateWorktreeResult(_ result: CreateWorktreeResult) {
-        switch result {
-        case let .created(worktree, runSetup):
-            appState.selectWorktree(projectID: project.id, worktree: worktree)
-            if runSetup,
-               let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
-            {
-                Task {
-                    await WorktreeSetupRunner.run(
-                        sourceProjectPath: project.path,
-                        paneID: paneID
-                    )
-                }
-            }
-        case .cancelled:
-            break
+        guard case let .created(worktree, runSetup) = result else { return }
+        appState.selectWorktree(projectID: project.id, worktree: worktree)
+        expansionStore.set(worktree.id, expanded: true)
+        guard runSetup,
+              let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
+        else { return }
+        Task {
+            await WorktreeSetupRunner.run(sourceProjectPath: project.path, paneID: paneID)
         }
     }
 }

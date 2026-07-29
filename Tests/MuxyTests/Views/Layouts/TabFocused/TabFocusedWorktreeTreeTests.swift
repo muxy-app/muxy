@@ -160,6 +160,76 @@ struct TabFocusedSidebarProjectSelectionTests {
     }
 }
 
+@Suite("Focused tab order expansion")
+@MainActor
+struct TabFocusedTabOrderExpansionTests {
+    private let projectID = UUID()
+    private let primary = Worktree(name: "Repo", path: "/repo", isPrimary: true)
+    private let secondary = Worktree(name: "feature", path: "/feature", isPrimary: false)
+
+    @Test("ungrouped primary follows the project row expansion")
+    func ungroupedPrimaryFollowsProject() {
+        let expanded: Set<UUID> = [projectID]
+
+        #expect(TabFocusedTabOrder.isRowExpanded(
+            worktree: primary,
+            projectID: projectID,
+            grouped: false,
+            isExpandedPersisted: expanded.contains
+        ))
+        #expect(!TabFocusedTabOrder.isRowExpanded(
+            worktree: secondary,
+            projectID: projectID,
+            grouped: false,
+            isExpandedPersisted: expanded.contains
+        ))
+    }
+
+    @Test("grouped primary follows its own leaf expansion, not the project row")
+    func groupedPrimaryFollowsLeaf() {
+        #expect(!TabFocusedTabOrder.isRowExpanded(
+            worktree: primary,
+            projectID: projectID,
+            grouped: true,
+            isExpandedPersisted: [projectID].contains
+        ))
+        #expect(TabFocusedTabOrder.isRowExpanded(
+            worktree: primary,
+            projectID: projectID,
+            grouped: true,
+            isExpandedPersisted: [projectID, primary.id].contains
+        ))
+    }
+
+    @Test("grouped leaves stay hidden while the project row is collapsed")
+    func groupedRequiresExpandedProject() {
+        for worktree in [primary, secondary] {
+            #expect(!TabFocusedTabOrder.isRowExpanded(
+                worktree: worktree,
+                projectID: projectID,
+                grouped: true,
+                isExpandedPersisted: [worktree.id].contains
+            ))
+        }
+    }
+
+    @Test("grouped secondary requires both the project row and its leaf")
+    func groupedSecondaryRequiresBoth() {
+        #expect(TabFocusedTabOrder.isRowExpanded(
+            worktree: secondary,
+            projectID: projectID,
+            grouped: true,
+            isExpandedPersisted: [projectID, secondary.id].contains
+        ))
+        #expect(!TabFocusedTabOrder.isRowExpanded(
+            worktree: secondary,
+            projectID: projectID,
+            grouped: true,
+            isExpandedPersisted: [projectID].contains
+        ))
+    }
+}
+
 @Suite("Focused sidebar rows")
 struct TabFocusedSidebarRowsTests {
     @Test("grouped focused layouts contain project rows only")

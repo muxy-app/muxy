@@ -27,7 +27,8 @@ enum TabFocusedTabOrder {
         projectStore: ProjectStore,
         projectGroupStore: ProjectGroupStore,
         worktreeStore: WorktreeStore,
-        expansionStore: TabFocusedSidebarState = .shared
+        expansionStore: TabFocusedSidebarState = .shared,
+        groupWorktrees: Bool = WorktreeListPreferences.isGroupingEnabled
     ) -> [Entry] {
         orderedProjects(projectStore: projectStore, projectGroupStore: projectGroupStore)
             .filter { project in
@@ -37,8 +38,15 @@ enum TabFocusedTabOrder {
                 return true
             }
             .flatMap { project -> [Entry] in
-                worktreeRows(for: project, worktreeStore: worktreeStore).flatMap { worktree -> [Entry] in
-                    guard expansionStore.isExpandedPersisted(worktree.isPrimary ? project.id : worktree.id) else {
+                let grouped = groupWorktrees && showsWorktreeRows(project)
+                return worktreeRows(for: project, worktreeStore: worktreeStore).flatMap { worktree -> [Entry] in
+                    guard isRowExpanded(
+                        worktree: worktree,
+                        projectID: project.id,
+                        grouped: grouped,
+                        isExpandedPersisted: { expansionStore.isExpandedPersisted($0) }
+                    )
+                    else {
                         return []
                     }
                     let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
@@ -54,9 +62,25 @@ enum TabFocusedTabOrder {
             }
     }
 
+    static func isRowExpanded(
+        worktree: Worktree,
+        projectID: UUID,
+        grouped: Bool,
+        isExpandedPersisted: (UUID) -> Bool
+    ) -> Bool {
+        guard grouped else {
+            return isExpandedPersisted(worktree.isPrimary ? projectID : worktree.id)
+        }
+        return isExpandedPersisted(projectID) && isExpandedPersisted(worktree.id)
+    }
+
+    private static func showsWorktreeRows(_ project: Project) -> Bool {
+        project.worktreesEnabled && !project.isHome
+    }
+
     private static func worktreeRows(for project: Project, worktreeStore: WorktreeStore) -> [Worktree] {
         let worktrees = worktreeStore.list(for: project.id)
-        guard project.worktreesEnabled, !project.isHome else {
+        guard showsWorktreeRows(project) else {
             return worktrees.filter(\.isPrimary)
         }
         return worktrees
