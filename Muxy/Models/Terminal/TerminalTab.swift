@@ -1,5 +1,30 @@
 import Foundation
 
+enum TerminalTabRenameResult: Equatable {
+    case unchanged
+    case update(String?)
+}
+
+enum TerminalTabRename {
+    static func resolve(
+        input: String,
+        displayedTitle: String,
+        existingCustomTitle: String?
+    ) -> TerminalTabRenameResult {
+        let trimmedInput = input.trimmingCharacters(in: .whitespaces)
+        let trimmedDisplayedTitle = displayedTitle.trimmingCharacters(in: .whitespaces)
+        guard input != displayedTitle, trimmedInput != trimmedDisplayedTitle else {
+            return .unchanged
+        }
+
+        let customTitle = trimmedInput.isEmpty ? nil : trimmedInput
+        guard customTitle != existingCustomTitle else {
+            return .unchanged
+        }
+        return .update(customTitle)
+    }
+}
+
 @MainActor
 @Observable
 final class TerminalTab: Identifiable {
@@ -70,6 +95,20 @@ final class TerminalTab: Identifiable {
         }
     }
 
+    var localizedTitle: String {
+        if let customTitle {
+            return customTitle
+        }
+        switch content {
+        case let .terminal(pane):
+            return pane.usesDefaultTitle ? L10n.string(key: TerminalPaneState.defaultTitle) : pane.title
+        case let .extensionWebView(state):
+            return state.displayTitle
+        case let .browser(state):
+            return state.localizedDisplayTitle
+        }
+    }
+
     init(pane: TerminalPaneState, parentTabID: UUID? = nil) {
         id = UUID()
         self.parentTabID = parentTabID
@@ -105,6 +144,7 @@ final class TerminalTab: Identifiable {
                 id: snapshot.paneID ?? UUID(),
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
+                usesDefaultTitle: snapshot.paneUsesDefaultTitle,
                 initialWorkingDirectory: restoredWorkingDirectory
             ))
         case .extensionWebView:
@@ -119,7 +159,11 @@ final class TerminalTab: Identifiable {
                     data: snapshot.extensionTabData
                 ))
             } else {
-                content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+                content = .terminal(TerminalPaneState(
+                    projectPath: snapshot.projectPath,
+                    title: snapshot.paneTitle,
+                    usesDefaultTitle: snapshot.paneUsesDefaultTitle
+                ))
             }
         case .browser:
             let browserState = BrowserTabState(
@@ -143,6 +187,7 @@ final class TerminalTab: Identifiable {
             isPinned: isPinned,
             projectPath: content.projectPath,
             paneTitle: extensionTabDefaultTitle ?? content.pane?.title,
+            paneUsesDefaultTitle: content.pane?.usesDefaultTitle,
             paneID: content.pane?.id,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory,
             extensionID: content.extensionState?.extensionID,

@@ -652,6 +652,13 @@ struct ExtensionFileOpener: Codable, Equatable, Identifiable {
     }
 }
 
+struct ExtensionLocalization: Codable, Equatable, Identifiable {
+    let id: String
+    let language: String
+    let title: String
+    let bundle: String
+}
+
 struct ExtensionManifest: Codable, Equatable {
     let name: String
     let version: String
@@ -664,6 +671,7 @@ struct ExtensionManifest: Codable, Equatable {
     let popovers: [ExtensionPopover]
     let sidebar: ExtensionSidebar?
     let fileOpeners: [ExtensionFileOpener]
+    let localizations: [ExtensionLocalization]
     let permissions: [ExtensionPermission]
     let topbarItems: [ExtensionTopbarItem]
     let statusBarItems: [ExtensionStatusBarItem]
@@ -682,6 +690,7 @@ struct ExtensionManifest: Codable, Equatable {
         case popovers
         case sidebar
         case fileOpeners
+        case localizations
         case permissions
         case topbarItems
         case statusBarItems
@@ -701,6 +710,7 @@ struct ExtensionManifest: Codable, Equatable {
         popovers: [ExtensionPopover] = [],
         sidebar: ExtensionSidebar? = nil,
         fileOpeners: [ExtensionFileOpener] = [],
+        localizations: [ExtensionLocalization] = [],
         permissions: [ExtensionPermission] = [],
         topbarItems: [ExtensionTopbarItem] = [],
         statusBarItems: [ExtensionStatusBarItem] = [],
@@ -718,6 +728,7 @@ struct ExtensionManifest: Codable, Equatable {
         self.popovers = popovers
         self.sidebar = sidebar
         self.fileOpeners = fileOpeners
+        self.localizations = localizations
         self.permissions = permissions
         self.topbarItems = topbarItems
         self.statusBarItems = statusBarItems
@@ -738,6 +749,7 @@ struct ExtensionManifest: Codable, Equatable {
         popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
         sidebar = try container.decodeIfPresent(ExtensionSidebar.self, forKey: .sidebar)
         fileOpeners = try container.decodeIfPresent([ExtensionFileOpener].self, forKey: .fileOpeners) ?? []
+        localizations = try container.decodeIfPresent([ExtensionLocalization].self, forKey: .localizations) ?? []
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
         statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
@@ -758,6 +770,7 @@ struct ExtensionManifest: Codable, Equatable {
         popovers = muxy.popovers
         sidebar = muxy.sidebar
         fileOpeners = muxy.fileOpeners
+        localizations = muxy.localizations
         permissions = muxy.permissions
         topbarItems = muxy.topbarItems
         statusBarItems = muxy.statusBarItems
@@ -779,6 +792,10 @@ struct ExtensionManifest: Codable, Equatable {
 
     func fileOpener(id: String) -> ExtensionFileOpener? {
         fileOpeners.first { $0.id == id }
+    }
+
+    func localization(id: String) -> ExtensionLocalization? {
+        localizations.first { $0.id == id }
     }
 
     func setting(key: String) -> ExtensionSettingEntry? {
@@ -820,6 +837,7 @@ struct MuxyManifestBody: Codable, Equatable {
     let popovers: [ExtensionPopover]
     let sidebar: ExtensionSidebar?
     let fileOpeners: [ExtensionFileOpener]
+    let localizations: [ExtensionLocalization]
     let permissions: [ExtensionPermission]
     let topbarItems: [ExtensionTopbarItem]
     let statusBarItems: [ExtensionStatusBarItem]
@@ -836,6 +854,7 @@ struct MuxyManifestBody: Codable, Equatable {
         case popovers
         case sidebar
         case fileOpeners
+        case localizations
         case permissions
         case topbarItems
         case statusBarItems
@@ -854,6 +873,7 @@ struct MuxyManifestBody: Codable, Equatable {
         popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
         sidebar = try container.decodeIfPresent(ExtensionSidebar.self, forKey: .sidebar)
         fileOpeners = try container.decodeIfPresent([ExtensionFileOpener].self, forKey: .fileOpeners) ?? []
+        localizations = try container.decodeIfPresent([ExtensionLocalization].self, forKey: .localizations) ?? []
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
         statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
@@ -915,6 +935,19 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case duplicateFileOpener(String)
     case fileOpenerReferencesUnknownTabType(openerID: String, tabType: String)
     case fileOpenerEmptyPattern(openerID: String)
+    case localizationEmptyID
+    case localizationInvalidID(String)
+    case duplicateLocalization(String)
+    case localizationInvalidLanguage(localizationID: String, language: String)
+    case localizationEmptyTitle(String)
+    case localizationBundleOutsideDirectory(localizationID: String, url: URL)
+    case localizationBundleMissing(localizationID: String, url: URL)
+    case localizationBundleInvalid(localizationID: String, url: URL)
+    case localizationBundleExecutable(localizationID: String, url: URL)
+    case localizationCatalogMissing(localizationID: String, language: String, url: URL)
+    case localizationCatalogInvalid(localizationID: String, url: URL)
+    case localizationCatalogTooLarge(localizationID: String, url: URL)
+    case localizationCatalogFormatMismatch(localizationID: String, url: URL, key: String)
     case remoteMethodEmptyID
     case remoteMethodInvalidID(String)
     case duplicateRemoteMethod(String)
@@ -1025,6 +1058,32 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "File opener '\(openerID)' references unknown tab type '\(tabType)'"
         case let .fileOpenerEmptyPattern(openerID):
             "File opener '\(openerID)' has an empty pattern"
+        case .localizationEmptyID:
+            "Localization id must not be empty"
+        case let .localizationInvalidID(id):
+            "Localization id '\(id)' contains invalid characters (use letters, digits, dash, underscore, dot)"
+        case let .duplicateLocalization(id):
+            "Duplicate localization '\(id)'"
+        case let .localizationInvalidLanguage(localizationID, language):
+            "Localization '\(localizationID)' has invalid language identifier '\(language)'"
+        case let .localizationEmptyTitle(localizationID):
+            "Localization '\(localizationID)' title must not be empty"
+        case let .localizationBundleOutsideDirectory(localizationID, url):
+            "Localization '\(localizationID)' bundle at \(url.path) escapes the extension directory"
+        case let .localizationBundleMissing(localizationID, url):
+            "Localization '\(localizationID)' bundle not found at \(url.path)"
+        case let .localizationBundleInvalid(localizationID, url):
+            "Localization '\(localizationID)' resource bundle is invalid at \(url.path)"
+        case let .localizationBundleExecutable(localizationID, url):
+            "Localization '\(localizationID)' bundle at \(url.path) must not declare executable code"
+        case let .localizationCatalogMissing(localizationID, language, url):
+            "Localization '\(localizationID)' has no Localizable.strings or Localizable.stringsdict for '\(language)' at \(url.path)"
+        case let .localizationCatalogInvalid(localizationID, url):
+            "Localization '\(localizationID)' catalog is invalid at \(url.path)"
+        case let .localizationCatalogTooLarge(localizationID, url):
+            "Localization '\(localizationID)' catalog at \(url.path) exceeds the size limit"
+        case let .localizationCatalogFormatMismatch(localizationID, url, key):
+            "Localization '\(localizationID)' catalog at \(url.path) changes the format placeholders of '\(key)'"
         case .remoteMethodEmptyID:
             "Remote method id must not be empty"
         case let .remoteMethodInvalidID(id):
@@ -1066,6 +1125,10 @@ enum ExtensionManifestLoader {
         set.insert(charactersIn: "-_.")
         return set
     }()
+
+    private static let allowedLocalizationIDCharacters = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_."
+    )
 
     static let manifestFileName = "package.json"
     static let buildOutputDirectoryName = "dist"
@@ -1109,6 +1172,7 @@ enum ExtensionManifestLoader {
 
         try validateTabTypes(manifest: manifest, in: muxyExtension)
         try validateFileOpeners(manifest: manifest)
+        try validateLocalizations(manifest: manifest, in: muxyExtension)
         try validatePanels(manifest: manifest, in: muxyExtension)
         try validatePopovers(manifest: manifest, in: muxyExtension)
         try validateSidebar(manifest: manifest, in: muxyExtension)
@@ -1194,6 +1258,148 @@ enum ExtensionManifestLoader {
                 throw ExtensionLoadError.fileOpenerEmptyPattern(openerID: opener.id)
             }
         }
+    }
+
+    static let maxLocalizationCatalogBytes = 4 * 1024 * 1024
+
+    private static func validateLocalizations(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
+        var seen = Set<String>()
+        for localization in manifest.localizations {
+            guard !localization.id.isEmpty else { throw ExtensionLoadError.localizationEmptyID }
+            guard localization.id.unicodeScalars.allSatisfy(allowedLocalizationIDCharacters.contains) else {
+                throw ExtensionLoadError.localizationInvalidID(localization.id)
+            }
+            guard seen.insert(localization.id).inserted else {
+                throw ExtensionLoadError.duplicateLocalization(localization.id)
+            }
+            let language = localization.language.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard language == localization.language,
+                  isValidLanguageIdentifier(language),
+                  Locale.Language(identifier: language).languageCode != nil
+            else {
+                throw ExtensionLoadError.localizationInvalidLanguage(
+                    localizationID: localization.id,
+                    language: localization.language
+                )
+            }
+            guard !localization.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ExtensionLoadError.localizationEmptyTitle(localization.id)
+            }
+            guard localization.bundle.hasSuffix(".bundle"),
+                  let bundleURL = muxyExtension.resolveResource(localization.bundle)
+            else {
+                throw ExtensionLoadError.localizationBundleOutsideDirectory(
+                    localizationID: localization.id,
+                    url: muxyExtension.directory.appendingPathComponent(localization.bundle)
+                )
+            }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: bundleURL.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue
+            else {
+                throw ExtensionLoadError.localizationBundleMissing(
+                    localizationID: localization.id,
+                    url: bundleURL
+                )
+            }
+            let bundleRoot = bundleURL.resolvingSymlinksInPath()
+            let infoURL = bundleURL.appendingPathComponent("Info.plist").resolvingSymlinksInPath()
+            let infoAttributes = try? FileManager.default.attributesOfItem(atPath: infoURL.path)
+            guard infoURL.path.hasPrefix(bundleRoot.path + "/"),
+                  infoAttributes?[.type] as? FileAttributeType == .typeRegular,
+                  let infoSize = infoAttributes?[.size] as? Int,
+                  infoSize <= maxLocalizationCatalogBytes,
+                  let infoData = try? Data(contentsOf: infoURL),
+                  infoData.count <= maxLocalizationCatalogBytes,
+                  let info = try? PropertyListSerialization.propertyList(from: infoData, format: nil) as? [String: Any]
+            else {
+                throw ExtensionLoadError.localizationBundleInvalid(
+                    localizationID: localization.id,
+                    url: bundleURL
+                )
+            }
+            if info["CFBundleExecutable"] != nil {
+                throw ExtensionLoadError.localizationBundleExecutable(
+                    localizationID: localization.id,
+                    url: bundleURL
+                )
+            }
+            let localizationDirectory = bundleURL.appendingPathComponent(
+                "\(language).lproj",
+                isDirectory: true
+            )
+            let catalogURLs = [
+                localizationDirectory.appendingPathComponent("Localizable.strings"),
+                localizationDirectory.appendingPathComponent("Localizable.stringsdict"),
+            ].filter { FileManager.default.fileExists(atPath: $0.path) }
+            guard !catalogURLs.isEmpty else {
+                throw ExtensionLoadError.localizationCatalogMissing(
+                    localizationID: localization.id,
+                    language: language,
+                    url: localizationDirectory
+                )
+            }
+            for catalogURL in catalogURLs {
+                let resolvedCatalogURL = catalogURL.resolvingSymlinksInPath()
+                guard resolvedCatalogURL.path.hasPrefix(bundleRoot.path + "/") else {
+                    throw ExtensionLoadError.localizationBundleOutsideDirectory(
+                        localizationID: localization.id,
+                        url: resolvedCatalogURL
+                    )
+                }
+                let attributes = try FileManager.default.attributesOfItem(atPath: resolvedCatalogURL.path)
+                guard attributes[.type] as? FileAttributeType == .typeRegular else {
+                    throw ExtensionLoadError.localizationCatalogInvalid(
+                        localizationID: localization.id,
+                        url: resolvedCatalogURL
+                    )
+                }
+                guard let size = attributes[.size] as? Int,
+                      size <= maxLocalizationCatalogBytes
+                else {
+                    throw ExtensionLoadError.localizationCatalogTooLarge(
+                        localizationID: localization.id,
+                        url: resolvedCatalogURL
+                    )
+                }
+                guard let catalogData = try? Data(contentsOf: resolvedCatalogURL),
+                      catalogData.count <= maxLocalizationCatalogBytes,
+                      let catalog = try? PropertyListSerialization.propertyList(
+                          from: catalogData,
+                          format: nil
+                      ) as? [String: Any]
+                else {
+                    throw ExtensionLoadError.localizationCatalogInvalid(
+                        localizationID: localization.id,
+                        url: resolvedCatalogURL
+                    )
+                }
+                if let mismatchedKey = ExtensionLocalizationCatalog.incompatibleKey(in: catalog) {
+                    throw ExtensionLoadError.localizationCatalogFormatMismatch(
+                        localizationID: localization.id,
+                        url: resolvedCatalogURL,
+                        key: mismatchedKey
+                    )
+                }
+            }
+        }
+    }
+
+    private static func isValidLanguageIdentifier(_ identifier: String) -> Bool {
+        let subtags = identifier.split(separator: "-", omittingEmptySubsequences: false)
+        guard let language = subtags.first,
+              (2 ... 8).contains(language.count),
+              language.unicodeScalars.allSatisfy(isASCIILetter)
+        else { return false }
+        return subtags.dropFirst().allSatisfy {
+            (1 ... 8).contains($0.count) && $0.unicodeScalars.allSatisfy {
+                isASCIILetter($0) || (48 ... 57).contains($0.value)
+            }
+        }
+    }
+
+    private static func isASCIILetter(_ scalar: Unicode.Scalar) -> Bool {
+        (65 ... 90).contains(scalar.value) || (97 ... 122).contains(scalar.value)
     }
 
     private static func validatePanels(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {

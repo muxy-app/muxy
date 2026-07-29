@@ -75,14 +75,14 @@ struct MuxyCommands: Commands {
             Button {
                 NotificationCenter.default.post(name: .openSettingsModal, object: nil)
             } label: {
-                Label("Settings...", systemImage: "gearshape")
+                Label(L10n.string("Settings..."), systemImage: "gearshape")
             }
             .keyboardShortcut(",", modifiers: .command)
 
             Button {
                 NotificationCenter.default.post(name: .openExtensionsModal, object: nil)
             } label: {
-                Label("Extensions...", systemImage: "puzzlepiece.extension")
+                Label(L10n.string("Extensions..."), systemImage: "puzzlepiece.extension")
             }
             .keyboardShortcut(",", modifiers: [.command, .shift])
         }
@@ -95,13 +95,13 @@ struct MuxyCommands: Commands {
                     configuration: NSWorkspace.OpenConfiguration()
                 )
             } label: {
-                Label("Open Configuration...", systemImage: "doc.text")
+                Label(L10n.string("Open Configuration..."), systemImage: "doc.text")
             }
 
             Button {
                 performShortcutAction(.reloadConfig)
             } label: {
-                Label("Reload Configuration", systemImage: "arrow.clockwise")
+                Label(L10n.string("Reload Configuration"), systemImage: "arrow.clockwise")
             }
             .shortcut(for: .reloadConfig, store: keyBindings)
 
@@ -109,7 +109,7 @@ struct MuxyCommands: Commands {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.refreshWorktrees)
             } label: {
-                Label("Refresh Worktrees", systemImage: "arrow.triangle.2.circlepath")
+                Label(L10n.string("Refresh Worktrees"), systemImage: "arrow.triangle.2.circlepath")
             }
             .shortcut(for: .refreshWorktrees, store: keyBindings)
             .disabled(activeProject == nil)
@@ -118,7 +118,7 @@ struct MuxyCommands: Commands {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.createWorktree)
             } label: {
-                Label("New Worktree", systemImage: "plus")
+                Label(L10n.string("New Worktree"), systemImage: "plus")
             }
             .shortcut(for: .createWorktree, store: keyBindings)
             .disabled(!canCreateWorktreeForActiveProject)
@@ -127,7 +127,7 @@ struct MuxyCommands: Commands {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.removeCurrentWorktree)
             } label: {
-                Label("Remove Current Worktree", systemImage: "trash")
+                Label(L10n.string("Remove Current Worktree"), systemImage: "trash")
             }
             .shortcut(for: .removeCurrentWorktree, store: keyBindings)
             .disabled(!canRemoveCurrentWorktree)
@@ -137,30 +137,30 @@ struct MuxyCommands: Commands {
             Button {
                 CLIAccessor.installCLI()
             } label: {
-                Label("Install CLI", systemImage: "terminal")
+                Label(L10n.string("Install CLI"), systemImage: "terminal")
             }
 
             Button {
                 updateService.checkForUpdates()
             } label: {
-                Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
+                Label(L10n.string("Check for Updates..."), systemImage: "arrow.triangle.2.circlepath")
             }
             .disabled(!updateService.canCheckForUpdates)
         }
 
         CommandGroup(replacing: .pasteboard) {
-            Button("Cut") { NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }
+            Button(L10n.string("Cut")) { NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }
                 .keyboardShortcut("x", modifiers: .command)
-            Button("Copy") { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
+            Button(L10n.string("Copy")) { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
                 .keyboardShortcut("c", modifiers: .command)
-            Button("Paste") { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }
+            Button(L10n.string("Paste")) { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }
                 .keyboardShortcut("v", modifiers: .command)
-            Button("Select All") { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
+            Button(L10n.string("Select All")) { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
                 .keyboardShortcut("a", modifiers: .command)
 
             Divider()
 
-            Button("Find") {
+            Button(L10n.string("Find")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.findInTerminal)
             }
@@ -168,26 +168,26 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(replacing: .newItem) {
-            Button("Open Project...") {
+            Button(L10n.string("Open Project...")) {
                 performShortcutAction(.openProject)
             }
             .shortcut(for: .openProject, store: keyBindings)
 
-            Menu("Open in IDE") {
+            Menu(L10n.string("Open in IDE")) {
                 Button {
                     guard let activeProjectPath else { return }
                     _ = ideService.openProject(at: activeProjectPath, in: IDEIntegrationService.finderApplication)
                 } label: {
                     HStack(spacing: 8) {
                         AppBundleIconView(appURL: IDEIntegrationService.finderAppURL, fallbackSystemName: "folder", size: 20)
-                        Text("Finder")
+                        Text(L10n.resource("Finder"))
                     }
                 }
 
                 Divider()
 
                 if ideService.installedApps.isEmpty {
-                    Button("No supported IDEs found") {}
+                    Button(L10n.string("No supported IDEs found")) {}
                         .disabled(true)
                 } else {
                     ForEach(ideService.installedApps) { ide in
@@ -205,32 +205,32 @@ struct MuxyCommands: Commands {
             }
             .disabled(activeProjectPath == nil)
 
-            Button("New Tab") {
+            Button(L10n.string("New Tab")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.newTab)
             }
             .shortcut(for: .newTab, store: keyBindings)
 
-            Button("New Home Tab") {
+            Button(L10n.string("New Home Tab")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.newHomeTab)
             }
             .shortcut(for: .newHomeTab, store: keyBindings)
 
-            Button("New Browser Tab") {
+            Button(L10n.string("New Browser Tab")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.newBrowserTab)
             }
             .shortcut(for: .newBrowserTab, store: keyBindings)
             .disabled(activeProject == nil || !browserEnabled)
 
-            Menu("Custom Commands") {
+            Menu(L10n.string("Custom Commands")) {
                 if commandShortcuts.shortcuts.isEmpty {
-                    Button("No Custom Commands") {}
+                    Button(L10n.string("No Custom Commands")) {}
                         .disabled(true)
                 } else {
                     ForEach(commandShortcuts.shortcuts) { shortcut in
-                        Button(shortcut.displayName) {
+                        Button(shortcut.localizedDisplayName) {
                             performCommandShortcut(shortcut)
                         }
                         .disabled(shortcut.trimmedCommand.isEmpty)
@@ -240,7 +240,7 @@ struct MuxyCommands: Commands {
 
             Divider()
 
-            Button("Close Tab") {
+            Button(L10n.string("Close Tab")) {
                 guard isMainWindowFocused else {
                     NSApp.keyWindow?.performClose(nil)
                     return
@@ -251,13 +251,13 @@ struct MuxyCommands: Commands {
 
             Divider()
 
-            Button("Rename Tab") {
+            Button(L10n.string("Rename Tab")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.renameTab)
             }
             .shortcut(for: .renameTab, store: keyBindings)
 
-            Button("Pin/Unpin Tab") {
+            Button(L10n.string("Pin/Unpin Tab")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.pinUnpinTab)
             }
@@ -265,55 +265,55 @@ struct MuxyCommands: Commands {
 
             Divider()
 
-            Button("Split Right") {
+            Button(L10n.string("Split Right")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.splitRight)
             }
             .shortcut(for: .splitRight, store: keyBindings)
 
-            Button("Split Down") {
+            Button(L10n.string("Split Down")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.splitDown)
             }
             .shortcut(for: .splitDown, store: keyBindings)
 
-            Button("Close Pane") {
+            Button(L10n.string("Close Pane")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.closePane)
             }
             .shortcut(for: .closePane, store: keyBindings)
 
-            Button("Focus Pane Left") {
+            Button(L10n.string("Focus Pane Left")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.focusPaneLeft)
             }
             .shortcut(for: .focusPaneLeft, store: keyBindings)
 
-            Button("Focus Pane Right") {
+            Button(L10n.string("Focus Pane Right")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.focusPaneRight)
             }
             .shortcut(for: .focusPaneRight, store: keyBindings)
 
-            Button("Focus Pane Up") {
+            Button(L10n.string("Focus Pane Up")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.focusPaneUp)
             }
             .shortcut(for: .focusPaneUp, store: keyBindings)
 
-            Button("Focus Pane Down") {
+            Button(L10n.string("Focus Pane Down")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.focusPaneDown)
             }
             .shortcut(for: .focusPaneDown, store: keyBindings)
 
-            Button("Cycle Next Tab (All Panes)") {
+            Button(L10n.string("Cycle Next Tab (All Panes)")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.cycleNextTabAcrossPanes)
             }
             .shortcut(for: .cycleNextTabAcrossPanes, store: keyBindings)
 
-            Button("Cycle Previous Tab (All Panes)") {
+            Button(L10n.string("Cycle Previous Tab (All Panes)")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.cyclePreviousTabAcrossPanes)
             }
@@ -321,13 +321,13 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(after: .windowList) {
-            Button("Next Tab") {
+            Button(L10n.string("Next Tab")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.nextTab)
             }
             .shortcut(for: .nextTab, store: keyBindings)
 
-            Button("Previous Tab") {
+            Button(L10n.string("Previous Tab")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.previousTab)
             }
@@ -337,7 +337,7 @@ struct MuxyCommands: Commands {
 
             ForEach(1 ... 9, id: \.self) { index in
                 if let action = ShortcutAction.tabAction(for: index) {
-                    Button("Tab \(index)") {
+                    Button(L10n.string("Tab \(index)")) {
                         guard isMainWindowFocused else { return }
                         performShortcutAction(action)
                     }
@@ -347,31 +347,31 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
-            Button("Toggle Sidebar") {
+            Button(L10n.string("Toggle Sidebar")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.toggleSidebar)
             }
             .shortcut(for: .toggleSidebar, store: keyBindings)
 
-            Button("Toggle App Layout") {
+            Button(L10n.string("Toggle App Layout")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.toggleAppLayout)
             }
             .shortcut(for: .toggleAppLayout, store: keyBindings)
 
-            Button("Toggle Composer") {
+            Button(L10n.string("Toggle Composer")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.toggleRichInput)
             }
             .shortcut(for: .toggleRichInput, store: keyBindings)
 
-            Button("Composer Voice") {
+            Button(L10n.string("Composer Voice")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.toggleComposerVoice)
             }
             .shortcut(for: .toggleComposerVoice, store: keyBindings)
 
-            Button("Toggle Full Screen") {
+            Button(L10n.string("Toggle Full Screen")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.toggleFullScreen)
             }
@@ -379,13 +379,13 @@ struct MuxyCommands: Commands {
 
             Divider()
 
-            Button("Next Project") {
+            Button(L10n.string("Next Project")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.nextProject)
             }
             .shortcut(for: .nextProject, store: keyBindings)
 
-            Button("Previous Project") {
+            Button(L10n.string("Previous Project")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.previousProject)
             }
@@ -395,7 +395,7 @@ struct MuxyCommands: Commands {
 
             ForEach(1 ... 9, id: \.self) { index in
                 if let action = ShortcutAction.projectAction(for: index) {
-                    Button("Project \(index)") {
+                    Button(L10n.string("Project \(index)")) {
                         guard isMainWindowFocused else { return }
                         performShortcutAction(action)
                     }
@@ -405,7 +405,7 @@ struct MuxyCommands: Commands {
 
             Divider()
 
-            Button("Theme Picker") {
+            Button(L10n.string("Theme Picker")) {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.toggleThemePicker)
             }
@@ -413,29 +413,29 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(replacing: .help) {
-            Button("Documentation") {
+            Button(L10n.string("Documentation")) {
                 HelpLinks.openDocs()
             }
 
-            Button("GitHub Repository") {
+            Button(L10n.string("GitHub Repository")) {
                 HelpLinks.openRepo()
             }
 
-            Button("Mobile App Repository") {
+            Button(L10n.string("Mobile App Repository")) {
                 HelpLinks.openMobileRepo()
             }
 
-            Button("Discord") {
+            Button(L10n.string("Discord")) {
                 HelpLinks.openDiscord()
             }
 
             Divider()
 
-            Button("What's New?") {
+            Button(L10n.string("What's New?")) {
                 NotificationCenter.default.post(name: .openWhatsNewModal, object: nil)
             }
 
-            Button("Report an Issue...") {
+            Button(L10n.string("Report an Issue...")) {
                 HelpLinks.openIssues()
             }
         }

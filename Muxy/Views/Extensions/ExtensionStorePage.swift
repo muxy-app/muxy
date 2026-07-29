@@ -76,7 +76,7 @@ struct ExtensionStorePage: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
                 .foregroundStyle(MuxyTheme.fgDim)
-            TextField("Search extensions", text: $query)
+            TextField(L10n.string("Search extensions"), text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
             if !query.isEmpty {
@@ -107,14 +107,14 @@ struct ExtensionStorePage: View {
                     sort = option
                 } label: {
                     if sort == option {
-                        Label(option.displayName, systemImage: "checkmark")
+                        Label(L10n.string(key: option.displayName), systemImage: "checkmark")
                     } else {
-                        Text(option.displayName)
+                        Text(L10n.resource(key: option.displayName))
                     }
                 }
             }
         } label: {
-            ExtensionStoreMenuLabel(icon: "arrow.up.arrow.down", title: sort.displayName)
+            ExtensionStoreMenuLabel(icon: "arrow.up.arrow.down", title: L10n.string(key: sort.displayName))
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -126,9 +126,9 @@ struct ExtensionStorePage: View {
                 selectedCategory = nil
             } label: {
                 if selectedCategory == nil {
-                    Label("All Categories", systemImage: "checkmark")
+                    Label(L10n.string("All Categories"), systemImage: "checkmark")
                 } else {
-                    Text("All Categories")
+                    Text(L10n.resource("All Categories"))
                 }
             }
             Divider()
@@ -137,9 +137,9 @@ struct ExtensionStorePage: View {
                     selectedCategory = category.slug
                 } label: {
                     if selectedCategory == category.slug {
-                        Label("\(category.name) (\(category.count))", systemImage: "checkmark")
+                        Label(L10n.string("\(category.name) (\(category.count))"), systemImage: "checkmark")
                     } else {
-                        Text("\(category.name) (\(category.count))")
+                        Text(L10n.resource("\(category.name) (\(category.count))"))
                     }
                 }
             }
@@ -151,7 +151,7 @@ struct ExtensionStorePage: View {
     }
 
     private var categoryLabel: String {
-        guard let selectedCategory else { return "All Categories" }
+        guard let selectedCategory else { return L10n.string("All Categories") }
         return categories.first { $0.slug == selectedCategory }?.name ?? selectedCategory
     }
 
@@ -202,7 +202,7 @@ struct ExtensionStorePage: View {
     private var loadingState: some View {
         HStack(spacing: 10) {
             ProgressView().controlSize(.small)
-            Text("Loading extensions…")
+            Text(L10n.resource("Loading extensions…"))
                 .font(.system(size: 12))
                 .foregroundStyle(MuxyTheme.fgMuted)
         }
@@ -214,12 +214,16 @@ struct ExtensionStorePage: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 32))
                 .foregroundStyle(MuxyTheme.fgDim)
-            Text("No extensions found")
+            Text(L10n.resource("No extensions found"))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
-            Text(committedQuery.isEmpty ? "Check back soon for new extensions." : "Try a different search or category.")
-                .font(.system(size: 12))
-                .foregroundStyle(MuxyTheme.fgMuted)
+            Text(
+                committedQuery.isEmpty
+                    ? L10n.resource("Check back soon for new extensions.")
+                    : L10n.resource("Try a different search or category.")
+            )
+            .font(.system(size: 12))
+            .foregroundStyle(MuxyTheme.fgMuted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -237,7 +241,7 @@ struct ExtensionStorePage: View {
             Button {
                 Task { await reload() }
             } label: {
-                Text("Retry")
+                Text(L10n.resource("Retry"))
                     .font(.system(size: 12))
                     .foregroundStyle(MuxyTheme.accent)
             }
@@ -385,11 +389,11 @@ private struct ExtensionStoreCard: View {
                         .foregroundStyle(MuxyTheme.fg)
                         .lineLimit(1)
                     if listing.official {
-                        ExtensionStoreBadge(label: "OFFICIAL", color: MuxyTheme.accent)
+                        ExtensionStoreBadge(label: L10n.string("OFFICIAL"), color: MuxyTheme.accent)
                     }
                 }
                 if let author = listing.author?.name, !author.isEmpty {
-                    Text("by \(author)")
+                    Text(L10n.resource("by \(author)"))
                         .font(.system(size: 11))
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .lineLimit(1)
@@ -397,17 +401,17 @@ private struct ExtensionStoreCard: View {
             }
             Spacer(minLength: 0)
             if isInstalled {
-                ExtensionStoreBadge(label: "Installed", color: MuxyTheme.diffAddFg)
+                ExtensionStoreBadge(label: L10n.string("Installed"), color: MuxyTheme.diffAddFg)
             }
         }
     }
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Label("\(listing.downloads)", systemImage: "arrow.down.circle")
+            Label(L10n.string("\(listing.downloads)"), systemImage: "arrow.down.circle")
                 .font(.system(size: 11))
                 .foregroundStyle(MuxyTheme.fgDim)
-            Text("v\(listing.version)")
+            Text(L10n.resource("v\(listing.version)"))
                 .font(.system(size: 11))
                 .foregroundStyle(MuxyTheme.fgDim)
             Spacer(minLength: 0)

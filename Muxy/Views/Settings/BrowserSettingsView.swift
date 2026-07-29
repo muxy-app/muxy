@@ -16,17 +16,17 @@ struct BrowserSettingsView: View {
     @State private var usesCustomHomePage = false
     @State private var customHomePageDraft = ""
 
-    private static let profilesFooter = """
+    private static let profilesFooter: LocalizedStringResource = """
     Each profile keeps its own cookies, cache, and logins. Pick a profile per tab from the browser \
     toolbar. Import brings an existing browser's cookies so tabs start signed in.
     """
 
-    private static let disabledFooter = """
+    private static let disabledFooter: LocalizedStringResource = """
     The built-in browser is off. Browser tabs, the toolbar globe, and terminal-link opening are \
     disabled, and terminal links open in your system browser.
     """
 
-    private static let homePageFooter = """
+    private static let homePageFooter: LocalizedStringResource = """
     New browser tabs open to a blank page. Turn on the toggle to open them to a website instead.
     """
 
@@ -34,22 +34,22 @@ struct BrowserSettingsView: View {
         SettingsContainer {
             SettingsSection("General", footer: browserEnabled ? nil : Self.disabledFooter, showsDivider: browserEnabled) {
                 SettingsToggleRow(
-                    label: "Enable Built-in Browser",
+                    label: L10n.resource("Enable Built-in Browser"),
                     isOn: $browserEnabled
                 )
                 if browserEnabled {
                     SettingsToggleRow(
-                        label: "Open terminal links in built-in browser",
+                        label: L10n.resource("Open terminal links in built-in browser"),
                         isOn: $openLinksInBuiltInBrowser
                     )
                     SettingsRow("Default Profile") {
                         Picker("", selection: defaultProfileBinding) {
                             ForEach(profileStore.profiles) { profile in
-                                Text(profile.name).tag(profile.id)
+                                Text(profile.localizedDisplayName).tag(profile.id)
                             }
                         }
                         .labelsHidden()
-                        .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                        .settingsControl()
                     }
                 }
             }
@@ -63,12 +63,12 @@ struct BrowserSettingsView: View {
                             }
                         }
                         .labelsHidden()
-                        .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                        .settingsControl()
                     }
-                    SettingsToggleRow(label: "Open new tabs to a website", isOn: customHomePageEnabledBinding)
+                    SettingsToggleRow(label: L10n.resource("Open new tabs to a website"), isOn: customHomePageEnabledBinding)
                     if usesCustomHomePage {
                         SettingsRow("Home Page") {
-                            TextField("https://example.com", text: $customHomePageDraft)
+                            TextField(L10n.string("https://example.com"), text: $customHomePageDraft)
                                 .settingsTextInput(width: SettingsMetrics.controlWidth)
                                 .onSubmit { commitCustomHomePage() }
                                 .onChange(of: customHomePageDraft) { _, _ in commitCustomHomePage() }
@@ -110,39 +110,39 @@ struct BrowserSettingsView: View {
             )
         }
         .alert(
-            "Delete “\(profilePendingDelete?.name ?? "")”?",
+            L10n.string("Delete “\(profilePendingDelete?.name ?? "")”?"),
             isPresented: deleteAlertBinding,
             presenting: profilePendingDelete
         ) { profile in
-            Button("Delete", role: .destructive) {
+            Button(L10n.string("Delete"), role: .destructive) {
                 historyStore.clear(profileID: profile.id)
                 profileStore.remove(id: profile.id)
                 profilePendingDelete = nil
             }
             .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) { profilePendingDelete = nil }
+            Button(L10n.string("Cancel"), role: .cancel) { profilePendingDelete = nil }
         } message: { _ in
-            Text("This permanently deletes the profile's cookies and browsing data.")
+            Text(L10n.resource("This permanently deletes the profile's cookies and browsing data."))
         }
         .alert(
-            "Clear data for “\(profilePendingClear?.name ?? "")”?",
+            L10n.string("Clear data for “\(profilePendingClear?.name ?? "")”?"),
             isPresented: clearAlertBinding,
             presenting: profilePendingClear
         ) { profile in
-            Button("Clear Data", role: .destructive) {
+            Button(L10n.string("Clear Data"), role: .destructive) {
                 let id = profile.id
                 let name = profile.name
                 profilePendingClear = nil
                 historyStore.clear(profileID: id)
                 Task {
                     await profileStore.clearData(for: id)
-                    ToastState.shared.show("Cleared browsing data for “\(name)”")
+                    ToastState.shared.show(L10n.string("Cleared browsing data for “\(name)”"))
                 }
             }
             .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) { profilePendingClear = nil }
+            Button(L10n.string("Cancel"), role: .cancel) { profilePendingClear = nil }
         } message: { _ in
-            Text("This signs out and removes all cookies, cache, and logins for this profile, including imported ones.")
+            Text(L10n.resource("This signs out and removes all cookies, cache, and logins for this profile, including imported ones."))
         }
     }
 
@@ -153,7 +153,7 @@ struct BrowserSettingsView: View {
             HStack(spacing: 6) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .semibold))
-                Text("Add Profile")
+                Text(L10n.resource("Add Profile"))
                     .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
             }
             .foregroundStyle(SettingsStyle.accent)
@@ -238,9 +238,11 @@ private struct BrowserProfileRow: View {
                 .font(.system(size: SettingsMetrics.labelFontSize))
                 .foregroundStyle(SettingsStyle.mutedForeground)
                 .frame(width: 16)
-            Text(profile.name)
+            Text(profile.localizedDisplayName)
                 .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.foreground)
+                .lineLimit(1)
+                .truncationMode(.tail)
             if profile.isDefault {
                 defaultBadge
             }
@@ -257,7 +259,7 @@ private struct BrowserProfileRow: View {
     }
 
     private var defaultBadge: some View {
-        Text("Default")
+        Text(L10n.resource("Default"))
             .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
             .foregroundStyle(SettingsStyle.mutedForeground)
             .padding(.horizontal, 6)
@@ -267,14 +269,14 @@ private struct BrowserProfileRow: View {
 
     private var actionsMenu: some View {
         Menu {
-            Button("Import from Chrome…", action: onImport)
+            Button(L10n.string("Import from Chrome…"), action: onImport)
             if !profile.isDefault {
-                Button("Rename…", action: onRename)
+                Button(L10n.string("Rename…"), action: onRename)
             }
             Divider()
-            Button("Clear Data", role: .destructive, action: onClearData)
+            Button(L10n.string("Clear Data"), role: .destructive, action: onClearData)
             if !profile.isDefault {
-                Button("Delete", role: .destructive, action: onDelete)
+                Button(L10n.string("Delete"), role: .destructive, action: onDelete)
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -328,17 +330,17 @@ private struct BrowserProfileEditorSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
-            Text(mode.title)
+            Text(L10n.resource(key: mode.title))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 
-            TextField("Profile name", text: $name)
+            TextField(L10n.string("Profile name"), text: $name)
                 .settingsTextInput(maxWidth: .infinity)
 
             HStack(spacing: UIMetrics.spacing3) {
                 Spacer()
-                Button("Cancel", action: onCancel)
+                Button(L10n.string("Cancel"), action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button("Save") { onSave(name) }
+                Button(L10n.string("Save")) { onSave(name) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave)
             }

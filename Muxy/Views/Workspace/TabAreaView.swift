@@ -98,7 +98,8 @@ struct TabAreaView: View {
                 return
             }
             guard let pane = tab.content.pane else { return }
-            TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
+            let surface = TerminalViewRegistry.shared.existingView(for: pane.id)
+            (surface as? any TerminalSearchSurface)?.startSearch()
         }
     }
 
@@ -198,9 +199,9 @@ private struct BrowserDisabledPlaceholder: View {
         VStack(spacing: 8) {
             Image(systemName: "globe.badge.chevron.backward")
                 .font(.system(size: 32, weight: .light))
-            Text("Built-in browser is disabled")
+            Text(L10n.resource("Built-in browser is disabled"))
                 .font(.headline)
-            Text("Enable it in Settings → Browser.")
+            Text(L10n.resource("Enable it in Settings → Browser."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }

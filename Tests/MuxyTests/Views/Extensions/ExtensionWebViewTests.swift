@@ -117,6 +117,59 @@ struct ExtensionWebViewTests {
         #expect(webView.scripts.count == 2)
         #expect(webView.scripts.last?.contains("__muxyApplyFocus(false)") == true)
     }
+
+    @Test("focused panel webview captures the previous responder")
+    func focusedPanelCapturesPreviousResponder() async {
+        let restoration = PanelFocusRestoration()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentLayoutRect)
+        let previousResponder = ExtensionWebViewFocusTestView()
+        let webView = WKWebView(frame: contentView.bounds)
+        contentView.addSubview(previousResponder)
+        contentView.addSubview(webView)
+        window.contentView = contentView
+        #expect(window.makeFirstResponder(previousResponder))
+        let coordinator = ExtensionWebView.SurfaceCoordinator(
+            surfaceKind: .panel,
+            focusRestorationID: "files",
+            focusRestoration: restoration
+        )
+
+        coordinator.applyFocusIfChanged(
+            true,
+            overlayActive: false,
+            in: webView,
+            claimID: UUID()
+        )
+        let panelFocused = await waitFor {
+            window.firstResponder === webView
+        }
+        #expect(panelFocused)
+
+        restoration.restoreAfterClosing(panelID: "files")
+
+        #expect(window.firstResponder === previousResponder)
+    }
+
+    private func waitFor(condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(1)
+        while Date() < deadline {
+            if condition() { return true }
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+}
+
+@MainActor
+private final class ExtensionWebViewFocusTestView: NSView {
+    override var acceptsFirstResponder: Bool { true }
 }
 
 @MainActor

@@ -23,7 +23,7 @@ struct QuickTerminalSettingsView: View {
                 footer: quickTerminalEnabled ? nil : Self.disabledFooter
             ) {
                 SettingsToggleRow(
-                    label: "Enable Quick Terminal",
+                    label: L10n.resource("Enable Quick Terminal"),
                     isOn: enabledBinding
                 )
             }
@@ -32,9 +32,9 @@ struct QuickTerminalSettingsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Open Quick Terminal")
+                            Text(L10n.resource("Open Quick Terminal"))
                                 .font(.system(size: SettingsMetrics.labelFontSize))
-                            Text(statusText)
+                            Text(L10n.resource(key: statusText))
                                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                                 .foregroundStyle(statusColor)
                         }
@@ -44,7 +44,7 @@ struct QuickTerminalSettingsView: View {
                             _ = updateShortcut(.unassigned)
                         } label: {
                             Label(
-                                "No Shortcut",
+                                L10n.string("No Shortcut"),
                                 systemImage: shortcutService.shortcut == .unassigned
                                     ? "checkmark.circle.fill"
                                     : "circle"
@@ -53,13 +53,17 @@ struct QuickTerminalSettingsView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .accessibilityAddTraits(isNoShortcutSelected ? .isSelected : [])
-                        .accessibilityValue(isNoShortcutSelected ? "Selected" : "Not selected")
+                        .accessibilityValue(
+                            isNoShortcutSelected
+                                ? L10n.string("Selected")
+                                : L10n.string("Not selected")
+                        )
 
                         Button {
                             _ = updateShortcut(.doubleShift)
                         } label: {
                             Label(
-                                "Double Shift",
+                                L10n.string("Double Shift"),
                                 systemImage: shortcutService.shortcut == .doubleShift
                                     ? "checkmark.circle.fill"
                                     : "circle"
@@ -68,7 +72,11 @@ struct QuickTerminalSettingsView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .accessibilityAddTraits(isDoubleShiftSelected ? .isSelected : [])
-                        .accessibilityValue(isDoubleShiftSelected ? "Selected" : "Not selected")
+                        .accessibilityValue(
+                            isDoubleShiftSelected
+                                ? L10n.string("Selected")
+                                : L10n.string("Not selected")
+                        )
 
                         ZStack {
                             if isRecordingShortcut {
@@ -80,24 +88,36 @@ struct QuickTerminalSettingsView: View {
                                 .frame(width: 0, height: 0)
                                 .opacity(0)
                             }
-                            Button(isRecordingShortcut ? "Press shortcut…" : customShortcutTitle) {
+                            Button {
                                 isRecordingShortcut = true
                                 shortcutError = nil
+                            } label: {
+                                if isRecordingShortcut {
+                                    Text(L10n.resource("Press shortcut…"))
+                                } else if case .keyCombo = shortcutService.shortcut {
+                                    Text(verbatim: shortcutService.shortcut.displayString)
+                                } else {
+                                    Text(L10n.resource("Record Custom…"))
+                                }
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                             .accessibilityAddTraits(isCustomShortcutSelected ? .isSelected : [])
-                            .accessibilityValue(isCustomShortcutSelected ? "Selected" : "Not selected")
+                            .accessibilityValue(
+                                isCustomShortcutSelected
+                                    ? L10n.string("Selected")
+                                    : L10n.string("Not selected")
+                            )
                         }
                     }
 
                     if shortcutService.needsInputMonitoringAccess {
                         HStack(spacing: 8) {
-                            Text("Double Shift needs Input Monitoring outside Muxy.")
+                            Text(L10n.resource("Double Shift needs Input Monitoring outside Muxy."))
                                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                                 .foregroundStyle(SettingsStyle.mutedForeground)
                             Spacer()
-                            Button("Enable Input Monitoring") {
+                            Button(L10n.string("Enable Input Monitoring")) {
                                 _ = shortcutService.requestInputMonitoringAccess()
                             }
                             .buttonStyle(.borderedProminent)
@@ -117,28 +137,28 @@ struct QuickTerminalSettingsView: View {
 
             SettingsSection("Size") {
                 HStack(spacing: 8) {
-                    Text("Terminal size")
+                    Text(L10n.resource("Terminal size"))
                         .font(.system(size: SettingsMetrics.labelFontSize))
                     Spacer()
-                    Text("Width")
+                    Text(L10n.resource("Width"))
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
                         .foregroundStyle(SettingsStyle.mutedForeground)
                     QuickTerminalDimensionField(
-                        label: "Width",
+                        label: L10n.string("Width"),
                         value: $width,
                         range: QuickTerminalSizePreferences.widthRange
                     )
-                    Text("×")
+                    Text(L10n.resource("×"))
                         .foregroundStyle(SettingsStyle.mutedForeground)
-                    Text("Height")
+                    Text(L10n.resource("Height"))
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
                         .foregroundStyle(SettingsStyle.mutedForeground)
                     QuickTerminalDimensionField(
-                        label: "Height",
+                        label: L10n.string("Height"),
                         value: $height,
                         range: QuickTerminalSizePreferences.heightRange
                     )
-                    Button("Reset") {
+                    Button(L10n.string("Reset")) {
                         width = QuickTerminalSizePreferences.defaultWidth
                         height = QuickTerminalSizePreferences.defaultHeight
                     }
@@ -152,7 +172,7 @@ struct QuickTerminalSettingsView: View {
             SettingsSection("Appearance", showsDivider: false) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
-                        Text("Terminal transparency")
+                        Text(L10n.resource("Terminal transparency"))
                             .font(.system(size: SettingsMetrics.labelFontSize))
                         Spacer()
                         Slider(
@@ -162,15 +182,15 @@ struct QuickTerminalSettingsView: View {
                             step: 1
                         )
                         .frame(width: 220)
-                        .accessibilityLabel("Terminal transparency")
-                        Text("\(displayedTransparency)%")
+                        .accessibilityLabel(L10n.string("Terminal transparency"))
+                        Text(L10n.resource("\(displayedTransparency)%"))
                             .font(.system(size: SettingsMetrics.footnoteFontSize).monospacedDigit())
                             .foregroundStyle(SettingsStyle.mutedForeground)
                             .frame(width: 34, alignment: .trailing)
                     }
 
                     HStack(spacing: 8) {
-                        Text("Background vibrancy")
+                        Text(L10n.resource("Background vibrancy"))
                             .font(.system(size: SettingsMetrics.labelFontSize))
                         Spacer()
                         Slider(
@@ -180,12 +200,12 @@ struct QuickTerminalSettingsView: View {
                             step: 1
                         )
                         .frame(width: 220)
-                        .accessibilityLabel("Background vibrancy")
-                        Text("\(displayedBlurIntensity)%")
+                        .accessibilityLabel(L10n.string("Background vibrancy"))
+                        Text(L10n.resource("\(displayedBlurIntensity)%"))
                             .font(.system(size: SettingsMetrics.footnoteFontSize).monospacedDigit())
                             .foregroundStyle(SettingsStyle.mutedForeground)
                             .frame(width: 34, alignment: .trailing)
-                        Button("Reset") {
+                        Button(L10n.string("Reset")) {
                             transparency = QuickTerminalAppearancePreferences.defaultTransparency
                             blurIntensity = QuickTerminalAppearancePreferences.defaultBlurIntensity
                         }
@@ -199,7 +219,7 @@ struct QuickTerminalSettingsView: View {
         }
     }
 
-    private static let disabledFooter = """
+    private static let disabledFooter: LocalizedStringResource = """
     The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance \
     settings are preserved.
     """
@@ -209,11 +229,6 @@ struct QuickTerminalSettingsView: View {
             get: { quickTerminalEnabled },
             set: { QuickTerminalPreferences.setEnabled($0) }
         )
-    }
-
-    private var customShortcutTitle: String {
-        guard case .keyCombo = shortcutService.shortcut else { return "Record Custom…" }
-        return shortcutService.shortcut.displayString
     }
 
     private var isDoubleShiftSelected: Bool {
@@ -327,7 +342,7 @@ private struct QuickTerminalDimensionField: View {
                 .focused($isFocused)
                 .onSubmit(commit)
                 .accessibilityLabel(label)
-            Text("pt")
+            Text(L10n.resource("pt"))
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .foregroundStyle(SettingsStyle.mutedForeground)
         }

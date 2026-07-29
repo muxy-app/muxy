@@ -14,7 +14,7 @@ struct BrowserFindBar: View {
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
 
-            TextField("Find on page", text: $query)
+            TextField(L10n.string("Find on page"), text: $query)
                 .textFieldStyle(.plain)
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(noMatch ? MuxyTheme.warning : MuxyTheme.fg)
@@ -22,17 +22,17 @@ struct BrowserFindBar: View {
                 .onSubmit { find(backwards: false) }
                 .onExitCommand(perform: onClose)
 
-            IconButton(symbol: "chevron.up", accessibilityLabel: "Previous Match") {
+            IconButton(symbol: "chevron.up", accessibilityLabel: L10n.string("Previous Match")) {
                 find(backwards: true)
             }
             .disabled(query.isEmpty)
 
-            IconButton(symbol: "chevron.down", accessibilityLabel: "Next Match") {
+            IconButton(symbol: "chevron.down", accessibilityLabel: L10n.string("Next Match")) {
                 find(backwards: false)
             }
             .disabled(query.isEmpty)
 
-            IconButton(symbol: "xmark", accessibilityLabel: "Close Find", action: onClose)
+            IconButton(symbol: "xmark", accessibilityLabel: L10n.string("Close Find"), action: onClose)
         }
         .padding(.horizontal, UIMetrics.spacing4)
         .frame(height: UIMetrics.titleBarHeight)

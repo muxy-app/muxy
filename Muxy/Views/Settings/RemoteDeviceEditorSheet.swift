@@ -68,13 +68,17 @@ struct RemoteDeviceEditorSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
-            Text(mode.title)
+            Text(L10n.resource(key: mode.title))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 
-            field(label: "Name", placeholder: trimmedHost.isEmpty ? "Production" : trimmedHost, text: $name)
-            field(label: "SSH Host", placeholder: "host or ~/.ssh/config alias", text: $host, focused: true)
+            field(
+                label: L10n.string("Name"),
+                placeholder: trimmedHost.isEmpty ? L10n.string("Production") : trimmedHost,
+                text: $name
+            )
+            field(label: L10n.string("SSH Host"), placeholder: L10n.string("host or ~/.ssh/config alias"), text: $host, focused: true)
                 .onChange(of: host) { probeState = .idle }
-            field(label: "Remote Root", placeholder: "~", text: $root)
+            field(label: L10n.string("Remote Root"), placeholder: L10n.string("~"), text: $root)
                 .onChange(of: root) { probeState = .idle }
 
             advancedSection
@@ -82,12 +86,12 @@ struct RemoteDeviceEditorSheet: View {
             statusRow
 
             HStack(spacing: UIMetrics.spacing3) {
-                Button("Test Connection", action: runTest)
+                Button(L10n.string("Test Connection"), action: runTest)
                     .disabled(!canProbe)
                 Spacer()
-                Button("Cancel", action: onCancel)
+                Button(L10n.string("Cancel"), action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button("Save", action: save)
+                Button(L10n.string("Save"), action: save)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSave || probeState == .testing)
             }
@@ -115,13 +119,13 @@ struct RemoteDeviceEditorSheet: View {
         DisclosureGroup(isExpanded: $showAdvanced) {
             VStack(alignment: .leading, spacing: UIMetrics.scaled(10)) {
                 HStack(spacing: UIMetrics.spacing4) {
-                    field(label: "User", placeholder: "optional", text: $user)
+                    field(label: L10n.string("User"), placeholder: L10n.string("optional"), text: $user)
                         .onChange(of: user) { probeState = .idle }
                     VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
-                        field(label: "Port", placeholder: "22", text: $port)
+                        field(label: L10n.string("Port"), placeholder: L10n.string("22"), text: $port)
                             .onChange(of: port) { probeState = .idle }
                         if !isPortValid {
-                            Text("Port must be between 1 and 65535.")
+                            Text(L10n.resource("Port must be between 1 and 65535."))
                                 .font(.system(size: UIMetrics.fontFootnote))
                                 .foregroundStyle(.orange)
                         }
@@ -129,14 +133,14 @@ struct RemoteDeviceEditorSheet: View {
                     .frame(width: UIMetrics.scaled(90))
                 }
                 VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
-                    Text("Identity File")
+                    Text(L10n.resource("Identity File"))
                         .font(.system(size: UIMetrics.fontFootnote))
                         .foregroundStyle(MuxyTheme.fgMuted)
                     HStack(spacing: UIMetrics.spacing3) {
-                        TextField("~/.ssh/id_ed25519", text: $identityFile)
+                        TextField(L10n.string("~/.ssh/id_ed25519"), text: $identityFile)
                             .textFieldStyle(.roundedBorder)
                             .onChange(of: identityFile) { probeState = .idle }
-                        Button("Browse…", action: chooseIdentityFile)
+                        Button(L10n.string("Browse…"), action: chooseIdentityFile)
                             .fixedSize(horizontal: true, vertical: false)
                     }
                 }
@@ -144,7 +148,7 @@ struct RemoteDeviceEditorSheet: View {
             }
             .padding(.top, UIMetrics.spacing3)
         } label: {
-            Text("Advanced")
+            Text(L10n.resource("Advanced"))
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
         }
@@ -152,7 +156,7 @@ struct RemoteDeviceEditorSheet: View {
 
     private var environmentEditor: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
-            Text("Environment")
+            Text(L10n.resource("Environment"))
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
             TextEditor(text: $environmentText)
@@ -175,20 +179,20 @@ struct RemoteDeviceEditorSheet: View {
     private var statusRow: some View {
         switch probeState {
         case .idle:
-            Text("Muxy uses your system SSH config, keys, and agent. No passwords are stored.")
+            Text(L10n.resource("Muxy uses your system SSH config, keys, and agent. No passwords are stored."))
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
         case .testing:
             HStack(spacing: UIMetrics.spacing2) {
                 ProgressView().controlSize(.small)
-                Text("Testing connection…")
+                Text(L10n.resource("Testing connection…"))
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
         case .succeeded:
             HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("Connection succeeded")
+                Text(L10n.resource("Connection succeeded"))
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fg)
             }
@@ -231,7 +235,7 @@ struct RemoteDeviceEditorSheet: View {
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
         panel.directoryURL = URL(fileURLWithPath: NSString(string: "~/.ssh").expandingTildeInPath)
-        panel.message = "Select an SSH private key"
+        panel.message = L10n.string("Select an SSH private key")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         identityFile = url.path
         probeState = .idle

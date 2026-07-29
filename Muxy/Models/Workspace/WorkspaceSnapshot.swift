@@ -167,6 +167,7 @@ struct TerminalTabSnapshot: Codable {
     let isPinned: Bool
     let projectPath: String
     let paneTitle: String
+    let paneUsesDefaultTitle: Bool
     let paneID: UUID?
     let filePath: String?
     let currentWorkingDirectory: String?
@@ -186,6 +187,7 @@ struct TerminalTabSnapshot: Codable {
         isPinned: Bool,
         projectPath: String,
         paneTitle: String?,
+        paneUsesDefaultTitle: Bool? = nil,
         paneID: UUID? = nil,
         filePath: String? = nil,
         currentWorkingDirectory: String? = nil,
@@ -203,7 +205,8 @@ struct TerminalTabSnapshot: Codable {
         self.customIcon = customIcon
         self.isPinned = isPinned
         self.projectPath = projectPath
-        self.paneTitle = paneTitle ?? "Terminal"
+        self.paneTitle = paneTitle ?? TerminalPaneState.defaultTitle
+        self.paneUsesDefaultTitle = paneUsesDefaultTitle ?? (paneTitle == nil)
         self.paneID = paneID
         self.filePath = filePath
         self.currentWorkingDirectory = currentWorkingDirectory
@@ -224,6 +227,7 @@ struct TerminalTabSnapshot: Codable {
         case isPinned
         case projectPath
         case paneTitle
+        case paneUsesDefaultTitle
         case paneID
         case filePath
         case currentWorkingDirectory
@@ -245,7 +249,8 @@ struct TerminalTabSnapshot: Codable {
         customIcon = try container.decodeIfPresent(String.self, forKey: .customIcon)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         projectPath = try container.decode(String.self, forKey: .projectPath)
-        paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? "Terminal"
+        paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? TerminalPaneState.defaultTitle
+        paneUsesDefaultTitle = try container.decodeIfPresent(Bool.self, forKey: .paneUsesDefaultTitle) ?? false
         paneID = try container.decodeIfPresent(UUID.self, forKey: .paneID)
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         currentWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .currentWorkingDirectory)

@@ -54,10 +54,10 @@ struct TerminalProgressCircle: View {
 
     private var accessibilityLabel: String {
         switch progress.kind {
-        case .set: "Progress \(progress.percent ?? 0) percent"
-        case .error: "Progress error"
-        case .indeterminate: "Working"
-        case .paused: "Progress paused"
+        case .set: L10n.string("Progress \(progress.percent ?? 0) percent")
+        case .error: L10n.string("Progress error")
+        case .indeterminate: L10n.string("Working")
+        case .paused: L10n.string("Progress paused")
         }
     }
 

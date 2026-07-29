@@ -184,7 +184,7 @@ final class TabFocusedRepositoryState {
             guard repository == activeRepository, revision == changesRevision else { return }
             resetChangesPresentation(hasLoaded: false)
             changesError = error.localizedDescription
-            ToastState.shared.show(title: "Failed to load changes", body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string("Failed to load changes"), body: error.localizedDescription)
         }
     }
 
@@ -235,7 +235,9 @@ final class TabFocusedRepositoryState {
     func stage(_ files: [GitStatusFile]) async {
         let paths = Array(Set(files.flatMap(\.relatedPaths))).sorted()
         guard !paths.isEmpty else { return }
-        let failureTitle = files.count == 1 ? "Failed to stage \(files[0].path)" : "Failed to stage changes"
+        let failureTitle: LocalizedStringResource = files.count == 1
+            ? "Failed to stage \(files[0].path)"
+            : "Failed to stage changes"
         await mutateChanges(failureTitle: failureTitle) { repository in
             try await repository.service.stageFiles(repoPath: repository.path, paths: paths)
         }
@@ -248,7 +250,9 @@ final class TabFocusedRepositoryState {
     func unstage(_ files: [GitStatusFile]) async {
         let paths = Array(Set(files.flatMap(\.relatedPaths))).sorted()
         guard !paths.isEmpty else { return }
-        let failureTitle = files.count == 1 ? "Failed to unstage \(files[0].path)" : "Failed to unstage changes"
+        let failureTitle: LocalizedStringResource = files.count == 1
+            ? "Failed to unstage \(files[0].path)"
+            : "Failed to unstage changes"
         await mutateChanges(failureTitle: failureTitle) { repository in
             try await repository.service.unstageFiles(repoPath: repository.path, paths: paths)
         }
@@ -282,7 +286,7 @@ final class TabFocusedRepositoryState {
         } catch {
             guard repository == activeRepository, revision == branchesRevision else { return }
             branches = []
-            ToastState.shared.show(title: "Failed to load branches", body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string("Failed to load branches"), body: error.localizedDescription)
         }
     }
 
@@ -300,7 +304,7 @@ final class TabFocusedRepositoryState {
             try await repository.service.createAndSwitchBranch(repoPath: repository.path, name: branch)
         }
         if created {
-            ToastState.shared.show("Created branch \(branch)")
+            ToastState.shared.show(L10n.string("Created branch \(branch)"))
         }
         return created
     }
@@ -322,18 +326,18 @@ final class TabFocusedRepositoryState {
             try await repository.service.deleteLocalBranch(repoPath: repository.path, branch: branch, force: true)
             guard repository == activeRepository else { return false }
             await loadBranches()
-            ToastState.shared.show("Deleted branch \(branch)")
+            ToastState.shared.show(L10n.string("Deleted branch \(branch)"))
             postRepositoryChange(repository)
             return true
         } catch {
             guard repository == activeRepository else { return false }
-            ToastState.shared.show(title: "Failed to delete branch \(branch)", body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string("Failed to delete branch \(branch)"), body: error.localizedDescription)
             return false
         }
     }
 
     private func switchCurrentBranch(
-        failureTitle: String,
+        failureTitle: LocalizedStringResource,
         operation: (ActiveRepository) async throws -> Void
     ) async -> Bool {
         guard let repository = activeRepository,
@@ -357,7 +361,7 @@ final class TabFocusedRepositoryState {
             return true
         } catch {
             guard repository == activeRepository else { return false }
-            ToastState.shared.show(title: failureTitle, body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string(failureTitle), body: error.localizedDescription)
             return false
         }
     }
@@ -439,13 +443,13 @@ final class TabFocusedRepositoryState {
             )
         } catch {
             guard repository == activeRepository else { return }
-            ToastState.shared.show(title: "Failed to merge PR #\(info.number)", body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string("Failed to merge PR #\(info.number)"), body: error.localizedDescription)
             return
         }
         guard repository == activeRepository else { return }
         await checkoutBaseBranch(info.baseBranch, on: repository)
         guard repository == activeRepository else { return }
-        ToastState.shared.show("Merged PR #\(info.number) into \(info.baseBranch)")
+        ToastState.shared.show(L10n.string("Merged PR #\(info.number) into \(info.baseBranch)"))
         _ = await refreshSummary(refreshPullRequestOnHeadChange: false)
         await loadBranches()
         await refreshPullRequest(forceFresh: true)
@@ -460,7 +464,7 @@ final class TabFocusedRepositoryState {
         } catch {
             guard repository == activeRepository else { return }
             ToastState.shared.show(
-                title: "Merged, but couldn't switch to \(baseBranch)",
+                title: L10n.string("Merged, but couldn't switch to \(baseBranch)"),
                 body: error.localizedDescription
             )
         }
@@ -482,12 +486,12 @@ final class TabFocusedRepositoryState {
         do {
             try await repository.service.closePullRequest(repoPath: repository.path, number: info.number)
             guard repository == activeRepository else { return }
-            ToastState.shared.show("Closed PR #\(info.number)")
+            ToastState.shared.show(L10n.string("Closed PR #\(info.number)"))
             await refreshPullRequest(forceFresh: true)
             postRepositoryChange(repository)
         } catch {
             guard repository == activeRepository else { return }
-            ToastState.shared.show(title: "Failed to close PR #\(info.number)", body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string("Failed to close PR #\(info.number)"), body: error.localizedDescription)
         }
     }
 
@@ -510,13 +514,13 @@ final class TabFocusedRepositoryState {
                 baseBranch: info.baseBranch
             )
             guard repository == activeRepository else { return }
-            ToastState.shared.show("Updated branch from \(info.baseBranch)")
+            ToastState.shared.show(L10n.string("Updated branch from \(info.baseBranch)"))
             _ = await refreshSummary(refreshPullRequestOnHeadChange: false)
             await refreshPullRequest(forceFresh: true)
             postRepositoryChange(repository)
         } catch {
             guard repository == activeRepository else { return }
-            ToastState.shared.show(title: "Failed to update branch", body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string("Failed to update branch"), body: error.localizedDescription)
         }
     }
 
@@ -679,7 +683,7 @@ final class TabFocusedRepositoryState {
     }
 
     private func mutateChanges(
-        failureTitle: String,
+        failureTitle: LocalizedStringResource,
         operation: (ActiveRepository) async throws -> Void
     ) async {
         guard let repository = activeRepository,
@@ -701,7 +705,7 @@ final class TabFocusedRepositoryState {
             postRepositoryChange(repository)
         } catch {
             guard repository == activeRepository else { return }
-            ToastState.shared.show(title: failureTitle, body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string(failureTitle), body: error.localizedDescription)
         }
     }
 

@@ -3,11 +3,11 @@
 @theme inline {
   --color-background: var(--muxy-background);
   --color-foreground: var(--muxy-foreground);
-  --color-muted: var(--muxy-surface);
+  --color-muted: var(--muxy-surface-solid);
   --color-muted-foreground: var(--muxy-foreground-muted);
-  --color-surface: var(--muxy-surface);
+  --color-surface: var(--muxy-surface-solid);
   --color-primary: var(--muxy-accent);
-  --color-primary-foreground: var(--muxy-background);
+  --color-primary-foreground: var(--muxy-accent-foreground);
   --color-accent: var(--muxy-hover);
   --color-accent-foreground: var(--muxy-foreground);
   --color-border: var(--muxy-border);

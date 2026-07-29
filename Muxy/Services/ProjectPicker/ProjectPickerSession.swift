@@ -286,8 +286,8 @@ struct ProjectPickerSession {
 }
 
 struct ProjectPickerConfirmationFailurePresentation: Equatable {
-    let title: String
-    let message: String
+    let title: LocalizedStringResource
+    let message: LocalizedStringResource
 
     init(result: ProjectOpenConfirmationResult, path: String) {
         switch result {

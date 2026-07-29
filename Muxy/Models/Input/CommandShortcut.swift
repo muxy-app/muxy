@@ -8,7 +8,7 @@ struct CommandShortcut: Codable, Identifiable, Equatable {
 
     init(
         id: UUID = UUID(),
-        name: String = "New Command",
+        name: String = "",
         command: String = "",
         combo: KeyCombo = KeyCombo(key: "t", command: true, option: true)
     ) {
@@ -26,5 +26,30 @@ struct CommandShortcut: Codable, Identifiable, Equatable {
 
     var trimmedCommand: String {
         command.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+@MainActor
+extension CommandShortcut {
+    var localizedDisplayName: String {
+        localizedDisplayName(using: .shared)
+    }
+
+    func localizedDisplayName(using localization: LocalizationService) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? localization.searchString(key: "Command")
+            : displayName
+    }
+
+    func matchesSearch(
+        query: String,
+        localization: LocalizationService = .shared
+    ) -> Bool {
+        LocalizedSearch.matches(
+            query: query,
+            localizedKeys: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? ["Command"] : [],
+            verbatimValues: [name, command],
+            localization: localization
+        )
     }
 }

@@ -80,12 +80,14 @@ final class PairingRequestCoordinator {
         guard pendingRequest?.id == request.id else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Allow \(request.deviceName) to connect?"
-        alert.informativeText = "This device is requesting access to Muxy. Only approve devices you recognize."
+        alert.messageText = L10n.string("Allow \(request.deviceName) to connect?")
+        alert.informativeText = L10n.string(
+            "This device is requesting access to Muxy. Only approve devices you recognize."
+        )
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Approve")
-        alert.addButton(withTitle: "Deny")
+        alert.addButton(withTitle: L10n.string("Approve"))
+        alert.addButton(withTitle: L10n.string("Deny"))
         alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = "\u{1b}"
 

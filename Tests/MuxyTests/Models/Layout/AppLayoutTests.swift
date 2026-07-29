@@ -41,6 +41,14 @@ struct AppLayoutTests {
         #expect(AppLayout.defaultValue == .projectFocused)
     }
 
+    @Test("group worktrees is available in focused layouts")
+    func groupedWorktreeAvailability() {
+        #expect(!AppLayout.projectFocused.supportsGroupedWorktrees)
+        #expect(AppLayout.tabFocused.supportsGroupedWorktrees)
+        #expect(AppLayout.agentsFocused.supportsGroupedWorktrees)
+        #expect(!WorktreeListPreferences.defaultGroupWorktrees)
+    }
+
     @Test("raw value round-trips through the initializer")
     func rawValueRoundTrips() {
         for layout in AppLayout.allCases {
@@ -89,6 +97,24 @@ struct AppLayoutTests {
         )
 
         #expect(projects == [first, second])
+    }
+
+    @Test("expanded project activity is scoped to the active worktree")
+    func expandedProjectActivityUsesActiveWorktree() {
+        let activeWorktreeID = UUID()
+
+        #expect(
+            ExpandedProjectActivityScope.worktreeID(
+                worktreesExpanded: false,
+                activeWorktreeID: activeWorktreeID
+            ) == nil
+        )
+        #expect(
+            ExpandedProjectActivityScope.worktreeID(
+                worktreesExpanded: true,
+                activeWorktreeID: activeWorktreeID
+            ) == activeWorktreeID
+        )
     }
 }
 

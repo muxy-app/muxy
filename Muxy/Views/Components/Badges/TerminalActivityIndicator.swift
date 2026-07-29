@@ -8,19 +8,19 @@ struct TerminalActivityIndicator: View {
         case .working:
             ProgressView()
                 .controlSize(.mini)
-                .accessibilityLabel("Working")
+                .accessibilityLabel(L10n.string("Working"))
         case .waiting:
             Circle()
                 .fill(MuxyTheme.warning)
                 .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
-                .accessibilityLabel("Waiting for attention")
+                .accessibilityLabel(L10n.string("Waiting for attention"))
         case let .unread(count):
             NotificationBadge(count: count)
         case .finished:
             Circle()
                 .fill(MuxyTheme.accent)
                 .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
-                .accessibilityLabel("Finished")
+                .accessibilityLabel(L10n.string("Finished"))
         }
     }
 }

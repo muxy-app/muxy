@@ -59,4 +59,4 @@ The popover also dismisses on outside click, and closes automatically when the e
 
 ## Theming
 
-The popover renders over native macOS popover material with a transparent webview backing. Keep the page background transparent (`body { background: transparent; }`) so the system material — already light/dark aware — shows through. Use the injected `--muxy-*` theme variables for text, accents, and translucent `--muxy-surface` chips, as in [tabs](tabs.md) and [panels](panels.md).
+The popover renders over native macOS popover material with a transparent webview backing. Keep the page background transparent (`body { background: transparent; }`) so the system material — already light/dark aware — shows through. Use `--muxy-surface` when a chip should blend with that material. Use the opaque `--muxy-surface-solid` for controls whose content must not show through. Both track the active Muxy theme automatically.

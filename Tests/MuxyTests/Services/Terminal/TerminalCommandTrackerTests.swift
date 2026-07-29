@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyKit
 import Testing
 
 @testable import Muxy
@@ -189,7 +188,7 @@ struct TerminalCommandTrackerTests {
     @Test("Secure input ON blocks Enter submission")
     func secureInputBlocksEnter() {
         let pane = UUID()
-        TerminalCommandTracker.shared.setSecureInput(GHOSTTY_SECURE_INPUT_ON, paneID: pane)
+        TerminalCommandTracker.shared.setSecureInput(.on, paneID: pane)
         TerminalCommandTracker.shared.recordText("mysecretpassword\n", paneID: pane)
         #expect(TerminalCommandTracker.shared.lastSubmittedCommand(for: pane) == nil)
     }
@@ -197,9 +196,9 @@ struct TerminalCommandTrackerTests {
     @Test("Secure input OFF restores tracking")
     func secureInputOffRestoresTracking() {
         let pane = UUID()
-        TerminalCommandTracker.shared.setSecureInput(GHOSTTY_SECURE_INPUT_ON, paneID: pane)
+        TerminalCommandTracker.shared.setSecureInput(.on, paneID: pane)
         TerminalCommandTracker.shared.recordText("password\n", paneID: pane)
-        TerminalCommandTracker.shared.setSecureInput(GHOSTTY_SECURE_INPUT_OFF, paneID: pane)
+        TerminalCommandTracker.shared.setSecureInput(.off, paneID: pane)
         TerminalCommandTracker.shared.recordText("git log\n", paneID: pane)
         #expect(TerminalCommandTracker.shared.lastSubmittedCommand(for: pane) == "git log")
     }
@@ -207,10 +206,10 @@ struct TerminalCommandTrackerTests {
     @Test("Secure input TOGGLE flips state")
     func secureInputToggle() {
         let pane = UUID()
-        TerminalCommandTracker.shared.setSecureInput(GHOSTTY_SECURE_INPUT_TOGGLE, paneID: pane)
+        TerminalCommandTracker.shared.setSecureInput(.toggle, paneID: pane)
         TerminalCommandTracker.shared.recordText("blocked\n", paneID: pane)
         #expect(TerminalCommandTracker.shared.lastSubmittedCommand(for: pane) == nil)
-        TerminalCommandTracker.shared.setSecureInput(GHOSTTY_SECURE_INPUT_TOGGLE, paneID: pane)
+        TerminalCommandTracker.shared.setSecureInput(.toggle, paneID: pane)
         TerminalCommandTracker.shared.recordText("git log\n", paneID: pane)
         #expect(TerminalCommandTracker.shared.lastSubmittedCommand(for: pane) == "git log")
     }
@@ -218,7 +217,7 @@ struct TerminalCommandTrackerTests {
     @Test("removePane clears secure input state")
     func removePaneClearsSecureInputState() {
         let pane = UUID()
-        TerminalCommandTracker.shared.setSecureInput(GHOSTTY_SECURE_INPUT_ON, paneID: pane)
+        TerminalCommandTracker.shared.setSecureInput(.on, paneID: pane)
         TerminalCommandTracker.shared.removePane(pane)
         TerminalCommandTracker.shared.recordText("git log\n", paneID: pane)
         #expect(TerminalCommandTracker.shared.lastSubmittedCommand(for: pane) == "git log")

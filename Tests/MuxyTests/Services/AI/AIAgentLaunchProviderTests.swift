@@ -25,6 +25,16 @@ struct AIAgentLaunchProviderTests {
             (OpenCodeProvider(), ["run", "--pure", prompt]),
             (CodexProvider(), ["exec", "--ephemeral", "--sandbox", "read-only", "--color", "never", prompt]),
             (CursorProvider(), ["--print", "--output-format", "text", prompt]),
+            (
+                CopilotProvider(),
+                [
+                    "--silent",
+                    "--no-ask-user",
+                    "--available-tools=",
+                    "-p",
+                    prompt,
+                ]
+            ),
             (DroidProvider(), ["exec", "--output-format", "text", prompt]),
             (PiProvider(), ["--print", "--no-session", "--no-tools", prompt]),
             (
@@ -83,6 +93,21 @@ struct AIAgentLaunchProviderTests {
     func openCodeDeniesTools() {
         let invocation = OpenCodeProvider().agentLaunchConfiguration.invocation(prompt: "metadata")
         #expect(invocation?.environment == ["OPENCODE_PERMISSION": #"{"*":"deny"}"#])
+    }
+
+    @Test("Copilot omits model flags so -p stays adjacent to the prompt")
+    func copilotDoesNotInsertModelBetweenPromptFlag() {
+        let configuration = CopilotProvider().agentLaunchConfiguration
+        let invocation = configuration.invocation(prompt: "metadata", model: "gpt-5")
+
+        #expect(configuration.modelArgument == nil)
+        #expect(invocation?.arguments == [
+            "--silent",
+            "--no-ask-user",
+            "--available-tools=",
+            "-p",
+            "metadata",
+        ])
     }
 
     @Test("agent tabs launch installed local executables safely")

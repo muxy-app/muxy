@@ -26,7 +26,7 @@ struct CommandsSettingsView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(SettingsStyle.mutedForeground)
                     .font(.system(size: SettingsMetrics.labelFontSize))
-                TextField("Search commands", text: $searchText)
+                TextField(L10n.string("Search commands"), text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: SettingsMetrics.labelFontSize))
                     .foregroundStyle(SettingsStyle.foreground)
@@ -47,8 +47,8 @@ struct CommandsSettingsView: View {
                     .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .semibold))
             }
             .buttonStyle(.plain)
-            .help("Add Command")
-            .accessibilityLabel("Add Command")
+            .help(L10n.string("Add Command"))
+            .accessibilityLabel(L10n.string("Add Command"))
         }
         .padding(SettingsMetrics.horizontalPadding)
     }
@@ -61,7 +61,7 @@ struct CommandsSettingsView: View {
 
     private var commandShortcutsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Press the command layer shortcut, then a command key to open a new terminal tab.")
+            Text(L10n.resource("Press the command layer shortcut, then a command key to open a new terminal tab."))
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .foregroundStyle(SettingsStyle.mutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
@@ -138,10 +138,7 @@ struct CommandsSettingsView: View {
 
     private var filteredCommandShortcuts: [CommandShortcut] {
         guard !searchText.isEmpty else { return commandStore.shortcuts }
-        return commandStore.shortcuts.filter {
-            $0.displayName.localizedCaseInsensitiveContains(searchText)
-                || $0.command.localizedCaseInsensitiveContains(searchText)
-        }
+        return commandStore.shortcuts.filter { $0.matchesSearch(query: searchText) }
     }
 
     private func handleRecord(prefixCombo combo: KeyCombo) -> Bool {
@@ -263,7 +260,7 @@ private struct CommandPrefixRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Command Layer")
+                Text(L10n.resource("Command Layer"))
                     .font(.system(size: SettingsMetrics.labelFontSize))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -275,7 +272,7 @@ private struct CommandPrefixRow: View {
             }
 
             if let conflictMessage {
-                Text("\(conflictMessage) — press a different shortcut or Esc to cancel")
+                Text(L10n.resource("\(conflictMessage) — press a different shortcut or Esc to cancel"))
                     .font(.system(size: 10))
                     .foregroundStyle(SettingsStyle.warning)
             }
@@ -295,7 +292,7 @@ private struct CommandPrefixRow: View {
                         .foregroundStyle(SettingsStyle.mutedForeground)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Reset Shortcut")
+                .accessibilityLabel(L10n.string("Reset Shortcut"))
             }
 
             Button(action: onStartRecording) {
@@ -316,7 +313,7 @@ private struct CommandPrefixRow: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
 
-            Text("Press shortcut…")
+            Text(L10n.resource("Press shortcut…"))
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.warning)
                 .padding(.horizontal, 8)
@@ -346,11 +343,11 @@ private struct CommandShortcutRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                TextField("Name", text: $shortcut.name)
+                TextField(L10n.string("Name"), text: $shortcut.name)
                     .font(.system(size: SettingsMetrics.labelFontSize))
                     .settingsTextInput(width: 120)
 
-                TextField("Command", text: $shortcut.command)
+                TextField(L10n.string("Command"), text: $shortcut.command)
                     .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
                     .settingsTextInput(maxWidth: .infinity)
 
@@ -362,7 +359,7 @@ private struct CommandShortcutRow: View {
             }
 
             if let conflictMessage {
-                Text("\(conflictMessage) — press a different shortcut or Esc to cancel")
+                Text(L10n.resource("\(conflictMessage) — press a different shortcut or Esc to cancel"))
                     .font(.system(size: 10))
                     .foregroundStyle(SettingsStyle.warning)
             }
@@ -376,7 +373,7 @@ private struct CommandShortcutRow: View {
     private var comboDisplay: some View {
         HStack(spacing: 6) {
             Button(action: onStartRecording) {
-                Text("\(prefixCombo.displayString) \(shortcut.combo.displayString)")
+                Text(L10n.resource("\(prefixCombo.displayString) \(shortcut.combo.displayString)"))
                     .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium, design: .rounded))
                     .foregroundStyle(SettingsStyle.foreground)
                     .padding(.horizontal, 8)
@@ -401,7 +398,7 @@ private struct CommandShortcutRow: View {
             .onHover { isHovering in
                 deleteButtonHovered = isHovering
             }
-            .accessibilityLabel("Delete Command")
+            .accessibilityLabel(L10n.string("Delete Command"))
         }
         .frame(alignment: .trailing)
     }
@@ -412,7 +409,7 @@ private struct CommandShortcutRow: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
 
-            Text("Press key…")
+            Text(L10n.resource("Press key…"))
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.warning)
                 .padding(.horizontal, 8)
@@ -435,7 +432,7 @@ private struct DeleteAllCommandShortcutsRow: View {
             Spacer()
 
             Button(action: action) {
-                Text(title)
+                Text(L10n.resource(title))
                     .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
                     .foregroundStyle(isConfirming ? SettingsStyle.destructive : SettingsStyle.mutedForeground)
                     .padding(.horizontal, 10)
@@ -443,13 +440,13 @@ private struct DeleteAllCommandShortcutsRow: View {
                     .background(backgroundStyle, in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(title)
+            .accessibilityLabel(L10n.string(title))
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
     }
 
-    private var title: String {
+    private var title: LocalizedStringResource {
         if isConfirming {
             return "Confirm Delete All (\(secondsRemaining))"
         }

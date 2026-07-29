@@ -6,6 +6,8 @@ enum MuxyTheme {
     @MainActor static var nsBg: NSColor { snapshot.nsBg }
     @MainActor static var nsFg: NSColor { snapshot.nsFg }
     @MainActor static var nsFgMuted: NSColor { snapshot.nsFgMuted }
+    @MainActor static var nsSurface: NSColor { snapshot.nsSurface }
+    @MainActor static var nsAccentForeground: NSColor { snapshot.nsAccentForeground }
     @MainActor static var fg: Color { snapshot.fg }
     @MainActor static var fgMuted: Color { snapshot.fgMuted }
     @MainActor static var fgDim: Color { snapshot.fgDim }
@@ -58,6 +60,8 @@ extension MuxyTheme {
         let nsBg: NSColor
         let nsFg: NSColor
         let nsFgMuted: NSColor
+        let nsSurface: NSColor
+        let nsAccentForeground: NSColor
         let bg: Color
         let fg: Color
         let fgMuted: Color
@@ -100,16 +104,18 @@ extension MuxyTheme {
             nsBg = bgColor
             nsFg = fgColor
             nsFgMuted = fgColor.withAlphaComponent(0.65)
+            nsSurface = fgColor.withAlphaComponent(0.08)
+            nsAccentForeground = Snapshot.contrastingForeground(for: accentColor)
             bg = Color(nsColor: bgColor)
             fg = Color(nsColor: fgColor)
             fgMuted = Color(nsColor: fgColor.withAlphaComponent(0.65))
             fgDim = Color(nsColor: fgColor.withAlphaComponent(0.4))
-            surface = Color(nsColor: fgColor.withAlphaComponent(0.08))
+            surface = Color(nsColor: nsSurface)
             border = Color(nsColor: fgColor.withAlphaComponent(0.12))
             hover = Color(nsColor: fgColor.withAlphaComponent(0.06))
             accent = Color(nsColor: accentColor)
             accentSoft = Color(nsColor: accentColor.withAlphaComponent(0.1))
-            accentForeground = Color(nsColor: Snapshot.contrastingForeground(for: accentColor))
+            accentForeground = Color(nsColor: nsAccentForeground)
             warning = Color(nsColor: resolvedPalette.paletteColor(at: 3) ?? NSColor.systemYellow)
 
             let addColor = resolvedPalette.paletteColor(at: 2) ?? NSColor.systemGreen

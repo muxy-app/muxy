@@ -38,31 +38,34 @@ struct CreateWorktreeSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
-            Text("New Worktree")
+            Text(L10n.resource("New Worktree"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 
             VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-                Text("Name").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
-                TextField("feature-x", text: $name)
+                Text(L10n.resource("Name")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
+                TextField(L10n.string("feature-x"), text: $name)
                     .textFieldStyle(.roundedBorder)
             }
 
             SegmentedPicker(
                 selection: $createNewBranch,
-                options: [(true, "Create new branch"), (false, "Use existing branch")]
+                options: [
+                    (true, L10n.string("Create new branch")),
+                    (false, L10n.string("Use existing branch")),
+                ]
             )
 
             if createNewBranch {
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-                    Text("Branch Name").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
-                    TextField("feature-x", text: $branchName)
+                    Text(L10n.resource("Branch Name")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
+                    TextField(L10n.string("feature-x"), text: $branchName)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: branchName) { _, newValue in
                             branchNameEdited = newValue != name
                         }
                 }
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-                    Text("Base Branch").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
+                    Text(L10n.resource("Base Branch")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
                     Picker("", selection: $selectedBaseBranch) {
                         ForEach(availableBranches, id: \.self) { branch in
                             Text(branch).tag(branch)
@@ -73,7 +76,7 @@ struct CreateWorktreeSheet: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-                    Text("Branch").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
+                    Text(L10n.resource("Branch")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
                     Picker("", selection: $selectedExistingBranch) {
                         ForEach(availableBranches, id: \.self) { branch in
                             Text(branch).tag(branch)
@@ -100,9 +103,9 @@ struct CreateWorktreeSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { onFinish(.cancelled) }
+                Button(L10n.string("Cancel")) { onFinish(.cancelled) }
                     .keyboardShortcut(.cancelAction)
-                Button("Create") { Task { await create() } }
+                Button(L10n.string("Create")) { Task { await create() } }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canCreate || inProgress)
             }
@@ -127,7 +130,7 @@ struct CreateWorktreeSheet: View {
 
     private var locationSection: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-            Text("Location").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
+            Text(L10n.resource("Location")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
             if project.isRemote {
                 remoteLocationField
             } else {
@@ -137,7 +140,7 @@ struct CreateWorktreeSheet: View {
     }
 
     private var remoteLocationField: some View {
-        TextField("~/.muxy-worktrees/<name>", text: $remotePath)
+        TextField(L10n.string("~/.muxy-worktrees/<name>"), text: $remotePath)
             .textFieldStyle(.roundedBorder)
             .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
             .onChange(of: remotePath) { _, newValue in
@@ -150,9 +153,9 @@ struct CreateWorktreeSheet: View {
             SegmentedPicker(
                 selection: localLocationMode,
                 options: [
-                    (.defaultLocation, "Default"),
-                    (.pathTemplate, "Template"),
-                    (.parentFolder, "Folder"),
+                    (.defaultLocation, L10n.string("Default")),
+                    (.pathTemplate, L10n.string("Template")),
+                    (.parentFolder, L10n.string("Folder")),
                 ]
             )
 
@@ -167,11 +170,11 @@ struct CreateWorktreeSheet: View {
                     .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
             case .parentFolder:
                 HStack(spacing: UIMetrics.spacing4) {
-                    TextField("/path/to/worktrees", text: localLocationText)
+                    TextField(L10n.string("/path/to/worktrees"), text: localLocationText)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
 
-                    Button("Choose Folder...") {
+                    Button(L10n.string("Choose Folder...")) {
                         chooseParentDirectory()
                     }
                     .fixedSize(horizontal: true, vertical: false)
@@ -191,7 +194,7 @@ struct CreateWorktreeSheet: View {
                     .textSelection(.enabled)
             }
 
-            Text("Templates must include {branch}. Relative paths start from the project folder.")
+            Text(L10n.resource("Templates must include {branch}. Relative paths start from the project folder."))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
         }
@@ -203,11 +206,11 @@ struct CreateWorktreeSheet: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
-                Text("Setup commands from .muxy/worktree.json")
+                Text(L10n.resource("Setup commands from .muxy/worktree.json"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
             }
-            Text("These commands will run in the new worktree's terminal. Only enable this if you trust this repository.")
+            Text(L10n.resource("These commands will run in the new worktree's terminal. Only enable this if you trust this repository."))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -222,7 +225,7 @@ struct CreateWorktreeSheet: View {
             }
             .padding(UIMetrics.spacing4)
             .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
-            Toggle("Run these commands after creating the worktree", isOn: $runSetup)
+            Toggle(L10n.string("Run these commands after creating the worktree"), isOn: $runSetup)
                 .font(.system(size: UIMetrics.fontFootnote))
         }
         .padding(UIMetrics.spacing5)
@@ -235,19 +238,19 @@ struct CreateWorktreeSheet: View {
                 Image(systemName: "info.circle")
                     .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.fgDim)
-                Text("Optional setup commands")
+                Text(L10n.resource("Optional setup commands"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
             }
-            Text("To run setup commands after creating a worktree, add .muxy/worktree.json in this repository.")
+            Text(L10n.resource("To run setup commands after creating a worktree, add .muxy/worktree.json in this repository."))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("\(project.path)/.muxy/worktree.json")
+            Text(L10n.resource("\(project.path)/.muxy/worktree.json"))
                 .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fg)
                 .textSelection(.enabled)
-            Text("{\n  \"setup\": [\n    \"pnpm install\",\n    \"pnpm dev\"\n  ]\n}")
+            Text(L10n.resource("{\n  \"setup\": [\n    \"pnpm install\",\n    \"pnpm dev\"\n  ]\n}"))
                 .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fg)
                 .textSelection(.enabled)
@@ -355,7 +358,7 @@ struct CreateWorktreeSheet: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.message = "Select where new worktrees for this project should be created"
+        panel.message = L10n.string("Select where new worktrees for this project should be created")
         let initialPath = worktreeDirectoryPath.isEmpty ? project.path : worktreeDirectoryPath
         panel.directoryURL = URL(fileURLWithPath: initialPath, isDirectory: true).deletingLastPathComponent()
         guard panel.runModal() == .OK, let url = panel.url else { return }

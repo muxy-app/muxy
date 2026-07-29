@@ -54,8 +54,9 @@ final class TerminalOfflineService {
         let idleThreshold = TerminalOfflinePreferences.idleThreshold
         let now = Date()
         var freed = 0
-        for view in TerminalViewRegistry.shared.liveViews {
-            guard view.hasLiveSurface, !view.isTakenOffline, !view.isOfflineBlockedByRemote else { continue }
+        for surface in TerminalViewRegistry.shared.liveViews {
+            guard let view = surface as? any TerminalOfflineSurface else { continue }
+            guard surface.hasLiveSurface, !view.isTakenOffline, !view.isOfflineBlockedByRemote else { continue }
             guard let invisibleSince = view.offlineInvisibleSince else { continue }
             let invisibleDuration = now.timeIntervalSince(invisibleSince)
             guard invisibleDuration >= idleThreshold else { continue }

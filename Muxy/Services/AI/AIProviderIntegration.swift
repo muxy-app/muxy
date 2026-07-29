@@ -19,6 +19,7 @@ protocol AIProviderIntegration {
     var hookScriptName: String { get }
     var hookScriptExtension: String { get }
     var configPaths: [String] { get }
+    var requiresLoginShellEnvironmentForConfiguration: Bool { get }
 
     func isToolInstalled() -> Bool
     func isHookInstalled() -> Bool
@@ -38,6 +39,7 @@ extension AIProviderIntegration {
     }
 
     var configPaths: [String] { [] }
+    var requiresLoginShellEnvironmentForConfiguration: Bool { false }
 
     func verify(hookScriptPath _: String) -> HookVerification {
         isHookInstalled() ? .satisfied : .needsRepair
@@ -78,6 +80,7 @@ final class AIProviderRegistry {
     private let openCodeProvider = OpenCodeProvider()
     private let codexProvider = CodexProvider()
     private let cursorProvider = CursorProvider()
+    private let copilotProvider = CopilotProvider()
     private let droidProvider = DroidProvider()
     private let piProvider = PiProvider()
     private let grokProvider = GrokProvider()
@@ -97,6 +100,7 @@ final class AIProviderRegistry {
         openCodeProvider,
         codexProvider,
         cursorProvider,
+        copilotProvider,
         droidProvider,
         piProvider,
         grokProvider,
@@ -154,8 +158,10 @@ final class AIProviderRegistry {
             return
         }
 
-        let hasDisabledManagedOnly = providers.allSatisfy { !$0.isEnabled }
-        if !hasDisabledManagedOnly {
+        let needsLoginShellEnvironment = providers.contains {
+            $0.isEnabled || $0.requiresLoginShellEnvironmentForConfiguration
+        }
+        if needsLoginShellEnvironment {
             await loginShellPathHydrationTask().value
         }
 

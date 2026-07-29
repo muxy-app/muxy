@@ -4,6 +4,7 @@ import Testing
 @testable import Muxy
 
 @Suite("HookHealthPresenter")
+@MainActor
 struct HookHealthPresenterTests {
     private let base = Date(timeIntervalSince1970: 1_700_000_000)
 

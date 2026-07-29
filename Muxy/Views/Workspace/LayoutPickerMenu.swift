@@ -26,8 +26,8 @@ struct LayoutPickerMenu: View {
             .tint(hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
             .foregroundStyle(hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
             .onHover { hovered = $0 }
-            .help("Apply Layout")
-            .accessibilityLabel("Apply Layout")
+            .help(L10n.string("Apply Layout"))
+            .accessibilityLabel(L10n.string("Apply Layout"))
         }
     }
 }

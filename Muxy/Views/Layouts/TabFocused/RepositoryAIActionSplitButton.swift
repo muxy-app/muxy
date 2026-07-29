@@ -60,7 +60,7 @@ struct RepositoryAIActionSplitButton: View {
             HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: action.symbolName)
                     .font(.system(size: UIMetrics.fontXS, weight: .bold))
-                Text(isRunning ? action.runningTitle : action.title)
+                Text(L10n.resource(key: isRunning ? action.runningTitle : action.title))
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
             }
             .foregroundStyle(primaryForeground)
@@ -97,13 +97,13 @@ struct RepositoryAIActionSplitButton: View {
         .buttonStyle(.plain)
         .disabled(menuDisabled)
         .onHover { hoveredMenu = $0 }
-        .help("Choose the AI provider for \(action.title)")
-        .accessibilityLabel("Choose the AI provider for \(action.title)")
+        .help(L10n.string("Choose the AI provider for \(action.title)"))
+        .accessibilityLabel(L10n.string("Choose the AI provider for \(action.title)"))
     }
 
     private var providerMenu: some View {
         VStack(alignment: .leading, spacing: UIMetrics.scaled(1)) {
-            Text(action.settingsTitle)
+            Text(L10n.resource(key: action.settingsTitle))
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .padding(.horizontal, UIMetrics.spacing3)
@@ -147,7 +147,7 @@ struct RepositoryAIActionSplitButton: View {
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                    Text("Edit Project Prompt…")
+                    Text(L10n.resource("Edit Project Prompt…"))
                         .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fg)
                     Text(configuration.projectName)
@@ -175,7 +175,7 @@ struct RepositoryAIActionSplitButton: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing4) {
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                Text("Create PR Prompt")
+                Text(L10n.resource("Create PR Prompt"))
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
                 Text(configuration.projectName)
@@ -195,12 +195,12 @@ struct RepositoryAIActionSplitButton: View {
                         .stroke(MuxyTheme.border, lineWidth: 1)
                 }
 
-            Text("This prompt overrides Settings → AI only for this project.")
+            Text(L10n.resource("This prompt overrides Settings → AI only for this project."))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
 
             HStack(spacing: UIMetrics.spacing3) {
-                Button("Use Global Prompt") {
+                Button(L10n.string("Use Global Prompt")) {
                     configuration.onSave(nil)
                     showingMenu = false
                 }
@@ -208,10 +208,10 @@ struct RepositoryAIActionSplitButton: View {
                 .foregroundStyle(MuxyTheme.accent)
                 .disabled(configuration.prompt == nil)
                 Spacer(minLength: 0)
-                Button("Cancel") {
+                Button(L10n.string("Cancel")) {
                     editingProjectPrompt = false
                 }
-                Button("Save") {
+                Button(L10n.string("Save")) {
                     configuration.onSave(projectPromptDraft)
                     showingMenu = false
                 }
@@ -263,18 +263,20 @@ struct RepositoryAIActionSplitButton: View {
 
     private var primaryHelp: String {
         if isRunning {
-            return "\(action.settingsTitle) is running."
+            return L10n.string("\(L10n.string(key: action.settingsTitle)) is running.")
         }
         if case let .disabled(reason) = availability {
             return reason
         }
         guard let selectedProvider else {
-            return "Install a supported AI provider CLI or choose a provider."
+            return L10n.string("Install a supported AI provider CLI or choose a provider.")
         }
         guard isRemote || installedProviderIDs.contains(selectedProvider.id) else {
-            return "\(selectedProvider.displayName) CLI is not installed. Choose another provider or install its CLI."
+            return L10n.string(
+                "\(selectedProvider.displayName) CLI is not installed. Choose another provider or install its CLI."
+            )
         }
-        return "\(action.settingsTitle) with \(selectedProvider.displayName)"
+        return L10n.string("\(L10n.string(key: action.settingsTitle)) with \(selectedProvider.displayName)")
     }
 
     private var primaryForeground: Color {

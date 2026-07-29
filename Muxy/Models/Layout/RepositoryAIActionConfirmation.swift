@@ -8,6 +8,7 @@ struct RepositoryAIActionConfirmation: Equatable {
 
     let action: RepositoryAIAction
     let context: Context
+    let providerName: String
     let title: String
     let message: String
     let confirmTitle: String
@@ -19,6 +20,7 @@ struct RepositoryAIActionConfirmation: Equatable {
     ) {
         self.action = action
         self.context = context
+        self.providerName = providerName
         confirmTitle = action.settingsTitle
         switch action {
         case .commit:

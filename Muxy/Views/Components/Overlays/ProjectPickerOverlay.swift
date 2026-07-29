@@ -61,7 +61,7 @@ struct ProjectPickerOverlay: View {
 
             ZStack(alignment: .leading) {
                 if workflow.session.input.isEmpty {
-                    Text("Search folders or enter a path…")
+                    Text(L10n.resource("Search folders or enter a path…"))
                         .font(.system(size: UIMetrics.fontEmphasis, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fgDim)
                         .allowsHitTesting(false)
@@ -89,7 +89,7 @@ struct ProjectPickerOverlay: View {
                     HStack(spacing: UIMetrics.spacing2) {
                         Image(systemName: "plus")
                             .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                        Text(workflow.session.topRightActionTitle)
+                        Text(L10n.resource(key: workflow.session.topRightActionTitle))
                             .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     }
                     .padding(.leading, UIMetrics.spacing3)
@@ -110,16 +110,16 @@ struct ProjectPickerOverlay: View {
                     Button {
                         chooseWithFinder()
                     } label: {
-                        Label("Choose in Finder", systemImage: "folder")
+                        Label(L10n.string("Choose in Finder"), systemImage: "folder")
                     }
                     Button {
                         editDefaultLocation()
                     } label: {
                         if defaultLocationNeedsFix {
-                            Label("Fix Search Location", systemImage: "exclamationmark.triangle.fill")
+                            Label(L10n.string("Fix Search Location"), systemImage: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
                         } else {
-                            Label("Edit Search Location", systemImage: "gearshape")
+                            Label(L10n.string("Edit Search Location"), systemImage: "gearshape")
                         }
                     }
                 } label: {
@@ -171,7 +171,7 @@ struct ProjectPickerOverlay: View {
         VStack {
             Spacer()
             if workflow.session.directoryLoadState.showsMessage {
-                Text("Loading…")
+                Text(L10n.resource("Loading…"))
                     .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
@@ -237,7 +237,7 @@ struct ProjectPickerOverlay: View {
                         .id(result.path)
                     }
                     if let searchResultsNotice {
-                        Text(searchResultsNotice)
+                        Text(L10n.resource(searchResultsNotice))
                             .font(.system(size: UIMetrics.fontFootnote))
                             .foregroundStyle(MuxyTheme.fgDim)
                             .frame(maxWidth: .infinity)
@@ -254,10 +254,10 @@ struct ProjectPickerOverlay: View {
 
     private var unavailableProjectMessage: some View {
         VStack(spacing: UIMetrics.spacing4) {
-            Text(unavailableProjectTitle)
+            Text(L10n.resource(unavailableProjectTitle))
                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Text(unavailableProjectDescription)
+            Text(L10n.resource(unavailableProjectDescription))
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgDim)
                 .multilineTextAlignment(.center)
@@ -323,23 +323,23 @@ struct ProjectPickerOverlay: View {
 
     private func confirmCreateDirectory(path: String) -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Create Project Folder?"
-        alert.informativeText = "Muxy will create \"\(path)\" and add it as a project."
-        alert.addButton(withTitle: "Create & Add")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.string("Create Project Folder?")
+        alert.informativeText = L10n.string("Muxy will create \"\(path)\" and add it as a project.")
+        alert.addButton(withTitle: L10n.string("Create & Add"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func showConfirmationFailureAlert(_ presentation: ProjectPickerConfirmationFailurePresentation) {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = presentation.title
-        alert.informativeText = presentation.message
-        alert.addButton(withTitle: "OK")
+        alert.messageText = L10n.string(presentation.title)
+        alert.informativeText = L10n.string(presentation.message)
+        alert.addButton(withTitle: L10n.string("OK"))
         alert.runModal()
     }
 
-    private var unavailableProjectTitle: String {
+    private var unavailableProjectTitle: LocalizedStringResource {
         guard workflow.session.inputMode == .folderSearch else { return "No project folders found" }
         if workflow.session.directoryLoadState.readFailed {
             return "Folder search unavailable"
@@ -347,7 +347,7 @@ struct ProjectPickerOverlay: View {
         return workflow.session.searchQuery.isEmpty ? "Find a project folder" : "No matching folders"
     }
 
-    private var unavailableProjectDescription: String {
+    private var unavailableProjectDescription: LocalizedStringResource {
         guard workflow.session.inputMode == .folderSearch else {
             return "Use the action above to open or create this project, go up, or choose with Finder."
         }
@@ -364,7 +364,7 @@ struct ProjectPickerOverlay: View {
         return "No folders in \(root) match “\(workflow.session.searchQuery)”. You can still enter a path."
     }
 
-    private var searchResultsNotice: String? {
+    private var searchResultsNotice: LocalizedStringResource? {
         if workflow.session.folderSearchHasMoreResults {
             return "More matches available — keep typing to narrow the results."
         }

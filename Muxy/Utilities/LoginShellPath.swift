@@ -3,28 +3,45 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "LoginShellPath")
 
+struct LoginShellEnvironmentValues: Equatable, Sendable {
+    let path: String
+    let copilotHome: String?
+}
+
 final class LoginShellPath: @unchecked Sendable {
     static let shared = LoginShellPath()
     static let shellArguments = [
         "-l",
         "-i",
         "-c",
-        "printf '__MUXY_PATH_START__'; /usr/bin/printenv PATH; printf '__MUXY_PATH_END__'",
+        "printf '__MUXY_PATH_START__'; /usr/bin/printenv PATH; printf '__MUXY_PATH_END__'; "
+            + "printf '__MUXY_COPILOT_HOME_START__'; /usr/bin/printenv COPILOT_HOME; "
+            + "printf '__MUXY_COPILOT_HOME_END__'",
     ]
 
     private static let pathStartMarker = "__MUXY_PATH_START__"
     private static let pathEndMarker = "__MUXY_PATH_END__"
+    private static let copilotHomeStartMarker = "__MUXY_COPILOT_HOME_START__"
+    private static let copilotHomeEndMarker = "__MUXY_COPILOT_HOME_END__"
     private static let shellOutputByteLimit = 262_144
 
     private let lock = NSLock()
     private var cached: String?
+    private var cachedCopilotHome: String?
+    private var environmentHydrated = false
 
     init() {}
 
     static var current: String { shared.value }
+    static var currentCopilotHome: String? { shared.copilotHome }
 
     static var defaultPath: String {
         ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    }
+
+    static var defaultCopilotHome: String? {
+        guard let value = ProcessInfo.processInfo.environment["COPILOT_HOME"], !value.isEmpty else { return nil }
+        return value
     }
 
     static func hydrateInBackground() {
@@ -32,13 +49,15 @@ final class LoginShellPath: @unchecked Sendable {
     }
 
     static func hydrate() async {
-        await shared.hydrate()
+        await shared.hydrateEnvironment()
     }
 
     var value: String {
-        lock.lock()
-        defer { lock.unlock() }
-        return cached ?? Self.defaultPath
+        lock.withLock { cached ?? Self.defaultPath }
+    }
+
+    var copilotHome: String? {
+        lock.withLock { environmentHydrated ? cachedCopilotHome : Self.defaultCopilotHome }
     }
 
     func hydrate(readFromLoginShell: @escaping @Sendable () -> String? = LoginShellPath.readFromLoginShell) async {
@@ -55,9 +74,28 @@ final class LoginShellPath: @unchecked Sendable {
         logger.info("Hydrated PATH from login shell")
     }
 
+    func hydrateEnvironment(
+        readFromLoginShell: @escaping @Sendable () -> LoginShellEnvironmentValues? = LoginShellPath
+            .readEnvironmentFromLoginShell
+    ) async {
+        let resolved = await Task.detached(priority: .utility) {
+            readFromLoginShell()
+        }.value
+        guard let resolved else {
+            logger.info("Login shell environment lookup yielded no value; keeping launch environment")
+            return
+        }
+        lock.withLock {
+            cached = resolved.path
+            cachedCopilotHome = resolved.copilotHome
+            environmentHydrated = true
+        }
+        logger.info("Hydrated environment from login shell")
+    }
+
     private func hydrateInBackground() {
         Task.detached(priority: .utility) { [self] in
-            await hydrate()
+            await hydrateEnvironment()
         }
     }
 
@@ -65,11 +103,37 @@ final class LoginShellPath: @unchecked Sendable {
         readPath(shellPath: UserShell.path(), arguments: shellArguments)
     }
 
+    private static func readEnvironmentFromLoginShell() -> LoginShellEnvironmentValues? {
+        readEnvironment(shellPath: UserShell.path(), arguments: shellArguments)
+    }
+
     static func readPath(
         shellPath: String,
         arguments: [String],
         timeout: DispatchTimeInterval = .seconds(3)
     ) -> String? {
+        guard let output = readShellOutput(shellPath: shellPath, arguments: arguments, timeout: timeout) else {
+            return nil
+        }
+        return extractPath(from: output)
+    }
+
+    static func readEnvironment(
+        shellPath: String,
+        arguments: [String],
+        timeout: DispatchTimeInterval = .seconds(3)
+    ) -> LoginShellEnvironmentValues? {
+        guard let output = readShellOutput(shellPath: shellPath, arguments: arguments, timeout: timeout) else {
+            return nil
+        }
+        return extractEnvironment(from: output)
+    }
+
+    private static func readShellOutput(
+        shellPath: String,
+        arguments: [String],
+        timeout: DispatchTimeInterval
+    ) -> Data? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shellPath)
         process.arguments = arguments
@@ -121,24 +185,59 @@ final class LoginShellPath: @unchecked Sendable {
         }
         guard process.terminationStatus == 0 else { return nil }
 
-        return extractPath(from: stdoutData)
+        return stdoutData
     }
 
     static func extractPath(from shellOutputData: Data) -> String? {
-        let bytes = Array(shellOutputData)
-        guard let validStart = bytes.firstIndex(where: { $0 & 0xC0 != 0x80 }),
-              let output = String(bytes: bytes[validStart...], encoding: .utf8)
-        else { return nil }
+        guard let output = decodedShellOutput(from: shellOutputData) else { return nil }
         return extractPath(from: output)
     }
 
     static func extractPath(from shellOutput: String) -> String? {
-        guard let start = shellOutput.range(of: pathStartMarker, options: .backwards) else { return nil }
-        let outputAfterStart = shellOutput[start.upperBound...]
-        guard let end = outputAfterStart.range(of: pathEndMarker) else { return nil }
-        let path = outputAfterStart[..<end.lowerBound]
+        extractedValue(
+            from: shellOutput,
+            startMarker: pathStartMarker,
+            endMarker: pathEndMarker
+        )
+    }
+
+    static func extractEnvironment(from shellOutputData: Data) -> LoginShellEnvironmentValues? {
+        guard let output = decodedShellOutput(from: shellOutputData) else { return nil }
+        return extractEnvironment(from: output)
+    }
+
+    static func extractEnvironment(from shellOutput: String) -> LoginShellEnvironmentValues? {
+        guard let path = extractPath(from: shellOutput),
+              shellOutput.range(of: copilotHomeStartMarker, options: .backwards) != nil,
+              shellOutput.range(of: copilotHomeEndMarker, options: .backwards) != nil
+        else { return nil }
+        return LoginShellEnvironmentValues(
+            path: path,
+            copilotHome: extractedValue(
+                from: shellOutput,
+                startMarker: copilotHomeStartMarker,
+                endMarker: copilotHomeEndMarker
+            )
+        )
+    }
+
+    private static func decodedShellOutput(from data: Data) -> String? {
+        let bytes = Array(data)
+        guard let validStart = bytes.firstIndex(where: { $0 & 0xC0 != 0x80 }) else { return nil }
+        return String(bytes: bytes[validStart...], encoding: .utf8)
+    }
+
+    private static func extractedValue(
+        from output: String,
+        startMarker: String,
+        endMarker: String
+    ) -> String? {
+        guard let start = output.range(of: startMarker, options: .backwards) else { return nil }
+        let outputAfterStart = output[start.upperBound...]
+        guard let end = outputAfterStart.range(of: endMarker) else { return nil }
+        let value = outputAfterStart[..<end.lowerBound]
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return path.isEmpty ? nil : path
+        return value.isEmpty ? nil : value
     }
 }
 

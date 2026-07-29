@@ -63,6 +63,7 @@ final class ExtensionStore {
     private let resolveHostURL: @MainActor () -> URL?
     private let marketplace: ExtensionMarketplaceService
     private let devPathsProvider: @MainActor () -> [String]
+    private let localizationsDidChange: @MainActor (ExtensionStore) -> Void
 
     nonisolated private static let processTerminationGracePeriod: TimeInterval = 2
     nonisolated private static let maxCrashRestartAttempts = 5
@@ -74,13 +75,17 @@ final class ExtensionStore {
         snapshotSink: ExtensionSnapshotSink = NotificationSocketServer.shared,
         resolveHostURL: @escaping @MainActor () -> URL? = { ExtensionHostLocator.hostURL() },
         marketplace: ExtensionMarketplaceService = .shared,
-        devPathsProvider: @escaping @MainActor () -> [String] = { ExtensionDevPathStore.paths() }
+        devPathsProvider: @escaping @MainActor () -> [String] = { ExtensionDevPathStore.paths() },
+        localizationsDidChange: @escaping @MainActor (ExtensionStore) -> Void = {
+            LocalizationService.shared.refresh(store: $0)
+        }
     ) {
         rootDirectoryURL = rootDirectory
         self.snapshotSink = snapshotSink
         self.resolveHostURL = resolveHostURL
         self.marketplace = marketplace
         self.devPathsProvider = devPathsProvider
+        self.localizationsDidChange = localizationsDidChange
     }
 
     static func makeForTesting(
@@ -88,14 +93,16 @@ final class ExtensionStore {
         snapshotSink: ExtensionSnapshotSink,
         resolveHostURL: @escaping @MainActor () -> URL?,
         marketplace: ExtensionMarketplaceService = .shared,
-        devPathsProvider: @escaping @MainActor () -> [String] = { [] }
+        devPathsProvider: @escaping @MainActor () -> [String] = { [] },
+        localizationsDidChange: @escaping @MainActor (ExtensionStore) -> Void = { _ in }
     ) -> ExtensionStore {
         ExtensionStore(
             rootDirectory: rootDirectory,
             snapshotSink: snapshotSink,
             resolveHostURL: resolveHostURL,
             marketplace: marketplace,
-            devPathsProvider: devPathsProvider
+            devPathsProvider: devPathsProvider,
+            localizationsDidChange: localizationsDidChange
         )
     }
 
@@ -130,6 +137,7 @@ final class ExtensionStore {
         rebuildExtensionUICache()
         syncExtensionShortcuts()
         publishSnapshot()
+        localizationsDidChange(self)
     }
 
     func stopAll() {
@@ -355,6 +363,7 @@ final class ExtensionStore {
         rebuildExtensionUICache()
         syncExtensionShortcuts()
         publishSnapshot()
+        localizationsDidChange(self)
     }
 
     func extensionHasPermission(id: String, permission: ExtensionPermission) -> Bool {
@@ -425,6 +434,22 @@ final class ExtensionStore {
 
         var id: String {
             "\(muxyExtension.id):\(opener.id)"
+        }
+    }
+
+    struct LocalizationBinding: Equatable, Identifiable {
+        let muxyExtension: MuxyExtension
+        let localization: ExtensionLocalization
+
+        var id: String {
+            LocalizationSelection.value(
+                extensionID: muxyExtension.id,
+                localizationID: localization.id
+            )
+        }
+
+        var bundleURL: URL? {
+            muxyExtension.resolveResource(localization.bundle)
         }
     }
 
@@ -499,6 +524,23 @@ final class ExtensionStore {
             return binding.muxyExtension.id == extensionID &&
                 binding.opener.id == openerID &&
                 matchesPath
+        }
+    }
+
+    func localizations() -> [LocalizationBinding] {
+        statuses
+            .filter(\.isEnabled)
+            .flatMap { status in
+                let ext = status.muxyExtension
+                return ext.manifest.localizations.map {
+                    LocalizationBinding(muxyExtension: ext, localization: $0)
+                }
+            }
+    }
+
+    func localization(extensionID: String, localizationID: String) -> LocalizationBinding? {
+        localizations().first {
+            $0.muxyExtension.id == extensionID && $0.localization.id == localizationID
         }
     }
 
@@ -832,6 +874,7 @@ final class ExtensionStore {
         }
         pruneResolvedUpdates()
         hasLoadedFromDisk = true
+        localizationsDidChange(self)
     }
 
     private func loadOne(

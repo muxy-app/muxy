@@ -92,3 +92,10 @@ extension Project {
         sortOrder: Int.min
     )
 }
+
+@MainActor
+extension Project {
+    var localizedDisplayName: String {
+        isHome ? L10n.string(key: Self.homeName) : name
+    }
+}

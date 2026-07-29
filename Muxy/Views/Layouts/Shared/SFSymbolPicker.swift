@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SFSymbolPicker: View {
-    var title: String = "Icon"
+    var title: LocalizedStringResource = "Icon"
     let selectedName: String?
     let onSelect: (String?) -> Void
 
@@ -205,8 +205,11 @@ struct SFSymbolPicker: View {
     private var filteredSymbols: [(name: String, systemName: String)] {
         guard !searchText.isEmpty else { return Self.symbols }
         return Self.symbols.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-                || $0.systemName.localizedCaseInsensitiveContains(searchText)
+            LocalizedSearch.matches(
+                query: searchText,
+                localizedKeys: [$0.name],
+                verbatimValues: [$0.systemName]
+            )
         }
     }
 
@@ -217,11 +220,11 @@ struct SFSymbolPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
-            Text(title)
+            Text(L10n.resource(title))
                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
-            TextField("Search symbols...", text: $searchText)
+            TextField(L10n.string("Search symbols..."), text: $searchText)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: UIMetrics.fontFootnote))
 
@@ -242,7 +245,7 @@ struct SFSymbolPicker: View {
                 HStack(spacing: UIMetrics.spacing3) {
                     Image(systemName: "xmark.circle")
                         .font(.system(size: UIMetrics.fontCaption, weight: .medium))
-                    Text("Remove Icon")
+                    Text(L10n.resource("Remove Icon"))
                         .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 }
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -273,8 +276,8 @@ struct SFSymbolPicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(symbol.name)
-        .accessibilityLabel(symbol.name)
+        .help(L10n.string(key: symbol.name))
+        .accessibilityLabel(L10n.string(key: symbol.name))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

@@ -2,7 +2,7 @@
 
 Every extension is an npm + [Vite](https://vitejs.dev) project. Its manifest is the `muxy` object inside the `package.json` at the root of its directory.
 
-Identity (`name` and `version`) lives at the **top level** of `package.json` — npm's single source of truth. **Every other manifest field** (`description`, `background`, `events`, `permissions`, `tabTypes`, `fileOpeners`, `panels`, `popovers`, `sidebar`, `commands`, `topbarItems`, `statusBarItems`, `settings`, `remoteMethods`, `marketplace`) lives under the `muxy` key.
+Identity (`name` and `version`) lives at the **top level** of `package.json` — npm's single source of truth. **Every other manifest field** (`description`, `background`, `events`, `permissions`, `tabTypes`, `fileOpeners`, `localizations`, `panels`, `popovers`, `sidebar`, `commands`, `topbarItems`, `statusBarItems`, `settings`, `remoteMethods`, `marketplace`) lives under the `muxy` key.
 
 `package.json` must also declare a `build` script. The publishing pipeline runs `npm run build` (Vite) and ships **only** the build output directory, `dist/`. The app installs and reads from `dist/`, so every entry/asset path inside `muxy` (popover/tab `entry`, `background`, marketplace `icon`/`screenshots`) resolves against the build output, not your source tree.
 
@@ -54,6 +54,7 @@ All Muxy-specific manifest fields live under the `muxy` object.
 | `commands` | object[] | no | Palette commands to register. See [Palette Commands](palette-commands.md). |
 | `tabTypes` | object[] | no | Webview tab types the extension exposes. See [Tabs](tabs.md). |
 | `fileOpeners` | object[] | no | Project-file openers the extension contributes. Each opener references one of the extension's `tabTypes`; Muxy opens it with `{ filePath, line?, column?, source }` when a terminal link opens a file. See [File openers](tabs.md#file-openers). |
+| `localizations` | object[] | no | App-language providers backed by resource-only `.bundle` directories copied into `dist/`. See [Localizations](localizations.md). |
 | `panels` | object[] | no | Dockable/floating webview panels. See [Panels](panels.md). |
 | `popovers` | object[] | no | Transient webview popovers anchored to a topbar/status-bar item. See [Popovers](popovers.md). |
 | `sidebar` | object | no | A single full-height webview that replaces the built-in left sidebar when the user selects it. See [Sidebars](sidebars.md). |

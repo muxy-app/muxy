@@ -10,12 +10,12 @@ struct ShortcutIconBadge: View {
             .fill(MuxyTheme.accent)
             .frame(width: size, height: size)
             .overlay {
-                Text("\(number)")
+                Text(L10n.resource("\(number)"))
                     .font(.system(size: size * 0.7, weight: .bold, design: .rounded))
                     .foregroundStyle(MuxyTheme.bg)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
             }
-            .accessibilityLabel("Keyboard shortcut: \(combo.displayString)")
+            .accessibilityLabel(L10n.string("Keyboard shortcut: \(combo.displayString)"))
     }
 }
