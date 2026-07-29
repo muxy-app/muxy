@@ -9,8 +9,8 @@ struct NotificationSettingsView: View {
     var body: some View {
         SettingsContainer {
             SettingsSection("Delivery") {
-                SettingsToggleRow(label: "Toast", isOn: $toastEnabled)
-                SettingsToggleRow(label: "Desktop notifications", isOn: $desktopEnabled)
+                SettingsToggleRow(label: L10n.resource("Toast"), isOn: $toastEnabled)
+                SettingsToggleRow(label: L10n.resource("Desktop notifications"), isOn: $desktopEnabled)
                     .onChange(of: desktopEnabled) { _, newValue in
                         requestDesktopNotificationAuthorizationIfNeeded(newValue)
                     }
@@ -18,7 +18,7 @@ struct NotificationSettingsView: View {
 
             SettingsSection("Sound") {
                 SettingsPickerRow<NotificationSound>(
-                    label: "Sound",
+                    label: L10n.resource("Sound"),
                     selection: $sound,
                     width: 160
                 )
@@ -29,7 +29,7 @@ struct NotificationSettingsView: View {
 
             SettingsSection("Toast") {
                 SettingsPickerRow<ToastPosition>(
-                    label: "Position",
+                    label: L10n.resource("Position"),
                     selection: $toastPosition,
                     width: 160
                 )
@@ -137,8 +137,8 @@ private struct ProviderToggleRow: View {
     private func secondaryLine(now: Date) -> String {
         if let testResult {
             switch testResult {
-            case .passed: return "Test passed"
-            case let .failed(reason): return "Test failed — \(reason)"
+            case .passed: return L10n.string("Test passed")
+            case let .failed(reason): return L10n.string("Test failed — \(reason)")
             }
         }
         return HookHealthPresenter.statusLine(for: health, now: now)
@@ -149,9 +149,9 @@ private struct ProviderToggleRow: View {
             runTest()
         } label: {
             if testing {
-                Text("Testing…")
+                Text(L10n.resource("Testing…"))
             } else {
-                Text("Test")
+                Text(L10n.resource("Test"))
             }
         }
         .buttonStyle(.plain)
@@ -170,9 +170,9 @@ private struct ProviderToggleRow: View {
             }
         } label: {
             if refreshed {
-                Label("Done", systemImage: "checkmark")
+                Label(L10n.string("Done"), systemImage: "checkmark")
             } else {
-                Text("Refresh")
+                Text(L10n.resource("Refresh"))
             }
         }
         .buttonStyle(.plain)

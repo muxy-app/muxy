@@ -13,6 +13,7 @@ struct TabFocusedProjectRow: View {
     var worktree: Worktree?
     let shortcutNumbers: [UUID: Int]
     var content: TabFocusedSidebarContent = .tabs
+    let groupWorktrees: Bool
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -21,6 +22,8 @@ struct TabFocusedProjectRow: View {
     @State private var expansionStore = TabFocusedSidebarState.shared
     @State private var notificationStore = NotificationStore.shared
     @State private var progressStore = TerminalProgressStore.shared
+    @AppStorage(WorktreeListPreferences.showUnreadIndicatorKey)
+    private var showUnreadIndicator = WorktreeListPreferences.defaultShowUnreadIndicator
 
     @State private var hovered = false
     @State private var isGitRepo = false
@@ -40,7 +43,7 @@ struct TabFocusedProjectRow: View {
     private var rowID: UUID { worktree?.id ?? project.id }
 
     private var rowTitle: String {
-        worktree?.name ?? project.name
+        worktree?.name ?? project.localizedDisplayName
     }
 
     private var listWorktree: Worktree? {
@@ -68,7 +71,9 @@ struct TabFocusedProjectRow: View {
         let agentStore = AgentStatusStore.shared
         let hasProgress = progressStore.hasActiveProgress(forWorktree: worktreeID)
         let agentStatus = agentStore.status(forWorktree: worktreeID)
-        let unreadCount = notificationStore.unreadCount(for: project.id, worktreeID: worktreeID)
+        let unreadCount = showUnreadIndicator
+            ? notificationStore.unreadCount(for: project.id, worktreeID: worktreeID)
+            : 0
         let completionPending = progressStore.hasCompletionPending(forWorktree: worktreeID)
             || agentStore.hasCompletionPending(forWorktree: worktreeID)
 
@@ -87,12 +92,25 @@ struct TabFocusedProjectRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            if isExpanded, let listWorktree {
-                switch content {
-                case .tabs:
-                    TabFocusedTabsList(project: project, worktree: listWorktree, shortcutNumbers: shortcutNumbers)
-                case .agents:
-                    AgentsFocusedTabsList(project: project, worktree: listWorktree)
+            if isExpanded {
+                if groupWorktrees, !isWorktreeRow, project.worktreesEnabled {
+                    TabFocusedWorktreeTree(
+                        project: project,
+                        worktrees: worktreeStore.list(for: project.id),
+                        shortcutNumbers: shortcutNumbers,
+                        content: content
+                    )
+                } else if let listWorktree {
+                    switch content {
+                    case .tabs:
+                        TabFocusedTabsList(
+                            project: project,
+                            worktree: listWorktree,
+                            shortcutNumbers: shortcutNumbers
+                        )
+                    case .agents:
+                        AgentsFocusedTabsList(project: project, worktree: listWorktree)
+                    }
                 }
             }
         }
@@ -125,8 +143,8 @@ struct TabFocusedProjectRow: View {
                     .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
-                    .help("Pinned")
-                    .accessibilityLabel("Pinned")
+                    .help(L10n.string("Pinned"))
+                    .accessibilityLabel(L10n.string("Pinned"))
             }
         }
         .padding(.horizontal, TabFocusedSidebarMetrics.rowHorizontalInset)
@@ -149,7 +167,7 @@ struct TabFocusedProjectRow: View {
                     workspaceContext: projectGroupStore.workspaceContext(for: project),
                     separatesFromPreviousActions: false
                 ) {
-                    Button("Hide Home") { HomeProjectPreferences.isVisible = false }
+                    Button(L10n.string("Hide Home")) { HomeProjectPreferences.isVisible = false }
                 }
             } else {
                 projectContextMenu
@@ -184,15 +202,15 @@ struct TabFocusedProjectRow: View {
             }
         }
         .alert(
-            "Remove \"\(project.name)\"?",
+            L10n.string("Remove \"\(project.name)\"?"),
             isPresented: $projectPendingRemoval
         ) {
-            Button("Remove", role: .destructive) { performRemove() }
+            Button(L10n.string("Remove"), role: .destructive) { performRemove() }
                 .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
                 .keyboardShortcut(.cancelAction)
         } message: {
-            Text("This will remove the project from Muxy. Project files on disk will not be deleted.")
+            Text(L10n.resource("This will remove the project from Muxy. Project files on disk will not be deleted."))
         }
     }
 
@@ -214,35 +232,39 @@ struct TabFocusedProjectRow: View {
     @ViewBuilder
     private var projectContextMenu: some View {
         if !project.isRemote {
-            Button(project.isPinned ? "Unpin" : "Pin") {
+            Button(
+                project.isPinned
+                    ? L10n.string("Unpin")
+                    : L10n.string("Pin")
+            ) {
                 projectStore.setPinned(id: project.id, to: !project.isPinned)
             }
             Divider()
         }
-        Button("Set Logo…") { pickLogoImage() }
+        Button(L10n.string("Set Logo…")) { pickLogoImage() }
         if project.logo != nil {
-            Button("Remove Logo") { projectStore.setLogo(id: project.id, to: nil) }
+            Button(L10n.string("Remove Logo")) { projectStore.setLogo(id: project.id, to: nil) }
         }
-        Button("Set Icon…") { showSymbolPicker = true }
+        Button(L10n.string("Set Icon…")) { showSymbolPicker = true }
         if project.icon != nil {
-            Button("Remove Icon") { projectStore.setIcon(id: project.id, to: nil) }
+            Button(L10n.string("Remove Icon")) { projectStore.setIcon(id: project.id, to: nil) }
         }
-        Button("Set Icon Color…") { showColorPicker = true }
+        Button(L10n.string("Set Icon Color…")) { showColorPicker = true }
         if project.iconColor != nil {
-            Button("Reset Icon Color") { projectStore.setIconColor(id: project.id, to: nil) }
+            Button(L10n.string("Reset Icon Color")) { projectStore.setIconColor(id: project.id, to: nil) }
         }
         Divider()
-        Button("Rename Project") { startRename() }
+        Button(L10n.string("Rename Project")) { startRename() }
         if isGitRepo {
             Divider()
-            Toggle("Worktrees", isOn: worktreesEnabledBinding)
+            Toggle(L10n.string("Worktrees"), isOn: worktreesEnabledBinding)
             if project.worktreesEnabled {
-                Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
-                Button("New Worktree…") { showCreateWorktreeSheet = true }
+                Button(L10n.string("Refresh Worktrees")) { Task { await refreshWorktrees() } }
+                Button(L10n.string("New Worktree…")) { showCreateWorktreeSheet = true }
             }
         } else if isCheckingGitRepo {
             Divider()
-            Button("Loading Worktrees…") {}
+            Button(L10n.string("Loading Worktrees…")) {}
                 .disabled(true)
         }
         if !projectGroupStore.groups.isEmpty {
@@ -253,7 +275,7 @@ struct TabFocusedProjectRow: View {
             path: project.path,
             workspaceContext: projectGroupStore.workspaceContext(for: project)
         ) {
-            Button("Remove Project", role: .destructive) { projectPendingRemoval = true }
+            Button(L10n.string("Remove Project"), role: .destructive) { projectPendingRemoval = true }
         }
     }
 
@@ -268,15 +290,15 @@ struct TabFocusedProjectRow: View {
 
     @ViewBuilder
     private func worktreeContextMenu(_ worktree: Worktree) -> some View {
-        Button("New Terminal Tab") {
+        Button(L10n.string("New Terminal Tab")) {
             selectWorktreeIfNeeded(worktree)
             appState.createTab(projectID: project.id)
         }
         Divider()
-        Button("Rename Worktree") { startRename() }
+        Button(L10n.string("Rename Worktree")) { startRename() }
         if worktree.canBeRemoved {
             Divider()
-            Button("Remove Worktree", role: .destructive) {
+            Button(L10n.string("Remove Worktree"), role: .destructive) {
                 Task { await requestRemoveWorktree(worktree) }
             }
         }
@@ -335,13 +357,17 @@ struct TabFocusedProjectRow: View {
     private var actions: some View {
         switch content {
         case .tabs:
-            TabFocusedTabActions(project: project, worktree: worktree)
+            if showsProjectLevelActions {
+                TabFocusedTabActions(project: project, worktree: listWorktree)
+            }
         case .agents:
-            AgentsFocusedTabActions(
-                project: project,
-                worktree: listWorktree,
-                showingProviders: $showAgentProviderMenu
-            )
+            if showsProjectLevelActions {
+                AgentsFocusedTabActions(
+                    project: project,
+                    worktree: listWorktree,
+                    showingProviders: $showAgentProviderMenu
+                )
+            }
         }
         if content == .tabs, !isWorktreeRow, !project.isHome, !isFocused {
             focusModeButton
@@ -349,13 +375,17 @@ struct TabFocusedProjectRow: View {
     }
 
     private var isFocused: Bool {
-        content == .tabs && !isWorktreeRow && expansionStore.focusMode && isActive
+        content == .tabs && !isWorktreeRow && expansionStore.focusMode && appState.activeProjectID == project.id
+    }
+
+    private var showsProjectLevelActions: Bool {
+        isWorktreeRow || !groupWorktrees || !project.worktreesEnabled
     }
 
     private var focusModeButton: some View {
         SidebarActionButton(
             symbol: "scope",
-            label: isFocused ? "Exit Focus Mode" : "Focus This Project",
+            label: isFocused ? L10n.string("Exit Focus Mode") : L10n.string("Focus This Project"),
             isActive: isFocused,
             action: toggleFocusMode
         )
@@ -401,8 +431,8 @@ struct TabFocusedProjectRow: View {
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
-                .help("Worktree")
-                .accessibilityLabel("Worktree")
+                .help(L10n.string("Worktree"))
+                .accessibilityLabel(L10n.string("Worktree"))
         }
     }
 
@@ -453,14 +483,16 @@ struct TabFocusedProjectRow: View {
             isCheckingGitRepo = false
             return
         }
-        isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path, context: context)
+        let result = await GitWorktreeService.shared.isGitRepository(project.path, context: context)
+        guard !Task.isCancelled else { return }
+        isGitRepo = result
         isCheckingGitRepo = false
         GitRepoStatusCache.shared.update(path: project.path, context: context, isGitRepo: isGitRepo)
     }
 
     private func pickLogoImage() {
         let panel = NSOpenPanel()
-        panel.title = "Choose a Logo Image"
+        panel.title = L10n.string("Choose a Logo Image")
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -519,7 +551,7 @@ struct TabFocusedProjectRow: View {
                     projectGroupStore: projectGroupStore
                 )
             } catch {
-                ToastState.shared.show(title: "Could not remove project", body: error.localizedDescription)
+                ToastState.shared.show(title: L10n.string("Could not remove project"), body: error.localizedDescription)
             }
         }
     }

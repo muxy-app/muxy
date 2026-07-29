@@ -27,8 +27,8 @@ struct WorktreePopover: View {
             filterKey: { worktree in
                 worktree.name + " " + (worktree.branch ?? "")
             },
-            searchPlaceholder: "Search worktrees…",
-            emptyLabel: "No matches",
+            searchPlaceholder: L10n.string("Search worktrees…"),
+            emptyLabel: L10n.string("No matches"),
             footerActions: footerActions,
             fixedSize: fixedSize,
             onSelect: { worktree in
@@ -61,21 +61,21 @@ struct WorktreePopover: View {
             }
         )
         .alert(
-            pendingRemoval?.title ?? "",
+            pendingRemoval.map { L10n.string($0.title) } ?? "",
             isPresented: removalAlertBinding,
             presenting: pendingRemoval
         ) { confirmation in
-            Button("Remove", role: .destructive) {
+            Button(L10n.string("Remove"), role: .destructive) {
                 onRequestRemove(confirmation.worktree)
                 pendingRemoval = nil
             }
             .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) {
+            Button(L10n.string("Cancel"), role: .cancel) {
                 pendingRemoval = nil
             }
             .keyboardShortcut(.cancelAction)
         } message: { confirmation in
-            Text(confirmation.message)
+            Text(L10n.resource(confirmation.message))
         }
     }
 
@@ -83,7 +83,7 @@ struct WorktreePopover: View {
         guard isGitRepo else { return [] }
         return [
             PopoverFooterAction(
-                title: "New Worktree…",
+                title: L10n.string("New Worktree…"),
                 icon: "plus.square.dashed",
                 action: onRequestCreate
             ),
@@ -155,7 +155,7 @@ private struct WorktreePopoverRow: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         if worktree.isPrimary {
-                            Text("PRIMARY")
+                            Text(L10n.resource("PRIMARY"))
                                 .font(.system(size: UIMetrics.fontMicro, weight: .bold))
                                 .tracking(0.5)
                                 .foregroundStyle(MuxyTheme.fgDim)
@@ -186,14 +186,14 @@ private struct WorktreePopoverRow: View {
         }
         .contextMenu {
             if worktree.isPrimary {
-                Text("Primary worktree").font(.system(size: UIMetrics.fontFootnote))
+                Text(L10n.resource("Primary worktree")).font(.system(size: UIMetrics.fontFootnote))
             } else if let onRemove {
-                Button("Rename") { startRename() }
+                Button(L10n.string("Rename")) { startRename() }
                 Divider()
-                Button("Remove", role: .destructive, action: onRemove)
+                Button(L10n.string("Remove"), role: .destructive, action: onRemove)
                     .disabled(isRemoving)
             } else {
-                Button("Rename") { startRename() }
+                Button(L10n.string("Rename")) { startRename() }
             }
         }
     }

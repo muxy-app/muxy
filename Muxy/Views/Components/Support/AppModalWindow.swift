@@ -70,11 +70,13 @@ enum AppModalPresenter {
             ?? NSApp.keyWindow ?? NSApp.mainWindow
         else { return nil }
         let host = NSHostingController(
-            rootView: content()
-                .frame(width: config.size.width, height: config.size.height)
-                .preferredColorScheme(MuxyTheme.colorScheme)
-                .environment(ExtensionStore.shared)
-                .environment(ExtensionSettingsStore.shared)
+            rootView: LocalizationEnvironment {
+                content()
+                    .frame(width: config.size.width, height: config.size.height)
+                    .preferredColorScheme(MuxyTheme.colorScheme)
+                    .environment(ExtensionStore.shared)
+                    .environment(ExtensionSettingsStore.shared)
+            }
         )
         let window = AppModalWindow(contentViewController: host)
         window.title = config.title

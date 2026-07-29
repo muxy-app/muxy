@@ -17,7 +17,7 @@ struct TerminalSearchBar: View {
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .accessibilityHidden(true)
 
-                    TextField("Search", text: $searchState.needle)
+                    TextField(L10n.string("Search"), text: $searchState.needle)
                         .textFieldStyle(.plain)
                         .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fg)
@@ -33,7 +33,7 @@ struct TerminalSearchBar: View {
                             .foregroundStyle(MuxyTheme.fgMuted)
                             .lineLimit(1)
                             .fixedSize()
-                            .accessibilityLabel("Search results: \(searchState.displayText)")
+                            .accessibilityLabel(L10n.string("Search results: \(searchState.displayText)"))
                     }
                 }
                 .padding(.horizontal, UIMetrics.spacing4)
@@ -50,21 +50,21 @@ struct TerminalSearchBar: View {
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 }
                 .buttonStyle(SearchBarButtonStyle())
-                .accessibilityLabel("Previous Match")
+                .accessibilityLabel(L10n.string("Previous Match"))
 
                 Button(action: onNavigateNext) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 }
                 .buttonStyle(SearchBarButtonStyle())
-                .accessibilityLabel("Next Match")
+                .accessibilityLabel(L10n.string("Next Match"))
 
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 }
                 .buttonStyle(SearchBarButtonStyle())
-                .accessibilityLabel("Close Search")
+                .accessibilityLabel(L10n.string("Close Search"))
             }
             .padding(.horizontal, UIMetrics.spacing4)
             .frame(height: UIMetrics.scaled(32))

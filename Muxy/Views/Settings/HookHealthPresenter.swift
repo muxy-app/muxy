@@ -26,29 +26,31 @@ enum HookHealthPresenter {
         return .healthy
     }
 
+    @MainActor
     static func statusLine(for health: HookHealth, now: Date = Date()) -> String {
         switch health.installState {
         case .installed:
             healthyLine(for: health, now: now)
         case .cliMissing:
-            "CLI not installed"
+            L10n.string("CLI not installed")
         case let .conflict(message):
             message
         case let .error(message):
             message
         case .notInstalled:
-            "Not installed"
+            L10n.string("Not installed")
         }
     }
 
+    @MainActor
     private static func healthyLine(for health: HookHealth, now: Date) -> String {
         if let repairedAt = health.lastRepairedAt, wasJustRepaired(repairedAt, verifiedAt: health.lastVerifiedAt) {
-            return "Config overwritten — repaired \(relative(from: repairedAt, now: now))"
+            return L10n.string("Config overwritten — repaired \(relative(from: repairedAt, now: now))")
         }
         guard let eventAt = health.lastEventAt else {
-            return "Hook healthy"
+            return L10n.string("Hook healthy")
         }
-        return "Hook healthy · last event \(relative(from: eventAt, now: now))"
+        return L10n.string("Hook healthy · last event \(relative(from: eventAt, now: now))")
     }
 
     private static func wasJustRepaired(_ repairedAt: Date, verifiedAt: Date?) -> Bool {
@@ -56,13 +58,14 @@ enum HookHealthPresenter {
         return repairedAt >= verifiedAt.addingTimeInterval(-0.001)
     }
 
+    @MainActor
     static func relative(from date: Date, now: Date = Date()) -> String {
         let interval = max(0, now.timeIntervalSince(date))
-        guard interval >= 60 else { return "just now" }
+        guard interval >= 60 else { return L10n.string("just now") }
         let minutes = Int(interval / 60)
-        guard minutes >= 60 else { return "\(minutes) min ago" }
+        guard minutes >= 60 else { return L10n.string("\(minutes) min ago") }
         let hours = minutes / 60
-        guard hours >= 24 else { return "\(hours) hr ago" }
-        return "\(hours / 24) d ago"
+        guard hours >= 24 else { return L10n.string("\(hours) hr ago") }
+        return L10n.string("\(hours / 24) d ago")
     }
 }

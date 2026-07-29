@@ -80,6 +80,14 @@ final class BrowserTabState: Identifiable {
         return "New Tab"
     }
 
+    var localizedDisplayTitle: String {
+        guard customTitle?.isEmpty != false,
+              pageTitle?.isEmpty != false,
+              url?.host == nil
+        else { return displayTitle }
+        return L10n.string(key: "New Tab")
+    }
+
     init(projectPath: String, url: URL? = nil, profileID: UUID = BrowserProfile.defaultID) {
         self.projectPath = projectPath
         self.url = url

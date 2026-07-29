@@ -149,15 +149,15 @@ struct RepositoryStatusBarItems: View {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: UIMetrics.fontXS, weight: .bold))
                         .foregroundStyle(MuxyTheme.warning)
-                    Text("Repository unavailable")
+                    Text(L10n.resource("Repository unavailable"))
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fgMuted)
                 }
             }
         )
         .disabled(repositoryState.isLoadingSummary)
-        .help("\(error) Click to retry.")
-        .accessibilityLabel("Repository unavailable. Click to retry.")
+        .help(L10n.string("\(error) Click to retry."))
+        .accessibilityLabel(L10n.string("Repository unavailable. Click to retry."))
     }
 
     private func branchChip(_ summary: GitRepositorySummary?) -> some View {
@@ -196,8 +196,8 @@ struct RepositoryStatusBarItems: View {
                 || isWorktreeRemovalInProgress
                 || hasRunningAIWorkflow
         )
-        .help(summary.map(branchHelp) ?? "Loading repository status")
-        .accessibilityLabel(summary.map(branchHelp) ?? "Loading repository status")
+        .help(summary.map(branchHelp) ?? L10n.string("Loading repository status"))
+        .accessibilityLabel(summary.map(branchHelp) ?? L10n.string("Loading repository status"))
         .popover(isPresented: $showBranchPopover, arrowEdge: .bottom) {
             if let summary {
                 TabFocusedBranchPopover(
@@ -234,7 +234,7 @@ struct RepositoryStatusBarItems: View {
                     Circle()
                         .fill(summary?.isDirty == true ? MuxyTheme.warning : MuxyTheme.diffAddFg)
                         .frame(width: UIMetrics.scaled(5), height: UIMetrics.scaled(5))
-                    Text(summary.map(RepositoryChangesPresentation.chipLabel) ?? "Changes")
+                    changesLabel(summary)
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(summary?.isDirty == true ? MuxyTheme.warning : MuxyTheme.fgMuted)
                     Image(systemName: "chevron.down")
@@ -251,8 +251,8 @@ struct RepositoryStatusBarItems: View {
                 || isWorktreeRemovalInProgress
                 || hasRunningAIWorkflow
         )
-        .help(summary.map(workingTreeHelp) ?? "Loading working tree status")
-        .accessibilityLabel(summary.map(workingTreeHelp) ?? "Loading working tree status")
+        .help(summary.map(workingTreeHelp) ?? L10n.string("Loading working tree status"))
+        .accessibilityLabel(summary.map(workingTreeHelp) ?? L10n.string("Loading working tree status"))
         .popover(isPresented: $showChangesPopover, arrowEdge: .bottom) {
             if let summary {
                 TabFocusedChangesPopover(
@@ -324,8 +324,8 @@ struct RepositoryStatusBarItems: View {
                 || isWorktreeRemovalInProgress
                 || hasRunningAIWorkflow
         )
-        .help("Click to retry. GitHub pull requests require an installed and authenticated gh CLI.")
-        .accessibilityLabel("Pull request unavailable. Retry GitHub connection.")
+        .help(L10n.string("Click to retry. GitHub pull requests require an installed and authenticated gh CLI."))
+        .accessibilityLabel(L10n.string("Pull request unavailable. Retry GitHub connection."))
     }
 
     private func pullRequestChip(_ info: GitRepositoryService.PRInfo) -> some View {
@@ -338,7 +338,7 @@ struct RepositoryStatusBarItems: View {
                     Image(systemName: PullRequestPresentation.symbol(for: info))
                         .font(.system(size: UIMetrics.fontXS, weight: .bold))
                         .foregroundStyle(color)
-                    Text("PR #\(info.number)")
+                    Text(L10n.resource("PR #\(info.number)"))
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fg)
                     if let checks = pullRequestChecksChipLabel(info.checks) {
@@ -358,8 +358,12 @@ struct RepositoryStatusBarItems: View {
                 || isWorktreeRemovalInProgress
                 || hasRunningAIWorkflow
         )
-        .help("Pull request #\(info.number) · \(PullRequestPresentation.stateLabel(for: info))")
-        .accessibilityLabel("Pull request #\(info.number), \(PullRequestPresentation.stateLabel(for: info))")
+        .help(L10n.string(
+            "Pull request #\(info.number) · \(L10n.string(key: PullRequestPresentation.stateLabel(for: info)))"
+        ))
+        .accessibilityLabel(L10n.string(
+            "Pull request #\(info.number), \(L10n.string(key: PullRequestPresentation.stateLabel(for: info)))"
+        ))
         .popover(isPresented: $showPullRequestPopover, arrowEdge: .bottom) {
             if let context = pullRequestActionContext(for: repositoryState.pullRequest ?? info) {
                 TabFocusedPullRequestPopover(
@@ -481,10 +485,10 @@ struct RepositoryStatusBarItems: View {
         if status.ahead > 0 || status.behind > 0 {
             HStack(spacing: UIMetrics.spacing2) {
                 if status.ahead > 0 {
-                    Text("↑\(status.ahead)")
+                    Text(L10n.resource("↑\(status.ahead)"))
                 }
                 if status.behind > 0 {
-                    Text("↓\(status.behind)")
+                    Text(L10n.resource("↓\(status.behind)"))
                 }
             }
             .font(.system(size: UIMetrics.fontXS, weight: .semibold, design: .monospaced))
@@ -576,11 +580,11 @@ struct RepositoryStatusBarItems: View {
         switch state {
         case .hidden,
              .available:
-            "Remove worktree \"\(worktree.name)\" and delete its files on disk"
+            L10n.string("Remove worktree \"\(worktree.name)\" and delete its files on disk")
         case .preparing:
-            "Checking worktree \"\(worktree.name)\" for uncommitted changes"
+            L10n.string("Checking worktree \"\(worktree.name)\" for uncommitted changes")
         case .removing:
-            "Removing worktree \"\(worktree.name)\""
+            L10n.string("Removing worktree \"\(worktree.name)\"")
         }
     }
 
@@ -601,7 +605,7 @@ struct RepositoryStatusBarItems: View {
               let currentPullRequest = repositoryState.pullRequest,
               pullRequestActionContext(for: currentPullRequest) == context
         else {
-            ToastState.shared.show("Pull request context changed. Reopen the PR actions and try again.")
+            ToastState.shared.show(L10n.string("Pull request context changed. Reopen the PR actions and try again."))
             return
         }
         let info = context.pullRequest
@@ -609,13 +613,16 @@ struct RepositoryStatusBarItems: View {
         case let .merge(method):
             let availability = PRMergeAvailability.make(info: info)
             guard availability.isEnabled else {
-                ToastState.shared.show(title: "Pull request is no longer mergeable", body: availability.help)
+                ToastState.shared.show(
+                    title: L10n.string("Pull request is no longer mergeable"),
+                    body: L10n.string(availability.help)
+                )
                 return
             }
             Task { await repositoryState.mergePullRequest(info, method: method) }
         case .close:
             guard info.state == .open else {
-                ToastState.shared.show("Pull request #\(info.number) is no longer open.")
+                ToastState.shared.show(L10n.string("Pull request #\(info.number) is no longer open."))
                 return
             }
             Task { await repositoryState.closePullRequest(info) }
@@ -704,7 +711,7 @@ struct RepositoryStatusBarItems: View {
               !hasRunningAIWorkflow,
               aiRepositoryActionContext(for: repositoryContext) == confirmation.context
         else {
-            ToastState.shared.show("\(action.settingsTitle) is no longer available. Try again.")
+            ToastState.shared.show(L10n.string("\(action.settingsTitle) is no longer available. Try again."))
             return
         }
         let instructions = RepositoryAIActionPreferences.instructions(
@@ -738,7 +745,7 @@ struct RepositoryStatusBarItems: View {
                 else { return }
                 guard pullRequestPresence == .none else {
                     if pullRequestPresence == .unavailable {
-                        ToastState.shared.show("Could not verify that this branch has no pull request.")
+                        ToastState.shared.show(L10n.string("Could not verify that this branch has no pull request."))
                     }
                     return
                 }
@@ -773,7 +780,7 @@ struct RepositoryStatusBarItems: View {
                 instructions: instructions
             )
         } catch {
-            ToastState.shared.show(title: "Could not start \(action.settingsTitle)", body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string("Could not start \(action.settingsTitle)"), body: error.localizedDescription)
         }
     }
 
@@ -782,29 +789,49 @@ struct RepositoryStatusBarItems: View {
         return "\(summary.displayBranch) · \(upstream)"
     }
 
+    @ViewBuilder
+    private func changesLabel(_ summary: GitRepositorySummary?) -> some View {
+        if let summary {
+            if summary.changedCount == 0 {
+                Text(L10n.resource("Clean"))
+            } else if summary.changedCount == 1 {
+                Text(L10n.resource("1 change"))
+            } else {
+                Text(L10n.resource("\(summary.changedCount) changes"))
+            }
+        } else {
+            Text(L10n.resource("Changes"))
+        }
+    }
+
     private func modifyChanges(_ operation: @escaping @MainActor () async -> Void) {
         guard !isRepositoryBusy, !hasRunningAIWorkflow else { return }
         Task { await operation() }
     }
 
     private func workingTreeHelp(_ summary: GitRepositorySummary) -> String {
-        guard summary.isDirty else { return "Clean working tree" }
-        return "\(summary.changedCount) changed, \(summary.stagedCount) staged, "
-            + "\(summary.unstagedCount) unstaged, \(summary.untrackedCount) untracked"
+        guard summary.isDirty else { return L10n.string("Clean working tree") }
+        let changed = summary.changedCount
+        let staged = summary.stagedCount
+        let unstaged = summary.unstagedCount
+        let untracked = summary.untrackedCount
+        return L10n.string(
+            "\(changed) changed, \(staged) staged, \(unstaged) unstaged, \(untracked) untracked"
+        )
     }
 
     private func upstreamHelp(_ status: GitRepositoryService.AheadBehind) -> String {
-        guard status.hasUpstream else { return "No upstream" }
-        guard status.ahead > 0 || status.behind > 0 else { return "Up to date" }
-        return "\(status.ahead) ahead, \(status.behind) behind"
+        guard status.hasUpstream else { return L10n.string("No upstream") }
+        guard status.ahead > 0 || status.behind > 0 else { return L10n.string("Up to date") }
+        return L10n.string("\(status.ahead) ahead, \(status.behind) behind")
     }
 
     private func pullRequestChecksChipLabel(_ checks: GitRepositoryService.PRChecks) -> String? {
         switch checks.status {
         case .none: nil
-        case .success: "\(checks.passing)/\(checks.total)"
-        case .pending: "\(checks.pending) running"
-        case .failure: "\(checks.failing) failing"
+        case .success: L10n.string("\(checks.passing)/\(checks.total)")
+        case .pending: L10n.string("\(checks.pending) running")
+        case .failure: L10n.string("\(checks.failing) failing")
         }
     }
 }

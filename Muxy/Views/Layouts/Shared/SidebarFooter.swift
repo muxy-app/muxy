@@ -31,7 +31,7 @@ struct SidebarFooter: View {
     }
 
     private var sidebarToggleLabel: String {
-        sidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar"
+        sidebarExpanded ? L10n.string("Collapse Sidebar") : L10n.string("Expand Sidebar")
     }
 
     private var notificationBellIcon: String {
@@ -43,13 +43,17 @@ struct SidebarFooter: View {
     }
 
     private var extensionsHelp: String {
-        guard extensionStore.hasUpdates else { return "Extensions" }
+        guard extensionStore.hasUpdates else { return L10n.string("Extensions") }
         let count = extensionStore.updateCount
-        return count == 1 ? "Extensions (1 update available)" : "Extensions (\(count) updates available)"
+        return count == 1
+            ? L10n.string("Extensions (1 update available)")
+            : L10n.string("Extensions (\(count) updates available)")
     }
 
     private var extensionsAccessibilityLabel: String {
-        extensionStore.hasUpdates ? "Extensions, updates available" : "Extensions"
+        extensionStore.hasUpdates
+            ? L10n.string("Extensions, updates available")
+            : L10n.string("Extensions")
     }
 
     private var collapsedFooter: some View {
@@ -76,12 +80,12 @@ struct SidebarFooter: View {
 
     private var sidebarToggleButton: some View {
         IconButton(symbol: "sidebar.left", accessibilityLabel: sidebarToggleLabel) { postToggleSidebar() }
-            .help("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
+            .help(L10n.string("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))"))
     }
 
     private var notificationsButton: some View {
-        IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
-            .help("Notifications")
+        IconButton(symbol: notificationBellIcon, accessibilityLabel: L10n.string("Notifications")) { showNotifications.toggle() }
+            .help(L10n.string("Notifications"))
             .popover(isPresented: $showNotifications) {
                 NotificationPanel(onDismiss: { showNotifications = false })
             }
@@ -97,8 +101,8 @@ struct SidebarFooter: View {
     }
 
     private var themeButton: some View {
-        IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
-            .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
+        IconButton(symbol: "paintpalette", accessibilityLabel: L10n.string("Theme Picker")) { showThemePicker.toggle() }
+            .help(L10n.string("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))"))
             .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
     }
 }

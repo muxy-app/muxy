@@ -73,7 +73,7 @@ enum ProjectPathCopyService {
             PathClipboard.copy(absolutePath)
         } catch {
             projectPathCopyLogger.error("Failed to copy project path: \(error.localizedDescription)")
-            ToastState.shared.show(title: "Could not copy project path", body: error.localizedDescription)
+            ToastState.shared.show(title: L10n.string("Could not copy project path"), body: error.localizedDescription)
         }
     }
 }

@@ -27,13 +27,16 @@ struct ShortcutActionDispatcher {
     }
 
     private var navigableProjects: [Project] {
-        if projectGroupStore.isRemoteWorkspaceActive {
-            let remoteHome = projectGroupStore.activeRemoteHomeProject.map { [$0] } ?? []
-            return remoteHome + projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
-        }
-        let filtered = projectGroupStore.filteredProjects(from: projectStore.storedProjects)
-        guard HomeProjectPreferences.isVisible else { return filtered }
-        return [Project.home] + filtered
+        ProjectNavigationOrder.projects(
+            homeProject: navigableHomeProject,
+            displayedProjects: projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
+        )
+    }
+
+    private var navigableHomeProject: Project? {
+        guard HomeProjectPreferences.isVisible else { return nil }
+        guard projectGroupStore.isRemoteWorkspaceActive else { return Project.home }
+        return projectGroupStore.activeRemoteHomeProject
     }
 
     private var tabFocusedEntries: [TabFocusedTabOrder.Entry] {

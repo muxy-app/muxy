@@ -5,7 +5,7 @@ struct ProjectPathContextMenu: View {
     let workspaceContext: WorkspaceContext
 
     var body: some View {
-        Button("Copy Path") {
+        Button(L10n.string("Copy Path")) {
             Task {
                 await ProjectPathCopyService.copy(path: path, workspaceContext: workspaceContext)
             }

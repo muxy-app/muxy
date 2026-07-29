@@ -117,7 +117,7 @@ struct SettingsCatalogItem: Identifiable, Equatable {
     let category: SettingsCategory
     let section: String
     let defaultValue: AnyHashable?
-    let searchableText: String
+    let aliases: [String]
 
     var id: String { key }
 
@@ -136,9 +136,7 @@ struct SettingsCatalogItem: Identifiable, Equatable {
         self.category = category
         self.section = section
         self.defaultValue = defaultValue
-        searchableText = ([key, title, description, category.title, section] + aliases)
-            .joined(separator: " ")
-            .lowercased()
+        self.aliases = aliases
     }
 }
 
@@ -158,6 +156,15 @@ enum SettingsCatalog {
             section: "Updates",
             defaultValue: UpdateChannel.stable.rawValue,
             aliases: ["release", "beta"]
+        ),
+        SettingsCatalogItem(
+            key: LocalizationSelection.storageKey,
+            title: "App Language",
+            description: "Chooses built-in English or a language provided by an enabled extension.",
+            category: .appearance,
+            section: "Language",
+            defaultValue: LocalizationSelection.builtinValue,
+            aliases: ["localization", "translation", "locale", "i18n"]
         ),
         SettingsCatalogItem(
             key: GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch,
@@ -183,6 +190,15 @@ enum SettingsCatalog {
             section: "Sidebar",
             defaultValue: SidebarSelection.builtinValue,
             aliases: ["extension sidebar", "webview sidebar"]
+        ),
+        SettingsCatalogItem(
+            key: WorktreeListPreferences.groupWorktreesKey,
+            title: "Nest Worktrees Inside Projects",
+            description: "Places worktrees under their project in Tab Focused and Agents Focused layouts.",
+            category: .appearance,
+            section: "Sidebar",
+            defaultValue: WorktreeListPreferences.defaultGroupWorktrees,
+            aliases: ["group worktrees", "nested", "folders", "tab focused", "agents focused"]
         ),
         SettingsCatalogItem(
             key: WorktreeListPreferences.showUnreadIndicatorKey,
@@ -645,17 +661,48 @@ enum SettingsCatalog {
         item.defaultValue != nil
     }
 
-    static func matchingItems(query: String) -> [SettingsCatalogItem] {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    static func matchingItems(
+        query: String,
+        localization: LocalizationService = .shared
+    ) -> [SettingsCatalogItem] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return items }
-        return items.filter { $0.searchableText.contains(normalized) }
+        return items.filter { item in
+            LocalizedSearch.matches(
+                query: normalized,
+                localizedKeys: [
+                    item.title,
+                    item.description,
+                    item.category.title,
+                    item.section,
+                ],
+                verbatimValues: [item.key] + item.aliases,
+                localization: localization
+            )
+        }
     }
 
-    static func categoryMatches(_ category: SettingsCategory, query: String) -> Bool {
+    static func matchCountSummary(for category: SettingsCategory, query: String) -> String? {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        let count = matchingItems(query: normalized).count(where: { $0.category == category })
+        guard count != 1 else { return L10n.string("1 match") }
+        return L10n.string("\(count) matches")
+    }
+
+    static func categoryMatches(
+        _ category: SettingsCategory,
+        query: String,
+        localization: LocalizationService = .shared
+    ) -> Bool {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return true }
-        return category.title.localizedCaseInsensitiveContains(normalized)
-            || matchingItems(query: normalized).contains { $0.category == category }
+        return LocalizedSearch.matches(
+            query: normalized,
+            localizedKeys: [category.title],
+            localization: localization
+        )
+            || matchingItems(query: normalized, localization: localization).contains { $0.category == category }
     }
 
     static func sectionMatches(query: String, category: SettingsCategory?, section: String) -> Bool {

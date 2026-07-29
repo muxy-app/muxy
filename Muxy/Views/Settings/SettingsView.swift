@@ -178,12 +178,12 @@ private struct SettingsHeader: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(SettingsStyle.mutedForeground)
 
-                Text("Settings")
+                Text(L10n.resource("Settings"))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(SettingsStyle.foreground)
             }
             .padding(.horizontal, 16)
-            .frame(width: 210, alignment: .leading)
+            .frame(width: SettingsMetrics.sidebarWidth, alignment: .leading)
 
             Rectangle()
                 .fill(SettingsStyle.border)
@@ -193,7 +193,7 @@ private struct SettingsHeader: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12))
                     .foregroundStyle(SettingsStyle.mutedForeground)
-                TextField("Search settings", text: $searchText)
+                TextField(L10n.string("Search settings"), text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .foregroundStyle(SettingsStyle.foreground)
@@ -229,7 +229,7 @@ private struct SettingsHeader: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Close Settings")
+            .help(L10n.string("Close Settings"))
             .padding(.trailing, 12)
         }
         .padding(.vertical, 12)
@@ -245,34 +245,38 @@ private struct SettingsSidebar: View {
     let searchText: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if categories.isEmpty, extensionRoutes.isEmpty {
-                Text("No settings found")
-                    .font(.system(size: SettingsMetrics.labelFontSize))
-                    .foregroundStyle(SettingsStyle.mutedForeground)
-                    .padding(SettingsMetrics.horizontalPadding)
-            } else {
-                ForEach(categories) { category in
-                    sidebarRow(
-                        route: .builtin(category),
-                        symbol: category.symbolName,
-                        title: category.title,
-                        matchCountText: searchText.isEmpty ? nil : matchCountText(for: category)
-                    )
-                }
-                ForEach(extensionRoutes, id: \.extensionID) { route in
-                    sidebarRow(
-                        route: .ext(route.extensionID),
-                        symbol: "puzzlepiece.extension",
-                        title: route.displayName,
-                        matchCountText: nil
-                    )
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 4) {
+                if categories.isEmpty, extensionRoutes.isEmpty {
+                    Text(L10n.resource("No settings found"))
+                        .font(.system(size: SettingsMetrics.labelFontSize))
+                        .foregroundStyle(SettingsStyle.mutedForeground)
+                        .padding(SettingsMetrics.horizontalPadding)
+                } else {
+                    ForEach(categories) { category in
+                        sidebarRow(
+                            route: .builtin(category),
+                            symbol: category.symbolName,
+                            title: L10n.string(key: category.title),
+                            matchCountText: SettingsCatalog.matchCountSummary(for: category, query: searchText)
+                        )
+                    }
+                    ForEach(extensionRoutes, id: \.extensionID) { route in
+                        sidebarRow(
+                            route: .ext(route.extensionID),
+                            symbol: "puzzlepiece.extension",
+                            title: route.displayName,
+                            matchCountText: nil
+                        )
+                    }
                 }
             }
-            Spacer()
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(10)
-        .frame(width: 210)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(width: SettingsMetrics.sidebarWidth)
+        .frame(maxHeight: .infinity)
         .background(SettingsStyle.sidebarBackground)
     }
 
@@ -316,11 +320,5 @@ private struct SettingsSidebar: View {
             .foregroundStyle(isSelected ? SettingsStyle.accent : SettingsStyle.mutedForeground)
         }
         .buttonStyle(.plain)
-    }
-
-    private func matchCountText(for category: SettingsCategory) -> String {
-        let count = SettingsCatalog.matchingItems(query: searchText).count(where: { $0.category == category })
-        guard count != 1 else { return "1 match" }
-        return "\(count) matches"
     }
 }

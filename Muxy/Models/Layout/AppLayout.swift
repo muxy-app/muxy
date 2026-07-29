@@ -15,6 +15,10 @@ enum AppLayout: String, CaseIterable, Identifiable {
         }
     }
 
+    var supportsGroupedWorktrees: Bool {
+        self != .projectFocused
+    }
+
     static let storageKey = "muxy.appLayout"
     static let defaultValue: AppLayout = .projectFocused
 

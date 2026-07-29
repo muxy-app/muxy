@@ -14,11 +14,17 @@ struct OpenProjectControl: View {
             Button(action: openProject) {
                 HStack(spacing: UIMetrics.spacing3) {
                     primaryIcon
-                    Text(defaultIDE?.displayName ?? "Open Project")
-                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: UIMetrics.scaled(112), alignment: .leading)
+                    Group {
+                        if let defaultIDE {
+                            Text(verbatim: defaultIDE.displayName)
+                        } else {
+                            Text(L10n.resource("Open Project"))
+                        }
+                    }
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: UIMetrics.scaled(112), alignment: .leading)
                 }
                 .foregroundStyle(primaryForeground)
                 .padding(.horizontal, UIMetrics.spacing4)
@@ -103,7 +109,7 @@ struct OpenProjectControl: View {
             }
 
             if !hasTargets {
-                Text("No supported editors found")
+                Text(L10n.resource("No supported editors found"))
                     .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .padding(.leading, UIMetrics.spacing5)
@@ -181,16 +187,18 @@ struct OpenProjectControl: View {
     }
 
     private var helpText: String {
-        guard projectPath != nil else { return "Open a project to enable opening" }
+        guard projectPath != nil else { return L10n.string("Open a project to enable opening") }
         if let defaultIDE {
-            return "Open project in \(defaultIDE.displayName)"
+            return L10n.string("Open project in \(defaultIDE.displayName)")
         }
-        return hasTargets ? "No default editor available" : "No supported editors found"
+        return hasTargets
+            ? L10n.string("No default editor available")
+            : L10n.string("No supported editors found")
     }
 
     private var menuHelpText: String {
-        guard projectPath != nil else { return "Open a project to choose a target" }
-        return "Choose project target"
+        guard projectPath != nil else { return L10n.string("Open a project to choose a target") }
+        return L10n.string("Choose project target")
     }
 
     private var primaryForeground: Color {

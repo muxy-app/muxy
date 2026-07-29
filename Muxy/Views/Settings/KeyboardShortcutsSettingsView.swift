@@ -25,7 +25,7 @@ struct KeyboardShortcutsSettingsView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(SettingsStyle.mutedForeground)
                     .font(.system(size: SettingsMetrics.labelFontSize))
-                TextField("Search shortcuts", text: $searchText)
+                TextField(L10n.string("Search shortcuts"), text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: SettingsMetrics.labelFontSize))
                     .foregroundStyle(SettingsStyle.foreground)
@@ -34,7 +34,7 @@ struct KeyboardShortcutsSettingsView: View {
             .padding(.vertical, 6)
             .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
 
-            Button("Reset All") {
+            Button(L10n.string("Reset All")) {
                 store.resetToDefaults()
                 recordingAction = nil
                 recordingExtensionShortcutID = nil
@@ -73,7 +73,7 @@ struct KeyboardShortcutsSettingsView: View {
     }
 
     private func extensionSection(group: ExtensionShortcutGroup, isLast: Bool) -> some View {
-        SettingsSection(group.extensionName, showsDivider: !isLast) {
+        SettingsSection(verbatim: group.extensionName, showsDivider: !isLast) {
             ForEach(group.entries) { entry in
                 ShortcutRow(
                     title: entry.commandTitle,
@@ -133,8 +133,10 @@ struct KeyboardShortcutsSettingsView: View {
         guard !searchText.isEmpty else { return groups }
         return groups.compactMap { group in
             let entries = group.entries.filter {
-                $0.commandTitle.localizedCaseInsensitiveContains(searchText)
-                    || group.extensionName.localizedCaseInsensitiveContains(searchText)
+                LocalizedSearch.matches(
+                    query: searchText,
+                    verbatimValues: [$0.commandTitle, group.extensionName]
+                )
             }
             guard !entries.isEmpty else { return nil }
             return ExtensionShortcutGroup(extensionID: group.extensionID, extensionName: group.extensionName, entries: entries)
@@ -142,10 +144,11 @@ struct KeyboardShortcutsSettingsView: View {
     }
 
     private func categorySection(title: String, actions: [ShortcutAction], isLast: Bool) -> some View {
-        SettingsSection(title, showsDivider: !isLast) {
+        SettingsSection(L10n.resource(key: title), showsDivider: !isLast) {
             ForEach(actions) { action in
                 ShortcutRow(
                     title: action.displayName,
+                    localizesTitle: true,
                     combo: store.combo(for: action),
                     isRecording: recordingAction == action,
                     conflictMessage: conflictWarning?.action == action
@@ -175,18 +178,28 @@ struct KeyboardShortcutsSettingsView: View {
     private func filteredActions(for category: String) -> [ShortcutAction] {
         let actions = ShortcutAction.allCases.filter { $0.category == category }
         guard !searchText.isEmpty else { return actions }
-        return actions.filter { $0.displayName.localizedCaseInsensitiveContains(searchText) }
+        return actions.filter {
+            LocalizedSearch.matches(
+                query: searchText,
+                localizedKeys: [$0.displayName, $0.category]
+            )
+        }
     }
 
     private func handleRecord(action: ShortcutAction, combo: KeyCombo) -> Bool {
         if let message = QuickTerminalShortcutConflictResolver.quickTerminalConflictMessage(for: combo) {
-            conflictWarning = (action: action, message: "\(message) Press a different shortcut or Esc to cancel.")
+            conflictWarning = (
+                action: action,
+                message: L10n.string("\(message) Press a different shortcut or Esc to cancel.")
+            )
             return false
         }
         if let existing = store.conflictingAction(for: combo, excluding: action) {
             conflictWarning = (
                 action: action,
-                message: "Conflicts with \"\(existing.displayName)\". Press a different shortcut or Esc to cancel."
+                message: L10n.string(
+                    "Conflicts with \"\(L10n.string(key: existing.displayName))\". Press a different shortcut or Esc to cancel."
+                )
             )
             return false
         }
@@ -208,6 +221,7 @@ struct KeyboardShortcutsSettingsView: View {
 
 private struct ShortcutRow: View {
     let title: String
+    var localizesTitle = false
     let combo: KeyCombo
     let isRecording: Bool
     let conflictMessage: String?
@@ -221,9 +235,15 @@ private struct ShortcutRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(title)
-                    .font(.system(size: SettingsMetrics.labelFontSize))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Group {
+                    if localizesTitle {
+                        Text(L10n.resource(key: title))
+                    } else {
+                        Text(verbatim: title)
+                    }
+                }
+                .font(.system(size: SettingsMetrics.labelFontSize))
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 if isRecording {
                     recordingView
@@ -254,7 +274,7 @@ private struct ShortcutRow: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!combo.isAssigned)
-                .accessibilityLabel("Unassign Shortcut")
+                .accessibilityLabel(L10n.string("Unassign Shortcut"))
 
                 Button(action: onReset) {
                     Image(systemName: "arrow.counterclockwise")
@@ -262,16 +282,22 @@ private struct ShortcutRow: View {
                         .foregroundStyle(SettingsStyle.mutedForeground)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Reset Shortcut")
+                .accessibilityLabel(L10n.string("Reset Shortcut"))
             }
 
             Button(action: onStartRecording) {
-                Text(combo.isAssigned ? combo.displayString : "Unassigned")
-                    .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium, design: .rounded))
-                    .foregroundStyle(SettingsStyle.foreground)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 5))
+                Group {
+                    if combo.isAssigned {
+                        Text(verbatim: combo.displayString)
+                    } else {
+                        Text(L10n.resource("Unassigned"))
+                    }
+                }
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium, design: .rounded))
+                .foregroundStyle(SettingsStyle.foreground)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
         }
@@ -283,7 +309,7 @@ private struct ShortcutRow: View {
                 .frame(width: 0, height: 0)
                 .opacity(0)
 
-            Text("Press shortcut…")
+            Text(L10n.resource("Press shortcut…"))
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.warning)
                 .padding(.horizontal, 8)

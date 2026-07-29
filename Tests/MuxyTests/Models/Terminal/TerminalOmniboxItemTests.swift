@@ -5,6 +5,46 @@ import Testing
 
 @Suite("TerminalOmniboxItemResolver")
 struct TerminalOmniboxItemResolverTests {
+    @Test("Localized presentation and search preserve user-owned values")
+    @MainActor
+    func localizedPresentationAndSearch() throws {
+        let fixture = try LocalizationTestSupport.makeService(
+            translations: #"""
+            "All Projects" = "Alle Projekte";
+            "All projects" = "Alle Projekte";
+            "Home" = "Startseite";
+            "Projects" = "Projekte";
+            "Workspaces" = "Arbeitsbereiche";
+            "project" = "Projekt";
+            "workspace" = "Arbeitsbereich";
+            """#
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let home = TerminalOmniboxItem.project(TerminalOmniboxProjectItem(
+            projectID: Project.homeID,
+            name: Project.homeName,
+            path: "/Users/test",
+            isHome: true
+        ))
+        let workspace = TerminalOmniboxItem.workspace(TerminalOmniboxWorkspaceItem(
+            groupID: nil,
+            name: "All Projects",
+            projectCount: 4
+        ))
+        let userProject = TerminalOmniboxItem.project(TerminalOmniboxProjectItem(
+            projectID: UUID(),
+            name: "Home",
+            path: "/tmp/home"
+        ))
+
+        #expect(home.localizedTitle(localization: fixture.service) == "Startseite")
+        #expect(home.matchesSearch(query: "startseite", localization: fixture.service))
+        #expect(workspace.localizedTitle(localization: fixture.service) == "Alle Projekte")
+        #expect(workspace.matchesSearch(query: "arbeitsbereich", localization: fixture.service))
+        #expect(userProject.localizedTitle(localization: fixture.service) == "Home")
+        #expect(!userProject.matchesSearch(query: "startseite", localization: fixture.service))
+    }
+
     @Test("Item metadata reflects each omnibox variant")
     func itemMetadataReflectsVariant() {
         let projectID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!

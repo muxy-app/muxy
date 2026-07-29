@@ -34,7 +34,7 @@ struct ProjectStatusBar: View {
             alignment: .top
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Status bar")
+        .accessibilityLabel(L10n.string("Status bar"))
     }
 
     private var leftSide: some View {
@@ -113,11 +113,15 @@ struct ProjectStatusBar: View {
         }
         .buttonStyle(.plain)
         .help(fullPath)
-        .accessibilityLabel(remote ? "Copy \(fullPath)" : "Reveal \(fullPath) in Finder")
+        .accessibilityLabel(
+            remote
+                ? L10n.string("Copy \(fullPath)")
+                : L10n.string("Reveal \(fullPath) in Finder")
+        )
         .contextMenu {
-            Button("Copy Path") { PathClipboard.copy(fullPath) }
+            Button(L10n.string("Copy Path")) { PathClipboard.copy(fullPath) }
             if !remote {
-                Button("Reveal in Finder") { revealInFinder(fullPath) }
+                Button(L10n.string("Reveal in Finder")) { revealInFinder(fullPath) }
             }
         }
     }
@@ -173,8 +177,8 @@ struct ProjectStatusBar: View {
                 .foregroundStyle(extensionOutputVisible ? MuxyTheme.accent : MuxyTheme.fgMuted)
         }
         .buttonStyle(.plain)
-        .help("Toggle Extension Output panel")
-        .accessibilityLabel("Toggle Extension Output")
+        .help(L10n.string("Toggle Extension Output panel"))
+        .accessibilityLabel(L10n.string("Toggle Extension Output"))
     }
 
     private var voiceRecordingButton: some View {
@@ -191,8 +195,8 @@ struct ProjectStatusBar: View {
         }
         .buttonStyle(RichInputToolbarButtonStyle())
         .disabled(!isInteractive)
-        .accessibilityLabel("Start Voice Recording")
-        .help("Start Voice Recording")
+        .accessibilityLabel(L10n.string("Start Voice Recording"))
+        .help(L10n.string("Start Voice Recording"))
     }
 
     private var legacyVoiceShortcut: KeyCombo {

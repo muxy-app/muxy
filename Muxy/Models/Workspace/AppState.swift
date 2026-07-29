@@ -568,6 +568,12 @@ final class AppState {
         }
     }
 
+    func closeTabs(_ tabIDs: [UUID], areaID: UUID, key: WorktreeKey) {
+        for tabID in tabIDs {
+            closeTab(tabID, areaID: areaID, key: key)
+        }
+    }
+
     private func proceedCloseAfterVeto(_ tabID: UUID, areaID: UUID, key: WorktreeKey) {
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, key: key) {
             pendingProcessTabClose = PendingTabClose(key: key, areaID: areaID, tabID: tabID)
@@ -647,6 +653,7 @@ final class AppState {
     func allOpenTerminalTabItems(
         for projectID: UUID,
         projectName: String,
+        projectIsHome: Bool,
         worktreeLabel: (UUID) -> (name: String?, branch: String?)
     ) -> [OpenTerminalTabItem] {
         workspaceRoots
@@ -663,10 +670,11 @@ final class AppState {
                             worktreeID: key.worktreeID,
                             areaID: area.id,
                             tabID: tab.id,
-                            title: tab.title,
+                            title: tab.localizedTitle,
                             workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
                             command: command,
                             projectName: projectName,
+                            projectIsHome: projectIsHome,
                             worktreeName: label.name,
                             worktreeBranch: label.branch
                         )

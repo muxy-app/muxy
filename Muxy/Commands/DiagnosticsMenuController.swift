@@ -4,7 +4,12 @@ import AppKit
 final class DiagnosticsMenuController {
     static let shared = DiagnosticsMenuController()
 
+    private static let appKitWindowMenuTitle = "Window"
+
+    private var topLevelItem: NSMenuItem?
+    private var exportItem: NSMenuItem?
     private var toggleItem: NSMenuItem?
+    private var revealItem: NSMenuItem?
 
     private init() {}
 
@@ -16,20 +21,21 @@ final class DiagnosticsMenuController {
 
     private func ensureInstalled() {
         guard let mainMenu = NSApp.mainMenu else { return }
-        if mainMenu.indexOfItem(withTitle: "Diagnostics") >= 0 {
+        if let topLevelItem, mainMenu.index(of: topLevelItem) >= 0 {
             return
         }
 
-        let menu = NSMenu(title: "Diagnostics")
+        let menu = NSMenu(title: L10n.string("Diagnostics"))
         menu.autoenablesItems = false
 
         let exportItem = NSMenuItem(
-            title: "Export Diagnostics...",
+            title: L10n.string("Export Diagnostics..."),
             action: #selector(exportSnapshot),
             keyEquivalent: ""
         )
         exportItem.target = self
         menu.addItem(exportItem)
+        self.exportItem = exportItem
 
         let toggle = NSMenuItem(
             title: toggleTitle(),
@@ -43,17 +49,19 @@ final class DiagnosticsMenuController {
         menu.addItem(.separator())
 
         let revealItem = NSMenuItem(
-            title: "Reveal Logs Folder",
+            title: L10n.string("Reveal Logs Folder"),
             action: #selector(revealLogs),
             keyEquivalent: ""
         )
         revealItem.target = self
         menu.addItem(revealItem)
+        self.revealItem = revealItem
 
-        let topLevel = NSMenuItem(title: "Diagnostics", action: nil, keyEquivalent: "")
+        let topLevel = NSMenuItem(title: L10n.string("Diagnostics"), action: nil, keyEquivalent: "")
         topLevel.submenu = menu
+        topLevelItem = topLevel
 
-        let insertIndex = mainMenu.indexOfItem(withTitle: "Window")
+        let insertIndex = mainMenu.indexOfItem(withTitle: Self.appKitWindowMenuTitle)
         if insertIndex >= 0 {
             mainMenu.insertItem(topLevel, at: insertIndex)
         } else {
@@ -63,8 +71,16 @@ final class DiagnosticsMenuController {
 
     private func toggleTitle() -> String {
         MemoryDiagnostics.shared.isPeriodicLoggingEnabled
-            ? "Disable Periodic Logging"
-            : "Enable Periodic Logging"
+            ? L10n.string("Disable Periodic Logging")
+            : L10n.string("Enable Periodic Logging")
+    }
+
+    func refreshLocalization() {
+        topLevelItem?.title = L10n.string("Diagnostics")
+        topLevelItem?.submenu?.title = L10n.string("Diagnostics")
+        exportItem?.title = L10n.string("Export Diagnostics...")
+        toggleItem?.title = toggleTitle()
+        revealItem?.title = L10n.string("Reveal Logs Folder")
     }
 
     @objc

@@ -4,10 +4,19 @@ struct PanelContainer<Content: View>: View {
     let chrome: PanelChrome
     let mode: PanelMode
     let position: PanelPosition
+    let focusRestorationID: String?
     let onClose: (() -> Void)?
     let onTogglePin: (() -> Void)?
     let onTogglePosition: (() -> Void)?
     @ViewBuilder let content: () -> Content
+    @FocusState private var focusedHeaderControl: HeaderFocus?
+
+    private enum HeaderFocus: Hashable {
+        case custom(String)
+        case position
+        case pin
+        case close
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,6 +28,13 @@ struct PanelContainer<Content: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(MuxyTheme.bg)
+        .onChange(of: focusedHeaderControl) { _, focusedControl in
+            guard let focusRestorationID else { return }
+            PanelFocusRestoration.shared.setPanelControlFocused(
+                panelID: focusRestorationID,
+                focused: focusedControl != nil
+            )
+        }
     }
 
     private var header: some View {
@@ -43,18 +59,25 @@ struct PanelContainer<Content: View>: View {
                     control(
                         symbol: positionSymbol,
                         label: positionLabel,
+                        focus: .position,
                         action: onTogglePosition
                     )
                 }
                 if chrome.shows(.pin), let onTogglePin {
                     control(
                         symbol: mode == .floating ? "pin" : "pin.slash",
-                        label: mode == .floating ? "Dock Panel" : "Float Panel",
+                        label: mode == .floating ? L10n.string("Dock Panel") : L10n.string("Float Panel"),
+                        focus: .pin,
                         action: onTogglePin
                     )
                 }
                 if chrome.shows(.close), let onClose {
-                    control(symbol: "xmark", label: "Close", action: onClose)
+                    control(
+                        symbol: "xmark",
+                        label: L10n.string("Close"),
+                        focus: .close,
+                        action: onClose
+                    )
                 }
             }
         }
@@ -76,6 +99,7 @@ struct PanelContainer<Content: View>: View {
                 action: button.action
             )
             .help(button.label)
+            .focused($focusedHeaderControl, equals: .custom(button.id))
         case let .extensionIcon(icon, muxyExtension):
             ExtensionIconButton(
                 icon: icon,
@@ -86,12 +110,19 @@ struct PanelContainer<Content: View>: View {
                 action: button.action
             )
             .help(button.label)
+            .focused($focusedHeaderControl, equals: .custom(button.id))
         }
     }
 
-    private func control(symbol: String, label: String, action: @escaping () -> Void) -> some View {
+    private func control(
+        symbol: String,
+        label: String,
+        focus: HeaderFocus,
+        action: @escaping () -> Void
+    ) -> some View {
         IconButton(symbol: symbol, accessibilityLabel: label, action: action)
             .help(label)
+            .focused($focusedHeaderControl, equals: focus)
     }
 
     private var positionSymbol: String {
@@ -102,6 +133,6 @@ struct PanelContainer<Content: View>: View {
     }
 
     private var positionLabel: String {
-        "Move to \(position.opposite.displayName)"
+        L10n.string("Move to \(L10n.string(key: position.opposite.displayName))")
     }
 }

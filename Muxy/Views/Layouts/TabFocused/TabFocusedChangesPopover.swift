@@ -40,9 +40,19 @@ struct TabFocusedChangesPopover: View {
         .background(MuxyTheme.bg)
         .alert(item: $pendingDiscard) { file in
             Alert(
-                title: Text(file.isUntracked ? "Delete \(file.path)?" : "Discard changes to \(file.path)?"),
+                title: Text(
+                    file.isUntracked
+                        ? L10n.resource("Delete \(file.path)?")
+                        : L10n.resource("Discard changes to \(file.path)?")
+                ),
                 message: Text(discardMessage(file)),
-                primaryButton: .destructive(Text(file.isUntracked ? "Delete File" : "Discard")) {
+                primaryButton: .destructive(
+                    Text(
+                        file.isUntracked
+                            ? L10n.resource("Delete File")
+                            : L10n.resource("Discard")
+                    )
+                ) {
                     onDiscard(file)
                 },
                 secondaryButton: .cancel()
@@ -61,10 +71,10 @@ struct TabFocusedChangesPopover: View {
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(summary.isDirty ? MuxyTheme.warning : MuxyTheme.diffAddFg)
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                Text("Changes")
+                Text(L10n.resource("Changes"))
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
-                Text(workingTreeDescription)
+                Text(L10n.resource(workingTreeDescription))
                     .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .lineLimit(1)
@@ -86,8 +96,8 @@ struct TabFocusedChangesPopover: View {
             }
             .buttonStyle(.plain)
             .disabled(isInteractionDisabled)
-            .help("Refresh working tree changes")
-            .accessibilityLabel("Refresh working tree changes")
+            .help(L10n.string("Refresh working tree changes"))
+            .accessibilityLabel(L10n.string("Refresh working tree changes"))
         }
         .padding(UIMetrics.spacing4)
     }
@@ -139,11 +149,11 @@ struct TabFocusedChangesPopover: View {
     }
 
     private func section(
-        title: String,
+        title: LocalizedStringResource,
         files: [GitStatusFile],
         lineStats sectionLineStats: RepositoryChangesLineStats,
         side: ChangeSide,
-        batchAction: (title: String, action: () -> Void)?
+        batchAction: (title: LocalizedStringResource, action: () -> Void)?
     ) -> some View {
         Section {
             ForEach(files) { file in
@@ -151,16 +161,16 @@ struct TabFocusedChangesPopover: View {
             }
         } header: {
             HStack(spacing: UIMetrics.spacing3) {
-                Text(title)
+                Text(L10n.resource(title))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(side == .conflicted ? MuxyTheme.warning : MuxyTheme.fgMuted)
-                Text("\(files.count)")
+                Text(L10n.resource("\(files.count)"))
                     .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .rounded))
                     .foregroundStyle(MuxyTheme.fgDim)
                 lineStats(sectionLineStats)
                 Spacer(minLength: UIMetrics.spacing3)
                 if let batchAction {
-                    Button(batchAction.title, action: batchAction.action)
+                    Button(L10n.string(batchAction.title), action: batchAction.action)
                         .buttonStyle(.plain)
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.accent)
@@ -216,27 +226,29 @@ struct TabFocusedChangesPopover: View {
         case .conflicted:
             ChangesPopoverActionButton(
                 symbol: "plus",
-                help: "Stage resolved file \(file.path)",
+                help: L10n.string("Stage resolved file \(file.path)"),
                 isDisabled: isInteractionDisabled,
                 action: { onStage(file) }
             )
         case .staged:
             ChangesPopoverActionButton(
                 symbol: "minus",
-                help: "Unstage \(file.path)",
+                help: L10n.string("Unstage \(file.path)"),
                 isDisabled: isInteractionDisabled,
                 action: { onUnstage(file) }
             )
         case .unstaged:
             ChangesPopoverActionButton(
                 symbol: "plus",
-                help: "Stage \(file.path)",
+                help: L10n.string("Stage \(file.path)"),
                 isDisabled: isInteractionDisabled,
                 action: { onStage(file) }
             )
             ChangesPopoverActionButton(
                 symbol: "trash",
-                help: file.isUntracked ? "Delete untracked file \(file.path)" : "Discard changes to \(file.path)",
+                help: file.isUntracked
+                    ? L10n.string("Delete untracked file \(file.path)")
+                    : L10n.string("Discard changes to \(file.path)"),
                 isDestructive: true,
                 isDisabled: isInteractionDisabled,
                 action: { pendingDiscard = file }
@@ -248,14 +260,14 @@ struct TabFocusedChangesPopover: View {
     private func lineStats(_ stats: RepositoryChangesLineStats) -> some View {
         if stats.hasKnownValues {
             HStack(spacing: UIMetrics.spacing2) {
-                Text("+\(stats.additions)")
+                Text(L10n.resource("+\(stats.additions)"))
                     .foregroundStyle(MuxyTheme.diffAddFg)
-                Text("−\(stats.deletions)")
+                Text(L10n.resource("−\(stats.deletions)"))
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
             }
             .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
             .fixedSize()
-            .accessibilityLabel("\(stats.additions) additions, \(stats.deletions) deletions")
+            .accessibilityLabel(L10n.string("\(stats.additions) additions, \(stats.deletions) deletions"))
         }
     }
 
@@ -268,7 +280,7 @@ struct TabFocusedChangesPopover: View {
                 hasKnownValues: true
             ))
         } else if file.isBinary {
-            Text("Binary")
+            Text(L10n.resource("Binary"))
                 .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
         } else {
@@ -276,10 +288,10 @@ struct TabFocusedChangesPopover: View {
             if stats.hasKnownValues {
                 lineStats(stats)
             } else {
-                Text("—")
+                Text(L10n.resource("—"))
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .foregroundStyle(MuxyTheme.fgDim)
-                    .accessibilityLabel("Line counts unavailable")
+                    .accessibilityLabel(L10n.string("Line counts unavailable"))
             }
         }
     }
@@ -289,7 +301,7 @@ struct TabFocusedChangesPopover: View {
             Image(systemName: "checkmark.circle")
                 .font(.system(size: UIMetrics.fontDisplay, weight: .medium))
                 .foregroundStyle(MuxyTheme.diffAddFg)
-            Text("Working tree is clean")
+            Text(L10n.resource("Working tree is clean"))
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fg)
         }
@@ -301,7 +313,7 @@ struct TabFocusedChangesPopover: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: UIMetrics.fontDisplay, weight: .medium))
                 .foregroundStyle(MuxyTheme.warning)
-            Text("Changes unavailable")
+            Text(L10n.resource("Changes unavailable"))
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fg)
             Text(error)
@@ -309,7 +321,7 @@ struct TabFocusedChangesPopover: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
-            Button("Retry", action: requestRefresh)
+            Button(L10n.string("Retry"), action: requestRefresh)
                 .buttonStyle(.plain)
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(isInteractionDisabled ? MuxyTheme.fgDim : MuxyTheme.accent)
@@ -328,7 +340,7 @@ struct TabFocusedChangesPopover: View {
                     Image(systemName: "trash")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .frame(width: UIMetrics.iconSM)
-                    Text(worktreeRemovalLabel)
+                    Text(L10n.resource(worktreeRemovalLabel))
                         .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     Spacer(minLength: UIMetrics.spacing3)
                 }
@@ -344,8 +356,8 @@ struct TabFocusedChangesPopover: View {
             .buttonStyle(.plain)
             .disabled(isWorktreeRemovalDisabled)
             .onHover { isRemoveWorktreeHovered = $0 }
-            .help(worktreeRemovalHelp ?? worktreeRemovalLabel)
-            .accessibilityLabel(worktreeRemovalHelp ?? worktreeRemovalLabel)
+            .help(worktreeRemovalHelp ?? L10n.string(worktreeRemovalLabel))
+            .accessibilityLabel(worktreeRemovalHelp ?? L10n.string(worktreeRemovalLabel))
             .padding(UIMetrics.spacing3)
         }
     }
@@ -354,7 +366,7 @@ struct TabFocusedChangesPopover: View {
         worktreeRemovalState != .available || isInteractionDisabled
     }
 
-    private var worktreeRemovalLabel: String {
+    private var worktreeRemovalLabel: LocalizedStringResource {
         switch worktreeRemovalState {
         case .hidden,
              .available:
@@ -366,7 +378,7 @@ struct TabFocusedChangesPopover: View {
         }
     }
 
-    private var workingTreeDescription: String {
+    private var workingTreeDescription: LocalizedStringResource {
         guard summary.isDirty else { return "Working tree clean" }
         return "\(summary.changedCount) changed · \(summary.stagedCount) staged · \(summary.untrackedCount) untracked"
     }
@@ -381,9 +393,9 @@ struct TabFocusedChangesPopover: View {
 
     private func discardMessage(_ file: GitStatusFile) -> String {
         if file.isUntracked {
-            return "This untracked file will be permanently deleted."
+            return L10n.string("This untracked file will be permanently deleted.")
         }
-        return "Unstaged changes to this file will be permanently discarded."
+        return L10n.string("Unstaged changes to this file will be permanently discarded.")
     }
 
     private func requestRefresh() {

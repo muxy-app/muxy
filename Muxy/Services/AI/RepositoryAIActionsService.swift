@@ -398,13 +398,16 @@ final class RepositoryAIActionsService {
         case let .success(.committed(hash)):
             repositoryAIActionsLogger.info("Committed and pushed with \(providerName, privacy: .public)")
             let detail = hash.isEmpty ? nil : "Commit \(hash)"
-            ToastState.shared.show(title: "Committed and pushed", body: detail)
+            ToastState.shared.show(title: L10n.string("Committed and pushed"), body: detail)
         case let .success(.pullRequestCreated(url)):
             repositoryAIActionsLogger.info("Created pull request with \(providerName, privacy: .public)")
-            ToastState.shared.show(title: "Pull request created", body: url)
+            ToastState.shared.show(title: L10n.string("Pull request created"), body: url)
         case let .failure(error):
             repositoryAIActionsLogger.error("\(action.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
-            ToastState.shared.show(title: "Could not \(action.title.lowercased())", body: error.localizedDescription)
+            ToastState.shared.show(
+                title: L10n.string("Could not \(action.title.lowercased())"),
+                body: error.localizedDescription
+            )
         }
     }
 }

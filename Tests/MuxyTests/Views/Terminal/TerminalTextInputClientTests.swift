@@ -20,6 +20,17 @@ struct TerminalTextInputClientTests {
         #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: false, next: false) == false)
     }
 
+    @Test func commandAndControlVRouteImagePaste() {
+        #expect(GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 9, modifierFlags: .command))
+        #expect(GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 9, modifierFlags: .control))
+    }
+
+    @Test func unrelatedOrAmbiguousShortcutsDoNotRouteImagePaste() {
+        #expect(!GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 8, modifierFlags: .command))
+        #expect(!GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 9, modifierFlags: [.command, .control]))
+        #expect(!GhosttyTerminalNSView.isImagePasteShortcut(keyCode: 9, modifierFlags: [.command, .option]))
+    }
+
     @Test func resolvedCommandFileClickOpensWithoutClaimingTerminalFocus() {
         var events: [String] = []
 
@@ -81,6 +92,25 @@ struct TerminalTextInputClientTests {
 
         #expect(view.markedRange() == NSRange(location: 0, length: 3))
         #expect(view.selectedRange() == NSRange(location: 3, length: 0))
+    }
+
+    @Test func insertingEmptyTextClearsMarkedText() {
+        let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
+        view.setMarkedText("compose", selectedRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        view.insertText("", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        #expect(!view.hasMarkedText())
+        #expect(view.markedRange() == NSRange(location: NSNotFound, length: 0))
+    }
+
+    @Test func insertingTextClearsMarkedText() {
+        let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
+        view.setMarkedText("compose", selectedRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        view.insertText("done", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        #expect(!view.hasMarkedText())
     }
 
     @Test func attributedSubstringReturnsVirtualMarkedText() throws {

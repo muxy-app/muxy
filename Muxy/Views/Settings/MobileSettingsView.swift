@@ -3,7 +3,7 @@ import Network
 import SwiftUI
 
 struct MobileSettingsView: View {
-    private static let pairingFooter = """
+    private static let pairingFooter: LocalizedStringResource = """
     Scan this with the Muxy mobile app to add this Mac. \
     The QR carries no token — first-time pairing still needs your approval.
     """
@@ -38,12 +38,15 @@ struct MobileSettingsView: View {
         SettingsContainer {
             SettingsSection(
                 "Mobile",
-                footer: "Muxy listens on the configured port for the iOS app over your local network or a private VPN such as Tailscale."
+                footer: L10n
+                    .resource(
+                        "Muxy listens on the configured port for the iOS app over your local network or a private VPN such as Tailscale."
+                    )
             ) {
-                SettingsToggleRow(label: "Allow mobile device connections", isOn: enabledBinding)
+                SettingsToggleRow(label: L10n.resource("Allow mobile device connections"), isOn: enabledBinding)
 
                 SettingsRow("Port") {
-                    TextField("\(MobileServerService.defaultPort)", text: $portText)
+                    TextField(L10n.string("\(MobileServerService.defaultPort)"), text: $portText)
                         .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
                         .settingsTextInput(width: SettingsMetrics.controlWidth)
                         .onChange(of: portText) { _, _ in
@@ -63,7 +66,7 @@ struct MobileSettingsView: View {
                             .foregroundStyle(SettingsStyle.destructive)
                             .fixedSize(horizontal: false, vertical: true)
                         if service.isPortInUse {
-                            Button("Free Port") {
+                            Button(L10n.string("Free Port")) {
                                 showFreePortConfirmation = true
                             }
                             .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
@@ -87,11 +90,11 @@ struct MobileSettingsView: View {
 
             SettingsSection(
                 "Approved Devices",
-                footer: "Revoking removes the device's access. It will need to request approval again to reconnect.",
+                footer: L10n.resource("Revoking removes the device's access. It will need to request approval again to reconnect."),
                 showsDivider: false
             ) {
                 if devices.devices.isEmpty {
-                    Text("No devices approved yet.")
+                    Text(L10n.resource("No devices approved yet."))
                         .font(.system(size: SettingsMetrics.labelFontSize))
                         .foregroundStyle(SettingsStyle.mutedForeground)
                         .padding(.horizontal, SettingsMetrics.horizontalPadding)
@@ -126,18 +129,18 @@ struct MobileSettingsView: View {
             }
         }
         .alert(
-            "Free port \(String(service.port))?",
+            L10n.string("Free port \(String(service.port))?"),
             isPresented: $showFreePortConfirmation
         ) {
-            Button("Free Port", role: .destructive) {
+            Button(L10n.string("Free Port"), role: .destructive) {
                 service.freePort()
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text("This will terminate any process currently listening on port \(String(service.port)).")
+            Text(L10n.resource("This will terminate any process currently listening on port \(String(service.port))."))
         }
         .alert(
-            "Revoke \(deviceToRevoke?.name ?? "device")?",
+            L10n.string("Revoke \(deviceToRevoke?.name ?? "device")?"),
             isPresented: Binding(
                 get: { deviceToRevoke != nil },
                 set: {
@@ -148,31 +151,35 @@ struct MobileSettingsView: View {
             ),
             presenting: deviceToRevoke
         ) { device in
-            Button("Revoke", role: .destructive) {
+            Button(L10n.string("Revoke"), role: .destructive) {
                 devices.revoke(deviceID: device.id)
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: { _ in
-            Text("The device will be disconnected immediately and must request approval again to reconnect.")
+            Text(L10n.resource("The device will be disconnected immediately and must request approval again to reconnect."))
         }
         .alert(
-            "Revoke \(selectedDeviceIDs.count) \(selectedDeviceIDs.count == 1 ? "device" : "devices")?",
+            selectedDeviceIDs.count == 1
+                ? L10n.string("Revoke 1 device?")
+                : L10n.string("Revoke \(selectedDeviceIDs.count) devices?"),
             isPresented: $showBatchRevokeConfirmation
         ) {
-            Button("Revoke", role: .destructive) {
+            Button(L10n.string("Revoke"), role: .destructive) {
                 devices.revoke(deviceIDs: selectedDeviceIDs)
                 exitSelection()
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text("The selected devices will be disconnected immediately and must request approval again to reconnect.")
+            Text(L10n.resource("The selected devices will be disconnected immediately and must request approval again to reconnect."))
         }
     }
 
     private func commitPort() -> Bool {
         let trimmed = portText.trimmingCharacters(in: .whitespaces)
         guard let value = UInt16(trimmed), MobileServerService.isValid(port: value) else {
-            portValidationError = "Enter a port between \(MobileServerService.minPort) and \(MobileServerService.maxPort)."
+            portValidationError = L10n.string(
+                "Enter a port between \(MobileServerService.minPort) and \(MobileServerService.maxPort)."
+            )
             return false
         }
         portValidationError = nil
@@ -214,22 +221,22 @@ struct MobileSettingsView: View {
     private func pairingCard(host: MobilePairingHost, uri: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             if pairingHosts.count > 1 {
-                Picker("Pairing network", selection: $selectedNetwork) {
+                Picker(L10n.string("Pairing network"), selection: $selectedNetwork) {
                     ForEach(pairingHosts, id: \.network) { option in
-                        Text(option.network.displayName).tag(option.network)
+                        Text(L10n.resource(key: option.network.displayName)).tag(option.network)
                     }
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
                 .fixedSize()
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel("Pairing network")
+                .accessibilityLabel(L10n.string("Pairing network"))
             }
 
             HStack(alignment: .top, spacing: 14) {
                 MobilePairingQRView(uriString: uri, size: 132)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Open the Muxy mobile app, tap Add device, and scan this code.")
+                    Text(L10n.resource("Open the Muxy mobile app, tap Add device, and scan this code."))
                         .font(.system(size: SettingsMetrics.labelFontSize))
                         .fixedSize(horizontal: false, vertical: true)
                     Text(host.host)
@@ -238,7 +245,7 @@ struct MobileSettingsView: View {
                         .textSelection(.enabled)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text("Port \(String(service.port))")
+                    Text(L10n.resource("Port \(String(service.port))"))
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
                         .foregroundStyle(SettingsStyle.mutedForeground)
                 }
@@ -264,7 +271,9 @@ struct MobileSettingsView: View {
                 copyPairingLink(uri)
             } label: {
                 Label(
-                    didCopyPairingLink ? "Copied" : "Copy",
+                    didCopyPairingLink
+                        ? L10n.string("Copied")
+                        : L10n.string("Copy"),
                     systemImage: didCopyPairingLink ? "checkmark" : "doc.on.doc"
                 )
                 .labelStyle(.titleAndIcon)
@@ -292,14 +301,18 @@ struct MobileSettingsView: View {
     private var deviceSelectionActions: some View {
         HStack(spacing: 12) {
             if isSelecting {
-                Button(allDevicesSelected ? "Deselect All" : "Select All") {
+                Button(
+                    allDevicesSelected
+                        ? L10n.string("Deselect All")
+                        : L10n.string("Select All")
+                ) {
                     toggleSelectAll()
                 }
                 .buttonStyle(.borderless)
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
                 .foregroundStyle(MuxyTheme.accent)
 
-                Button("Revoke Selected (\(selectedDeviceIDs.count))", role: .destructive) {
+                Button(L10n.string("Revoke Selected (\(selectedDeviceIDs.count))"), role: .destructive) {
                     showBatchRevokeConfirmation = true
                 }
                 .buttonStyle(.borderless)
@@ -309,7 +322,7 @@ struct MobileSettingsView: View {
 
                 Spacer()
 
-                Button("Done") {
+                Button(L10n.string("Done")) {
                     exitSelection()
                 }
                 .buttonStyle(.borderless)
@@ -317,7 +330,7 @@ struct MobileSettingsView: View {
                 .foregroundStyle(MuxyTheme.accent)
             } else {
                 Spacer()
-                Button("Select") {
+                Button(L10n.string("Select")) {
                     isSelecting = true
                 }
                 .buttonStyle(.borderless)
@@ -366,13 +379,16 @@ struct MobileSettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.name)
                     .font(.system(size: SettingsMetrics.labelFontSize))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text(lastSeenText(device))
                     .font(.system(size: SettingsMetrics.footnoteFontSize))
                     .foregroundStyle(SettingsStyle.mutedForeground)
+                    .lineLimit(1)
             }
-            Spacer()
+            Spacer(minLength: SettingsMetrics.rowSpacing)
             if !isSelecting {
-                Button("Revoke", role: .destructive) {
+                Button(L10n.string("Revoke"), role: .destructive) {
                     deviceToRevoke = device
                 }
                 .buttonStyle(.borderless)
@@ -396,8 +412,8 @@ struct MobileSettingsView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
         if let seen = device.lastSeenAt {
-            return "Last seen \(formatter.localizedString(for: seen, relativeTo: Date()))"
+            return L10n.string("Last seen \(formatter.localizedString(for: seen, relativeTo: Date()))")
         }
-        return "Approved \(formatter.localizedString(for: device.approvedAt, relativeTo: Date()))"
+        return L10n.string("Approved \(formatter.localizedString(for: device.approvedAt, relativeTo: Date()))")
     }
 }

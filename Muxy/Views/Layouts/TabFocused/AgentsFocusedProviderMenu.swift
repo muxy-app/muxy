@@ -6,7 +6,7 @@ struct AgentsFocusedProviderMenu: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: UIMetrics.scaled(1)) {
-            Text("New Agent Tab")
+            Text(L10n.resource("New Agent Tab"))
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .padding(.horizontal, UIMetrics.spacing3)
@@ -29,7 +29,7 @@ struct AgentsFocusedProviderLoadingMenu: View {
         HStack(spacing: UIMetrics.spacing3) {
             ProgressView()
                 .controlSize(.small)
-            Text("Checking remote providers…")
+            Text(L10n.resource("Checking remote providers…"))
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
         }

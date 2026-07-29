@@ -65,7 +65,7 @@ enum ExtensionDialogService {
         try claim(request.extensionID)
         defer { release(request.extensionID) }
         let alert = makeAlert(title: request.title, message: request.message, style: request.style)
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L10n.string("OK"))
         _ = try await runModal(alert, extensionID: request.extensionID)
     }
 

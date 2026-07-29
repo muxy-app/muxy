@@ -11,11 +11,11 @@ struct RepositoryAIActionConfirmationSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
-            Text(confirmation.title)
+            Text(L10n.resource(confirmationTitle))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
-            Text(confirmation.message)
+            Text(L10n.resource(confirmationMessage))
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -26,15 +26,15 @@ struct RepositoryAIActionConfirmationSheet: View {
 
             HStack(spacing: UIMetrics.spacing3) {
                 if !isAddingPrompt {
-                    Button("Add Prompt") {
+                    Button(L10n.string("Add Prompt")) {
                         isAddingPrompt = true
                         isPromptFocused = true
                     }
                 }
                 Spacer(minLength: 0)
-                Button("Cancel", action: onCancel)
+                Button(L10n.string("Cancel"), action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button(confirmation.confirmTitle) {
+                Button(L10n.string(key: confirmation.confirmTitle)) {
                     onConfirm(RepositoryAIActionPreferences.normalizedPrompt(additionalPrompt))
                 }
                 .keyboardShortcut(.defaultAction)
@@ -48,11 +48,11 @@ struct RepositoryAIActionConfirmationSheet: View {
     private var additionalPromptEditor: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
             HStack {
-                Text("Additional Prompt")
+                Text(L10n.resource("Additional Prompt"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 Spacer(minLength: 0)
-                Text("\(additionalPrompt.count)/\(RepositoryAIActionPreferences.maximumAdditionalPromptLength)")
+                Text(L10n.resource("\(additionalPrompt.count)/\(RepositoryAIActionPreferences.maximumAdditionalPromptLength)"))
                     .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
@@ -69,15 +69,38 @@ struct RepositoryAIActionConfirmationSheet: View {
                         .stroke(MuxyTheme.border, lineWidth: 1)
                 }
                 .focused($isPromptFocused)
-                .accessibilityLabel("Additional prompt")
+                .accessibilityLabel(L10n.string("Additional prompt"))
                 .onChange(of: additionalPrompt) { _, newValue in
                     guard newValue.count > RepositoryAIActionPreferences.maximumAdditionalPromptLength else { return }
                     additionalPrompt = String(newValue.prefix(RepositoryAIActionPreferences.maximumAdditionalPromptLength))
                 }
 
-            Text("Appended after the configured prompt for this action only.")
+            Text(L10n.resource("Appended after the configured prompt for this action only."))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
+        }
+    }
+
+    private var confirmationTitle: LocalizedStringResource {
+        switch confirmation.action {
+        case .commit:
+            "Commit and push to \"\(confirmation.context.branch)\"?"
+        case .createPullRequest:
+            "Create a pull request from \"\(confirmation.context.branch)\"?"
+        }
+    }
+
+    private var confirmationMessage: LocalizedStringResource {
+        let providerName = confirmation.providerName
+        let branch = confirmation.context.branch
+        return switch confirmation.action {
+        case .commit:
+            "Muxy will stage all changes, ask \(providerName) for a commit message, then commit and push to \"\(branch)\"."
+        case .createPullRequest:
+            """
+            Muxy will stage all changes, ask \(providerName) for a branch name, title, and summary, \
+            then create the branch, commit, push, and open the pull request on GitHub.
+            """
         }
     }
 }

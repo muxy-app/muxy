@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct GitProcessResult {
@@ -21,6 +22,12 @@ enum GitProcessRunner {
 
     private static let stderrDrainQueue = DispatchQueue(
         label: "app.muxy.git-stderr-drain",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
+    private static let stdinWriteQueue = DispatchQueue(
+        label: "app.muxy.git-stdin-writer",
         qos: .userInitiated,
         attributes: .concurrent
     )
@@ -234,14 +241,10 @@ enum GitProcessRunner {
             throw GitProcessError.launchFailed(error.localizedDescription)
         }
 
-        if let stdinPipe, let stdinData = spec.stdinData {
-            let writer = stdinPipe.fileHandleForWriting
-            try? writer.write(contentsOf: stdinData)
-            try? writer.close()
-        }
-
-        guard handle.attach(process) else {
+        let stdinWriter = stdinPipe.map { AsyncDataWriter(handle: $0.fileHandleForWriting) }
+        guard handle.attach(process, stdinWriter: stdinWriter) else {
             process.waitUntilExit()
+            handle.detach()
             return GitProcessResult(
                 status: process.terminationStatus,
                 stdout: "",
@@ -259,22 +262,31 @@ enum GitProcessRunner {
             byteLimit: spec.outputByteLimit
         )
 
+        if let stdinWriter, let stdinData = spec.stdinData {
+            stdinWriter.start(
+                writing: stdinData,
+                on: stdinWriteQueue
+            )
+        }
+
         let stdoutRead: OutputRead
         do {
             stdoutRead = try readStdout(
                 handle: stdoutPipe.fileHandleForReading,
-                process: process,
+                processHandle: handle,
                 lineLimit: spec.lineLimit,
                 byteLimit: spec.outputByteLimit
             )
         } catch {
             handle.terminate()
+            stdinWriter?.waitUntilFinished()
             _ = stderrCollector.wait()
             process.waitUntilExit()
             throw error
         }
 
         process.waitUntilExit()
+        stdinWriter?.waitUntilFinished()
         let stderrRead = stderrCollector.wait()
 
         let stdout = String(data: stdoutRead.data, encoding: .utf8) ?? ""
@@ -293,16 +305,20 @@ enum GitProcessRunner {
 
     private static func readStdout(
         handle: FileHandle,
-        process: Process,
+        processHandle: ProcessHandle,
         lineLimit: Int?,
         byteLimit: Int?
     ) throws -> OutputRead {
         guard let lineLimit else {
-            return try readWithByteLimit(handle: handle, process: process, byteLimit: byteLimit)
+            return try readWithByteLimit(
+                handle: handle,
+                processHandle: processHandle,
+                byteLimit: byteLimit
+            )
         }
         return try readWithLineLimit(
             handle: handle,
-            process: process,
+            processHandle: processHandle,
             lineLimit: lineLimit,
             byteLimit: byteLimit
         )
@@ -310,7 +326,7 @@ enum GitProcessRunner {
 
     private static func readWithByteLimit(
         handle: FileHandle,
-        process: Process,
+        processHandle: ProcessHandle,
         byteLimit: Int?
     ) throws -> OutputRead {
         guard let byteLimit else {
@@ -329,7 +345,7 @@ enum GitProcessRunner {
                 if remaining > 0 {
                     collected.append(chunk.prefix(remaining))
                 }
-                process.terminate()
+                processHandle.terminate()
                 return OutputRead(data: collected, truncated: true)
             }
             collected.append(chunk)
@@ -338,7 +354,7 @@ enum GitProcessRunner {
 
     private static func readWithLineLimit(
         handle: FileHandle,
-        process: Process,
+        processHandle: ProcessHandle,
         lineLimit: Int,
         byteLimit: Int?
     ) throws -> OutputRead {
@@ -358,7 +374,7 @@ enum GitProcessRunner {
                     if remaining > 0 {
                         collected.append(chunk.prefix(remaining))
                     }
-                    process.terminate()
+                    processHandle.terminate()
                     return OutputRead(data: collected, truncated: true)
                 }
             }
@@ -370,10 +386,103 @@ enum GitProcessRunner {
             }
 
             if currentLineCount >= lineLimit {
-                process.terminate()
+                processHandle.terminate()
                 return OutputRead(data: collected, truncated: true)
             }
         }
+    }
+}
+
+private final class AsyncDataWriter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let handle: FileHandle
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var started = false
+    private var cancelled = false
+    private var finished = false
+
+    init(handle: FileHandle) {
+        self.handle = handle
+    }
+
+    func start(writing data: Data, on queue: DispatchQueue) {
+        lock.lock()
+        guard !started, !finished else {
+            lock.unlock()
+            return
+        }
+        started = true
+        lock.unlock()
+        queue.async { [self] in
+            write(data)
+            finish()
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let shouldFinish = !started && !finished
+        lock.unlock()
+        guard shouldFinish else { return }
+        finish()
+    }
+
+    func waitUntilFinished() {
+        semaphore.wait()
+    }
+
+    private func write(_ data: Data) {
+        let descriptor = handle.fileDescriptor
+        _ = fcntl(descriptor, F_SETNOSIGPIPE, 1)
+        let currentFlags = fcntl(descriptor, F_GETFL)
+        if currentFlags >= 0 {
+            _ = fcntl(descriptor, F_SETFL, currentFlags | O_NONBLOCK)
+        }
+        data.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return }
+            var offset = 0
+            while offset < bytes.count, !isCancelled {
+                let writtenByteCount = Darwin.write(
+                    descriptor,
+                    baseAddress.advanced(by: offset),
+                    bytes.count - offset
+                )
+                if writtenByteCount > 0 {
+                    offset += writtenByteCount
+                    continue
+                }
+                guard writtenByteCount < 0 else { return }
+                if errno == EINTR {
+                    continue
+                }
+                guard errno == EAGAIN || errno == EWOULDBLOCK else { return }
+                var pollDescriptor = pollfd(
+                    fd: descriptor,
+                    events: Int16(POLLOUT | POLLERR | POLLHUP),
+                    revents: 0
+                )
+                _ = Darwin.poll(&pollDescriptor, 1, 50)
+            }
+        }
+    }
+
+    private var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    private func finish() {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        lock.unlock()
+        try? handle.close()
+        semaphore.signal()
     }
 }
 
@@ -383,31 +492,43 @@ private struct OutputRead {
 }
 
 private final class ProcessHandle: @unchecked Sendable {
+    private static let terminationQueue = DispatchQueue(
+        label: "app.muxy.git-process-termination",
+        qos: .userInitiated
+    )
+    private static let forceTerminationDelay = DispatchTimeInterval.seconds(1)
+
     private let lock = NSLock()
     private var process: Process?
+    private var stdinWriter: AsyncDataWriter?
     private var cancelled = false
 
-    func attach(_ process: Process) -> Bool {
+    func attach(_ process: Process, stdinWriter: AsyncDataWriter?) -> Bool {
         lock.lock()
-        defer { lock.unlock() }
-        if cancelled {
-            terminateRunning(process)
-            return false
-        }
         self.process = process
-        return true
+        self.stdinWriter = stdinWriter
+        let shouldTerminate = cancelled
+        lock.unlock()
+        guard shouldTerminate else { return true }
+        stdinWriter?.cancel()
+        terminateRunning(process)
+        return false
     }
 
     func detach() {
         lock.lock()
-        defer { lock.unlock() }
         process = nil
+        stdinWriter = nil
+        lock.unlock()
     }
 
     func terminate() {
         lock.lock()
-        defer { lock.unlock() }
         cancelled = true
+        let process = process
+        let stdinWriter = stdinWriter
+        lock.unlock()
+        stdinWriter?.cancel()
         guard let process else { return }
         terminateRunning(process)
     }
@@ -415,6 +536,20 @@ private final class ProcessHandle: @unchecked Sendable {
     private func terminateRunning(_ process: Process) {
         guard process.isRunning else { return }
         process.terminate()
+        Self.terminationQueue.asyncAfter(deadline: .now() + Self.forceTerminationDelay) { [weak self] in
+            self?.forceTerminateIfNeeded()
+        }
+    }
+
+    private func forceTerminateIfNeeded() {
+        lock.lock()
+        guard cancelled, let process, process.isRunning else {
+            lock.unlock()
+            return
+        }
+        let processIdentifier = process.processIdentifier
+        lock.unlock()
+        _ = Darwin.kill(processIdentifier, SIGKILL)
     }
 }
 

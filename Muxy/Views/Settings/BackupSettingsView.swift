@@ -3,12 +3,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct BackupSettingsView: View {
-    private static let exportFooter = """
+    private static let exportFooter: LocalizedStringResource = """
     Saves your settings, projects, remote devices, shortcuts and customizations to a single .muxy file. \
     Credentials such as SSH keys, passwords and paired mobile devices are never included.
     """
 
-    private static let importFooter = """
+    private static let importFooter: LocalizedStringResource = """
     Replaces all current Muxy data with the contents of a backup and restarts the app. \
     Your current data is backed up first so it can be recovered.
     """
@@ -65,34 +65,36 @@ struct BackupSettingsView: View {
             }
         }
         .disabled(isWorking)
-        .alert("Import backup?", isPresented: importConfirmationBinding) {
-            Button("Import & Restart", role: .destructive, action: performImport)
-            Button("Cancel", role: .cancel) {}
+        .alert(L10n.string("Import backup?"), isPresented: importConfirmationBinding) {
+            Button(L10n.string("Import & Restart"), role: .destructive, action: performImport)
+            Button(L10n.string("Cancel"), role: .cancel) {}
         } message: {
-            Text("This replaces all current Muxy data and restarts the app. Your current data is backed up first.")
+            Text(L10n.resource("This replaces all current Muxy data and restarts the app. Your current data is backed up first."))
         }
     }
 
     private func actionRow(
-        title: String,
-        description: String,
-        buttonTitle: String,
+        title: LocalizedStringResource,
+        description: LocalizedStringResource,
+        buttonTitle: LocalizedStringResource,
         action: @escaping () -> Void
     ) -> some View {
         SettingsRow(title) {
-            Button(buttonTitle, action: action)
-                .buttonStyle(.plain)
-                .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
-                .foregroundStyle(SettingsStyle.accent)
+            Button(action: action) {
+                Text(L10n.resource(buttonTitle))
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
+            .foregroundStyle(SettingsStyle.accent)
         }
-        .help(description)
+        .help(L10n.string(description))
     }
 
     private func performExport() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [BackupArchive.contentType]
         panel.nameFieldStringValue = defaultExportName()
-        panel.message = "Choose where to save the Muxy backup"
+        panel.message = L10n.string("Choose where to save the Muxy backup")
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         errorMessage = nil
@@ -102,7 +104,7 @@ struct BackupSettingsView: View {
         Task {
             do {
                 try await BackupService().export(to: url, appVersion: version, createdAt: Date())
-                ToastState.shared.show(title: "Export complete", body: url.lastPathComponent)
+                ToastState.shared.show(title: L10n.string("Export complete"), body: url.lastPathComponent)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -117,7 +119,7 @@ struct BackupSettingsView: View {
         panel.allowsMultipleSelection = false
         let delegate = BackupOpenPanelDelegate()
         panel.delegate = delegate
-        panel.message = "Select a Muxy backup to import"
+        panel.message = L10n.string("Select a Muxy backup to import")
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         errorMessage = nil

@@ -38,7 +38,7 @@ enum ProjectOpenService {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.message = "Select a project folder"
+        panel.message = L10n.string("Select a project folder")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         confirmProjectPath(
             url.path(percentEncoded: false),
