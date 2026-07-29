@@ -183,7 +183,7 @@ private struct SettingsHeader: View {
                     .foregroundStyle(SettingsStyle.foreground)
             }
             .padding(.horizontal, 16)
-            .frame(width: 210, alignment: .leading)
+            .frame(width: SettingsMetrics.sidebarWidth, alignment: .leading)
 
             Rectangle()
                 .fill(SettingsStyle.border)
@@ -245,34 +245,38 @@ private struct SettingsSidebar: View {
     let searchText: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if categories.isEmpty, extensionRoutes.isEmpty {
-                Text("No settings found")
-                    .font(.system(size: SettingsMetrics.labelFontSize))
-                    .foregroundStyle(SettingsStyle.mutedForeground)
-                    .padding(SettingsMetrics.horizontalPadding)
-            } else {
-                ForEach(categories) { category in
-                    sidebarRow(
-                        route: .builtin(category),
-                        symbol: category.symbolName,
-                        title: category.title,
-                        matchCountText: searchText.isEmpty ? nil : matchCountText(for: category)
-                    )
-                }
-                ForEach(extensionRoutes, id: \.extensionID) { route in
-                    sidebarRow(
-                        route: .ext(route.extensionID),
-                        symbol: "puzzlepiece.extension",
-                        title: route.displayName,
-                        matchCountText: nil
-                    )
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 4) {
+                if categories.isEmpty, extensionRoutes.isEmpty {
+                    Text("No settings found")
+                        .font(.system(size: SettingsMetrics.labelFontSize))
+                        .foregroundStyle(SettingsStyle.mutedForeground)
+                        .padding(SettingsMetrics.horizontalPadding)
+                } else {
+                    ForEach(categories) { category in
+                        sidebarRow(
+                            route: .builtin(category),
+                            symbol: category.symbolName,
+                            title: category.title,
+                            matchCountText: SettingsCatalog.matchCountSummary(for: category, query: searchText)
+                        )
+                    }
+                    ForEach(extensionRoutes, id: \.extensionID) { route in
+                        sidebarRow(
+                            route: .ext(route.extensionID),
+                            symbol: "puzzlepiece.extension",
+                            title: route.displayName,
+                            matchCountText: nil
+                        )
+                    }
                 }
             }
-            Spacer()
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(10)
-        .frame(width: 210)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(width: SettingsMetrics.sidebarWidth)
+        .frame(maxHeight: .infinity)
         .background(SettingsStyle.sidebarBackground)
     }
 
@@ -316,11 +320,5 @@ private struct SettingsSidebar: View {
             .foregroundStyle(isSelected ? SettingsStyle.accent : SettingsStyle.mutedForeground)
         }
         .buttonStyle(.plain)
-    }
-
-    private func matchCountText(for category: SettingsCategory) -> String {
-        let count = SettingsCatalog.matchingItems(query: searchText).count(where: { $0.category == category })
-        guard count != 1 else { return "1 match" }
-        return "\(count) matches"
     }
 }

@@ -8,9 +8,11 @@ extension EnvironmentValues {
 }
 
 enum SettingsMetrics {
+    static let sidebarWidth: CGFloat = 210
     static let horizontalPadding: CGFloat = 12
     static let verticalPadding: CGFloat = 12
     static let rowVerticalPadding: CGFloat = 6
+    static let rowSpacing: CGFloat = 12
     static let sectionHeaderTopPadding: CGFloat = 10
     static let sectionHeaderBottomPadding: CGFloat = 4
     static let sectionFooterTopPadding: CGFloat = 6
@@ -18,6 +20,11 @@ enum SettingsMetrics {
     static let labelFontSize: CGFloat = 12
     static let footnoteFontSize: CGFloat = 11
     static let controlWidth: CGFloat = 210
+}
+
+enum SettingsControlSizing {
+    case fill
+    case intrinsic
 }
 
 enum SettingsStyle {
@@ -144,12 +151,16 @@ struct SettingsRow<Content: View>: View {
     }
 
     var body: some View {
-        HStack {
+        HStack(spacing: 0) {
             Text(label)
                 .font(.system(size: SettingsMetrics.labelFontSize))
                 .foregroundStyle(SettingsStyle.foreground)
-            Spacer()
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: SettingsMetrics.rowSpacing)
             content
+                .layoutPriority(1)
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
@@ -185,12 +196,26 @@ struct SettingsPickerRow<Option: CaseIterable & Identifiable & RawRepresentable>
                 }
             }
             .labelsHidden()
-            .frame(width: width, alignment: .trailing)
+            .settingsControl(width: width)
         }
     }
 }
 
 extension View {
+    @ViewBuilder
+    func settingsControl(
+        _ sizing: SettingsControlSizing = .fill,
+        width: CGFloat = SettingsMetrics.controlWidth
+    ) -> some View {
+        switch sizing {
+        case .fill:
+            frame(maxWidth: width, alignment: .trailing)
+        case .intrinsic:
+            fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: width, alignment: .trailing)
+        }
+    }
+
     func settingsTextInput(width: CGFloat? = nil, maxWidth: CGFloat? = nil, minHeight: CGFloat? = nil) -> some View {
         textFieldStyle(.plain)
             .foregroundStyle(SettingsStyle.foreground)
