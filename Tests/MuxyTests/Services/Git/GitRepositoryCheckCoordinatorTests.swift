@@ -3,7 +3,7 @@ import Testing
 
 @testable import Muxy
 
-@Suite("GitRepositoryCheckCoordinator")
+@Suite("GitRepositoryCheckCoordinator", .timeLimit(.minutes(1)))
 struct GitRepositoryCheckCoordinatorTests {
     @Test("deduplicates concurrent checks for the same repository")
     func deduplicatesConcurrentChecks() async {
@@ -14,7 +14,7 @@ struct GitRepositoryCheckCoordinatorTests {
             for: Array(repeating: ("/repo", WorkspaceContext.local), count: 8),
             coordinator: coordinator
         )
-        #expect(await probe.waitForActiveChecks(1))
+        await probe.waitForActiveChecks(1)
         try? await Task.sleep(for: .milliseconds(50))
         await probe.releaseAll()
 
@@ -32,7 +32,7 @@ struct GitRepositoryCheckCoordinatorTests {
             for: [("/repo", WorkspaceContext.local), ("/repo", remote)],
             coordinator: coordinator
         )
-        #expect(await probe.waitForActiveChecks(2))
+        await probe.waitForActiveChecks(2)
         await probe.releaseAll()
 
         #expect(await checkResults.allSatisfy { $0 })
@@ -46,7 +46,7 @@ struct GitRepositoryCheckCoordinatorTests {
         let repositories = (0 ..< 8).map { ("/repo-\($0)", WorkspaceContext.local) }
 
         async let checkResults = results(for: repositories, coordinator: coordinator)
-        #expect(await probe.waitForActiveChecks(2))
+        await probe.waitForActiveChecks(2)
         await probe.releaseAll()
 
         #expect(await checkResults.allSatisfy { $0 })
@@ -67,7 +67,7 @@ struct GitRepositoryCheckCoordinatorTests {
         ]
 
         async let checkResults = results(for: repositories, coordinator: coordinator)
-        #expect(await probe.waitForActiveChecks(3))
+        await probe.waitForActiveChecks(3)
         #expect(await probe.activePaths.contains("/local"))
         await probe.releaseAll()
 
@@ -80,7 +80,7 @@ struct GitRepositoryCheckCoordinatorTests {
         let coordinator = makeCoordinator(maxConcurrentChecksPerContext: 2, probe: probe)
 
         let caller = Task { await coordinator.isGitRepository("/repo", context: .local) }
-        #expect(await probe.waitForActiveChecks(1))
+        await probe.waitForActiveChecks(1)
         caller.cancel()
 
         #expect(await caller.value == false)
@@ -93,7 +93,7 @@ struct GitRepositoryCheckCoordinatorTests {
         let coordinator = makeCoordinator(maxConcurrentChecksPerContext: 2, probe: probe)
 
         let cancelledCaller = Task { await coordinator.isGitRepository("/repo", context: .local) }
-        #expect(await probe.waitForActiveChecks(1))
+        await probe.waitForActiveChecks(1)
         let remainingCaller = Task { await coordinator.isGitRepository("/repo", context: .local) }
         try? await Task.sleep(for: .milliseconds(50))
         cancelledCaller.cancel()
@@ -148,29 +148,44 @@ struct GitRepositoryCheckCoordinatorTests {
 }
 
 private actor GitRepositoryCheckProbe {
+    private struct ActiveCountWaiter {
+        let target: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private(set) var checkCount = 0
     private(set) var maximumActiveCheckCount = 0
     private(set) var cancelledCheckCount = 0
     private(set) var activePaths: [String] = []
     private var gatedChecks: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var activeCountWaiters: [ActiveCountWaiter] = []
     private var isReleased = false
 
     func check(path: String, context _: WorkspaceContext) async -> Bool {
         checkCount += 1
         activePaths.append(path)
         maximumActiveCheckCount = max(maximumActiveCheckCount, activePaths.count)
+        resumeActiveCountWaiters()
         await waitForRelease()
         activePaths.removeAll { $0 == path }
         return !Task.isCancelled
     }
 
-    func waitForActiveChecks(_ target: Int, timeout: Duration = .seconds(5)) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while activePaths.count < target {
-            guard ContinuousClock.now < deadline else { return false }
-            try? await Task.sleep(for: .milliseconds(1))
+    func waitForActiveChecks(_ target: Int) async {
+        guard activePaths.count < target else { return }
+        await withCheckedContinuation { continuation in
+            activeCountWaiters.append(ActiveCountWaiter(target: target, continuation: continuation))
         }
-        return true
+    }
+
+    private func resumeActiveCountWaiters() {
+        let activeCount = activePaths.count
+        let reached = activeCountWaiters.filter { $0.target <= activeCount }
+        guard !reached.isEmpty else { return }
+        activeCountWaiters.removeAll { $0.target <= activeCount }
+        for waiter in reached {
+            waiter.continuation.resume()
+        }
     }
 
     func releaseAll() {
