@@ -124,16 +124,18 @@ struct PaneTabStrip: View {
                     let symbol = isMaximized
                         ? "arrow.down.right.and.arrow.up.left"
                         : "arrow.up.left.and.arrow.down.right"
-                    let label = isMaximized ? "Restore Pane" : "Maximize Pane"
+                    let label = isMaximized
+                        ? L10n.string("Restore Pane")
+                        : L10n.string("Maximize Pane")
                     IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
-                        .help(shortcutTooltip("Toggle Maximize Pane", for: .toggleMaximizePane))
+                        .help(shortcutTooltip(L10n.string("Toggle Maximize Pane"), for: .toggleMaximizePane))
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: L10n.string("Split Right")) { onSplit(.horizontal) }
-                    .help(shortcutTooltip("Split Right", for: .splitRight))
+                    .help(shortcutTooltip(L10n.string("Split Right"), for: .splitRight))
                 IconButton(symbol: "square.split.1x2", accessibilityLabel: L10n.string("Split Down")) { onSplit(.vertical) }
-                    .help(shortcutTooltip("Split Down", for: .splitDown))
+                    .help(shortcutTooltip(L10n.string("Split Down"), for: .splitDown))
                 IconButton(symbol: "plus", accessibilityLabel: L10n.string("New Tab")) { onCreateTab() }
-                    .help(shortcutTooltip("New Tab", for: .newTab))
+                    .help(shortcutTooltip(L10n.string("New Tab"), for: .newTab))
                 if let onOpenBrowser {
                     IconButton(symbol: "globe", accessibilityLabel: L10n.string("Open Browser Tab"), action: onOpenBrowser)
                         .help(L10n.string("Open Browser Tab"))
@@ -230,7 +232,7 @@ struct PaneTabStrip: View {
     }
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
-        "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
+        L10n.string("\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))")
     }
 
     private var developmentBadge: some View {

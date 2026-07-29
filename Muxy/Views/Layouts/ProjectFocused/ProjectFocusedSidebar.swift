@@ -113,7 +113,7 @@ struct ProjectFocusedSidebar: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(L10n.string("Sidebar"))
             .alert(
-                "Remove \"\(projectPendingRemoval?.name ?? "")\"?",
+                L10n.string("Remove \"\(projectPendingRemoval?.name ?? "")\"?"),
                 isPresented: removalAlertBinding,
                 presenting: projectPendingRemoval
             ) { project in

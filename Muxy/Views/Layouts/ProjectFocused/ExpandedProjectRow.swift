@@ -283,7 +283,7 @@ struct ExpandedProjectRow: View {
             .font(.system(size: UIMetrics.fontXS, weight: .semibold))
             .foregroundStyle(MuxyTheme.fgMuted)
             .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
-            .help(remoteDeviceName ?? "Remote project")
+            .help(remoteDeviceName ?? L10n.string("Remote project"))
             .accessibilityLabel(
                 remoteDeviceName.map { L10n.string("Remote project on \($0)") }
                     ?? L10n.string("Remote project")

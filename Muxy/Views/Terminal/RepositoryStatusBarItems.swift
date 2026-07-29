@@ -829,7 +829,7 @@ struct RepositoryStatusBarItems: View {
     private func pullRequestChecksChipLabel(_ checks: GitRepositoryService.PRChecks) -> String? {
         switch checks.status {
         case .none: nil
-        case .success: "\(checks.passing)/\(checks.total)"
+        case .success: L10n.string("\(checks.passing)/\(checks.total)")
         case .pending: L10n.string("\(checks.pending) running")
         case .failure: L10n.string("\(checks.failing) failing")
         }

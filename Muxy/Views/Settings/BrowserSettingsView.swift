@@ -110,7 +110,7 @@ struct BrowserSettingsView: View {
             )
         }
         .alert(
-            "Delete “\(profilePendingDelete?.name ?? "")”?",
+            L10n.string("Delete “\(profilePendingDelete?.name ?? "")”?"),
             isPresented: deleteAlertBinding,
             presenting: profilePendingDelete
         ) { profile in
@@ -125,7 +125,7 @@ struct BrowserSettingsView: View {
             Text(L10n.resource("This permanently deletes the profile's cookies and browsing data."))
         }
         .alert(
-            "Clear data for “\(profilePendingClear?.name ?? "")”?",
+            L10n.string("Clear data for “\(profilePendingClear?.name ?? "")”?"),
             isPresented: clearAlertBinding,
             presenting: profilePendingClear
         ) { profile in

@@ -720,7 +720,6 @@ final class QuickTerminalContentView: NSView {
         vibrancyTitle.stringValue = L10n.string("Vibrancy")
         widthTitle.stringValue = L10n.string("Width")
         heightTitle.stringValue = L10n.string("Height")
-        shortcutButton.title = L10n.string("Set Shortcut")
         noShortcutButton.title = L10n.string("No Shortcut")
         doubleShiftButton.title = L10n.string("Double Shift")
         customShortcutButton.title = L10n.string("Record Custom…")

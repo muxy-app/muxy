@@ -27,8 +27,13 @@ enum QuickTerminalShortcut: Codable, Equatable {
         }
     }
 
+    @MainActor
     var controlLabel: String {
-        self == .unassigned ? "Set Shortcut" : displayString
+        switch self {
+        case .unassigned: L10n.string("Set Shortcut")
+        case .doubleShift: L10n.string("Double Shift")
+        case let .keyCombo(combo, _): combo.displayString
+        }
     }
 
     var keyCombo: KeyCombo? {

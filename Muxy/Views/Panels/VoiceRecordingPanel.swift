@@ -172,8 +172,18 @@ struct VoiceRecordingPanel: View {
     private var keyboardHints: some View {
         HStack(spacing: UIMetrics.spacing5) {
             hint(key: "⎋", label: L10n.string("Cancel"))
-            hint(key: "Space", label: state.recorder.isPaused ? "Resume" : "Pause")
-            hint(key: "⏎", label: autoSend ? "Send" : "Insert")
+            hint(
+                key: "Space",
+                label: state.recorder.isPaused
+                    ? L10n.string("Resume")
+                    : L10n.string("Pause")
+            )
+            hint(
+                key: "⏎",
+                label: autoSend
+                    ? L10n.string("Send")
+                    : L10n.string("Insert")
+            )
         }
         .font(.system(size: UIMetrics.fontCaption))
         .foregroundStyle(MuxyTheme.fgDim)

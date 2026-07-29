@@ -129,7 +129,7 @@ struct MobileSettingsView: View {
             }
         }
         .alert(
-            "Free port \(String(service.port))?",
+            L10n.string("Free port \(String(service.port))?"),
             isPresented: $showFreePortConfirmation
         ) {
             Button(L10n.string("Free Port"), role: .destructive) {

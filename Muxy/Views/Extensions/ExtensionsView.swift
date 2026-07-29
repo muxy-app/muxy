@@ -832,7 +832,7 @@ private struct ExtensionDetailPage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 10))
         .confirmationDialog(
-            "Delete \(ext.displayName)?",
+            L10n.string("Delete \(ext.displayName)?"),
             isPresented: $showDeleteConfirmation,
             titleVisibility: .visible
         ) {

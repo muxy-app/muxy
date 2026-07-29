@@ -399,6 +399,7 @@
 "Include Command, Control, or Option." = "Include Command, Control, or Option.";
 "Inline File Path" = "Inline File Path";
 "Inline File Path keeps multiple images perfectly ordered with text and Enter. Use Clipboard Paste if your TUI doesn't recognize image paths. SSH panes always upload the image and inline its remote path, because a Mac file path does not resolve on the remote device." = "Inline File Path keeps multiple images perfectly ordered with text and Enter. Use Clipboard Paste if your TUI doesn't recognize image paths. SSH panes always upload the image and inline its remote path, because a Mac file path does not resolve on the remote device.";
+"Insert" = "Insert";
 "Inspect Element" = "Inspect Element";
 "Install" = "Install";
 "Install CLI" = "Install CLI";
@@ -439,6 +440,7 @@
 "Mark this pull request ready for review before merging." = "Mark this pull request ready for review before merging.";
 "Match case" = "Match case";
 "Match whole word" = "Match whole word";
+"Maximize Pane" = "Maximize Pane";
 "Memory" = "Memory";
 "Merge" = "Merge";
 "Merge %@ into this branch and push it." = "Merge %@ into this branch and push it.";
@@ -566,6 +568,7 @@
 "Panes" = "Panes";
 "Paste" = "Paste";
 "Path Is Not a Folder" = "Path Is Not a Folder";
+"Pause" = "Pause";
 "Pause Dictation" = "Pause Dictation";
 "Permanently delete branch %@. Unmerged commits may be lost." = "Permanently delete branch %@. Unmerged commits may be lost.";
 "Personal" = "Personal";
@@ -684,7 +687,9 @@
 "Resource usage" = "Resource usage";
 "Resources" = "Resources";
 "Restore Default" = "Restore Default";
+"Restore Pane" = "Restore Pane";
 "Restore a backup created on this or another Mac." = "Restore a backup created on this or another Mac.";
+"Resume" = "Resume";
 "Resume Dictation" = "Resume Dictation";
 "Retry" = "Retry";
 "Reveal" = "Reveal";

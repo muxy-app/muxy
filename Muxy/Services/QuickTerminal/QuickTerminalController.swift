@@ -376,6 +376,7 @@ final class QuickTerminalController: NSObject {
 
     func refreshLocalization() {
         contentView?.refreshLocalization()
+        contentView?.setShortcutLabel(shortcutLabelProvider())
     }
 
     @objc

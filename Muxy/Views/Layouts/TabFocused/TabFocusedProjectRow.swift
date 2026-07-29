@@ -185,7 +185,7 @@ struct TabFocusedProjectRow: View {
             }
         }
         .alert(
-            "Remove \"\(project.name)\"?",
+            L10n.string("Remove \"\(project.name)\"?"),
             isPresented: $projectPendingRemoval
         ) {
             Button(L10n.string("Remove"), role: .destructive) { performRemove() }

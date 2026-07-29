@@ -108,7 +108,7 @@ private struct TopLevelTabSplitView: View {
                         ? L10n.string("Horizontal Tab Group Divider")
                         : L10n.string("Vertical Tab Group Divider")
                 )
-                .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
+                .accessibilityValue(L10n.string("Split ratio: \(Int(branch.ratio * 100))%"))
                 .accessibilityAdjustableAction { direction in
                     let step: CGFloat = 0.05
                     switch direction {
