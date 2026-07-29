@@ -1383,3 +1383,6 @@
 "⌘↩" = "⌘↩";
 "⏎" = "⏎";
 "● LIVE" = "● LIVE";
+"Nest Worktrees Inside Projects" = "Nest Worktrees Inside Projects";
+"Nest worktrees inside projects" = "Nest worktrees inside projects";
+"Places worktrees under their project in Tab Focused and Agents Focused layouts." = "Places worktrees under their project in Tab Focused and Agents Focused layouts.";

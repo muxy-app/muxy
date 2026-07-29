@@ -61,7 +61,7 @@ private struct TabFocusedNewWorktreeButton: View {
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
                     .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
-                Text("New Worktree")
+                Text(L10n.resource("New Worktree"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
                 Spacer()
@@ -72,6 +72,6 @@ private struct TabFocusedNewWorktreeButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
-        .accessibilityLabel("New Worktree")
+        .accessibilityLabel(L10n.string("New Worktree"))
     }
 }

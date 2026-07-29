@@ -210,7 +210,10 @@ struct InterfaceSettingsView: View {
             }
 
             if layoutStore.layout.supportsGroupedWorktrees {
-                SettingsToggleRow(label: "Nest worktrees inside projects", isOn: $groupWorktrees)
+                SettingsToggleRow(
+                    label: L10n.resource("Nest worktrees inside projects"),
+                    isOn: $groupWorktrees
+                )
             }
         }
 

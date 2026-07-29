@@ -44,7 +44,7 @@ struct WorktreeLeafRow: View {
     private var leafTrailing: some View {
         HStack(spacing: UIMetrics.spacing2) {
             if let badge = shortcutBadge {
-                Text("\(badge)")
+                Text(L10n.resource("\(badge)"))
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .padding(.horizontal, UIMetrics.spacing2)
@@ -164,7 +164,7 @@ struct WorktreeLeafRow: View {
     private var leafAction: some View {
         switch content {
         case .tabs:
-            SidebarActionButton(symbol: "plus", label: "New Terminal Tab") {
+            SidebarActionButton(symbol: "plus", label: L10n.string("New Terminal Tab")) {
                 activate()
                 appState.createTab(projectID: project.id)
             }
@@ -213,15 +213,15 @@ struct WorktreeLeafRow: View {
 
     @ViewBuilder
     private var worktreeContextMenu: some View {
-        Button("New Terminal Tab") {
+        Button(L10n.string("New Terminal Tab")) {
             appState.selectProject(project, worktree: worktree)
             appState.createTab(projectID: project.id)
         }
         Divider()
-        Button("Rename Worktree") { startRename() }
+        Button(L10n.string("Rename Worktree")) { startRename() }
         if worktree.canBeRemoved {
             Divider()
-            Button("Remove Worktree", role: .destructive) {
+            Button(L10n.string("Remove Worktree"), role: .destructive) {
                 Task { await requestRemoveWorktree() }
             }
         }
