@@ -68,6 +68,19 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func matchCountSummaryIsOmittedWithoutQuery() {
+        #expect(SettingsCatalog.matchCountSummary(for: .general, query: "") == nil)
+        #expect(SettingsCatalog.matchCountSummary(for: .general, query: "   ") == nil)
+    }
+
+    @Test
+    func matchCountSummaryPluralizesMatches() {
+        #expect(SettingsCatalog.matchCountSummary(for: .shortcuts, query: "hotkeys") == "1 match")
+        #expect(SettingsCatalog.matchCountSummary(for: .shortcuts, query: "  hotkeys  ") == "1 match")
+        #expect(SettingsCatalog.matchCountSummary(for: .mobile, query: "hotkeys") == "0 matches")
+    }
+
+    @Test
     func categoryMatchingUsesCatalogItems() {
         #expect(SettingsCatalog.categoryMatches(.richInput, query: "rich input"))
         #expect(!SettingsCatalog.categoryMatches(.mobile, query: "rich input"))

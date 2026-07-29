@@ -366,11 +366,14 @@ struct MobileSettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.name)
                     .font(.system(size: SettingsMetrics.labelFontSize))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text(lastSeenText(device))
                     .font(.system(size: SettingsMetrics.footnoteFontSize))
                     .foregroundStyle(SettingsStyle.mutedForeground)
+                    .lineLimit(1)
             }
-            Spacer()
+            Spacer(minLength: SettingsMetrics.rowSpacing)
             if !isSelecting {
                 Button("Revoke", role: .destructive) {
                     deviceToRevoke = device

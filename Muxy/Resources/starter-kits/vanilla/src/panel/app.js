@@ -51,7 +51,7 @@ export class HelloPanel {
         {
           type: "button",
           class:
-            "flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground outline-none transition-opacity hover:opacity-95",
+            "flex h-8 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground outline-none",
           onclick: () => this.bump(),
         },
         icon("refresh", 13),

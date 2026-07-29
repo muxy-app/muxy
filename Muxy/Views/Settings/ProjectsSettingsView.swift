@@ -31,7 +31,7 @@ struct ProjectsSettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                    .settingsControl()
                 }
 
                 if projectPickerMode == .custom {
@@ -48,7 +48,7 @@ struct ProjectsSettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                    .settingsControl()
                 }
 
                 SettingsToggleRow(
@@ -62,19 +62,15 @@ struct ProjectsSettingsView: View {
                 footer: fileOpenerFooter
             ) {
                 SettingsRow("Default Opener") {
-                    HStack {
-                        Spacer()
-                        Picker("", selection: $defaultFileOpener) {
-                            ForEach(fileOpenerOptions) { option in
-                                Text(option.title)
-                                    .tag(option.id)
-                                    .disabled(!option.isAvailable)
-                            }
+                    Picker("", selection: $defaultFileOpener) {
+                        ForEach(fileOpenerOptions) { option in
+                            Text(option.title)
+                                .tag(option.id)
+                                .disabled(!option.isAvailable)
                         }
-                        .labelsHidden()
-                        .fixedSize()
                     }
-                    .frame(width: SettingsMetrics.controlWidth)
+                    .labelsHidden()
+                    .settingsControl()
                 }
             }
 
@@ -147,10 +143,13 @@ struct ProjectsSettingsView: View {
 
     private var worktreeLocationControl: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 0) {
                 Text("Default worktree location")
                     .font(.system(size: SettingsMetrics.labelFontSize))
-                Spacer()
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: SettingsMetrics.rowSpacing)
                 Picker("", selection: defaultWorktreeLocationMode) {
                     Text("App Default").tag(WorktreeLocationMode.defaultLocation)
                     Text("Template").tag(WorktreeLocationMode.pathTemplate)
@@ -158,7 +157,8 @@ struct ProjectsSettingsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(width: SettingsMetrics.controlWidth)
+                .settingsControl(.intrinsic)
+                .layoutPriority(1)
             }
 
             worktreeLocationValueControl

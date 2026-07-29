@@ -19,7 +19,8 @@ enum RichInputImageStrategy: String, Codable, CaseIterable, Identifiable {
             "Paste image data via the system clipboard. Works with every TUI but uses brief delays between images."
         case .inlinePath:
             "Send image file paths in the bracketed-paste stream. Fully ordered with no delays. "
-                + "Requires the receiving TUI to interpret pasted paths as image attachments."
+                + "Requires the receiving TUI to interpret pasted paths as image attachments. "
+                + "SSH panes send the uploaded remote path instead of the local one."
         }
     }
 }

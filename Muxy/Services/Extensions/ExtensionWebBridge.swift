@@ -216,6 +216,17 @@ enum ExtensionWebBridge {
                     switchTo(identifier) { return send('projects.switch', { identifier: String(identifier) }); },
                     delete(identifier) { return send('projects.delete', { identifier: String(identifier) }); },
                     add(path) { return send('projects.add', { path: String(path) }); },
+                    create(path, opts) {
+                        const o = opts || {};
+                        const payload = { path: String(path), createIfMissing: Boolean(o.createIfMissing) };
+                        if (o.name != null) payload.name = String(o.name);
+                        if (o.workspace != null) payload.workspace = String(o.workspace);
+                        return send('projects.create', payload);
+                    },
+                    attach(identifier, workspace) {
+                        return send('projects.attach', { identifier: String(identifier), workspace: String(workspace) });
+                    },
+                    detach(identifier) { return send('projects.detach', { identifier: String(identifier) }); },
                     rename(identifier, name) { return send('projects.rename', { identifier: String(identifier), name: String(name) }); },
                     setColor(identifier, color) {
                         const payload = { identifier: String(identifier), color: color == null ? null : String(color) };
@@ -230,6 +241,15 @@ enum ExtensionWebBridge {
                         return send('projects.setLogo', payload);
                     },
                     reorder(identifiers) { return send('projects.reorder', { identifiers: (identifiers || []).map(String) }); },
+                },
+                workspaces: {
+                    list() { return send('workspaces.list', {}); },
+                    create(name) { return send('workspaces.create', { name: String(name) }); },
+                    switchTo(identifier) { return send('workspaces.switch', { identifier: String(identifier) }); },
+                    rename(identifier, name) {
+                        return send('workspaces.rename', { identifier: String(identifier), name: String(name) });
+                    },
+                    delete(identifier) { return send('workspaces.delete', { identifier: String(identifier) }); },
                 },
                 panels: {
                     open(panel, data) { return send('panel.open', { panel: String(panel), data: data ?? null }); },
@@ -621,6 +641,7 @@ enum ExtensionWebBridge {
             Object.freeze(muxy.browser);
             Object.freeze(muxy.panes);
             Object.freeze(muxy.projects);
+            Object.freeze(muxy.workspaces);
             Object.freeze(muxy.panels);
             Object.freeze(muxy.popover);
             Object.freeze(muxy.dialog);

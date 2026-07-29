@@ -166,6 +166,101 @@ struct WorkspaceReducerTests {
         #expect(effects.createdTabID == area?.tabs[1].id)
     }
 
+    @Test("createTabInWorktree creates tab in specified worktree regardless of activeWorktreeID")
+    func createTabInWorktree() {
+        let projectID = UUID()
+        let mainWorktreeID = UUID()
+        let otherWorktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: mainWorktreeID)
+        let otherKey = WorktreeKey(projectID: projectID, worktreeID: otherWorktreeID)
+        let otherArea = TabArea(projectPath: "/tmp/other")
+        state.workspaceRoots[otherKey] = .tabArea(otherArea)
+        state.focusedAreaID[otherKey] = otherArea.id
+        state.activeWorktreeID[projectID] = otherWorktreeID
+
+        let mainKey = WorktreeKey(projectID: projectID, worktreeID: mainWorktreeID)
+        let action = AppState.Action.createTabInWorktree(key: mainKey, areaID: nil)
+        let effects = WorkspaceReducer.reduce(action: action, state: &state)
+
+        let mainArea = state.workspaceRoots[mainKey]?.findArea(id: state.focusedAreaID[mainKey]!)
+        #expect(mainArea?.tabs.count == 2)
+        #expect(effects.createdTabID == mainArea?.tabs[1].id)
+        let otherAreas = state.workspaceRoots[otherKey]!.allAreas()
+        #expect(otherAreas.flatMap(\.tabs).count == 1)
+    }
+
+    @Test("createTabInWorktree falls through to createTab when key targets active worktree")
+    func createTabInWorktreeFallsThrough() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let action = AppState.Action.createTabInWorktree(key: key, areaID: nil)
+        let effects = WorkspaceReducer.reduce(action: action, state: &state)
+
+        let area = focusedArea(in: state, projectID: projectID)
+        #expect(area?.tabs.count == 2)
+        #expect(effects.createdTabID == area?.tabs[1].id)
+    }
+
+    @Test("closeTabInWorktree removes tab from specified worktree")
+    func closeTabInWorktree() {
+        let projectID = UUID()
+        let mainWorktreeID = UUID()
+        let otherWorktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: mainWorktreeID)
+        let otherKey = WorktreeKey(projectID: projectID, worktreeID: otherWorktreeID)
+        let otherArea = TabArea(projectPath: "/tmp/other")
+        otherArea.createTab()
+        state.workspaceRoots[otherKey] = .tabArea(otherArea)
+        state.focusedAreaID[otherKey] = otherArea.id
+        state.activeWorktreeID[projectID] = otherWorktreeID
+
+        let mainKey = WorktreeKey(projectID: projectID, worktreeID: mainWorktreeID)
+        let mainArea = state.workspaceRoots[mainKey]!.findArea(id: state.focusedAreaID[mainKey]!)!
+        let firstTabID = mainArea.tabs[0].id
+
+        let effects = WorkspaceReducer.reduce(
+            action: .closeTabInWorktree(key: mainKey, areaID: mainArea.id, tabID: firstTabID),
+            state: &state
+        )
+
+        #expect(mainArea.tabs.count == 0)
+        #expect(!effects.paneIDsToRemove.isEmpty)
+        #expect(otherArea.tabs.count == 2)
+    }
+
+    @Test("closeTabInWorktree closes last tab in multi-area closes area instead")
+    func closeTabInWorktreeLastInMultiArea() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let firstAreaID = state.focusedAreaID[key]!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: firstAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+
+        let firstArea = state.workspaceRoots[key]!.findArea(id: firstAreaID)!
+        let tabID = firstArea.tabs[0].id
+
+        let effects = WorkspaceReducer.reduce(
+            action: .closeTabInWorktree(key: key, areaID: firstAreaID, tabID: tabID),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key] == nil)
+        #expect(effects.paneIDsToRemove.count == 2)
+    }
+
     @Test("workspace-local actions reconcile only their worktree")
     func workspaceLocalActionReconcilesOnlyItsWorktree() {
         let projectID = UUID()

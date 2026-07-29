@@ -17,6 +17,16 @@ struct TabFocusedSidebar: View {
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
     @AppStorage(WorktreeListPreferences.groupWorktreesKey)
     private var groupWorktrees = WorktreeListPreferences.defaultGroupWorktrees
+    @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
+    @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = true
+
+    private var expandedStyle: SidebarExpandedStyle {
+        SidebarExpandedStyle(rawValue: expandedStyleRaw) ?? .defaultValue
+    }
+
+    private var isWide: Bool {
+        sidebarExpanded && expandedStyle == .wide
+    }
 
     private var sortMode: ProjectSortMode {
         ProjectSortMode(rawValue: sortModeRaw) ?? .defaultValue
@@ -69,6 +79,15 @@ struct TabFocusedSidebar: View {
     var body: some View {
         let numbers = shortcutNumbers
         return VStack(spacing: 0) {
+            HStack(spacing: UIMetrics.spacing2) {
+                WorkspaceSwitcher(isWide: isWide)
+                if isWide {
+                    sortMenu
+                }
+            }
+            .padding(.horizontal, UIMetrics.spacing3)
+            .padding(.top, UIMetrics.spacing2)
+
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(rows) { row in
@@ -96,6 +115,26 @@ struct TabFocusedSidebar: View {
             SidebarFooter()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort Projects By", selection: $sortModeRaw) {
+                ForEach(ProjectSortMode.allCases) { mode in
+                    Label(mode.title, systemImage: mode.systemImage).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            SidebarHeaderIconButtonLabel(
+                systemName: "arrow.up.arrow.down",
+                accessibilityLabel: "Sort Projects"
+            )
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .help("Sort Projects: \(sortMode.title)")
     }
 
     private func openProjectPicker() {

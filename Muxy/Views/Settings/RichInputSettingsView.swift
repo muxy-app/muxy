@@ -31,7 +31,9 @@ struct RichInputSettingsView: View {
         SettingsSection(
             "Composer",
             footer: "Inline File Path keeps multiple images perfectly ordered with text and Enter. "
-                + "Use Clipboard Paste if your TUI doesn't recognize image paths.",
+                + "Use Clipboard Paste if your TUI doesn't recognize image paths. "
+                + "SSH panes always upload the image and inline its remote path, "
+                + "because a Mac file path does not resolve on the remote device.",
             showsDivider: false
         ) {
             SettingsRow("Image Submission") {
@@ -41,7 +43,7 @@ struct RichInputSettingsView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                .settingsControl()
             }
 
             SettingsRow("Font Family") {
@@ -53,7 +55,7 @@ struct RichInputSettingsView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                .settingsControl()
             }
 
             SettingsRow("Line Height") {

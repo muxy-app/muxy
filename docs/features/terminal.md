@@ -56,6 +56,23 @@ Reload the configuration with `⌘⇧R`, then open a new terminal. Ghostty appli
 
 Enable **Settings -> Terminal -> Auto-copy terminal selection** to copy selected terminal text on mouse release.
 
+When an SSH terminal receives an image through `Ctrl+V`, `Cmd+V`, right-click Paste, or Composer, Muxy converts
+the image to PNG away from the main UI thread and uploads it to a private, session-scoped temporary directory on
+the remote device. The remote file path is then pasted into the running TUI, allowing tools such as Codex and
+Claude Code to attach the image without access to the Mac clipboard. Encoded image input and converted PNG output
+are limited to 25 MB, and decoded images are limited to 64 megapixels. Composer image attachments must be regular
+files and are read with a fixed 25 MB cap before decoding, so device files and unbounded streams are rejected.
+
+Uploaded directories and images use owner-only permissions. Partial uploads are removed when an upload is
+interrupted, and the session directory is removed when its terminal ends. A central cleanup coordinator retains
+outstanding cleanup for both open and already-removed panes. On app quit, Muxy waits up to five seconds for those
+tasks before allowing termination to continue. Text paste behavior is unchanged.
+
+The **Settings -> Terminal -> Composer -> Image Submission** strategy applies to local panes only. SSH panes always
+upload the image and inline its remote path, because a Mac file path does not resolve on the remote device. When an
+upload fails, Muxy withholds Return and clears every line it has already submitted, so a partial prompt is never
+left in the TUI.
+
 ## Working directory
 
 Muxy tracks the cwd via Ghostty's shell integration (OSC 7). The directory is persisted in workspace snapshots so newly recreated tabs land in the same folder when applicable.
@@ -80,6 +97,11 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 opens the legacy voice recorder normally, or starts on-device dictation inside the focused composer when it is
 already open. Stop Composer dictation to insert the transcript at the editor cursor, or press Return while
 recording, then edit or send it normally.
+
+Each Composer submission is serialized with later keyboard input for its target terminal. Text, image paths, and
+the optional Return are submitted as one transaction, including when a Composer message is broadcast to several
+panes. Broadcast targets are processed one at a time, and each unique image attachment is normalized once into
+validated immutable PNG data that is reused across those targets.
 
 Composer submission controls stay unavailable while dictation is starting or recording. A dictation error does
 not block typed text from being sent, and its inline message can be dismissed without closing the composer.

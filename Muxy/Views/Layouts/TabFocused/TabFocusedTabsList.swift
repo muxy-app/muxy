@@ -10,17 +10,21 @@ struct TabFocusedTabActions: View {
     @Environment(BrowserProfileStore.self) private var browserProfileStore
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
 
+    private var targetKey: WorktreeKey? {
+        worktree.map { WorktreeKey(projectID: project.id, worktreeID: $0.id) }
+    }
+
     var body: some View {
         SidebarActionButton(symbol: "plus", label: "New Terminal Tab") {
-            activateTarget()
-            appState.createTab(projectID: project.id)
+            guard let targetKey = activatedTargetKey() else { return }
+            appState.dispatch(.createTabInWorktree(key: targetKey, areaID: nil))
         }
         if browserEnabled {
             SidebarActionButton(symbol: "globe", label: "New Browser Tab") {
-                activateTarget()
-                appState.dispatch(.createBrowserTab(
-                    projectID: project.id,
-                    areaID: appState.focusedArea(for: project.id)?.id,
+                guard let targetKey = activatedTargetKey() else { return }
+                appState.dispatch(.createBrowserTabInWorktree(
+                    key: targetKey,
+                    areaID: nil,
                     url: BrowserURL.homeURL,
                     profileID: browserProfileStore.defaultProfileID
                 ))
@@ -28,13 +32,15 @@ struct TabFocusedTabActions: View {
         }
     }
 
-    private func activateTarget() {
+    private func activatedTargetKey() -> WorktreeKey? {
+        guard let targetKey else { return nil }
         TabFocusedSidebarTarget.activate(
             project: project,
             worktree: worktree,
             appState: appState,
             worktreeStore: worktreeStore
         )
+        return targetKey
     }
 }
 
@@ -726,27 +732,31 @@ struct TabFocusedTabRow: View {
         appState.selectProject(project, worktree: target)
     }
 
+    private var tabKey: WorktreeKey {
+        WorktreeKey(projectID: projectID, worktreeID: worktree?.id ?? projectID)
+    }
+
     private func close() {
-        appState.closeTab(tab.id, areaID: area.id, projectID: projectID)
+        appState.closeTab(tab.id, areaID: area.id, key: tabKey)
     }
 
     private func closeOthers() {
         for item in topLevelTabs where item.tab.id != tab.id && !item.tab.isPinned {
-            appState.closeTab(item.tab.id, areaID: item.area.id, projectID: projectID)
+            appState.closeTab(item.tab.id, areaID: item.area.id, key: tabKey)
         }
     }
 
     private func closeLeft() {
         guard let currentIndex else { return }
         for item in topLevelTabs.prefix(currentIndex) where !item.tab.isPinned {
-            appState.closeTab(item.tab.id, areaID: item.area.id, projectID: projectID)
+            appState.closeTab(item.tab.id, areaID: item.area.id, key: tabKey)
         }
     }
 
     private func closeRight() {
         guard let currentIndex else { return }
         for item in topLevelTabs.suffix(from: currentIndex + 1) where !item.tab.isPinned {
-            appState.closeTab(item.tab.id, areaID: item.area.id, projectID: projectID)
+            appState.closeTab(item.tab.id, areaID: item.area.id, key: tabKey)
         }
     }
 

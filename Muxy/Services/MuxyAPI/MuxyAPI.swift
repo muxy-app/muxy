@@ -124,6 +124,19 @@ struct CreatedWorktreeInfo: Equatable {
     let branch: String?
 }
 
+struct WorkspaceInfo: Equatable {
+    let id: UUID
+    let name: String
+    let projectCount: Int
+    let isActive: Bool
+}
+
+struct CreatedProjectInfo: Equatable {
+    let id: UUID
+    let name: String
+    let path: String
+}
+
 struct RefreshWorktreesResult: Equatable {
     let count: Int
 }
@@ -135,6 +148,13 @@ struct CreateWorktreeRequest {
     let requestedPath: String
     let createBranch: Bool
     let baseBranch: String
+}
+
+struct CreateProjectRequest {
+    let path: String
+    let createIfMissing: Bool
+    let name: String?
+    let workspaceIdentifier: String?
 }
 
 struct OpenTabRequest: Decodable {
@@ -295,11 +315,19 @@ enum MuxyAPI {
             "browser.snapshot",
             "projects.delete",
             "projects.add",
+            "projects.create",
             "projects.rename",
             "projects.setColor",
             "projects.setIcon",
             "projects.setLogo",
             "projects.reorder",
+            "projects.attach",
+            "projects.detach",
+            "workspaces.list",
+            "workspaces.create",
+            "workspaces.switch",
+            "workspaces.rename",
+            "workspaces.delete",
             "lifecycle.ackBeforeClose",
             "lifecycle.resolveBeforeClose",
             "lifecycle.closeSelf",
@@ -374,6 +402,14 @@ enum MuxyAPI {
             "create-worktree": "worktrees.create",
             "switch-worktree": "worktrees.switch",
             "refresh-worktrees": "worktrees.refresh",
+            "list-workspaces": "workspaces.list",
+            "create-workspace": "workspaces.create",
+            "switch-workspace": "workspaces.switch",
+            "rename-workspace": "workspaces.rename",
+            "delete-workspace": "workspaces.delete",
+            "create-project": "projects.create",
+            "attach-project": "projects.attach",
+            "detach-project": "projects.detach",
             "list-tabs": "tabs.list",
             "switch-tab": "tabs.switch",
             "new-tab": "tabs.new",
@@ -450,7 +486,10 @@ enum MuxyAPI {
             "projects.switch": .projectsWrite,
             "projects.delete": .projectsDelete,
             "projects.add": .projectsWrite,
+            "projects.create": .projectsWrite,
             "projects.rename": .projectsWrite,
+            "projects.attach": .projectsWrite,
+            "projects.detach": .projectsWrite,
             "projects.setColor": .projectsWrite,
             "projects.setIcon": .projectsWrite,
             "projects.setLogo": .projectsWrite,
@@ -459,6 +498,11 @@ enum MuxyAPI {
             "worktrees.create": .worktreesWrite,
             "worktrees.switch": .worktreesWrite,
             "worktrees.refresh": .worktreesWrite,
+            "workspaces.list": .projectsRead,
+            "workspaces.create": .projectsWrite,
+            "workspaces.switch": .projectsWrite,
+            "workspaces.rename": .projectsWrite,
+            "workspaces.delete": .projectsWrite,
             "agents.list": .agentsRead,
             "git.status": .gitRead,
             "git.diff": .gitRead,
@@ -950,6 +994,141 @@ enum MuxyAPI {
             }
         }
 
+        static func create(
+            _ request: CreateProjectRequest,
+            appState: AppState,
+            projectStore: ProjectStore,
+            worktreeStore: WorktreeStore,
+            projectGroupStore: ProjectGroupStore,
+            callingExtensionID: String? = nil,
+            consent: ExtensionConsentService = .shared
+        ) async -> Result<CreatedProjectInfo, APIError> {
+            let workspaceID = request.workspaceIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+            var targetWorkspace: ProjectGroup?
+            if let workspaceID, !workspaceID.isEmpty {
+                guard let workspace = resolveGroup(workspaceID, in: projectGroupStore.groups),
+                      workspace.type == .local
+                else {
+                    return .failure(.invalidArguments("workspace not found '\(workspaceID)'"))
+                }
+                targetWorkspace = workspace
+            }
+
+            let standardized = ProjectPickerPathService.standardizedPath(request.path)
+            if let callingExtensionID,
+               request.createIfMissing,
+               FileManagerProjectPathConfirmationFileSystem().directoryState(atPath: standardized) == .missing
+            {
+                let consentRequest = ExtensionConsentRequestBuilder.make(
+                    extensionID: callingExtensionID,
+                    verb: .filesWrite,
+                    payload: .file(operation: "mkdir", path: standardized),
+                    source: "muxy-api"
+                )
+                guard await consent.gate(consentRequest) == .allow else {
+                    return .failure(.consentDenied(verb: "projects.create"))
+                }
+            }
+
+            let before = Set(projectStore.projects.map(\.id))
+            let result = ProjectPathConfirmationService(
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
+            ).confirm(path: request.path, createIfMissing: request.createIfMissing)
+
+            guard result == .success else {
+                switch result {
+                case .missingDirectory:
+                    return .failure(.invalidArguments("path does not exist, use --create to create it"))
+                case .notDirectory:
+                    return .failure(.invalidArguments("path is not a directory"))
+                case .createFailed:
+                    return .failure(.underlying("could not create directory"))
+                case .failed:
+                    return .failure(.underlying("could not open project"))
+                case .success:
+                    return .failure(.underlying("unexpected success"))
+                }
+            }
+
+            guard let project = projectStore.projects.first(where: {
+                ProjectPickerPathService.standardizedPath($0.path) == standardized
+            })
+            else {
+                return .failure(.underlying("project not found after creation"))
+            }
+
+            if project.id != Project.homeID, !before.contains(project.id) {
+                projectStore.setWorktreesEnabled(id: project.id, to: true)
+            }
+
+            if let name = request.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                projectStore.rename(id: project.id, to: name)
+            }
+
+            if let workspace = targetWorkspace {
+                guard projectGroupStore.addProject(projectID: project.id, toGroup: workspace.id) else {
+                    return .failure(.invalidArguments("project cannot be added to workspace '\(workspace.name)'"))
+                }
+            }
+
+            return .success(CreatedProjectInfo(
+                id: project.id,
+                name: projectStore.projects.first { $0.id == project.id }?.name ?? project.name,
+                path: project.path
+            ))
+        }
+
+        static func attach(
+            projectIdentifier: String,
+            workspaceIdentifier: String,
+            projectStore: ProjectStore,
+            projectGroupStore: ProjectGroupStore,
+            appState: AppState
+        ) -> Result<Void, APIError> {
+            guard let project = projectGroupStore.resolveProject(
+                identifier: projectIdentifier,
+                localProjects: projectStore.projects,
+                activeProjectID: appState.activeProjectID
+            )
+            else {
+                return .failure(.projectNotFound(projectIdentifier))
+            }
+            guard project.id != Project.homeID, !project.isRemote else {
+                return .failure(.invalidArguments("the home and remote projects cannot be attached to a workspace"))
+            }
+            guard let workspace = resolveGroup(workspaceIdentifier, in: projectGroupStore.groups) else {
+                return .failure(.invalidArguments("workspace not found '\(workspaceIdentifier)'"))
+            }
+            guard projectGroupStore.addProject(projectID: project.id, toGroup: workspace.id) else {
+                return .failure(.invalidArguments("project cannot be added to workspace '\(workspace.name)'"))
+            }
+            return .success(())
+        }
+
+        static func detach(
+            projectIdentifier: String,
+            projectStore: ProjectStore,
+            projectGroupStore: ProjectGroupStore,
+            appState: AppState
+        ) -> Result<Void, APIError> {
+            guard let project = projectGroupStore.resolveProject(
+                identifier: projectIdentifier,
+                localProjects: projectStore.projects,
+                activeProjectID: appState.activeProjectID
+            )
+            else {
+                return .failure(.projectNotFound(projectIdentifier))
+            }
+            guard project.id != Project.homeID, !project.isRemote else {
+                return .failure(.invalidArguments("the home and remote projects cannot be detached from a workspace"))
+            }
+            projectGroupStore.removeProjectFromAllGroups(projectID: project.id)
+            return .success(())
+        }
+
         static func reorder(identifiers: [String], context: Context) -> Result<Void, APIError> {
             var orderedIDs: [UUID] = []
             for identifier in identifiers {
@@ -1160,6 +1339,70 @@ enum MuxyAPI {
             } catch {
                 return .failure(.underlying(error.localizedDescription))
             }
+        }
+    }
+
+    @MainActor
+    enum Workspaces {
+        static func list(projectGroupStore: ProjectGroupStore) -> [WorkspaceInfo] {
+            let activeID = projectGroupStore.activeGroupID
+            return projectGroupStore.groups.map { group in
+                WorkspaceInfo(
+                    id: group.id,
+                    name: group.name,
+                    projectCount: group.projectIDs.count + group.remoteProjects.count,
+                    isActive: group.id == activeID
+                )
+            }
+        }
+
+        static func create(name: String, projectGroupStore: ProjectGroupStore) -> UUID {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            projectGroupStore.addGroup(name: trimmed.isEmpty ? "New Workspace" : trimmed)
+            let id = projectGroupStore.groups.last?.id ?? UUID()
+            projectGroupStore.selectGroup(id: id)
+            return id
+        }
+
+        static func switchTo(
+            identifier: String,
+            projectGroupStore: ProjectGroupStore
+        ) -> Result<Void, APIError> {
+            guard let group = resolveGroup(identifier, in: projectGroupStore.groups) else {
+                return .failure(.invalidArguments("workspace not found '\(identifier)'"))
+            }
+            projectGroupStore.selectGroup(id: group.id)
+            return .success(())
+        }
+
+        static func rename(
+            identifier: String,
+            to newName: String,
+            projectGroupStore: ProjectGroupStore
+        ) -> Result<Void, APIError> {
+            let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return .failure(.invalidArguments("name cannot be empty"))
+            }
+            guard let group = resolveGroup(identifier, in: projectGroupStore.groups) else {
+                return .failure(.invalidArguments("workspace not found '\(identifier)'"))
+            }
+            projectGroupStore.renameGroup(id: group.id, to: trimmed)
+            return .success(())
+        }
+
+        static func delete(
+            identifier: String,
+            projectGroupStore: ProjectGroupStore
+        ) -> Result<Void, APIError> {
+            guard let group = resolveGroup(identifier, in: projectGroupStore.groups) else {
+                return .failure(.invalidArguments("workspace not found '\(identifier)'"))
+            }
+            guard group.projectIDs.isEmpty, group.remoteProjects.isEmpty else {
+                return .failure(.invalidArguments("workspace '\(group.name)' still contains projects"))
+            }
+            projectGroupStore.removeGroup(id: group.id)
+            return .success(())
         }
     }
 
@@ -2039,6 +2282,14 @@ private func resolveProject(
     }
     guard let activeProjectID = appState.activeProjectID else { return nil }
     return projectStore.projects.first { $0.id == activeProjectID }
+}
+
+@MainActor
+private func resolveGroup(_ identifier: String, in groups: [ProjectGroup]) -> ProjectGroup? {
+    if let uuid = UUID(uuidString: identifier) {
+        return groups.first { $0.id == uuid }
+    }
+    return groups.first { $0.name.localizedCaseInsensitiveCompare(identifier) == .orderedSame }
 }
 
 @MainActor

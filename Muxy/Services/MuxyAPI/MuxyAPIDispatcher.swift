@@ -417,6 +417,78 @@ enum MuxyAPIDispatcher {
                 context: projectsContext(context)
             ))
             return NSNull()
+        case "projects.create":
+            guard let projectStore = context.projectStore,
+                  let worktreeStore = context.worktreeStore,
+                  let projectGroupStore = context.projectGroupStore
+            else { throw APIError.projectStoreUnavailable }
+            return try await createdProjectDict(unwrap(MuxyAPI.Projects.create(
+                CreateProjectRequest(
+                    path: stringArg(args, "path"),
+                    createIfMissing: boolArg(args, "createIfMissing") ?? false,
+                    name: optionalStringArg(args, "name"),
+                    workspaceIdentifier: optionalStringArg(args, "workspace")
+                ),
+                appState: context.appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
+                callingExtensionID: context.extensionID
+            )))
+        case "projects.attach":
+            guard let projectStore = context.projectStore,
+                  let projectGroupStore = context.projectGroupStore
+            else { throw APIError.projectStoreUnavailable }
+            try unwrap(MuxyAPI.Projects.attach(
+                projectIdentifier: stringArg(args, "identifier"),
+                workspaceIdentifier: stringArg(args, "workspace"),
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore,
+                appState: context.appState
+            ))
+            return NSNull()
+        case "projects.detach":
+            guard let projectStore = context.projectStore,
+                  let projectGroupStore = context.projectGroupStore
+            else { throw APIError.projectStoreUnavailable }
+            try unwrap(MuxyAPI.Projects.detach(
+                projectIdentifier: stringArg(args, "identifier"),
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore,
+                appState: context.appState
+            ))
+            return NSNull()
+        case "workspaces.list":
+            guard let projectGroupStore = context.projectGroupStore else { throw APIError.projectStoreUnavailable }
+            return MuxyAPI.Workspaces.list(projectGroupStore: projectGroupStore).map(workspaceDict)
+        case "workspaces.create":
+            guard let projectGroupStore = context.projectGroupStore else { throw APIError.projectStoreUnavailable }
+            return try MuxyAPI.Workspaces.create(
+                name: stringArg(args, "name"),
+                projectGroupStore: projectGroupStore
+            ).uuidString
+        case "workspaces.switch":
+            guard let projectGroupStore = context.projectGroupStore else { throw APIError.projectStoreUnavailable }
+            try unwrap(MuxyAPI.Workspaces.switchTo(
+                identifier: stringArg(args, "identifier"),
+                projectGroupStore: projectGroupStore
+            ))
+            return NSNull()
+        case "workspaces.rename":
+            guard let projectGroupStore = context.projectGroupStore else { throw APIError.projectStoreUnavailable }
+            try unwrap(MuxyAPI.Workspaces.rename(
+                identifier: stringArg(args, "identifier"),
+                to: stringArg(args, "name"),
+                projectGroupStore: projectGroupStore
+            ))
+            return NSNull()
+        case "workspaces.delete":
+            guard let projectGroupStore = context.projectGroupStore else { throw APIError.projectStoreUnavailable }
+            try unwrap(MuxyAPI.Workspaces.delete(
+                identifier: stringArg(args, "identifier"),
+                projectGroupStore: projectGroupStore
+            ))
+            return NSNull()
         case "worktrees.list":
             guard let projectStore = context.projectStore,
                   let worktreeStore = context.worktreeStore
@@ -1260,6 +1332,23 @@ enum MuxyAPIDispatcher {
             "path": worktree.path,
             "branch": worktree.branch ?? NSNull(),
             "isActive": worktree.isActive,
+        ]
+    }
+
+    private static func workspaceDict(_ workspace: WorkspaceInfo) -> [String: Any] {
+        [
+            "id": workspace.id.uuidString,
+            "name": workspace.name,
+            "projectCount": workspace.projectCount,
+            "isActive": workspace.isActive,
+        ]
+    }
+
+    private static func createdProjectDict(_ info: CreatedProjectInfo) -> [String: Any] {
+        [
+            "id": info.id.uuidString,
+            "name": info.name,
+            "path": info.path,
         ]
     }
 

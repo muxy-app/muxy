@@ -240,6 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private weak var settingsWindow: NSWindow?
     private weak var extensionsWindow: NSWindow?
     private weak var whatsNewWindow: NSWindow?
+    private let terminalTerminationCleanup = TerminalTerminationCleanup()
+    private static let terminalCleanupTimeout: Duration = .seconds(5)
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -501,8 +503,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !AppRelaunch.isRelaunching else { return .terminateNow }
-        return confirmQuitIfNeeded()
+        let reply = AppRelaunch.isRelaunching ? NSApplication.TerminateReply.terminateNow : confirmQuitIfNeeded()
+        guard reply == .terminateNow else { return reply }
+        guard !terminalTerminationCleanup.isComplete else { return .terminateNow }
+        terminalTerminationCleanup.start(
+            timeout: Self.terminalCleanupTimeout,
+            cleanup: {
+                await TerminalViewRegistry.shared.prepareForTermination()
+            },
+            completion: {
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        )
+        return .terminateLater
     }
 
     @MainActor

@@ -85,7 +85,9 @@ struct RichInputSubmitterTests {
         let url = URL(fileURLWithPath: "/tmp/image with spaces.png")
         let segments = RichInputSubmitter.segmentsForCapabilities(
             [.image(url)],
-            capabilities: []
+            strategy: .clipboard,
+            capabilities: [],
+            isRemote: false
         )
 
         #expect(segments == [.text("'/tmp/image with spaces.png'")])
@@ -96,9 +98,221 @@ struct RichInputSubmitterTests {
         let url = URL(fileURLWithPath: "/tmp/image.png")
         let segments = RichInputSubmitter.segmentsForCapabilities(
             [.image(url)],
-            capabilities: [.imagePaste]
+            strategy: .clipboard,
+            capabilities: [.imagePaste],
+            isRemote: false
         )
 
         #expect(segments == [.image(url)])
+    }
+
+    @Test("inline paths remain local for a local terminal")
+    func localInlinePath() {
+        let url = URL(fileURLWithPath: "/tmp/image.png")
+        let segments = RichInputSubmitter.segmentsForCapabilities(
+            [.image(url)],
+            strategy: .inlinePath,
+            capabilities: [.imagePaste],
+            isRemote: false
+        )
+
+        #expect(segments == [.text("/tmp/image.png")])
+    }
+
+    @Test("remote terminals upload images for every submission strategy")
+    func remoteInlinePath() {
+        let url = URL(fileURLWithPath: "/tmp/image.png")
+        let segments = RichInputSubmitter.segmentsForCapabilities(
+            [.image(url)],
+            strategy: .inlinePath,
+            capabilities: [.imagePaste],
+            isRemote: true
+        )
+
+        #expect(segments == [.image(url)])
+    }
+
+    @Test("failed image upload clears partial input without sending Return")
+    @MainActor
+    func failedImageUpload() async {
+        let target = RichInputSubmissionTestTarget(pasteSucceeds: false)
+
+        let submitted = await RichInputSubmitter.submitSegments(
+            [
+                .text("explain "),
+                .image(URL(fileURLWithPath: "/tmp/image.png")),
+                .text(" after"),
+            ],
+            to: target,
+            appendReturn: true,
+            normalizer: { _ in Data([1, 2, 3]) }
+        )
+
+        #expect(!submitted)
+        #expect(target.events == [
+            "clear:0",
+            "text:explain ",
+            "image",
+            "clear:0",
+        ])
+    }
+
+    @Test("failed image upload clears every submitted line of a multi-line prompt")
+    @MainActor
+    func failedImageUploadClearsMultipleLines() async {
+        let target = RichInputSubmissionTestTarget(pasteSucceeds: false)
+
+        let submitted = await RichInputSubmitter.submitSegments(
+            [
+                .text("first\nsecond\nthird "),
+                .image(URL(fileURLWithPath: "/tmp/image.png")),
+            ],
+            to: target,
+            appendReturn: true,
+            normalizer: { _ in Data([1, 2, 3]) }
+        )
+
+        #expect(!submitted)
+        #expect(target.events == [
+            "clear:0",
+            "text:first\nsecond\nthird ",
+            "image",
+            "clear:2",
+        ])
+    }
+
+    @Test("broadcast reuses unique normalization and serializes pane submissions")
+    @MainActor
+    func serializedBroadcastReusesNormalization() async {
+        let probe = RichInputSubmissionProbe()
+        let first = RichInputSubmissionTestTarget(
+            identifier: "first",
+            pasteSucceeds: true,
+            probe: probe
+        )
+        let second = RichInputSubmissionTestTarget(
+            identifier: "second",
+            pasteSucceeds: true,
+            probe: probe
+        )
+        let imageURL = URL(fileURLWithPath: "/tmp/shared.png")
+        let submissions = [
+            RichInputSubmitter.TargetSubmission(
+                target: first,
+                segments: [.image(imageURL), .image(imageURL)]
+            ),
+            RichInputSubmitter.TargetSubmission(
+                target: second,
+                segments: [.image(imageURL), .image(imageURL)]
+            ),
+        ]
+
+        let enqueued = RichInputSubmitter.enqueueSubmissions(
+            submissions,
+            appendReturn: true,
+            normalizer: { url in
+                await probe.normalize(url)
+            }
+        )
+        let firstFollower = first.enqueueFollower()
+        let secondFollower = second.enqueueFollower()
+
+        #expect(firstFollower)
+        #expect(secondFollower)
+        await enqueued.waitUntilFinished()
+        await first.waitUntilIdle()
+        await second.waitUntilIdle()
+
+        #expect(probe.normalizationCalls[imageURL] == 1)
+        #expect(probe.maximumConcurrentPastes == 1)
+        #expect(probe.pasteOrder == ["first", "first", "second", "second"])
+        #expect(first.events.suffix(2) == ["return", "follower"])
+        #expect(second.events.suffix(2) == ["return", "follower"])
+    }
+}
+
+@MainActor
+private final class RichInputSubmissionTestTarget:
+    TerminalInputTransactionTarget,
+    TerminalImagePasteSurface
+{
+    let imagePasteWorkspaceContext = WorkspaceContext.local
+    private let identifier: String
+    private let pasteSucceeds: Bool
+    private let probe: RichInputSubmissionProbe?
+    private let queue = TerminalInputQueue()
+    private(set) var events: [String] = []
+
+    init(
+        identifier: String = "target",
+        pasteSucceeds: Bool,
+        probe: RichInputSubmissionProbe? = nil
+    ) {
+        self.identifier = identifier
+        self.pasteSucceeds = pasteSucceeds
+        self.probe = probe
+    }
+
+    func sendRemoteBytes(_ bytes: Data) {
+        events.append(bytes == TerminalControlBytes.carriageReturn ? "return" : "bytes")
+    }
+
+    func submitRichInput(text: String) {
+        events.append("text:\(text)")
+    }
+
+    func clearTerminalInput(lineBreakCount: Int) {
+        events.append("clear:\(lineBreakCount)")
+    }
+
+    func enqueueInputTransaction(
+        _ operation: @escaping @MainActor () async -> Bool
+    ) -> TerminalInputTransactionHandle {
+        queue.enqueueTransaction(operation)
+    }
+
+    func beginImagePaste() -> TerminalImagePasteAttempt? {
+        .local(surfaceGeneration: 0)
+    }
+
+    func pasteImageData(_ pngData: Data, attempt: TerminalImagePasteAttempt) async -> Bool {
+        events.append("image")
+        if let probe {
+            await probe.recordPaste(identifier: identifier, data: pngData)
+        }
+        return pasteSucceeds
+    }
+
+    func enqueueFollower() -> Bool {
+        queue.deferIfPending { [weak self] in
+            self?.events.append("follower")
+        }
+    }
+
+    func waitUntilIdle() async {
+        await queue.waitUntilIdle()
+    }
+}
+
+@MainActor
+private final class RichInputSubmissionProbe {
+    private(set) var normalizationCalls: [URL: Int] = [:]
+    private(set) var pasteOrder: [String] = []
+    private(set) var maximumConcurrentPastes = 0
+    private var concurrentPastes = 0
+
+    func normalize(_ url: URL) async -> Data {
+        normalizationCalls[url, default: 0] += 1
+        await Task.yield()
+        return Data([1, 2, 3])
+    }
+
+    func recordPaste(identifier: String, data: Data) async {
+        #expect(data == Data([1, 2, 3]))
+        concurrentPastes += 1
+        maximumConcurrentPastes = max(maximumConcurrentPastes, concurrentPastes)
+        pasteOrder.append(identifier)
+        await Task.yield()
+        concurrentPastes -= 1
     }
 }

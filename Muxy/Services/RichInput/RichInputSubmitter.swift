@@ -1,15 +1,88 @@
-import AppKit
 import Foundation
-import UniformTypeIdentifiers
+
+@MainActor
+final class RichInputImageNormalizationBatch {
+    typealias Normalizer = @MainActor (URL) async throws -> Data
+
+    private enum Outcome {
+        case success(Data)
+        case failure(any Error)
+    }
+
+    private let urls: [URL]
+    private let normalizer: Normalizer
+    private var task: Task<[URL: Outcome], Never>?
+
+    init(urls: [URL], normalizer: @escaping Normalizer) {
+        var seenURLs = Set<URL>()
+        self.urls = urls.filter { seenURLs.insert($0).inserted }
+        self.normalizer = normalizer
+    }
+
+    func pngData(for url: URL) async throws -> Data {
+        let outcomes = await normalizationTask().value
+        guard let outcome = outcomes[url] else {
+            throw ImagePasteDataError.missingImage
+        }
+        switch outcome {
+        case let .success(data):
+            return data
+        case let .failure(error):
+            throw error
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+    }
+
+    private func normalizationTask() -> Task<[URL: Outcome], Never> {
+        if let task {
+            return task
+        }
+        let task = Task { @MainActor [urls, normalizer] in
+            var outcomes: [URL: Outcome] = [:]
+            for url in urls {
+                guard !Task.isCancelled else { break }
+                do {
+                    let data = try await normalizer(url)
+                    outcomes[url] = .success(data)
+                } catch {
+                    outcomes[url] = .failure(error)
+                }
+            }
+            return outcomes
+        }
+        self.task = task
+        return task
+    }
+}
 
 @MainActor
 enum RichInputSubmitter {
-    private static let imagePasteDelay: Duration = .milliseconds(300)
     private static let initialDelay: Duration = .milliseconds(50)
 
     enum Segment: Equatable {
         case text(String)
         case image(URL)
+    }
+
+    struct TargetSubmission {
+        let target: any TerminalInputTransactionTarget
+        let segments: [Segment]
+    }
+
+    struct EnqueuedSubmissions {
+        let handles: [TerminalInputTransactionHandle]
+        let normalizationBatch: RichInputImageNormalizationBatch
+
+        @MainActor
+        func waitUntilFinished() async {
+            for handle in handles {
+                _ = await handle.value()
+            }
+            normalizationBatch.cancel()
+        }
     }
 
     static func submit(
@@ -36,86 +109,177 @@ enum RichInputSubmitter {
             combined = pathParts.joined(separator: " ") + " " + body
         }
 
-        let segments = resolveSegments(
-            text: combined,
-            images: imageAttachments,
-            strategy: EditorSettings.shared.richInputImageStrategy
-        )
+        let segments = tokenize(text: combined, images: imageAttachments)
+        let strategy = EditorSettings.shared.richInputImageStrategy
 
         let views = paneIDs.compactMap { TerminalViewRegistry.shared.existingView(for: $0) }
         guard !views.isEmpty else { return }
-        let hasImageSegment = segments.contains {
-            if case .image = $0 {
-                true
-            } else {
-                false
-            }
-        }
-        let usesImagePaste = hasImageSegment && views.contains {
-            $0.capabilities.contains(.imagePaste)
-        }
         let focusTarget = views.count == 1 ? views.first : nil
-
-        if !usesImagePaste {
-            Task { @MainActor in
-                for view in views {
-                    view.clearTerminalInput()
-                }
-                try? await Task.sleep(for: initialDelay)
-                for view in views {
-                    let resolved = segmentsForCapabilities(
-                        segments,
-                        capabilities: view.capabilities
-                    )
-                    let payload = textOnlyPayload(segments: resolved, appendReturn: appendReturn)
-                    view.sendRemoteBytes(payload)
-                }
-                if let focusTarget {
-                    focusTarget.terminalView.window?.makeFirstResponder(focusTarget.terminalView)
-                }
-            }
-            return
+        let targetSubmissions = views.map { view in
+            TargetSubmission(
+                target: view,
+                segments: segmentsForCapabilities(
+                    segments,
+                    strategy: strategy,
+                    capabilities: view.capabilities,
+                    isRemote: imagePasteContext(for: view).isRemote
+                )
+            )
         }
+        let enqueued = enqueueSubmissions(
+            targetSubmissions,
+            appendReturn: appendReturn
+        )
 
         Task { @MainActor in
-            for view in views {
-                view.clearTerminalInput()
-            }
-            try? await Task.sleep(for: initialDelay)
-
-            let savedClipboard = SystemPasteboardSnapshot.capture()
-
-            for segment in segments {
-                for view in views {
-                    switch segmentForCapabilities(segment, capabilities: view.capabilities) {
-                    case let .text(chunk):
-                        guard !chunk.isEmpty else { continue }
-                        view.submitRichInput(text: chunk)
-                    case let .image(url):
-                        guard let imageSurface = view as? any TerminalImagePasteSurface else {
-                            continue
-                        }
-                        imageSurface.pasteImageURL(url)
-                    }
-                }
-                if case .image = segment {
-                    try? await Task.sleep(for: imagePasteDelay)
-                }
-            }
-
-            if appendReturn {
-                for view in views {
-                    view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
-                }
-            }
-
-            try? await Task.sleep(for: imagePasteDelay)
-            SystemPasteboardSnapshot.restore(items: savedClipboard)
+            await enqueued.waitUntilFinished()
 
             if let focusTarget {
                 focusTarget.terminalView.window?.makeFirstResponder(focusTarget.terminalView)
             }
         }
+    }
+
+    static func enqueueSubmissions(
+        _ submissions: [TargetSubmission],
+        appendReturn: Bool,
+        normalizer: @escaping RichInputImageNormalizationBatch.Normalizer = {
+            try await ImagePasteData.pngData(contentsOf: $0)
+        }
+    ) -> EnqueuedSubmissions {
+        let imageURLs: [URL] = submissions.flatMap { submission -> [URL] in
+            submission.segments.compactMap { segment in
+                guard case let .image(url) = segment else { return nil }
+                return url
+            }
+        }
+        let normalizationBatch = RichInputImageNormalizationBatch(
+            urls: imageURLs,
+            normalizer: normalizer
+        )
+        var handles: [TerminalInputTransactionHandle] = []
+        var precedingHandle: TerminalInputTransactionHandle?
+        for submission in submissions {
+            let target = submission.target
+            let segments = submission.segments
+            let dependencyHandle = precedingHandle
+            let handle = target.enqueueInputTransaction { [weak target] in
+                if let dependencyHandle {
+                    _ = await dependencyHandle.value()
+                }
+                guard !Task.isCancelled, let target else { return false }
+                return await submitSegments(
+                    segments,
+                    to: target,
+                    appendReturn: appendReturn,
+                    normalizationBatch: normalizationBatch
+                )
+            }
+            handles.append(handle)
+            precedingHandle = handle
+        }
+        return EnqueuedSubmissions(
+            handles: handles,
+            normalizationBatch: normalizationBatch
+        )
+    }
+
+    static func submitSegments(
+        _ segments: [Segment],
+        to view: any TerminalInputSubmissionTarget,
+        appendReturn: Bool,
+        normalizer: @escaping RichInputImageNormalizationBatch.Normalizer = {
+            try await ImagePasteData.pngData(contentsOf: $0)
+        }
+    ) async -> Bool {
+        let normalizationBatch = RichInputImageNormalizationBatch(
+            urls: segments.compactMap { segment in
+                guard case let .image(url) = segment else { return nil }
+                return url
+            },
+            normalizer: normalizer
+        )
+        let submitted = await submitSegments(
+            segments,
+            to: view,
+            appendReturn: appendReturn,
+            normalizationBatch: normalizationBatch
+        )
+        normalizationBatch.cancel()
+        return submitted
+    }
+
+    private static func submitSegments(
+        _ segments: [Segment],
+        to view: any TerminalInputSubmissionTarget,
+        appendReturn: Bool,
+        normalizationBatch: RichInputImageNormalizationBatch
+    ) async -> Bool {
+        let hasImages = segments.contains { segment in
+            if case .image = segment {
+                true
+            } else {
+                false
+            }
+        }
+        let imageSurface = view as? any TerminalImagePasteSurface
+        var imageAttempts: [URL: [TerminalImagePasteAttempt]] = [:]
+        if hasImages {
+            for segment in segments {
+                guard case let .image(url) = segment else { continue }
+                guard let attempt = imageSurface?.beginImagePaste() else { return false }
+                imageAttempts[url, default: []].append(attempt)
+            }
+        }
+        view.clearTerminalInput(lineBreakCount: 0)
+        do {
+            try await Task.sleep(for: initialDelay)
+        } catch {
+            return false
+        }
+        guard !Task.isCancelled else { return false }
+
+        guard hasImages else {
+            view.sendRemoteBytes(textOnlyPayload(segments: segments, appendReturn: appendReturn))
+            return true
+        }
+        guard let imageSurface else { return false }
+        var consumedImageCounts: [URL: Int] = [:]
+        var submittedLineBreaks = 0
+        for segment in segments {
+            guard !Task.isCancelled else { return false }
+            switch segment {
+            case let .text(chunk):
+                guard !chunk.isEmpty else { continue }
+                view.submitRichInput(text: chunk)
+                submittedLineBreaks += chunk.count(where: \.isNewline)
+            case let .image(url):
+                let attemptIndex = consumedImageCounts[url, default: 0]
+                guard let attempts = imageAttempts[url], attemptIndex < attempts.count else {
+                    view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
+                    return false
+                }
+                consumedImageCounts[url] = attemptIndex + 1
+                let pngData: Data
+                do {
+                    pngData = try await normalizationBatch.pngData(for: url)
+                } catch {
+                    guard !Task.isCancelled else { return false }
+                    ToastState.shared.show(error.localizedDescription)
+                    view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
+                    return false
+                }
+                guard !Task.isCancelled else { return false }
+                guard await imageSurface.pasteImageData(pngData, attempt: attempts[attemptIndex]) else {
+                    view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
+                    return false
+                }
+            }
+        }
+        if appendReturn {
+            view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
+        }
+        return true
     }
 
     nonisolated static func selectedSubmissionText(_ selectedText: String?) -> String? {
@@ -139,35 +303,51 @@ enum RichInputSubmitter {
         return payload
     }
 
-    nonisolated static func resolveSegments(
-        text: String,
-        images: [URL],
-        strategy: RichInputImageStrategy
+    nonisolated static func segmentsForCapabilities(
+        _ segments: [Segment],
+        strategy: RichInputImageStrategy,
+        capabilities: TerminalCapabilities,
+        isRemote: Bool
     ) -> [Segment] {
-        let raw = tokenize(text: text, images: images)
-        guard strategy == .inlinePath else { return raw }
-        return raw.map { segment in
-            switch segment {
-            case .text: segment
-            case let .image(url): .text(ShellEscaper.escape(url.path))
-            }
+        resolvedSegments(
+            segments,
+            strategy: strategy,
+            capabilities: capabilities,
+            isRemote: isRemote
+        )
+    }
+
+    nonisolated static func resolvedSegments(
+        _ segments: [Segment],
+        strategy: RichInputImageStrategy,
+        capabilities: TerminalCapabilities,
+        isRemote: Bool
+    ) -> [Segment] {
+        segments.map {
+            resolvedSegment(
+                $0,
+                strategy: strategy,
+                capabilities: capabilities,
+                isRemote: isRemote
+            )
         }
     }
 
-    nonisolated static func segmentsForCapabilities(
-        _ segments: [Segment],
-        capabilities: TerminalCapabilities
-    ) -> [Segment] {
-        segments.map { segmentForCapabilities($0, capabilities: capabilities) }
-    }
-
-    nonisolated private static func segmentForCapabilities(
+    nonisolated private static func resolvedSegment(
         _ segment: Segment,
-        capabilities: TerminalCapabilities
+        strategy: RichInputImageStrategy,
+        capabilities: TerminalCapabilities,
+        isRemote: Bool
     ) -> Segment {
         guard case let .image(url) = segment else { return segment }
-        guard !capabilities.contains(.imagePaste) else { return segment }
+        if capabilities.contains(.imagePaste), strategy == .clipboard || isRemote {
+            return segment
+        }
         return .text(ShellEscaper.escape(url.path))
+    }
+
+    private static func imagePasteContext(for view: any TerminalSurface) -> WorkspaceContext {
+        (view as? any TerminalImagePasteSurface)?.imagePasteWorkspaceContext ?? .local
     }
 
     nonisolated static func tokenize(text: String, images: [URL]) -> [Segment] {
