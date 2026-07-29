@@ -30,7 +30,7 @@ struct CreateExtensionSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("New Extension")
+            Text(L10n.resource("New Extension"))
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
@@ -53,16 +53,16 @@ struct CreateExtensionSheet: View {
             )
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Description")
+                Text(L10n.resource("Description"))
                     .font(.system(size: 11))
                     .foregroundStyle(MuxyTheme.fgMuted)
-                TextField("Optional summary", text: $description, axis: .vertical)
+                TextField(L10n.string("Optional summary"), text: $description, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(2 ... 4)
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Location")
+                Text(L10n.resource("Location"))
                     .font(.system(size: 11))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 HStack(spacing: 8) {
@@ -72,7 +72,7 @@ struct CreateExtensionSheet: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 8)
-                    Button("Choose…") { chooseLocation() }
+                    Button(L10n.string("Choose…")) { chooseLocation() }
                         .font(.system(size: 11))
                 }
             }
@@ -86,9 +86,9 @@ struct CreateExtensionSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { onFinish() }
+                Button(L10n.string("Cancel")) { onFinish() }
                     .keyboardShortcut(.cancelAction)
-                Button("Create") { create() }
+                Button(L10n.string("Create")) { create() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canCreate)
             }
@@ -130,13 +130,13 @@ struct CreateExtensionSheet: View {
         )
     }
 
-    private func guideRow(symbol: String, text: String) -> some View {
+    private func guideRow(symbol: String, text: LocalizedStringResource) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: symbol)
                 .font(.system(size: 11))
                 .foregroundStyle(MuxyTheme.accent)
                 .frame(width: 14, alignment: .center)
-            Text(text)
+            Text(L10n.resource(text))
                 .font(.system(size: 11))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -144,24 +144,24 @@ struct CreateExtensionSheet: View {
     }
 
     private func field(
-        label: String,
-        hint: String?,
-        placeholder: String,
+        label: LocalizedStringResource,
+        hint: LocalizedStringResource?,
+        placeholder: LocalizedStringResource,
         value: Binding<String>,
         monospaced: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(label)
+                Text(L10n.resource(label))
                     .font(.system(size: 11))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 if let hint {
-                    Text(hint)
+                    Text(L10n.resource(hint))
                         .font(.system(size: 10))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }
-            TextField(placeholder, text: value)
+            TextField(L10n.string(placeholder), text: value)
                 .font(.system(size: 12, design: monospaced ? .monospaced : .default))
                 .textFieldStyle(.roundedBorder)
                 .disableAutocorrection(true)

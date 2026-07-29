@@ -65,114 +65,120 @@ struct MuxyApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainWindow()
-                .environment(appState)
-                .environment(projectStore)
-                .environment(worktreeStore)
-                .environment(projectGroupStore)
-                .environment(remoteDeviceStore)
-                .environment(browserProfileStore)
-                .environment(browserHistoryStore)
-                .environment(SSHConnectionService.shared)
-                .environment(GhosttyService.shared)
-                .environment(MuxyConfig.shared)
-                .environment(ThemeService.shared)
-                .environment(ExtensionStore.shared)
-                .environment(ExtensionSettingsStore.shared)
-                .preferredColorScheme(MuxyTheme.colorScheme)
-                .onAppear {
-                    startDeferredServicesIfNeeded()
-                    startWorktreeAutoRefreshIfNeeded()
-                    NotificationStore.shared.appState = appState
-                    NotificationStore.shared.worktreeStore = worktreeStore
-                    NotificationStore.shared.markAllAsRead()
-                    DesktopNotificationService.shared.start(appState: appState)
-                    MemoryDiagnostics.shared.configure(appState: appState)
-                    TerminalProgressStore.shared.appState = appState
-                    appDelegate.onTerminate = { [appState, browserHistoryStore] in
-                        appState.saveWorkspaces()
-                        browserHistoryStore.saveImmediately()
-                    }
-                    appDelegate.settingsContent = {
-                        [projectGroupStore, remoteDeviceStore, browserProfileStore, browserHistoryStore] in
-                        AnyView(
-                            SettingsView()
-                                .environment(projectGroupStore)
-                                .environment(remoteDeviceStore)
-                                .environment(browserProfileStore)
-                                .environment(browserHistoryStore)
-                                .environment(SSHConnectionService.shared)
-                        )
-                    }
-                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
-                        CLIAccessor.openProjectFromPath(
-                            path,
-                            appState: appState,
-                            projectStore: projectStore,
-                            worktreeStore: worktreeStore,
-                            projectGroupStore: projectGroupStore
-                        )
-                    }
-                    appDelegate.flushPendingOpens()
-                    NotificationSocketServer.shared.commandHandler = { [
-                        appState,
-                        projectStore,
-                        worktreeStore,
-                        projectGroupStore,
-                        browserProfileStore
-                    ] message, context in
-                        await SocketCommandHandler.handleRequest(
-                            message,
-                            appState: appState,
-                            projectStore: projectStore,
-                            worktreeStore: worktreeStore,
-                            projectGroupStore: projectGroupStore,
-                            browserProfileStore: browserProfileStore,
-                            clientContext: context
-                        )
-                    }
-                    MobileServerService.shared.configure { server in
-                        let delegate = RemoteServerDelegate(
-                            appState: appState,
-                            projectStore: projectStore,
-                            worktreeStore: worktreeStore,
-                            projectGroupStore: projectGroupStore
-                        )
-                        delegate.server = server
-                        return delegate
-                    }
-                    appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
-                        for id in projectIDs where id != Project.homeID {
-                            guard let project = projectStore.projects.first(where: { $0.id == id }) else {
-                                worktreeStore.removeProject(id)
-                                continue
-                            }
-                            Task {
-                                do {
-                                    try await ProjectRemovalService.removeLocalProjectData(
-                                        project,
-                                        projectStore: projectStore,
-                                        worktreeStore: worktreeStore
-                                    )
-                                } catch {
-                                    ToastState.shared.show("Could not remove \(project.name): \(error.localizedDescription)")
+            LocalizationEnvironment {
+                MainWindow()
+                    .environment(appState)
+                    .environment(projectStore)
+                    .environment(worktreeStore)
+                    .environment(projectGroupStore)
+                    .environment(remoteDeviceStore)
+                    .environment(browserProfileStore)
+                    .environment(browserHistoryStore)
+                    .environment(SSHConnectionService.shared)
+                    .environment(GhosttyService.shared)
+                    .environment(MuxyConfig.shared)
+                    .environment(ThemeService.shared)
+                    .environment(ExtensionStore.shared)
+                    .environment(ExtensionSettingsStore.shared)
+                    .preferredColorScheme(MuxyTheme.colorScheme)
+                    .onAppear {
+                        startDeferredServicesIfNeeded()
+                        startWorktreeAutoRefreshIfNeeded()
+                        NotificationStore.shared.appState = appState
+                        NotificationStore.shared.worktreeStore = worktreeStore
+                        NotificationStore.shared.markAllAsRead()
+                        DesktopNotificationService.shared.start(appState: appState)
+                        MemoryDiagnostics.shared.configure(appState: appState)
+                        TerminalProgressStore.shared.appState = appState
+                        appDelegate.onTerminate = { [appState, browserHistoryStore] in
+                            appState.saveWorkspaces()
+                            browserHistoryStore.saveImmediately()
+                        }
+                        appDelegate.settingsContent = {
+                            [projectGroupStore, remoteDeviceStore, browserProfileStore, browserHistoryStore] in
+                            AnyView(
+                                LocalizationEnvironment {
+                                    SettingsView()
+                                        .environment(projectGroupStore)
+                                        .environment(remoteDeviceStore)
+                                        .environment(browserProfileStore)
+                                        .environment(browserHistoryStore)
+                                        .environment(SSHConnectionService.shared)
+                                }
+                            )
+                        }
+                        appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
+                            CLIAccessor.openProjectFromPath(
+                                path,
+                                appState: appState,
+                                projectStore: projectStore,
+                                worktreeStore: worktreeStore,
+                                projectGroupStore: projectGroupStore
+                            )
+                        }
+                        appDelegate.flushPendingOpens()
+                        NotificationSocketServer.shared.commandHandler = { [
+                            appState,
+                            projectStore,
+                            worktreeStore,
+                            projectGroupStore,
+                            browserProfileStore
+                        ] message, context in
+                            await SocketCommandHandler.handleRequest(
+                                message,
+                                appState: appState,
+                                projectStore: projectStore,
+                                worktreeStore: worktreeStore,
+                                projectGroupStore: projectGroupStore,
+                                browserProfileStore: browserProfileStore,
+                                clientContext: context
+                            )
+                        }
+                        MobileServerService.shared.configure { server in
+                            let delegate = RemoteServerDelegate(
+                                appState: appState,
+                                projectStore: projectStore,
+                                worktreeStore: worktreeStore,
+                                projectGroupStore: projectGroupStore
+                            )
+                            delegate.server = server
+                            return delegate
+                        }
+                        appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
+                            for id in projectIDs where id != Project.homeID {
+                                guard let project = projectStore.projects.first(where: { $0.id == id }) else {
+                                    worktreeStore.removeProject(id)
+                                    continue
+                                }
+                                Task {
+                                    do {
+                                        try await ProjectRemovalService.removeLocalProjectData(
+                                            project,
+                                            projectStore: projectStore,
+                                            worktreeStore: worktreeStore
+                                        )
+                                    } catch {
+                                        ToastState.shared.show(
+                                            L10n.string("Could not remove \(project.name): \(error.localizedDescription)")
+                                        )
+                                    }
                                 }
                             }
                         }
+                        projectStore.onProjectRemoved = { [projectGroupStore] projectID in
+                            projectGroupStore.removeProjectFromAllGroups(projectID: projectID)
+                        }
+                        projectStore.onProjectsChanged = {
+                            NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
+                                name: ExtensionEventName.projectsChanged,
+                                payload: [:]
+                            ))
+                        }
+                        appState.onProjectSelected = { [projectStore] projectID in
+                            projectStore.markActive(id: projectID)
+                        }
                     }
-                    projectStore.onProjectRemoved = { [projectGroupStore] projectID in
-                        projectGroupStore.removeProjectFromAllGroups(projectID: projectID)
-                    }
-                    projectStore.onProjectsChanged = {
-                        NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
-                            name: ExtensionEventName.projectsChanged,
-                            payload: [:]
-                        ))
-                    }
-                    appState.onProjectSelected = { [projectStore] projectID in
-                        projectStore.markActive(id: projectID)
-                    }
-                }
+            }
         }
         .windowStyle(HiddenTitleBarWindowStyle())
         .defaultSize(width: 1200, height: 800)
@@ -235,6 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var extensionsObserver: NSObjectProtocol?
     private var whatsNewObserver: NSObjectProtocol?
     private var modalThemeObserver: NSObjectProtocol?
+    private var localizationObserver: NSObjectProtocol?
     private var quickTerminalEnabledObserver: NSObjectProtocol?
     private var quickTerminalController: QuickTerminalController?
     private weak var settingsWindow: NSWindow?
@@ -524,16 +531,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard QuitConfirmationPreferences.confirmQuit else { return .terminateNow }
 
         let alert = NSAlert()
-        alert.messageText = "Quit Muxy?"
-        alert.informativeText = "Are you sure you want to quit Muxy?"
+        alert.messageText = L10n.string("Quit Muxy?")
+        alert.informativeText = L10n.string("Are you sure you want to quit Muxy?")
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L10n.string("Quit"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = "\u{1b}"
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Don't ask again"
+        alert.suppressionButton?.title = L10n.string("Don't ask again")
 
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return .terminateCancel }
@@ -564,6 +571,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let modalThemeObserver {
             NotificationCenter.default.removeObserver(modalThemeObserver)
             self.modalThemeObserver = nil
+        }
+        if let localizationObserver {
+            NotificationCenter.default.removeObserver(localizationObserver)
+            self.localizationObserver = nil
         }
         if let quickTerminalEnabledObserver {
             NotificationCenter.default.removeObserver(quickTerminalEnabledObserver)
@@ -625,12 +636,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.whatsNewWindow?.backgroundColor = MuxyTheme.nsBg
             }
         }
+        localizationObserver = NotificationCenter.default.addObserver(
+            forName: .localizationDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.settingsWindow?.title = L10n.string("Settings")
+                self?.extensionsWindow?.title = L10n.string("Extensions")
+                self?.whatsNewWindow?.title = L10n.string("What's New")
+                DiagnosticsMenuController.shared.refreshLocalization()
+            }
+        }
     }
 
     @MainActor
     private func presentSettingsModal() {
         let config = AppModalConfig(
-            title: "Settings",
+            title: L10n.string("Settings"),
             size: CGSize(width: 980, height: 680),
             existing: settingsWindow,
             delegate: self,
@@ -644,7 +667,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @MainActor
     private func presentExtensionsModal(installName: String? = nil) {
         let config = AppModalConfig(
-            title: "Extensions",
+            title: L10n.string("Extensions"),
             size: CGSize(width: 880, height: 620),
             existing: extensionsWindow,
             delegate: self,
@@ -670,7 +693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             whatsNewWindow = nil
         }
         let config = AppModalConfig(
-            title: "What's New",
+            title: L10n.string("What's New"),
             size: CGSize(width: 806, height: 560),
             existing: whatsNewWindow,
             delegate: self,

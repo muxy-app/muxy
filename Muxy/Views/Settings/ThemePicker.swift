@@ -18,8 +18,8 @@ struct ThemePicker: View {
         SearchableListPicker(
             items: themes,
             filterKey: \.name,
-            placeholder: "Search themes",
-            emptyLabel: "No themes found",
+            placeholder: L10n.string("Search themes"),
+            emptyLabel: L10n.string("No themes found"),
             onSelect: { selectTheme($0) },
             row: { theme, isHighlighted in
                 ThemeRow(
@@ -85,7 +85,7 @@ private struct ThemeRow: View {
                 Rectangle()
                     .fill(Color(nsColor: theme.background))
                     .overlay(
-                        Text("Ab")
+                        Text(L10n.resource("Ab"))
                             .font(.system(size: UIMetrics.fontXS, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color(nsColor: theme.foreground))
                     )

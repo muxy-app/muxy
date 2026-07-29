@@ -17,7 +17,7 @@ extension ProjectIconColor {
 }
 
 struct ProjectIconColorPicker: View {
-    var title: String = "Icon Color"
+    var title: LocalizedStringResource = "Icon Color"
     let selectedID: String?
     let onSelect: (String?) -> Void
 
@@ -25,7 +25,7 @@ struct ProjectIconColorPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
-            Text(title)
+            Text(L10n.resource(title))
                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
@@ -43,7 +43,7 @@ struct ProjectIconColorPicker: View {
                 HStack(spacing: UIMetrics.spacing3) {
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: UIMetrics.fontCaption, weight: .medium))
-                    Text("Reset to Default")
+                    Text(L10n.resource("Reset to Default"))
                         .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 }
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -75,8 +75,8 @@ struct ProjectIconColorPicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(swatch.name)
-        .accessibilityLabel(swatch.name)
+        .help(L10n.string(key: swatch.name))
+        .accessibilityLabel(L10n.string(key: swatch.name))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

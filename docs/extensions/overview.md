@@ -2,7 +2,7 @@
 
 > **New here?** Start with [Get started](get-started.md) to build and run an extension first; this page explains how they work under the hood.
 
-Extensions are npm + [Vite](https://vitejs.dev) projects that Muxy loads on launch. Authors build them with any framework; `npm run build` emits a `dist/` directory, and that build output is what is published and installed. Extensions react to workspace events, coordinate webviews with background scripts, register palette commands, add UI (tabs, panels, popovers, topbar/status-bar items), and — with permission — drive the same verbs the `muxy` CLI exposes.
+Extensions are npm + [Vite](https://vitejs.dev) projects that Muxy loads on launch. Authors build them with any framework; `npm run build` emits a `dist/` directory, and that build output is what is published and installed. Extensions react to workspace events, coordinate webviews with background scripts, register palette commands, add UI (tabs, panels, popovers, topbar/status-bar items), provide app translations, and — with permission — drive the same verbs the `muxy` CLI exposes.
 
 ## Architecture
 
@@ -21,6 +21,7 @@ Workspace events originate in the main process (`ExtensionEventEmitter` diffs wo
 | [Permissions](permissions.md) | Permission grants and runtime consent |
 | [Events](events.md) | Subscribable events and payloads |
 | [Palette Commands](palette-commands.md) | Commands that appear in the command palette |
+| [Localizations](localizations.md) | Resource-only translation providers and bundle layout |
 
 ## Where extensions live
 
@@ -31,6 +32,7 @@ Each installed extension is the `dist/` produced by `npm run build`, with its `p
   <name>/
     package.json      # copied into dist/ by the build script
     background.js     # optional; pushed events / extension.* bus / background exec
+    localization/     # optional resource-only translation bundles
     …                 # the rest of the build output
 ```
 

@@ -14,14 +14,14 @@ struct ExtensionCustomSettingsView: View {
             if let muxyExtension {
                 if muxyExtension.manifest.settings.isEmpty {
                     SettingsSection("Settings") {
-                        Text("This extension does not declare any settings.")
+                        Text(L10n.resource("This extension does not declare any settings."))
                             .font(.system(size: SettingsMetrics.footnoteFontSize))
                             .foregroundStyle(SettingsStyle.mutedForeground)
                             .padding(.horizontal, SettingsMetrics.horizontalPadding)
                             .padding(.vertical, SettingsMetrics.rowVerticalPadding)
                     }
                 } else {
-                    SettingsSection(muxyExtension.displayName) {
+                    SettingsSection(verbatim: muxyExtension.displayName) {
                         ForEach(muxyExtension.manifest.settings) { entry in
                             ExtensionSettingRow(
                                 extensionID: extensionID,
@@ -32,7 +32,7 @@ struct ExtensionCustomSettingsView: View {
                     }
                 }
             } else {
-                Text("Extension is not loaded.")
+                Text(L10n.resource("Extension is not loaded."))
                     .font(.system(size: SettingsMetrics.footnoteFontSize))
                     .foregroundStyle(SettingsStyle.mutedForeground)
                     .padding(.horizontal, SettingsMetrics.horizontalPadding)
@@ -49,7 +49,7 @@ private struct ExtensionSettingRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            SettingsRow(entry.title) {
+            SettingsRow(verbatim: entry.title) {
                 control
             }
             if let description = entry.description, !description.isEmpty {

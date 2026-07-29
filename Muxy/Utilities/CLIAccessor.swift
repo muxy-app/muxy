@@ -119,27 +119,30 @@ enum CLIAccessor {
 
     private static func confirmInstall() -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Install Muxy CLI?"
-        alert.informativeText = """
+        alert.messageText = L10n.string("Install Muxy CLI?")
+        alert.informativeText = L10n.string("""
         This will install the 'muxy' command-line tool to /usr/local/bin so you \
         can launch projects from your terminal (e.g. 'muxy .').
 
         If /usr/local/bin is not writable, you will be prompted for your \
         administrator password. If that is declined, Muxy will fall back to \
         ~/bin or ~/.local/bin.
-        """
+        """)
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Install")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L10n.string("Install"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private static func alert(title: String, body: String) {
+    private static func alert(
+        title: LocalizedStringResource,
+        body: LocalizedStringResource
+    ) {
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = body
+        alert.messageText = L10n.string(title)
+        alert.informativeText = L10n.string(body)
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L10n.string("OK"))
         alert.runModal()
     }
 }

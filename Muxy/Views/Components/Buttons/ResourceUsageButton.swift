@@ -18,8 +18,8 @@ struct ResourceUsageButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
-        .help("App & subprocess resource usage")
-        .accessibilityLabel("Resource usage")
+        .help(L10n.string("App & subprocess resource usage"))
+        .accessibilityLabel(L10n.string("Resource usage"))
         .onAppear { monitor.beginObserving() }
         .onDisappear { monitor.endObserving() }
         .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
@@ -62,7 +62,7 @@ private struct ResourceUsagePopover: View {
             HStack(spacing: UIMetrics.spacing3) {
                 Image(systemName: "eye.slash")
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium))
-                Text("Hide from status bar")
+                Text(L10n.resource("Hide from status bar"))
                     .font(.system(size: UIMetrics.fontFootnote))
                 Spacer(minLength: 0)
             }
@@ -70,7 +70,7 @@ private struct ResourceUsagePopover: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Hide resource usage. Re-enable it in Settings → Interface.")
+        .help(L10n.string("Hide resource usage. Re-enable it in Settings → Interface."))
     }
 
     private var header: some View {
@@ -78,7 +78,7 @@ private struct ResourceUsagePopover: View {
             Image(systemName: "cpu")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.accent)
-            Text("Resources")
+            Text(L10n.resource("Resources"))
                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             Spacer(minLength: UIMetrics.spacing6)
@@ -117,7 +117,7 @@ private struct ResourceUsagePopover: View {
                 .foregroundStyle(MuxyTheme.fg)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Text("\(row.pid)")
+            Text(L10n.resource("\(row.pid)"))
                 .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fgDim)
             Spacer(minLength: UIMetrics.spacing4)

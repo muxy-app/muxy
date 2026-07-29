@@ -15,13 +15,13 @@ struct BrowserToolbar: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: UIMetrics.spacing1) {
-                IconButton(symbol: "chevron.left", accessibilityLabel: "Back") {
+                IconButton(symbol: "chevron.left", accessibilityLabel: L10n.string("Back")) {
                     state.pendingCommand = .back
                 }
                 .disabled(!state.canGoBack)
                 .opacity(state.canGoBack ? 1 : 0.4)
 
-                IconButton(symbol: "chevron.right", accessibilityLabel: "Forward") {
+                IconButton(symbol: "chevron.right", accessibilityLabel: L10n.string("Forward")) {
                     state.pendingCommand = .forward
                 }
                 .disabled(!state.canGoForward)
@@ -73,7 +73,7 @@ struct BrowserToolbar: View {
 
     private var openInBrowserMenu: some View {
         Menu {
-            Button("Open in Default Browser") { openInDefaultBrowser() }
+            Button(L10n.string("Open in Default Browser")) { openInDefaultBrowser() }
             if !installedBrowsers.isEmpty {
                 Divider()
                 ForEach(installedBrowsers) { browser in
@@ -91,7 +91,7 @@ struct BrowserToolbar: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .disabled(state.url == nil)
-        .help("Open in External Browser")
+        .help(L10n.string("Open in External Browser"))
         .onAppear {
             if installedBrowsers.isEmpty {
                 installedBrowsers = InstalledBrowsers.all()
@@ -123,7 +123,7 @@ struct BrowserToolbar: View {
                 }
             }
             Divider()
-            Button("Manage Profiles…") {
+            Button(L10n.string("Manage Profiles…")) {
                 SettingsFocusCoordinator.shared.request(.browser)
                 NotificationCenter.default.post(name: .openSettingsModal, object: nil)
             }
@@ -140,7 +140,7 @@ struct BrowserToolbar: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Browser Profile")
+        .help(L10n.string("Browser Profile"))
     }
 
     private var currentProfileName: String {

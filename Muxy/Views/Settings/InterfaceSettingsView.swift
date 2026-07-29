@@ -4,6 +4,7 @@ struct InterfaceSettingsView: View {
     @State private var uiScale = UIScale.shared
     @State private var themeService = ThemeService.shared
     @State private var extensionStore = ExtensionStore.shared
+    @State private var localizationService = LocalizationService.shared
     @State private var showLightThemePicker = false
     @State private var showDarkThemePicker = false
     @State private var currentLightTheme: String?
@@ -18,6 +19,8 @@ struct InterfaceSettingsView: View {
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(SidebarSelection.storageKey) private var activeSidebar = SidebarSelection.builtinValue
+    @AppStorage(LocalizationSelection.storageKey)
+    private var selectedLocalization = LocalizationSelection.builtinValue
     @AppStorage(WorktreeListPreferences.showUnreadIndicatorKey)
     private var showWorktreeUnreadIndicator = WorktreeListPreferences.defaultShowUnreadIndicator
     @AppStorage(WorktreeListPreferences.orderByMRUKey)
@@ -42,13 +45,60 @@ struct InterfaceSettingsView: View {
         SidebarSelection.availableProviders(store: extensionStore)
     }
 
+    private var localizationProviders: [ExtensionStore.LocalizationBinding] {
+        LocalizationSelection.availableProviders(store: extensionStore)
+    }
+
+    private var localizationOptions: [LocalizationSelection.Option] {
+        LocalizationSelection.options(
+            from: localizationProviders,
+            selectedValue: selectedLocalization
+        )
+    }
+
+    private var localizationSelection: Binding<String> {
+        Binding(
+            get: { selectedLocalization },
+            set: {
+                selectedLocalization = $0
+                localizationService.select($0, store: extensionStore)
+            }
+        )
+    }
+
     var body: some View {
         SettingsContainer {
+            SettingsSection(
+                "Language",
+                footer: localizationFooter
+            ) {
+                SettingsRow("App Language") {
+                    HStack {
+                        Spacer()
+                        Picker("", selection: localizationSelection) {
+                            ForEach(localizationOptions) { option in
+                                if option.id == LocalizationSelection.builtinValue {
+                                    Text(L10n.resource("English"))
+                                        .tag(option.id)
+                                } else {
+                                    Text(verbatim: option.title)
+                                        .tag(option.id)
+                                        .disabled(!option.isAvailable)
+                                }
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    .frame(width: SettingsMetrics.controlWidth)
+                }
+            }
+
             SettingsSection("Layout") {
                 SettingsRow("App Layout") {
                     Picker("", selection: layoutSelection) {
                         ForEach(AppLayout.allCases) { layout in
-                            Text(layout.title).tag(layout)
+                            Text(L10n.resource(key: layout.title)).tag(layout)
                         }
                     }
                     .labelsHidden()
@@ -80,7 +130,7 @@ struct InterfaceSettingsView: View {
                 SettingsRow("Size") {
                     Picker("", selection: $uiScale.preset) {
                         ForEach(UIScale.Preset.allCases) { preset in
-                            Text(preset.title).tag(preset)
+                            Text(L10n.resource(key: preset.title)).tag(preset)
                         }
                     }
                     .labelsHidden()
@@ -89,9 +139,9 @@ struct InterfaceSettingsView: View {
 
                 TabHeaderWidthSettingRow()
 
-                SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
+                SettingsToggleRow(label: L10n.resource("Show Status Bar"), isOn: $showStatusBar)
 
-                SettingsToggleRow(label: "Show Resource Usage in Status Bar", isOn: $showResourceUsage)
+                SettingsToggleRow(label: L10n.resource("Show Resource Usage in Status Bar"), isOn: $showResourceUsage)
             }
         }
         .task {
@@ -102,6 +152,13 @@ struct InterfaceSettingsView: View {
         }
     }
 
+    private var localizationFooter: LocalizedStringResource {
+        if localizationOptions.contains(where: { $0.id == selectedLocalization && !$0.isAvailable }) {
+            return "The selected language extension is unavailable, so Muxy is temporarily using English."
+        }
+        return "English is built in. Additional languages can be provided by enabled extensions."
+    }
+
     @ViewBuilder
     private var sidebarSection: some View {
         if !sidebarProviders.isEmpty {
@@ -110,7 +167,7 @@ struct InterfaceSettingsView: View {
                     HStack {
                         Spacer()
                         Picker("", selection: $activeSidebar) {
-                            Text("Built-in").tag(SidebarSelection.builtinValue)
+                            Text(L10n.resource("Built-in")).tag(SidebarSelection.builtinValue)
                             ForEach(sidebarProviders) { status in
                                 Text(label(for: status)).tag(status.id)
                             }
@@ -124,12 +181,12 @@ struct InterfaceSettingsView: View {
         }
 
         SettingsSection("Sidebar") {
-            SettingsToggleRow(label: "Vibrancy", isOn: sidebarVibrancyEnabled)
+            SettingsToggleRow(label: L10n.resource("Vibrancy"), isOn: sidebarVibrancyEnabled)
 
-            SettingsToggleRow(label: "Show Home", isOn: $showHomeProject)
+            SettingsToggleRow(label: L10n.resource("Show Home"), isOn: $showHomeProject)
 
             SettingsToggleRow(
-                label: "Auto-expand worktrees on project switch",
+                label: L10n.resource("Auto-expand worktrees on project switch"),
                 isOn: $autoExpandWorktrees
             )
 
@@ -139,7 +196,7 @@ struct InterfaceSettingsView: View {
                         Spacer()
                         Picker("", selection: $sidebarCollapsedStyle) {
                             ForEach(SidebarCollapsedStyle.allCases) { style in
-                                Text(style.title).tag(style.rawValue)
+                                Text(L10n.resource(key: style.title)).tag(style.rawValue)
                             }
                         }
                         .labelsHidden()
@@ -154,7 +211,7 @@ struct InterfaceSettingsView: View {
                         Spacer()
                         Picker("", selection: $sidebarExpandedStyle) {
                             ForEach(SidebarExpandedStyle.allCases) { style in
-                                Text(style.title).tag(style.rawValue)
+                                Text(L10n.resource(key: style.title)).tag(style.rawValue)
                             }
                         }
                         .labelsHidden()
@@ -168,12 +225,12 @@ struct InterfaceSettingsView: View {
 
         SettingsSection("Worktrees") {
             SettingsToggleRow(
-                label: "Show unread notification indicator on worktrees",
+                label: L10n.resource("Show unread notification indicator on worktrees"),
                 isOn: $showWorktreeUnreadIndicator
             )
 
             SettingsToggleRow(
-                label: "Order worktrees by most-recently-used",
+                label: L10n.resource("Order worktrees by most-recently-used"),
                 isOn: $orderWorktreesByMRU
             )
         }

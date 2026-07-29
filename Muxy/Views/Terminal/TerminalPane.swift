@@ -60,7 +60,7 @@ struct TerminalPane: View {
                 onSplitRequest: onSplitRequest
             )
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Terminal")
+            .accessibilityLabel(L10n.string("Terminal"))
             .accessibilityAddTraits(.allowsDirectInteraction)
             .opacity(remoteOwnerName == nil ? 1 : 0)
             .allowsHitTesting(remoteOwnerName == nil)
@@ -113,19 +113,19 @@ struct SleepingTabPlaceholder: View {
             Image(systemName: "moon.zzz")
                 .font(.system(size: UIMetrics.fontMega))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Text("Tab is asleep")
+            Text(L10n.resource("Tab is asleep"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
-            Text("This terminal was freed to save memory. Wake it to resume your session.")
+            Text(L10n.resource("This terminal was freed to save memory. Wake it to resume your session."))
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: UIMetrics.scaled(360))
             Button(action: onWake) {
                 HStack(spacing: UIMetrics.spacing4) {
-                    Text("Wake")
+                    Text(L10n.resource("Wake"))
                     if isFocused {
-                        Text("⏎")
+                        Text(L10n.resource("⏎"))
                             .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
                             .opacity(0.72)
                     }
@@ -141,8 +141,8 @@ struct SleepingTabPlaceholder: View {
         .onTapGesture(perform: onWake)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Tab is asleep")
-        .accessibilityHint("Wake the terminal to resume your session")
+        .accessibilityLabel(L10n.string("Tab is asleep"))
+        .accessibilityHint(L10n.string("Wake the terminal to resume your session"))
     }
 }
 
@@ -156,10 +156,10 @@ struct RemoteControlledPlaceholder: View {
             Image(systemName: "iphone.gen3")
                 .font(.system(size: UIMetrics.fontMega))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Text("Controlled by \(deviceName)")
+            Text(L10n.resource("Controlled by \(deviceName)"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
-            Text("This terminal session is currently being used on \(deviceName). Take over to resume on Mac.")
+            Text(L10n.resource("This terminal session is currently being used on \(deviceName). Take over to resume on Mac."))
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
@@ -168,8 +168,8 @@ struct RemoteControlledPlaceholder: View {
                 onTakeOver()
             } label: {
                 HStack(spacing: UIMetrics.spacing4) {
-                    Text("Take Over")
-                    Text("⌘↩")
+                    Text(L10n.resource("Take Over"))
+                    Text(L10n.resource("⌘↩"))
                         .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
                         .opacity(0.72)
                 }
@@ -518,7 +518,7 @@ struct TerminalBridge: NSViewRepresentable {
                 )
             }
             guard Self.isExternalLink(url) else {
-                ToastState.shared.show("File not found")
+                ToastState.shared.show(L10n.string("File not found"))
                 return false
             }
             return Self.openExternalLink(url, appState: appState)

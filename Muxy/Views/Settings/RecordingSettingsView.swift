@@ -10,12 +10,14 @@ struct RecordingSettingsView: View {
         SettingsContainer {
             SettingsSection(
                 "Legacy Voice Recording",
-                footer: "Use the status-bar microphone or assign the Legacy Voice Recording shortcut to dictate. "
-                    + "Muxy inserts the on-device transcript wherever your cursor was before you opened the recorder. "
-                    + "If that target is gone, the transcript lands on your clipboard. Composer dictation never auto-sends."
+                footer: """
+                Use the status-bar microphone or assign the Legacy Voice Recording shortcut to dictate. Muxy inserts \
+                the on-device transcript wherever your cursor was before you opened the recorder. If that target is \
+                gone, the transcript lands on your clipboard. Composer dictation never auto-sends.
+                """
             ) {
                 SettingsToggleRow(
-                    label: "Press Return after inserting",
+                    label: L10n.resource("Press Return after inserting"),
                     isOn: $autoSend
                 )
             }
@@ -31,10 +33,12 @@ struct RecordingSettingsView: View {
         .onAppear(perform: loadLanguages)
     }
 
-    private var languageFooter: String {
+    private var languageFooter: LocalizedStringResource {
         if languages.isEmpty {
-            return "No on-device speech models are installed. "
-                + "Add a dictation language in System Settings → Keyboard → Dictation, then return here."
+            return """
+            No on-device speech models are installed. Add a dictation language in System Settings → Keyboard → \
+            Dictation, then return here.
+            """
         }
         return "Only languages with an on-device model are listed. Transcription never leaves your Mac."
     }
@@ -43,7 +47,7 @@ struct RecordingSettingsView: View {
     private var languagePicker: some View {
         if languages.isEmpty {
             SettingsRow("Language") {
-                Text("None available")
+                Text(L10n.resource("None available"))
                     .font(.system(size: SettingsMetrics.labelFontSize))
                     .foregroundStyle(SettingsStyle.mutedForeground)
             }

@@ -36,11 +36,11 @@ struct WhatsNewView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(SettingsStyle.accent)
 
-            Text("What's New")
+            Text(L10n.resource("What's New"))
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(SettingsStyle.foreground)
 
-            Text("v\(version)")
+            Text(L10n.resource("v\(version)"))
                 .font(.system(size: 12))
                 .foregroundStyle(SettingsStyle.mutedForeground)
 
@@ -49,12 +49,12 @@ struct WhatsNewView: View {
             Button {
                 NSWorkspace.shared.open(releaseURL)
             } label: {
-                Text("View on GitHub")
+                Text(L10n.resource("View on GitHub"))
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(SettingsStyle.accent)
             }
             .buttonStyle(.plain)
-            .help("Open this release on GitHub")
+            .help(L10n.string("Open this release on GitHub"))
 
             Button {
                 NSApp.keyWindow?.close()
@@ -66,7 +66,7 @@ struct WhatsNewView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Close")
+            .help(L10n.string("Close"))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -82,10 +82,10 @@ struct WhatsNewView: View {
         case .failed:
             centered {
                 VStack(spacing: 12) {
-                    Text("Couldn't load the release notes.")
+                    Text(L10n.resource("Couldn't load the release notes."))
                         .font(.system(size: 12))
                         .foregroundStyle(SettingsStyle.mutedForeground)
-                    Button("Retry") { Task { await reload() } }
+                    Button(L10n.string("Retry")) { Task { await reload() } }
                 }
             }
         case .loaded:
@@ -140,7 +140,7 @@ private struct ReleaseNotesBlockView: View {
                 .padding(.top, level <= 2 ? 6 : 2)
         case let .bullet(spans):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("•")
+                Text(L10n.resource("•"))
                     .font(.system(size: 12))
                     .foregroundStyle(SettingsStyle.mutedForeground)
                 styledText(spans)

@@ -134,7 +134,7 @@ struct ExpandedProjectRow: View {
                     workspaceContext: projectGroupStore.workspaceContext(for: project),
                     separatesFromPreviousActions: false
                 ) {
-                    Button("Hide Home") { hideHome() }
+                    Button(L10n.string("Hide Home")) { hideHome() }
                 }
             } else {
                 projectContextMenu
@@ -176,21 +176,21 @@ struct ExpandedProjectRow: View {
             }
         }
         .alert(
-            pendingWorktreeRemoval?.title ?? "",
+            pendingWorktreeRemoval.map { L10n.string($0.title) } ?? "",
             isPresented: worktreeRemovalAlertBinding,
             presenting: pendingWorktreeRemoval
         ) { confirmation in
-            Button("Remove", role: .destructive) {
+            Button(L10n.string("Remove"), role: .destructive) {
                 performRemove(worktree: confirmation.worktree)
                 pendingWorktreeRemoval = nil
             }
             .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) {
+            Button(L10n.string("Cancel"), role: .cancel) {
                 pendingWorktreeRemoval = nil
             }
             .keyboardShortcut(.cancelAction)
         } message: { confirmation in
-            Text(confirmation.message)
+            Text(L10n.resource(confirmation.message))
         }
     }
 
@@ -210,11 +210,17 @@ struct ExpandedProjectRow: View {
                     )
 
                 if hasWorktreeUI, let worktree = activeWorktree {
-                    Text(worktree.isPrimary ? "primary" : worktree.name)
-                        .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
-                        .foregroundStyle(MuxyTheme.fg)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    Group {
+                        if worktree.isPrimary {
+                            Text(L10n.resource("primary"))
+                        } else {
+                            Text(verbatim: worktree.name)
+                        }
+                    }
+                    .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.fg)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 }
             }
 
@@ -265,7 +271,11 @@ struct ExpandedProjectRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(worktreesExpanded ? "Collapse Worktrees" : "Expand Worktrees")
+        .accessibilityLabel(
+            worktreesExpanded
+                ? L10n.string("Collapse Worktrees")
+                : L10n.string("Expand Worktrees")
+        )
     }
 
     private var remoteIndicator: some View {
@@ -274,7 +284,10 @@ struct ExpandedProjectRow: View {
             .foregroundStyle(MuxyTheme.fgMuted)
             .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
             .help(remoteDeviceName ?? "Remote project")
-            .accessibilityLabel(remoteDeviceName.map { "Remote project on \($0)" } ?? "Remote project")
+            .accessibilityLabel(
+                remoteDeviceName.map { L10n.string("Remote project on \($0)") }
+                    ?? L10n.string("Remote project")
+            )
     }
 
     private var remoteDeviceName: String? {
@@ -392,35 +405,39 @@ struct ExpandedProjectRow: View {
     @ViewBuilder
     private var projectContextMenu: some View {
         if !project.isRemote, !project.isHome {
-            Button(project.isPinned ? "Unpin" : "Pin") {
+            Button(
+                project.isPinned
+                    ? L10n.string("Unpin")
+                    : L10n.string("Pin")
+            ) {
                 onSetPinned(!project.isPinned)
             }
             Divider()
         }
-        Button("Set Logo...") { pickLogoImage() }
+        Button(L10n.string("Set Logo...")) { pickLogoImage() }
         if project.logo != nil {
-            Button("Remove Logo") { onSetLogo(nil) }
+            Button(L10n.string("Remove Logo")) { onSetLogo(nil) }
         }
-        Button("Set Icon...") { showSymbolPicker = true }
+        Button(L10n.string("Set Icon...")) { showSymbolPicker = true }
         if project.icon != nil {
-            Button("Remove Icon") { onSetIcon(nil) }
+            Button(L10n.string("Remove Icon")) { onSetIcon(nil) }
         }
-        Button("Set Icon Color...") { showColorPicker = true }
+        Button(L10n.string("Set Icon Color...")) { showColorPicker = true }
         if project.iconColor != nil {
-            Button("Reset Icon Color") { onSetIconColor(nil) }
+            Button(L10n.string("Reset Icon Color")) { onSetIconColor(nil) }
         }
         Divider()
-        Button("Rename Project") { startRename() }
+        Button(L10n.string("Rename Project")) { startRename() }
         if isGitRepo {
             Divider()
-            Toggle("Worktrees", isOn: worktreesEnabledBinding)
+            Toggle(L10n.string("Worktrees"), isOn: worktreesEnabledBinding)
             if project.worktreesEnabled {
-                Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
-                Button("New Worktree…") { showCreateWorktreeSheet = true }
+                Button(L10n.string("Refresh Worktrees")) { Task { await refreshWorktrees() } }
+                Button(L10n.string("New Worktree…")) { showCreateWorktreeSheet = true }
             }
         } else if isCheckingGitRepo {
             Divider()
-            Button("Loading Worktrees…") {}
+            Button(L10n.string("Loading Worktrees…")) {}
                 .disabled(true)
         }
         if !projectGroupStore.groups.isEmpty {
@@ -431,7 +448,7 @@ struct ExpandedProjectRow: View {
             path: project.path,
             workspaceContext: projectGroupStore.workspaceContext(for: project)
         ) {
-            Button("Remove Project", role: .destructive, action: onRemove)
+            Button(L10n.string("Remove Project"), role: .destructive, action: onRemove)
         }
     }
 
@@ -484,7 +501,7 @@ struct ExpandedProjectRow: View {
 
     private func pickLogoImage() {
         let panel = NSOpenPanel()
-        panel.title = "Choose a Logo Image"
+        panel.title = L10n.string("Choose a Logo Image")
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -671,16 +688,16 @@ private struct ExpandedWorktreeRow: View {
         }
         .contextMenu {
             if worktree.isPrimary {
-                Text("Primary worktree").font(.system(size: UIMetrics.fontFootnote))
+                Text(L10n.resource("Primary worktree")).font(.system(size: UIMetrics.fontFootnote))
             } else if let onRemove {
-                Button("Rename") { startRename() }
+                Button(L10n.string("Rename")) { startRename() }
                 Divider()
-                Button("Remove", role: .destructive, action: onRemove)
+                Button(L10n.string("Remove"), role: .destructive, action: onRemove)
                     .disabled(isRemoving)
             } else {
-                Button("Rename") { startRename() }
+                Button(L10n.string("Rename")) { startRename() }
                 Divider()
-                Text("External worktree").font(.system(size: UIMetrics.fontFootnote))
+                Text(L10n.resource("External worktree")).font(.system(size: UIMetrics.fontFootnote))
             }
         }
         .accessibilityElement(children: .combine)
@@ -747,7 +764,7 @@ private struct ExpandedNewWorktreeButton: View {
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
                     .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
-                Text("New Worktree")
+                Text(L10n.resource("New Worktree"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
                 Spacer()
@@ -757,13 +774,13 @@ private struct ExpandedNewWorktreeButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
-        .accessibilityLabel("New Worktree")
+        .accessibilityLabel(L10n.string("New Worktree"))
     }
 }
 
 private struct PrimaryBadge: View {
     var body: some View {
-        Text("PRIMARY")
+        Text(L10n.resource("PRIMARY"))
             .font(.system(size: UIMetrics.fontMicro, weight: .bold))
             .tracking(0.4)
             .foregroundStyle(MuxyTheme.fg)
@@ -781,10 +798,10 @@ private struct ExpandedRenamePopover: View {
 
     var body: some View {
         VStack(spacing: UIMetrics.spacing4) {
-            Text("Rename Project")
+            Text(L10n.resource("Rename Project"))
                 .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
-            TextField("Project name", text: $text)
+            TextField(L10n.string("Project name"), text: $text)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: UIMetrics.fontBody))
                 .focused($isFocused)

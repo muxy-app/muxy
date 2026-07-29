@@ -74,7 +74,7 @@ struct PanelContainer<Content: View>: View {
                 if chrome.shows(.close), let onClose {
                     control(
                         symbol: "xmark",
-                        label: "Close",
+                        label: L10n.string("Close"),
                         focus: .close,
                         action: onClose
                     )

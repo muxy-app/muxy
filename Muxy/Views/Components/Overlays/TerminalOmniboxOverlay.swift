@@ -103,17 +103,17 @@ struct TerminalOmniboxOverlay: View {
     private var searchPlaceholder: String {
         switch launchScope {
         case .projects:
-            "Search project..."
+            L10n.string("Search project...")
         case .recentlyRemovedProjects:
-            "Search recently removed projects..."
+            L10n.string("Search recently removed projects...")
         case .worktrees:
-            "Search worktree..."
+            L10n.string("Search worktree...")
         case .workspaces:
-            "Search workspace..."
+            L10n.string("Search workspace...")
         case .openTabs:
-            "Search open tabs..."
+            L10n.string("Search open tabs...")
         case .commandShortcuts:
-            "Search custom commands..."
+            L10n.string("Search custom commands...")
         }
     }
 
@@ -161,7 +161,7 @@ struct TerminalOmniboxOverlay: View {
                 TerminalOmniboxHint(text: tabHintText)
                 TerminalOmniboxHint(symbol: "arrow.up.arrow.down", label: navigateHintLabel)
             }
-            TerminalOmniboxHint(text: "Esc", label: "Close")
+            TerminalOmniboxHint(text: "Esc", label: L10n.string("Close"))
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, UIMetrics.spacing5)
@@ -171,17 +171,17 @@ struct TerminalOmniboxOverlay: View {
     private var emptyStateText: String {
         switch launchScope {
         case .projects:
-            "No projects found"
+            L10n.string("No projects found")
         case .recentlyRemovedProjects:
-            "No recently removed projects"
+            L10n.string("No recently removed projects")
         case .worktrees:
-            "No worktrees found"
+            L10n.string("No worktrees found")
         case .workspaces:
-            "No workspaces found"
+            L10n.string("No workspaces found")
         case .openTabs:
-            "No open tabs found"
+            L10n.string("No open tabs found")
         case .commandShortcuts:
-            "No custom commands found"
+            L10n.string("No custom commands found")
         }
     }
 
@@ -190,11 +190,11 @@ struct TerminalOmniboxOverlay: View {
         case .projects,
              .worktrees,
              .workspaces:
-            "Switch"
+            L10n.string("Switch")
         case .recentlyRemovedProjects:
-            "Restore"
+            L10n.string("Restore")
         default:
-            "Open"
+            L10n.string("Open")
         }
     }
 
@@ -203,7 +203,7 @@ struct TerminalOmniboxOverlay: View {
     }
 
     private var navigateHintLabel: String {
-        "Navigate"
+        L10n.string("Navigate")
     }
 
     private func handleTab() {

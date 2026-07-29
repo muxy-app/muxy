@@ -37,7 +37,7 @@ struct SettingsJSONEditorView: View {
         .onChange(of: source) { _, _ in reload() }
         .onChange(of: searchText) { _, _ in selectedSearchMatchIndex = 0 }
         .overlay(alignment: .topTrailing) {
-            Button("Find") {
+            Button(L10n.string("Find")) {
                 showSearch()
             }
             .keyboardShortcut("f", modifiers: .command)
@@ -64,7 +64,7 @@ struct SettingsJSONEditorView: View {
             .background(SettingsStyle.background)
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
-                    Text("{}")
+                    Text(L10n.resource("{}"))
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(SettingsStyle.mutedForeground)
                         .padding(16)
@@ -80,7 +80,7 @@ struct SettingsJSONEditorView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(SettingsStyle.mutedForeground)
 
-            TextField("Search JSON", text: $searchText)
+            TextField(L10n.string("Search JSON"), text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: SettingsMetrics.labelFontSize))
                 .focused($isSearchFocused)
@@ -126,12 +126,12 @@ struct SettingsJSONEditorView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Text("JSON Settings")
+                Text(L10n.resource("JSON Settings"))
                     .font(.system(size: 20, weight: .semibold))
                 Spacer()
-                Picker("Source", selection: $source) {
+                Picker(L10n.string("Source"), selection: $source) {
                     ForEach(Source.allCases) { source in
-                        Text(source.title).tag(source)
+                        Text(L10n.resource(key: source.title)).tag(source)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -170,24 +170,24 @@ struct SettingsJSONEditorView: View {
 
             Spacer()
 
-            Button("Reload") {
+            Button(L10n.string("Reload")) {
                 reload()
             }
             .controlSize(.small)
 
             if source == .user {
-                Button("Prettify") {
+                Button(L10n.string("Prettify")) {
                     prettify()
                 }
                 .controlSize(.small)
 
-                Button("Reset from Current Settings") {
+                Button(L10n.string("Reset from Current Settings")) {
                     SettingsJSONStore.resetUserSettingsFile()
                     reload()
                 }
                 .controlSize(.small)
 
-                Button("Apply") {
+                Button(L10n.string("Apply")) {
                     apply()
                 }
                 .controlSize(.small)

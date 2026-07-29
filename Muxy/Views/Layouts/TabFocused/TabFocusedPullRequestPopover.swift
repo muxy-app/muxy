@@ -64,10 +64,10 @@ struct TabFocusedPullRequestPopover: View {
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(PullRequestPresentation.color(for: info))
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                Text("Pull Request #\(info.number)")
+                Text(L10n.resource("Pull Request #\(info.number)"))
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
-                Text(PullRequestPresentation.stateLabel(for: info))
+                Text(L10n.resource(key: PullRequestPresentation.stateLabel(for: info)))
                     .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
@@ -86,21 +86,29 @@ struct TabFocusedPullRequestPopover: View {
             }
             .buttonStyle(.plain)
             .disabled(isRefreshing || isPerformingAction || pendingConfirmation != nil)
-            .help("Refresh pull request")
+            .help(L10n.string("Refresh pull request"))
         }
     }
 
     private var details: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-            infoRow(label: "Base", value: info.baseBranch)
+            infoRow(label: L10n.string("Base"), value: info.baseBranch)
             if let mergeability = PRMergeabilityPresentation.make(info: info) {
-                infoRow(label: "Merge", value: mergeability.text, valueColor: mergeability.color)
+                infoRow(
+                    label: L10n.string("Merge"),
+                    value: L10n.string(key: mergeability.text),
+                    valueColor: mergeability.color
+                )
             }
-            if let checksLabel = PullRequestPresentation.checksLabel(for: info.checks) {
-                infoRow(label: "Checks", value: checksLabel, valueColor: checksColor)
+            if let checksLabel = localizedChecksLabel {
+                infoRow(label: L10n.string("Checks"), value: checksLabel, valueColor: checksColor)
             }
             if hasLocalChanges {
-                infoRow(label: "Local", value: "Uncommitted changes", valueColor: MuxyTheme.warning)
+                infoRow(
+                    label: L10n.string("Local"),
+                    value: L10n.string("Uncommitted changes"),
+                    valueColor: MuxyTheme.warning
+                )
             }
         }
     }
@@ -108,7 +116,7 @@ struct TabFocusedPullRequestPopover: View {
     private var openOnGitHubButton: some View {
         actionButton(
             symbol: "arrow.up.right.square",
-            label: "Open on GitHub",
+            label: L10n.string("Open on GitHub"),
             foreground: MuxyTheme.fg,
             background: MuxyTheme.surface,
             action: onOpenInBrowser
@@ -120,7 +128,9 @@ struct TabFocusedPullRequestPopover: View {
         if info.mergeStateStatus == .behind, !info.isCrossRepository {
             actionButton(
                 symbol: "arrow.down.circle",
-                label: isUpdatingBranch ? "Updating…" : "Update from \(info.baseBranch)",
+                label: isUpdatingBranch
+                    ? L10n.string("Updating…")
+                    : L10n.string("Update from \(info.baseBranch)"),
                 foreground: MuxyTheme.fg,
                 background: MuxyTheme.surface,
                 isBusy: isUpdatingBranch,
@@ -129,14 +139,14 @@ struct TabFocusedPullRequestPopover: View {
             .disabled(isRefreshing || isPerformingAction || hasLocalChanges || pendingConfirmation != nil)
             .help(
                 hasLocalChanges
-                    ? "Commit or stash local changes before updating the branch."
-                    : "Merge \(info.baseBranch) into this branch and push it."
+                    ? L10n.string("Commit or stash local changes before updating the branch.")
+                    : L10n.string("Merge \(info.baseBranch) into this branch and push it.")
             )
         }
 
         SegmentedPicker(
             selection: $mergeMethod,
-            options: GitRepositoryService.PRMergeMethod.allCases.map { ($0, $0.shortLabel) }
+            options: GitRepositoryService.PRMergeMethod.allCases.map { ($0, L10n.string(key: $0.shortLabel)) }
         )
         .disabled(isRefreshing || isPerformingAction || pendingConfirmation != nil)
 
@@ -238,8 +248,8 @@ struct TabFocusedPullRequestPopover: View {
         .buttonStyle(.plain)
         .keyboardShortcut(.cancelAction)
         .onHover { isCancelHovered = $0 }
-        .help("Cancel this pending pull request action")
-        .accessibilityLabel("Cancel pending pull request action")
+        .help(L10n.string("Cancel this pending pull request action"))
+        .accessibilityLabel(L10n.string("Cancel pending pull request action"))
     }
 
     private func requestAction(_ action: PullRequestActionConfirmation.Kind) {
@@ -315,38 +325,44 @@ struct TabFocusedPullRequestPopover: View {
 
     private var mergeButtonLabel: String {
         if isMerging {
-            return "Merging…"
+            return L10n.string("Merging…")
         }
         if pendingConfirmation?.kind == .merge(mergeMethod) {
-            return "\(mergeMethod.shortLabel) in \(remainingSeconds)s · click again"
+            return L10n.string(
+                "\(L10n.string(key: mergeMethod.shortLabel)) in \(remainingSeconds)s · click again"
+            )
         }
-        return mergeMethod.label
+        return L10n.string(key: mergeMethod.label)
     }
 
     private var mergeButtonHelp: String {
         if isRefreshing {
-            return "Wait for the pull request refresh to finish."
+            return L10n.string("Wait for the pull request refresh to finish.")
         }
-        guard pendingConfirmation?.kind == .merge(mergeMethod) else { return mergeAvailability.help }
-        return "Click again to merge now. Otherwise it will merge automatically after five seconds."
+        guard pendingConfirmation?.kind == .merge(mergeMethod) else {
+            return L10n.string(mergeAvailability.help)
+        }
+        return L10n.string("Click again to merge now. Otherwise it will merge automatically after five seconds.")
     }
 
     private var closeButtonLabel: String {
         if isClosing {
-            return "Closing…"
+            return L10n.string("Closing…")
         }
         if pendingConfirmation?.kind == .close {
-            return "Close in \(remainingSeconds)s · click again"
+            return L10n.string("Close in \(remainingSeconds)s · click again")
         }
-        return "Close PR"
+        return L10n.string("Close PR")
     }
 
     private var closeButtonHelp: String {
         if isRefreshing {
-            return "Wait for the pull request refresh to finish."
+            return L10n.string("Wait for the pull request refresh to finish.")
         }
-        guard pendingConfirmation?.kind == .close else { return "Close this pull request without merging it." }
-        return "Click again to close now. Otherwise it will close automatically after five seconds."
+        guard pendingConfirmation?.kind == .close else {
+            return L10n.string("Close this pull request without merging it.")
+        }
+        return L10n.string("Click again to close now. Otherwise it will close automatically after five seconds.")
     }
 
     private var isPerformingAction: Bool {
@@ -367,6 +383,15 @@ struct TabFocusedPullRequestPopover: View {
         case .success: MuxyTheme.diffAddFg
         case .pending: MuxyTheme.warning
         case .failure: MuxyTheme.diffRemoveFg
+        }
+    }
+
+    private var localizedChecksLabel: String? {
+        switch info.checks.status {
+        case .none: nil
+        case .success: L10n.string("\(info.checks.passing)/\(info.checks.total) passing")
+        case .pending: L10n.string("\(info.checks.pending) running")
+        case .failure: L10n.string("\(info.checks.failing) failing")
         }
     }
 

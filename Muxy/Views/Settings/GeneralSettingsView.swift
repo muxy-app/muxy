@@ -11,13 +11,15 @@ struct GeneralSettingsView: View {
         SettingsContainer {
             SettingsSection(
                 "Updates",
-                footer: "The Beta channel ships every change merged to main and may be unstable. "
-                    + "Switch back to Stable to receive only tagged releases."
+                footer: """
+                The Beta channel ships every change merged to main and may be unstable. Switch back to Stable to \
+                receive only tagged releases.
+                """
             ) {
                 SettingsRow("Update channel") {
                     Picker("", selection: channelBinding) {
                         ForEach(UpdateChannel.allCases) { channel in
-                            Text(channel.displayName).tag(channel)
+                            Text(L10n.resource(key: channel.displayName)).tag(channel)
                         }
                     }
                     .labelsHidden()
@@ -27,7 +29,7 @@ struct GeneralSettingsView: View {
 
             SettingsSection("Quit", showsDivider: sentry.hasDSN) {
                 SettingsToggleRow(
-                    label: "Confirm before quitting Muxy",
+                    label: L10n.resource("Confirm before quitting Muxy"),
                     isOn: $confirmQuit
                 )
             }
@@ -35,12 +37,14 @@ struct GeneralSettingsView: View {
             if sentry.hasDSN {
                 SettingsSection(
                     "Diagnostics",
-                    footer: "Anonymous crash reports help us fix bugs. "
-                        + "Reports never include project paths, file contents, or personal data.",
+                    footer: """
+                    Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or \
+                    personal data.
+                    """,
                     showsDivider: false
                 ) {
                     SettingsToggleRow(
-                        label: "Send anonymous crash reports",
+                        label: L10n.resource("Send anonymous crash reports"),
                         isOn: sentryConsentBinding
                     )
                 }

@@ -144,6 +144,6 @@ enum TranscriptInserter {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
-        ToastState.shared.show("Transcript copied to clipboard")
+        ToastState.shared.show(L10n.string("Transcript copied to clipboard"))
     }
 }

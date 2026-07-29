@@ -47,7 +47,7 @@ struct ExtensionInstallPage: View {
     private var loadingState: some View {
         HStack(spacing: 10) {
             ProgressView().controlSize(.small)
-            Text("Loading \(name)…")
+            Text(L10n.resource("Loading \(name)…"))
                 .font(.system(size: 12))
                 .foregroundStyle(MuxyTheme.fgMuted)
         }
@@ -68,7 +68,7 @@ struct ExtensionInstallPage: View {
             Button {
                 Task { await load() }
             } label: {
-                Text("Retry")
+                Text(L10n.resource("Retry"))
                     .font(.system(size: 12))
                     .foregroundStyle(MuxyTheme.accent)
             }
@@ -105,17 +105,17 @@ struct ExtensionInstallPage: View {
                     Text(ext.name)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fg)
-                    Text("v\(ext.currentVersion)")
+                    Text(L10n.resource("v\(ext.currentVersion)"))
                         .font(.system(size: 12))
                         .foregroundStyle(MuxyTheme.fgMuted)
                 }
                 if let author = ext.author?.name, !author.isEmpty {
-                    Text("by \(author)")
+                    Text(L10n.resource("by \(author)"))
                         .font(.system(size: 12))
                         .foregroundStyle(MuxyTheme.fgMuted)
                 }
                 HStack(spacing: 12) {
-                    Label("\(ext.downloads)", systemImage: "arrow.down.circle")
+                    Label(L10n.string("\(ext.downloads)"), systemImage: "arrow.down.circle")
                         .font(.system(size: 11))
                         .foregroundStyle(MuxyTheme.fgDim)
                     ForEach(externalLinks(ext), id: \.title) { link in
@@ -135,7 +135,7 @@ struct ExtensionInstallPage: View {
     private func permissionsBlock(_ ext: MarketplaceExtension) -> some View {
         InstallSection(title: "Permissions") {
             if ext.permissions.isEmpty {
-                Text("This extension requests no permissions.")
+                Text(L10n.resource("This extension requests no permissions."))
                     .font(.system(size: 11))
                     .foregroundStyle(MuxyTheme.fgDim)
             } else {
@@ -149,7 +149,7 @@ struct ExtensionInstallPage: View {
             Image(systemName: "lock.shield")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(MuxyTheme.accent)
-            Text("No extension can run a command on your computer without you approving each command first.")
+            Text(L10n.resource("No extension can run a command on your computer without you approving each command first."))
                 .font(.system(size: 12))
                 .foregroundStyle(MuxyTheme.fg)
                 .fixedSize(horizontal: false, vertical: true)
@@ -183,7 +183,7 @@ struct ExtensionInstallPage: View {
                     if isInstalling {
                         ProgressView().controlSize(.small)
                     }
-                    Text(installButtonTitle)
+                    Text(L10n.resource(installButtonTitle))
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                         .fixedSize()
@@ -197,7 +197,7 @@ struct ExtensionInstallPage: View {
             .buttonStyle(.plain)
             .disabled(isInstalling)
             if isInstalled, let version = installedVersion {
-                Text("Installed v\(version)")
+                Text(L10n.resource("Installed v\(version)"))
                     .font(.system(size: 11))
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
@@ -205,7 +205,7 @@ struct ExtensionInstallPage: View {
         }
     }
 
-    private var installButtonTitle: String {
+    private var installButtonTitle: LocalizedStringResource {
         if isInstalling {
             return isInstalled ? "Reinstalling…" : "Installing…"
         }
@@ -215,10 +215,10 @@ struct ExtensionInstallPage: View {
     private func externalLinks(_ ext: MarketplaceExtension) -> [(title: String, url: URL)] {
         var links: [(String, URL)] = []
         if let repository = ext.repository, let url = URL(string: repository) {
-            links.append(("Repository", url))
+            links.append((L10n.string("Repository"), url))
         }
         if let homepage = ext.homepage, let url = URL(string: homepage) {
-            links.append(("Homepage", url))
+            links.append((L10n.string("Homepage"), url))
         }
         return links
     }
@@ -256,12 +256,12 @@ struct ExtensionInstallPage: View {
 }
 
 private struct InstallSection<Content: View>: View {
-    let title: String
+    let title: LocalizedStringResource
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
+            Text(L10n.resource(title))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .textCase(.uppercase)

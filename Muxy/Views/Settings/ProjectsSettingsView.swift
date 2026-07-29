@@ -27,7 +27,7 @@ struct ProjectsSettingsView: View {
                 SettingsRow("Muxy Picker") {
                     Picker("", selection: $projectPickerModeRaw) {
                         ForEach(ProjectPickerMode.allCases) { mode in
-                            Text(mode.label).tag(mode.rawValue)
+                            Text(L10n.resource(key: mode.label)).tag(mode.rawValue)
                         }
                     }
                     .labelsHidden()
@@ -44,7 +44,7 @@ struct ProjectsSettingsView: View {
                 SettingsRow("Sort Projects By") {
                     Picker("", selection: $projectSortModeRaw) {
                         ForEach(ProjectSortMode.allCases) { mode in
-                            Text(mode.title).tag(mode.rawValue)
+                            Text(L10n.resource(key: mode.title)).tag(mode.rawValue)
                         }
                     }
                     .labelsHidden()
@@ -52,7 +52,7 @@ struct ProjectsSettingsView: View {
                 }
 
                 SettingsToggleRow(
-                    label: "Keep projects open after closing the last tab",
+                    label: L10n.resource("Keep projects open after closing the last tab"),
                     isOn: $keepProjectsOpenWhenNoTabs
                 )
             }
@@ -66,9 +66,14 @@ struct ProjectsSettingsView: View {
                         Spacer()
                         Picker("", selection: $defaultFileOpener) {
                             ForEach(fileOpenerOptions) { option in
-                                Text(option.title)
-                                    .tag(option.id)
-                                    .disabled(!option.isAvailable)
+                                if option.id == FileOpenerSelection.builtinValue {
+                                    Text(L10n.resource(key: option.title))
+                                        .tag(option.id)
+                                } else {
+                                    Text(verbatim: option.title)
+                                        .tag(option.id)
+                                        .disabled(!option.isAvailable)
+                                }
                             }
                         }
                         .labelsHidden()
@@ -80,8 +85,10 @@ struct ProjectsSettingsView: View {
 
             SettingsSection(
                 "Worktrees",
-                footer: "Templates must include {branch}; {project-name} and {base-dir} are optional. Relative templates "
-                    + "start from the project folder. Folder mode keeps the existing project and worktree subfolder layout.",
+                footer: """
+                Templates must include {branch}; {project-name} and {base-dir} are optional. Relative templates start \
+                from the project folder. Folder mode keeps the existing project and worktree subfolder layout.
+                """,
                 showsDivider: false
             ) {
                 worktreeLocationControl
@@ -100,23 +107,29 @@ struct ProjectsSettingsView: View {
         FileOpenerSelection.options(from: fileOpeners, selectedValue: defaultFileOpener)
     }
 
-    private var fileOpenerFooter: String {
+    private var fileOpenerFooter: LocalizedStringResource {
         if fileOpenerOptions.contains(where: { $0.id == defaultFileOpener && !$0.isAvailable }) {
-            return "The selected extension opener is unavailable, so terminal file links currently use the "
-                + "project target selected separately in the top bar."
+            return """
+            The selected extension opener is unavailable, so terminal file links currently use the project target \
+            selected separately in the top bar.
+            """
         }
-        return "Terminal file links use this opener. Built-in and unmatched extension files use the "
-            + "project target selected separately in the top bar."
+        return """
+        Terminal file links use this opener. Built-in and unmatched extension files use the project target selected \
+        separately in the top bar.
+        """
     }
 
     private var projectPickerMode: ProjectPickerMode {
         ProjectPickerMode(rawValue: projectPickerModeRaw) ?? .custom
     }
 
-    private var projectsFooter: String {
+    private var projectsFooter: LocalizedStringResource {
         if projectPickerMode == .custom {
-            return "Muxy Picker searches this location by folder name. Use App Default to search your home folder. "
-                + "Projects can stay in the sidebar after closing their last tab."
+            return """
+            Muxy Picker searches this location by folder name. Use App Default to search your home folder. Projects \
+            can stay in the sidebar after closing their last tab.
+            """
         }
         return "Muxy Picker can use Finder or Muxy's picker. Projects can stay in the sidebar after closing their last tab."
     }
@@ -148,13 +161,13 @@ struct ProjectsSettingsView: View {
     private var worktreeLocationControl: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Default worktree location")
+                Text(L10n.resource("Default worktree location"))
                     .font(.system(size: SettingsMetrics.labelFontSize))
                 Spacer()
                 Picker("", selection: defaultWorktreeLocationMode) {
-                    Text("App Default").tag(WorktreeLocationMode.defaultLocation)
-                    Text("Template").tag(WorktreeLocationMode.pathTemplate)
-                    Text("Folder").tag(WorktreeLocationMode.parentFolder)
+                    Text(L10n.resource("App Default")).tag(WorktreeLocationMode.defaultLocation)
+                    Text(L10n.resource("Template")).tag(WorktreeLocationMode.pathTemplate)
+                    Text(L10n.resource("Folder")).tag(WorktreeLocationMode.parentFolder)
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
@@ -177,7 +190,7 @@ struct ProjectsSettingsView: View {
     private var worktreeLocationValueControl: some View {
         switch defaultWorktreeLocation.mode {
         case .defaultLocation:
-            Text("Muxy App Support")
+            Text(L10n.resource("Muxy App Support"))
                 .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
                 .foregroundStyle(SettingsStyle.mutedForeground)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -187,11 +200,11 @@ struct ProjectsSettingsView: View {
                 .settingsTextInput(maxWidth: .infinity, minHeight: 22)
         case .parentFolder:
             HStack(spacing: 8) {
-                TextField("/path/to/worktrees", text: defaultWorktreeLocationValue)
+                TextField(L10n.string("/path/to/worktrees"), text: defaultWorktreeLocationValue)
                     .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
                     .settingsTextInput(maxWidth: .infinity, minHeight: 22)
 
-                Button("Choose Folder...") {
+                Button(L10n.string("Choose Folder...")) {
                     chooseDefaultWorktreeParentPath()
                 }
                 .fixedSize(horizontal: true, vertical: false)
@@ -229,7 +242,7 @@ struct ProjectsSettingsView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.message = "Select the default folder for new worktrees"
+        panel.message = L10n.string("Select the default folder for new worktrees")
         if let path = WorktreeLocationResolver.normalizedLocation(defaultWorktreeLocation.parentPath) {
             panel.directoryURL = URL(fileURLWithPath: path, isDirectory: true)
         }

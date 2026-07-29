@@ -40,13 +40,13 @@ private struct RepositoryAIActionSettingsSection: View {
 
     var body: some View {
         SettingsSection(
-            action.settingsTitle,
+            L10n.resource(key: action.settingsTitle),
             footer: footer,
             showsDivider: showsDivider
         ) {
             SettingsRow("Provider") {
                 Picker("", selection: $providerID) {
-                    Text("Auto").tag(RepositoryAIActionPreferences.automaticProviderID)
+                    Text(L10n.resource("Auto")).tag(RepositoryAIActionPreferences.automaticProviderID)
                     ForEach(providers, id: \.id) { provider in
                         Text(provider.displayName).tag(provider.id)
                     }
@@ -61,11 +61,11 @@ private struct RepositoryAIActionSettingsSection: View {
     private var promptEditor: some View {
         VStack(alignment: .leading, spacing: SettingsMetrics.rowVerticalPadding) {
             HStack {
-                Text("Prompt")
+                Text(L10n.resource("Prompt"))
                     .font(.system(size: SettingsMetrics.labelFontSize))
                     .foregroundStyle(SettingsStyle.foreground)
                 Spacer()
-                Button("Restore Default") {
+                Button(L10n.string("Restore Default")) {
                     prompt = action.defaultPrompt
                 }
                 .buttonStyle(.plain)
@@ -82,14 +82,18 @@ private struct RepositoryAIActionSettingsSection: View {
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
     }
 
-    private var footer: String {
+    private var footer: LocalizedStringResource {
         switch action {
         case .commit:
-            "AI generates only the commit message. Muxy always stages all changes, commits, and pushes. "
-                + "An empty prompt uses the default. Do not include secrets."
+            """
+            AI generates only the commit message. Muxy always stages all changes, commits, and pushes. An empty prompt \
+            uses the default. Do not include secrets.
+            """
         case .createPullRequest:
-            "AI generates the title, summary, new branch name, and target branch. "
-                + "Muxy creates the branch, commit, push, and pull request. An empty prompt uses the default."
+            """
+            AI generates the title, summary, new branch name, and target branch. Muxy creates the branch, commit, push, \
+            and pull request. An empty prompt uses the default.
+            """
         }
     }
 }

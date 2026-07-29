@@ -97,7 +97,7 @@ struct PRMergeabilityPresentation: Equatable {
 
 struct PRMergeAvailability: Equatable {
     let isEnabled: Bool
-    let help: String
+    let help: LocalizedStringResource
 
     static func make(info: GitRepositoryService.PRInfo) -> PRMergeAvailability {
         guard info.state == .open else {
@@ -138,7 +138,7 @@ struct PRMergeAvailability: Equatable {
         }
     }
 
-    private static func confirmationHelp(info: GitRepositoryService.PRInfo) -> String {
+    private static func confirmationHelp(info: GitRepositoryService.PRInfo) -> LocalizedStringResource {
         switch info.checks.status {
         case .failure: "Checks are failing. Click to start the five-second merge confirmation."
         case .pending: "Checks are still running. Click to start the five-second merge confirmation."

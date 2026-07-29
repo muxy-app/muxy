@@ -76,12 +76,12 @@ struct SidebarFooter: View {
 
     private var sidebarToggleButton: some View {
         IconButton(symbol: "sidebar.left", accessibilityLabel: sidebarToggleLabel) { postToggleSidebar() }
-            .help("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
+            .help(L10n.string("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))"))
     }
 
     private var notificationsButton: some View {
-        IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
-            .help("Notifications")
+        IconButton(symbol: notificationBellIcon, accessibilityLabel: L10n.string("Notifications")) { showNotifications.toggle() }
+            .help(L10n.string("Notifications"))
             .popover(isPresented: $showNotifications) {
                 NotificationPanel(onDismiss: { showNotifications = false })
             }
@@ -97,8 +97,8 @@ struct SidebarFooter: View {
     }
 
     private var themeButton: some View {
-        IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
-            .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
+        IconButton(symbol: "paintpalette", accessibilityLabel: L10n.string("Theme Picker")) { showThemePicker.toggle() }
+            .help(L10n.string("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))"))
             .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
     }
 }

@@ -14,11 +14,17 @@ struct OpenProjectControl: View {
             Button(action: openProject) {
                 HStack(spacing: UIMetrics.spacing3) {
                     primaryIcon
-                    Text(defaultIDE?.displayName ?? "Open Project")
-                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: UIMetrics.scaled(112), alignment: .leading)
+                    Group {
+                        if let defaultIDE {
+                            Text(verbatim: defaultIDE.displayName)
+                        } else {
+                            Text(L10n.resource("Open Project"))
+                        }
+                    }
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: UIMetrics.scaled(112), alignment: .leading)
                 }
                 .foregroundStyle(primaryForeground)
                 .padding(.horizontal, UIMetrics.spacing4)
@@ -103,7 +109,7 @@ struct OpenProjectControl: View {
             }
 
             if !hasTargets {
-                Text("No supported editors found")
+                Text(L10n.resource("No supported editors found"))
                     .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .padding(.leading, UIMetrics.spacing5)

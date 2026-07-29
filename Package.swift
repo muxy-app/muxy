@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "Muxy",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -72,6 +73,7 @@ let package = Package(
             exclude: ["Info.plist", "Muxy.entitlements"],
             resources: [
                 .process("Resources/Assets.xcassets"),
+                .process("Resources/Localization"),
                 .copy("Resources/ProviderIcons"),
                 .copy("Resources/ghostty"),
                 .copy("Resources/quick-terminal"),

@@ -12,7 +12,7 @@ struct RichInputSettingsView: View {
 
             HStack {
                 Spacer()
-                Button("Reset to Defaults") {
+                Button(L10n.string("Reset to Defaults")) {
                     settings.resetToDefaults()
                 }
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
@@ -30,16 +30,17 @@ struct RichInputSettingsView: View {
     private var richInputSection: some View {
         SettingsSection(
             "Composer",
-            footer: "Inline File Path keeps multiple images perfectly ordered with text and Enter. "
-                + "Use Clipboard Paste if your TUI doesn't recognize image paths. "
-                + "SSH panes always upload the image and inline its remote path, "
-                + "because a Mac file path does not resolve on the remote device.",
+            footer: """
+            Inline File Path keeps multiple images perfectly ordered with text and Enter. Use Clipboard Paste if your \
+            TUI doesn't recognize image paths. SSH panes always upload the image and inline its remote path, because a \
+            Mac file path does not resolve on the remote device.
+            """,
             showsDivider: false
         ) {
             SettingsRow("Image Submission") {
                 Picker("", selection: $settings.richInputImageStrategy) {
                     ForEach(RichInputImageStrategy.allCases) { strategy in
-                        Text(strategy.displayName).tag(strategy)
+                        Text(L10n.resource(key: strategy.displayName)).tag(strategy)
                     }
                 }
                 .labelsHidden()

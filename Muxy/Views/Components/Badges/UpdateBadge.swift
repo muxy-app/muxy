@@ -10,7 +10,7 @@ struct UpdateBadge: View {
             HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.system(size: UIMetrics.fontXS, weight: .bold))
-                Text("Update \(version)")
+                Text(L10n.resource("Update \(version)"))
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
             }
@@ -28,7 +28,7 @@ struct UpdateBadge: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
-        .accessibilityLabel("Update available: version \(version)")
-        .accessibilityHint("Activates to check for updates")
+        .accessibilityLabel(L10n.string("Update available: version \(version)"))
+        .accessibilityHint(L10n.string("Activates to check for updates"))
     }
 }

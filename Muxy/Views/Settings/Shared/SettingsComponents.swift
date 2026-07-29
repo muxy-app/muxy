@@ -87,27 +87,45 @@ struct SettingsSection<Content: View>: View {
     @Environment(\.settingsSearchQuery) private var searchQuery
     @Environment(\.settingsCategory) private var category
 
-    let title: String
-    let footer: String?
+    let title: LocalizedStringResource?
+    let footer: LocalizedStringResource?
+    let verbatimTitle: String?
+    let verbatimFooter: String?
     let showsDivider: Bool
     @ViewBuilder var content: Content
 
     init(
-        _ title: String,
-        footer: String? = nil,
+        _ title: LocalizedStringResource,
+        footer: LocalizedStringResource? = nil,
         showsDivider: Bool = true,
         @ViewBuilder content: () -> Content
     ) {
         self.title = title
         self.footer = footer
+        verbatimTitle = nil
+        verbatimFooter = nil
+        self.showsDivider = showsDivider
+        self.content = content()
+    }
+
+    init(
+        verbatim title: String,
+        footer: String? = nil,
+        showsDivider: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = nil
+        self.footer = nil
+        verbatimTitle = title
+        verbatimFooter = footer
         self.showsDivider = showsDivider
         self.content = content()
     }
 
     var body: some View {
-        if SettingsCatalog.sectionMatches(query: searchQuery, category: category, section: title) {
+        if SettingsCatalog.sectionMatches(query: searchQuery, category: category, section: searchTitle) {
             VStack(alignment: .leading, spacing: 0) {
-                Text(title)
+                sectionTitle
                     .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .semibold))
                     .foregroundStyle(SettingsStyle.mutedForeground)
                     .padding(.horizontal, SettingsMetrics.horizontalPadding)
@@ -116,8 +134,8 @@ struct SettingsSection<Content: View>: View {
 
                 content
 
-                if let footer {
-                    Text(footer)
+                if footer != nil || verbatimFooter != nil {
+                    sectionFooter
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
                         .foregroundStyle(SettingsStyle.mutedForeground)
                         .fixedSize(horizontal: false, vertical: true)
@@ -132,20 +150,50 @@ struct SettingsSection<Content: View>: View {
             }
         }
     }
+
+    private var searchTitle: String {
+        title?.key ?? verbatimTitle ?? ""
+    }
+
+    @ViewBuilder
+    private var sectionTitle: some View {
+        if let title {
+            Text(L10n.resource(title))
+        } else if let verbatimTitle {
+            Text(verbatim: verbatimTitle)
+        }
+    }
+
+    @ViewBuilder
+    private var sectionFooter: some View {
+        if let footer {
+            Text(L10n.resource(footer))
+        } else if let verbatimFooter {
+            Text(verbatim: verbatimFooter)
+        }
+    }
 }
 
 struct SettingsRow<Content: View>: View {
-    let label: String
+    let label: LocalizedStringResource?
+    let verbatimLabel: String?
     @ViewBuilder var content: Content
 
-    init(_ label: String, @ViewBuilder content: () -> Content) {
+    init(_ label: LocalizedStringResource, @ViewBuilder content: () -> Content) {
         self.label = label
+        verbatimLabel = nil
+        self.content = content()
+    }
+
+    init(verbatim label: String, @ViewBuilder content: () -> Content) {
+        self.label = nil
+        verbatimLabel = label
         self.content = content()
     }
 
     var body: some View {
         HStack {
-            Text(label)
+            rowLabel
                 .font(.system(size: SettingsMetrics.labelFontSize))
                 .foregroundStyle(SettingsStyle.foreground)
             Spacer()
@@ -154,10 +202,19 @@ struct SettingsRow<Content: View>: View {
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
     }
+
+    @ViewBuilder
+    private var rowLabel: some View {
+        if let label {
+            Text(L10n.resource(label))
+        } else if let verbatimLabel {
+            Text(verbatim: verbatimLabel)
+        }
+    }
 }
 
 struct SettingsToggleRow: View {
-    let label: String
+    let label: LocalizedStringResource
     @Binding var isOn: Bool
 
     var body: some View {
@@ -173,7 +230,7 @@ struct SettingsToggleRow: View {
 struct SettingsPickerRow<Option: CaseIterable & Identifiable & RawRepresentable>: View
     where Option.RawValue == String, Option.AllCases: RandomAccessCollection
 {
-    let label: String
+    let label: LocalizedStringResource
     @Binding var selection: String
     var width: CGFloat = SettingsMetrics.controlWidth
 
@@ -181,7 +238,7 @@ struct SettingsPickerRow<Option: CaseIterable & Identifiable & RawRepresentable>
         SettingsRow(label) {
             Picker("", selection: $selection) {
                 ForEach(Option.allCases) { option in
-                    Text(option.rawValue).tag(option.rawValue)
+                    Text(L10n.resource(key: option.rawValue)).tag(option.rawValue)
                 }
             }
             .labelsHidden()

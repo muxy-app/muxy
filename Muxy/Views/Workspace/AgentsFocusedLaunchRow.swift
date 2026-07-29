@@ -34,7 +34,7 @@ struct AgentsFocusedLaunchRow: View {
     }
 
     private var terminalLabel: String {
-        "New Terminal Tab (\(KeyBindingStore.shared.combo(for: .newTab).displayString))"
+        L10n.string("New Terminal Tab (\(KeyBindingStore.shared.combo(for: .newTab).displayString))")
     }
 
     var body: some View {
@@ -47,7 +47,7 @@ struct AgentsFocusedLaunchRow: View {
             ForEach(launchableOptions) { option in
                 AgentsFocusedLaunchButton(
                     icon: .provider(option.provider.iconName),
-                    label: "New \(option.provider.displayName) Tab"
+                    label: L10n.string("New \(option.provider.displayName) Tab")
                 ) {
                     launch(option)
                 }
@@ -68,7 +68,7 @@ struct AgentsFocusedLaunchRow: View {
         } catch {
             guard !Task.isCancelled else { return }
             ToastState.shared.show(
-                title: "Could not check remote agent providers",
+                title: L10n.string("Could not check remote agent providers"),
                 body: error.localizedDescription
             )
         }

@@ -160,6 +160,15 @@ enum SettingsCatalog {
             aliases: ["release", "beta"]
         ),
         SettingsCatalogItem(
+            key: LocalizationSelection.storageKey,
+            title: "App Language",
+            description: "Chooses built-in English or a language provided by an enabled extension.",
+            category: .appearance,
+            section: "Language",
+            defaultValue: LocalizationSelection.builtinValue,
+            aliases: ["localization", "translation", "locale", "i18n"]
+        ),
+        SettingsCatalogItem(
             key: GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch,
             title: "Auto-expand Worktrees",
             description: "Automatically reveals worktrees when switching projects.",

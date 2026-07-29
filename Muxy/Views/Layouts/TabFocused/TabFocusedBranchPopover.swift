@@ -73,8 +73,8 @@ struct TabFocusedBranchPopover: View {
             SearchableListPicker(
                 items: items,
                 filterKey: { $0.name },
-                placeholder: "Search branches…",
-                emptyLabel: "No branches",
+                placeholder: L10n.string("Search branches…"),
+                emptyLabel: L10n.string("No branches"),
                 selectsRowOnTap: false,
                 isSearchDisabled: branchBeingDeleted != nil,
                 searchFocusRequest: searchFocusRequest,
@@ -108,12 +108,12 @@ struct TabFocusedBranchPopover: View {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.accent)
-                    Text("New branch")
+                    Text(L10n.resource("New branch"))
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fg)
                 }
                 HStack(spacing: UIMetrics.spacing2) {
-                    TextField("feature/name", text: $newBranchName)
+                    TextField(L10n.string("feature/name"), text: $newBranchName)
                         .textFieldStyle(.plain)
                         .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fg)
@@ -124,7 +124,7 @@ struct TabFocusedBranchPopover: View {
                         .disabled(isInteractionDisabled || isSubmittingNewBranch)
                         .onSubmit(createBranch)
                         .onExitCommand(perform: cancelBranchCreation)
-                    Button("Cancel", action: cancelBranchCreation)
+                    Button(L10n.string("Cancel"), action: cancelBranchCreation)
                         .buttonStyle(.plain)
                         .font(.system(size: UIMetrics.fontXS, weight: .medium))
                         .foregroundStyle(MuxyTheme.fgMuted)
@@ -135,7 +135,7 @@ struct TabFocusedBranchPopover: View {
                             if isSubmittingNewBranch {
                                 ProgressView().controlSize(.mini)
                             } else {
-                                Text("Create")
+                                Text(L10n.resource("Create"))
                             }
                         }
                         .font(.system(size: UIMetrics.fontXS, weight: .semibold))
@@ -144,7 +144,7 @@ struct TabFocusedBranchPopover: View {
                     .buttonStyle(.plain)
                     .disabled(!canCreateBranch)
                     .keyboardShortcut(.defaultAction)
-                    .accessibilityLabel("Create and switch to branch")
+                    .accessibilityLabel(L10n.string("Create and switch to branch"))
                 }
             }
             .padding(.horizontal, UIMetrics.spacing5)
@@ -155,7 +155,7 @@ struct TabFocusedBranchPopover: View {
                     Image(systemName: "plus")
                         .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                         .frame(width: UIMetrics.iconSM)
-                    Text("New branch")
+                    Text(L10n.resource("New branch"))
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     Spacer(minLength: UIMetrics.spacing3)
                 }
@@ -171,8 +171,8 @@ struct TabFocusedBranchPopover: View {
             .buttonStyle(.plain)
             .disabled(isInteractionDisabled || pendingDeletion != nil)
             .onHover { isNewBranchButtonHovered = $0 }
-            .help("Create a branch from the current HEAD")
-            .accessibilityLabel("Create new branch")
+            .help(L10n.string("Create a branch from the current HEAD"))
+            .accessibilityLabel(L10n.string("Create new branch"))
             .padding(UIMetrics.spacing3)
         }
     }
@@ -305,7 +305,11 @@ private struct BranchPopoverRow: View {
             }
             .buttonStyle(.plain)
             .disabled(isInteractionDisabled || hasActiveInlineAction || isSelected)
-            .accessibilityLabel(isSelected ? "Current branch \(name)" : "Switch to branch \(name)")
+            .accessibilityLabel(
+                isSelected
+                    ? L10n.string("Current branch \(name)")
+                    : L10n.string("Switch to branch \(name)")
+            )
 
             trailingAccessory
         }
@@ -331,27 +335,27 @@ private struct BranchPopoverRow: View {
             .opacity(showsDeleteAction ? 1 : 0)
             .allowsHitTesting(showsDeleteAction)
             .disabled(isInteractionDisabled || hasActiveInlineAction)
-            .help("Delete branch \(name)")
-            .accessibilityLabel("Delete branch \(name)")
+            .help(L10n.string("Delete branch \(name)"))
+            .accessibilityLabel(L10n.string("Delete branch \(name)"))
         }
     }
 
     private var deletionConfirmation: some View {
         HStack(spacing: UIMetrics.spacing2) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Delete \(name)?")
+                Text(L10n.resource("Delete \(name)?"))
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("Unmerged commits may be permanently lost")
+                Text(L10n.resource("Unmerged commits may be permanently lost"))
                     .font(.system(size: UIMetrics.fontXS))
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: UIMetrics.spacing1)
-            Button("Cancel", action: onCancelDelete)
+            Button(L10n.string("Cancel"), action: onCancelDelete)
                 .buttonStyle(.plain)
                 .font(.system(size: UIMetrics.fontXS, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -364,7 +368,11 @@ private struct BranchPopoverRow: View {
                     } else {
                         Image(systemName: "trash")
                     }
-                    Text(isDeleting ? "Deleting…" : "Delete")
+                    Text(
+                        isDeleting
+                            ? L10n.resource("Deleting…")
+                            : L10n.resource("Delete")
+                    )
                 }
                 .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                 .foregroundStyle(MuxyTheme.diffRemoveFg)
@@ -372,8 +380,8 @@ private struct BranchPopoverRow: View {
             }
             .buttonStyle(.plain)
             .disabled(isDeleting || isInteractionDisabled)
-            .help("Permanently delete branch \(name). Unmerged commits may be lost.")
-            .accessibilityLabel("Permanently delete branch \(name). Unmerged commits may be lost.")
+            .help(L10n.string("Permanently delete branch \(name). Unmerged commits may be lost."))
+            .accessibilityLabel(L10n.string("Permanently delete branch \(name). Unmerged commits may be lost."))
         }
         .accessibilityElement(children: .contain)
     }

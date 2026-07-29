@@ -16,7 +16,7 @@ struct ProjectPickerShortcutHint: View {
             .padding(.vertical, UIMetrics.scaled(2))
             .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
-            Text(shortcut.label)
+            Text(L10n.resource(key: shortcut.label))
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgDim)
                 .lineLimit(1)

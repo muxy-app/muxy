@@ -2,8 +2,8 @@ import Foundation
 
 struct WorktreeRemovalConfirmation: Identifiable, Equatable {
     let worktree: Worktree
-    let title: String
-    let message: String
+    let title: LocalizedStringResource
+    let message: LocalizedStringResource
 
     var id: UUID {
         worktree.id
