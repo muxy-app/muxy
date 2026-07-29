@@ -137,8 +137,8 @@ private struct ProviderToggleRow: View {
     private func secondaryLine(now: Date) -> String {
         if let testResult {
             switch testResult {
-            case .passed: return "Test passed"
-            case let .failed(reason): return "Test failed — \(reason)"
+            case .passed: return L10n.string("Test passed")
+            case let .failed(reason): return L10n.string("Test failed — \(reason)")
             }
         }
         return HookHealthPresenter.statusLine(for: health, now: now)

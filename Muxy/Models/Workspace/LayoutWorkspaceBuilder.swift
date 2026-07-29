@@ -52,12 +52,12 @@ enum LayoutWorkspaceBuilder {
         let trimmedCommand = tab.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedCommand = (trimmedCommand?.isEmpty ?? true) ? nil : trimmedCommand
         let trimmedName = tab.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedTitle: String = if let trimmedName, !trimmedName.isEmpty {
+        let resolvedTitle: String? = if let trimmedName, !trimmedName.isEmpty {
             trimmedName
         } else if let resolvedCommand {
             commandTitle(resolvedCommand)
         } else {
-            "Terminal"
+            nil
         }
         let pane = TerminalPaneState(
             projectPath: projectPath,

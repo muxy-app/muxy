@@ -33,6 +33,7 @@ struct LocalizationServiceTests {
         service.refresh(storedValue: binding.id, bindings: [binding])
 
         #expect(service.string("Settings") == "Einstellungen")
+        #expect(service.searchString(key: "Settings") == "Einstellungen")
         #expect(service.string("Missing translation") == "Missing translation")
         #expect(service.string("Open \("Project")") == "Project öffnen")
 
@@ -40,7 +41,26 @@ struct LocalizationServiceTests {
 
         #expect(service.activeSelection == LocalizationSelection.builtinValue)
         #expect(service.string("Settings") == "Settings")
+        #expect(service.searchString(key: "Settings") == "Settings")
         #expect(defaults.string(forKey: LocalizationSelection.storageKey) == binding.id)
+    }
+
+    @Test("command search localizes only the built-in fallback name")
+    func commandSearchLocalizesOnlyFallbackName() throws {
+        let fixture = try LocalizationTestSupport.makeService(
+            translations: #"""
+            "Command" = "Befehl";
+            """#
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let unnamed = CommandShortcut(command: "swift test")
+        let userNamed = CommandShortcut(name: "Command", command: "npm test")
+
+        #expect(unnamed.localizedDisplayName(using: fixture.service) == "Befehl")
+        #expect(unnamed.matchesSearch(query: "befehl", localization: fixture.service))
+        #expect(userNamed.localizedDisplayName(using: fixture.service) == "Command")
+        #expect(!userNamed.matchesSearch(query: "befehl", localization: fixture.service))
+        #expect(userNamed.matchesSearch(query: "npm test", localization: fixture.service))
     }
 
     private func makeBinding(root: URL) -> ExtensionStore.LocalizationBinding {

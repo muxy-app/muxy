@@ -224,17 +224,18 @@ struct ProjectsSettingsView: View {
                 : nil
         }
         guard let message else { return nil }
-        return "\(message) \(persistedDefaultWorktreeLocationDescription) remains active."
+        let localizedMessage = L10n.string(key: message)
+        return L10n.string("\(localizedMessage) \(persistedDefaultWorktreeLocationDescription) remains active.")
     }
 
     private var persistedDefaultWorktreeLocationDescription: String {
         if let template = WorktreeLocationResolver.normalizedLocation(defaultWorktreePathTemplate) {
-            return "Saved template \(template)"
+            return L10n.string("Saved template \(template)")
         }
         if let folder = WorktreeLocationResolver.normalizedLocation(defaultWorktreeParentPath) {
-            return "Saved folder \(folder)"
+            return L10n.string("Saved folder \(folder)")
         }
-        return "App Default"
+        return L10n.string("App Default")
     }
 
     private func chooseDefaultWorktreeParentPath() {

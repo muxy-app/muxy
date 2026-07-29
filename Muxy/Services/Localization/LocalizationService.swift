@@ -11,6 +11,7 @@ final class LocalizationService {
     private(set) var bundleURL: URL?
 
     private let defaults: UserDefaults
+    private var searchStringCache: [String: String] = [:]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -31,6 +32,7 @@ final class LocalizationService {
         storedValue: String,
         bindings: [ExtensionStore.LocalizationBinding]
     ) {
+        searchStringCache.removeAll(keepingCapacity: true)
         let previousSelection = activeSelection
         let previousLocale = locale
         let previousBundleURL = bundleURL
@@ -77,6 +79,15 @@ final class LocalizationService {
         String(localized: self.resource(resource))
     }
 
+    func searchString(key: String) -> String {
+        if let cached = searchStringCache[key] {
+            return cached
+        }
+        let value = string(LocalizedStringResource(String.LocalizationValue(key)))
+        searchStringCache[key] = value
+        return value
+    }
+
     private func postChangeIfNeeded(
         previousSelection: String,
         previousLocale: Locale,
@@ -87,6 +98,35 @@ final class LocalizationService {
             || previousBundleURL != bundleURL
         else { return }
         NotificationCenter.default.post(name: .localizationDidChange, object: self)
+    }
+}
+
+@MainActor
+enum LocalizedSearch {
+    static func matches(
+        query: String,
+        localizedKeys: [String] = [],
+        verbatimValues: [String] = [],
+        localization: LocalizationService = .shared
+    ) -> Bool {
+        let normalizedQuery = normalize(query, locale: localization.locale)
+        guard !normalizedQuery.isEmpty else { return true }
+        let localizedValues = localizedKeys.flatMap { key in
+            [key, localization.searchString(key: key)]
+        }
+        let searchableText = (localizedValues + verbatimValues)
+            .map { normalize($0, locale: localization.locale) }
+            .joined(separator: " ")
+        return searchableText.contains(normalizedQuery)
+    }
+
+    private static func normalize(_ value: String, locale: Locale) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(
+                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                locale: locale
+            )
     }
 }
 

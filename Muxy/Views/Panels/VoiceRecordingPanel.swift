@@ -136,20 +136,20 @@ struct VoiceRecordingPanel: View {
 
     private var controlButtons: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            iconButton(systemName: "xmark", tint: MuxyTheme.fgMuted, accessibility: "Cancel") {
+            iconButton(systemName: "xmark", tint: MuxyTheme.fgMuted, accessibility: L10n.string("Cancel")) {
                 state.cancel()
             }
             iconButton(
                 systemName: state.recorder.isPaused ? "play.fill" : "pause.fill",
                 tint: MuxyTheme.fg,
-                accessibility: state.recorder.isPaused ? "Resume" : "Pause"
+                accessibility: state.recorder.isPaused ? L10n.string("Resume") : L10n.string("Pause")
             ) {
                 state.togglePause()
             }
             iconButton(
                 systemName: "circle.fill",
                 tint: MuxyTheme.diffRemoveFg,
-                accessibility: "Send"
+                accessibility: L10n.string("Send")
             ) {
                 state.finish(autoSend: autoSend)
             }

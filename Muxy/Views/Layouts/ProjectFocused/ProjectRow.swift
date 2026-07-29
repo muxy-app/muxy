@@ -65,7 +65,7 @@ struct ProjectRow: View {
     }
 
     private var displayLetter: String {
-        String(project.name.prefix(1)).uppercased()
+        String(project.localizedDisplayName.prefix(1)).uppercased()
     }
 
     private func hideHome() {
@@ -74,10 +74,10 @@ struct ProjectRow: View {
 
     var body: some View {
         iconOrBadge
-            .help(project.name)
+            .help(project.localizedDisplayName)
             .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(project.name)
+            .accessibilityLabel(project.localizedDisplayName)
             .accessibilityValue(isActive ? L10n.string("Active") : "")
             .accessibilityAddTraits(isActive ? .isSelected : [])
             .accessibilityAddTraits(.isButton)

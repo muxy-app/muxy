@@ -133,8 +133,10 @@ struct KeyboardShortcutsSettingsView: View {
         guard !searchText.isEmpty else { return groups }
         return groups.compactMap { group in
             let entries = group.entries.filter {
-                $0.commandTitle.localizedCaseInsensitiveContains(searchText)
-                    || group.extensionName.localizedCaseInsensitiveContains(searchText)
+                LocalizedSearch.matches(
+                    query: searchText,
+                    verbatimValues: [$0.commandTitle, group.extensionName]
+                )
             }
             guard !entries.isEmpty else { return nil }
             return ExtensionShortcutGroup(extensionID: group.extensionID, extensionName: group.extensionName, entries: entries)
@@ -176,7 +178,12 @@ struct KeyboardShortcutsSettingsView: View {
     private func filteredActions(for category: String) -> [ShortcutAction] {
         let actions = ShortcutAction.allCases.filter { $0.category == category }
         guard !searchText.isEmpty else { return actions }
-        return actions.filter { $0.displayName.localizedCaseInsensitiveContains(searchText) }
+        return actions.filter {
+            LocalizedSearch.matches(
+                query: searchText,
+                localizedKeys: [$0.displayName, $0.category]
+            )
+        }
     }
 
     private func handleRecord(action: ShortcutAction, combo: KeyCombo) -> Bool {

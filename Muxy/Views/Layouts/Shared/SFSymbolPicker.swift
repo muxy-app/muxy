@@ -205,8 +205,11 @@ struct SFSymbolPicker: View {
     private var filteredSymbols: [(name: String, systemName: String)] {
         guard !searchText.isEmpty else { return Self.symbols }
         return Self.symbols.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-                || $0.systemName.localizedCaseInsensitiveContains(searchText)
+            LocalizedSearch.matches(
+                query: searchText,
+                localizedKeys: [$0.name],
+                verbatimValues: [$0.systemName]
+            )
         }
     }
 

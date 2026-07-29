@@ -20,7 +20,7 @@ struct EmptyProjectPlaceholder: View {
             Image(systemName: "macwindow.badge.plus")
                 .font(.system(size: UIMetrics.fontMega))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Text(L10n.resource("No tabs in \(project.name)"))
+            Text(L10n.resource("No tabs in \(project.localizedDisplayName)"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             Text(L10n.resource(subtitle))

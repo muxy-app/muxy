@@ -18,10 +18,37 @@ struct OpenTerminalTabItem: Identifiable, Equatable {
     let workingDirectory: String?
     let command: String?
     let projectName: String
+    let projectIsHome: Bool
     let worktreeName: String?
     let worktreeBranch: String?
 
     var id: String { "open-\(areaID.uuidString)-\(tabID.uuidString)" }
+
+    init(
+        projectID: UUID,
+        worktreeID: UUID,
+        areaID: UUID,
+        tabID: UUID,
+        title: String,
+        workingDirectory: String?,
+        command: String?,
+        projectName: String,
+        projectIsHome: Bool = false,
+        worktreeName: String?,
+        worktreeBranch: String?
+    ) {
+        self.projectID = projectID
+        self.worktreeID = worktreeID
+        self.areaID = areaID
+        self.tabID = tabID
+        self.title = title
+        self.workingDirectory = workingDirectory
+        self.command = command
+        self.projectName = projectName
+        self.projectIsHome = projectIsHome
+        self.worktreeName = worktreeName
+        self.worktreeBranch = worktreeBranch
+    }
 
     var sectionTitle: String {
         let context = worktreeBranch ?? worktreeName
@@ -40,8 +67,16 @@ struct TerminalOmniboxProjectItem: Identifiable, Equatable {
     let projectID: UUID
     let name: String
     let path: String
+    let isHome: Bool
 
     var id: String { "project-\(projectID.uuidString)" }
+
+    init(projectID: UUID, name: String, path: String, isHome: Bool = false) {
+        self.projectID = projectID
+        self.name = name
+        self.path = path
+        self.isHome = isHome
+    }
 
     var searchKey: String {
         [name, path, "project"].joined(separator: " ")
@@ -222,6 +257,95 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             [shortcut.displayName, shortcut.trimmedCommand].joined(separator: " ")
         case let .extensionCommand(item):
             item.searchKey
+        }
+    }
+}
+
+@MainActor
+extension TerminalOmniboxItem {
+    func localizedTitle(localization: LocalizationService = .shared) -> String {
+        switch self {
+        case let .project(project):
+            project.isHome ? localization.searchString(key: Project.homeName) : project.name
+        case let .workspace(workspace):
+            workspace.groupID == nil ? localization.searchString(key: "All Projects") : workspace.name
+        case let .commandShortcut(shortcut):
+            shortcut.localizedDisplayName(using: localization)
+        default:
+            title
+        }
+    }
+
+    func localizedSubtitle(localization: LocalizationService = .shared) -> String? {
+        guard case let .workspace(workspace) = self else { return subtitle }
+        guard workspace.groupID != nil else {
+            return localization.searchString(key: "All projects")
+        }
+        guard workspace.projectCount != 1 else {
+            return localization.string("\(workspace.projectCount) project")
+        }
+        return localization.string("\(workspace.projectCount) projects")
+    }
+
+    func localizedSectionTitle(localization: LocalizationService = .shared) -> String {
+        switch self {
+        case .project:
+            return localization.searchString(key: "Projects")
+        case .recentlyRemovedProject:
+            return localization.searchString(key: "Recently Removed")
+        case .worktree:
+            return localization.searchString(key: "Worktrees")
+        case .workspace:
+            return localization.searchString(key: "Workspaces")
+        case let .openTab(tab):
+            let projectName = tab.projectIsHome
+                ? localization.searchString(key: Project.homeName)
+                : tab.projectName
+            let context = tab.worktreeBranch ?? tab.worktreeName
+            guard let context, !context.isEmpty else {
+                return localization.string("Open Tabs — \(projectName)")
+            }
+            return localization.string("Open Tabs — \(projectName) (\(context))")
+        case .commandShortcut:
+            return localization.searchString(key: "Custom Commands")
+        case .extensionCommand:
+            return localization.searchString(key: "Extension Commands")
+        }
+    }
+
+    func matchesSearch(
+        query: String,
+        localization: LocalizationService = .shared
+    ) -> Bool {
+        LocalizedSearch.matches(
+            query: query,
+            localizedKeys: localizedSearchKeys,
+            verbatimValues: [
+                searchKey,
+                localizedTitle(localization: localization),
+                localizedSubtitle(localization: localization),
+                localizedSectionTitle(localization: localization),
+            ].compactMap(\.self),
+            localization: localization
+        )
+    }
+
+    private var localizedSearchKeys: [String] {
+        switch self {
+        case .project:
+            ["project"]
+        case .recentlyRemovedProject:
+            ["recently removed project"]
+        case .worktree:
+            ["worktree"]
+        case .workspace:
+            ["workspace"]
+        case .openTab:
+            ["open tab"]
+        case .commandShortcut:
+            ["custom command"]
+        case .extensionCommand:
+            ["extension command"]
         }
     }
 }

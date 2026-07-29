@@ -74,6 +74,9 @@ Do not add `CFBundleExecutable`. Muxy rejects localization bundles that declare 
 
 Missing translation keys fall back to Muxy's English source text. If the selected provider is disabled, removed, or fails validation, Muxy temporarily uses English while preserving the selection. Enabling the provider again restores it automatically.
 
-Language changes apply immediately to Muxy's native interface. Extension-authored webview content, extension names, command titles, and extension settings remain owned by each extension and are not translated by an app-language provider.
+Language changes apply immediately to Muxy's native interface, including built-in search indexes and generated
+status text. Search also retains English and technical terms as fallbacks. Extension-authored webview content,
+extension names, command titles, and extension settings remain owned by each extension and are not translated by an
+app-language provider.
 
 The current English `Localizable.strings` file in the Muxy repository is the source template for translation extensions. Keep format placeholders unchanged and translate the value on the right-hand side.

@@ -25,7 +25,7 @@ struct TerminalOmniboxOverlay: View {
     private var displayList: [TerminalOmniboxItem] {
         let items = baseItems
         guard !trimmedQuery.isEmpty else { return items }
-        return items.filter { $0.searchKey.localizedCaseInsensitiveContains(trimmedQuery) }
+        return items.filter { $0.matchesSearch(query: trimmedQuery) }
     }
 
     private var baseItems: [TerminalOmniboxItem] {
@@ -134,7 +134,7 @@ struct TerminalOmniboxOverlay: View {
                             ForEach(Array(displayList.enumerated()), id: \.element.id) { index, item in
                                 VStack(spacing: 0) {
                                     if shouldShowSectionHeader(at: index) {
-                                        TerminalOmniboxSectionHeader(title: item.sectionTitle)
+                                        TerminalOmniboxSectionHeader(title: item.localizedSectionTitle())
                                     }
                                     TerminalOmniboxRow(item: item, isHighlighted: index == highlightedIndex)
                                         .contentShape(Rectangle())
@@ -297,12 +297,12 @@ private struct TerminalOmniboxRow: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.iconLG, alignment: .center)
             VStack(alignment: .leading, spacing: UIMetrics.scaled(1)) {
-                Text(item.title)
+                Text(item.localizedTitle())
                     .font(.system(size: UIMetrics.fontBody, weight: .medium))
                     .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let subtitle = item.subtitle, !subtitle.isEmpty {
+                if let subtitle = item.localizedSubtitle(), !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgDim)

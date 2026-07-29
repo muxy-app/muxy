@@ -70,7 +70,7 @@ struct ExpandedProjectRow: View {
     }
 
     private var displayLetter: String {
-        String(project.name.prefix(1)).uppercased()
+        String(project.localizedDisplayName.prefix(1)).uppercased()
     }
 
     private func hideHome() {
@@ -199,13 +199,13 @@ struct ExpandedProjectRow: View {
             iconOrBadge
 
             VStack(alignment: .leading, spacing: UIMetrics.scaled(1)) {
-                Text(project.name)
+                Text(project.localizedDisplayName)
                     .font(.system(size: UIMetrics.fontEmphasis, weight: isActive ? .semibold : .medium))
                     .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .helpIfTruncated(
-                        project.name,
+                        project.localizedDisplayName,
                         font: .systemFont(ofSize: UIMetrics.fontEmphasis, weight: isActive ? .semibold : .medium)
                     )
 
@@ -395,7 +395,7 @@ struct ExpandedProjectRow: View {
     }
 
     private var projectHeaderAccessibilityLabel: String {
-        var label = project.name
+        var label = project.localizedDisplayName
         if hasWorktreeUI, let worktree = activeWorktree {
             label += ", worktree: \(worktree.isPrimary ? "primary" : worktree.name)"
         }

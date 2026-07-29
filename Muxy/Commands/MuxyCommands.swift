@@ -230,7 +230,7 @@ struct MuxyCommands: Commands {
                         .disabled(true)
                 } else {
                     ForEach(commandShortcuts.shortcuts) { shortcut in
-                        Button(shortcut.displayName) {
+                        Button(shortcut.localizedDisplayName) {
                             performCommandShortcut(shortcut)
                         }
                         .disabled(shortcut.trimmedCommand.isEmpty)

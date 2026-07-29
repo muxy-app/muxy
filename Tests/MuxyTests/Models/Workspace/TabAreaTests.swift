@@ -359,4 +359,40 @@ struct TabAreaTests {
         #expect(area.tabs.count == 2)
         #expect(area.tabs[0].id == firstTabID)
     }
+
+    @Test("unchanged localized tab rename preserves default title provenance")
+    func unchangedLocalizedTabRenamePreservesDefaultTitle() {
+        let result = TerminalTabRename.resolve(
+            input: "Terminale",
+            displayedTitle: "Terminale",
+            existingCustomTitle: nil
+        )
+
+        #expect(result == .unchanged)
+    }
+
+    @Test("unchanged custom tab rename preserves custom title provenance")
+    func unchangedCustomTabRenamePreservesCustomTitle() {
+        let result = TerminalTabRename.resolve(
+            input: "Build",
+            displayedTitle: "Build",
+            existingCustomTitle: "Build"
+        )
+
+        #expect(result == .unchanged)
+    }
+
+    @Test("edited tab rename updates or clears the custom title")
+    func editedTabRenameUpdatesOrClearsCustomTitle() {
+        #expect(TerminalTabRename.resolve(
+            input: "Deploy",
+            displayedTitle: "Build",
+            existingCustomTitle: "Build"
+        ) == .update("Deploy"))
+        #expect(TerminalTabRename.resolve(
+            input: " ",
+            displayedTitle: "Build",
+            existingCustomTitle: "Build"
+        ) == .update(nil))
+    }
 }

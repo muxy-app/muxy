@@ -1,18 +1,31 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 enum ProjectListSearch {
-    static func filter(_ projects: [Project], matching query: String) -> [Project] {
-        projects.filter { matches($0, query: query) }
+    static func filter(
+        _ projects: [Project],
+        matching query: String,
+        localization: LocalizationService = .shared
+    ) -> [Project] {
+        projects.filter { matches($0, query: query, localization: localization) }
     }
 
     static func activeQuery(_ query: String, isVisible: Bool, isWide: Bool) -> String {
         isVisible && isWide ? query : ""
     }
 
-    static func matches(_ project: Project, query: String) -> Bool {
-        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return query.isEmpty || project.name.localizedCaseInsensitiveContains(query)
+    static func matches(
+        _ project: Project,
+        query: String,
+        localization: LocalizationService = .shared
+    ) -> Bool {
+        LocalizedSearch.matches(
+            query: query,
+            localizedKeys: project.isHome ? [Project.homeName] : [],
+            verbatimValues: [project.name],
+            localization: localization
+        )
     }
 }
 

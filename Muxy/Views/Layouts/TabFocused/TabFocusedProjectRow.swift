@@ -34,7 +34,7 @@ struct TabFocusedProjectRow: View {
     private var rowID: UUID { worktree?.id ?? project.id }
 
     private var rowTitle: String {
-        worktree?.name ?? project.name
+        worktree?.name ?? project.localizedDisplayName
     }
 
     private var listWorktree: Worktree? {
@@ -360,7 +360,7 @@ struct TabFocusedProjectRow: View {
     private var focusModeButton: some View {
         SidebarActionButton(
             symbol: "scope",
-            label: isFocused ? "Exit Focus Mode" : "Focus This Project",
+            label: isFocused ? L10n.string("Exit Focus Mode") : L10n.string("Focus This Project"),
             isActive: isFocused,
             action: toggleFocusMode
         )

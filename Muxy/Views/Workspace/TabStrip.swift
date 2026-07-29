@@ -10,7 +10,7 @@ struct PaneTabStrip: View {
         let title: String
         let kind: TerminalTab.Kind
         let isPinned: Bool
-        let hasCustomTitle: Bool
+        let customTitle: String?
         let colorID: String?
         let customIconSymbol: String?
         let extensionID: String?
@@ -20,6 +20,10 @@ struct PaneTabStrip: View {
         let detectedAgentIconName: String?
         let agentStatus: AgentStatus?
         let hasUnread: Bool
+
+        var hasCustomTitle: Bool {
+            customTitle != nil
+        }
     }
 
     let areaID: UUID
@@ -70,10 +74,10 @@ struct PaneTabStrip: View {
                 id: tab.id,
                 paneID: tab.content.pane?.id,
                 relatedPaneIDs: paneIDs,
-                title: tab.title,
+                title: tab.localizedTitle,
                 kind: tab.kind,
                 isPinned: tab.isPinned,
-                hasCustomTitle: tab.customTitle != nil,
+                customTitle: tab.customTitle,
                 colorID: tab.colorID,
                 customIconSymbol: tab.customIcon,
                 extensionID: tab.content.extensionState?.extensionID,
@@ -674,8 +678,16 @@ private struct TabCell: View {
     }
 
     private func commitRename() {
-        let trimmed = renameText.trimmingCharacters(in: .whitespaces)
-        onSetCustomTitle(trimmed.isEmpty ? nil : trimmed)
+        switch TerminalTabRename.resolve(
+            input: renameText,
+            displayedTitle: tab.title,
+            existingCustomTitle: tab.customTitle
+        ) {
+        case .unchanged:
+            break
+        case let .update(customTitle):
+            onSetCustomTitle(customTitle)
+        }
         isRenaming = false
     }
 

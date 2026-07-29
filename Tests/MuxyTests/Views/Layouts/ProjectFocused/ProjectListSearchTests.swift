@@ -1,8 +1,10 @@
+import Foundation
 import Testing
 
 @testable import Muxy
 
 @Suite("ProjectListSearch")
+@MainActor
 struct ProjectListSearchTests {
     @Test("returns all projects for an empty query")
     func emptyQueryReturnsAllProjects() {
@@ -17,6 +19,28 @@ struct ProjectListSearchTests {
         let projects = [project(named: "Alpha"), matchingProject, project(named: "Beta")]
 
         #expect(ProjectListSearch.filter(projects, matching: "  DESKTOP  ") == [matchingProject])
+    }
+
+    @Test("matches the localized Home name without translating user project names")
+    func matchesLocalizedHomeName() throws {
+        let fixture = try LocalizationTestSupport.makeService(
+            translations: #"""
+            "Home" = "Startseite";
+            """#
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let userProject = project(named: "Home")
+
+        #expect(ProjectListSearch.filter(
+            [Project.home, userProject],
+            matching: "startseite",
+            localization: fixture.service
+        ) == [Project.home])
+        #expect(ProjectListSearch.filter(
+            [Project.home, userProject],
+            matching: "Home",
+            localization: fixture.service
+        ) == [Project.home, userProject])
     }
 
     @Test("preserves the displayed project order")

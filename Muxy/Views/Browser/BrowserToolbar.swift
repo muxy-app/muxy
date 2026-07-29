@@ -29,7 +29,7 @@ struct BrowserToolbar: View {
 
                 IconButton(
                     symbol: state.isLoading ? "xmark" : "arrow.clockwise",
-                    accessibilityLabel: state.isLoading ? "Stop" : "Reload"
+                    accessibilityLabel: state.isLoading ? L10n.string("Stop") : L10n.string("Reload")
                 ) {
                     state.pendingCommand = state.isLoading ? .stop : .reload
                 }
@@ -116,9 +116,9 @@ struct BrowserToolbar: View {
                     selectProfile(profile.id)
                 } label: {
                     if profile.id == state.profileID {
-                        Label(profile.name, systemImage: "checkmark")
+                        Label(profile.localizedDisplayName, systemImage: "checkmark")
                     } else {
-                        Text(profile.name)
+                        Text(profile.localizedDisplayName)
                     }
                 }
             }
@@ -144,7 +144,7 @@ struct BrowserToolbar: View {
     }
 
     private var currentProfileName: String {
-        profileStore.profile(id: state.profileID)?.name ?? BrowserProfile.defaultName
+        profileStore.profile(id: state.profileID)?.localizedDisplayName ?? L10n.string("Default")
     }
 
     private func selectProfile(_ id: UUID) {

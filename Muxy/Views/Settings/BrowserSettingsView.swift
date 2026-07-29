@@ -45,7 +45,7 @@ struct BrowserSettingsView: View {
                     SettingsRow("Default Profile") {
                         Picker("", selection: defaultProfileBinding) {
                             ForEach(profileStore.profiles) { profile in
-                                Text(profile.name).tag(profile.id)
+                                Text(profile.localizedDisplayName).tag(profile.id)
                             }
                         }
                         .labelsHidden()
@@ -238,7 +238,7 @@ private struct BrowserProfileRow: View {
                 .font(.system(size: SettingsMetrics.labelFontSize))
                 .foregroundStyle(SettingsStyle.mutedForeground)
                 .frame(width: 16)
-            Text(profile.name)
+            Text(profile.localizedDisplayName)
                 .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.foreground)
                 .lineLimit(1)

@@ -108,14 +108,14 @@ struct InterfaceSettingsView: View {
             SettingsSection("Theme") {
                 SettingsRow("Light Theme") {
                     themeButton(
-                        title: currentLightTheme ?? "Default",
+                        title: currentLightTheme ?? L10n.string("Default"),
                         isPresented: $showLightThemePicker,
                         mode: .light
                     )
                 }
                 SettingsRow("Dark Theme") {
                     themeButton(
-                        title: currentDarkTheme ?? "Default",
+                        title: currentDarkTheme ?? L10n.string("Default"),
                         isPresented: $showDarkThemePicker,
                         mode: .dark
                     )

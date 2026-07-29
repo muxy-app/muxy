@@ -138,10 +138,7 @@ struct CommandsSettingsView: View {
 
     private var filteredCommandShortcuts: [CommandShortcut] {
         guard !searchText.isEmpty else { return commandStore.shortcuts }
-        return commandStore.shortcuts.filter {
-            $0.displayName.localizedCaseInsensitiveContains(searchText)
-                || $0.command.localizedCaseInsensitiveContains(searchText)
-        }
+        return commandStore.shortcuts.filter { $0.matchesSearch(query: searchText) }
     }
 
     private func handleRecord(prefixCombo combo: KeyCombo) -> Bool {

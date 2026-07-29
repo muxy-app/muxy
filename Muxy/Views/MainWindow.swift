@@ -684,7 +684,7 @@ struct MainWindow: View {
     }
 
     private func projectTitle(_ project: Project) -> some View {
-        Text(project.name)
+        Text(project.localizedDisplayName)
             .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             .foregroundStyle(MuxyTheme.fgMuted)
             .lineLimit(1)
@@ -722,7 +722,7 @@ struct MainWindow: View {
                     let symbol = isMaximized
                         ? "arrow.down.right.and.arrow.up.left"
                         : "arrow.up.left.and.arrow.down.right"
-                    let label = isMaximized ? "Restore Pane" : "Maximize Pane"
+                    let label = isMaximized ? L10n.string("Restore Pane") : L10n.string("Maximize Pane")
                     IconButton(symbol: symbol, accessibilityLabel: label) {
                         appState.toggleMaximize(areaID: focusedAreaID, for: project.id)
                     }
@@ -828,7 +828,7 @@ struct MainWindow: View {
                         state: state,
                         voice: composerVoice,
                         worktreeKey: worktreeKey,
-                        projectName: project.name,
+                        projectName: project.localizedDisplayName,
                         worktreeName: worktree.branch ?? worktree.name,
                         languageIdentifier: recordingLanguage,
                         broadcasts: $richInputBroadcast,
@@ -1017,7 +1017,12 @@ struct MainWindow: View {
 
     private var terminalOmniboxProjects: [TerminalOmniboxProjectItem] {
         omniboxProjects.map {
-            TerminalOmniboxProjectItem(projectID: $0.id, name: $0.name, path: $0.path)
+            TerminalOmniboxProjectItem(
+                projectID: $0.id,
+                name: $0.name,
+                path: $0.path,
+                isHome: $0.isHome
+            )
         }
     }
 
@@ -1080,7 +1085,11 @@ struct MainWindow: View {
 
     private var terminalOmniboxOpenTabs: [OpenTerminalTabItem] {
         omniboxProjects.flatMap { project in
-            appState.allOpenTerminalTabItems(for: project.id, projectName: project.name) { worktreeID in
+            appState.allOpenTerminalTabItems(
+                for: project.id,
+                projectName: project.name,
+                projectIsHome: project.isHome
+            ) { worktreeID in
                 guard let worktree = worktreeStore.worktree(projectID: project.id, worktreeID: worktreeID) else {
                     return (nil, nil)
                 }
@@ -1319,10 +1328,10 @@ struct MainWindow: View {
 
     private var windowTitle: String {
         guard let project = activeProject else { return "Muxy" }
-        guard let tabTitle = appState.activeTab(for: project.id)?.title,
+        guard let tabTitle = appState.activeTab(for: project.id)?.localizedTitle,
               !tabTitle.isEmpty
-        else { return project.name }
-        return "\(project.name) — \(tabTitle)"
+        else { return project.localizedDisplayName }
+        return "\(project.localizedDisplayName) — \(tabTitle)"
     }
 
     private var activeProjectWithWorkspace: Project? {

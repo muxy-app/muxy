@@ -142,10 +142,10 @@ struct FocusedComposerView: View {
 
     private var voiceTranscript: String {
         if voice.isStarting {
-            return "Preparing on-device dictation…"
+            return L10n.string("Preparing on-device dictation…")
         }
         if voice.recorder.transcript.isEmpty {
-            return "Listening…"
+            return L10n.string("Listening…")
         }
         return voice.recorder.transcript
     }
@@ -172,7 +172,9 @@ struct FocusedComposerView: View {
             ComposerIconButton(symbol: "plus", label: L10n.string("Attach File"), action: chooseAttachments)
             ComposerIconButton(
                 symbol: voice.recorder.isRecording ? "stop.fill" : "mic",
-                label: voice.recorder.isRecording ? "Finish Dictation" : "Start Dictation",
+                label: voice.recorder.isRecording
+                    ? L10n.string("Finish Dictation")
+                    : L10n.string("Start Dictation"),
                 isActive: voice.isBusy,
                 activeColor: MuxyTheme.diffRemoveFg,
                 action: toggleVoice

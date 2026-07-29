@@ -427,7 +427,7 @@ private struct ExtensionRow: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
-                .help(status.isEnabled ? "Disable extension" : "Enable extension")
+                .help(status.isEnabled ? L10n.string("Disable extension") : L10n.string("Enable extension"))
                 .padding(.trailing, 14)
         }
         .background(hovered ? MuxyTheme.hover : Color.clear)
@@ -580,15 +580,15 @@ private struct ExtensionStatusBadge: View {
     @MainActor
     private var info: (String, Color) {
         if status.isRunning {
-            return ("running", MuxyTheme.diffAddFg)
+            return (L10n.string("running"), MuxyTheme.diffAddFg)
         }
         if status.isEnabled, status.muxyExtension.backgroundScriptURL == nil {
-            return ("active", MuxyTheme.diffAddFg)
+            return (L10n.string("active"), MuxyTheme.diffAddFg)
         }
         if status.isEnabled {
-            return ("stopped", MuxyTheme.fgMuted)
+            return (L10n.string("stopped"), MuxyTheme.fgMuted)
         }
-        return ("disabled", MuxyTheme.fgDim)
+        return (L10n.string("disabled"), MuxyTheme.fgDim)
     }
 }
 
@@ -652,9 +652,9 @@ private struct ExtensionPermissionTag: View {
 
     private var helpText: String {
         switch permission.kind {
-        case .read: "Read access: \(permission.displayName)"
-        case .write: "Write access: \(permission.displayName)"
-        case .action: "Action: \(permission.displayName)"
+        case .read: L10n.string("Read access: \(permission.displayName)")
+        case .write: L10n.string("Write access: \(permission.displayName)")
+        case .action: L10n.string("Action: \(permission.displayName)")
         }
     }
 }

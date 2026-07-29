@@ -22,6 +22,50 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func searchFindsSettingsByLocalizedVisibleText() throws {
+        let fixture = try LocalizationTestSupport.makeService(
+            translations: #"""
+            "App Shortcuts" = "App-Tastenkürzel";
+            "Interface" = "Darstellung";
+            """#
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let results = SettingsCatalog.matchingItems(
+            query: "tastenkürzel",
+            localization: fixture.service
+        )
+
+        #expect(results.contains { $0.category == .shortcuts && $0.title == "App Shortcuts" })
+        #expect(SettingsCatalog.categoryMatches(
+            .appearance,
+            query: "darstellung",
+            localization: fixture.service
+        ))
+    }
+
+    @Test
+    func everyVisibleCatalogStringExistsInEnglishLocalizationTemplate() throws {
+        let url = RepositoryRoot.find()
+            .appendingPathComponent("Muxy/Resources/Localization/en.lproj/Localizable.strings")
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        let templateKeys = Set(contents.split(separator: "\n").compactMap { line -> String? in
+            guard line.hasPrefix("\""),
+                  let delimiter = line.range(of: "\" = ")
+            else {
+                return nil
+            }
+            return String(line[line.index(after: line.startIndex)..<delimiter.lowerBound])
+        })
+        let catalogKeys = Set(SettingsCatalog.items.flatMap {
+            [$0.title, $0.description, $0.category.title, $0.section]
+        })
+        let missingKeys = catalogKeys.subtracting(templateKeys).sorted()
+
+        #expect(missingKeys.isEmpty, "Missing settings localization keys: \(missingKeys)")
+    }
+
+    @Test
     func quickTerminalShortcutIsSearchable() {
         let item = SettingsCatalog.matchingItems(query: "double shift").first {
             $0.key == "shortcuts.quickTerminal"

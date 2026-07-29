@@ -31,7 +31,7 @@ struct SidebarFooter: View {
     }
 
     private var sidebarToggleLabel: String {
-        sidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar"
+        sidebarExpanded ? L10n.string("Collapse Sidebar") : L10n.string("Expand Sidebar")
     }
 
     private var notificationBellIcon: String {
@@ -43,13 +43,17 @@ struct SidebarFooter: View {
     }
 
     private var extensionsHelp: String {
-        guard extensionStore.hasUpdates else { return "Extensions" }
+        guard extensionStore.hasUpdates else { return L10n.string("Extensions") }
         let count = extensionStore.updateCount
-        return count == 1 ? "Extensions (1 update available)" : "Extensions (\(count) updates available)"
+        return count == 1
+            ? L10n.string("Extensions (1 update available)")
+            : L10n.string("Extensions (\(count) updates available)")
     }
 
     private var extensionsAccessibilityLabel: String {
-        extensionStore.hasUpdates ? "Extensions, updates available" : "Extensions"
+        extensionStore.hasUpdates
+            ? L10n.string("Extensions, updates available")
+            : L10n.string("Extensions")
     }
 
     private var collapsedFooter: some View {

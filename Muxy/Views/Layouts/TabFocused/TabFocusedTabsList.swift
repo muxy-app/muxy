@@ -474,7 +474,7 @@ struct TabFocusedTabRow: View {
                         }
                     }
             } else {
-                Text(tab.title)
+                Text(tab.localizedTitle)
                     .font(.system(size: UIMetrics.fontHeadline))
                     .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .lineLimit(1)
@@ -529,7 +529,7 @@ struct TabFocusedTabRow: View {
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(tab.title)
+        .accessibilityLabel(tab.localizedTitle)
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
         .contextMenu { contextMenu }
         .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
@@ -765,15 +765,23 @@ struct TabFocusedTabRow: View {
     }
 
     private func startRename() {
-        renameText = tab.title
+        renameText = tab.localizedTitle
         isRenaming = true
         renameFieldFocused = true
     }
 
     private func commitRename() {
-        let trimmed = renameText.trimmingCharacters(in: .whitespaces)
-        area.setCustomTitle(tab.id, title: trimmed.isEmpty ? nil : trimmed)
-        appState.saveWorkspaces()
+        switch TerminalTabRename.resolve(
+            input: renameText,
+            displayedTitle: tab.localizedTitle,
+            existingCustomTitle: tab.customTitle
+        ) {
+        case .unchanged:
+            break
+        case let .update(customTitle):
+            area.setCustomTitle(tab.id, title: customTitle)
+            appState.saveWorkspaces()
+        }
         isRenaming = false
     }
 

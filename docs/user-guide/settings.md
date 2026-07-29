@@ -1,6 +1,7 @@
 # Settings
 
-Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to find settings by name.
+Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to find settings by name. Search
+matches the active app language as well as English setting keys and technical aliases.
 
 ## Language
 

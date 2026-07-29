@@ -16,3 +16,10 @@ struct BrowserProfile: Identifiable, Codable, Hashable {
 
     static let `default` = Self(id: defaultID, name: defaultName)
 }
+
+@MainActor
+extension BrowserProfile {
+    var localizedDisplayName: String {
+        isDefault ? L10n.string(key: Self.defaultName) : name
+    }
+}

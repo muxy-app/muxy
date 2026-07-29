@@ -114,9 +114,11 @@ final class GhosttyTerminalNSView: NSView,
         installScrollbarOverlay()
         registerForDraggedTypes([.fileURL, .string])
         setAccessibilityRole(.textArea)
-        setAccessibilityRoleDescription("Terminal")
+        setAccessibilityRoleDescription(L10n.string("Terminal"))
         let directoryName = URL(fileURLWithPath: workingDirectory).lastPathComponent
-        let label = directoryName.isEmpty ? "Terminal" : "Terminal — \(directoryName)"
+        let label = directoryName.isEmpty
+            ? L10n.string("Terminal")
+            : L10n.string("Terminal — \(directoryName)")
         setAccessibilityLabel(label)
     }
 

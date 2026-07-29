@@ -582,7 +582,7 @@ struct RemoteWorkspaceEditorSheet: View {
             Text(L10n.resource("Name"))
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            TextField(selectedDevice?.displayName ?? "Production", text: $name)
+            TextField(selectedDevice?.displayName ?? L10n.string("Production"), text: $name)
                 .textFieldStyle(.roundedBorder)
                 .focused($nameFocused)
                 .onSubmit {

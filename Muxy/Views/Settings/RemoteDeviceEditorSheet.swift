@@ -71,7 +71,11 @@ struct RemoteDeviceEditorSheet: View {
             Text(L10n.resource(key: mode.title))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 
-            field(label: L10n.string("Name"), placeholder: trimmedHost.isEmpty ? "Production" : trimmedHost, text: $name)
+            field(
+                label: L10n.string("Name"),
+                placeholder: trimmedHost.isEmpty ? L10n.string("Production") : trimmedHost,
+                text: $name
+            )
             field(label: L10n.string("SSH Host"), placeholder: L10n.string("host or ~/.ssh/config alias"), text: $host, focused: true)
                 .onChange(of: host) { probeState = .idle }
             field(label: L10n.string("Remote Root"), placeholder: L10n.string("~"), text: $root)

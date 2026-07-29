@@ -653,6 +653,7 @@ final class AppState {
     func allOpenTerminalTabItems(
         for projectID: UUID,
         projectName: String,
+        projectIsHome: Bool,
         worktreeLabel: (UUID) -> (name: String?, branch: String?)
     ) -> [OpenTerminalTabItem] {
         workspaceRoots
@@ -669,10 +670,11 @@ final class AppState {
                             worktreeID: key.worktreeID,
                             areaID: area.id,
                             tabID: tab.id,
-                            title: tab.title,
+                            title: tab.localizedTitle,
                             workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
                             command: command,
                             projectName: projectName,
+                            projectIsHome: projectIsHome,
                             worktreeName: label.name,
                             worktreeBranch: label.branch
                         )
