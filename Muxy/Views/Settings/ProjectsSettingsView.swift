@@ -31,7 +31,7 @@ struct ProjectsSettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                    .settingsControl()
                 }
 
                 if projectPickerMode == .custom {
@@ -48,7 +48,7 @@ struct ProjectsSettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                    .settingsControl()
                 }
 
                 SettingsToggleRow(
@@ -57,26 +57,20 @@ struct ProjectsSettingsView: View {
                 )
             }
 
-            if !fileOpeners.isEmpty {
-                SettingsSection(
-                    "Open Files With",
-                    footer: "Terminal file links go to this opener. Falls back to the selected project target "
-                        + "when its patterns don't match."
-                ) {
-                    SettingsRow("Default Opener") {
-                        HStack {
-                            Spacer()
-                            Picker("", selection: $defaultFileOpener) {
-                                Text("Built-in (IDE)").tag(FileOpenerSelection.builtinValue)
-                                ForEach(fileOpeners) { binding in
-                                    Text(label(for: binding)).tag(binding.id)
-                                }
-                            }
-                            .labelsHidden()
-                            .fixedSize()
+            SettingsSection(
+                "Open Files With",
+                footer: fileOpenerFooter
+            ) {
+                SettingsRow("Default Opener") {
+                    Picker("", selection: $defaultFileOpener) {
+                        ForEach(fileOpenerOptions) { option in
+                            Text(option.title)
+                                .tag(option.id)
+                                .disabled(!option.isAvailable)
                         }
-                        .frame(width: SettingsMetrics.controlWidth)
                     }
+                    .labelsHidden()
+                    .settingsControl()
                 }
             }
 
@@ -98,11 +92,17 @@ struct ProjectsSettingsView: View {
         FileOpenerSelection.availableOpeners(store: extensionStore)
     }
 
-    private func label(for binding: ExtensionStore.FileOpenerBinding) -> String {
-        guard let title = binding.opener.title, !title.isEmpty else {
-            return binding.muxyExtension.displayName
+    private var fileOpenerOptions: [FileOpenerSelection.Option] {
+        FileOpenerSelection.options(from: fileOpeners, selectedValue: defaultFileOpener)
+    }
+
+    private var fileOpenerFooter: String {
+        if fileOpenerOptions.contains(where: { $0.id == defaultFileOpener && !$0.isAvailable }) {
+            return "The selected extension opener is unavailable, so terminal file links currently use the "
+                + "project target selected separately in the top bar."
         }
-        return "\(binding.muxyExtension.displayName) (\(title))"
+        return "Terminal file links use this opener. Built-in and unmatched extension files use the "
+            + "project target selected separately in the top bar."
     }
 
     private var projectPickerMode: ProjectPickerMode {
@@ -143,10 +143,13 @@ struct ProjectsSettingsView: View {
 
     private var worktreeLocationControl: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 0) {
                 Text("Default worktree location")
                     .font(.system(size: SettingsMetrics.labelFontSize))
-                Spacer()
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: SettingsMetrics.rowSpacing)
                 Picker("", selection: defaultWorktreeLocationMode) {
                     Text("App Default").tag(WorktreeLocationMode.defaultLocation)
                     Text("Template").tag(WorktreeLocationMode.pathTemplate)
@@ -154,7 +157,8 @@ struct ProjectsSettingsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(width: SettingsMetrics.controlWidth)
+                .settingsControl(.intrinsic)
+                .layoutPriority(1)
             }
 
             worktreeLocationValueControl

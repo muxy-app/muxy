@@ -59,6 +59,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case selectProject9
     case findInTerminal
     case toggleRichInput
+    case toggleComposerVoice
     case submitRichInput
     case submitRichInputWithoutReturn
     case terminalOmnibox
@@ -127,6 +128,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .selectProject9,
         .findInTerminal,
         .toggleRichInput,
+        .toggleComposerVoice,
         .submitRichInput,
         .submitRichInputWithoutReturn,
         .terminalOmnibox,
@@ -199,11 +201,16 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject8: ShortcutMetadata(displayName: "Project 8", category: "Project Navigation", scope: .mainWindow)
         case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
         case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .terminal)
-        case .toggleRichInput: ShortcutMetadata(displayName: "Toggle Rich Input", category: "Rich Input", scope: .mainWindow)
-        case .submitRichInput: ShortcutMetadata(displayName: "Send", category: "Rich Input", scope: .richInput)
+        case .toggleRichInput: ShortcutMetadata(displayName: "Toggle Composer", category: "Composer", scope: .mainWindow)
+        case .toggleComposerVoice: ShortcutMetadata(
+                displayName: "Composer Voice",
+                category: "Composer",
+                scope: .mainWindow
+            )
+        case .submitRichInput: ShortcutMetadata(displayName: "Send", category: "Composer", scope: .richInput)
         case .submitRichInputWithoutReturn: ShortcutMetadata(
                 displayName: "Send Without Enter",
-                category: "Rich Input",
+                category: "Composer",
                 scope: .richInput
             )
         case .terminalOmnibox: ShortcutMetadata(displayName: "Terminal Omnibox Open Tabs", category: "Terminal", scope: .mainWindow)
@@ -232,8 +239,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .navigateBack: ShortcutMetadata(displayName: "Navigate Back", category: "Navigation", scope: .mainWindow)
         case .navigateForward: ShortcutMetadata(displayName: "Navigate Forward", category: "Navigation", scope: .mainWindow)
         case .toggleVoiceRecording: ShortcutMetadata(
-                displayName: "Voice Recording",
-                category: "Rich Input",
+                displayName: "Legacy Voice Recording",
+                category: "Composer",
                 scope: .mainWindow
             )
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
@@ -276,7 +283,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
             "Navigation",
             "Browser",
             "Terminal",
-            "Rich Input",
+            "Composer",
             "App",
             "Extensions",
         ]
@@ -388,6 +395,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .selectProject9, combo: KeyCombo(key: "9", control: true)),
         Self(action: .findInTerminal, combo: KeyCombo(key: "f", command: true)),
         Self(action: .toggleRichInput, combo: KeyCombo(key: "i", command: true)),
+        Self(action: .toggleComposerVoice, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .submitRichInput, combo: KeyCombo(key: KeyCombo.returnKey, command: true)),
         Self(action: .submitRichInputWithoutReturn, combo: KeyCombo(key: KeyCombo.returnKey, command: true, shift: true)),
         Self(action: .terminalOmnibox, combo: KeyCombo(key: "o", command: true, option: true)),

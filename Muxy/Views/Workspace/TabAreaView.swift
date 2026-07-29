@@ -98,7 +98,8 @@ struct TabAreaView: View {
                 return
             }
             guard let pane = tab.content.pane else { return }
-            TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
+            let surface = TerminalViewRegistry.shared.existingView(for: pane.id)
+            (surface as? any TerminalSearchSurface)?.startSearch()
         }
     }
 

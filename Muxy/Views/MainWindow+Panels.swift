@@ -1,16 +1,10 @@
 import SwiftUI
 
 enum BuiltinPanel {
-    static let richInput = "builtin:richInput"
     static let extensionConsole = "builtin:extensionConsole"
 }
 
 enum PanelLayoutMetrics {
-    static let richInputWidthRange: ClosedRange<CGFloat> = 280 ... 800
-    static let richInputDefaultWidth: Double = 380
-    static let richInputHeightRange: ClosedRange<CGFloat> = 120 ... 600
-    static let richInputDefaultHeight: Double = 220
-
     static let consoleHeightRange: ClosedRange<CGFloat> = 120 ... 600
     static let consoleDefaultHeight: Double = 220
 
@@ -18,6 +12,19 @@ enum PanelLayoutMetrics {
     static let extensionDefaultWidth: Double = 360
     static let extensionHeightRange: ClosedRange<CGFloat> = 160 ... 600
     static let extensionDefaultHeight: Double = 240
+}
+
+struct PanelHostSlot<Content: View>: View {
+    let panelHost: PanelHost
+    let position: PanelPosition
+    let mode: PanelMode
+    @ViewBuilder let content: (PanelPlacement) -> Content
+
+    var body: some View {
+        if let placement = panelHost.panel(at: position, mode: mode) {
+            content(placement)
+        }
+    }
 }
 
 struct PanelFrame: ViewModifier {

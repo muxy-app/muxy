@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 enum TerminalSurfaceMaterializer {
-    static func materialize(paneID: UUID, appState: AppState) -> GhosttyTerminalNSView? {
+    static func materialize(paneID: UUID, appState: AppState) -> (any TerminalSurface)? {
         if let view = TerminalViewRegistry.shared.existingView(for: paneID) {
             return view.ensureLiveSurfaceForExternalIO() ? view : nil
         }
@@ -19,6 +19,6 @@ enum TerminalSurfaceMaterializer {
             view.envVars = TerminalEnvVarBuilder.build(paneID: paneID, worktreeKey: location.worktreeKey)
         }
         view.materializeHeadless()
-        return view.surface != nil ? view : nil
+        return view.hasLiveSurface ? view : nil
     }
 }

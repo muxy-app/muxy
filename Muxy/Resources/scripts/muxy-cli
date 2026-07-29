@@ -16,6 +16,14 @@
 #   muxy create-worktree <name> [options]      Create and switch to a worktree
 #   muxy switch-worktree <name|id|path>        Switch active worktree
 #   muxy refresh-worktrees [project]           Refresh worktrees from Git
+#   muxy list-workspaces                       List workspaces
+#   muxy create-workspace <name>               Create a workspace
+#   muxy switch-workspace <name|id>            Switch active workspace
+#   muxy rename-workspace <name|id> <name>     Rename a workspace
+#   muxy delete-workspace <name|id>            Delete a workspace
+#   muxy create-project <path> [options]       Create or attach a project
+#   muxy attach-project <project> --workspace <workspace>  Move a project into a workspace
+#   muxy detach-project <project>              Remove a project from all workspaces
 #   muxy list-tabs                             List tabs
 #   muxy switch-tab <index|id|title>           Switch active tab
 #   muxy new-tab                               Create a terminal tab
@@ -56,6 +64,14 @@ usage_for() {
         create-worktree)   echo "muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" ;;
         switch-worktree)   echo "muxy switch-worktree <name|id|path> [--project <name|id|path>]" ;;
         refresh-worktrees) echo "muxy refresh-worktrees [project]" ;;
+        list-workspaces)   echo "muxy list-workspaces" ;;
+        create-workspace)  echo "muxy create-workspace <name>" ;;
+        switch-workspace)  echo "muxy switch-workspace <name|id>" ;;
+        rename-workspace)  echo "muxy rename-workspace <name|id> <new-name>" ;;
+        delete-workspace)  echo "muxy delete-workspace <name|id>" ;;
+        create-project)    echo "muxy create-project <path> [--create] [--name <name>] [--workspace <workspace>]" ;;
+        attach-project)    echo "muxy attach-project <project> --workspace <workspace>" ;;
+        detach-project)    echo "muxy detach-project <project>" ;;
         list-tabs)         echo "muxy list-tabs [--project <p>] [--worktree <w>]" ;;
         switch-tab)        echo "muxy switch-tab <index|id|title> [--project <p>] [--worktree <w>]" ;;
         new-tab)           echo "muxy new-tab [--project <p>] [--worktree <w>]" ;;
@@ -98,6 +114,14 @@ usage() {
     echo "  muxy create-worktree <name> [options]    Create and switch to a worktree"
     echo "  muxy switch-worktree <name|id|path>      Switch active worktree"
     echo "  muxy refresh-worktrees [project]         Refresh worktrees from Git"
+    echo "  muxy list-workspaces                     List workspaces"
+    echo "  muxy create-workspace <name>             Create a workspace"
+    echo "  muxy switch-workspace <name|id>          Switch active workspace"
+    echo "  muxy rename-workspace <name|id> <name>   Rename a workspace"
+    echo "  muxy delete-workspace <name|id>          Delete a workspace"
+    echo "  muxy create-project <path> [--create]    Create or attach a project"
+    echo "  muxy attach-project <project> --workspace <workspace>  Move a project into a workspace"
+    echo "  muxy detach-project <project>            Remove a project from all workspaces"
     echo "  muxy list-tabs                           List tabs"
     echo "  muxy switch-tab <index|id|title>         Switch active tab"
     echo "  muxy new-tab                             Create a terminal tab"
@@ -199,6 +223,22 @@ json_escape() {
 
 json_field() {
     printf '"%s":"%s"' "$1" "$(json_escape "$2")"
+}
+
+b64_field() {
+    printf '%s' "$1" | base64 | tr -d '\n'
+}
+
+absolute_path() {
+    local input="$1"
+    case "$input" in
+        '~')   input="$HOME" ;;
+        '~'/*) input="${HOME}/${input#\~/}" ;;
+    esac
+    case "$input" in
+        /*) printf '%s' "$input" ;;
+        *)  printf '%s' "$(pwd)/$input" ;;
+    esac
 }
 
 send_api() {
@@ -510,6 +550,103 @@ case "$COMMAND" in
         else
             send_command "refresh-worktrees"
         fi
+        ;;
+    list-workspaces)
+        wants_help "$2" && print_command_help list-workspaces
+        send_command "list-workspaces"
+        ;;
+    create-workspace)
+        shift
+        wants_help "$1" && print_command_help create-workspace
+        if [ $# -lt 1 ]; then
+            die_usage create-workspace
+        fi
+        send_command "create-workspace|$(b64_field "$*")"
+        ;;
+    switch-workspace)
+        shift
+        wants_help "$1" && print_command_help switch-workspace
+        if [ $# -lt 1 ]; then
+            die_usage switch-workspace
+        fi
+        send_command "switch-workspace|$(b64_field "$*")"
+        ;;
+    rename-workspace)
+        shift
+        wants_help "$1" && print_command_help rename-workspace
+        if [ $# -lt 2 ]; then
+            die_usage rename-workspace
+        fi
+        IDENTIFIER="$1"
+        shift
+        send_command "rename-workspace|$(b64_field "$IDENTIFIER")|$(b64_field "$*")"
+        ;;
+    delete-workspace)
+        shift
+        wants_help "$1" && print_command_help delete-workspace
+        if [ $# -lt 1 ]; then
+            die_usage delete-workspace
+        fi
+        send_command "delete-workspace|$(b64_field "$*")"
+        ;;
+    create-project)
+        shift
+        CREATE_FLAG="false"
+        NAME=""
+        WORKSPACE=""
+        PATH_ARG=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -h|--help) print_command_help create-project ;;
+                --create) CREATE_FLAG="true"; shift ;;
+                --name) [ $# -lt 2 ] && die_usage create-project; NAME="$2"; shift 2 ;;
+                --workspace) [ $# -lt 2 ] && die_usage create-project; WORKSPACE="$2"; shift 2 ;;
+                -*) die_usage create-project ;;
+                *)
+                    [ -n "$PATH_ARG" ] && die_usage create-project
+                    PATH_ARG="$1"
+                    shift
+                    ;;
+            esac
+        done
+        if [ -z "$PATH_ARG" ]; then
+            die_usage create-project
+        fi
+        PATH_ARG="$(absolute_path "$PATH_ARG")"
+        send_command "create-project|$(b64_field "$PATH_ARG")|$CREATE_FLAG|$(b64_field "$NAME")|$(b64_field "$WORKSPACE")"
+        ;;
+    attach-project)
+        shift
+        wants_help "$1" && print_command_help attach-project
+        if [ $# -lt 1 ]; then
+            die_usage attach-project
+        fi
+        PROJECT=""
+        WORKSPACE=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                -h|--help) print_command_help attach-project ;;
+                --workspace) [ $# -lt 2 ] && die_usage attach-project; WORKSPACE="$2"; shift 2 ;;
+                -*) die_usage attach-project ;;
+                *)
+                    [ -n "$PROJECT" ] && die_usage attach-project
+                    PROJECT="$1"
+                    shift
+                    ;;
+            esac
+        done
+        if [ -z "$PROJECT" ] || [ -z "$WORKSPACE" ]; then
+            die_usage attach-project
+        fi
+        send_command "attach-project|$(b64_field "$PROJECT")|$(b64_field "$WORKSPACE")"
+        ;;
+    detach-project)
+        shift
+        wants_help "$1" && print_command_help detach-project
+        if [ $# -lt 1 ]; then
+            die_usage detach-project
+        fi
+        send_command "detach-project|$(b64_field "$*")"
         ;;
     list-tabs)
         shift
@@ -872,7 +1009,12 @@ if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "spli
    [ "$COMMAND" != "list-projects" ] && [ "$COMMAND" != "switch-project" ] && \
     [ "$COMMAND" != "list-worktrees" ] && [ "$COMMAND" != "create-worktree" ] && \
     [ "$COMMAND" != "switch-worktree" ] && \
-   [ "$COMMAND" != "refresh-worktrees" ] && [ "$COMMAND" != "list-tabs" ] && \
+    [ "$COMMAND" != "refresh-worktrees" ] && \
+   [ "$COMMAND" != "list-workspaces" ] && [ "$COMMAND" != "create-workspace" ] && \
+   [ "$COMMAND" != "switch-workspace" ] && [ "$COMMAND" != "rename-workspace" ] && \
+   [ "$COMMAND" != "delete-workspace" ] && [ "$COMMAND" != "create-project" ] && \
+   [ "$COMMAND" != "attach-project" ] && [ "$COMMAND" != "detach-project" ] && \
+   [ "$COMMAND" != "list-tabs" ] && \
    [ "$COMMAND" != "switch-tab" ] && [ "$COMMAND" != "new-tab" ] && \
    [ "$COMMAND" != "next-tab" ] && [ "$COMMAND" != "previous-tab" ] && \
    [ "$COMMAND" != "tab" ] && \

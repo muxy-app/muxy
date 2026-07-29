@@ -1,6 +1,13 @@
 import SwiftUI
 
+enum TabFocusedSidebarContent: Equatable {
+    case tabs
+    case agents
+}
+
 struct TabFocusedSidebar: View {
+    var content: TabFocusedSidebarContent = .tabs
+
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -37,7 +44,8 @@ struct TabFocusedSidebar: View {
         return TabFocusedSidebarProjectSelection.resolve(
             projects: all,
             focusMode: expansionStore.focusMode,
-            activeProjectID: appState.activeProjectID
+            activeProjectID: appState.activeProjectID,
+            content: content
         )
     }
 
@@ -47,7 +55,7 @@ struct TabFocusedSidebar: View {
             guard project.worktreesEnabled, !project.isHome else { return items }
             for worktree in worktreeStore.list(for: project.id) where !worktree.isPrimary {
                 let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
-                guard appState.hasTabs(for: key) else { continue }
+                guard content == .agents || appState.hasTabs(for: key) else { continue }
                 items.append(.worktree(project, worktree))
             }
             return items
@@ -55,6 +63,7 @@ struct TabFocusedSidebar: View {
     }
 
     private var shortcutNumbers: [UUID: Int] {
+        guard content == .tabs else { return [:] }
         let entries = TabFocusedTabOrder.entries(
             appState: appState,
             projectStore: projectStore,
@@ -86,10 +95,11 @@ struct TabFocusedSidebar: View {
                         TabFocusedProjectRow(
                             project: row.project,
                             worktree: row.worktree,
-                            shortcutNumbers: numbers
+                            shortcutNumbers: numbers,
+                            content: content
                         )
                     }
-                    if !expansionStore.focusMode {
+                    if content == .agents || !expansionStore.focusMode {
                         TabFocusedAddProjectRow(
                             recentlyRemovedProjects: displayedRecentlyRemovedProjects,
                             openProject: openProjectPicker,
@@ -116,7 +126,10 @@ struct TabFocusedSidebar: View {
             }
             .pickerStyle(.inline)
         } label: {
-            ProjectSortButton.Label(mode: sortMode)
+            SidebarHeaderIconButtonLabel(
+                systemName: "arrow.up.arrow.down",
+                accessibilityLabel: "Sort Projects"
+            )
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
@@ -153,9 +166,21 @@ struct TabFocusedSidebar: View {
     }
 }
 
+struct AgentsFocusedSidebar: View {
+    var body: some View {
+        TabFocusedSidebar(content: .agents)
+    }
+}
+
 enum TabFocusedSidebarProjectSelection {
-    static func resolve(projects: [Project], focusMode: Bool, activeProjectID: UUID?) -> [Project] {
-        guard focusMode,
+    static func resolve(
+        projects: [Project],
+        focusMode: Bool,
+        activeProjectID: UUID?,
+        content: TabFocusedSidebarContent = .tabs
+    ) -> [Project] {
+        guard content == .tabs,
+              focusMode,
               let activeProjectID,
               let activeProject = projects.first(where: { $0.id == activeProjectID })
         else { return projects }

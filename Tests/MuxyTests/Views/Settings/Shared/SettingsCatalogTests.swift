@@ -68,6 +68,19 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func matchCountSummaryIsOmittedWithoutQuery() {
+        #expect(SettingsCatalog.matchCountSummary(for: .general, query: "") == nil)
+        #expect(SettingsCatalog.matchCountSummary(for: .general, query: "   ") == nil)
+    }
+
+    @Test
+    func matchCountSummaryPluralizesMatches() {
+        #expect(SettingsCatalog.matchCountSummary(for: .shortcuts, query: "hotkeys") == "1 match")
+        #expect(SettingsCatalog.matchCountSummary(for: .shortcuts, query: "  hotkeys  ") == "1 match")
+        #expect(SettingsCatalog.matchCountSummary(for: .mobile, query: "hotkeys") == "0 matches")
+    }
+
+    @Test
     func categoryMatchingUsesCatalogItems() {
         #expect(SettingsCatalog.categoryMatches(.richInput, query: "rich input"))
         #expect(!SettingsCatalog.categoryMatches(.mobile, query: "rich input"))
@@ -163,6 +176,8 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.items.contains { $0.key.hasPrefix("editor.") })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputImageStrategy" })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputLineHeightMultiplier" })
+        #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.position" })
+        #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.floating" })
     }
 
     @Test

@@ -6,6 +6,7 @@ struct TabFocusedProjectRow: View {
     let project: Project
     var worktree: Worktree?
     let shortcutNumbers: [UUID: Int]
+    var content: TabFocusedSidebarContent = .tabs
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -23,6 +24,7 @@ struct TabFocusedProjectRow: View {
     @State private var showSymbolPicker = false
     @State private var showColorPicker = false
     @State private var showCreateWorktreeSheet = false
+    @State private var showAgentProviderMenu = false
     @State private var logoCropImage: IdentifiableProjectImage?
     @State private var projectPendingRemoval = false
     @FocusState private var renameFieldFocused: Bool
@@ -87,7 +89,12 @@ struct TabFocusedProjectRow: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if isExpanded, let listWorktree {
-                TabFocusedTabsList(project: project, worktree: listWorktree, shortcutNumbers: shortcutNumbers)
+                switch content {
+                case .tabs:
+                    TabFocusedTabsList(project: project, worktree: listWorktree, shortcutNumbers: shortcutNumbers)
+                case .agents:
+                    AgentsFocusedTabsList(project: project, worktree: listWorktree)
+                }
             }
         }
         .onAppear { applyDefaultExpansion() }
@@ -133,7 +140,7 @@ struct TabFocusedProjectRow: View {
         .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
-        .onTapGesture { toggle() }
+        .onTapGesture { handleTap() }
         .contextMenu {
             if let worktree {
                 worktreeContextMenu(worktree)
@@ -310,7 +317,7 @@ struct TabFocusedProjectRow: View {
 
     private var trailingControls: some View {
         HStack(spacing: 0) {
-            if hovered {
+            if hovered || showAgentProviderMenu {
                 actions
             } else if !isFocused {
                 if isWorktreeRow {
@@ -327,14 +334,23 @@ struct TabFocusedProjectRow: View {
 
     @ViewBuilder
     private var actions: some View {
-        TabFocusedTabActions(project: project, worktree: worktree)
-        if !isWorktreeRow, !project.isHome, !isFocused {
+        switch content {
+        case .tabs:
+            TabFocusedTabActions(project: project, worktree: listWorktree)
+        case .agents:
+            AgentsFocusedTabActions(
+                project: project,
+                worktree: listWorktree,
+                showingProviders: $showAgentProviderMenu
+            )
+        }
+        if content == .tabs, !isWorktreeRow, !project.isHome, !isFocused {
             focusModeButton
         }
     }
 
     private var isFocused: Bool {
-        !isWorktreeRow && expansionStore.focusMode && appState.activeProjectID == project.id
+        content == .tabs && !isWorktreeRow && expansionStore.focusMode && appState.activeProjectID == project.id
     }
 
     private var focusModeButton: some View {
@@ -351,19 +367,17 @@ struct TabFocusedProjectRow: View {
             expansionStore.focusMode = false
             return
         }
-        activateProjectIfNeeded()
+        activate(worktree)
         expansionStore.focusMode = true
     }
 
-    private func activateProjectIfNeeded() {
-        guard !isActive else { return }
-        worktreeStore.ensurePrimary(for: project)
-        guard let target = worktreeStore.preferred(
-            for: project.id,
-            matching: appState.activeWorktreeID[project.id]
+    private func activate(_ target: Worktree?) {
+        TabFocusedSidebarTarget.activate(
+            project: project,
+            worktree: target,
+            appState: appState,
+            worktreeStore: worktreeStore
         )
-        else { return }
-        appState.selectProject(project, worktree: target)
     }
 
     private var projectTitleColor: Color {
@@ -398,6 +412,22 @@ struct TabFocusedProjectRow: View {
             return AnyShapeStyle(MuxyTheme.hover)
         }
         return AnyShapeStyle(Color.clear)
+    }
+
+    private func handleTap() {
+        switch TabFocusedSidebarRowTap.resolve(content: content, isActive: isActive) {
+        case .toggleExpansion:
+            toggle()
+        case .activateRow:
+            activateRow()
+        }
+    }
+
+    private func activateRow() {
+        activate(listWorktree)
+        withAnimation(.easeInOut(duration: 0.15)) {
+            expansionStore.set(rowID, expanded: true)
+        }
     }
 
     private func toggle() {

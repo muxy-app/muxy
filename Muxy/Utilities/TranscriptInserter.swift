@@ -22,7 +22,7 @@ enum TranscriptInserter {
         NSApp.activate(ignoringOtherApps: true)
         window.makeFirstResponder(target)
 
-        if let terminal = nearestGhosttyView(from: target) {
+        if let terminal = nearestTerminalSurface(from: target) {
             sendToTerminal(text: trimmed, view: terminal, appendReturn: appendReturn)
             return
         }
@@ -56,20 +56,20 @@ enum TranscriptInserter {
             return preferred
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow,
-           let terminal = firstGhosttyView(in: window.contentView)
+           let terminal = firstTerminalSurface(in: window.contentView)
         {
-            return terminal
+            return terminal.terminalView
         }
         return NSApp.keyWindow?.firstResponder
     }
 
-    private static func firstGhosttyView(in root: NSView?) -> GhosttyTerminalNSView? {
+    private static func firstTerminalSurface(in root: NSView?) -> (any TerminalSurface)? {
         guard let root else { return nil }
-        if let terminal = root as? GhosttyTerminalNSView {
+        if let terminal = terminalSurface(for: root) {
             return terminal
         }
         for subview in root.subviews {
-            if let terminal = firstGhosttyView(in: subview) {
+            if let terminal = firstTerminalSurface(in: subview) {
                 return terminal
             }
         }
@@ -89,11 +89,11 @@ enum TranscriptInserter {
         return NSApp.keyWindow
     }
 
-    private static func nearestGhosttyView(from responder: NSResponder) -> GhosttyTerminalNSView? {
+    private static func nearestTerminalSurface(from responder: NSResponder) -> (any TerminalSurface)? {
         guard let view = responder as? NSView else { return nil }
         var ancestor: NSView? = view
         while let node = ancestor {
-            if let terminal = node as? GhosttyTerminalNSView {
+            if let terminal = terminalSurface(for: node) {
                 return terminal
             }
             ancestor = node.superview
@@ -101,7 +101,11 @@ enum TranscriptInserter {
         return nil
     }
 
-    private static func sendToTerminal(text: String, view: GhosttyTerminalNSView, appendReturn: Bool) {
+    private static func terminalSurface(for view: NSView) -> (any TerminalSurface)? {
+        TerminalViewRegistry.shared.surface(for: view) ?? view as? any TerminalSurface
+    }
+
+    private static func sendToTerminal(text: String, view: any TerminalSurface, appendReturn: Bool) {
         let sanitized = text.replacingOccurrences(of: "\u{1B}[201~", with: "")
         var payload = Data()
         payload.append(TerminalControlBytes.bracketedPasteStart)
@@ -111,7 +115,7 @@ enum TranscriptInserter {
             payload.append(TerminalControlBytes.carriageReturn)
         }
         view.sendRemoteBytes(payload)
-        view.window?.makeFirstResponder(view)
+        view.terminalView.window?.makeFirstResponder(view.terminalView)
     }
 
     private static func insert(text: String, into textField: NSTextField, appendReturn: Bool) {

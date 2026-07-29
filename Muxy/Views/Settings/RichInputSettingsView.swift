@@ -3,9 +3,6 @@ import SwiftUI
 struct RichInputSettingsView: View {
     @State private var settings = EditorSettings.shared
     @State private var monoFonts: [String] = []
-    @AppStorage(RichInputPreferences.floatingKey) private var richInputFloating = RichInputPreferences.defaultFloating
-    @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: PanelPosition = RichInputPreferences
-        .defaultPosition
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,9 +29,11 @@ struct RichInputSettingsView: View {
 
     private var richInputSection: some View {
         SettingsSection(
-            "Rich Input",
+            "Composer",
             footer: "Inline File Path keeps multiple images perfectly ordered with text and Enter. "
-                + "Use Clipboard Paste if your TUI doesn't recognize image paths.",
+                + "Use Clipboard Paste if your TUI doesn't recognize image paths. "
+                + "SSH panes always upload the image and inline its remote path, "
+                + "because a Mac file path does not resolve on the remote device.",
             showsDivider: false
         ) {
             SettingsRow("Image Submission") {
@@ -44,20 +43,8 @@ struct RichInputSettingsView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                .settingsControl()
             }
-
-            SettingsRow("Position") {
-                Picker("", selection: $richInputPosition) {
-                    ForEach(PanelPosition.allCases) { position in
-                        Text(position.displayName).tag(position)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
-            }
-
-            SettingsToggleRow(label: "Floating Panel", isOn: $richInputFloating)
 
             SettingsRow("Font Family") {
                 Picker("", selection: $settings.richInputFontFamily) {
@@ -68,7 +55,7 @@ struct RichInputSettingsView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                .settingsControl()
             }
 
             SettingsRow("Line Height") {

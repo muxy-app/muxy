@@ -49,7 +49,7 @@ struct BrowserSettingsView: View {
                             }
                         }
                         .labelsHidden()
-                        .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                        .settingsControl()
                     }
                 }
             }
@@ -63,7 +63,7 @@ struct BrowserSettingsView: View {
                             }
                         }
                         .labelsHidden()
-                        .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                        .settingsControl()
                     }
                     SettingsToggleRow(label: "Open new tabs to a website", isOn: customHomePageEnabledBinding)
                     if usesCustomHomePage {
@@ -241,6 +241,8 @@ private struct BrowserProfileRow: View {
             Text(profile.name)
                 .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.foreground)
+                .lineLimit(1)
+                .truncationMode(.tail)
             if profile.isDefault {
                 defaultBadge
             }

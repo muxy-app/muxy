@@ -34,6 +34,27 @@ struct DetectedAgentStoreTests {
         #expect(store.agent(for: paneID) == nil)
     }
 
+    @Test("provisional agents appear immediately and clear when launch exits")
+    func provisionalAgentClears() {
+        let store = DetectedAgentStore.shared
+        let paneID = UUID()
+        store.setProvisionalAgent("claude", for: paneID)
+        #expect(store.agent(for: paneID) == "claude")
+        store.clearProvisionalAgent(for: paneID)
+        #expect(store.agent(for: paneID) == nil)
+    }
+
+    @Test("detected agents remain after provisional launch reconciliation")
+    func detectedAgentRemains() {
+        let store = DetectedAgentStore.shared
+        let paneID = UUID()
+        store.setProvisionalAgent("claude", for: paneID)
+        store.setAgent("claude", for: paneID)
+        store.clearProvisionalAgent(for: paneID)
+        #expect(store.agent(for: paneID) == "claude")
+        store.resetPane(paneID)
+    }
+
     @Test("resetPane removes the entry")
     func resetRemoves() {
         let store = DetectedAgentStore.shared

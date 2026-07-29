@@ -448,6 +448,104 @@ struct AgentStatusStoreTests {
         #expect(store.status(forPane: paneID) == .waiting)
     }
 
+    @Test("an exited agent stops being an active session")
+    func endedSessionDropsPresence() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        #expect(store.activeProviderID(forPane: paneID) == "claude")
+
+        store.endSession(paneID: paneID)
+
+        #expect(store.activeProviderID(forPane: paneID) == nil)
+        #expect(store.status(forPane: paneID) == .idle)
+        #expect(store.isCompletionPending(forPane: paneID))
+    }
+
+    @Test("ending a session cancels a pending grace transition")
+    func endSessionCancelsGrace() {
+        let (store, scheduler, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        store.noteDetectionLost(paneID: paneID)
+
+        store.endSession(paneID: paneID)
+
+        #expect(scheduler.pendingCount == 0)
+    }
+
+    @Test("a late session-end event does not revive an ended session")
+    func lateFinishedEventKeepsSessionEnded() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        store.endSession(paneID: paneID)
+
+        send(store, paneID, .idle, sequence: 2)
+
+        #expect(store.activeProviderID(forPane: paneID) == nil)
+    }
+
+    @Test("a late session-end event without earlier events stays hidden")
+    func lateFinishedEventWithoutHistoryStaysHidden() {
+        let (store, _, paneID) = makeContext()
+        store.endSession(paneID: paneID)
+
+        send(store, paneID, .idle, sequence: 1)
+
+        #expect(store.activeProviderID(forPane: paneID) == nil)
+    }
+
+    @Test("a new agent run restores the session")
+    func newRunRestoresPresence() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        store.endSession(paneID: paneID)
+
+        send(store, paneID, .working, sequence: 2)
+
+        #expect(store.activeProviderID(forPane: paneID) == "claude")
+    }
+
+    @Test("re-detecting an agent restores the session")
+    func reDetectionRestoresPresence() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+        store.endSession(paneID: paneID)
+
+        store.noteDetectionActive(paneID: paneID)
+
+        #expect(store.activeProviderID(forPane: paneID) == "claude")
+    }
+
+    @Test("command exit keeps a reusable pane ended until another agent starts")
+    func reusablePaneCommandExitKeepsSessionEnded() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+
+        store.commandExited(paneID: paneID, closesPane: false)
+        send(store, paneID, .idle, sequence: 2)
+
+        #expect(store.activeProviderID(forPane: paneID) == nil)
+        #expect(store.status(forPane: paneID) == .idle)
+        #expect(store.isCompletionPending(forPane: paneID))
+
+        send(store, paneID, .working, sequence: 3)
+
+        #expect(store.activeProviderID(forPane: paneID) == "claude")
+        #expect(store.status(forPane: paneID) == .working)
+        #expect(!store.isCompletionPending(forPane: paneID))
+    }
+
+    @Test("command exit clears state when its pane closes")
+    func closingPaneCommandExitRemovesSession() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, .working, sequence: 1)
+
+        store.commandExited(paneID: paneID, closesPane: true)
+
+        #expect(store.status(forPane: paneID) == nil)
+        #expect(store.activeProviderID(forPane: paneID) == nil)
+        #expect(!store.isCompletionPending(forPane: paneID))
+    }
+
     @Test("pane close drops all session state")
     func paneCloseDropsSessions() {
         let (store, _, paneID) = makeContext()

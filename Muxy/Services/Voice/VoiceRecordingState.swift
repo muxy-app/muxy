@@ -1,7 +1,5 @@
 import AppKit
-import AVFoundation
 import Foundation
-import Speech
 
 @MainActor
 @Observable
@@ -13,6 +11,7 @@ final class VoiceRecordingState {
     let recorder = VoiceRecorder()
 
     @ObservationIgnored private var capturedResponder: NSResponder?
+    @ObservationIgnored private var startTask: Task<Void, Never>?
 
     private init() {
         recorder.onFailure = { [weak self] message in
@@ -25,22 +24,26 @@ final class VoiceRecordingState {
         errorMessage = nil
         capturedResponder = NSApp.keyWindow?.firstResponder
         isPanelVisible = true
-        let resolvedLocale = Self.resolveLocale(from: languageIdentifier)
+        let resolvedLocale = VoiceRecordingSupport.resolveLocale(from: languageIdentifier)
         guard let resolvedLocale else {
-            errorMessage = "No on-device speech language is installed. Add one in System Settings → Keyboard → Dictation."
+            errorMessage = VoiceRecordingSupport.unavailableLanguageMessage
             return
         }
-        Task { @MainActor in
+        startTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             let granted = await VoiceRecorder.requestPermissions()
+            guard !Task.isCancelled, isPanelVisible else { return }
             guard granted else {
-                errorMessage = "Microphone or speech recognition is denied. Enable both in System Settings."
+                errorMessage = VoiceRecordingSupport.permissionDeniedMessage
+                startTask = nil
                 return
             }
             do {
                 try recorder.start(locale: resolvedLocale)
             } catch {
-                errorMessage = readableMessage(for: error)
+                errorMessage = VoiceRecordingSupport.readableMessage(for: error)
             }
+            startTask = nil
         }
     }
 
@@ -58,6 +61,8 @@ final class VoiceRecordingState {
 
     func cancel() {
         guard isPanelVisible else { return }
+        startTask?.cancel()
+        startTask = nil
         recorder.cancel()
         cleanup()
     }
@@ -71,30 +76,9 @@ final class VoiceRecordingState {
         }
     }
 
-    private static func resolveLocale(from identifier: String) -> Locale? {
-        if !identifier.isEmpty, let locale = SpeechLanguageCatalog.locale(for: identifier) {
-            return locale
-        }
-        if let fallback = SpeechLanguageCatalog.defaultIdentifier() {
-            return Locale(identifier: fallback)
-        }
-        return nil
-    }
-
     private func cleanup() {
         isPanelVisible = false
         errorMessage = nil
         capturedResponder = nil
-    }
-
-    private func readableMessage(for error: Error) -> String {
-        switch error {
-        case VoiceRecorderError.recognizerUnavailable:
-            "Speech recognition is unavailable on this device."
-        case let VoiceRecorderError.engineFailure(message):
-            "Recording failed: \(message)"
-        default:
-            error.localizedDescription
-        }
     }
 }

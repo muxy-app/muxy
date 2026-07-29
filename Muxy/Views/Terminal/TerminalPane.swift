@@ -31,7 +31,8 @@ struct TerminalPane: View {
     }
 
     private func wakePane() {
-        TerminalViewRegistry.shared.existingView(for: state.id)?.wake()
+        let surface = TerminalViewRegistry.shared.existingView(for: state.id)
+        (surface as? any TerminalOfflineSurface)?.wake()
         onFocus()
     }
 
@@ -40,8 +41,8 @@ struct TerminalPane: View {
             .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
                 guard focused, visible else { return }
                 DispatchQueue.main.async {
-                    let view = TerminalViewRegistry.shared.existingView(for: state.id)
-                    view?.window?.makeFirstResponder(view)
+                    let surface = TerminalViewRegistry.shared.existingView(for: state.id)
+                    surface?.terminalView.window?.makeFirstResponder(surface?.terminalView)
                 }
             }
     }
@@ -76,17 +77,18 @@ struct TerminalPane: View {
                     searchState: state.searchState,
                     onNavigateNext: {
                         let view = TerminalViewRegistry.shared.existingView(for: state.id)
-                        view?.navigateSearch(direction: .next)
+                        (view as? any TerminalSearchSurface)?.navigateSearch(direction: .next)
                     },
                     onNavigatePrevious: {
                         let view = TerminalViewRegistry.shared.existingView(for: state.id)
-                        view?.navigateSearch(direction: .previous)
+                        (view as? any TerminalSearchSurface)?.navigateSearch(direction: .previous)
                     },
                     onClose: {
-                        let view = TerminalViewRegistry.shared.existingView(for: state.id)
-                        view?.endSearch()
-                        DispatchQueue.main.async { [weak view] in
-                            view?.window?.makeFirstResponder(view)
+                        let surface = TerminalViewRegistry.shared.existingView(for: state.id)
+                        (surface as? any TerminalSearchSurface)?.endSearch()
+                        DispatchQueue.main.async { [weak surface] in
+                            guard let surface else { return }
+                            surface.terminalView.window?.makeFirstResponder(surface.terminalView)
                         }
                     }
                 )
@@ -225,8 +227,9 @@ struct TerminalBridge: NSViewRepresentable {
         }
     }
 
-    private static let mountBroker = ReparentingNSViewBroker<GhosttyTerminalNSView> {
-        deactivate($0)
+    private static let mountBroker = ReparentingNSViewBroker<NSView> { terminalView in
+        guard let surface = TerminalViewRegistry.shared.surface(for: terminalView) else { return }
+        deactivate(surface)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -235,23 +238,29 @@ struct TerminalBridge: NSViewRepresentable {
 
     func makeNSView(context: Context) -> ReparentingNSViewHost {
         let host = ReparentingNSViewHost()
-        let view = terminalView()
+        let surface = terminalSurface()
         Self.mountBroker.register(
             claimID: context.coordinator.claimID,
-            view: view,
+            view: surface.terminalView,
             host: host,
-            configuration: mountConfiguration(coordinator: context.coordinator)
+            configuration: mountConfiguration(
+                surface: surface,
+                coordinator: context.coordinator
+            )
         )
         return host
     }
 
     func updateNSView(_ host: ReparentingNSViewHost, context: Context) {
-        let view = terminalView()
+        let surface = terminalSurface()
         Self.mountBroker.update(
             claimID: context.coordinator.claimID,
-            view: view,
+            view: surface.terminalView,
             host: host,
-            configuration: mountConfiguration(coordinator: context.coordinator)
+            configuration: mountConfiguration(
+                surface: surface,
+                coordinator: context.coordinator
+            )
         )
     }
 
@@ -272,16 +281,17 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     private func mountConfiguration(
+        surface: any TerminalSurface,
         coordinator: Coordinator
-    ) -> ReparentingNSViewBroker<GhosttyTerminalNSView>.Configuration {
+    ) -> ReparentingNSViewBroker<NSView>.Configuration {
         .init(
             isEligible: { isCurrentPresentation },
-            prepare: { view in
-                configure(view)
+            prepare: { _ in
+                configure(surface)
             },
-            didMount: { view, host, ownershipChanged in
+            didMount: { _, host, ownershipChanged in
                 updateFocus(
-                    view,
+                    surface,
                     host: host,
                     coordinator: coordinator,
                     ownershipChanged: ownershipChanged
@@ -291,7 +301,7 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     private func updateFocus(
-        _ view: GhosttyTerminalNSView,
+        _ surface: any TerminalSurface,
         host: ReparentingNSViewHost,
         coordinator: Coordinator,
         ownershipChanged: Bool
@@ -303,12 +313,15 @@ struct TerminalBridge: NSViewRepresentable {
             reset: ownershipChanged
         )
 
+        let terminalView = surface.terminalView
         if overlayActive {
-            if view.window?.firstResponder === view || view.window?.firstResponder === view.inputContext {
-                view.window?.makeFirstResponder(nil)
+            if terminalView.window?.firstResponder === terminalView
+                || terminalView.window?.firstResponder === terminalView.inputContext
+            {
+                terminalView.window?.makeFirstResponder(nil)
             }
             if !previousFocus.overlayActive {
-                view.notifySurfaceUnfocused()
+                surface.notifySurfaceUnfocused()
             }
         } else if TerminalFocusRestorationPolicy.shouldClaimFocus(
             focused: focused,
@@ -316,14 +329,14 @@ struct TerminalBridge: NSViewRepresentable {
             wasOverlayActive: previousFocus.overlayActive
         ) {
             if ownershipChanged {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak host, weak view] in
-                    guard let host, let view else { return }
-                    Self.restoreFocus(to: view, in: host)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak host, weak surface] in
+                    guard let host, let surface else { return }
+                    Self.restoreFocus(to: surface, in: host)
                 }
             } else {
-                DispatchQueue.main.async { [weak host, weak view] in
-                    guard let host, let view else { return }
-                    Self.restoreFocus(to: view, in: host)
+                DispatchQueue.main.async { [weak host, weak surface] in
+                    guard let host, let surface else { return }
+                    Self.restoreFocus(to: surface, in: host)
                 }
             }
         } else if TerminalFocusRestorationPolicy.shouldReleaseFocus(
@@ -331,67 +344,83 @@ struct TerminalBridge: NSViewRepresentable {
             wasFocused: previousFocus.focused,
             attachmentChanged: ownershipChanged
         ) {
-            view.notifySurfaceUnfocused()
-            if view.window?.firstResponder === view || view.window?.firstResponder === view.inputContext {
-                view.window?.makeFirstResponder(nil)
+            surface.notifySurfaceUnfocused()
+            if terminalView.window?.firstResponder === terminalView
+                || terminalView.window?.firstResponder === terminalView.inputContext
+            {
+                terminalView.window?.makeFirstResponder(nil)
             }
         }
     }
 
     private static func restoreFocus(
-        to view: GhosttyTerminalNSView,
+        to surface: any TerminalSurface,
         in host: ReparentingNSViewHost
     ) {
-        guard view.superview === host,
-              view.isFocused,
-              !view.overlayActive
+        let terminalView = surface.terminalView
+        guard terminalView.superview === host,
+              surface.isFocused,
+              !surface.overlayActive
         else { return }
-        view.window?.makeFirstResponder(view)
+        terminalView.window?.makeFirstResponder(terminalView)
     }
 
-    private func configure(_ view: GhosttyTerminalNSView) {
-        if view.envVars.isEmpty, view.surface == nil, let key = worktreeKey {
-            view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
+    private func configure(_ surface: any TerminalSurface) {
+        if surface.envVars.isEmpty, !surface.hasLiveSurface, let key = worktreeKey {
+            surface.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
-        view.isFocused = focused
-        view.overlayActive = overlayActive
-        view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
-        view.setVisible(visible)
-        view.setFocused(focused)
-        view.onFocus = onFocus
-        view.onProcessExit = onProcessExit
-        view.onSplitRequest = onSplitRequest
-        view.onExternalDragHoverChange = makeExternalDragHoverHandler(areaID: areaID)
-        view.onTitleChange = { [weak state] title in
+        surface.isFocused = focused
+        surface.overlayActive = overlayActive
+        surface.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
+        surface.setVisible(visible)
+        surface.setFocused(focused)
+        surface.onFocus = onFocus
+        surface.onProcessExit = onProcessExit
+        surface.onSplitRequest = onSplitRequest
+        surface.onExternalDragHoverChange = makeExternalDragHoverHandler(areaID: areaID)
+        surface.onTitleChange = { [weak state] title in
             DispatchQueue.main.async {
                 state?.setTitle(title)
             }
         }
-        view.onWorkingDirectoryChange = { [weak state] path in
+        surface.onWorkingDirectoryChange = { [weak state] path in
             DispatchQueue.main.async {
                 state?.setWorkingDirectory(path)
             }
         }
-        view.onOfflineChange = { [weak state] offline in
+        configureOfflineCallback(surface)
+        configureAgentDetectionCallback(surface)
+        if let searchSurface = surface as? any TerminalSearchSurface {
+            configureSearchCallbacks(searchSurface)
+        }
+        configureFileOpenCallback(surface)
+        configureProgressCallback(surface)
+    }
+
+    private func configureOfflineCallback(_ surface: any TerminalSurface) {
+        guard let offlineSurface = surface as? any TerminalOfflineSurface else {
+            state.isOffline = false
+            return
+        }
+        offlineSurface.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
         }
-        configureAgentDetectionCallback(view)
-        configureSearchCallbacks(view)
-        configureFileOpenCallback(view)
-        configureProgressCallback(view)
     }
 
-    private static func deactivate(_ view: GhosttyTerminalNSView) {
-        if view.window?.firstResponder === view || view.window?.firstResponder === view.inputContext {
-            view.window?.makeFirstResponder(nil)
+    private static func deactivate(_ surface: any TerminalSurface) {
+        let terminalView = surface.terminalView
+        if terminalView.window?.firstResponder === terminalView
+            || terminalView.window?.firstResponder === terminalView.inputContext
+        {
+            terminalView.window?.makeFirstResponder(nil)
         }
-        view.isFocused = false
-        view.setFocused(false)
-        view.setVisible(false)
-        view.notifySurfaceUnfocused()
+        surface.isFocused = false
+        surface.setFocused(false)
+        surface.setVisible(false)
+        surface.notifySurfaceUnfocused()
     }
 
-    private func terminalView() -> GhosttyTerminalNSView {
+    private func terminalSurface() -> any TerminalSurface {
         let launch = state.consumeRestoredLaunch()
         return TerminalViewRegistry.shared.view(
             for: state.id,
@@ -416,7 +445,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
     }
 
-    private func configureAgentDetectionCallback(_ view: GhosttyTerminalNSView) {
+    private func configureAgentDetectionCallback(_ view: any TerminalSurface) {
         view.onDetectedAgentChange = { [weak state, weak view] providerID in
             guard let paneID = state?.id else { return }
             DetectedAgentStore.shared.setAgent(providerID, for: paneID)
@@ -429,9 +458,13 @@ struct TerminalBridge: NSViewRepresentable {
                 processID: view?.foregroundProcessID
             )
         }
+        view.onAgentProcessExit = { [weak state] in
+            guard let paneID = state?.id else { return }
+            AgentStatusStore.shared.endSession(paneID: paneID)
+        }
     }
 
-    private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {
+    private func configureFileOpenCallback(_ view: any TerminalSurface) {
         let projectPath = state.projectPath
         let appState = appState
         let projectID = worktreeKey?.projectID
@@ -644,7 +677,7 @@ struct TerminalBridge: NSViewRepresentable {
         return Int(component)
     }
 
-    private func configureProgressCallback(_ view: GhosttyTerminalNSView) {
+    private func configureProgressCallback(_ view: any TerminalSurface) {
         let paneID = state.id
         let worktreeKey = worktreeKey
         view.onProgressReport = { progress in
@@ -654,7 +687,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
     }
 
-    private func configureSearchCallbacks(_ view: GhosttyTerminalNSView) {
+    private func configureSearchCallbacks(_ view: any TerminalSearchSurface) {
         view.onSearchStart = { [weak state] needle in
             guard let state else { return }
             let searchState = state.searchState
