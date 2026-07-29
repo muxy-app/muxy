@@ -288,4 +288,102 @@ struct TabFocusedSidebarRowsTests {
 
         #expect(rows.map(\.id) == [project.id, first.id, second.id])
     }
+
+    @Test("grouped layouts reveal no standalone worktrees")
+    func groupedStandaloneWorktrees() {
+        var project = Project(name: "Repo", path: "/repo")
+        project.worktreesEnabled = true
+        let secondary = Worktree(name: "feature", path: "/feature", isPrimary: false)
+
+        let standalone = TabFocusedSidebarRows.standaloneWorktrees(
+            project: project,
+            content: .tabs,
+            groupWorktrees: true,
+            worktrees: [secondary],
+            hasTabs: { _ in true }
+        )
+
+        #expect(standalone.isEmpty)
+    }
+
+    @Test("disabled worktrees reveal no standalone worktrees")
+    func disabledStandaloneWorktrees() {
+        var project = Project(name: "Repo", path: "/repo")
+        project.worktreesEnabled = false
+        let secondary = Worktree(name: "feature", path: "/feature", isPrimary: false)
+
+        let standalone = TabFocusedSidebarRows.standaloneWorktrees(
+            project: project,
+            content: .tabs,
+            groupWorktrees: false,
+            worktrees: [secondary],
+            hasTabs: { _ in true }
+        )
+
+        #expect(standalone.isEmpty)
+    }
+}
+
+@Suite("Focused activity scope")
+struct TabFocusedActivityScopeTests {
+    @Test("worktree rows scope activity to the represented worktree")
+    func worktreeRowScope() {
+        let primaryID = UUID()
+        let rowID = UUID()
+
+        let ids = TabFocusedActivityScope.worktreeIDs(
+            rowWorktreeID: rowID,
+            primaryWorktreeID: primaryID,
+            hiddenWorktreeIDs: [UUID()]
+        )
+
+        #expect(ids == [rowID])
+    }
+
+    @Test("project rows scope activity to the primary worktree when nothing is hidden")
+    func projectRowScopeWithoutHiddenWorktrees() {
+        let primaryID = UUID()
+
+        let ids = TabFocusedActivityScope.worktreeIDs(
+            rowWorktreeID: nil,
+            primaryWorktreeID: primaryID,
+            hiddenWorktreeIDs: []
+        )
+
+        #expect(ids == [primaryID])
+    }
+
+    @Test("project rows roll up worktrees that have no row of their own")
+    func projectRowRollsUpHiddenWorktrees() {
+        let primaryID = UUID()
+        let hiddenID = UUID()
+
+        let ids = TabFocusedActivityScope.worktreeIDs(
+            rowWorktreeID: nil,
+            primaryWorktreeID: primaryID,
+            hiddenWorktreeIDs: [hiddenID]
+        )
+
+        #expect(ids == [primaryID, hiddenID])
+    }
+
+    @Test("project rows fall back to hidden worktrees when no primary exists")
+    func projectRowWithoutPrimary() {
+        let hiddenID = UUID()
+
+        #expect(
+            TabFocusedActivityScope.worktreeIDs(
+                rowWorktreeID: nil,
+                primaryWorktreeID: nil,
+                hiddenWorktreeIDs: [hiddenID]
+            ) == [hiddenID]
+        )
+        #expect(
+            TabFocusedActivityScope.worktreeIDs(
+                rowWorktreeID: nil,
+                primaryWorktreeID: nil,
+                hiddenWorktreeIDs: []
+            ).isEmpty
+        )
+    }
 }

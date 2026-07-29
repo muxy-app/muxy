@@ -190,6 +190,21 @@ enum TabFocusedSidebarProjectSelection {
 }
 
 enum TabFocusedSidebarRows {
+    static func standaloneWorktrees(
+        project: Project,
+        content: TabFocusedSidebarContent,
+        groupWorktrees: Bool,
+        worktrees: [Worktree],
+        hasTabs: (WorktreeKey) -> Bool
+    ) -> [Worktree] {
+        guard !groupWorktrees, project.worktreesEnabled, !project.isHome else { return [] }
+        return worktrees.filter { worktree in
+            guard !worktree.isPrimary else { return false }
+            guard content == .tabs else { return true }
+            return hasTabs(WorktreeKey(projectID: project.id, worktreeID: worktree.id))
+        }
+    }
+
     static func resolve(
         projects: [Project],
         content: TabFocusedSidebarContent,
@@ -198,14 +213,15 @@ enum TabFocusedSidebarRows {
         hasTabs: (WorktreeKey) -> Bool
     ) -> [TabFocusedSidebarRowItem] {
         projects.flatMap { project in
-            var rows: [TabFocusedSidebarRowItem] = [.project(project)]
-            guard !groupWorktrees, project.worktreesEnabled, !project.isHome else { return rows }
-            for worktree in worktreesForProject(project.id) where !worktree.isPrimary {
-                let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
-                guard content == .agents || hasTabs(key) else { continue }
-                rows.append(.worktree(project, worktree))
-            }
-            return rows
+            let standalone = standaloneWorktrees(
+                project: project,
+                content: content,
+                groupWorktrees: groupWorktrees,
+                worktrees: worktreesForProject(project.id),
+                hasTabs: hasTabs
+            )
+            let worktreeRows = standalone.map { TabFocusedSidebarRowItem.worktree(project, $0) }
+            return [TabFocusedSidebarRowItem.project(project)] + worktreeRows
         }
     }
 }
