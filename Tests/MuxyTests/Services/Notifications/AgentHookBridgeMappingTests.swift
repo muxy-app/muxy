@@ -267,9 +267,43 @@ struct AgentHookBridgeMappingTests {
     @Test("session end aliases finish silently and unknown events are ignored")
     func mapsSessionEnd() {
         for event in ["session-end", "SessionEnd", "sessionEnd"] {
-            #expect(map(event: event) == MappedAgentHookEvent(phase: .finished, title: "", body: ""))
+            #expect(map(event: event) == MappedAgentHookEvent(
+                phase: .finished,
+                title: "",
+                body: "",
+                sessionEnded: true
+            ))
         }
-        #expect(map(event: "session-start") == nil)
+        #expect(map(event: "session-start") == MappedAgentHookEvent(
+            phase: .working,
+            title: "",
+            body: "",
+            metadataOnly: true
+        ))
+    }
+
+    @Test("session identity is preserved exactly and only session end terminates it")
+    func mapsSessionIdentity() {
+        let sessionID = "ses_exact-'$()"
+        let working = map(
+            event: "UserPromptSubmit",
+            input: data(["session_id": sessionID])
+        )
+        let finished = map(
+            event: "Stop",
+            input: data(["sessionID": sessionID])
+        )
+        let ended = map(
+            event: "SessionEnd",
+            input: data(["session_id": sessionID])
+        )
+
+        #expect(working?.sessionID == sessionID)
+        #expect(working?.sessionEnded == false)
+        #expect(finished?.sessionID == sessionID)
+        #expect(finished?.sessionEnded == false)
+        #expect(ended?.sessionID == sessionID)
+        #expect(ended?.sessionEnded == true)
     }
 
     @Test("notification text is flattened and limited to 200 characters")

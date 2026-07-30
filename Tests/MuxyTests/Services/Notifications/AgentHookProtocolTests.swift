@@ -9,6 +9,9 @@ struct AgentHookProtocolTests {
         let message = AgentHookEventMessage(
             provider: "claude_hook",
             paneID: UUID().uuidString,
+            sessionID: "7fc96f0d-7187-4d33-8fcb-21ae69f47a65",
+            sessionEnded: true,
+            metadataOnly: true,
             phase: .waiting,
             title: "Claude Code",
             body: "Allow command?",
@@ -25,6 +28,9 @@ struct AgentHookProtocolTests {
         #expect(object["kind"] as? String == "agent_event")
         #expect(object["provider"] as? String == "claude_hook")
         #expect(object["paneID"] as? String == message.paneID)
+        #expect(object["sessionID"] as? String == message.sessionID)
+        #expect(object["sessionEnded"] as? Bool == true)
+        #expect(object["metadataOnly"] as? Bool == true)
         #expect(object["pids"] as? [Int] == [91, 42])
         #expect(object["ts"] as? Int == 1_721_234_567)
     }
@@ -84,6 +90,9 @@ struct AgentHookProtocolTests {
         let legacy = #"{"body":"b","kind":"agent_event","phase":"finished","pids":[],"provider":"pi","title":"t","ts":1,"v":3}"#
         let message = try AgentHookWireCodec.decodeEventLine(Data(legacy.utf8))
         #expect(message.test == false)
+        #expect(message.sessionID == nil)
+        #expect(message.sessionEnded == false)
+        #expect(message.metadataOnly == false)
     }
 
     @Test("acknowledgement encoding is newline delimited and round trips")

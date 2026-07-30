@@ -2,8 +2,8 @@ const childSessions = new Set()
 const sessionsFinishedBeforeIdle = new Set()
 const replyDeadlines = new Map()
 const sessionVersions = new Map()
-const activeSessions = new Set()
 let sendQueue = Promise.resolve()
+let currentSessionID
 
 const REPLY_SUPPRESSION_MS = 1500
 const HOOK_TIMEOUT_MS = 2000
@@ -82,14 +82,12 @@ function clearSession(sessionID) {
   sessionsFinishedBeforeIdle.delete(sessionID)
   replyDeadlines.delete(sessionID)
   sessionVersions.delete(sessionID)
-  activeSessions.delete(sessionID)
 }
 
 function clearSettledSession(sessionID, version) {
   if (sessionVersions.get(sessionID) !== version) return
   replyDeadlines.delete(sessionID)
   sessionVersions.delete(sessionID)
-  activeSessions.delete(sessionID)
 }
 
 function stagedHookBinaryPath() {
@@ -98,8 +96,16 @@ function stagedHookBinaryPath() {
   return `${process.env.HOME}/Library/Application Support/Muxy/hooks/muxy-hook`
 }
 
-function normalizedHookInput(phase, title, body) {
-  if (phase === "working") return ["user-prompt-submit", {}]
+function normalizedHookInput(
+  phase,
+  title,
+  body,
+  sessionID,
+  sessionEnded,
+) {
+  const session = sessionID ? { session_id: sessionID } : {}
+  if (sessionEnded) return ["session-end", session]
+  if (phase === "working") return ["user-prompt-submit", session]
   if (phase === "waiting") {
     return [
       "notification",
@@ -108,14 +114,23 @@ function normalizedHookInput(phase, title, body) {
           ? "elicitation_dialog"
           : "permission_prompt",
         message: body || "Needs attention",
+        ...session,
       },
     ]
   }
-  if (!title && !body) return ["session-end", {}]
-  return ["stop", { last_assistant_message: body || "Session completed" }]
+  return [
+    "stop",
+    { last_assistant_message: body || "Session completed", ...session },
+  ]
 }
 
-async function invokeHookBinary(phase, title, body) {
+async function invokeHookBinary(
+  phase,
+  title,
+  body,
+  sessionID,
+  sessionEnded,
+) {
   const hookBinary = stagedHookBinaryPath()
   if (!hookBinary) return { delivered: false, reason: "hook path unavailable" }
   try {
@@ -128,7 +143,13 @@ async function invokeHookBinary(phase, title, body) {
     }
   }
 
-  const [event, input] = normalizedHookInput(phase, title, body)
+  const [event, input] = normalizedHookInput(
+    phase,
+    title,
+    body,
+    sessionID,
+    sessionEnded,
+  )
   try {
     const { spawn } = await import("node:child_process")
     const child = spawn(
@@ -180,11 +201,24 @@ async function invokeHookBinary(phase, title, body) {
   }
 }
 
-function sendEvent(report, phase, title = "", body = "") {
+function sendEvent(
+  report,
+  phase,
+  title = "",
+  body = "",
+  sessionID,
+  sessionEnded = false,
+) {
   const cleanTitle = sanitize(title)
   const cleanBody = sanitize(body)
   const transmit = async () => {
-    const result = await invokeHookBinary(phase, cleanTitle, cleanBody)
+    const result = await invokeHookBinary(
+      phase,
+      cleanTitle,
+      cleanBody,
+      sessionID,
+      sessionEnded,
+    )
     if (result.delivered) return true
     await report("error", "Muxy hook delivery failed", {
       phase,
@@ -211,8 +245,21 @@ function reporter(client) {
 
 export const MuxyNotificationPlugin = async ({ client }) => {
   const report = reporter(client)
-  const send = (phase, title = "", body = "") =>
-    sendEvent(report, phase, title, body)
+  const send = (
+    phase,
+    title = "",
+    body = "",
+    sessionID,
+    sessionEnded = false,
+  ) =>
+    sendEvent(
+      report,
+      phase,
+      title,
+      body,
+      sessionID,
+      sessionEnded,
+    )
   await report("info", "Muxy notification plugin initialized", {
     hookBinary: stagedHookBinaryPath() || "unavailable",
   })
@@ -230,8 +277,9 @@ export const MuxyNotificationPlugin = async ({ client }) => {
         const sessionID =
           event.properties.info?.id || event.properties.sessionID
         if (!sessionID) return
-        if (activeSessions.has(sessionID) && !childSessions.has(sessionID)) {
-          await send("finished")
+        if (!childSessions.has(sessionID) && currentSessionID === sessionID) {
+          await send("finished", "", "", sessionID, true)
+          currentSessionID = undefined
         }
         clearSession(sessionID)
         return
@@ -243,7 +291,8 @@ export const MuxyNotificationPlugin = async ({ client }) => {
         if (sessionID) sessionsFinishedBeforeIdle.add(sessionID)
         if (err?.name === "MessageAbortedError") {
           const version = advanceSession(sessionID)
-          if (!childSessions.has(sessionID)) await send("finished")
+          if (!childSessions.has(sessionID))
+            await send("finished", "", "", sessionID)
           clearSettledSession(sessionID, version)
           return
         }
@@ -255,7 +304,7 @@ export const MuxyNotificationPlugin = async ({ client }) => {
             err?.name,
             "Session failed",
           )
-          await send("finished", "OpenCode", body)
+          await send("finished", "OpenCode", body, sessionID)
         }
         clearSettledSession(sessionID, version)
         return
@@ -264,12 +313,13 @@ export const MuxyNotificationPlugin = async ({ client }) => {
       if (event.type === "permission.asked") {
         if (childSessions.has(event.properties.sessionID)) return
         const sessionID = event.properties.sessionID
+        currentSessionID = sessionID
         advanceSession(sessionID)
-        activeSessions.add(sessionID)
         const delivered = await send(
           "waiting",
           "OpenCode",
           permissionBody(event.properties),
+          sessionID,
         )
         if (delivered) {
           await report("info", "Muxy attention event forwarded", {
@@ -282,21 +332,24 @@ export const MuxyNotificationPlugin = async ({ client }) => {
 
       if (event.type === "permission.replied") {
         const sessionID = event.properties.sessionID
+        currentSessionID = sessionID
         markRecentReply(sessionID)
         advanceSession(sessionID)
-        if (!childSessions.has(sessionID)) await send("working")
+        if (!childSessions.has(sessionID))
+          await send("working", "", "", sessionID)
         return
       }
 
       if (event.type === "question.asked") {
         if (childSessions.has(event.properties.sessionID)) return
         const sessionID = event.properties.sessionID
+        currentSessionID = sessionID
         advanceSession(sessionID)
-        activeSessions.add(sessionID)
         const delivered = await send(
           "waiting",
           "OpenCode",
           questionBody(event.properties),
+          sessionID,
         )
         if (delivered) {
           await report("info", "Muxy attention event forwarded", {
@@ -312,9 +365,11 @@ export const MuxyNotificationPlugin = async ({ client }) => {
         event.type === "question.rejected"
       ) {
         const sessionID = event.properties.sessionID
+        currentSessionID = sessionID
         markRecentReply(sessionID)
         advanceSession(sessionID)
-        if (!childSessions.has(sessionID)) await send("working")
+        if (!childSessions.has(sessionID))
+          await send("working", "", "", sessionID)
         return
       }
 
@@ -322,9 +377,10 @@ export const MuxyNotificationPlugin = async ({ client }) => {
 
       const sessionID = event.properties.sessionID
       if (event.properties.status.type !== "idle") {
+        currentSessionID = sessionID
         advanceSession(sessionID)
-        activeSessions.add(sessionID)
-        if (!childSessions.has(sessionID)) await send("working")
+        if (!childSessions.has(sessionID))
+          await send("working", "", "", sessionID)
         return
       }
 
@@ -332,18 +388,19 @@ export const MuxyNotificationPlugin = async ({ client }) => {
         sessionsFinishedBeforeIdle.delete(sessionID)
         return
       }
+      if (currentSessionID !== sessionID) return
       if (childSessions.has(sessionID)) return
       if (consumeRecentReply(sessionID)) {
         const version = sessionVersions.get(sessionID)
         setTimeout(async () => {
           if (sessionVersions.get(sessionID) !== version) return
-          await send("finished")
+          await send("finished", "", "", sessionID)
           clearSettledSession(sessionID, version)
         }, REPLY_SUPPRESSION_MS)
         return
       }
       const version = sessionVersions.get(sessionID)
-      await send("finished", "OpenCode", "Session completed")
+      await send("finished", "OpenCode", "Session completed", sessionID)
       clearSettledSession(sessionID, version)
     },
   }

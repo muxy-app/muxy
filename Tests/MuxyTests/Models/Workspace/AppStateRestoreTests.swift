@@ -37,6 +37,68 @@ struct AppStateRestoreTests {
         #expect(appState.workspaceRoot(for: project.id) != nil)
     }
 
+    @Test("agent sessions persist only on exact changes and clear safely")
+    func agentSessionPersistence() throws {
+        let project = Project(name: "api", path: "/tmp/api")
+        let worktree = Worktree(name: project.name, path: project.path, isPrimary: true)
+        let snapshots = makeSnapshots(project: project, worktree: worktree)
+        let persistence = WorkspacePersistenceStub(snapshots: snapshots)
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: persistence
+        )
+        appState.restoreSelection(
+            projects: [project],
+            worktrees: [project.id: [worktree]]
+        )
+        let pane = try #require(appState.workspaceRoot(for: project.id)?.allTabs().first?.content.pane)
+
+        appState.updateAgentSession(paneID: pane.id, providerID: "opencode", sessionID: "ses_exact")
+        appState.updateAgentSession(paneID: pane.id, providerID: "opencode", sessionID: "ses_exact")
+        appState.clearAgentSession(paneID: pane.id, providerID: "claude", sessionID: "ses_exact")
+
+        #expect(pane.agentSession == AgentSessionReference(providerID: "opencode", sessionID: "ses_exact"))
+        #expect(persistence.saveCount == 1)
+
+        appState.updateAgentSession(
+            paneID: pane.id,
+            providerID: "claude",
+            sessionID: "late-session",
+            replacesExisting: false
+        )
+
+        #expect(pane.agentSession == AgentSessionReference(providerID: "opencode", sessionID: "ses_exact"))
+        #expect(persistence.saveCount == 1)
+
+        appState.clearAgentSession(paneID: pane.id, providerID: "opencode", sessionID: "ses_exact")
+
+        #expect(pane.agentSession == nil)
+        #expect(persistence.saveCount == 2)
+    }
+
+    @Test("termination freezes agent session state before persistence")
+    func terminationFreezesAgentSessionState() throws {
+        let project = Project(name: "api", path: "/tmp/api")
+        let worktree = Worktree(name: project.name, path: project.path, isPrimary: true)
+        let persistence = WorkspacePersistenceStub(snapshots: makeSnapshots(project: project, worktree: worktree))
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: persistence
+        )
+        appState.restoreSelection(projects: [project], worktrees: [project.id: [worktree]])
+        let pane = try #require(appState.workspaceRoot(for: project.id)?.allTabs().first?.content.pane)
+        appState.updateAgentSession(paneID: pane.id, providerID: "claude", sessionID: "session-a")
+
+        appState.freezeAgentSessionStateForTermination()
+        appState.clearAgentSession(paneID: pane.id)
+        appState.updateAgentSession(paneID: pane.id, providerID: "claude", sessionID: "session-b")
+
+        #expect(pane.agentSession == AgentSessionReference(providerID: "claude", sessionID: "session-a"))
+        #expect(persistence.saveCount == 1)
+    }
+
     private func makeSnapshots(project: Project, worktree: Worktree) -> [WorkspaceSnapshot] {
         let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
         let area = TabArea(projectPath: project.path)
@@ -58,13 +120,17 @@ struct AppStateRestoreTests {
 
 private final class WorkspacePersistenceStub: WorkspacePersisting {
     private var snapshots: [WorkspaceSnapshot]
+    private(set) var saveCount = 0
 
     init(snapshots: [WorkspaceSnapshot] = []) {
         self.snapshots = snapshots
     }
 
     func loadWorkspaces() throws -> [WorkspaceSnapshot] { snapshots }
-    func saveWorkspaces(_ workspaces: [WorkspaceSnapshot]) throws { snapshots = workspaces }
+    func saveWorkspaces(_ workspaces: [WorkspaceSnapshot]) throws {
+        snapshots = workspaces
+        saveCount += 1
+    }
 }
 
 @MainActor

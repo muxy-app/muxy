@@ -127,7 +127,11 @@ final class TerminalTab: Identifiable {
         content = .browser(browserState)
     }
 
-    init(restoring snapshot: TerminalTabSnapshot) {
+    init(
+        restoring snapshot: TerminalTabSnapshot,
+        restoringAgentSession: Bool = false,
+        agentSessionCommand: @MainActor (AgentSessionReference) -> String? = AgentSessionLaunchCommand.local
+    ) {
         id = snapshot.id
         parentTabID = snapshot.parentTabID
         customTitle = snapshot.customTitle
@@ -140,12 +144,19 @@ final class TerminalTab: Identifiable {
                 snapshot.currentWorkingDirectory,
                 projectPath: snapshot.projectPath
             )
+            let restoredAgentSession = restoringAgentSession ? snapshot.agentSession : nil
+            let resumeCommand = restoredAgentSession.flatMap(agentSessionCommand)
+            let resumedAgentSession = resumeCommand == nil ? nil : restoredAgentSession
             content = .terminal(TerminalPaneState(
                 id: snapshot.paneID ?? UUID(),
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
                 usesDefaultTitle: snapshot.paneUsesDefaultTitle,
-                initialWorkingDirectory: restoredWorkingDirectory
+                initialWorkingDirectory: restoredWorkingDirectory,
+                startupCommand: resumeCommand,
+                startupCommandInteractive: resumeCommand != nil,
+                closesOnStartupCommandExit: false,
+                agentSession: resumedAgentSession
             ))
         case .extensionWebView:
             if let extensionID = snapshot.extensionID,
@@ -194,7 +205,8 @@ final class TerminalTab: Identifiable {
             extensionTabTypeID: content.extensionState?.tabTypeID,
             extensionTabData: content.extensionState?.data,
             browserURL: content.browserState?.url?.absoluteString,
-            browserProfileID: content.browserState?.profileID.uuidString
+            browserProfileID: content.browserState?.profileID.uuidString,
+            agentSession: content.pane?.agentSession
         )
     }
 

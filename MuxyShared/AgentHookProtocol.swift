@@ -18,6 +18,9 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
     public let id: String?
     public let provider: String
     public let paneID: String?
+    public let sessionID: String?
+    public let sessionEnded: Bool
+    public let metadataOnly: Bool
     public let phase: AgentHookPhase
     public let title: String
     public let body: String
@@ -31,6 +34,9 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
         id: String? = nil,
         provider: String,
         paneID: String?,
+        sessionID: String? = nil,
+        sessionEnded: Bool = false,
+        metadataOnly: Bool = false,
         phase: AgentHookPhase,
         title: String,
         body: String,
@@ -43,6 +49,9 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
         self.id = id
         self.provider = provider
         self.paneID = paneID
+        self.sessionID = sessionID
+        self.sessionEnded = sessionEnded
+        self.metadataOnly = metadataOnly
         self.phase = phase
         self.title = title
         self.body = body
@@ -57,6 +66,9 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
         case id
         case provider
         case paneID
+        case sessionID
+        case sessionEnded
+        case metadataOnly
         case phase
         case title
         case body
@@ -72,6 +84,9 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
         id = try container.decodeIfPresent(String.self, forKey: .id)
         provider = try container.decode(String.self, forKey: .provider)
         paneID = try container.decodeIfPresent(String.self, forKey: .paneID)
+        sessionID = try container.decodeIfPresent(String.self, forKey: .sessionID)
+        sessionEnded = try container.decodeIfPresent(Bool.self, forKey: .sessionEnded) ?? false
+        metadataOnly = try container.decodeIfPresent(Bool.self, forKey: .metadataOnly) ?? false
         phase = try container.decode(AgentHookPhase.self, forKey: .phase)
         title = try container.decode(String.self, forKey: .title)
         body = try container.decode(String.self, forKey: .body)
@@ -87,6 +102,13 @@ public struct AgentHookEventMessage: Codable, Equatable, Sendable {
         try container.encodeIfPresent(id, forKey: .id)
         try container.encode(provider, forKey: .provider)
         try container.encodeIfPresent(paneID, forKey: .paneID)
+        try container.encodeIfPresent(sessionID, forKey: .sessionID)
+        if sessionEnded {
+            try container.encode(sessionEnded, forKey: .sessionEnded)
+        }
+        if metadataOnly {
+            try container.encode(metadataOnly, forKey: .metadataOnly)
+        }
         try container.encode(phase, forKey: .phase)
         try container.encode(title, forKey: .title)
         try container.encode(body, forKey: .body)

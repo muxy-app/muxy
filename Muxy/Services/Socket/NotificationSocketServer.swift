@@ -320,9 +320,22 @@ final class NotificationSocketServer: @unchecked Sendable {
     struct AgentLifecycleMessage: Equatable {
         let socketType: String
         let paneID: UUID
+        let sessionID: String?
+        let sessionEnded: Bool
+        let metadataOnly: Bool
         let phase: AgentLifecyclePhase
         let title: String
         let body: String
+
+        var updatesStatus: Bool { !metadataOnly }
+        var replacesSessionIdentity: Bool { phase != .finished }
+
+        func shouldUpdateStatus(currentSession: AgentSessionReference?, providerID: String) -> Bool {
+            guard updatesStatus else { return false }
+            guard let sessionID, let currentSession else { return true }
+            let incomingSession = AgentSessionReference(providerID: providerID, sessionID: sessionID)
+            return replacesSessionIdentity || incomingSession == currentSession
+        }
     }
 
     struct RecentAgentHookEventIDs {
@@ -352,6 +365,14 @@ final class NotificationSocketServer: @unchecked Sendable {
               !message.provider.isEmpty
         else { return nil }
         if let paneID = message.paneID, UUID(uuidString: paneID) == nil {
+            return nil
+        }
+        if let sessionID = message.sessionID,
+           sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sessionID.utf8.count > 1024
+        {
+            return nil
+        }
+        if message.sessionEnded || message.metadataOnly, message.sessionID == nil {
             return nil
         }
         return message
@@ -833,13 +854,30 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
         HookHealthStore.shared.noteEvent(providerID: providerID)
-        AgentStatusStore.shared.update(
-            paneID: message.paneID,
-            providerID: providerID,
-            status: message.phase.status,
-            sequence: AgentStatusStore.shared.nextSequence(),
-            appState: appState
-        )
+        let currentSession = appState.locatePane(paneID: message.paneID)?.pane.agentSession
+        if message.shouldUpdateStatus(currentSession: currentSession, providerID: providerID) {
+            AgentStatusStore.shared.update(
+                paneID: message.paneID,
+                providerID: providerID,
+                status: message.phase.status,
+                sequence: AgentStatusStore.shared.nextSequence(),
+                appState: appState
+            )
+        }
+        if message.sessionEnded, let sessionID = message.sessionID {
+            appState.clearAgentSession(
+                paneID: message.paneID,
+                providerID: providerID,
+                sessionID: sessionID
+            )
+        } else if let sessionID = message.sessionID {
+            appState.updateAgentSession(
+                paneID: message.paneID,
+                providerID: providerID,
+                sessionID: sessionID,
+                replacesExisting: message.replacesSessionIdentity
+            )
+        }
         guard !message.title.isEmpty || !message.body.isEmpty else { return }
         dispatchNotification(
             type: message.socketType,
@@ -870,6 +908,9 @@ final class NotificationSocketServer: @unchecked Sendable {
         dispatchAgentLifecycle(AgentLifecycleMessage(
             socketType: message.provider,
             paneID: paneID,
+            sessionID: message.sessionID,
+            sessionEnded: message.sessionEnded,
+            metadataOnly: message.metadataOnly,
             phase: phase,
             title: message.title,
             body: message.body

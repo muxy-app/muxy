@@ -29,6 +29,71 @@ struct WorkspaceSnapshotTests {
         #expect(decoded.paneTitle == "Shell")
         #expect(decoded.filePath == nil)
         #expect(decoded.currentWorkingDirectory == nil)
+        #expect(decoded.agentSession == nil)
+    }
+
+    @Test("agent session resumes only during an eligible update restoration")
+    func agentSessionUpdateRestoration() throws {
+        let session = AgentSessionReference(
+            providerID: "claude",
+            sessionID: "7fc96f0d-7187-4d33-8fcb-21ae69f47a65"
+        )
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "Claude Code",
+            agentSession: session
+        )
+        let decoded = try JSONDecoder().decode(
+            TerminalTabSnapshot.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+        let ordinary = TerminalTab(restoring: decoded)
+        let updated = TerminalTab(
+            restoring: decoded,
+            restoringAgentSession: true,
+            agentSessionCommand: { "claude --resume \($0.sessionID)" }
+        )
+
+        #expect(decoded.agentSession == session)
+        #expect(ordinary.content.pane?.agentSession == nil)
+        #expect(ordinary.content.pane?.consumeRestoredLaunch().command == nil)
+        #expect(updated.content.pane?.agentSession == session)
+        #expect(updated.content.pane?.consumeRestoredLaunch() == TerminalPaneLaunch(
+            command: "claude --resume 7fc96f0d-7187-4d33-8fcb-21ae69f47a65",
+            interactive: true,
+            closesOnCommandExit: false
+        ))
+    }
+
+    @Test("failed session command construction drops stale restoration metadata")
+    func failedAgentSessionCommandRestoration() {
+        let session = AgentSessionReference(providerID: "opencode", sessionID: "ses_untrusted")
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "OpenCode",
+            agentSession: session
+        )
+
+        let restored = TerminalTab(
+            restoring: snapshot,
+            restoringAgentSession: true,
+            agentSessionCommand: { _ in nil }
+        )
+
+        #expect(restored.content.pane?.agentSession == nil)
+        #expect(restored.content.pane?.consumeRestoredLaunch() == TerminalPaneLaunch(
+            command: nil,
+            interactive: false,
+            closesOnCommandExit: false
+        ))
     }
 
     @Test("default terminal title provenance survives snapshots")

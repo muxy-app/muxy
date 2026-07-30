@@ -6,12 +6,72 @@ import Testing
 
 @Suite("AgentStatus")
 struct AgentStatusTests {
+    @Test("metadata-only starts and finished turns preserve lifecycle identity")
+    func agentLifecycleSessionDecisions() {
+        let metadata = NotificationSocketServer.AgentLifecycleMessage(
+            socketType: "claude_hook",
+            paneID: UUID(),
+            sessionID: UUID().uuidString,
+            sessionEnded: false,
+            metadataOnly: true,
+            phase: .working,
+            title: "",
+            body: ""
+        )
+        let finished = NotificationSocketServer.AgentLifecycleMessage(
+            socketType: "claude_hook",
+            paneID: UUID(),
+            sessionID: UUID().uuidString,
+            sessionEnded: false,
+            metadataOnly: false,
+            phase: .finished,
+            title: "Claude Code",
+            body: "Done"
+        )
+
+        #expect(!metadata.updatesStatus)
+        #expect(metadata.replacesSessionIdentity)
+        #expect(finished.updatesStatus)
+        #expect(!finished.replacesSessionIdentity)
+    }
+
+    @Test("a late completion cannot idle a newer session")
+    func lateCompletionDoesNotUpdateNewerSessionStatus() {
+        let paneID = UUID()
+        let sessionA = AgentSessionReference(providerID: "claude", sessionID: "session-a")
+        let sessionB = AgentSessionReference(providerID: "claude", sessionID: "session-b")
+        let sessionBStarted = NotificationSocketServer.AgentLifecycleMessage(
+            socketType: "claude_hook",
+            paneID: paneID,
+            sessionID: sessionB.sessionID,
+            sessionEnded: false,
+            metadataOnly: false,
+            phase: .working,
+            title: "",
+            body: ""
+        )
+        let lateSessionACompletion = NotificationSocketServer.AgentLifecycleMessage(
+            socketType: "claude_hook",
+            paneID: paneID,
+            sessionID: sessionA.sessionID,
+            sessionEnded: false,
+            metadataOnly: false,
+            phase: .finished,
+            title: "Claude Code",
+            body: "Done"
+        )
+
+        #expect(sessionBStarted.shouldUpdateStatus(currentSession: sessionA, providerID: "claude"))
+        #expect(!lateSessionACompletion.shouldUpdateStatus(currentSession: sessionB, providerID: "claude"))
+    }
+
     @Test("parses a protocol v3 lifecycle event")
     func parsesProtocolV3LifecycleEvent() throws {
         let paneID = UUID()
         let event = AgentHookEventMessage(
             provider: "claude_hook",
             paneID: paneID.uuidString,
+            sessionID: "7fc96f0d-7187-4d33-8fcb-21ae69f47a65",
             phase: .waiting,
             title: "Claude Code",
             body: "Permission needed",
@@ -89,6 +149,26 @@ struct AgentStatusTests {
             AgentHookEventMessage(
                 provider: valid.provider,
                 paneID: "not-a-uuid",
+                phase: valid.phase,
+                title: valid.title,
+                body: valid.body,
+                pids: valid.pids,
+                ts: valid.ts
+            ),
+            AgentHookEventMessage(
+                provider: valid.provider,
+                paneID: valid.paneID,
+                sessionID: " ",
+                phase: valid.phase,
+                title: valid.title,
+                body: valid.body,
+                pids: valid.pids,
+                ts: valid.ts
+            ),
+            AgentHookEventMessage(
+                provider: valid.provider,
+                paneID: valid.paneID,
+                sessionID: String(repeating: "s", count: 1025),
                 phase: valid.phase,
                 title: valid.title,
                 body: valid.body,

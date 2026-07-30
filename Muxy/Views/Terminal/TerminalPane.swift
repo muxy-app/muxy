@@ -461,6 +461,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
         view.onAgentProcessExit = { [weak state] in
             guard let paneID = state?.id else { return }
+            appState.clearAgentSession(paneID: paneID, persist: false)
             AgentStatusStore.shared.endSession(paneID: paneID)
         }
     }

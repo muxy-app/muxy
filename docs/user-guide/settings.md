@@ -13,6 +13,13 @@ until that provider becomes available again.
 Translation providers contain resource-only catalogs and cannot add executable code through the language feature.
 Extension authors can follow the [localization provider guide](../extensions/localizations.md).
 
+## Update restoration
+
+When Sparkle offers an update, choose **Install and Relaunch** to apply it immediately. Muxy saves workspace and draft
+state before terminal shutdown cleanup begins. For local Claude Code panes, it also stores the exact provider session
+identifier. The matching updated build continues that conversation; OpenCode and other terminal processes reopen as
+shells, and ordinary Muxy launches never start saved agent sessions.
+
 ## Worktree path templates
 
 Set the default under **Projects -> Worktrees** and choose **Template**. Every template must include `{branch}` and can

@@ -50,11 +50,21 @@ protocol AIAgentLaunchProvider {
     var iconName: String { get }
     var agentLaunchConfiguration: AIAgentLaunchConfiguration { get }
 
+    func resumeArguments(sessionID: String) -> [String]?
+    func isValidSessionID(_ sessionID: String) -> Bool
     func agentCLIExecutablePath() -> String?
     func isAgentCLIInstalled() -> Bool
 }
 
 extension AIAgentLaunchProvider {
+    func resumeArguments(sessionID _: String) -> [String]? {
+        nil
+    }
+
+    func isValidSessionID(_: String) -> Bool {
+        false
+    }
+
     func agentCLIExecutablePath() -> String? {
         ProviderExecutableLocator.executablePath(
             names: [agentLaunchConfiguration.executable],
@@ -76,6 +86,29 @@ enum AgentTabLaunchCommand {
 
     static func remote(provider: any AIAgentLaunchProvider) -> String {
         ShellEscaper.escape(provider.agentLaunchConfiguration.executable)
+    }
+}
+
+@MainActor
+enum AgentSessionLaunchCommand {
+    static func local(_ session: AgentSessionReference) -> String? {
+        local(session, providers: AIProviderRegistry.shared.agentLaunchProviders)
+    }
+
+    static func local(
+        _ session: AgentSessionReference,
+        providers: [any AIAgentLaunchProvider]
+    ) -> String? {
+        guard let provider = providers.first(where: {
+            $0.id == session.providerID
+        }),
+            provider.isValidSessionID(session.sessionID),
+            let executable = provider.agentCLIExecutablePath(),
+            let arguments = provider.resumeArguments(sessionID: session.sessionID)
+        else { return nil }
+        return ([executable] + arguments)
+            .map(ShellEscaper.escape)
+            .joined(separator: " ")
     }
 }
 

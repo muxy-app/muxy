@@ -22,6 +22,14 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         )
     }
 
+    func resumeArguments(sessionID: String) -> [String]? {
+        ["--resume", sessionID]
+    }
+
+    func isValidSessionID(_ sessionID: String) -> Bool {
+        UUID(uuidString: sessionID) != nil
+    }
+
     private static let settingsPath = NSHomeDirectory() + "/.claude/settings.json"
     private static let muxyMarker = "muxy-notification-hook"
 
@@ -39,6 +47,7 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     static let hookEvents: [(settingsKey: String, event: String)] = [
+        ("SessionStart", "session-start"),
         ("Stop", "stop"),
         ("StopFailure", "stop-failure"),
         ("SessionEnd", "session-end"),

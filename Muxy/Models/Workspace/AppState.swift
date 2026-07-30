@@ -116,6 +116,7 @@ final class AppState {
     var pendingProcessTabClose: PendingTabClose?
     let navigation = NavigationHistory()
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
+    private var agentSessionStateFrozen = false
 
     init(
         selectionStore: any ActiveProjectSelectionStoring,
@@ -130,7 +131,8 @@ final class AppState {
     func restoreSelection(
         projects: [Project],
         worktrees: [UUID: [Worktree]],
-        skippingProjectIDs: Set<UUID> = []
+        skippingProjectIDs: Set<UUID> = [],
+        restoringAgentSessions: Bool = false
     ) {
         let snapshots: [WorkspaceSnapshot]
         do {
@@ -143,7 +145,8 @@ final class AppState {
         let restored = WorkspaceRestorer.restoreAll(
             from: restorableSnapshots,
             projects: projects,
-            worktrees: worktrees
+            worktrees: worktrees,
+            restoringAgentSessions: restoringAgentSessions
         )
         for entry in restored {
             workspaceRoots[entry.key] = entry.root
@@ -409,6 +412,42 @@ final class AppState {
             }
         }
         return nil
+    }
+
+    func updateAgentSession(
+        paneID: UUID,
+        providerID: String,
+        sessionID: String,
+        replacesExisting: Bool = true
+    ) {
+        guard !agentSessionStateFrozen else { return }
+        guard let pane = locatePane(paneID: paneID)?.pane else { return }
+        let session = AgentSessionReference(providerID: providerID, sessionID: sessionID)
+        guard replacesExisting || pane.agentSession == session else { return }
+        guard pane.setAgentSession(session) else { return }
+        saveWorkspaces()
+    }
+
+    func clearAgentSession(
+        paneID: UUID,
+        providerID: String? = nil,
+        sessionID: String? = nil,
+        persist: Bool = true
+    ) {
+        guard !agentSessionStateFrozen else { return }
+        guard let pane = locatePane(paneID: paneID)?.pane,
+              let current = pane.agentSession,
+              providerID == nil || current.providerID == providerID,
+              sessionID == nil || current.sessionID == sessionID,
+              pane.setAgentSession(nil)
+        else { return }
+        if persist {
+            saveWorkspaces()
+        }
+    }
+
+    func freezeAgentSessionStateForTermination() {
+        agentSessionStateFrozen = true
     }
 
     struct PaneTabLocation {

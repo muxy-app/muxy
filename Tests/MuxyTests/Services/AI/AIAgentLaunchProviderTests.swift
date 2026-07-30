@@ -117,6 +117,32 @@ struct AIAgentLaunchProviderTests {
         #expect(AgentTabLaunchCommand.local(provider: provider) == "'/tmp/Agent Tools/codex'")
     }
 
+    @Test("supported session resume commands use exact provider flags and shell escaping")
+    @MainActor
+    func sessionResumeCommands() {
+        let claude = ClaudeCodeProvider()
+        let openCode = OpenCodeProvider()
+        let provider = AgentTabLaunchTestProvider(executablePath: "/tmp/Agent Tools/opencode")
+        let session = AgentSessionReference(providerID: provider.id, sessionID: "ses_abc123")
+
+        #expect(claude.resumeArguments(sessionID: "7fc96f0d-7187-4d33-8fcb-21ae69f47a65") == [
+            "--resume", "7fc96f0d-7187-4d33-8fcb-21ae69f47a65",
+        ])
+        #expect(claude.isValidSessionID("7fc96f0d-7187-4d33-8fcb-21ae69f47a65"))
+        #expect(!claude.isValidSessionID("--continue"))
+        #expect(openCode.resumeArguments(sessionID: "ses_abc123") == nil)
+        #expect(!openCode.isValidSessionID("ses_abc123"))
+        #expect(!openCode.isValidSessionID("--continue"))
+        #expect(AgentSessionLaunchCommand.local(
+            session,
+            providers: [provider]
+        ) == "'/tmp/Agent Tools/opencode' --session ses_abc123")
+        #expect(AgentSessionLaunchCommand.local(
+            AgentSessionReference(providerID: "unsupported", sessionID: "value"),
+            providers: [provider]
+        ) == nil)
+    }
+
     @Test("agent tabs omit unavailable local providers")
     func unavailableLocalAgentTabCommand() {
         let provider = AgentTabLaunchTestProvider(executablePath: nil)
@@ -275,6 +301,14 @@ private struct AgentTabLaunchTestProvider: AIAgentLaunchProvider {
 
     func agentCLIExecutablePath() -> String? {
         executablePath
+    }
+
+    func resumeArguments(sessionID: String) -> [String]? {
+        ["--session", sessionID]
+    }
+
+    func isValidSessionID(_ sessionID: String) -> Bool {
+        sessionID.hasPrefix("ses_")
     }
 
     func isAgentCLIInstalled() -> Bool {

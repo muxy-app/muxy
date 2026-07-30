@@ -22,11 +22,14 @@ Leaving the foreground and exiting are different events. Once detection identifi
 Hooks talk to Muxy over a Unix domain socket at `~/Library/Application Support/Muxy/muxy.sock` (`muxy-dev.sock` for debug builds). The wire format is a single newline-delimited JSON object per event, acknowledged by the server:
 
 ```json
-{"v":3,"kind":"agent_event","id":"…","provider":"claude_hook","paneID":"…","phase":"finished","title":"Claude Code","body":"Done","pids":[],"ts":1721234567}
+{"v":3,"kind":"agent_event","id":"…","provider":"claude_hook","paneID":"…","sessionID":"…","phase":"finished","title":"Claude Code","body":"Done","pids":[],"ts":1721234567}
 ```
 
 - `id` is a UUID identifying one logical event. The bridge generates it once when the message is built and re-sends the identical line on every retry, so a retried event carries the same `id`.
 - `paneID` is the target pane. When the CLI cannot know it, the field is omitted and `pids` carries the process's ancestor chain; Muxy resolves the nearest matching pane by foreground process id.
+- `sessionID` is the provider's conversation identifier. Claude Code supplies its exact resumable ID through hook input. OpenCode forwards interaction-scoped IDs so Muxy can reject stale lifecycle events, but they are not used for restoration. The field is unrelated to the event retry `id`.
+- `sessionEnded: true` marks a real provider session termination. End-of-turn `finished` events do not set it and do not discard resumable conversation state.
+- `metadataOnly: true` records session identity without changing pane status. Session-start hooks use it because opening or resuming an agent does not mean the agent is processing a turn.
 - `phase` is `working`, `waiting`, or `finished`. `finished` maps to the `idle` status.
 - `test: true` marks a synthetic event from the settings Test button — it is delivered as a notification but never changes agent status.
 
@@ -65,6 +68,14 @@ Results are tracked per provider in the health store — install state, last ver
 OpenCode also runs a bounded, read-only `opencode debug info` discovery probe after reconciliation. Its provider row reports the resolved CLI version and whether OpenCode's effective plugin list contains Muxy's exact managed plugin. Discovery results are separate from hook verification and event delivery, and are logged through the `ProviderDiscovery` unified-log category with executable paths kept private.
 
 The OpenCode plugin writes structured `service=muxy` entries to OpenCode's own logs when it initializes, forwards a permission or question, or cannot launch `muxy-hook`. Use `opencode debug paths` to locate the active OpenCode log directory and `opencode debug info` to inspect the effective plugin list manually.
+
+## Update restoration
+
+Muxy records the exact Claude Code session attached to each local terminal pane. When Sparkle begins installing an update and Muxy accepts a graceful quit, Muxy arms the target build and saves the workspace before terminal cleanup. The matching updated build restores those panes with `claude --resume <session-id>` in their saved working directories.
+
+Session restoration is update-only. Ordinary launches, crashes, cancelled quits, failed installations that reopen the previous build, unrelated builds, and backup relaunches restore terminal tabs as shells without starting agents. Muxy does not persist PTYs, terminal scrollback, or arbitrary processes. Remote SSH agents are not restored because their provider session identity is not available to the local hook pipeline.
+
+OpenCode sessions are not restored. Its plugin API reports project-wide session events but does not reliably identify an in-TUI switch to an already-idle selected session, so Muxy cannot guarantee that a saved ID identifies the conversation visible in the pane.
 
 ## Test button
 

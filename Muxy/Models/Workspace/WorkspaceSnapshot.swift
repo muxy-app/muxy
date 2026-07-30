@@ -176,6 +176,7 @@ struct TerminalTabSnapshot: Codable {
     let extensionTabData: ExtensionJSON?
     let browserURL: String?
     let browserProfileID: String?
+    let agentSession: AgentSessionReference?
 
     init(
         kind: TerminalTab.Kind,
@@ -195,7 +196,8 @@ struct TerminalTabSnapshot: Codable {
         extensionTabTypeID: String? = nil,
         extensionTabData: ExtensionJSON? = nil,
         browserURL: String? = nil,
-        browserProfileID: String? = nil
+        browserProfileID: String? = nil,
+        agentSession: AgentSessionReference? = nil
     ) {
         self.kind = kind
         self.id = id
@@ -215,6 +217,7 @@ struct TerminalTabSnapshot: Codable {
         self.extensionTabData = extensionTabData
         self.browserURL = browserURL
         self.browserProfileID = browserProfileID
+        self.agentSession = agentSession
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -236,6 +239,7 @@ struct TerminalTabSnapshot: Codable {
         case extensionTabData
         case browserURL
         case browserProfileID
+        case agentSession
     }
 
     init(from decoder: Decoder) throws {
@@ -259,6 +263,7 @@ struct TerminalTabSnapshot: Codable {
         extensionTabData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .extensionTabData)
         browserURL = try container.decodeIfPresent(String.self, forKey: .browserURL)
         browserProfileID = try container.decodeIfPresent(String.self, forKey: .browserProfileID)
+        agentSession = try container.decodeIfPresent(AgentSessionReference.self, forKey: .agentSession)
     }
 }
 
@@ -275,7 +280,8 @@ enum WorkspaceRestorer {
     static func restoreAll(
         from snapshots: [WorkspaceSnapshot],
         projects: [Project],
-        worktrees: [UUID: [Worktree]]
+        worktrees: [UUID: [Worktree]],
+        restoringAgentSessions: Bool = false
     ) -> [RestoredWorkspace] {
         let projectByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
         var results: [RestoredWorkspace] = []
@@ -283,7 +289,7 @@ enum WorkspaceRestorer {
             guard projectByID[snapshot.projectID] != nil else { continue }
             let worktreeList = worktrees[snapshot.projectID] ?? []
             guard let targetWorktree = resolveWorktree(for: snapshot, in: worktreeList) else { continue }
-            let root = restoreSplitNode(from: snapshot.root)
+            let root = restoreSplitNode(from: snapshot.root, restoringAgentSessions: restoringAgentSessions)
             let areas = root.allAreas()
             guard !areas.isEmpty else { continue }
             let focusedID: UUID = if let areaID = snapshot.focusedAreaID, root.findArea(id: areaID) != nil {
@@ -382,13 +388,25 @@ enum WorkspaceRestorer {
         return snapshots
     }
 
-    private static func restoreSplitNode(from snapshot: SplitNodeSnapshot) -> SplitNode {
+    private static func restoreSplitNode(
+        from snapshot: SplitNodeSnapshot,
+        restoringAgentSessions: Bool
+    ) -> SplitNode {
         switch snapshot {
         case let .tabArea(areaSnapshot):
-            return .tabArea(TabArea(restoring: areaSnapshot))
+            return .tabArea(TabArea(
+                restoring: areaSnapshot,
+                restoringAgentSessions: restoringAgentSessions
+            ))
         case let .split(branchSnapshot):
-            let first = restoreSplitNode(from: branchSnapshot.first)
-            let second = restoreSplitNode(from: branchSnapshot.second)
+            let first = restoreSplitNode(
+                from: branchSnapshot.first,
+                restoringAgentSessions: restoringAgentSessions
+            )
+            let second = restoreSplitNode(
+                from: branchSnapshot.second,
+                restoringAgentSessions: restoringAgentSessions
+            )
             let direction: SplitDirection = switch branchSnapshot.direction {
             case .horizontal: .horizontal
             case .vertical: .vertical

@@ -6,6 +6,11 @@ struct TerminalPaneLaunch: Equatable {
     let closesOnCommandExit: Bool
 }
 
+struct AgentSessionReference: Codable, Equatable {
+    let providerID: String
+    let sessionID: String
+}
+
 @MainActor
 @Observable
 final class TerminalPaneState: Identifiable {
@@ -20,6 +25,7 @@ final class TerminalPaneState: Identifiable {
     let startupCommandInteractive: Bool
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
+    private(set) var agentSession: AgentSessionReference?
     var isOffline = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
@@ -33,7 +39,8 @@ final class TerminalPaneState: Identifiable {
         startupCommand: String? = nil,
         startupCommandInteractive: Bool = false,
         closesOnStartupCommandExit: Bool = true,
-        externalEditorFilePath: String? = nil
+        externalEditorFilePath: String? = nil,
+        agentSession: AgentSessionReference? = nil
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -44,6 +51,7 @@ final class TerminalPaneState: Identifiable {
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
+        self.agentSession = agentSession
     }
 
     func consumeRestoredLaunch() -> TerminalPaneLaunch {
@@ -70,6 +78,13 @@ final class TerminalPaneState: Identifiable {
         guard currentWorkingDirectory != path else { return }
         currentWorkingDirectory = path
         notifyTabUpdated()
+    }
+
+    @discardableResult
+    func setAgentSession(_ session: AgentSessionReference?) -> Bool {
+        guard agentSession != session else { return false }
+        agentSession = session
+        return true
     }
 
     private func notifyTabUpdated() {

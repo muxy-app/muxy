@@ -51,8 +51,11 @@ struct MuxyApp: App {
         appState.restoreSelection(
             projects: projectStore.projects,
             worktrees: worktreeStore.worktrees,
-            skippingProjectIDs: projectGroupStore.activeRemoteProjectIDs
+            skippingProjectIDs: projectGroupStore.activeRemoteProjectIDs,
+            restoringAgentSessions: UpdateSessionRestoration.consumeEligibility()
         )
+        NotificationStore.shared.appState = appState
+        NotificationStore.shared.worktreeStore = worktreeStore
         ExtensionStore.shared.loadManifestsIfNeeded()
         _appState = State(initialValue: appState)
         _projectStore = State(initialValue: projectStore)
@@ -91,6 +94,7 @@ struct MuxyApp: App {
                         MemoryDiagnostics.shared.configure(appState: appState)
                         TerminalProgressStore.shared.appState = appState
                         appDelegate.onTerminate = { [appState, browserHistoryStore] in
+                            appState.freezeAgentSessionStateForTermination()
                             appState.saveWorkspaces()
                             browserHistoryStore.saveImmediately()
                         }
@@ -249,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private weak var whatsNewWindow: NSWindow?
     private let terminalTerminationCleanup = TerminalTerminationCleanup()
     private static let terminalCleanupTimeout: Duration = .seconds(5)
+    private var didPersistUserStateForTermination = false
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -513,6 +518,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let reply = AppRelaunch.isRelaunching ? NSApplication.TerminateReply.terminateNow : confirmQuitIfNeeded()
         guard reply == .terminateNow else { return reply }
+        persistUserStateForTermination()
+        armUpdateSessionRestorationForTermination()
+        NotificationSocketServer.shared.stop()
         guard !terminalTerminationCleanup.isComplete else { return .terminateNow }
         terminalTerminationCleanup.start(
             timeout: Self.terminalCleanupTimeout,
@@ -592,9 +600,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func persistUserStateForTermination() {
-        guard !AppRelaunch.isRelaunching else { return }
+        guard !AppRelaunch.isRelaunching, !didPersistUserStateForTermination else { return }
+        didPersistUserStateForTermination = true
         onTerminate?()
         RichInputDraftStore.shared.flush()
+    }
+
+    func armUpdateSessionRestorationForTermination(defaults: UserDefaults = .standard) {
+        guard !AppRelaunch.isRelaunching else { return }
+        UpdateSessionRestoration.armForTermination(defaults: defaults)
     }
 
     @MainActor

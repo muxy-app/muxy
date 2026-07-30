@@ -57,6 +57,35 @@ struct AppRelaunchTests {
         #expect(!didPersist)
     }
 
+    @Test("relaunch does not arm update session restoration")
+    func relaunchDoesNotArmUpdateSessionRestoration() throws {
+        AppRelaunch.resetForTesting()
+        defer { AppRelaunch.resetForTesting() }
+        let suiteName = "AppRelaunchTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        UpdateSessionRestoration.mark(targetBuild: "200", currentBuild: "100", defaults: defaults)
+        AppRelaunch.prepareForRelaunch()
+
+        AppDelegate().armUpdateSessionRestorationForTermination(defaults: defaults)
+
+        #expect(!UpdateSessionRestoration.consumeEligibility(currentBuild: "200", defaults: defaults))
+    }
+
+    @Test("termination persists user state only once")
+    func terminationPersistsUserStateOnlyOnce() {
+        let delegate = AppDelegate()
+        var persistCount = 0
+        delegate.onTerminate = {
+            persistCount += 1
+        }
+
+        delegate.persistUserStateForTermination()
+        delegate.persistUserStateForTermination()
+
+        #expect(persistCount == 1)
+    }
+
     @Test("dismisses attached sheets so termination is not blocked")
     func dismissesAttachedSheetsBeforeTermination() {
         let parent = NSWindow(
