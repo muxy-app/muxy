@@ -569,6 +569,57 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func appTransparencyPersistsWithinAllowedValues() throws {
+        let keys = [
+            AppTransparencyPreferences.transparencyKey,
+            AppTransparencyPreferences.blurIntensityKey,
+        ]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(AppTransparencyPreferences.transparencyKey)": 25,
+          "\(AppTransparencyPreferences.blurIntensityKey)": 90
+        }
+        """)
+
+        #expect(AppTransparencyPreferences.transparency() == 25)
+        #expect(AppTransparencyPreferences.blurIntensity() == 90)
+    }
+
+    @Test(arguments: [
+        "{\"\(AppTransparencyPreferences.transparencyKey)\": 80}",
+        "{\"\(AppTransparencyPreferences.transparencyKey)\": false}",
+        "{\"\(AppTransparencyPreferences.blurIntensityKey)\": -1}",
+        "{\"\(AppTransparencyPreferences.blurIntensityKey)\": 101}",
+        "{\"\(AppTransparencyPreferences.blurIntensityKey)\": true}",
+    ])
+    func invalidAppTransparencyDoesNotWriteOrApplySettings(settings: String) throws {
+        let keys = [
+            AppTransparencyPreferences.transparencyKey,
+            AppTransparencyPreferences.blurIntensityKey,
+        ]
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+        UserDefaults.standard.set(12, forKey: AppTransparencyPreferences.transparencyKey)
+        UserDefaults.standard.set(70, forKey: AppTransparencyPreferences.blurIntensityKey)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText(settings)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+        #expect(AppTransparencyPreferences.transparency() == 12)
+        #expect(AppTransparencyPreferences.blurIntensity() == 70)
+    }
+
+    @Test
     func tabHeaderWidthPersistsZeroAsFullWidth() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [TabWidthPreferences.maxWidthKey])
         defer { snapshot.restore() }

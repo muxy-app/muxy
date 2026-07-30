@@ -170,51 +170,14 @@ struct QuickTerminalSettingsView: View {
             }
 
             SettingsSection("Appearance", showsDivider: false) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text(L10n.resource("Terminal transparency"))
-                            .font(.system(size: SettingsMetrics.labelFontSize))
-                        Spacer()
-                        Slider(
-                            value: transparencyBinding,
-                            in: Double(QuickTerminalAppearancePreferences.transparencyRange.lowerBound)
-                                ... Double(QuickTerminalAppearancePreferences.transparencyRange.upperBound),
-                            step: 1
-                        )
-                        .frame(width: 220)
-                        .accessibilityLabel(L10n.string("Terminal transparency"))
-                        Text(L10n.resource("\(displayedTransparency)%"))
-                            .font(.system(size: SettingsMetrics.footnoteFontSize).monospacedDigit())
-                            .foregroundStyle(SettingsStyle.mutedForeground)
-                            .frame(width: 34, alignment: .trailing)
-                    }
-
-                    HStack(spacing: 8) {
-                        Text(L10n.resource("Background vibrancy"))
-                            .font(.system(size: SettingsMetrics.labelFontSize))
-                        Spacer()
-                        Slider(
-                            value: blurIntensityBinding,
-                            in: Double(QuickTerminalAppearancePreferences.blurIntensityRange.lowerBound)
-                                ... Double(QuickTerminalAppearancePreferences.blurIntensityRange.upperBound),
-                            step: 1
-                        )
-                        .frame(width: 220)
-                        .accessibilityLabel(L10n.string("Background vibrancy"))
-                        Text(L10n.resource("\(displayedBlurIntensity)%"))
-                            .font(.system(size: SettingsMetrics.footnoteFontSize).monospacedDigit())
-                            .foregroundStyle(SettingsStyle.mutedForeground)
-                            .frame(width: 34, alignment: .trailing)
-                        Button(L10n.string("Reset")) {
-                            transparency = QuickTerminalAppearancePreferences.defaultTransparency
-                            blurIntensity = QuickTerminalAppearancePreferences.defaultBlurIntensity
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    }
-                }
-                .padding(.horizontal, SettingsMetrics.horizontalPadding)
-                .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+                BackgroundAppearanceSliders(
+                    transparency: $transparency,
+                    blurIntensity: $blurIntensity,
+                    transparencyLabel: "Terminal transparency",
+                    vibrancyLabel: "Background vibrancy",
+                    defaultTransparency: QuickTerminalAppearancePreferences.defaultTransparency,
+                    defaultBlurIntensity: QuickTerminalAppearancePreferences.defaultBlurIntensity
+                )
             }
         }
     }
@@ -242,34 +205,6 @@ struct QuickTerminalSettingsView: View {
     private var isCustomShortcutSelected: Bool {
         guard case .keyCombo = shortcutService.shortcut else { return false }
         return true
-    }
-
-    private var transparencyBinding: Binding<Double> {
-        Binding(
-            get: { Double(displayedTransparency) },
-            set: { transparency = Int($0.rounded()) }
-        )
-    }
-
-    private var displayedTransparency: Int {
-        min(
-            max(transparency, QuickTerminalAppearancePreferences.transparencyRange.lowerBound),
-            QuickTerminalAppearancePreferences.transparencyRange.upperBound
-        )
-    }
-
-    private var blurIntensityBinding: Binding<Double> {
-        Binding(
-            get: { Double(displayedBlurIntensity) },
-            set: { blurIntensity = Int($0.rounded()) }
-        )
-    }
-
-    private var displayedBlurIntensity: Int {
-        min(
-            max(blurIntensity, QuickTerminalAppearancePreferences.blurIntensityRange.lowerBound),
-            QuickTerminalAppearancePreferences.blurIntensityRange.upperBound
-        )
     }
 
     private var statusText: String {

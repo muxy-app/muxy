@@ -279,6 +279,24 @@ enum SettingsCatalog {
             aliases: ["folder", "path", "legacy"]
         ),
         SettingsCatalogItem(
+            key: AppTransparencyPreferences.transparencyKey,
+            title: "App Transparency",
+            description: "Controls how much of the desktop shows through terminal panes, the top bar, and the status bar.",
+            category: .appearance,
+            section: "Appearance",
+            defaultValue: AppTransparencyPreferences.defaultTransparency,
+            aliases: ["opacity", "glass", "background", "transparent", "terminal"]
+        ),
+        SettingsCatalogItem(
+            key: AppTransparencyPreferences.blurIntensityKey,
+            title: "App Vibrancy",
+            description: "Controls the native macOS material intensity behind the transparent app background.",
+            category: .appearance,
+            section: "Appearance",
+            defaultValue: AppTransparencyPreferences.defaultBlurIntensity,
+            aliases: ["blur", "glass", "frost", "background", "terminal"]
+        ),
+        SettingsCatalogItem(
             key: GeneralSettingsKeys.autoCopyTerminalSelection,
             title: "Auto-copy Terminal Selection",
             description: "Copies terminal selections when the mouse is released.",

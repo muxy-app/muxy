@@ -472,10 +472,10 @@ struct MainWindow: View {
             mainTitleBarContent
                 .frame(height: UIMetrics.titleBarHeight)
                 .background(WindowDragRepresentable())
-                .background(MuxyTheme.bg)
+                .background(AppTransparencyBackground())
 
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                .background(MuxyTheme.bg)
+                .background(AppTransparencyBackground())
 
             workspaceContent
         }
@@ -511,7 +511,7 @@ struct MainWindow: View {
                             )
                             .frame(width: titleBarSidebarBackgroundWidth)
                         }
-                        MuxyTheme.bg
+                        AppTransparencyBackground()
                     }
                 }
                 .overlay(alignment: .trailing) {

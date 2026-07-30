@@ -67,10 +67,10 @@ struct QuickTerminalAppearancePreferencesTests {
 
     @Test("Reduce Transparency resolves to an opaque unblurred surface")
     func reduceTransparencyFallback() {
-        let appearance = QuickTerminalAppearance(transparency: 42, blurIntensity: 88)
+        let appearance = BackgroundAppearance(transparency: 42, blurIntensity: 88)
 
         #expect(appearance.resolvingReduceTransparency(false) == appearance)
-        #expect(appearance.resolvingReduceTransparency(true) == QuickTerminalAppearance(
+        #expect(appearance.resolvingReduceTransparency(true) == BackgroundAppearance(
             transparency: 0,
             blurIntensity: 0
         ))
@@ -78,9 +78,9 @@ struct QuickTerminalAppearancePreferencesTests {
 
     @Test("blur is hidden without transparency or intensity")
     func blurVisibility() {
-        #expect(!QuickTerminalAppearance(transparency: 0, blurIntensity: 100).showsBlur)
-        #expect(!QuickTerminalAppearance(transparency: 30, blurIntensity: 0).showsBlur)
-        #expect(QuickTerminalAppearance(transparency: 30, blurIntensity: 1).showsBlur)
+        #expect(!BackgroundAppearance(transparency: 0, blurIntensity: 100).showsBlur)
+        #expect(!BackgroundAppearance(transparency: 30, blurIntensity: 0).showsBlur)
+        #expect(BackgroundAppearance(transparency: 30, blurIntensity: 1).showsBlur)
     }
 
     @Test(arguments: [

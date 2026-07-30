@@ -43,6 +43,7 @@ enum TerminalBackend: String, CaseIterable, Identifiable, Sendable {
         }
         precondition(surface.backend == self)
         precondition(surface.capabilities == capabilities)
+        (surface as? any TerminalPaneAppearanceSurface)?.applyTerminalPaneConfiguration()
         return surface
     }
 

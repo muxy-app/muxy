@@ -403,6 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
         ModifierKeyMonitor.shared.start()
+        AppTransparencyService.shared.start()
         observeQuickTerminalEnabledChanges()
         startQuickTerminal()
         DesktopNotificationService.shared.prepare()

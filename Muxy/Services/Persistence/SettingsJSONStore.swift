@@ -362,6 +362,14 @@ enum SettingsJSONStore {
             guard QuickTerminalAppearancePreferences.blurIntensityRange.contains(value) else {
                 throw SettingsJSONError.invalidValue(key)
             }
+        case AppTransparencyPreferences.transparencyKey:
+            guard AppTransparencyPreferences.transparencyRange.contains(value) else {
+                throw SettingsJSONError.invalidValue(key)
+            }
+        case AppTransparencyPreferences.blurIntensityKey:
+            guard AppTransparencyPreferences.blurIntensityRange.contains(value) else {
+                throw SettingsJSONError.invalidValue(key)
+            }
         default:
             break
         }

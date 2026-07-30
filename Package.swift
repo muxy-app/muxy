@@ -76,7 +76,7 @@ let package = Package(
                 .process("Resources/Localization"),
                 .copy("Resources/ProviderIcons"),
                 .copy("Resources/ghostty"),
-                .copy("Resources/quick-terminal"),
+                .copy("Resources/ghostty-overrides"),
                 .copy("Resources/scripts"),
                 .copy("Resources/skills"),
                 .copy("Resources/starter-kits"),

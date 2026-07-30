@@ -112,6 +112,27 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func appTransparencySettingsAreSearchableAndJSONEditable() {
+        let interfaceItems = SettingsCatalog.items.filter { $0.category == .appearance }
+
+        #expect(interfaceItems.contains { $0.key == AppTransparencyPreferences.transparencyKey })
+        #expect(interfaceItems.contains { $0.key == AppTransparencyPreferences.blurIntensityKey })
+        #expect(SettingsCatalog.matchingItems(query: "glass").contains {
+            $0.key == AppTransparencyPreferences.transparencyKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "blur").contains {
+            $0.key == AppTransparencyPreferences.blurIntensityKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == AppTransparencyPreferences.transparencyKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == AppTransparencyPreferences.blurIntensityKey
+        })
+        #expect(SettingsCatalog.sectionMatches(query: "vibrancy", category: .appearance, section: "Appearance"))
+    }
+
+    @Test
     func matchCountSummaryIsOmittedWithoutQuery() {
         #expect(SettingsCatalog.matchCountSummary(for: .general, query: "") == nil)
         #expect(SettingsCatalog.matchCountSummary(for: .general, query: "   ") == nil)

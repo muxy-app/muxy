@@ -2,16 +2,6 @@ import AppKit
 import Foundation
 import GhosttyKit
 
-extension GhosttyTerminalNSView: QuickTerminalSurface {
-    var quickTerminalView: NSView { self }
-
-    func applyQuickTerminalConfiguration() {
-        setSurfaceConfigurationOverlay { surface in
-            QuickTerminalGhosttyConfig.apply(to: surface)
-        }
-    }
-}
-
 @MainActor
 struct GhosttyConfigOverlayLoader {
     let clone: (ghostty_config_t) -> ghostty_config_t?
@@ -31,7 +21,7 @@ struct GhosttyConfigOverlayLoader {
     )
 }
 
-enum QuickTerminalGhosttyConfig {
+enum GhosttyTransparentSurfaceConfig {
     @MainActor
     static func apply(to surface: ghostty_surface_t) {
         guard let config = makeConfiguration() else { return }
@@ -42,7 +32,7 @@ enum QuickTerminalGhosttyConfig {
 
     static func overridesURL(bundle: Bundle) -> URL? {
         guard let resourceURL = bundle.resourceURL else { return nil }
-        let url = resourceURL.appendingPathComponent("quick-terminal/ghostty.conf")
+        let url = resourceURL.appendingPathComponent("ghostty-overrides/transparent-surface.conf")
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
     }

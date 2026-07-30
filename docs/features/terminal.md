@@ -18,9 +18,15 @@ The same settings section can disable Quick Terminal entirely and controls the t
 
 Vibrancy controls how much of the native macOS material participates in the background composition. It does not set a custom blur radius, which AppKit does not expose for system materials.
 
-Transparency and vibrancy apply only to the terminal workspace while preserving the active Ghostty theme. The cutout bridge and its controls stay solid for readability, and project terminals keep their own Ghostty configuration. Muxy uses an opaque, unblurred fallback when macOS Reduce Transparency or Increase Contrast is enabled.
+Transparency and vibrancy apply only to the terminal workspace while preserving the active Ghostty theme. The cutout bridge and its controls stay solid for readability, and the main window follows the separate **Settings → Interface → Appearance** controls. Muxy uses an opaque, unblurred fallback when macOS Reduce Transparency or Increase Contrast is enabled.
 
 The quick terminal is available while Muxy is running. Closing Muxy's main window still follows the existing quit behavior.
+
+## App transparency
+
+**Settings → Interface → Appearance** brings the same transparency and vibrancy controls to the main window: terminal panes, the top bar, and the status bar. Transparency ranges from 0–55% and defaults to 0, keeping the window opaque until it is raised. Vibrancy mixes the native macOS material from 0–100% behind the transparent background; because the main window itself stays opaque, the desktop shows through the vibrancy material and the effect needs a vibrancy above zero. The sidebar keeps its own vibrancy toggle.
+
+Changes apply immediately to open terminals, including split panes, and to the top bar and status bar. The active Ghostty theme is preserved: its background color is drawn as a tint over the material at the configured opacity, and colored cell backgrounds render normally. Muxy renders the workspace opaque and unblurred while macOS Reduce Transparency or Increase Contrast is enabled. A terminal pane controlled by a remote device keeps its opaque client theme until control returns to the Mac. The settings are stored as `muxy.app.transparency` and `muxy.app.blur` in `settings.json`.
 
 ## Configuration
 

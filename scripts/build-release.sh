@@ -118,9 +118,9 @@ echo "==> Stripping local and debug symbols"
 strip -Sx "$APP_BUNDLE/Contents/MacOS/Muxy"
 
 RESOURCE_BUNDLE="$SPM_BUILD_DIR/Muxy_Muxy.bundle"
-QUICK_TERMINAL_CONFIG="$RESOURCE_BUNDLE/quick-terminal/ghostty.conf"
-if [[ ! -f "$QUICK_TERMINAL_CONFIG" ]]; then
-    echo "Error: Quick Terminal config not found at $QUICK_TERMINAL_CONFIG"
+TRANSPARENT_SURFACE_CONFIG="$RESOURCE_BUNDLE/ghostty-overrides/transparent-surface.conf"
+if [[ ! -f "$TRANSPARENT_SURFACE_CONFIG" ]]; then
+    echo "Error: Transparent surface config not found at $TRANSPARENT_SURFACE_CONFIG"
     exit 1
 fi
 cp -R "$RESOURCE_BUNDLE" "$APP_BUNDLE/Contents/Resources/Muxy_Muxy.bundle"

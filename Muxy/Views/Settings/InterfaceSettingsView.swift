@@ -11,6 +11,10 @@ struct InterfaceSettingsView: View {
     @State private var currentDarkTheme: String?
     @AppStorage(AppBackgroundStyle.storageKey)
     private var appBackgroundStyleRaw = AppBackgroundStyle.defaultValue.rawValue
+    @AppStorage(AppTransparencyPreferences.transparencyKey)
+    private var appTransparency = AppTransparencyPreferences.defaultTransparency
+    @AppStorage(AppTransparencyPreferences.blurIntensityKey)
+    private var appBlurIntensity = AppTransparencyPreferences.defaultBlurIntensity
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
     @State private var layoutStore = AppLayoutStore.shared
@@ -103,6 +107,23 @@ struct InterfaceSettingsView: View {
                     .pickerStyle(.segmented)
                     .settingsControl(.intrinsic)
                 }
+            }
+
+            SettingsSection(
+                "Appearance",
+                footer: """
+                Transparency shows the desktop through terminal panes, the top bar, and the status bar. \
+                Vibrancy controls the native macOS material intensity and is required for the effect.
+                """
+            ) {
+                BackgroundAppearanceSliders(
+                    transparency: $appTransparency,
+                    blurIntensity: $appBlurIntensity,
+                    transparencyLabel: "App transparency",
+                    vibrancyLabel: "App vibrancy",
+                    defaultTransparency: AppTransparencyPreferences.defaultTransparency,
+                    defaultBlurIntensity: AppTransparencyPreferences.defaultBlurIntensity
+                )
             }
 
             sidebarSection

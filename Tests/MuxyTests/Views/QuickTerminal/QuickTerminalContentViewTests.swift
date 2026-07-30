@@ -46,7 +46,7 @@ struct QuickTerminalContentViewTests {
         let glassIndex = try #require(contentView.subviews.firstIndex(of: glassView))
         let tintView = contentView.subviews[glassIndex + 1]
 
-        contentView.applyAppearance(QuickTerminalAppearance(transparency: 24, blurIntensity: 35))
+        contentView.applyAppearance(BackgroundAppearance(transparency: 24, blurIntensity: 35))
 
         #expect(!glassView.isHidden)
         #expect(glassView.alphaValue == 1)
@@ -57,13 +57,13 @@ struct QuickTerminalContentViewTests {
         #expect(abs(tintColor.alphaComponent - 0.76) < 0.000_1)
         #expect(colorsMatch(tintColor, MuxyTheme.nsBg.withAlphaComponent(0.76)))
 
-        contentView.applyAppearance(QuickTerminalAppearance(transparency: 24, blurIntensity: 100))
+        contentView.applyAppearance(BackgroundAppearance(transparency: 24, blurIntensity: 100))
 
         #expect(!glassView.isHidden)
         #expect(glassView.alphaValue == 1)
         #expect(glassView.maskImage == nil)
 
-        contentView.applyAppearance(QuickTerminalAppearance(transparency: 24, blurIntensity: 0))
+        contentView.applyAppearance(BackgroundAppearance(transparency: 24, blurIntensity: 0))
 
         #expect(glassView.isHidden)
         #expect(glassView.alphaValue == 1)
@@ -78,7 +78,7 @@ struct QuickTerminalContentViewTests {
         let tintView = contentView.subviews[glassIndex + 1]
 
         contentView.applyAppearance(
-            QuickTerminalAppearance(transparency: 24, blurIntensity: 100)
+            BackgroundAppearance(transparency: 24, blurIntensity: 100)
                 .resolvingReduceTransparency(true)
         )
 
@@ -90,10 +90,10 @@ struct QuickTerminalContentViewTests {
 
     @Test("material masks reserve endpoints for off and full intensity")
     func materialMaskEndpoints() {
-        #expect(QuickTerminalMaterialMask.image(opacity: 0) == nil)
-        #expect(QuickTerminalMaterialMask.image(opacity: 1) == nil)
-        #expect(QuickTerminalMaterialMask.image(opacity: 0.01) != nil)
-        #expect(QuickTerminalMaterialMask.image(opacity: 0.99) != nil)
+        #expect(MaterialMask.image(opacity: 0) == nil)
+        #expect(MaterialMask.image(opacity: 1) == nil)
+        #expect(MaterialMask.image(opacity: 0.01) != nil)
+        #expect(MaterialMask.image(opacity: 0.99) != nil)
     }
 
     @Test("gear toggles the settings popover and hides the shortcut popover")

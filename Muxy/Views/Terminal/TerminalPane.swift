@@ -38,6 +38,7 @@ struct TerminalPane: View {
 
     var body: some View {
         terminalLayer
+            .background(AppTransparencyBackground())
             .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
                 guard focused, visible else { return }
                 DispatchQueue.main.async {

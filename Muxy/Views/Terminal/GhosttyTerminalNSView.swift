@@ -291,6 +291,15 @@ final class GhosttyTerminalNSView: NSView,
         surfaceConfigurationOverlay?(surface)
     }
 
+    func restoreBaseSurfaceConfiguration() {
+        guard !hasActiveClientTheme,
+              let surface,
+              let base = GhosttyService.shared.config
+        else { return }
+        ghostty_surface_update_config(surface, base)
+        reapplyActiveColors()
+    }
+
     private func detachRendererLayer() {
         layer = nil
         wantsLayer = true
@@ -571,6 +580,7 @@ final class GhosttyTerminalNSView: NSView,
         }
         ClientThemeApplier.revert(surface)
         applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
+        applySurfaceConfigurationOverlay()
     }
 
     func reapplyActiveColors() {
@@ -585,6 +595,10 @@ final class GhosttyTerminalNSView: NSView,
     func reapplyClientThemeIfOwned() {
         guard surface != nil, let theme = activeClientTheme() else { return }
         applyClientTheme(theme)
+    }
+
+    var hasActiveClientTheme: Bool {
+        activeClientTheme() != nil
     }
 
     private func activeClientTheme() -> ClientThemeDTO? {

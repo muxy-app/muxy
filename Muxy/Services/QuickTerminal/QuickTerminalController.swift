@@ -5,7 +5,7 @@ final class QuickTerminalController: NSObject {
     typealias ShortcutLabelProvider = @MainActor () -> String
     typealias SettingsHandler = @MainActor () -> Void
     typealias SizeProvider = @MainActor () -> NSSize
-    typealias AppearanceProvider = @MainActor () -> QuickTerminalAppearance
+    typealias AppearanceProvider = @MainActor () -> BackgroundAppearance
 
     private static let showDuration: TimeInterval = 0.34
     private static let hideDuration: TimeInterval = 0.18

@@ -28,7 +28,7 @@ struct ProjectStatusBar: View {
         }
         .padding(.horizontal, 10)
         .frame(height: UIMetrics.statusBarHeight)
-        .background(MuxyTheme.bg)
+        .background(AppTransparencyBackground())
         .overlay(
             Rectangle().fill(MuxyTheme.border).frame(height: 1),
             alignment: .top

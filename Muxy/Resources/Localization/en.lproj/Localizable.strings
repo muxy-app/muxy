@@ -83,6 +83,10 @@
 "App & subprocess resource usage" = "App & subprocess resource usage";
 "App Default" = "App Default";
 "App Language" = "App Language";
+"App Transparency" = "App Transparency";
+"App Vibrancy" = "App Vibrancy";
+"App transparency" = "App transparency";
+"App vibrancy" = "App vibrancy";
 "App Layout" = "App Layout";
 "Appearance" = "Appearance";
 "Appended after the configured prompt for this action only." = "Appended after the configured prompt for this action only.";
@@ -1087,6 +1091,7 @@
 "Theme" = "Theme";
 "Theme Picker" = "Theme Picker";
 "Theme Picker (%@)" = "Theme Picker (%@)";
+"Transparency shows the desktop through terminal panes, the top bar, and the status bar. Vibrancy controls the native macOS material intensity and is required for the effect." = "Transparency shows the desktop through terminal panes, the top bar, and the status bar. Vibrancy controls the native macOS material intensity and is required for the effect.";
 "These commands will run in the new worktree's terminal. Only enable this if you trust this repository." = "These commands will run in the new worktree's terminal. Only enable this if you trust this repository.";
 "This PR has conflicts and cannot be merged." = "This PR has conflicts and cannot be merged.";
 "This branch is out of date with the base branch. Update it before merging." = "This branch is out of date with the base branch. Update it before merging.";
@@ -1312,6 +1317,8 @@
 "Controls line height in the composer." = "Controls line height in the composer.";
 "Controls the composer editor font family." = "Controls the composer editor font family.";
 "Controls the local server port for mobile pairing." = "Controls the local server port for mobile pairing.";
+"Controls how much of the desktop shows through terminal panes, the top bar, and the status bar." = "Controls how much of the desktop shows through terminal panes, the top bar, and the status bar.";
+"Controls the native macOS material intensity behind the transparent app background." = "Controls the native macOS material intensity behind the transparent app background.";
 "Controls the native macOS material intensity behind the terminal." = "Controls the native macOS material intensity behind the terminal.";
 "Controls the scale of the app interface." = "Controls the scale of the app interface.";
 "Controls the sidebar appearance when collapsed." = "Controls the sidebar appearance when collapsed.";

@@ -1,9 +1,9 @@
 import Foundation
 
-enum QuickTerminalAppearancePreferences {
-    static let transparencyKey = "muxy.quickTerminal.transparency"
-    static let blurIntensityKey = "muxy.quickTerminal.blur"
-    static let defaultTransparency = 18
+enum AppTransparencyPreferences {
+    static let transparencyKey = "muxy.app.transparency"
+    static let blurIntensityKey = "muxy.app.blur"
+    static let defaultTransparency = 0
     static let defaultBlurIntensity = 70
     static let transparencyRange = BackgroundAppearance.transparencyRange
     static let blurIntensityRange = BackgroundAppearance.blurIntensityRange
@@ -43,30 +43,5 @@ enum QuickTerminalAppearancePreferences {
             min(max(value, blurIntensityRange.lowerBound), blurIntensityRange.upperBound),
             forKey: blurIntensityKey
         )
-    }
-
-    @discardableResult
-    static func migrateLegacyBlur(defaults: UserDefaults = .standard) -> Bool {
-        guard let storedValue = defaults.object(forKey: blurIntensityKey) else { return false }
-        if let number = storedValue as? NSNumber,
-           CFGetTypeID(number) != CFBooleanGetTypeID()
-        {
-            let intensity = min(
-                max(number.intValue, blurIntensityRange.lowerBound),
-                blurIntensityRange.upperBound
-            )
-            guard storedValue as? Int != intensity else { return false }
-            defaults.set(intensity, forKey: blurIntensityKey)
-            return true
-        }
-        let intensity = switch storedValue as? String {
-        case "off": 0
-        case "light": 35
-        case "medium": 70
-        case "strong": 100
-        default: defaultBlurIntensity
-        }
-        defaults.set(intensity, forKey: blurIntensityKey)
-        return true
     }
 }

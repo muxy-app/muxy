@@ -49,6 +49,12 @@ protocol TerminalClientThemeSurface: AnyObject {
 }
 
 @MainActor
+protocol TerminalPaneAppearanceSurface: AnyObject {
+    func applyTerminalPaneConfiguration()
+    func restoreBaseSurfaceConfiguration()
+}
+
+@MainActor
 protocol TerminalOfflineSurface: AnyObject {
     var onOfflineChange: ((Bool) -> Void)? { get set }
     var isTakenOffline: Bool { get }
