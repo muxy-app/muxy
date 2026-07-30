@@ -313,6 +313,8 @@ struct RemoteContainmentGuardTests {
         #expect(prefix.contains("pwd -P"))
         #expect(prefix.contains("exit \(RemoteCommandBuilder.containmentEscapeExitCode)"))
         #expect(prefix.contains("\"$__muxy_root\"/*"))
+        #expect(prefix.contains("__muxy_r_name="))
+        #expect(!prefix.contains("__muxy_name="))
     }
 
     @Test("guard quotes the root and target")

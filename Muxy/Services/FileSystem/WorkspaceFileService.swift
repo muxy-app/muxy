@@ -47,6 +47,9 @@ enum WorkspaceFileService {
         }
         return try await GitProcessRunner.offMainThrowing {
             let absolute = try contained(root: root.path, relativePath: path)
+            guard FileManager.default.fileExists(atPath: absolute) else {
+                throw FileSystemOperationError.sourceMissing(absolute)
+            }
             let attributes = try FileManager.default.attributesOfItem(atPath: absolute)
             let size = (attributes[.size] as? Int) ?? 0
             guard size <= maxReadBytes else {

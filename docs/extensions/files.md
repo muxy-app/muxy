@@ -41,7 +41,7 @@ const file = await muxy.files.read("README.md");
 // { path, content, size }
 ```
 
-Reads UTF-8 text. Files larger than 5 MB or non-UTF-8 content reject.
+Reads UTF-8 text. Files larger than 5 MiB or non-UTF-8 content reject.
 
 ### `muxy.files.stat(path, opts?)`
 
@@ -63,7 +63,7 @@ await muxy.files.delete(["old.log"]);                   // moves to Trash
 ```
 
 - `write` does not create parent directories — call `mkdir` first.
-- `write` rejects UTF-8 content larger than 5 MB.
+- `write` rejects UTF-8 content larger than 5 MiB.
 - `rename` rejects an existing destination; `move` preserves it and uniquifies the moved entry (`report.txt` → `report 2.txt`).
 - `rename` and `move` keep any open editor tabs pointed at the moved files.
 - `delete` moves entries to the system Trash, not a permanent removal.

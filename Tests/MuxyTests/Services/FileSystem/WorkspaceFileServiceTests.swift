@@ -208,6 +208,16 @@ struct WorkspaceFileServiceLocalTests {
         }
     }
 
+    @Test("reading a missing file reports sourceMissing")
+    func missingReadUsesFileSystemError() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(atPath: root.path) }
+
+        await #expect(throws: FileSystemOperationError.sourceMissing(root.path + "/missing.txt")) {
+            _ = try await WorkspaceFileService.read(root: root, path: "missing.txt", encoding: .utf8)
+        }
+    }
+
     @Test("writing invalid base64 is rejected before touching disk")
     func invalidBase64Rejected() async throws {
         let root = try makeRoot()
@@ -507,6 +517,63 @@ struct RemoteFileServiceTests {
         }
     }
 
+    @Test("remote reads enforce the byte limit on the returned payload")
+    func readSizeLimit() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try Data(repeating: 0x41, count: 5).write(to: URL(fileURLWithPath: root + "/large.bin"))
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await makeService().read(
+                root: root,
+                relativePath: "large.bin",
+                maxBytes: 4,
+                encoding: .base64
+            )
+        }
+    }
+
+    @Test("remote writes send binary bytes directly and replace atomically")
+    func binaryWriteRoundTrip() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let bytes = Data([0x00, 0xFF, 0x0A, 0x7F])
+
+        let path = try await makeService().write(
+            root: root,
+            relativePath: "binary.dat",
+            data: bytes,
+            maxBytes: WorkspaceFileService.maxWriteBytes
+        )
+
+        #expect(path == "binary.dat")
+        #expect(try Data(contentsOf: URL(fileURLWithPath: root + "/binary.dat")) == bytes)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root) == ["binary.dat"])
+    }
+
+    @Test("an incomplete remote write leaves existing content unchanged")
+    func incompleteWritePreservesTarget() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try "original".write(toFile: root + "/note.txt", atomically: true, encoding: .utf8)
+        let replacement = Data("replacement".utf8)
+        let service = makeService { input in
+            input.map { Data($0.dropLast()) }
+        }
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await service.write(
+                root: root,
+                relativePath: "note.txt",
+                data: replacement,
+                maxBytes: WorkspaceFileService.maxWriteBytes
+            )
+        }
+
+        #expect(try String(contentsOfFile: root + "/note.txt", encoding: .utf8) == "original")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root) == ["note.txt"])
+    }
+
     @Test("rename rejects existing files and directories without overwriting")
     func renameCollisionsFail() async throws {
         let root = try makeTempDir()
@@ -605,7 +672,9 @@ struct RemoteFileServiceTests {
         #expect(!FileManager.default.fileExists(atPath: root + "/large.bin"))
     }
 
-    private func makeService() -> RemoteFileService {
+    private func makeService(
+        transformInput: @escaping @Sendable (Data?) -> Data? = { $0 }
+    ) -> RemoteFileService {
         RemoteFileService(destination: SSHDestination(host: "unused")) { _, command, input in
             try await GitProcessRunner.runResolved(
                 ResolvedLaunch(
@@ -613,7 +682,7 @@ struct RemoteFileServiceTests {
                     arguments: ["-c", command],
                     workingDirectory: nil
                 ),
-                stdinData: input
+                stdinData: transformInput(input)
             )
         }
     }

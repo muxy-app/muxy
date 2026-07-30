@@ -792,19 +792,19 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func filesList(projectID: UUID, path: String) async throws -> [FileEntryDTO] {
-        try await files(projectID) { root in
+        try await files(projectID) { root, _ in
             try await WorkspaceFileService.list(root: root, path: path).map(Self.toFileEntryDTO)
         }
     }
 
     func filesRead(projectID: UUID, path: String, encoding: FileEncodingDTO) async throws -> FileContentDTO {
-        try await files(projectID) { root in
+        try await files(projectID) { root, _ in
             try await Self.toFileContentDTO(WorkspaceFileService.read(root: root, path: path, encoding: encoding))
         }
     }
 
     func filesStat(projectID: UUID, path: String) async throws -> FileStatDTO {
-        try await files(projectID) { root in
+        try await files(projectID) { root, _ in
             try await Self.toFileStatDTO(WorkspaceFileService.stat(root: root, path: path))
         }
     }
@@ -815,51 +815,102 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         contents: String,
         encoding: FileEncodingDTO
     ) async throws -> String {
-        try await files(projectID) { root in
-            try await WorkspaceFileService.write(root: root, path: path, contents: contents, encoding: encoding)
+        try await files(projectID) { root, worktreeID in
+            let written = try await WorkspaceFileService.write(
+                root: root,
+                path: path,
+                contents: contents,
+                encoding: encoding
+            )
+            postFileChanges(projectID: projectID, worktreeID: worktreeID, root: root.path, paths: [written])
+            return written
         }
     }
 
     func filesMkdir(projectID: UUID, path: String) async throws -> String {
-        try await files(projectID) { root in
-            try await WorkspaceFileService.mkdir(root: root, path: path)
+        try await files(projectID) { root, worktreeID in
+            let created = try await WorkspaceFileService.mkdir(root: root, path: path)
+            postFileChanges(projectID: projectID, worktreeID: worktreeID, root: root.path, paths: [created])
+            return created
         }
     }
 
     func filesRename(projectID: UUID, path: String, newName: String) async throws -> String {
-        try await files(projectID) { root in
-            try await WorkspaceFileService.rename(root: root, path: path, newName: newName)
+        try await files(projectID) { root, worktreeID in
+            let renamed = try await WorkspaceFileService.rename(root: root, path: path, newName: newName)
+            postFileChanges(
+                projectID: projectID,
+                worktreeID: worktreeID,
+                root: root.path,
+                paths: [path, renamed]
+            )
+            return renamed
         }
     }
 
     func filesMove(projectID: UUID, paths: [String], into destination: String) async throws -> [String] {
-        try await files(projectID) { root in
-            try await WorkspaceFileService.move(root: root, paths: paths, into: destination)
+        try await files(projectID) { root, worktreeID in
+            let moved = try await WorkspaceFileService.move(root: root, paths: paths, into: destination)
+            postFileChanges(
+                projectID: projectID,
+                worktreeID: worktreeID,
+                root: root.path,
+                paths: paths + moved
+            )
+            return moved
         }
     }
 
     func filesDelete(projectID: UUID, paths: [String]) async throws {
-        try await files(projectID) { root in
+        try await files(projectID) { root, worktreeID in
             try await WorkspaceFileService.delete(root: root, paths: paths)
+            postFileChanges(projectID: projectID, worktreeID: worktreeID, root: root.path, paths: paths)
         }
     }
 
     private func files<T: Sendable>(
         _ projectID: UUID,
-        _ work: (WorkspaceFileService.Root) async throws -> T
+        _ work: (WorkspaceFileService.Root, UUID?) async throws -> T
     ) async throws -> T {
         guard let project = project(for: projectID) else {
             throw MuxyError.notFound
         }
+        let worktree = resolveWorktree(projectID: projectID)
         let root = WorkspaceFileService.Root(
-            path: resolveWorktreePath(projectID: projectID) ?? project.path,
+            path: worktree?.path ?? project.path,
             workspaceContext: projectGroupStore.workspaceContext(for: project)
         )
         do {
-            return try await work(root)
+            return try await work(root, worktree?.id)
         } catch {
             throw Self.fileError(error)
         }
+    }
+
+    private func postFileChanges(
+        projectID: UUID,
+        worktreeID: UUID?,
+        root: String,
+        paths: [String]
+    ) {
+        let rootedPaths = Self.workspaceRootedPaths(paths, root: root)
+        guard !rootedPaths.isEmpty else { return }
+        WorkspaceFilesChange(
+            projectID: projectID,
+            worktreeID: worktreeID,
+            root: root,
+            paths: rootedPaths
+        ).post()
+    }
+
+    nonisolated static func workspaceRootedPaths(_ paths: [String], root: String) -> [String] {
+        let normalizedRoot = root == "/" ? "" : root.hasSuffix("/") ? String(root.dropLast()) : root
+        return Set(paths.compactMap { path -> String? in
+            let relativePath = path.drop(while: { $0 == "/" })
+            guard !relativePath.isEmpty else { return nil }
+            return normalizedRoot.isEmpty ? "/\(relativePath)" : "\(normalizedRoot)/\(relativePath)"
+        })
+        .sorted()
     }
 
     private static func fileError(_ error: Error) -> MuxyError {
@@ -1059,9 +1110,13 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func resolveWorktreePath(projectID: UUID) -> String? {
+        resolveWorktree(projectID: projectID)?.path
+    }
+
+    private func resolveWorktree(projectID: UUID) -> Worktree? {
         guard let worktreeID = appState.activeWorktreeID[projectID],
               let worktree = worktreeStore.worktree(projectID: projectID, worktreeID: worktreeID)
         else { return nil }
-        return worktree.path
+        return worktree
     }
 }

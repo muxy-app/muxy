@@ -183,7 +183,7 @@ Paths are sandboxed to that root. Any path that resolves outside it — via `..`
 - `utf8` — `content` / `contents` is the file's text. Reading non-UTF-8 bytes fails with `500`.
 - `base64` — `content` / `contents` is Base64. Use this for images and any other binary file. Invalid Base64 on write is rejected before the file is opened.
 
-Either way the 5 MB cap applies to the **raw** bytes, so a Base64 read of a file at the limit produces roughly a 6.7 MB string.
+Either way the 5 MiB cap applies to the **raw** bytes, so a Base64 read of a file at the limit produces roughly a 6.7 MiB string.
 
 `filesWrite`, `filesMkdir`, and `filesRename` return `filePaths` holding a single path; `filesMove` returns one path per moved entry, in the order given.
 
@@ -207,7 +207,7 @@ Unlike the extension API, a remote file write does **not** prompt for consent on
 
 Result shapes: [`files`](data-objects.md#file-entry), [`fileContent`](data-objects.md#file-content), [`fileStat`](data-objects.md#file-stat). `filePaths` is a plain array of relative path strings.
 
-To keep a view in sync after a write, listen for [`fileChanged`](events.md) rather than polling `filesList`.
+To keep a view in sync after a mutation, listen for [`fileChanged`](events.md) rather than polling `filesList`.
 
 ## Example: full authentication request
 

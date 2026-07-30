@@ -52,17 +52,13 @@ struct RemoteFileService {
     ) async throws -> WorkspaceFileService.ReadResult {
         let absolute = try contained(root: root, relativePath: relativePath)
         let quoted = RemoteCommandBuilder.quoteRemotePath(absolute)
-        let sizeResult = try await runGuarded(root: root, targets: [absolute], "wc -c < \(quoted)")
-        guard sizeResult.status == 0 else {
-            throw FileSystemOperationError.sourceMissing(absolute)
-        }
-        let size = Int(sizeResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-        guard size <= maxBytes else {
-            throw FileSystemOperationError.underlying("file exceeds \(maxBytes) byte read limit")
-        }
-        let result = try await runGuarded(root: root, targets: [absolute], "cat \(quoted)")
+        let result = try await runGuarded(root: root, targets: [absolute], "head -c \(maxBytes + 1) \(quoted)")
         guard result.status == 0 else {
             throw FileSystemOperationError.sourceMissing(absolute)
+        }
+        let size = result.stdoutData.count
+        guard size <= maxBytes else {
+            throw FileSystemOperationError.underlying("file exceeds \(maxBytes) byte read limit")
         }
         return try WorkspaceFileService.ReadResult(
             relativePath: relative(absolute, root: root),
@@ -103,9 +99,19 @@ struct RemoteFileService {
         }
         let absolute = try containedMutation(root: root, relativePath: relativePath)
         let quoted = RemoteCommandBuilder.quoteRemotePath(absolute)
-        let command = "base64 -d > \(quoted)"
-        let encoded = Data(data.base64EncodedString().utf8)
-        let result = try await runGuarded(root: root, targets: [absolute], command, input: encoded)
+        let command = "__muxy_write_target=$(__muxy_resolve \(quoted)) "
+            + "|| exit \(RemoteCommandBuilder.containmentEscapeExitCode); "
+            + "__muxy_write_target=${__muxy_write_target%?}; "
+            + "__muxy_require_contained \"$__muxy_write_target\"; "
+            + "__muxy_write_parent=${__muxy_write_target%/*}; "
+            + "[ -n \"$__muxy_write_parent\" ] || __muxy_write_parent=/; "
+            + "__muxy_write_temp=$(mktemp \"$__muxy_write_parent/.muxy-write.XXXXXX\") || exit 1; "
+            + "if cat > \"$__muxy_write_temp\" "
+            + "&& [ \"$(wc -c < \"$__muxy_write_temp\")\" -eq \(data.count) ] "
+            + "&& mv -f \"$__muxy_write_temp\" \"$__muxy_write_target\"; then :; "
+            + "else __muxy_write_status=$?; rm -f \"$__muxy_write_temp\"; "
+            + "exit \"$__muxy_write_status\"; fi"
+        let result = try await runGuarded(root: root, targets: [absolute], command, input: data)
         guard result.status == 0 else {
             throw FileSystemOperationError.underlying(result.stderr.isEmpty ? "write failed" : result.stderr)
         }

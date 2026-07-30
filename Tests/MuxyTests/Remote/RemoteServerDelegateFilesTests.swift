@@ -125,6 +125,117 @@ struct RemoteServerDelegateFilesTests {
         }
     }
 
+    @Test("successful mutations emit changes for a non-active local project")
+    func mutationsEmitFileChanges() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let project = Project(id: UUID(), name: "Demo", path: root, sortOrder: 0)
+        let recorder = WorkspaceChangeRecorder(projectID: project.id)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceFilesDidChange,
+            object: nil,
+            queue: nil,
+            using: recorder.record
+        )
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let delegate = makeDelegate(projects: [project])
+
+        _ = try await delegate.filesMkdir(projectID: project.id, path: "notes")
+        _ = try await delegate.filesWrite(
+            projectID: project.id,
+            path: "notes/todo.md",
+            contents: "todo",
+            encoding: .utf8
+        )
+        _ = try await delegate.filesRename(
+            projectID: project.id,
+            path: "notes/todo.md",
+            newName: "done.md"
+        )
+        _ = try await delegate.filesMkdir(projectID: project.id, path: "archive")
+        _ = try await delegate.filesMove(
+            projectID: project.id,
+            paths: ["notes/done.md"],
+            into: "archive"
+        )
+        try await delegate.filesDelete(projectID: project.id, paths: ["archive/done.md"])
+
+        let paths = recorder.changes.map {
+            RemoteServerDelegate.workspaceRelativePaths($0.paths, root: $0.root)
+        }
+        #expect(paths == [
+            ["notes"],
+            ["notes/todo.md"],
+            ["notes/done.md", "notes/todo.md"],
+            ["archive"],
+            ["archive/done.md", "notes/done.md"],
+            ["archive/done.md"],
+        ])
+        #expect(recorder.changes.allSatisfy { $0.projectID == project.id })
+        #expect(recorder.changes.allSatisfy { $0.worktreeID == nil })
+        #expect(recorder.changes.allSatisfy { $0.root == root })
+    }
+
+    @Test("read-only methods do not emit file changes")
+    func readsDoNotEmitFileChanges() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try "hello".write(toFile: root + "/note.txt", atomically: true, encoding: .utf8)
+        let project = Project(id: UUID(), name: "Demo", path: root, sortOrder: 0)
+        let recorder = WorkspaceChangeRecorder(projectID: project.id)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceFilesDidChange,
+            object: nil,
+            queue: nil,
+            using: recorder.record
+        )
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let delegate = makeDelegate(projects: [project])
+
+        _ = try await delegate.filesList(projectID: project.id, path: "")
+        _ = try await delegate.filesRead(projectID: project.id, path: "note.txt", encoding: .utf8)
+        _ = try await delegate.filesStat(projectID: project.id, path: "note.txt")
+
+        #expect(recorder.changes.isEmpty)
+    }
+
+    @Test("mutations preserve the selected worktree identity and root")
+    func mutationsUseSelectedWorktree() async throws {
+        let root = try makeTempDir()
+        let worktreeRoot = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(atPath: root)
+            try? FileManager.default.removeItem(atPath: worktreeRoot)
+        }
+        let project = Project(id: UUID(), name: "Demo", path: root, sortOrder: 0)
+        let context = makeDelegateContext(projects: [project])
+        let worktree = Worktree(name: "Feature", path: worktreeRoot, isPrimary: false)
+        context.worktreeStore.add(worktree, to: project.id)
+        context.appState.activeWorktreeID[project.id] = worktree.id
+        let recorder = WorkspaceChangeRecorder(projectID: project.id)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceFilesDidChange,
+            object: nil,
+            queue: nil,
+            using: recorder.record
+        )
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        _ = try await context.delegate.filesWrite(
+            projectID: project.id,
+            path: "note.txt",
+            contents: "hello",
+            encoding: .utf8
+        )
+
+        #expect(recorder.changes.count == 1)
+        #expect(recorder.changes.first?.projectID == project.id)
+        #expect(recorder.changes.first?.worktreeID == worktree.id)
+        #expect(recorder.changes.first?.root == worktreeRoot)
+        #expect(FileManager.default.fileExists(atPath: worktreeRoot + "/note.txt"))
+        #expect(!FileManager.default.fileExists(atPath: root + "/note.txt"))
+    }
+
     private func makeTempDir() throws -> String {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("RemoteServerDelegateFilesTests-\(UUID().uuidString)", isDirectory: true)
@@ -133,6 +244,10 @@ struct RemoteServerDelegateFilesTests {
     }
 
     private func makeDelegate(projects: [Project]) -> RemoteServerDelegate {
+        makeDelegateContext(projects: projects).delegate
+    }
+
+    private func makeDelegateContext(projects: [Project]) -> FilesDelegateContext {
         let projectStore = ProjectStore(persistence: FilesProjectPersistenceStub(initial: projects))
         let worktreeStore = WorktreeStore(
             persistence: FilesWorktreePersistenceStub(),
@@ -148,12 +263,13 @@ struct RemoteServerDelegateFilesTests {
             remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
             workspaceContextSink: InMemoryWorkspaceContextSink()
         )
-        return RemoteServerDelegate(
+        let delegate = RemoteServerDelegate(
             appState: appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
             projectGroupStore: projectGroupStore
         )
+        return FilesDelegateContext(delegate: delegate, appState: appState, worktreeStore: worktreeStore)
     }
 }
 
@@ -187,6 +303,20 @@ struct RemoteServerDelegateFileChangeTests {
     @Test("a trailing slash on the root does not leak into relative paths")
     func relativePathsTolerateTrailingSlash() {
         #expect(RemoteServerDelegate.workspaceRelativePaths(["/repo/a.txt"], root: "/repo/") == ["a.txt"])
+    }
+
+    @Test("remote roots preserve relative mutation paths")
+    func remoteRootedPathsRoundTrip() {
+        let rooted = RemoteServerDelegate.workspaceRootedPaths(
+            ["/src/main.swift", "README.md"],
+            root: "~/project"
+        )
+
+        #expect(rooted == ["~/project/README.md", "~/project/src/main.swift"])
+        #expect(
+            RemoteServerDelegate.workspaceRelativePaths(rooted, root: "~/project")
+                == ["README.md", "src/main.swift"]
+        )
     }
 
     @Test("a batch beyond the cap is truncated and flagged")
@@ -242,6 +372,50 @@ struct RemoteServerDelegateFileChangeTests {
 
         #expect(received != nil)
         #expect(received?.worktreeID == nil)
+    }
+
+    @Test("posting a change preserves a non-nil worktree")
+    func postPreservesWorktree() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let recorder = WorkspaceChangeRecorder(projectID: projectID)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceFilesDidChange,
+            object: nil,
+            queue: nil,
+            using: recorder.record
+        )
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        WorkspaceFilesChange(
+            projectID: projectID,
+            worktreeID: worktreeID,
+            root: "/repo",
+            paths: ["/repo/a.txt"]
+        ).post()
+
+        #expect(recorder.changes.first?.worktreeID == worktreeID)
+    }
+}
+
+@MainActor
+private struct FilesDelegateContext {
+    let delegate: RemoteServerDelegate
+    let appState: AppState
+    let worktreeStore: WorktreeStore
+}
+
+private final class WorkspaceChangeRecorder: @unchecked Sendable {
+    let projectID: UUID
+    private(set) var changes: [WorkspaceFilesChange] = []
+
+    init(projectID: UUID) {
+        self.projectID = projectID
+    }
+
+    func record(_ notification: Notification) {
+        guard let change = WorkspaceFilesChange(notification), change.projectID == projectID else { return }
+        changes.append(change)
     }
 }
 
