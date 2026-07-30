@@ -50,16 +50,23 @@ enum WorkspaceFileService {
             guard FileManager.default.fileExists(atPath: absolute) else {
                 throw FileSystemOperationError.sourceMissing(absolute)
             }
-            let attributes = try FileManager.default.attributesOfItem(atPath: absolute)
-            let size = (attributes[.size] as? Int) ?? 0
-            guard size <= maxReadBytes else {
+            let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: absolute))
+            defer { try? handle.close() }
+            var data = Data()
+            data.reserveCapacity(maxReadBytes + 1)
+            while data.count <= maxReadBytes {
+                let readCount = min(64 * 1024, maxReadBytes + 1 - data.count)
+                let chunk = try handle.read(upToCount: readCount) ?? Data()
+                guard !chunk.isEmpty else { break }
+                data.append(chunk)
+            }
+            guard data.count <= maxReadBytes else {
                 throw FileSystemOperationError.underlying("file exceeds \(maxReadBytes) byte read limit")
             }
-            let data = try Data(contentsOf: URL(fileURLWithPath: absolute))
             return try ReadResult(
                 relativePath: relative(absolute, root: root.path),
                 content: encode(data, as: encoding),
-                size: size,
+                size: data.count,
                 encoding: encoding
             )
         }
@@ -227,6 +234,7 @@ enum WorkspaceFileService {
         let normalized = canonicalizeAbsolute(absolute)?.path
             ?? URL(fileURLWithPath: absolute).standardizedFileURL.path
         guard normalized != base else { return "" }
+        guard base != "/" else { return String(normalized.dropFirst()) }
         guard normalized.hasPrefix(base + "/") else { return (absolute as NSString).lastPathComponent }
         return String(normalized.dropFirst(base.count + 1))
     }

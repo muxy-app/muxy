@@ -103,15 +103,35 @@ struct RemoteFileService {
             + "|| exit \(RemoteCommandBuilder.containmentEscapeExitCode); "
             + "__muxy_write_target=${__muxy_write_target%?}; "
             + "__muxy_require_contained \"$__muxy_write_target\"; "
+            + "[ ! -d \"$__muxy_write_target\" ] || exit 7; "
             + "__muxy_write_parent=${__muxy_write_target%/*}; "
             + "[ -n \"$__muxy_write_parent\" ] || __muxy_write_parent=/; "
-            + "__muxy_write_temp=$(mktemp \"$__muxy_write_parent/.muxy-write.XXXXXX\") || exit 1; "
+            + "__muxy_write_mode=; "
+            + "if [ -e \"$__muxy_write_target\" ]; then "
+            + "__muxy_write_mode=$(stat -f '%Lp' \"$__muxy_write_target\" 2>/dev/null) "
+            + "|| __muxy_write_mode=; "
+            + "case \"$__muxy_write_mode\" in ''|*[!0-7]*) "
+            + "__muxy_write_mode=$(stat -c '%a' \"$__muxy_write_target\" 2>/dev/null) || exit 1 ;; "
+            + "esac; "
+            + "case \"$__muxy_write_mode\" in ''|*[!0-7]*) exit 1 ;; esac; "
+            + "fi; "
+            + "__muxy_write_temp_dir=$(mktemp -d \"$__muxy_write_parent/.muxy-write.XXXXXX\") || exit 1; "
+            + "__muxy_write_temp=\"$__muxy_write_temp_dir/content\"; "
             + "if cat > \"$__muxy_write_temp\" "
             + "&& [ \"$(wc -c < \"$__muxy_write_temp\")\" -eq \(data.count) ] "
+            + "&& { [ -z \"$__muxy_write_mode\" ] "
+            + "|| chmod \"$__muxy_write_mode\" \"$__muxy_write_temp\"; } "
             + "&& mv -f \"$__muxy_write_temp\" \"$__muxy_write_target\"; then :; "
             + "else __muxy_write_status=$?; rm -f \"$__muxy_write_temp\"; "
-            + "exit \"$__muxy_write_status\"; fi"
+            + "rmdir \"$__muxy_write_temp_dir\" 2>/dev/null || true; "
+            + "exit \"$__muxy_write_status\"; fi; "
+            + "rmdir \"$__muxy_write_temp_dir\" 2>/dev/null || true"
         let result = try await runGuarded(root: root, targets: [absolute], command, input: data)
+        if result.status == 7 {
+            throw FileSystemOperationError.underlying(
+                "“\((absolute as NSString).lastPathComponent)” is a directory"
+            )
+        }
         guard result.status == 0 else {
             throw FileSystemOperationError.underlying(result.stderr.isEmpty ? "write failed" : result.stderr)
         }

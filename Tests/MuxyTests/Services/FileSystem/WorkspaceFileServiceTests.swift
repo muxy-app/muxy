@@ -121,6 +121,13 @@ struct WorkspaceFileServiceSandboxTests {
         #expect(WorkspaceFileService.relative("/elsewhere/note.txt", root: root) == "note.txt")
     }
 
+    @Test("relative paths beneath the filesystem root retain every component")
+    func relativeMapsFromFilesystemRoot() {
+        let expected = "MuxyRoot-\(UUID().uuidString)/nested/file.txt"
+
+        #expect(WorkspaceFileService.relative("/\(expected)", root: "/") == expected)
+    }
+
     private func makeTempDir() throws -> String {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("WorkspaceFileServiceTests-\(UUID().uuidString)", isDirectory: true)
@@ -238,8 +245,14 @@ struct WorkspaceFileServiceLocalTests {
     func readSizeLimit() async throws {
         let root = try makeRoot()
         defer { try? FileManager.default.removeItem(atPath: root.path) }
+        let exact = Data(repeating: 0x41, count: WorkspaceFileService.maxReadBytes)
+        try exact.write(to: URL(fileURLWithPath: root.path + "/exact.txt"))
         let oversized = Data(repeating: 0x41, count: WorkspaceFileService.maxReadBytes + 1)
         try oversized.write(to: URL(fileURLWithPath: root.path + "/big.txt"))
+
+        let read = try await WorkspaceFileService.read(root: root, path: "exact.txt", encoding: .base64)
+        #expect(read.size == exact.count)
+        #expect(Data(base64Encoded: read.content) == exact)
 
         await #expect(throws: FileSystemOperationError.self) {
             _ = try await WorkspaceFileService.read(root: root, path: "big.txt", encoding: .base64)
@@ -551,6 +564,81 @@ struct RemoteFileServiceTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: root) == ["binary.dat"])
     }
 
+    @Test("remote writes reject directory targets without creating hidden files")
+    func directoryWriteFails() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let directory = root + "/assets"
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: false)
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await makeService().write(
+                root: root,
+                relativePath: "assets",
+                data: Data("content".utf8),
+                maxBytes: WorkspaceFileService.maxWriteBytes
+            )
+        }
+
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory).isEmpty)
+    }
+
+    @Test("remote writes preserve existing modes and honor the process umask for new files")
+    func writePreservesModes() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let executable = root + "/tool"
+        let remoteNew = root + "/remote.txt"
+        let localNew = root + "/local.txt"
+        try "old".write(toFile: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable)
+        let service = makeService()
+
+        _ = try await service.write(
+            root: root,
+            relativePath: "tool",
+            data: Data("new".utf8),
+            maxBytes: WorkspaceFileService.maxWriteBytes
+        )
+        _ = try await service.write(
+            root: root,
+            relativePath: "remote.txt",
+            data: Data("new".utf8),
+            maxBytes: WorkspaceFileService.maxWriteBytes
+        )
+        try Data("new".utf8).write(to: URL(fileURLWithPath: localNew), options: .atomic)
+
+        let executableMode = try posixMode(executable)
+        let remoteMode = try posixMode(remoteNew)
+        let localMode = try posixMode(localNew)
+        #expect(executableMode == 0o755)
+        #expect(remoteMode == localMode)
+    }
+
+    @Test("remote writes validate mode probe output before falling back")
+    func writeModeFallback() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+
+        for status in [0, 1] {
+            let name = "tool-\(status)"
+            let executable = root + "/\(name)"
+            try "old".write(toFile: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable)
+            let statShim = "stat() { if [ \"$1\" = '-f' ]; then printf 'filesystem output\\n'; "
+                + "return \(status); fi; /usr/bin/stat -f '%Lp' \"$3\"; }; "
+
+            _ = try await makeService(commandPrefix: statShim).write(
+                root: root,
+                relativePath: name,
+                data: Data("new".utf8),
+                maxBytes: WorkspaceFileService.maxWriteBytes
+            )
+
+            #expect(try posixMode(executable) == 0o755)
+        }
+    }
+
     @Test("an incomplete remote write leaves existing content unchanged")
     func incompleteWritePreservesTarget() async throws {
         let root = try makeTempDir()
@@ -673,13 +761,14 @@ struct RemoteFileServiceTests {
     }
 
     private func makeService(
+        commandPrefix: String = "",
         transformInput: @escaping @Sendable (Data?) -> Data? = { $0 }
     ) -> RemoteFileService {
         RemoteFileService(destination: SSHDestination(host: "unused")) { _, command, input in
             try await GitProcessRunner.runResolved(
                 ResolvedLaunch(
                     executable: "/bin/sh",
-                    arguments: ["-c", command],
+                    arguments: ["-c", commandPrefix + command],
                     workingDirectory: nil
                 ),
                 stdinData: transformInput(input)
@@ -692,5 +781,10 @@ struct RemoteFileServiceTests {
             .appendingPathComponent("RemoteFileServiceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.resolvingSymlinksInPath().path
+    }
+
+    private func posixMode(_ path: String) throws -> Int {
+        let attributes = try FileManager.default.attributesOfItem(atPath: path)
+        return (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0
     }
 }
