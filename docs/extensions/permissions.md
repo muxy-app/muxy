@@ -17,8 +17,8 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab`. Opening a terminal tab with a startup `command` also prompts for runtime consent. |
 | `browser:read` | Read-only browser calls: `browser.list`, `browser.read`, `browser.waitFor`, `browser.waitForNavigation`, `browser.wait` (without `{ function }`), `browser.screenshot`, `browser.getText`, `browser.getHTML`, `browser.getValue`, `browser.getAttribute`, `browser.getCount`, `browser.is`, `browser.find`, `browser.snapshot`, `browser.storage.get`, `browser.cookies.get` — see [Browser](browser.md). |
 | `browser:write` | Mutating browser calls: `browser.open`, `browser.navigate`, `browser.close`, `browser.reload`, `browser.back`, `browser.forward`, `browser.eval`, `browser.click`, `browser.type`, `browser.fill`, `browser.press`, `browser.select`, `browser.hover`, `browser.scrollIntoView`, `browser.setChecked`, `browser.storage.set`, `browser.storage.clear`, `browser.cookies.set`, `browser.cookies.delete`, `browser.cookies.clear`, and `browser.wait` with a `{ function }` condition (runs page JS) — see [Browser](browser.md). |
-| `projects:read` | `list-projects`. Also required to subscribe to the `projects.changed` [event](events.md). |
-| `projects:write` | `switch-project`, `projects.add`, `projects.rename`, `projects.setColor`, `projects.setIcon`, `projects.setLogo`, `projects.reorder` |
+| `projects:read` | `list-projects`, `workspaces.list`. Also required to subscribe to the `projects.changed` [event](events.md). |
+| `projects:write` | `switch-project`, `projects.add`, `projects.create`, `projects.attach`, `projects.detach`, `projects.rename`, `projects.setColor`, `projects.setIcon`, `projects.setLogo`, `projects.reorder`, `workspaces.create`, `workspaces.switch`, `workspaces.rename`, `workspaces.delete`. `projects.create` with `createIfMissing` also prompts for runtime consent before creating a directory on disk. |
 | `projects:delete` | `projects.delete` |
 | `worktrees:read` | `list-worktrees` |
 | `worktrees:write` | `create-worktree`, `switch-worktree`, `refresh-worktrees` |
@@ -51,6 +51,7 @@ These verbs prompt the user at runtime even when the manifest permission is gran
 | remote method (device request) | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request, gated under `remote:serve`. Remembered per action. |
 | `git.*` (writes) | Mutating the repository (stage, commit, push, pull, branch, PR, worktree). Remembered per operation (allowing `push` does not allow `discard`). |
 | `files.*` (writes) | Modifying workspace files (write, mkdir, rename, move, delete). Remembered per operation (allowing `write` does not allow `delete`). |
+| `projects.create` (with `createIfMissing`) | Creating a directory on disk for a new project. Gated under `projects:write`; only prompts when the directory does not already exist. Remembered alongside `files.mkdir`. |
 | `projects.delete` | Deleting a project and cleaning up its worktrees on disk. Gated under `projects:delete`. Remembered per project name. |
 | `http.fetch` | Calling an external host via [`muxy.http`](http.md). Remembered per host (allowing `api.github.com` does not allow `example.com`). Private/loopback hosts are blocked before prompting. |
 

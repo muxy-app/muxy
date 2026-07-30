@@ -30,7 +30,7 @@ final class BrowserInspectableWebView: WKWebView, BrowserElementInspecting {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = super.menu(for: event) ?? NSMenu(title: "Browser")
+        let menu = super.menu(for: event) ?? NSMenu(title: L10n.string("Browser"))
         addInspectElementItem(to: menu)
         return menu
     }

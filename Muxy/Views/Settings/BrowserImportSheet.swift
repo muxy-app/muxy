@@ -23,9 +23,9 @@ struct BrowserImportSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
-            Text("Import to “\(targetProfile.name)”")
+            Text(L10n.resource("Import to “\(targetProfile.name)”"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
-            Text("Choose a \(source.displayName) profile to copy cookies from. macOS may ask for Keychain permission.")
+            Text(L10n.resource("Choose a \(source.displayName) profile to copy cookies from. macOS may ask for Keychain permission."))
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .foregroundStyle(SettingsStyle.mutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
@@ -64,7 +64,7 @@ struct BrowserImportSheet: View {
                 .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.foreground)
             Spacer()
-            Button("Import") { runImport(profile) }
+            Button(L10n.string("Import")) { runImport(profile) }
                 .disabled(isImporting)
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
@@ -86,7 +86,7 @@ struct BrowserImportSheet: View {
                 ProgressView().controlSize(.small)
             }
             Spacer()
-            Button("Close", action: onDismiss)
+            Button(L10n.string("Close"), action: onDismiss)
                 .keyboardShortcut(.cancelAction)
         }
     }
@@ -114,7 +114,7 @@ struct BrowserImportSheet: View {
                     profile: profile,
                     into: targetProfile.id
                 )
-                ToastState.shared.show("Imported \(result.imported) cookies into “\(targetProfile.name)”")
+                ToastState.shared.show(L10n.string("Imported \(result.imported) cookies into “\(targetProfile.name)”"))
                 onDismiss()
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

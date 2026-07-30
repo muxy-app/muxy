@@ -16,7 +16,7 @@ struct MobilePairingQRView: View {
                     .interpolation(.none)
                     .resizable()
                     .frame(width: size, height: size)
-                    .accessibilityLabel("Muxy pairing QR code")
+                    .accessibilityLabel(L10n.string("Muxy pairing QR code"))
             } else {
                 placeholder
             }

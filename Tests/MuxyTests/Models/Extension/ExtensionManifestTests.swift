@@ -148,6 +148,328 @@ struct ExtensionManifestTests {
         #expect(!opener.matches(relativePath: "README.md"))
     }
 
+    @Test("decodes localization providers")
+    func decodesLocalizations() throws {
+        let json = #"""
+        {
+            "name": "german",
+            "version": "1.0.0",
+            "localizations": [
+                {
+                    "id": "de",
+                    "language": "de",
+                    "title": "Deutsch",
+                    "bundle": "localization/German.bundle"
+                }
+            ]
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+
+        #expect(manifest.localizations == [
+            ExtensionLocalization(
+                id: "de",
+                language: "de",
+                title: "Deutsch",
+                bundle: "localization/German.bundle"
+            ),
+        ])
+    }
+
+    @Test("loads a resource-only localization bundle")
+    func loadsLocalizationBundle() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "german",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "localization/German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: [
+                "localization/German.bundle/Info.plist": resourceBundleInfo,
+                "localization/German.bundle/de.lproj/Localizable.strings": #""Settings" = "Einstellungen";"#,
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let ext = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ext.manifest.localization(id: "de")?.language == "de")
+    }
+
+    @Test("rejects localization bundles that declare executable code")
+    func rejectsExecutableLocalizationBundle() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "unsafe-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: [
+                "German.bundle/Info.plist": resourceBundleInfo.replacingOccurrences(
+                    of: "</dict>",
+                    with: "<key>CFBundleExecutable</key><string>payload</string></dict>"
+                ),
+                "German.bundle/de.lproj/Localizable.strings": #""Settings" = "Einstellungen";"#,
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bundleURL = directory.appendingPathComponent("German.bundle")
+
+        #expect(throws: ExtensionLoadError.localizationBundleExecutable(
+            localizationID: "de",
+            url: bundleURL
+        )) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects localization bundles without a matching language catalog")
+    func rejectsLocalizationWithoutCatalog() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "empty-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: ["German.bundle/Info.plist": resourceBundleInfo]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalogDirectory = directory.appendingPathComponent(
+            "German.bundle/de.lproj",
+            isDirectory: true
+        )
+
+        #expect(throws: ExtensionLoadError.localizationCatalogMissing(
+            localizationID: "de",
+            language: "de",
+            url: catalogDirectory
+        )) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects unsafe localization language identifiers")
+    func rejectsUnsafeLocalizationLanguage() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "unsafe-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "unsafe",
+                        "language": "../de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: [
+                "German.bundle/Info.plist": resourceBundleInfo,
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.localizationInvalidLanguage(
+            localizationID: "unsafe",
+            language: "../de"
+        )) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects non-ASCII localization provider identifiers")
+    func rejectsNonASCIILocalizationID() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "unicode-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de-ß",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.localizationInvalidID("de-ß")) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects localization bundle info outside the bundle")
+    func rejectsLocalizationBundleInfoSymlink() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "linked-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: [
+                "Outside.plist": resourceBundleInfo,
+                "German.bundle/de.lproj/Localizable.strings": #""Settings" = "Einstellungen";"#,
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bundleURL = directory.appendingPathComponent("German.bundle")
+        try FileManager.default.createSymbolicLink(
+            at: bundleURL.appendingPathComponent("Info.plist"),
+            withDestinationURL: directory.appendingPathComponent("Outside.plist")
+        )
+
+        #expect(throws: ExtensionLoadError.localizationBundleInvalid(
+            localizationID: "de",
+            url: bundleURL
+        )) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects malformed localization catalogs")
+    func rejectsMalformedLocalizationCatalog() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "malformed-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: [
+                "German.bundle/Info.plist": resourceBundleInfo,
+                "German.bundle/de.lproj/Localizable.strings": #""Settings" = "#,
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalogURL = directory.appendingPathComponent("German.bundle/de.lproj/Localizable.strings")
+
+        #expect(throws: ExtensionLoadError.localizationCatalogInvalid(
+            localizationID: "de",
+            url: catalogURL
+        )) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects localization catalogs that change format placeholders")
+    func rejectsLocalizationCatalogFormatMismatch() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "unsafe-format-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: [
+                "German.bundle/Info.plist": resourceBundleInfo,
+                "German.bundle/de.lproj/Localizable.strings": #""Created branch %@" = "Zweig %@ %@ erstellt";"#,
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let catalogURL = directory.appendingPathComponent("German.bundle/de.lproj/Localizable.strings")
+
+        #expect(throws: ExtensionLoadError.localizationCatalogFormatMismatch(
+            localizationID: "de",
+            url: catalogURL,
+            key: "Created branch %@"
+        )) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("loads localization catalogs that preserve format placeholders")
+    func loadsLocalizationCatalogWithMatchingPlaceholders() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "safe-format-language",
+                "version": "1.0.0",
+                "localizations": [
+                    {
+                        "id": "de",
+                        "language": "de",
+                        "title": "Deutsch",
+                        "bundle": "German.bundle"
+                    }
+                ]
+            }
+            """,
+            files: [
+                "German.bundle/Info.plist": resourceBundleInfo,
+                "German.bundle/de.lproj/Localizable.strings": #"""
+                "Created branch %@" = "Zweig %@ erstellt";
+                "%lld changes" = "%lld Änderungen";
+                "%@ (%@)" = "%2$@ – %1$@";
+                "Settings" = "Einstellungen";
+                "%lld%%" = "%lld%%";
+                """#,
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let muxyExtension = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(muxyExtension.manifest.localizations.map(\.id) == ["de"])
+    }
+
     @Test("loads from directory and resolves background script")
     func loadsFromDirectory() throws {
         let directory = try makeTemporaryExtension(
@@ -1303,6 +1625,20 @@ struct ExtensionManifestTests {
             try Data(contents.utf8).write(to: fileURL)
         }
         return directory
+    }
+
+    private var resourceBundleInfo: String {
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleIdentifier</key>
+            <string>app.muxy.localization.test</string>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+        </dict>
+        </plist>
+        """
     }
 }
 

@@ -66,7 +66,7 @@ struct PanelContainer<Content: View>: View {
                 if chrome.shows(.pin), let onTogglePin {
                     control(
                         symbol: mode == .floating ? "pin" : "pin.slash",
-                        label: mode == .floating ? "Dock Panel" : "Float Panel",
+                        label: mode == .floating ? L10n.string("Dock Panel") : L10n.string("Float Panel"),
                         focus: .pin,
                         action: onTogglePin
                     )
@@ -74,7 +74,7 @@ struct PanelContainer<Content: View>: View {
                 if chrome.shows(.close), let onClose {
                     control(
                         symbol: "xmark",
-                        label: "Close",
+                        label: L10n.string("Close"),
                         focus: .close,
                         action: onClose
                     )
@@ -133,6 +133,6 @@ struct PanelContainer<Content: View>: View {
     }
 
     private var positionLabel: String {
-        "Move to \(position.opposite.displayName)"
+        L10n.string("Move to \(L10n.string(key: position.opposite.displayName))")
     }
 }

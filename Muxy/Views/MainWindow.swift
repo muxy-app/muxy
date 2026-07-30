@@ -81,7 +81,7 @@ struct MainWindow: View {
         case lastTab
         case runningProcess
 
-        var title: String {
+        var title: LocalizedStringResource {
             switch self {
             case .lastTab:
                 "Close Project?"
@@ -90,7 +90,7 @@ struct MainWindow: View {
             }
         }
 
-        var message: String {
+        var message: LocalizedStringResource {
             switch self {
             case .lastTab:
                 "This is the last tab. Closing it will remove the project from the sidebar."
@@ -606,14 +606,14 @@ struct MainWindow: View {
             NavigationArrowButton(
                 symbol: "chevron.left",
                 isEnabled: appState.navigation.canGoBack,
-                label: "Back (\(KeyBindingStore.shared.combo(for: .navigateBack).displayString))"
+                label: L10n.string("Back (\(KeyBindingStore.shared.combo(for: .navigateBack).displayString))")
             ) {
                 appState.goBack()
             }
             NavigationArrowButton(
                 symbol: "chevron.right",
                 isEnabled: appState.navigation.canGoForward,
-                label: "Forward (\(KeyBindingStore.shared.combo(for: .navigateForward).displayString))"
+                label: L10n.string("Forward (\(KeyBindingStore.shared.combo(for: .navigateForward).displayString))")
             ) {
                 appState.goForward()
             }
@@ -630,7 +630,7 @@ struct MainWindow: View {
                     layoutStore.set(appLayout)
                 } label: {
                     HStack {
-                        Text(appLayout.title)
+                        Text(L10n.resource(key: appLayout.title))
                         if layoutStore.layout == appLayout {
                             Image(systemName: "checkmark")
                         }
@@ -647,8 +647,8 @@ struct MainWindow: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Choose App Layout")
-        .accessibilityLabel("Choose App Layout")
+        .help(L10n.string("Choose App Layout"))
+        .accessibilityLabel(L10n.string("Choose App Layout"))
     }
 
     @ViewBuilder
@@ -684,7 +684,7 @@ struct MainWindow: View {
     }
 
     private func projectTitle(_ project: Project) -> some View {
-        Text(project.name)
+        Text(project.localizedDisplayName)
             .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             .foregroundStyle(MuxyTheme.fgMuted)
             .lineLimit(1)
@@ -722,12 +722,12 @@ struct MainWindow: View {
                     let symbol = isMaximized
                         ? "arrow.down.right.and.arrow.up.left"
                         : "arrow.up.left.and.arrow.down.right"
-                    let label = isMaximized ? "Restore Pane" : "Maximize Pane"
+                    let label = isMaximized ? L10n.string("Restore Pane") : L10n.string("Maximize Pane")
                     IconButton(symbol: symbol, accessibilityLabel: label) {
                         appState.toggleMaximize(areaID: focusedAreaID, for: project.id)
                     }
                 }
-                IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") {
+                IconButton(symbol: "square.split.2x1", accessibilityLabel: L10n.string("Split Right")) {
                     appState.dispatch(.splitArea(.init(
                         projectID: project.id,
                         areaID: focusedAreaID,
@@ -735,7 +735,7 @@ struct MainWindow: View {
                         position: .second
                     )))
                 }
-                IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") {
+                IconButton(symbol: "square.split.1x2", accessibilityLabel: L10n.string("Split Down")) {
                     appState.dispatch(.splitArea(.init(
                         projectID: project.id,
                         areaID: focusedAreaID,
@@ -743,11 +743,11 @@ struct MainWindow: View {
                         position: .second
                     )))
                 }
-                IconButton(symbol: "plus", accessibilityLabel: "New Tab") {
+                IconButton(symbol: "plus", accessibilityLabel: L10n.string("New Tab")) {
                     appState.dispatch(.createTab(projectID: project.id, areaID: focusedAreaID))
                 }
                 if browserEnabled {
-                    IconButton(symbol: "globe", accessibilityLabel: "Open Browser Tab") {
+                    IconButton(symbol: "globe", accessibilityLabel: L10n.string("Open Browser Tab")) {
                         appState.dispatch(.createBrowserTab(
                             projectID: project.id,
                             areaID: focusedAreaID,
@@ -828,7 +828,7 @@ struct MainWindow: View {
                         state: state,
                         voice: composerVoice,
                         worktreeKey: worktreeKey,
-                        projectName: project.name,
+                        projectName: project.localizedDisplayName,
                         worktreeName: worktree.branch ?? worktree.name,
                         languageIdentifier: recordingLanguage,
                         broadcasts: $richInputBroadcast,
@@ -963,7 +963,7 @@ struct MainWindow: View {
                     projectGroupStore: projectGroupStore
                 )
             } catch {
-                ToastState.shared.show(title: "Could not restore project", body: error.localizedDescription)
+                ToastState.shared.show(title: L10n.string("Could not restore project"), body: error.localizedDescription)
             }
         case let .worktree(worktree):
             _ = selectOmniboxProject(worktree.projectID, worktreeID: worktree.worktreeID)
@@ -1017,7 +1017,12 @@ struct MainWindow: View {
 
     private var terminalOmniboxProjects: [TerminalOmniboxProjectItem] {
         omniboxProjects.map {
-            TerminalOmniboxProjectItem(projectID: $0.id, name: $0.name, path: $0.path)
+            TerminalOmniboxProjectItem(
+                projectID: $0.id,
+                name: $0.name,
+                path: $0.path,
+                isHome: $0.isHome
+            )
         }
     }
 
@@ -1080,7 +1085,11 @@ struct MainWindow: View {
 
     private var terminalOmniboxOpenTabs: [OpenTerminalTabItem] {
         omniboxProjects.flatMap { project in
-            appState.allOpenTerminalTabItems(for: project.id, projectName: project.name) { worktreeID in
+            appState.allOpenTerminalTabItems(
+                for: project.id,
+                projectName: project.name,
+                projectIsHome: project.isHome
+            ) { worktreeID in
                 guard let worktree = worktreeStore.worktree(projectID: project.id, worktreeID: worktreeID) else {
                     return (nil, nil)
                 }
@@ -1319,10 +1328,10 @@ struct MainWindow: View {
 
     private var windowTitle: String {
         guard let project = activeProject else { return "Muxy" }
-        guard let tabTitle = appState.activeTab(for: project.id)?.title,
+        guard let tabTitle = appState.activeTab(for: project.id)?.localizedTitle,
               !tabTitle.isEmpty
-        else { return project.name }
-        return "\(project.name) — \(tabTitle)"
+        else { return project.localizedDisplayName }
+        return "\(project.localizedDisplayName) — \(tabTitle)"
     }
 
     private var activeProjectWithWorkspace: Project? {
@@ -1606,7 +1615,7 @@ struct MainWindow: View {
         PanelContainer(
             chrome: PanelChrome(
                 iconSymbol: "terminal",
-                title: "Extension Output",
+                title: L10n.string("Extension Output"),
                 hiddenControls: [.pin, .position]
             ),
             mode: mode,
@@ -1750,7 +1759,7 @@ struct MainWindow: View {
               let view = TerminalViewRegistry.shared.existingView(for: paneID)
         else { return }
         DispatchQueue.main.async {
-            view.window?.makeFirstResponder(view)
+            view.terminalView.window?.makeFirstResponder(view.terminalView)
         }
     }
 
@@ -1812,19 +1821,19 @@ struct MainWindow: View {
         else { return }
 
         let alert = NSAlert()
-        alert.messageText = kind.title
-        alert.informativeText = kind.message
+        alert.messageText = L10n.string(kind.title)
+        alert.informativeText = L10n.string(kind.message)
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
 
-        alert.addButton(withTitle: "Close")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L10n.string("Close"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = "\u{1b}"
 
         if kind == .runningProcess {
             alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = "Don't ask again"
+            alert.suppressionButton?.title = L10n.string("Don't ask again")
         }
 
         alert.beginSheetModal(for: window) { response in
@@ -1857,12 +1866,12 @@ struct MainWindow: View {
         }
 
         let alert = NSAlert()
-        alert.messageText = "Apply Layout '\(pending.layoutName)'?"
-        alert.informativeText = "All terminals and tabs in this worktree will be closed and replaced with the layout."
+        alert.messageText = L10n.string("Apply Layout '\(pending.layoutName)'?")
+        alert.informativeText = L10n.string("All terminals and tabs in this worktree will be closed and replaced with the layout.")
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Apply")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L10n.string("Apply"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = "\u{1b}"
 
@@ -2406,18 +2415,20 @@ private struct SentryConsentPrompter: ViewModifier {
     @MainActor
     private func present(on window: NSWindow) {
         let alert = NSAlert()
-        alert.messageText = "Help improve Muxy?"
-        alert.informativeText = """
-        Muxy can send anonymous crash and error reports so we can fix bugs faster. \
-        No personal data, no project contents, no file paths are sent — only crash \
-        details and an anonymous installation ID.
+        alert.messageText = L10n.string("Help improve Muxy?")
+        alert.informativeText = L10n.string(
+            """
+            Muxy can send anonymous crash and error reports so we can fix bugs faster. \
+            No personal data, no project contents, no file paths are sent — only crash \
+            details and an anonymous installation ID.
 
-        You can change this anytime in Settings → General → Diagnostics.
-        """
+            You can change this anytime in Settings → General → Diagnostics.
+            """
+        )
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Allow")
-        alert.addButton(withTitle: "Don't Allow")
+        alert.addButton(withTitle: L10n.string("Allow"))
+        alert.addButton(withTitle: L10n.string("Don't Allow"))
         alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = "\u{1b}"
 
@@ -2484,21 +2495,21 @@ private struct WorktreeActionsModifier: ViewModifier {
                 }
             }
             .alert(
-                pendingRemoval?.confirmation.title ?? "",
+                pendingRemoval.map { L10n.string($0.confirmation.title) } ?? "",
                 isPresented: alertBinding,
                 presenting: pendingRemoval
             ) { pending in
-                Button("Remove", role: .destructive) {
+                Button(L10n.string("Remove"), role: .destructive) {
                     onPerformRemove(pending)
                     pendingRemoval = nil
                 }
                 .keyboardShortcut(.defaultAction)
-                Button("Cancel", role: .cancel) {
+                Button(L10n.string("Cancel"), role: .cancel) {
                     pendingRemoval = nil
                 }
                 .keyboardShortcut(.cancelAction)
             } message: { pending in
-                Text(pending.confirmation.message)
+                Text(L10n.resource(pending.confirmation.message))
             }
     }
 

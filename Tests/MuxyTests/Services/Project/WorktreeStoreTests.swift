@@ -720,6 +720,44 @@ struct WorktreeStoreTests {
         #expect(external.canBeRemoved)
     }
 
+    @Test("list returns all worktrees including those with no open tabs (regression: sidebar hiding)")
+    func listReturnsAllWorktreesRegardlessOfTabs() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let primary = Worktree(name: project.name, path: project.path, isPrimary: true)
+        let featureA = Worktree(
+            name: "feature-a",
+            path: "/tmp/repo-feature-a",
+            branch: "feature-a",
+            source: .muxy,
+            isPrimary: false
+        )
+        let featureB = Worktree(
+            name: "feature-b",
+            path: "/tmp/repo-feature-b",
+            branch: "feature-b",
+            source: .muxy,
+            isPrimary: false
+        )
+        let store = WorktreeStore(
+            persistence: WorktreePersistenceStub(
+                initial: [
+                    project.id: [primary, featureA, featureB]
+                ]
+            ),
+            listGitWorktrees: GitWorktreeListingStub(recordsByRepoPath: [:]).listWorktrees,
+            projects: [project]
+        )
+
+        let worktrees = store.list(for: project.id)
+
+        #expect(worktrees.count == 3)
+        #expect(worktrees.contains(primary))
+        #expect(worktrees.contains(featureA))
+        #expect(worktrees.contains(featureB))
+        #expect(worktrees.filter(\.isPrimary).count == 1)
+        #expect(worktrees.filter { !$0.isPrimary }.count == 2)
+    }
+
     @Test("WorktreeDTO preserves removal capability")
     func worktreeDTOPreservesRemovalCapability() {
         let primary = Worktree(name: "Repo", path: "/tmp/repo", isPrimary: true)

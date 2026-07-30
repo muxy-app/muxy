@@ -35,7 +35,7 @@ struct VoiceRecordingPanel: View {
         ))
         .onAppear { pulse = true }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Voice recording")
+        .accessibilityLabel(L10n.string("Voice recording"))
     }
 
     private var mainPanel: some View {
@@ -83,7 +83,7 @@ struct VoiceRecordingPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            Text("Listening...")
+            Text(L10n.resource("Listening..."))
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgDim)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,20 +136,20 @@ struct VoiceRecordingPanel: View {
 
     private var controlButtons: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            iconButton(systemName: "xmark", tint: MuxyTheme.fgMuted, accessibility: "Cancel") {
+            iconButton(systemName: "xmark", tint: MuxyTheme.fgMuted, accessibility: L10n.string("Cancel")) {
                 state.cancel()
             }
             iconButton(
                 systemName: state.recorder.isPaused ? "play.fill" : "pause.fill",
                 tint: MuxyTheme.fg,
-                accessibility: state.recorder.isPaused ? "Resume" : "Pause"
+                accessibility: state.recorder.isPaused ? L10n.string("Resume") : L10n.string("Pause")
             ) {
                 state.togglePause()
             }
             iconButton(
                 systemName: "circle.fill",
                 tint: MuxyTheme.diffRemoveFg,
-                accessibility: "Send"
+                accessibility: L10n.string("Send")
             ) {
                 state.finish(autoSend: autoSend)
             }
@@ -157,7 +157,7 @@ struct VoiceRecordingPanel: View {
     }
 
     private var errorActions: some View {
-        Button("Close") {
+        Button(L10n.string("Close")) {
             state.cancel()
         }
         .buttonStyle(.plain)
@@ -171,9 +171,19 @@ struct VoiceRecordingPanel: View {
 
     private var keyboardHints: some View {
         HStack(spacing: UIMetrics.spacing5) {
-            hint(key: "⎋", label: "Cancel")
-            hint(key: "Space", label: state.recorder.isPaused ? "Resume" : "Pause")
-            hint(key: "⏎", label: autoSend ? "Send" : "Insert")
+            hint(key: "⎋", label: L10n.string("Cancel"))
+            hint(
+                key: "Space",
+                label: state.recorder.isPaused
+                    ? L10n.string("Resume")
+                    : L10n.string("Pause")
+            )
+            hint(
+                key: "⏎",
+                label: autoSend
+                    ? L10n.string("Send")
+                    : L10n.string("Insert")
+            )
         }
         .font(.system(size: UIMetrics.fontCaption))
         .foregroundStyle(MuxyTheme.fgDim)

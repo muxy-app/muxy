@@ -67,6 +67,12 @@
           "description": "File openers this extension contributes. Muxy passes filePath plus optional line/column data to the referenced tabType when a terminal link opens a project file.",
           "items": { "$ref": "#/$defs/fileOpener" }
         },
+        "localizations": {
+          "type": "array",
+          "description": "App-language providers backed by resource-only Apple bundles. Users choose among enabled providers in Settings.",
+          "items": { "$ref": "#/$defs/localization" },
+          "uniqueItems": true
+        },
         "panels": {
           "type": "array",
           "items": { "$ref": "#/$defs/panel" }
@@ -209,6 +215,35 @@
           "default": ["*"]
         },
         "singleton": { "type": "boolean", "default": true }
+      }
+    },
+    "localization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "language", "title", "bundle"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Provider identifier unique within this extension.",
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "minLength": 1
+        },
+        "language": {
+          "type": "string",
+          "description": "BCP 47 language identifier and matching .lproj directory name, such as de or pt-BR.",
+          "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Language name shown in Settings, preferably written in that language.",
+          "minLength": 1,
+          "pattern": ".*\\S.*"
+        },
+        "bundle": {
+          "type": "string",
+          "description": "Relative path inside dist to a resource-only .bundle containing <language>.lproj/Localizable.strings or Localizable.stringsdict.",
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.bundle$"
+        }
       }
     },
     "panel": {

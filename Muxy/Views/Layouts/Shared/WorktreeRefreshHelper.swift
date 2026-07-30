@@ -48,11 +48,11 @@ enum WorktreeRefreshHelper {
         else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Could Not Refresh Worktrees"
+        alert.messageText = L10n.string("Could Not Refresh Worktrees")
         alert.informativeText = message
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L10n.string("OK"))
         alert.buttons[0].keyEquivalent = "\r"
         alert.beginSheetModal(for: window)
     }

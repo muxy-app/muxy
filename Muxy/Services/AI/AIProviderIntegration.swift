@@ -19,6 +19,8 @@ protocol AIProviderIntegration {
     var hookScriptName: String { get }
     var hookScriptExtension: String { get }
     var configPaths: [String] { get }
+    var obsoleteConfigPaths: [String] { get }
+    var requiresLoginShellEnvironmentForConfiguration: Bool { get }
 
     func isToolInstalled() -> Bool
     func isHookInstalled() -> Bool
@@ -38,6 +40,8 @@ extension AIProviderIntegration {
     }
 
     var configPaths: [String] { [] }
+    var obsoleteConfigPaths: [String] { [] }
+    var requiresLoginShellEnvironmentForConfiguration: Bool { false }
 
     func verify(hookScriptPath _: String) -> HookVerification {
         isHookInstalled() ? .satisfied : .needsRepair
@@ -78,6 +82,7 @@ final class AIProviderRegistry {
     private let openCodeProvider = OpenCodeProvider()
     private let codexProvider = CodexProvider()
     private let cursorProvider = CursorProvider()
+    private let copilotProvider = CopilotProvider()
     private let droidProvider = DroidProvider()
     private let piProvider = PiProvider()
     private let grokProvider = GrokProvider()
@@ -87,6 +92,7 @@ final class AIProviderRegistry {
     private let hookScriptPath: @Sendable (String, String) -> String?
     private let stageHookResources: @Sendable () -> Bool
     private let installer: HookInstaller
+    private let discoveryService: ProviderDiscoveryService
     private var loginShellPathHydration: Task<Void, Never>?
     private var hookResourcesStaged = false
     private var configWatchers: [String: HookConfigWatcher] = [:]
@@ -96,6 +102,7 @@ final class AIProviderRegistry {
         openCodeProvider,
         codexProvider,
         cursorProvider,
+        copilotProvider,
         droidProvider,
         piProvider,
         grokProvider,
@@ -113,7 +120,8 @@ final class AIProviderRegistry {
         stageHookResources: @escaping @Sendable () -> Bool = {
             MuxyNotificationHooks.stageAll()
         },
-        installer: HookInstaller? = nil
+        installer: HookInstaller? = nil,
+        discoveryService: ProviderDiscoveryService? = nil
     ) {
         injectedProviders = providers
         self.hydrateLoginShellPath = hydrateLoginShellPath
@@ -121,6 +129,7 @@ final class AIProviderRegistry {
         self.hookScriptPath = hookScriptPath
         self.stageHookResources = stageHookResources
         self.installer = installer ?? HookInstaller(hookScriptPath: hookScriptPath)
+        self.discoveryService = discoveryService ?? ProviderDiscoveryService()
     }
 
     func prepareForInstallation() {
@@ -151,13 +160,16 @@ final class AIProviderRegistry {
             return
         }
 
-        let hasDisabledManagedOnly = providers.allSatisfy { !$0.isEnabled }
-        if !hasDisabledManagedOnly {
+        let needsLoginShellEnvironment = providers.contains {
+            $0.isEnabled || $0.requiresLoginShellEnvironmentForConfiguration
+        }
+        if needsLoginShellEnvironment {
             await loginShellPathHydrationTask().value
         }
 
         for provider in providers {
             installer.reconcile(provider)
+            Task { await discoveryService.discover(provider) }
             updateConfigWatcher(for: provider)
         }
     }
@@ -169,11 +181,13 @@ final class AIProviderRegistry {
         }
         await loginShellPathHydrationTask().value
         installer.forceReinstall(provider)
+        await discoveryService.discover(provider)
         updateConfigWatcher(for: provider)
     }
 
     func reconcile(_ provider: AIProviderIntegration) {
         installer.reconcile(provider, stagingSucceeded: hookResourcesStaged)
+        Task { await discoveryService.discover(provider) }
         if hookResourcesStaged || !provider.isEnabled {
             updateConfigWatcher(for: provider)
         }
@@ -186,7 +200,8 @@ final class AIProviderRegistry {
         }
         guard configWatchers[provider.id] == nil else { return }
         let providerID = provider.id
-        let watcher = HookConfigWatcher(configPaths: provider.configPaths) { [weak self] in
+        let watchedPaths = provider.configPaths + provider.obsoleteConfigPaths
+        let watcher = HookConfigWatcher(configPaths: watchedPaths) { [weak self] in
             Task { @MainActor in
                 guard let self, let provider = self.providers.first(where: { $0.id == providerID }) else { return }
                 self.reconcileFromWatcher(provider)
@@ -195,9 +210,24 @@ final class AIProviderRegistry {
         configWatchers[providerID] = watcher
     }
 
+    static func hasActionableConfigChange(
+        configPaths: [String],
+        obsoleteConfigPaths: [String],
+        isSelfWrite: (String) -> Bool,
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> Bool {
+        guard !configPaths.contains(where: { !isSelfWrite($0) }) else { return true }
+        return obsoleteConfigPaths.contains(where: fileExists)
+    }
+
     private func reconcileFromWatcher(_ provider: AIProviderIntegration) {
         let ledger = HookConfigWriteLedger.shared
-        guard provider.configPaths.contains(where: { !ledger.isSelfWrite(path: $0) }) else { return }
+        guard Self.hasActionableConfigChange(
+            configPaths: provider.configPaths,
+            obsoleteConfigPaths: provider.obsoleteConfigPaths,
+            isSelfWrite: { ledger.isSelfWrite(path: $0) }
+        )
+        else { return }
 
         if let saturated = provider.configPaths.first(where: { ledger.hasExceededRepairBudget(path: $0) }) {
             let message = "Repeated config rewrites detected for \(saturated) — "
@@ -208,6 +238,7 @@ final class AIProviderRegistry {
         }
 
         installer.reconcile(provider, stagingSucceeded: hookResourcesStaged)
+        Task { await discoveryService.discover(provider) }
     }
 
     private func loginShellPathHydrationTask() -> Task<Void, Never> {

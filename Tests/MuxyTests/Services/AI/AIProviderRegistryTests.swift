@@ -26,6 +26,7 @@ struct AIProviderRegistryTests {
         let expected: [String: String] = [
             "claude_hook": "claude",
             "cursor_hook": "cursor",
+            "copilot_hook": "copilot",
             "codex_hook": "codex",
             "droid_hook": "droid",
             "opencode": "opencode",
@@ -66,6 +67,7 @@ struct AIProviderRegistryTests {
             "opencode",
             "codex",
             "cursor",
+            "copilot",
             "droid",
             "pi",
             "grok",
@@ -117,6 +119,25 @@ struct AIProviderRegistryTests {
 
         #expect(provider.uninstallCount == 1)
         #expect(provider.toolCheckCount == 0)
+    }
+
+    @Test("installAll hydrates configuration environments for disabled providers that require them")
+    func installAllHydratesConfigurationEnvironmentForDisabledProvider() async {
+        let provider = RecordingProvider()
+        defer { provider.resetSettings() }
+        provider.isEnabled = false
+        provider.requiresLoginShellEnvironmentForConfiguration = true
+        let hydration = StagingRecorder()
+        let registry = AIProviderRegistry(
+            providers: [provider],
+            hydrateLoginShellPath: { hydration.record() },
+            shouldInstallHooksInDebug: { true },
+            stageHookResources: { true }
+        )
+
+        await registry.installAll()
+
+        #expect(hydration.count == 1)
     }
 
     @Test("installAll does not touch disabled providers without managed state")
@@ -237,6 +258,42 @@ struct AIProviderRegistryTests {
         #expect(provider.toolCheckCount == 1)
         #expect(provider.installCount == 1)
     }
+
+    @Test("watcher events from Muxy's own config writes are ignored")
+    func selfWritesAreNotActionable() {
+        let actionable = AIProviderRegistry.hasActionableConfigChange(
+            configPaths: ["/tmp/managed.js"],
+            obsoleteConfigPaths: ["/tmp/obsolete.js"],
+            isSelfWrite: { _ in true },
+            fileExists: { _ in false }
+        )
+
+        #expect(!actionable)
+    }
+
+    @Test("foreign writes to a managed config are actionable")
+    func foreignWritesAreActionable() {
+        let actionable = AIProviderRegistry.hasActionableConfigChange(
+            configPaths: ["/tmp/managed.js"],
+            obsoleteConfigPaths: ["/tmp/obsolete.js"],
+            isSelfWrite: { _ in false },
+            fileExists: { _ in false }
+        )
+
+        #expect(actionable)
+    }
+
+    @Test("a restored obsolete config is actionable after a self write")
+    func restoredObsoleteConfigIsActionable() {
+        let actionable = AIProviderRegistry.hasActionableConfigChange(
+            configPaths: ["/tmp/managed.js"],
+            obsoleteConfigPaths: ["/tmp/obsolete.js"],
+            isSelfWrite: { _ in true },
+            fileExists: { $0 == "/tmp/obsolete.js" }
+        )
+
+        #expect(actionable)
+    }
 }
 
 private final class StagingRecorder: @unchecked Sendable {
@@ -301,6 +358,7 @@ private final class RecordingProvider: AIProviderIntegration {
     var hookInstalled = false
     var managedStateInstalled = false
     var toolInstalled = false
+    var requiresLoginShellEnvironmentForConfiguration = false
     var toolCheckCount = 0
     var installCount = 0
     var uninstallCount = 0

@@ -124,7 +124,7 @@ struct PullRequestPresentationTests {
         #expect(presentation.text == "Checks failing")
         #expect(presentation.tone == .warning)
         #expect(availability.isEnabled)
-        #expect(availability.help.contains("five-second merge confirmation"))
+        #expect(String(localized: availability.help).contains("five-second merge confirmation"))
     }
 
     @Test("unknown merge state falls back to mergeable value")

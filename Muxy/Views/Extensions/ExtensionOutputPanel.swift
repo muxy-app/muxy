@@ -36,7 +36,7 @@ struct ExtensionOutputPanel: View {
                     }
                 }
                 if store.statuses.isEmpty {
-                    Text("No extensions").foregroundStyle(MuxyTheme.fgMuted)
+                    Text(L10n.resource("No extensions")).foregroundStyle(MuxyTheme.fgMuted)
                 }
             } label: {
                 HStack(spacing: 4) {
@@ -54,14 +54,14 @@ struct ExtensionOutputPanel: View {
             .menuIndicator(.hidden)
             .fixedSize()
             Spacer()
-            Button("Reveal") {
+            Button(L10n.string("Reveal")) {
                 if let url = activeLogURL {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
             }
             .buttonStyle(.plain)
             .foregroundStyle(MuxyTheme.accent)
-            Button("Clear") {
+            Button(L10n.string("Clear")) {
                 tailer?.clear()
             }
             .buttonStyle(.plain)
@@ -77,7 +77,7 @@ struct ExtensionOutputPanel: View {
             ScrollView {
                 Group {
                     if lines.isEmpty {
-                        Text("No log output yet.")
+                        Text(L10n.resource("No log output yet."))
                             .font(.system(size: UIMetrics.fontFootnote))
                             .foregroundStyle(MuxyTheme.fgMuted)
                             .padding(8)
@@ -122,7 +122,7 @@ struct ExtensionOutputPanel: View {
     }
 
     private var activeLabel: String {
-        guard let id = effectiveExtensionID else { return "(none)" }
+        guard let id = effectiveExtensionID else { return L10n.string("(none)") }
         return id
     }
 

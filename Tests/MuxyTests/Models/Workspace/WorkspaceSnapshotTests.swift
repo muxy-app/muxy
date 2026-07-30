@@ -31,6 +31,39 @@ struct WorkspaceSnapshotTests {
         #expect(decoded.currentWorkingDirectory == nil)
     }
 
+    @Test("default terminal title provenance survives snapshots")
+    func defaultTerminalTitleProvenanceRoundTrip() throws {
+        let tab = TerminalTab(pane: TerminalPaneState(projectPath: testPath))
+        let snapshot = tab.snapshot()
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: data)
+        let restored = TerminalTab(restoring: decoded)
+
+        #expect(snapshot.paneUsesDefaultTitle)
+        #expect(decoded.paneUsesDefaultTitle)
+        #expect(restored.content.pane?.usesDefaultTitle == true)
+    }
+
+    @Test("legacy terminal title remains verbatim without provenance")
+    func legacyTerminalTitleRemainsVerbatim() throws {
+        let data = Data(
+            """
+            {
+                "kind": "terminal",
+                "isPinned": false,
+                "projectPath": "\(testPath)",
+                "paneTitle": "Terminal"
+            }
+            """.utf8
+        )
+        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: data)
+        let restored = TerminalTab(restoring: decoded)
+
+        #expect(!decoded.paneUsesDefaultTitle)
+        #expect(restored.content.pane?.usesDefaultTitle == false)
+        #expect(restored.localizedTitle == "Terminal")
+    }
+
     @Test("TerminalTabSnapshot preserves child ownership and legacy snapshots default to top-level")
     func terminalTabParentOwnershipRoundTrip() throws {
         let parentID = UUID()

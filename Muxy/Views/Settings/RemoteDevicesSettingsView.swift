@@ -9,7 +9,7 @@ struct RemoteDevicesSettingsView: View {
     @State private var editorMode: RemoteDeviceEditorMode?
     @State private var devicePendingDelete: RemoteDevice?
 
-    private static let footerText = """
+    private static let footerText: LocalizedStringResource = """
     Remote devices are reusable SSH connections. Workspaces connect through a device, \
     so you can reuse the same server without re-entering its details.
     """
@@ -46,25 +46,25 @@ struct RemoteDevicesSettingsView: View {
             )
         }
         .alert(
-            "Delete “\(devicePendingDelete?.displayName ?? "")”?",
+            L10n.string("Delete “\(devicePendingDelete?.displayName ?? "")”?"),
             isPresented: deleteAlertBinding,
             presenting: devicePendingDelete
         ) { device in
-            Button("Delete", role: .destructive) {
+            Button(L10n.string("Delete"), role: .destructive) {
                 deleteDevice(device)
                 devicePendingDelete = nil
             }
             .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) {
+            Button(L10n.string("Cancel"), role: .cancel) {
                 devicePendingDelete = nil
             }
         } message: { device in
-            Text(deleteMessage(for: device))
+            Text(L10n.resource(deleteMessage(for: device)))
         }
     }
 
     private var emptyState: some View {
-        Text("No remote devices yet.")
+        Text(L10n.resource("No remote devices yet."))
             .font(.system(size: SettingsMetrics.labelFontSize))
             .foregroundStyle(SettingsStyle.mutedForeground)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -79,7 +79,7 @@ struct RemoteDevicesSettingsView: View {
             HStack(spacing: 6) {
                 Image(systemName: "plus")
                     .font(.system(size: 11, weight: .semibold))
-                Text("Add Remote Device")
+                Text(L10n.resource("Add Remote Device"))
                     .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
             }
             .foregroundStyle(SettingsStyle.accent)
@@ -101,7 +101,7 @@ struct RemoteDevicesSettingsView: View {
         )
     }
 
-    private func deleteMessage(for device: RemoteDevice) -> String {
+    private func deleteMessage(for device: RemoteDevice) -> LocalizedStringResource {
         let names = projectGroupStore.workspaceNames(usingDevice: device.id)
         guard !names.isEmpty else {
             return "This device is not used by any workspace."
@@ -143,12 +143,16 @@ private struct RemoteDeviceRow: View {
                 Text(device.displayName)
                     .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
                     .foregroundStyle(SettingsStyle.foreground)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text(device.destination.target)
                     .font(.system(size: SettingsMetrics.footnoteFontSize))
                     .foregroundStyle(SettingsStyle.mutedForeground)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
-            Spacer()
-            Button("Edit", action: onEdit)
+            Spacer(minLength: SettingsMetrics.rowSpacing)
+            Button(L10n.string("Edit"), action: onEdit)
                 .buttonStyle(.plain)
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
                 .foregroundStyle(SettingsStyle.accent)

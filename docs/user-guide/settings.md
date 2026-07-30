@@ -1,6 +1,17 @@
 # Settings
 
-Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to find settings by name.
+Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to find settings by name. Search
+matches the active app language as well as English setting keys and technical aliases.
+
+## Language
+
+English is built in. Enabled extensions can provide additional app languages, and every provider appears under
+**Interface → Language** with the extension name so you can choose between multiple providers for the same language.
+If the selected extension is disabled, removed, or temporarily invalid, Muxy keeps the selection and uses English
+until that provider becomes available again.
+
+Translation providers contain resource-only catalogs and cannot add executable code through the language feature.
+Extension authors can follow the [localization provider guide](../extensions/localizations.md).
 
 ## Worktree path templates
 
@@ -18,6 +29,12 @@ Choose **Folder** to retain Muxy's existing folder layout. A global folder store
 `<folder>/<project-name>/<worktree-name>`, while a folder selected in the new worktree dialog stores them under
 `<folder>/<worktree-name>`. A project-specific template or folder selected in that dialog takes precedence over the
 global setting. Remote worktrees keep their remote workspace layout.
+
+## Focused-layout worktree grouping
+
+In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to show **Nest worktrees inside projects**.
+It is off by default. Turn it on to nest all worktrees under their project; turn it off to keep worktrees as top-level rows. Tab
+Focused shows top-level worktrees only when they have open tabs, while Agents Focused shows every secondary worktree.
 
 ## Quick terminal
 

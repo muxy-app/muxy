@@ -59,7 +59,7 @@ final class ProjectPickerDefaultLocationSettingsModel {
     func chooseFolder() {
         guard let url = panel.selectDirectory(
             initialPath: state.chooserInitialPath,
-            message: "Select where Muxy searches for project folders"
+            message: L10n.string("Select where Muxy searches for project folders")
         )
         else { return }
         ProjectPickerDefaultLocation.setCustomPath(from: url, defaults: defaults)
@@ -83,20 +83,20 @@ struct ProjectPickerDefaultLocationSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("Folder search location")
+            Text(L10n.resource("Folder search location"))
                 .font(.system(size: SettingsMetrics.labelFontSize))
 
             HStack(alignment: .center, spacing: 8) {
                 display
                     .layoutPriority(1)
 
-                Button("Choose Folder...") {
+                Button(L10n.string("Choose Folder...")) {
                     model.chooseFolder()
                 }
                 .fixedSize(horizontal: true, vertical: false)
                 .focused($focusedControl, equals: .chooseFolder)
 
-                Button("Use App Default") {
+                Button(L10n.string("Use App Default")) {
                     model.reset()
                 }
                 .fixedSize(horizontal: true, vertical: false)

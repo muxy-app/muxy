@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyKit
 import MuxyServer
 import MuxyShared
 import os
@@ -68,7 +67,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         } else {
             nil
         }
-        TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(theme)
+        let view = TerminalViewRegistry.shared.existingView(for: paneID)
+        (view as? any TerminalClientThemeSurface)?.applyClientTheme(theme)
     }
 
     private func broadcastTheme() {
@@ -351,13 +351,11 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
-        guard let view = ensureTerminalView(paneID: paneID),
-              view.ensureLiveSurfaceForExternalIO(),
-              let surface = view.surface
-        else { return }
-
-        let mods: ghostty_input_scroll_mods_t = precise ? 1 : 0
-        ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
+        ensureTerminalView(paneID: paneID)?.scrollTerminal(
+            deltaX: deltaX,
+            deltaY: deltaY,
+            precise: precise
+        )
     }
 
     func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32, clientID: UUID) {
@@ -368,20 +366,11 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func applyPTYSize(paneID: UUID, cols: UInt32, rows: UInt32) {
-        guard let view = ensureTerminalView(paneID: paneID),
-              view.ensureLiveSurfaceForExternalIO(),
-              let surface = view.surface
-        else { return }
-
-        let size = ghostty_surface_size(surface)
-        guard size.cell_width_px > 0, size.cell_height_px > 0 else {
+        guard let view = ensureTerminalView(paneID: paneID) else { return }
+        guard view.resizeTerminal(cols: cols, rows: rows) else {
             logger.warning("Cannot resize pane \(paneID): cell metrics not yet available")
             return
         }
-
-        let w = cols * size.cell_width_px
-        let h = rows * size.cell_height_px
-        ghostty_surface_set_size(surface, w, h)
     }
 
     func registerDevice(clientID: UUID, name: String) {
@@ -431,7 +420,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         applyPTYSize(paneID: paneID, cols: cols, rows: rows)
     }
 
-    private func ensureTerminalView(paneID: UUID) -> GhosttyTerminalNSView? {
+    private func ensureTerminalView(paneID: UUID) -> (any TerminalSurface)? {
         guard let view = TerminalSurfaceMaterializer.materialize(paneID: paneID, appState: appState) else {
             logger.warning("Cannot materialize pane \(paneID): no matching tab or surface")
             return nil
@@ -455,7 +444,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         ClientThemeStore.shared.setTheme(theme, for: clientID)
         let stored = ClientThemeStore.shared.theme(for: clientID)
         for paneID in PaneOwnershipStore.shared.panes(ownedBy: clientID) {
-            TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(stored)
+            let view = TerminalViewRegistry.shared.existingView(for: paneID)
+            (view as? any TerminalClientThemeSurface)?.applyClientTheme(stored)
         }
     }
 
@@ -469,47 +459,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO? {
-        guard let view = ensureTerminalView(paneID: paneID),
-              view.ensureLiveSurfaceForExternalIO(),
-              let surface = view.surface
-        else { return nil }
-
-        var out = ghostty_cells_s()
-        guard ghostty_surface_read_cells(surface, &out) else { return nil }
-        defer { ghostty_surface_free_cells(surface, &out) }
-
-        let total = Int(out.cells_len)
-        var cells: [TerminalCellDTO] = []
-        cells.reserveCapacity(total)
-        if let ptr = out.cells {
-            for i in 0 ..< total {
-                let cell = ptr[i]
-                cells.append(TerminalCellDTO(
-                    codepoint: cell.codepoint,
-                    fg: cell.fg_rgb,
-                    bg: cell.bg_rgb,
-                    flags: cell.flags
-                ))
-            }
+        guard let view = ensureTerminalView(paneID: paneID) as? any TerminalGridSnapshotSource else {
+            return nil
         }
-
-        return TerminalCellsDTO(
-            paneID: paneID,
-            cols: out.cols,
-            rows: out.rows,
-            cursorX: out.cursor_x,
-            cursorY: out.cursor_y,
-            cursorVisible: out.cursor_visible,
-            defaultFg: out.default_fg,
-            defaultBg: out.default_bg,
-            cells: cells,
-            altScreen: out.alt_screen,
-            cursorKeys: out.cursor_keys,
-            bracketedPaste: out.bracketed_paste,
-            focusEvent: out.focus_event,
-            mouseEvent: out.mouse_event,
-            mouseFormat: out.mouse_format
-        )
+        return view.terminalCells(paneID: paneID)
     }
 
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO? {

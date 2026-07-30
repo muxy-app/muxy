@@ -82,6 +82,12 @@ final class QuickTerminalController: NSObject {
             name: .ghosttyConfigurationDidChange,
             object: nil
         )
+        notificationCenter.addObserver(
+            self,
+            selector: #selector(handleLocalizationDidChange),
+            name: .localizationDidChange,
+            object: nil
+        )
         workspaceNotificationCenter.addObserver(
             self,
             selector: #selector(handleAccessibilityDisplayOptionsDidChange),
@@ -361,6 +367,16 @@ final class QuickTerminalController: NSObject {
         guard !isTerminated else { return }
         session.reloadConfiguration()
         applyCurrentAppearance()
+    }
+
+    @objc
+    private func handleLocalizationDidChange() {
+        refreshLocalization()
+    }
+
+    func refreshLocalization() {
+        contentView?.refreshLocalization()
+        contentView?.setShortcutLabel(shortcutLabelProvider())
     }
 
     @objc

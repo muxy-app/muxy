@@ -13,8 +13,11 @@ struct WorktreeRemovalConfirmationTests {
             hasUncommittedChanges: false
         )
 
-        #expect(confirmation.title == "Remove worktree \"feature\"?")
-        #expect(confirmation.message == "This will remove the worktree from Muxy and delete its files on disk.")
+        #expect(String(localized: confirmation.title) == "Remove worktree \"feature\"?")
+        #expect(
+            String(localized: confirmation.message)
+                == "This will remove the worktree from Muxy and delete its files on disk."
+        )
     }
 
     @Test
@@ -26,8 +29,11 @@ struct WorktreeRemovalConfirmationTests {
             hasUncommittedChanges: true
         )
 
-        #expect(confirmation.title == "Remove worktree \"feature\"?")
-        #expect(confirmation.message == "This worktree has uncommitted changes. Removing it will permanently discard them.")
+        #expect(String(localized: confirmation.title) == "Remove worktree \"feature\"?")
+        #expect(
+            String(localized: confirmation.message)
+                == "This worktree has uncommitted changes. Removing it will permanently discard them."
+        )
     }
 
     @Test

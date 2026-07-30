@@ -40,7 +40,7 @@ struct FocusedComposerView: View {
         .onChange(of: state.fileAttachments) { persistDraft() }
         .onChange(of: state.imageAttachments) { persistDraft() }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Composer")
+        .accessibilityLabel(L10n.string("Composer"))
     }
 
     private var metadata: some View {
@@ -48,11 +48,11 @@ struct FocusedComposerView: View {
             Circle()
                 .fill(MuxyTheme.diffAddFg)
                 .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
-            Text("\(projectName) / \(worktreeName)")
+            Text(L10n.resource("\(projectName) / \(worktreeName)"))
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .lineLimit(1)
-            Text("· active pane")
+            Text(L10n.resource("· active pane"))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgDim)
             Spacer(minLength: UIMetrics.spacing3)
@@ -63,7 +63,7 @@ struct FocusedComposerView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(MuxyTheme.fgDim)
-            .accessibilityLabel("Close Composer")
+            .accessibilityLabel(L10n.string("Close Composer"))
         }
         .frame(height: UIMetrics.scaled(22))
     }
@@ -84,7 +84,7 @@ struct FocusedComposerView: View {
         .background(MuxyTheme.bg.opacity(0.001))
         .overlay(alignment: .topLeading) {
             if state.text.isEmpty {
-                Text("Type or speak…")
+                Text(L10n.resource("Type or speak…"))
                     .font(.system(size: clampedFontSize))
                     .foregroundStyle(MuxyTheme.fgMuted.opacity(0.55))
                     .padding(.horizontal, UIMetrics.spacing1)
@@ -115,11 +115,15 @@ struct FocusedComposerView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(MuxyTheme.fgDim)
-                .accessibilityLabel("Dismiss Dictation Error")
+                .accessibilityLabel(L10n.string("Dismiss Dictation Error"))
             } else {
-                Text(voice.recorder.isPaused ? "PAUSED" : "● LIVE")
-                    .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .monospaced))
-                    .foregroundStyle(voice.recorder.isPaused ? MuxyTheme.warning : MuxyTheme.diffRemoveFg)
+                Text(
+                    voice.recorder.isPaused
+                        ? L10n.resource("PAUSED")
+                        : L10n.resource("● LIVE")
+                )
+                .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .monospaced))
+                .foregroundStyle(voice.recorder.isPaused ? MuxyTheme.warning : MuxyTheme.diffRemoveFg)
                 VoiceLevelMeter(level: voice.recorder.level, isPaused: voice.recorder.isPaused)
                 Text(voiceTranscript)
                     .foregroundStyle(MuxyTheme.fg)
@@ -138,10 +142,10 @@ struct FocusedComposerView: View {
 
     private var voiceTranscript: String {
         if voice.isStarting {
-            return "Preparing on-device dictation…"
+            return L10n.string("Preparing on-device dictation…")
         }
         if voice.recorder.transcript.isEmpty {
-            return "Listening…"
+            return L10n.string("Listening…")
         }
         return voice.recorder.transcript
     }
@@ -165,28 +169,38 @@ struct FocusedComposerView: View {
 
     private var actions: some View {
         HStack(spacing: UIMetrics.spacing2) {
-            ComposerIconButton(symbol: "plus", label: "Attach File", action: chooseAttachments)
+            ComposerIconButton(symbol: "plus", label: L10n.string("Attach File"), action: chooseAttachments)
             ComposerIconButton(
                 symbol: voice.recorder.isRecording ? "stop.fill" : "mic",
-                label: voice.recorder.isRecording ? "Finish Dictation" : "Start Dictation",
+                label: voice.recorder.isRecording
+                    ? L10n.string("Finish Dictation")
+                    : L10n.string("Start Dictation"),
                 isActive: voice.isBusy,
                 activeColor: MuxyTheme.diffRemoveFg,
                 action: toggleVoice
             )
             Menu {
                 if voice.recorder.isRecording {
-                    Button(voice.recorder.isPaused ? "Resume Dictation" : "Pause Dictation") {
+                    Button(
+                        voice.recorder.isPaused
+                            ? L10n.string("Resume Dictation")
+                            : L10n.string("Pause Dictation")
+                    ) {
                         voice.togglePause()
                     }
-                    Button("Cancel Dictation") {
+                    Button(L10n.string("Cancel Dictation")) {
                         voice.cancel()
                     }
                     Divider()
                 }
-                Button(broadcasts ? "Send to Active Pane" : "Send to All Split Panes") {
+                Button(
+                    broadcasts
+                        ? L10n.string("Send to Active Pane")
+                        : L10n.string("Send to All Split Panes")
+                ) {
                     broadcasts.toggle()
                 }
-                Button("Send Without Enter") {
+                Button(L10n.string("Send Without Enter")) {
                     requestSubmission(appendReturn: false)
                 }
                 .disabled(!voice.canSubmit)
@@ -200,12 +214,16 @@ struct FocusedComposerView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .foregroundStyle(MuxyTheme.fgMuted)
-            .accessibilityLabel("More Composer Actions")
+            .accessibilityLabel(L10n.string("More Composer Actions"))
 
-            Text(broadcasts ? "All split panes" : "Active pane")
-                .font(.system(size: UIMetrics.fontXS))
-                .foregroundStyle(MuxyTheme.fgDim)
-                .lineLimit(1)
+            Text(
+                broadcasts
+                    ? L10n.resource("All split panes")
+                    : L10n.resource("Active pane")
+            )
+            .font(.system(size: UIMetrics.fontXS))
+            .foregroundStyle(MuxyTheme.fgDim)
+            .lineLimit(1)
 
             Spacer(minLength: UIMetrics.spacing4)
 
@@ -220,7 +238,7 @@ struct FocusedComposerView: View {
             }
             .buttonStyle(.plain)
             .disabled(!voice.canSubmit)
-            .accessibilityLabel("Send")
+            .accessibilityLabel(L10n.string("Send"))
         }
         .padding(.top, UIMetrics.spacing4)
     }
@@ -388,7 +406,7 @@ private struct ComposerAttachmentChip: View {
                     .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(url.lastPathComponent)")
+            .accessibilityLabel(L10n.string("Remove \(url.lastPathComponent)"))
         }
         .font(.system(size: UIMetrics.fontXS))
         .foregroundStyle(MuxyTheme.fgMuted)

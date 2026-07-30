@@ -15,6 +15,7 @@ enum MuxyNotificationHooks {
     private static let stagedResources = [
         StagedResource(name: "muxy-claude-hook", extension: "sh", executable: true),
         StagedResource(name: "muxy-codex-hook", extension: "sh", executable: true),
+        StagedResource(name: "muxy-copilot-hook", extension: "sh", executable: true),
         StagedResource(name: "muxy-cursor-hook", extension: "sh", executable: true),
         StagedResource(name: "muxy-droid-hook", extension: "sh", executable: true),
         StagedResource(name: "muxy-grok-hook", extension: "sh", executable: true),

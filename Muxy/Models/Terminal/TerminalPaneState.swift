@@ -9,9 +9,12 @@ struct TerminalPaneLaunch: Equatable {
 @MainActor
 @Observable
 final class TerminalPaneState: Identifiable {
+    nonisolated static let defaultTitle = "Terminal"
+
     let id: UUID
     let projectPath: String
     var title: String
+    private(set) var usesDefaultTitle: Bool
     var currentWorkingDirectory: String?
     let startupCommand: String?
     let startupCommandInteractive: Bool
@@ -24,7 +27,8 @@ final class TerminalPaneState: Identifiable {
     init(
         id: UUID = UUID(),
         projectPath: String,
-        title: String = "Terminal",
+        title: String? = nil,
+        usesDefaultTitle: Bool? = nil,
         initialWorkingDirectory: String? = nil,
         startupCommand: String? = nil,
         startupCommandInteractive: Bool = false,
@@ -33,7 +37,8 @@ final class TerminalPaneState: Identifiable {
     ) {
         self.id = id
         self.projectPath = projectPath
-        self.title = title
+        self.title = title ?? Self.defaultTitle
+        self.usesDefaultTitle = usesDefaultTitle ?? (title == nil)
         self.currentWorkingDirectory = initialWorkingDirectory
         self.startupCommand = startupCommand
         self.startupCommandInteractive = startupCommandInteractive
@@ -53,8 +58,10 @@ final class TerminalPaneState: Identifiable {
         titleDebounceTask?.cancel()
         titleDebounceTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, let self, self.title != newTitle else { return }
+            guard !Task.isCancelled, let self else { return }
+            guard self.title != newTitle || self.usesDefaultTitle else { return }
             self.title = newTitle
+            self.usesDefaultTitle = false
             self.notifyTabUpdated()
         }
     }

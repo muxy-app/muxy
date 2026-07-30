@@ -253,7 +253,7 @@ final class WorktreeStore {
             } catch {
                 self?.removingWorktreeIDs.remove(worktree.id)
                 ToastState.shared.show(
-                    title: "Could not remove worktree \"\(worktree.name)\"",
+                    title: L10n.string("Could not remove worktree \"\(worktree.name)\""),
                     body: error.localizedDescription
                 )
             }

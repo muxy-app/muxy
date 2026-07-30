@@ -38,8 +38,12 @@ struct SplitContainer: View {
                         branch.ratio = min(max(start + delta / total, 0.15), 0.85)
                     }
                 )
-                .accessibilityLabel(horizontal ? "Horizontal Split Divider" : "Vertical Split Divider")
-                .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
+                .accessibilityLabel(
+                    horizontal
+                        ? L10n.string("Horizontal Split Divider")
+                        : L10n.string("Vertical Split Divider")
+                )
+                .accessibilityValue(L10n.string("Split ratio: \(Int(branch.ratio * 100))%"))
                 .accessibilityAdjustableAction { direction in
                     let step: CGFloat = 0.05
                     switch direction {

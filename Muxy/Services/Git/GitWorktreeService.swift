@@ -31,6 +31,10 @@ protocol GitWorktreeListing {
 
 actor GitWorktreeService: GitWorktreeListing {
     static let shared = GitWorktreeService()
+    private static let maxConcurrentRepositoryChecksPerContext = 4
+    private static let localRepositoryCheckTimeout = Duration.seconds(10)
+
+    private let repositoryCheckCoordinator: GitRepositoryCheckCoordinator
 
     enum GitWorktreeError: LocalizedError {
         case notGitRepository
@@ -46,7 +50,35 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
+    private init() {
+        repositoryCheckCoordinator = GitRepositoryCheckCoordinator(
+            maxConcurrentChecksPerContext: Self.maxConcurrentRepositoryChecksPerContext
+        ) { path, context in
+            await GitWorktreeService.probeGitRepository(path: path, context: context)
+        }
+    }
+
     func isGitRepository(_ path: String, context: WorkspaceContext = .local) async -> Bool {
+        await repositoryCheckCoordinator.isGitRepository(path, context: context)
+    }
+
+    private static func probeGitRepository(path: String, context: WorkspaceContext) async -> Bool {
+        guard case .local = context else {
+            return await runRepositoryProbe(path: path, context: context)
+        }
+        return await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+            group.addTask { await runRepositoryProbe(path: path, context: .local) }
+            group.addTask {
+                try? await Task.sleep(for: localRepositoryCheckTimeout)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
+    private static func runRepositoryProbe(path: String, context: WorkspaceContext) async -> Bool {
         guard let result = try? await GitProcessRunner.runGit(
             repoPath: path,
             arguments: ["rev-parse", "--is-inside-work-tree"],
@@ -55,7 +87,8 @@ actor GitWorktreeService: GitWorktreeListing {
         else {
             return false
         }
-        return result.status == 0 && result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+        return result.status == 0 &&
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 
     func hasUncommittedChanges(worktreePath: String, context: WorkspaceContext = .local) async -> Bool {

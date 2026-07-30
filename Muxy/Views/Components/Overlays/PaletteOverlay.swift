@@ -99,7 +99,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             if isLoading || isSearching {
                 ProgressView()
                     .controlSize(.small)
-                    .accessibilityLabel("Searching")
+                    .accessibilityLabel(L10n.string("Searching"))
             }
         }
         .padding(.horizontal, UIMetrics.spacing6)
@@ -115,15 +115,15 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
     private var searchToolbar: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            searchOptionButton("Aa", isOn: searchOptions.caseSensitive, help: "Match case") {
+            searchOptionButton("Aa", isOn: searchOptions.caseSensitive, help: L10n.string("Match case")) {
                 searchOptions.caseSensitive.toggle()
                 searchOptionsChanged()
             }
-            searchOptionButton("W", isOn: searchOptions.wholeWord, help: "Match whole word") {
+            searchOptionButton("W", isOn: searchOptions.wholeWord, help: L10n.string("Match whole word")) {
                 searchOptions.wholeWord.toggle()
                 searchOptionsChanged()
             }
-            searchOptionButton(".*", isOn: searchOptions.regex, help: "Use regular expression") {
+            searchOptionButton(".*", isOn: searchOptions.regex, help: L10n.string("Use regular expression")) {
                 searchOptions.regex.toggle()
                 searchOptionsChanged()
             }

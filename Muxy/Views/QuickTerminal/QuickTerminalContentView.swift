@@ -35,35 +35,36 @@ final class QuickTerminalContentView: NSView {
     private let terminalTintView = NSView()
     private let bridgeView = NSView()
     private let statusIndicator = NSView()
-    private let statusLabel = NSTextField(labelWithString: "Ready")
-    private let titleLabel = NSTextField(labelWithString: "Quick Terminal")
+    private let statusLabel = NSTextField(labelWithString: L10n.string("Ready"))
+    private let titleLabel = NSTextField(labelWithString: L10n.string("Quick Terminal"))
     private let shortcutButton = NSButton()
     private let settingsButton = NSButton()
     private let closeButton = NSButton()
     private let shortcutSettingsView = NSView()
-    private let shortcutSettingsTitle = NSTextField(labelWithString: "Quick Terminal Shortcut")
+    private let shortcutSettingsTitle = NSTextField(labelWithString: L10n.string("Quick Terminal Shortcut"))
     private let shortcutSettingsStatus = NSTextField(wrappingLabelWithString: "")
     private let noShortcutButton = NSButton()
     private let doubleShiftButton = NSButton()
     private let customShortcutButton = NSButton()
     private let inputMonitoringButton = NSButton()
     private let settingsPopover = NSView()
-    private let settingsPopoverTitle = NSTextField(labelWithString: "Quick Terminal")
-    private let transparencyTitle = NSTextField(labelWithString: "Transparency")
+    private let settingsPopoverTitle = NSTextField(labelWithString: L10n.string("Quick Terminal"))
+    private let transparencyTitle = NSTextField(labelWithString: L10n.string("Transparency"))
     private let transparencySlider = NSSlider()
     private let transparencyValue = NSTextField(labelWithString: "")
-    private let vibrancyTitle = NSTextField(labelWithString: "Vibrancy")
+    private let vibrancyTitle = NSTextField(labelWithString: L10n.string("Vibrancy"))
     private let vibrancySlider = NSSlider()
     private let vibrancyValue = NSTextField(labelWithString: "")
-    private let widthTitle = NSTextField(labelWithString: "Width")
+    private let widthTitle = NSTextField(labelWithString: L10n.string("Width"))
     private let widthSlider = NSSlider()
     private let widthValue = NSTextField(labelWithString: "")
-    private let heightTitle = NSTextField(labelWithString: "Height")
+    private let heightTitle = NSTextField(labelWithString: L10n.string("Height"))
     private let heightSlider = NSSlider()
     private let heightValue = NSTextField(labelWithString: "")
     private let settingsResetButton = NSButton()
     private let openFullSettingsButton = NSButton()
     private weak var terminalView: NSView?
+    private var statusResource: LocalizedStringResource = "Ready"
     private var isRecordingShortcut = false
     private var isRevealed = true
     private var collapsedCutoutRect: NSRect?
@@ -131,7 +132,8 @@ final class QuickTerminalContentView: NSView {
             width: bounds.width,
             height: max(0, bounds.height - Self.bridgeHeight)
         )
-        statusLabel.stringValue = "Ready"
+        statusResource = "Ready"
+        statusLabel.stringValue = L10n.string(statusResource)
         statusIndicator.layer?.backgroundColor = NSColor.systemGreen.cgColor
     }
 
@@ -150,10 +152,11 @@ final class QuickTerminalContentView: NSView {
             .cgColor
     }
 
-    func clearTerminal(status: String) {
+    func clearTerminal(status: LocalizedStringResource) {
         terminalView?.removeFromSuperview()
         terminalView = nil
-        statusLabel.stringValue = status
+        statusResource = status
+        statusLabel.stringValue = L10n.string(statusResource)
         statusIndicator.layer?.backgroundColor = NSColor.systemOrange.cgColor
     }
 
@@ -182,7 +185,7 @@ final class QuickTerminalContentView: NSView {
         let modifiers = event.modifierFlags.intersection(KeyCombo.supportedModifierMask)
         let requiredModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
         guard !modifiers.isDisjoint(with: requiredModifiers) else {
-            shortcutSettingsStatus.stringValue = "Include Command, Control, or Option."
+            shortcutSettingsStatus.stringValue = L10n.string("Include Command, Control, or Option.")
             return true
         }
         let key = KeyCombo.normalized(
@@ -194,7 +197,7 @@ final class QuickTerminalContentView: NSView {
             virtualKeyCode: event.keyCode
         )
         guard shortcut.isValid else {
-            shortcutSettingsStatus.stringValue = "That key cannot be used as a global shortcut."
+            shortcutSettingsStatus.stringValue = L10n.string("That key cannot be used as a global shortcut.")
             return true
         }
         if let message = onShortcutChange?(shortcut) {
@@ -311,18 +314,23 @@ final class QuickTerminalContentView: NSView {
         bridgeView.addSubview(titleLabel)
         bridgeView.addSubview(statusLabel)
 
-        configureButton(shortcutButton, title: "Set Shortcut", symbolName: nil, action: #selector(toggleShortcutSettings))
+        configureButton(
+            shortcutButton,
+            title: L10n.string("Set Shortcut"),
+            symbolName: nil,
+            action: #selector(toggleShortcutSettings)
+        )
         shortcutButton.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
         shortcutButton.wantsLayer = true
         shortcutButton.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.1).cgColor
         shortcutButton.layer?.cornerRadius = 5
-        shortcutButton.setAccessibilityLabel("Change quick terminal shortcut")
+        shortcutButton.setAccessibilityLabel(L10n.string("Change quick terminal shortcut"))
         shortcutButton.setAccessibilityIdentifier("quickTerminalShortcutButton")
 
         configureButton(settingsButton, title: "", symbolName: "gearshape", action: #selector(toggleSettingsPopover))
-        settingsButton.setAccessibilityLabel("Open quick terminal settings")
+        settingsButton.setAccessibilityLabel(L10n.string("Open quick terminal settings"))
         configureButton(closeButton, title: "", symbolName: "xmark", action: #selector(close))
-        closeButton.setAccessibilityLabel("Close quick terminal")
+        closeButton.setAccessibilityLabel(L10n.string("Close quick terminal"))
     }
 
     private func configureTerminalBackground() {
@@ -360,13 +368,25 @@ final class QuickTerminalContentView: NSView {
         shortcutSettingsView.addSubview(shortcutSettingsTitle)
         shortcutSettingsView.addSubview(shortcutSettingsStatus)
 
-        configureSettingsChoice(noShortcutButton, title: "No Shortcut", action: #selector(selectNoShortcut))
+        configureSettingsChoice(
+            noShortcutButton,
+            title: L10n.string("No Shortcut"),
+            action: #selector(selectNoShortcut)
+        )
         noShortcutButton.setAccessibilityIdentifier("quickTerminalNoShortcutButton")
-        configureSettingsChoice(doubleShiftButton, title: "Double Shift", action: #selector(selectDoubleShift))
-        configureSettingsChoice(customShortcutButton, title: "Record Custom…", action: #selector(recordCustomShortcut))
+        configureSettingsChoice(
+            doubleShiftButton,
+            title: L10n.string("Double Shift"),
+            action: #selector(selectDoubleShift)
+        )
+        configureSettingsChoice(
+            customShortcutButton,
+            title: L10n.string("Record Custom…"),
+            action: #selector(recordCustomShortcut)
+        )
         configureSettingsChoice(
             inputMonitoringButton,
-            title: "Enable Input Monitoring",
+            title: L10n.string("Enable Input Monitoring"),
             action: #selector(requestInputMonitoring)
         )
     }
@@ -453,16 +473,18 @@ final class QuickTerminalContentView: NSView {
             customShortcutButton.title = combo.displayString
             customShortcutButton.state = .on
         } else {
-            customShortcutButton.title = isRecordingShortcut ? "Press shortcut…" : "Record Custom…"
+            customShortcutButton.title = isRecordingShortcut
+                ? L10n.string("Press shortcut…")
+                : L10n.string("Record Custom…")
             customShortcutButton.state = .off
         }
         if isRecordingShortcut {
-            customShortcutButton.title = "Press shortcut…"
-            shortcutSettingsStatus.stringValue = "Press a global shortcut, or Escape to cancel."
+            customShortcutButton.title = L10n.string("Press shortcut…")
+            shortcutSettingsStatus.stringValue = L10n.string("Press a global shortcut, or Escape to cancel.")
         } else if let errorMessage = snapshot.errorMessage {
             shortcutSettingsStatus.stringValue = errorMessage
         } else {
-            shortcutSettingsStatus.stringValue = snapshot.statusText
+            shortcutSettingsStatus.stringValue = L10n.string(key: snapshot.statusText)
         }
         inputMonitoringButton.isHidden = !snapshot.needsInputMonitoringAccess
         needsLayout = true
@@ -515,8 +537,16 @@ final class QuickTerminalContentView: NSView {
             action: #selector(sizeSlidersChanged)
         )
 
-        configureSettingsPopoverButton(settingsResetButton, title: "Reset", action: #selector(resetSettingsPopover))
-        configureSettingsPopoverButton(openFullSettingsButton, title: "Open Settings…", action: #selector(openFullSettings))
+        configureSettingsPopoverButton(
+            settingsResetButton,
+            title: L10n.string("Reset"),
+            action: #selector(resetSettingsPopover)
+        )
+        configureSettingsPopoverButton(
+            openFullSettingsButton,
+            title: L10n.string("Open Settings…"),
+            action: #selector(openFullSettings)
+        )
     }
 
     private func configureSettingsRow(title: NSTextField, value: NSTextField) {
@@ -680,6 +710,25 @@ final class QuickTerminalContentView: NSView {
     private func requestInputMonitoring() {
         _ = onRequestInputMonitoringAccess?()
         refreshShortcutSettings()
+    }
+
+    func refreshLocalization() {
+        titleLabel.stringValue = L10n.string("Quick Terminal")
+        shortcutSettingsTitle.stringValue = L10n.string("Quick Terminal Shortcut")
+        settingsPopoverTitle.stringValue = L10n.string("Quick Terminal")
+        transparencyTitle.stringValue = L10n.string("Transparency")
+        vibrancyTitle.stringValue = L10n.string("Vibrancy")
+        widthTitle.stringValue = L10n.string("Width")
+        heightTitle.stringValue = L10n.string("Height")
+        noShortcutButton.title = L10n.string("No Shortcut")
+        doubleShiftButton.title = L10n.string("Double Shift")
+        customShortcutButton.title = L10n.string("Record Custom…")
+        inputMonitoringButton.title = L10n.string("Enable Input Monitoring")
+        settingsResetButton.title = L10n.string("Reset")
+        openFullSettingsButton.title = L10n.string("Open Settings…")
+        statusLabel.stringValue = L10n.string(statusResource)
+        refreshShortcutSettings()
+        needsLayout = true
     }
 }
 

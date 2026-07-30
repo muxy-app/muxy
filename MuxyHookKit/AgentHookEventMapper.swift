@@ -22,7 +22,9 @@ public enum AgentHookEventMapper {
              "pre-tool-use",
              "UserPromptSubmit",
              "PreToolUse",
-             "beforeSubmitPrompt":
+             "beforeSubmitPrompt",
+             "userPromptSubmitted",
+             "preToolUse":
             return MappedAgentHookEvent(phase: .working, title: "", body: "")
         case "permission-request",
              "PermissionRequest":
@@ -35,7 +37,8 @@ public enum AgentHookEventMapper {
              "Notification":
             return mapNotification(providerTitle: providerTitle, payload: payload)
         case "stop",
-             "Stop":
+             "Stop",
+             "agentStop":
             return MappedAgentHookEvent(
                 phase: .finished,
                 title: sanitize(providerTitle),
@@ -49,6 +52,8 @@ public enum AgentHookEventMapper {
                 title: sanitize(providerTitle),
                 body: notificationBody(in: payload, fallback: "Session failed")
             )
+        case "errorOccurred":
+            return mapErrorOccurred(providerTitle: providerTitle, payload: payload)
         case "session-end",
              "SessionEnd",
              "sessionEnd":
@@ -82,7 +87,11 @@ public enum AgentHookEventMapper {
         switch type {
         case "auth_success",
              "elicitation_complete",
-             "elicitation_response":
+             "elicitation_response",
+             "shell_completed",
+             "shell_detached_completed",
+             "agent_completed",
+             "agent_idle":
             return nil
         case "task_complete":
             return MappedAgentHookEvent(
@@ -121,6 +130,20 @@ public enum AgentHookEventMapper {
                 body: notificationBody(in: payload, fallback: "Needs attention")
             )
         }
+    }
+
+    private static func mapErrorOccurred(
+        providerTitle: String,
+        payload: [String: Any]
+    ) -> MappedAgentHookEvent? {
+        guard payload["recoverable"] as? Bool != true else { return nil }
+        let error = payload["error"] as? [String: Any] ?? [:]
+        return MappedAgentHookEvent(
+            phase: .finished,
+            title: sanitize(providerTitle),
+            body: firstValue(in: error, keys: ["message"])
+                ?? notificationBody(in: payload, fallback: "Session failed")
+        )
     }
 
     private static func notificationBody(in payload: [String: Any], fallback: String) -> String {

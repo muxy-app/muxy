@@ -1,6 +1,6 @@
 # AI notifications
 
-Muxy tracks the AI coding agents running inside its terminals — Claude Code, Codex, Cursor, Droid, Grok, OpenCode, and Pi — and surfaces their lifecycle as pane and worktree status, completion badges, and notifications when a turn finishes or an agent needs attention.
+Muxy tracks the AI coding agents running inside its terminals — Claude Code, Codex, Cursor, GitHub Copilot, Droid, Grok, OpenCode, and Pi — and surfaces their lifecycle as pane and worktree status, completion badges, and notifications when a turn finishes or an agent needs attention.
 
 There are two independent sources of truth, and hooks are authoritative.
 
@@ -43,8 +43,10 @@ The bridge retries an event when an ack does not arrive within its delivery budg
 The compiled hook bridge (`muxy-hook`) and the provider shims are staged into `~/Library/Application Support/Muxy/hooks` (`hooks-dev` for debug builds) with private permissions:
 
 - `muxy-hook` — the compiled bridge every hook invokes.
-- `muxy-claude-hook.sh`, `muxy-codex-hook.sh`, `muxy-cursor-hook.sh`, `muxy-droid-hook.sh`, `muxy-grok-hook.sh` — thin shell shims that exec the colocated `muxy-hook`.
+- `muxy-claude-hook.sh`, `muxy-codex-hook.sh`, `muxy-copilot-hook.sh`, `muxy-cursor-hook.sh`, `muxy-droid-hook.sh`, `muxy-grok-hook.sh` — thin shell shims that exec the colocated `muxy-hook`.
 - `opencode-muxy-plugin.js`, `muxy-pi-extension.ts` — plugin/extension entry points that spawn the staged `muxy-hook`. When the binary is missing they log a clear error to their own stderr and skip the event. That stderr never reaches Muxy, so nothing restages automatically — use **Refresh** in Settings to restage.
+
+The OpenCode entry point is installed globally at `~/.config/opencode/plugins/muxy-notify.js`. OpenCode loads local plugins at startup, so restart any running OpenCode session after Muxy first installs or repairs this file.
 
 Reconciliation starts only after the complete staged resource set is available. Each provider also verifies that the shared `muxy-hook` bridge exists and is executable, so a stale shim or plugin cannot report healthy while its bridge is missing.
 
@@ -56,7 +58,13 @@ Each provider integration is reconciled declaratively: Muxy **verifies** that ev
 
 Muxy records a hash of every config file it writes and ignores watcher events whose content matches its own last write, so a repair never re-triggers itself. A per-file rate limiter caps repairs within a rolling minute; when it trips — most commonly when a release and a debug build both manage the same config — Muxy stops rewriting and reports a `conflict` instead of spinning.
 
-Results are tracked per provider in the health store — install state, last verified/repaired time, last event time, and last error — and shown in **Settings → Notifications** as a status dot and line per provider. A `conflict` means Muxy found a non-Muxy hook it will not overwrite; the message names it.
+Providers that moved to a new config location also declare their obsolete paths. Those are watched alongside the managed ones and deleted on install, so an older Muxy build restoring a superseded copy triggers a repair instead of leaving two live hooks.
+
+Results are tracked per provider in the health store — install state, last verified/repaired time, last event time, and last error — and shown in **Settings → Notifications** as a status dot and line per provider. A `conflict` means Muxy found a non-Muxy hook it will not overwrite; the message names it. Copilot CLI hooks live in `~/.copilot/hooks/muxy-notify.json` (or `$COPILOT_HOME/hooks/` when set); restart the CLI after Muxy repairs hooks so the new config is loaded.
+
+OpenCode also runs a bounded, read-only `opencode debug info` discovery probe after reconciliation. Its provider row reports the resolved CLI version and whether OpenCode's effective plugin list contains Muxy's exact managed plugin. Discovery results are separate from hook verification and event delivery, and are logged through the `ProviderDiscovery` unified-log category with executable paths kept private.
+
+The OpenCode plugin writes structured `service=muxy` entries to OpenCode's own logs when it initializes, forwards a permission or question, or cannot launch `muxy-hook`. Use `opencode debug paths` to locate the active OpenCode log directory and `opencode debug info` to inspect the effective plugin list manually.
 
 ## Test button
 
@@ -69,9 +77,11 @@ Agent status is exposed to extensions as the `agent.status` event and `muxy.agen
 ## Troubleshooting
 
 - **No notifications from an agent.** Open **Settings → Notifications**, check the provider's status dot, and click **Refresh** to restage and re-verify. Run **Test** to confirm the socket path end to end.
+- **OpenCode still does not report permissions or questions after Refresh.** Restart the OpenCode session so it loads the repaired global plugin from `~/.config/opencode/plugins`.
 - **Hook delivery failures.** The bridge logs failures to `~/Library/Application Support/Muxy/hooks.log`.
 - **Socket missing.** Verify it exists: `ls -l ~/Library/Application\ Support/Muxy/muxy.sock`.
 - **Conflict reported.** Muxy found a foreign hook in the provider's config and left it untouched. Remove or rename it if you want Muxy to own that hook, then **Refresh**.
 - **Logs.** Stream live: `log stream --predicate 'subsystem == "app.muxy"' --info --debug`.
+- **OpenCode discovery logs.** Filter the provider probe: `log stream --predicate 'subsystem == "app.muxy" AND category == "ProviderDiscovery"' --info --debug`.
 
 See also [Terminal notifications](terminal.md) for OSC-based terminal notifications, and the general [Troubleshooting](../user-guide/troubleshooting.md) guide.

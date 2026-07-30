@@ -8,7 +8,7 @@ struct EmptyProjectPlaceholder: View {
 
     private var showsAgentLaunchers: Bool { layout == .agentsFocused }
 
-    private var subtitle: String {
+    private var subtitle: LocalizedStringResource {
         showsAgentLaunchers
             ? "Start an agent or open a terminal tab in this project."
             : "Open a new terminal tab to start working in this project."
@@ -20,10 +20,10 @@ struct EmptyProjectPlaceholder: View {
             Image(systemName: "macwindow.badge.plus")
                 .font(.system(size: UIMetrics.fontMega))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Text("No tabs in \(project.name)")
+            Text(L10n.resource("No tabs in \(project.localizedDisplayName)"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
-            Text(subtitle)
+            Text(L10n.resource(subtitle))
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
@@ -50,7 +50,7 @@ struct EmptyProjectPlaceholder: View {
     private var newTabButton: some View {
         Button(action: onCreateTab) {
             HStack(spacing: UIMetrics.spacing4) {
-                Text("New Tab")
+                Text(L10n.resource("New Tab"))
                 Text(KeyBindingStore.shared.combo(for: .newTab).displayString)
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
                     .opacity(0.72)

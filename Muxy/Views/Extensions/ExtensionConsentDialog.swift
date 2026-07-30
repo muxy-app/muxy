@@ -226,7 +226,7 @@ struct ExtensionConsentDialog: View {
                 .font(.system(size: 28, weight: .light))
                 .foregroundStyle(MuxyTheme.accent)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Allow \(request.extensionDisplayName)?")
+                Text(L10n.resource("Allow \(request.extensionDisplayName)?"))
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
                 Text(verbDescription)
@@ -257,7 +257,7 @@ struct ExtensionConsentDialog: View {
     private var blockToggle: some View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle(isOn: $blockKind) {
-                Text("Block all \(request.verb.kindDisplayName) from this extension")
+                Text(L10n.resource("Block all \(request.verb.kindDisplayName) from this extension"))
                     .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.fg)
             }
@@ -267,7 +267,7 @@ struct ExtensionConsentDialog: View {
                     .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\"Remember\" saves rule")
+                    Text(L10n.resource("\"Remember\" saves rule"))
                         .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgMuted)
                     Text(rememberRuleDescription)
@@ -289,17 +289,17 @@ struct ExtensionConsentDialog: View {
 
     private var buttons: some View {
         HStack(spacing: 8) {
-            Button("Deny & remember") { onChoice(blockKind ? .blockKind : .denyAndRemember) }
+            Button(L10n.string("Deny & remember")) { onChoice(blockKind ? .blockKind : .denyAndRemember) }
                 .buttonStyle(.bordered)
                 .tint(blockKind ? MuxyTheme.diffRemoveFg : nil)
             Spacer()
-            Button("Cancel") { onChoice(.denyOnce) }
+            Button(L10n.string("Cancel")) { onChoice(.denyOnce) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .buttonStyle(.bordered)
-            Button("Allow") { onChoice(.allowOnce) }
+            Button(L10n.string("Allow")) { onChoice(.allowOnce) }
                 .buttonStyle(.bordered)
                 .disabled(blockKind)
-            Button("Allow & remember") { onChoice(.allowAndRemember) }
+            Button(L10n.string("Allow & remember")) { onChoice(.allowAndRemember) }
                 .keyboardShortcut(.return, modifiers: [])
                 .buttonStyle(.borderedProminent)
                 .disabled(blockKind)

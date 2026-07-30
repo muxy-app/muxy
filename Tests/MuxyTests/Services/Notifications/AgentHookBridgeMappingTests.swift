@@ -143,6 +143,8 @@ struct AgentHookBridgeMappingTests {
             "UserPromptSubmit",
             "PreToolUse",
             "beforeSubmitPrompt",
+            "userPromptSubmitted",
+            "preToolUse",
         ]
     )
     func mapsWorkingAliases(event: String) {
@@ -158,6 +160,7 @@ struct AgentHookBridgeMappingTests {
                 body: "Needs attention"
             ))
         }
+        #expect(map(event: "permissionRequest") == nil)
     }
 
     @Test(
@@ -206,7 +209,15 @@ struct AgentHookBridgeMappingTests {
 
     @Test(
         "settled notification types do not emit lifecycle events",
-        arguments: ["auth_success", "elicitation_complete", "elicitation_response"]
+        arguments: [
+            "auth_success",
+            "elicitation_complete",
+            "elicitation_response",
+            "shell_completed",
+            "shell_detached_completed",
+            "agent_completed",
+            "agent_idle",
+        ]
     )
     func ignoresSettledNotifications(type: String) {
         #expect(map(event: "notification", input: data(["notification_type": type])) == nil)
@@ -228,8 +239,29 @@ struct AgentHookBridgeMappingTests {
             body: "Implemented"
         ))
         #expect(map(event: "stop", input: Data("invalid".utf8))?.body == "Session completed")
+        #expect(map(event: "agentStop")?.body == "Session completed")
         #expect(map(event: "stop-failure")?.body == "Session failed")
+        #expect(map(event: "errorOccurred")?.body == "Session failed")
         #expect(map(event: "StopFailure", input: data(["title": "Failed safely"]))?.body == "Failed safely")
+    }
+
+    @Test("Copilot errors finish only when they are not recoverable")
+    func mapsCopilotErrors() {
+        let recoverable = data([
+            "recoverable": true,
+            "error": ["message": "Retrying"],
+        ])
+        #expect(map(event: "errorOccurred", input: recoverable) == nil)
+
+        let terminal = data([
+            "recoverable": false,
+            "error": ["message": "Authentication failed"],
+        ])
+        #expect(map(event: "errorOccurred", input: terminal) == MappedAgentHookEvent(
+            phase: .finished,
+            title: "Claude Code",
+            body: "Authentication failed"
+        ))
     }
 
     @Test("session end aliases finish silently and unknown events are ignored")
@@ -260,7 +292,7 @@ struct AgentHookBridgeMappingTests {
         AgentHookEventMapper.map(event: event, providerTitle: "Claude Code", input: input)
     }
 
-    private func data(_ object: [String: String]) -> Data {
+    private func data(_ object: [String: Any]) -> Data {
         (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
     }
 }

@@ -11,7 +11,7 @@ struct BrowserErrorView: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
 
             VStack(spacing: UIMetrics.spacing3) {
-                Text("This page can't be opened")
+                Text(L10n.resource("This page can't be opened"))
                     .font(.system(size: UIMetrics.fontTitle, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
 
@@ -30,7 +30,7 @@ struct BrowserErrorView: View {
             }
 
             Button(action: onRetry) {
-                Text("Try Again")
+                Text(L10n.resource("Try Again"))
                     .font(.system(size: UIMetrics.fontBody, weight: .medium))
                     .foregroundStyle(MuxyTheme.accentForeground)
                     .padding(.horizontal, UIMetrics.spacing7)

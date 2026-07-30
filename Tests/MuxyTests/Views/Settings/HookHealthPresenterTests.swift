@@ -4,6 +4,7 @@ import Testing
 @testable import Muxy
 
 @Suite("HookHealthPresenter")
+@MainActor
 struct HookHealthPresenterTests {
     private let base = Date(timeIntervalSince1970: 1_700_000_000)
 
@@ -28,6 +29,17 @@ struct HookHealthPresenterTests {
         var value = health(.installed)
         value.lastEventAt = base.addingTimeInterval(-60)
         #expect(HookHealthPresenter.dot(for: value, now: base) == .healthy)
+    }
+
+    @Test("discovery warnings degrade an installed hook to warning")
+    func discoveryWarningDegradesDot() {
+        var value = health(.installed)
+        value.discovery = ProviderDiscoverySnapshot(
+            executablePath: "/usr/local/bin/opencode",
+            version: "1.18.5",
+            state: .warning("Plugin not discovered")
+        )
+        #expect(HookHealthPresenter.dot(for: value, now: base) == .warning)
     }
 
     @Test("healthy line shows last event time when present")
@@ -60,6 +72,24 @@ struct HookHealthPresenterTests {
         #expect(HookHealthPresenter.statusLine(for: health(.cliMissing), now: base) == "CLI not installed")
         #expect(HookHealthPresenter.statusLine(for: health(.conflict("both configs")), now: base) == "both configs")
         #expect(HookHealthPresenter.statusLine(for: health(.error("broke")), now: base) == "broke")
+    }
+
+    @Test("discovery line shows version and integration state")
+    func discoveryLine() {
+        var ready = health(.installed)
+        ready.discovery = ProviderDiscoverySnapshot(
+            executablePath: "/usr/local/bin/opencode",
+            version: "1.18.5",
+            state: .ready
+        )
+        #expect(HookHealthPresenter.discoveryLine(for: ready) == "Version 1.18.5 · Plugin discovered")
+
+        ready.discovery = ProviderDiscoverySnapshot(
+            executablePath: "/usr/local/bin/opencode",
+            version: nil,
+            state: .failed("Discovery timed out")
+        )
+        #expect(HookHealthPresenter.discoveryLine(for: ready) == "Version unknown · Discovery timed out")
     }
 
     @Test("relative time formatting")
