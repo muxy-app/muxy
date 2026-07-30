@@ -78,6 +78,7 @@
 "Allow %@?" = "Allow %@?";
 "Allow & remember" = "Allow & remember";
 "Allow mobile device connections" = "Allow mobile device connections";
+"Automatic updates are unavailable for this configuration." = "Automatic updates are unavailable for this configuration.";
 "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data." = "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data.";
 "App" = "App";
 "App & subprocess resource usage" = "App & subprocess resource usage";
@@ -302,6 +303,7 @@
 "Draft · Open" = "Draft · Open";
 "Drag to reposition, scroll to zoom" = "Drag to reposition, scroll to zoom";
 "Drop an extension into the extensions folder to get started." = "Drop an extension into the extensions folder to get started.";
+"Downloads updates in the background and installs them when Muxy quits." = "Downloads updates in the background and installs them when Muxy quits.";
 "Each profile keeps its own cookies, cache, and logins. Pick a profile per tab from the browser toolbar. Import brings an existing browser's cookies so tabs start signed in." = "Each profile keeps its own cookies, cache, and logins. Pick a profile per tab from the browser toolbar. Import brings an existing browser's cookies so tabs start signed in.";
 "Edit" = "Edit";
 "Edit Connection" = "Edit Connection";
@@ -407,6 +409,7 @@
 "Inspect Element" = "Inspect Element";
 "Install" = "Install";
 "Install CLI" = "Install CLI";
+"Install Downloaded Updates on Quit" = "Install Downloaded Updates on Quit";
 "Install Muxy CLI?" = "Install Muxy CLI?";
 "Install a supported AI provider CLI or choose a provider." = "Install a supported AI provider CLI or choose a provider.";
 "Installed" = "Installed";

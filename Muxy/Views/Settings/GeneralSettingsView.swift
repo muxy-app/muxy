@@ -6,6 +6,7 @@ struct GeneralSettingsView: View {
     @AppStorage(QuitConfirmationPreferences.confirmQuitKey)
     private var confirmQuit = true
     @State private var sentry = SentryService.shared
+    @State private var updateService = UpdateService.shared
 
     var body: some View {
         SettingsContainer {
@@ -25,6 +26,12 @@ struct GeneralSettingsView: View {
                     .labelsHidden()
                     .settingsControl()
                 }
+                SettingsToggleRow(
+                    label: L10n.resource("Install Downloaded Updates on Quit"),
+                    isOn: automaticUpdatesBinding
+                )
+                .disabled(!updateService.allowsAutomaticUpdates)
+                .help(L10n.string("Automatic updates are unavailable for this configuration."))
             }
 
             SettingsSection("Quit", showsDivider: sentry.hasDSN) {
@@ -66,6 +73,13 @@ struct GeneralSettingsView: View {
                 updateChannelRaw = newValue.rawValue
                 UpdateService.shared.channel = newValue
             }
+        )
+    }
+
+    private var automaticUpdatesBinding: Binding<Bool> {
+        Binding(
+            get: { updateService.automaticallyDownloadsUpdates },
+            set: { updateService.setAutomaticallyDownloadsUpdates($0) }
         )
     }
 }

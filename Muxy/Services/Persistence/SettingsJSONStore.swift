@@ -8,6 +8,7 @@ enum SettingsJSONStore {
     typealias QuickTerminalShortcutUpdater = @MainActor (QuickTerminalShortcut) throws -> Void
     typealias QuickTerminalEnabledUpdater = @MainActor (Bool) -> Void
     typealias QuickTerminalEnabledResetter = @MainActor () -> Void
+    typealias AutomaticUpdatesUpdater = @MainActor (Bool) -> Void
 
     private static var defaultsObserver: NSObjectProtocol?
     private static var isApplyingSettings = false
@@ -37,6 +38,9 @@ enum SettingsJSONStore {
         },
         quickTerminalEnabledResetter: QuickTerminalEnabledResetter = {
             QuickTerminalPreferences.resetEnabled()
+        },
+        automaticUpdatesUpdater: AutomaticUpdatesUpdater = {
+            UpdateService.shared.setAutomaticallyDownloadsUpdates($0)
         }
     ) throws {
         let data = Data(text.utf8)
@@ -57,7 +61,8 @@ enum SettingsJSONStore {
                 settings,
                 quickTerminalShortcutUpdater: quickTerminalShortcutUpdater,
                 quickTerminalEnabledUpdater: quickTerminalEnabledUpdater,
-                quickTerminalEnabledResetter: quickTerminalEnabledResetter
+                quickTerminalEnabledResetter: quickTerminalEnabledResetter,
+                automaticUpdatesUpdater: automaticUpdatesUpdater
             )
             isApplyingSettings = false
         } catch {
@@ -213,7 +218,8 @@ enum SettingsJSONStore {
         _ dictionary: [String: Any],
         quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater,
         quickTerminalEnabledUpdater: QuickTerminalEnabledUpdater,
-        quickTerminalEnabledResetter: QuickTerminalEnabledResetter
+        quickTerminalEnabledResetter: QuickTerminalEnabledResetter,
+        automaticUpdatesUpdater: AutomaticUpdatesUpdater
     ) throws {
         if let quickTerminalShortcut = dictionary["shortcuts.quickTerminal"] {
             _ = try applySpecialSetting(
@@ -227,8 +233,12 @@ enum SettingsJSONStore {
         } else if dictionary[QuickTerminalPreferences.enabledKey] is NSNull {
             quickTerminalEnabledResetter()
         }
+        if let enabled = dictionary[UpdateService.automaticallyUpdatesKey] as? Bool {
+            automaticUpdatesUpdater(enabled)
+        }
         for (key, value) in dictionary where key != "shortcuts.quickTerminal"
             && key != QuickTerminalPreferences.enabledKey
+            && key != UpdateService.automaticallyUpdatesKey
         {
             if try applySpecialSetting(
                 key: key,

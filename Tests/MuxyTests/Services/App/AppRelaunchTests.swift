@@ -57,6 +57,20 @@ struct AppRelaunchTests {
         #expect(!didPersist)
     }
 
+    @Test("termination persists user state only once")
+    func terminationPersistsUserStateOnlyOnce() {
+        let delegate = AppDelegate()
+        var persistCount = 0
+        delegate.onTerminate = {
+            persistCount += 1
+        }
+
+        delegate.persistUserStateForTermination()
+        delegate.persistUserStateForTermination()
+
+        #expect(persistCount == 1)
+    }
+
     @Test("dismisses attached sheets so termination is not blocked")
     func dismissesAttachedSheetsBeforeTermination() {
         let parent = NSWindow(

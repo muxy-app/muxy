@@ -13,6 +13,16 @@ until that provider becomes available again.
 Translation providers contain resource-only catalogs and cannot add executable code through the language feature.
 Extension authors can follow the [localization provider guide](../extensions/localizations.md).
 
+## Updates
+
+Muxy checks for updates automatically and downloads available releases in the background. Sparkle can offer
+**Install on Quit** for a downloaded release, applying it the next time Muxy quits without interrupting current work.
+Choose **Install and Relaunch** to apply the update immediately when that option is presented.
+
+Use **Install downloaded updates on quit** to control this behavior. Muxy saves workspace and draft state before the
+terminal shutdown cleanup begins, so a normal update-driven restart restores the last saved workspace.
+The same setting is available as `SUAutomaticallyUpdate` in `settings.json`.
+
 ## Worktree path templates
 
 Set the default under **Projects -> Worktrees** and choose **Template**. Every template must include `{branch}` and can

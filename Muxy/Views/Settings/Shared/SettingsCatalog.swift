@@ -321,6 +321,14 @@ enum SettingsCatalog {
             defaultValue: true
         ),
         SettingsCatalogItem(
+            key: UpdateService.automaticallyUpdatesKey,
+            title: "Install Downloaded Updates on Quit",
+            description: "Downloads updates in the background and installs them when Muxy quits.",
+            category: .general,
+            section: "Updates",
+            defaultValue: true
+        ),
+        SettingsCatalogItem(
             key: "muxy.sentry.consent",
             title: "Crash Reports",
             description: "Controls anonymous crash report consent when diagnostics are available.",

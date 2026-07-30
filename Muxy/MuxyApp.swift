@@ -249,6 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private weak var whatsNewWindow: NSWindow?
     private let terminalTerminationCleanup = TerminalTerminationCleanup()
     private static let terminalCleanupTimeout: Duration = .seconds(5)
+    private var didPersistUserStateForTermination = false
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -513,6 +514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let reply = AppRelaunch.isRelaunching ? NSApplication.TerminateReply.terminateNow : confirmQuitIfNeeded()
         guard reply == .terminateNow else { return reply }
+        persistUserStateForTermination()
         guard !terminalTerminationCleanup.isComplete else { return .terminateNow }
         terminalTerminationCleanup.start(
             timeout: Self.terminalCleanupTimeout,
@@ -592,7 +594,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func persistUserStateForTermination() {
-        guard !AppRelaunch.isRelaunching else { return }
+        guard !AppRelaunch.isRelaunching, !didPersistUserStateForTermination else { return }
+        didPersistUserStateForTermination = true
         onTerminate?()
         RichInputDraftStore.shared.flush()
     }
