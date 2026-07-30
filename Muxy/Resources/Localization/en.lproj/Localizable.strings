@@ -1067,6 +1067,7 @@
 "Terminal Omnibox Projects" = "Terminal Omnibox Projects";
 "Terminal Omnibox Workspaces" = "Terminal Omnibox Workspaces";
 "Terminal Omnibox Worktrees" = "Terminal Omnibox Worktrees";
+"Terminal Settings…" = "Terminal Settings…";
 "Terminal file links use this opener. Built-in and unmatched extension files use the project target selected separately in the top bar." = "Terminal file links use this opener. Built-in and unmatched extension files use the project target selected separately in the top bar.";
 "Terminal size" = "Terminal size";
 "Terminal transparency" = "Terminal transparency";

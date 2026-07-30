@@ -112,7 +112,7 @@ the control that was focused before recording and can optionally press Return af
 
 ## Right-click menu
 
-Inside a terminal pane: **Paste**, **Split Right**, **Split Down**, **Close Pane**.
+Inside a terminal pane: **Paste**, **Split Right**, **Split Left**, **Split Down**, **Split Up**, and **Terminal Settings…**. Terminal Settings opens Muxy's settings directly on the Terminal section.
 
 Splitting creates a child pane inside the current top-level tab. Each pane keeps its own terminal, browser, source-control, or extension surface, while a one-pixel divider replaces the old per-pane tab strip. Child panes do not appear as separate entries in the window tab strip or the Tab Focused sidebar. An agent running in a child pane does appear as its own entry in the Agents Focused sidebar, and selecting it activates both the child pane and its parent top-level tab.
 

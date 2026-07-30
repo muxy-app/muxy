@@ -16,6 +16,11 @@ final class SettingsFocusCoordinator {
         notificationCenter.post(name: request.notificationName, object: nil)
     }
 
+    func openSettings(focusedOn request: SettingsFocusRequest) {
+        self.request(request)
+        notificationCenter.post(name: .openSettingsModal, object: nil)
+    }
+
     func consume(_ request: SettingsFocusRequest) -> Bool {
         pendingRequests.remove(request) != nil
     }
@@ -25,6 +30,7 @@ enum SettingsFocusRequest: Hashable {
     case projectPickerDefaultLocation
     case remoteDevices
     case browser
+    case terminal
     case quickTerminalShortcut
 
     var notificationName: Notification.Name {
@@ -35,6 +41,8 @@ enum SettingsFocusRequest: Hashable {
             .focusRemoteDevicesSettings
         case .browser:
             .focusBrowserSettings
+        case .terminal:
+            .focusTerminalSettings
         case .quickTerminalShortcut:
             .focusQuickTerminalShortcut
         }

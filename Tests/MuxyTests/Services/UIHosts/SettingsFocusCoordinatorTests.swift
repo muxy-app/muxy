@@ -47,8 +47,45 @@ struct SettingsFocusCoordinatorTests {
         #expect(coordinator.consume(.quickTerminalShortcut))
         #expect(!coordinator.consume(.quickTerminalShortcut))
     }
+
+    @Test("opening terminal settings retains focus and emits both notifications")
+    func terminalSettingsOpenRoutesToTerminalSettings() {
+        let notificationCenter = NotificationCenter()
+        let coordinator = SettingsFocusCoordinator(notificationCenter: notificationCenter)
+        let flag = SettingsOpenNotificationFlag()
+        let focusObserver = notificationCenter.addObserver(
+            forName: .focusTerminalSettings,
+            object: nil,
+            queue: nil
+        ) { _ in
+            flag.didPostFocus = true
+        }
+        let openObserver = notificationCenter.addObserver(
+            forName: .openSettingsModal,
+            object: nil,
+            queue: nil
+        ) { _ in
+            flag.didPostOpen = true
+        }
+        defer {
+            notificationCenter.removeObserver(focusObserver)
+            notificationCenter.removeObserver(openObserver)
+        }
+
+        coordinator.openSettings(focusedOn: .terminal)
+
+        #expect(flag.didPostFocus)
+        #expect(flag.didPostOpen)
+        #expect(coordinator.consume(.terminal))
+        #expect(!coordinator.consume(.terminal))
+    }
 }
 
 private final class SettingsFocusNotificationFlag: @unchecked Sendable {
     var didPost = false
+}
+
+private final class SettingsOpenNotificationFlag: @unchecked Sendable {
+    var didPostFocus = false
+    var didPostOpen = false
 }

@@ -1366,6 +1366,13 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     private func presentContextMenu(with event: NSEvent) {
+        let menu = makeContextMenu()
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    func makeContextMenu(
+        settingsFocusCoordinator: SettingsFocusCoordinator = .shared
+    ) -> NSMenu {
         let menu = NSMenu(title: L10n.string("Terminal"))
 
         let paste = ClosureMenuItem(title: L10n.string("Paste")) { [weak self] in
@@ -1381,7 +1388,14 @@ final class GhosttyTerminalNSView: NSView,
         menu.addItem(contextSplitMenuItem(title: L10n.string("Split Down"), direction: .vertical, position: .second))
         menu.addItem(contextSplitMenuItem(title: L10n.string("Split Up"), direction: .vertical, position: .first))
 
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        menu.addItem(.separator())
+
+        let settings = ClosureMenuItem(title: L10n.string("Terminal Settings…")) {
+            settingsFocusCoordinator.openSettings(focusedOn: .terminal)
+        }
+        menu.addItem(settings)
+
+        return menu
     }
 
     private func contextSplitMenuItem(title: String, direction: SplitDirection, position: SplitPosition) -> NSMenuItem {

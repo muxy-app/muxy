@@ -57,6 +57,10 @@ struct SettingsView: View {
         .resetsSettingsFocusOnOutsideClick()
         .onAppear {
             selectedRoute = validatedRoute(selectedRoute)
+            if SettingsFocusCoordinator.shared.consume(.terminal) {
+                searchText = ""
+                selectedRoute = .builtin(.terminal)
+            }
             if SettingsFocusCoordinator.shared.consume(.quickTerminalShortcut) {
                 searchText = ""
                 selectedRoute = .builtin(.quickTerminal)
@@ -80,6 +84,11 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusBrowserSettings)) { _ in
             searchText = ""
             selectedRoute = .builtin(.browser)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .focusTerminalSettings)) { _ in
+            _ = SettingsFocusCoordinator.shared.consume(.terminal)
+            searchText = ""
+            selectedRoute = .builtin(.terminal)
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusQuickTerminalShortcut)) { _ in
             _ = SettingsFocusCoordinator.shared.consume(.quickTerminalShortcut)
