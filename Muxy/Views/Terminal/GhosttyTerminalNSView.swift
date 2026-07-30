@@ -47,6 +47,8 @@ final class GhosttyTerminalNSView: NSView {
     private var hasMaterializedOnce = false
     private var isOfflinedState = false
     private var offlineInvisibleAt: Date?
+    private let shellActivityTracker = TerminalShellActivityTracker()
+    private var streamedPaneID: UUID?
 
     var isTakenOffline: Bool { isOfflinedState }
     var offlineInvisibleSince: Date? { offlineInvisibleAt }
@@ -235,7 +237,12 @@ final class GhosttyTerminalNSView: NSView {
         syncSurfaceFocus()
 
         if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
-            RemoteTerminalStreamer.shared.attach(paneID: paneID, surface: surface)
+            RemoteTerminalStreamer.shared.attach(
+                paneID: paneID,
+                surface: surface,
+                shellActivityTracker: shellActivityTracker
+            )
+            streamedPaneID = paneID
         }
 
         applyOcclusionState()
@@ -244,8 +251,9 @@ final class GhosttyTerminalNSView: NSView {
 
     func destroySurface() {
         if let surface {
-            if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
+            if let paneID = streamedPaneID {
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: surface)
+                streamedPaneID = nil
             }
             ghostty_surface_free(surface)
             detachRendererLayer()
@@ -496,7 +504,9 @@ final class GhosttyTerminalNSView: NSView {
         let foregroundPID = ghostty_surface_foreground_pid(surface)
         return TerminalOfflinePolicy.isIdle(
             hasRunningProcess: TerminalOfflinePolicy.hasRunningProcess(
-                foregroundProcessName: Self.processName(pid: foregroundPID)
+                foregroundProcessName: Self.processName(pid: foregroundPID),
+                foregroundProcessArguments: ProcessArgumentsInspector.invocation(pid: foregroundPID)?.arguments,
+                isShellCommandRunning: shellActivityTracker.isCommandRunning
             ),
             isAlternateScreen: isAlternateScreenActive(surface: surface)
         )

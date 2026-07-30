@@ -8,20 +8,20 @@ enum TerminalOfflinePolicy {
         let isIdle: Bool
     }
 
-    static let idleShellProcessNames: Set<String> = [
-        "bash", "csh", "dash", "fish", "ksh", "nu", "pwsh", "sh", "tcsh", "zsh",
-    ]
-
     static func isIdle(hasRunningProcess: Bool, isAlternateScreen: Bool) -> Bool {
         !hasRunningProcess && !isAlternateScreen
     }
 
-    static func hasRunningProcess(foregroundProcessName: String?) -> Bool {
-        guard var name = foregroundProcessName?.lowercased(), !name.isEmpty else { return true }
-        if name.hasPrefix("-") {
-            name.removeFirst()
-        }
-        return !idleShellProcessNames.contains(name)
+    static func hasRunningProcess(
+        foregroundProcessName: String?,
+        foregroundProcessArguments: [String]?,
+        isShellCommandRunning: Bool
+    ) -> Bool {
+        guard !isShellCommandRunning else { return true }
+        return !TerminalProcessClassifier.isInteractiveShell(
+            processName: foregroundProcessName,
+            arguments: foregroundProcessArguments
+        )
     }
 
     static func keepsAwake(isOnScreen: Bool, isFocused: Bool) -> Bool {

@@ -15,7 +15,11 @@ final class RemoteTerminalStreamer {
 
     private init() {}
 
-    func attach(paneID: UUID, surface: ghostty_surface_t) {
+    func attach(
+        paneID: UUID,
+        surface: ghostty_surface_t,
+        shellActivityTracker: TerminalShellActivityTracker
+    ) {
         if tokenByPane[paneID] != nil {
             return
         }
@@ -23,6 +27,7 @@ final class RemoteTerminalStreamer {
         nextToken += 1
         tokenByPane[paneID] = token
         paneByToken[token] = paneID
+        TerminalShellActivityRegistry.shared.register(shellActivityTracker.beginSession(), for: token)
         ghostty_surface_set_data_callback(
             surface,
             ptyDataCallback,
@@ -34,6 +39,7 @@ final class RemoteTerminalStreamer {
         ghostty_surface_set_data_callback(surface, nil, nil)
         if let token = tokenByPane.removeValue(forKey: paneID) {
             paneByToken.removeValue(forKey: token)
+            TerminalShellActivityRegistry.shared.removeSession(for: token)?.invalidate()
         }
     }
 
@@ -51,6 +57,31 @@ final class RemoteTerminalStreamer {
     }
 }
 
+private final class TerminalShellActivityRegistry: @unchecked Sendable {
+    static let shared = TerminalShellActivityRegistry()
+
+    private let lock = NSLock()
+    private var sessions: [Int: TerminalShellActivityTracker.Session] = [:]
+
+    private init() {}
+
+    func register(_ session: TerminalShellActivityTracker.Session, for token: Int) {
+        lock.withLock {
+            sessions[token] = session
+        }
+    }
+
+    func session(for token: Int) -> TerminalShellActivityTracker.Session? {
+        lock.withLock { sessions[token] }
+    }
+
+    func removeSession(for token: Int) -> TerminalShellActivityTracker.Session? {
+        lock.withLock {
+            sessions.removeValue(forKey: token)
+        }
+    }
+}
+
 private let ptyDataCallback: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt) -> Void = { userdata, ptr, len in
     guard let userdata,
           let ptr,
@@ -58,6 +89,7 @@ private let ptyDataCallback: @convention(c) (UnsafeMutableRawPointer?, UnsafePoi
     else { return }
     let token = Int(bitPattern: userdata)
     let bytes = Data(bytes: ptr, count: Int(len))
+    TerminalShellActivityRegistry.shared.session(for: token)?.recordOutput(bytes)
     DispatchQueue.main.async {
         MainActor.assumeIsolated {
             guard let paneID = RemoteTerminalStreamer.shared.pane(for: token) else { return }

@@ -29,25 +29,43 @@ struct TerminalOfflinePolicyTests {
 
     @Test("a shell sitting at its prompt does not count as a running process")
     func shellAtPromptCountsAsIdle() {
-        #expect(!TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "zsh"))
-        #expect(!TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "-zsh"))
-        #expect(!TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "bash"))
-        #expect(!TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "fish"))
+        #expect(!hasRunningProcess(name: "zsh", arguments: ["-zsh"]))
+        #expect(!hasRunningProcess(name: "-zsh", arguments: ["-zsh"]))
+        #expect(!hasRunningProcess(name: "bash", arguments: ["bash", "-l"]))
+        #expect(!hasRunningProcess(name: "bash", arguments: ["bash", "--posix"]))
+        #expect(!hasRunningProcess(name: "fish", arguments: ["fish", "-i"]))
+        #expect(!hasRunningProcess(name: "nu", arguments: ["nu", "--execute", "use ghostty *"]))
+        #expect(!hasRunningProcess(name: "xonsh", arguments: ["xonsh"]))
     }
 
     @Test("a non-shell foreground process counts as running")
     func nonShellForegroundCountsAsRunning() {
-        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "bun"))
-        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "node"))
-        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "ssh"))
-        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "make"))
+        #expect(hasRunningProcess(name: "bun", arguments: ["bun", "run", "agent"]))
+        #expect(hasRunningProcess(name: "node", arguments: ["node", "agent.js"]))
+        #expect(hasRunningProcess(name: "ssh", arguments: ["ssh", "host"]))
+        #expect(hasRunningProcess(name: "make", arguments: ["make", "test"]))
+    }
+
+    @Test("a shell executing a command or script counts as running")
+    func executingShellCountsAsRunning() {
+        #expect(hasRunningProcess(name: "bash", arguments: ["bash", "-c", "sleep 600"]))
+        #expect(hasRunningProcess(name: "bash", arguments: ["bash", "--posix", "-c", "sleep 600"]))
+        #expect(hasRunningProcess(name: "nu", arguments: ["nu", "--execute", "sleep 600"]))
+        #expect(hasRunningProcess(
+            name: "nu",
+            arguments: ["nu", "--execute", "use ghostty *", "--command", "sleep 600"]
+        ))
+        #expect(hasRunningProcess(name: "zsh", arguments: ["zsh", "script.zsh"]))
+        #expect(hasRunningProcess(name: "pwsh", arguments: ["pwsh", "-Command", "Start-Sleep 600"]))
+        #expect(hasRunningProcess(name: "zsh", arguments: ["-zsh"], isShellCommandRunning: true))
     }
 
     @Test("an unknown foreground process never reports the pane as free")
     func unknownForegroundProcessFailsSafe() {
-        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: nil))
-        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: ""))
-        #expect(TerminalOfflinePolicy.hasRunningProcess(foregroundProcessName: "someunknownshell"))
+        #expect(hasRunningProcess(name: nil, arguments: nil))
+        #expect(hasRunningProcess(name: "", arguments: []))
+        #expect(hasRunningProcess(name: "zsh", arguments: nil))
+        #expect(hasRunningProcess(name: "someunknownshell", arguments: ["someunknownshell"]))
     }
 
     @Test("a pane keeps awake only while on screen and focused")
@@ -115,5 +133,17 @@ struct TerminalOfflinePolicyTests {
             isEnabled: true,
             idleThreshold: 300
         ))
+    }
+
+    private func hasRunningProcess(
+        name: String?,
+        arguments: [String]?,
+        isShellCommandRunning: Bool = false
+    ) -> Bool {
+        TerminalOfflinePolicy.hasRunningProcess(
+            foregroundProcessName: name,
+            foregroundProcessArguments: arguments,
+            isShellCommandRunning: isShellCommandRunning
+        )
     }
 }
