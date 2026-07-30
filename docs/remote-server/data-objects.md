@@ -147,6 +147,32 @@ The desktop internally associates split-child tabs with an owning top-level tab,
 - `altScreen`, `cursorKeys`, `bracketedPaste`, `focusEvent` are terminal mode flags the client needs to encode input correctly.
 - `mouseEvent` and `mouseFormat` mirror the pane's active mouse-tracking mode and encoding.
 
+## File entry
+
+`filesList` returns an array of these, directories first then files, each sorted case-insensitively.
+
+```json
+{ "name": "main.swift", "path": "src/main.swift", "isDirectory": false, "isIgnored": false }
+```
+
+`path` is relative to the project's active worktree root. `isIgnored` reflects `.gitignore`; it is always `false` for SSH projects. `.git` is never listed.
+
+## File content
+
+`filesRead` returns the file body in the encoding the request asked for.
+
+```json
+{ "path": "src/main.swift", "content": "import Foundation\n", "size": 18, "encoding": "utf8" }
+```
+
+`size` is always the file's size in **raw bytes** on disk, not the length of `content` — for `encoding: "base64"` the string is about a third longer. `encoding` echoes the request so a client can decode without tracking what it asked for.
+
+## File stat
+
+```json
+{ "name": "main.swift", "path": "src/main.swift", "isDirectory": false, "size": 18 }
+```
+
 ## Client theme
 
 The `theme` carried by [`setClientTheme`](methods.md) and the pairing/authenticate requests. All colors are unsigned 32-bit integers in `0xRRGGBB` form.

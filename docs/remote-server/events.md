@@ -11,6 +11,7 @@ The server pushes events to every authenticated client. `subscribe` / `unsubscri
 | `projectsChanged` | `projects` | Updated project list. Pushed when projects are added, removed, renamed, reordered, or have their icon/logo/color changed (debounced ~80 ms). |
 | `paneOwnershipChanged` | `paneOwnership` | Pane control moved between the Mac and a remote client. |
 | `themeChanged` | `deviceTheme` | Updated terminal foreground/background/palette colors. |
+| `fileChanged` | `fileChanged` | Files changed on disk in the active project's worktree (debounced ~300 ms). |
 
 > `terminalOutput` and `terminalSnapshot` carry the same data shape — `{ paneID, bytes }` — but each uses its own `data.type` (matching its event name). They differ in what the bytes contain: raw PTY bytes vs. a synthesized repaint.
 
@@ -70,6 +71,30 @@ Unlike `terminalOutput`, these bytes are **synthesized** by the desktop from the
 ```
 
 `palette` is optional. Colors are integer RGB in `0xRRGGBB` form.
+
+## `fileChanged`
+
+```json
+{
+  "type": "fileChanged",
+  "value": {
+    "projectID": "uuid",
+    "worktreeID": "uuid",
+    "paths": ["src/main.swift", "README.md"],
+    "truncated": false
+  }
+}
+```
+
+Pushed when the filesystem watcher sees changes under the project's worktree root, so a client rendering a file tree can refresh instead of polling [`filesList`](methods.md).
+
+- `paths` are **relative to the worktree root**, matching the file methods, and sorted. One event carries a whole debounced batch rather than one event per file.
+- `worktreeID` names the worktree the paths belong to; it is optional and omitted when the project has no active worktree. Discard the event if it does not match the worktree you are displaying — the Mac may have switched worktrees under you, and the file methods always target the active one.
+- The batch is capped at 200 paths. When more change at once — a branch switch, a large checkout — `truncated` is `true` and the listed paths are only part of the change: refresh the tree wholesale rather than patching those entries.
+- Paths under `.git/` are filtered out; they are not listable through the file API anyway.
+- The event reports *that* paths changed, not how. A path may have been created, modified, or deleted — call `filesStat` or `filesList` if you need to know which.
+
+**Coverage limit.** Muxy watches only the **active** project's worktree, and only for **local** projects. No `fileChanged` events are emitted for background projects or for SSH workspaces. Do not treat silence as "nothing changed" for any project other than the active local one.
 
 ## `workspaceChanged`
 

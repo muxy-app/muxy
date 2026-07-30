@@ -24,6 +24,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     private var workspaceBroadcastTask: Task<Void, Never>?
     private var projectsBroadcastTask: Task<Void, Never>?
+    private let observers = NotificationObserverBag()
     weak var server: MuxyRemoteServer? {
         didSet { RemoteTerminalStreamer.shared.server = server }
     }
@@ -43,7 +44,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             self?.applyOwnerTheme(paneID: paneID, owner: owner)
             self?.broadcastOwnership(paneID: paneID, owner: owner)
         }
-        NotificationCenter.default.addObserver(
+        observers.add(NotificationCenter.default.addObserver(
             forName: .themeDidChange,
             object: nil,
             queue: .main
@@ -51,7 +52,17 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             MainActor.assumeIsolated {
                 self?.broadcastTheme()
             }
-        }
+        })
+        observers.add(NotificationCenter.default.addObserver(
+            forName: .workspaceFilesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let change = WorkspaceFilesChange(notification) else { return }
+            MainActor.assumeIsolated {
+                self?.broadcastFileChanges(change)
+            }
+        })
         observeWorkspaceState()
         observeProjectsState()
     }
@@ -74,6 +85,30 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     private func broadcastTheme() {
         guard let dto = ThemeService.shared.currentThemeColors() else { return }
         server?.broadcast(MuxyEvent(event: .themeChanged, data: .deviceTheme(dto)))
+    }
+
+    private func broadcastFileChanges(_ change: WorkspaceFilesChange) {
+        let relativePaths = Self.workspaceRelativePaths(change.paths, root: change.root)
+        guard !relativePaths.isEmpty else { return }
+        let dto = FileChangedEventDTO.capped(
+            projectID: change.projectID,
+            worktreeID: change.worktreeID,
+            paths: relativePaths
+        )
+        server?.broadcast(MuxyEvent(event: .fileChanged, data: .fileChanged(dto)))
+    }
+
+    nonisolated static func workspaceRelativePaths(_ absolutePaths: [String], root: String) -> [String] {
+        let bases = Set([root, URL(fileURLWithPath: root).resolvingSymlinksInPath().path])
+            .map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }
+        return absolutePaths
+            .compactMap { path -> String? in
+                let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+                guard let base = bases.first(where: { normalized.hasPrefix($0 + "/") }) else { return nil }
+                return String(normalized.dropFirst(base.count + 1))
+            }
+            .filter { $0 != ".git" && !$0.hasPrefix(".git/") }
+            .sorted()
     }
 
     private func observeWorkspaceState() {
@@ -754,6 +789,114 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             }
         )
         worktreeStore.remove(worktreeID: worktreeID, from: projectID)
+    }
+
+    func filesList(projectID: UUID, path: String) async throws -> [FileEntryDTO] {
+        try await files(projectID) { root in
+            try await WorkspaceFileService.list(root: root, path: path).map(Self.toFileEntryDTO)
+        }
+    }
+
+    func filesRead(projectID: UUID, path: String, encoding: FileEncodingDTO) async throws -> FileContentDTO {
+        try await files(projectID) { root in
+            try await Self.toFileContentDTO(WorkspaceFileService.read(root: root, path: path, encoding: encoding))
+        }
+    }
+
+    func filesStat(projectID: UUID, path: String) async throws -> FileStatDTO {
+        try await files(projectID) { root in
+            try await Self.toFileStatDTO(WorkspaceFileService.stat(root: root, path: path))
+        }
+    }
+
+    func filesWrite(
+        projectID: UUID,
+        path: String,
+        contents: String,
+        encoding: FileEncodingDTO
+    ) async throws -> String {
+        try await files(projectID) { root in
+            try await WorkspaceFileService.write(root: root, path: path, contents: contents, encoding: encoding)
+        }
+    }
+
+    func filesMkdir(projectID: UUID, path: String) async throws -> String {
+        try await files(projectID) { root in
+            try await WorkspaceFileService.mkdir(root: root, path: path)
+        }
+    }
+
+    func filesRename(projectID: UUID, path: String, newName: String) async throws -> String {
+        try await files(projectID) { root in
+            try await WorkspaceFileService.rename(root: root, path: path, newName: newName)
+        }
+    }
+
+    func filesMove(projectID: UUID, paths: [String], into destination: String) async throws -> [String] {
+        try await files(projectID) { root in
+            try await WorkspaceFileService.move(root: root, paths: paths, into: destination)
+        }
+    }
+
+    func filesDelete(projectID: UUID, paths: [String]) async throws {
+        try await files(projectID) { root in
+            try await WorkspaceFileService.delete(root: root, paths: paths)
+        }
+    }
+
+    private func files<T: Sendable>(
+        _ projectID: UUID,
+        _ work: (WorkspaceFileService.Root) async throws -> T
+    ) async throws -> T {
+        guard let project = project(for: projectID) else {
+            throw MuxyError.notFound
+        }
+        let root = WorkspaceFileService.Root(
+            path: resolveWorktreePath(projectID: projectID) ?? project.path,
+            workspaceContext: projectGroupStore.workspaceContext(for: project)
+        )
+        do {
+            return try await work(root)
+        } catch {
+            throw Self.fileError(error)
+        }
+    }
+
+    private static func fileError(_ error: Error) -> MuxyError {
+        guard let operationError = error as? FileSystemOperationError else {
+            return MuxyError(code: 500, message: error.localizedDescription)
+        }
+        if case .outsideRoot = operationError {
+            return MuxyError(code: 403, message: operationError.userMessage)
+        }
+        return MuxyError(code: 500, message: operationError.userMessage)
+    }
+
+    private static func toFileEntryDTO(_ entry: FileTreeEntry) -> FileEntryDTO {
+        FileEntryDTO(
+            name: entry.name,
+            path: entry.relativePath,
+            isDirectory: entry.isDirectory,
+            isIgnored: entry.isIgnored
+        )
+    }
+
+    private static func toFileContentDTO(_ result: WorkspaceFileService.ReadResult) -> FileContentDTO {
+        FileContentDTO(
+            path: result.relativePath,
+            content: result.content,
+            size: result.size,
+            encoding: result.encoding
+        )
+    }
+
+    private static func toFileStatDTO(_ result: WorkspaceFileService.StatResult) -> FileStatDTO {
+        FileStatDTO(
+            name: result.name,
+            path: result.relativePath,
+            isDirectory: result.isDirectory,
+            size: result.size
+        )
     }
 
     private func repoPath(projectID: UUID) throws -> String {

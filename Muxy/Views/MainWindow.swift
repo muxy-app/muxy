@@ -1692,7 +1692,11 @@ struct MainWindow: View {
             workspaceFileWatcher.setRoot(nil)
             return
         }
-        workspaceFileWatcher.setRoot(activeWorktreePath(for: project))
+        workspaceFileWatcher.setRoot(WorkspaceFileWatcher.Root(
+            projectID: project.id,
+            worktreeID: appState.activeWorktreeKey(for: project.id)?.worktreeID,
+            path: activeWorktreePath(for: project)
+        ))
     }
 
     private func pruneWorktreeStates() {

@@ -38,6 +38,7 @@ The API is designed for trusted local networks.
 - Clients must authenticate before any other RPC.
 - New devices must be approved on the Mac before they become trusted.
 - Tokens are compared in constant time and only their SHA-256 hash is stored on disk.
+- An approved device can read and modify project files and git state without any further prompt on the Mac. Approval is the trust boundary — revoke a device to withdraw it. File access is sandboxed to each project's active worktree root.
 
 For production integrations, treat the connection as local-network only unless you provide your own secure tunnel such as Tailscale or a VPN.
 
@@ -47,7 +48,7 @@ For production integrations, treat the connection as local-network only unless y
 | --- | --- | --- |
 | `400` | invalidParams | Invalid or mismatched parameters |
 | `401` | unauthorized | Authentication required, or unknown device |
-| `403` | pairingDenied / forbidden | Pairing denied, wrong token, or consent denied |
+| `403` | pairingDenied / forbidden | Pairing denied, wrong token, consent denied, or a file path outside the worktree root |
 | `404` | notFound | Resource not found |
 | `408` | pairingTimeout | Reserved; current builds do not emit a pairing timeout |
 | `500` | internalError | Internal error or operation failure |

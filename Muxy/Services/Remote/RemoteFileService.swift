@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 
 extension WorkspaceContext {
     var remoteFileService: RemoteFileService? {
@@ -26,7 +27,12 @@ struct RemoteFileService {
         return parseEntries(result.stdout, directory: directory, root: root)
     }
 
-    func read(root: String, relativePath: String, maxBytes: Int) async throws -> MuxyAPI.Files.ReadResult {
+    func read(
+        root: String,
+        relativePath: String,
+        maxBytes: Int,
+        encoding: FileEncodingDTO
+    ) async throws -> WorkspaceFileService.ReadResult {
         let absolute = try contained(root: root, relativePath: relativePath)
         let quoted = RemoteCommandBuilder.quoteRemotePath(absolute)
         let sizeResult = try await runGuarded(root: root, targets: [absolute], "wc -c < \(quoted)")
@@ -34,18 +40,20 @@ struct RemoteFileService {
         guard size <= maxBytes else {
             throw FileSystemOperationError.underlying("file exceeds \(maxBytes) byte read limit")
         }
-        let result = try await runGuarded(root: root, targets: [absolute], "cat \(quoted)")
+        let command = encoding == .base64 ? "base64 < \(quoted)" : "cat \(quoted)"
+        let result = try await runGuarded(root: root, targets: [absolute], command)
         guard result.status == 0 else {
             throw FileSystemOperationError.sourceMissing(absolute)
         }
-        return MuxyAPI.Files.ReadResult(
+        return WorkspaceFileService.ReadResult(
             relativePath: relative(absolute, root: root),
-            content: result.stdout,
-            size: size
+            content: encoding == .base64 ? result.stdout.filter { !$0.isWhitespace } : result.stdout,
+            size: size,
+            encoding: encoding
         )
     }
 
-    func stat(root: String, relativePath: String) async throws -> MuxyAPI.Files.StatResult {
+    func stat(root: String, relativePath: String) async throws -> WorkspaceFileService.StatResult {
         let absolute = try contained(root: root, relativePath: relativePath)
         let quoted = RemoteCommandBuilder.quoteRemotePath(absolute)
         let script = "if [ -d \(quoted) ]; then printf 'd '; elif [ -e \(quoted) ]; then printf 'f '; "
@@ -57,7 +65,7 @@ struct RemoteFileService {
         let output = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         let isDirectory = output.hasPrefix("d")
         let size = Int(output.dropFirst(2).trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-        return MuxyAPI.Files.StatResult(
+        return WorkspaceFileService.StatResult(
             name: (absolute as NSString).lastPathComponent,
             relativePath: relative(absolute, root: root),
             isDirectory: isDirectory,
@@ -65,11 +73,19 @@ struct RemoteFileService {
         )
     }
 
-    func write(root: String, relativePath: String, contents: String) async throws -> String {
+    func write(
+        root: String,
+        relativePath: String,
+        contents: String,
+        encoding: FileEncodingDTO
+    ) async throws -> String {
         let absolute = try contained(root: root, relativePath: relativePath)
         let quoted = RemoteCommandBuilder.quoteRemotePath(absolute)
         let command = "base64 -d > \(quoted)"
-        let encoded = Data(Data(contents.utf8).base64EncodedString().utf8)
+        let payload = encoding == .base64
+            ? try WorkspaceFileService.decodeBase64(contents)
+            : Data(contents.utf8)
+        let encoded = Data(payload.base64EncodedString().utf8)
         let result = try await runGuarded(root: root, targets: [absolute], command, input: encoded)
         guard result.status == 0 else {
             throw FileSystemOperationError.underlying(result.stderr.isEmpty ? "write failed" : result.stderr)
@@ -170,7 +186,7 @@ struct RemoteFileService {
         let joined = trimmed.isEmpty ? normalizedRoot : normalizedRoot + "/" + trimmed
         let resolved = ProjectPickerPathService.standardizedRemotePath(joined)
         guard resolved == normalizedRoot || resolved.hasPrefix(normalizedRoot + "/") else {
-            throw FileSystemOperationError.underlying("path '\(relativePath)' escapes the workspace root")
+            throw FileSystemOperationError.outsideRoot(relativePath)
         }
         return resolved
     }
@@ -204,7 +220,7 @@ struct RemoteFileService {
             .joined()
         let result = try await run(guards + remoteCommand, input: input)
         guard result.status != RemoteCommandBuilder.containmentEscapeExitCode else {
-            throw FileSystemOperationError.underlying("path escapes the workspace root")
+            throw FileSystemOperationError.outsideRoot("")
         }
         return result
     }

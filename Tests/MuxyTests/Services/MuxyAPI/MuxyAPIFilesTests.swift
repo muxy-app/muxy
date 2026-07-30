@@ -1,9 +1,10 @@
 import Foundation
+import MuxyShared
 import Testing
 
 @testable import Muxy
 
-@Suite("MuxyAPI.Files permissions, sandbox, and DTOs")
+@Suite("MuxyAPI.Files permissions and DTOs")
 struct MuxyAPIFilesTests {
     @Test("read verbs require files:read")
     func readVerbsRequireFilesRead() {
@@ -23,70 +24,6 @@ struct MuxyAPIFilesTests {
     func filesVerbsAreKnown() {
         for verb in MuxyAPI.Permissions.filesVerbs {
             #expect(MuxyAPI.Permissions.verbNames.contains(verb), "\(verb) should be a known verb")
-        }
-    }
-
-    @Test("resolve keeps in-root paths and normalizes them")
-    func resolveAcceptsInRootPaths() async throws {
-        let root = try makeTempDir()
-        defer { try? FileManager.default.removeItem(atPath: root) }
-        let resolved = MuxyAPI.Files.resolve(root: root, relativePath: "src/main.swift")
-        #expect(resolved == root + "/src/main.swift")
-        #expect(MuxyAPI.Files.resolve(root: root, relativePath: "") == root)
-    }
-
-    @Test("resolve rejects parent-traversal escapes")
-    func resolveRejectsParentTraversal() async throws {
-        let root = try makeTempDir()
-        defer { try? FileManager.default.removeItem(atPath: root) }
-        #expect(MuxyAPI.Files.resolve(root: root, relativePath: "../escape.txt") == nil)
-        #expect(MuxyAPI.Files.resolve(root: root, relativePath: "a/../../escape.txt") == nil)
-    }
-
-    @Test("resolve rejects symlink escapes")
-    func resolveRejectsSymlinkEscape() async throws {
-        let root = try makeTempDir()
-        let outside = try makeTempDir()
-        defer {
-            try? FileManager.default.removeItem(atPath: root)
-            try? FileManager.default.removeItem(atPath: outside)
-        }
-        let link = root + "/link"
-        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: outside)
-        #expect(MuxyAPI.Files.resolve(root: root, relativePath: "link/secret.txt") == nil)
-    }
-
-    @Test("resolve rejects dangling symlinks that point outside the root")
-    func resolveRejectsDanglingSymlinkEscape() async throws {
-        let root = try makeTempDir()
-        defer { try? FileManager.default.removeItem(atPath: root) }
-        let danglingTarget = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MuxyAPIFilesTests-missing-\(UUID().uuidString)").path
-        try FileManager.default.createSymbolicLink(atPath: root + "/evil", withDestinationPath: danglingTarget)
-        #expect(MuxyAPI.Files.resolve(root: root, relativePath: "evil/secret.txt") == nil)
-    }
-
-    @Test("resolve follows in-root symlinks transparently")
-    func resolveFollowsInRootSymlink() async throws {
-        let root = try makeTempDir()
-        defer { try? FileManager.default.removeItem(atPath: root) }
-        try FileManager.default.createDirectory(atPath: root + "/real", withIntermediateDirectories: false)
-        try FileManager.default.createSymbolicLink(atPath: root + "/alias", withDestinationPath: root + "/real")
-        #expect(MuxyAPI.Files.resolve(root: root, relativePath: "alias/note.txt") == root + "/real/note.txt")
-    }
-
-    @Test("contained returns in-root paths and throws on escape")
-    func containedGuardsAtOpTime() async throws {
-        let root = try makeTempDir()
-        let outside = try makeTempDir()
-        defer {
-            try? FileManager.default.removeItem(atPath: root)
-            try? FileManager.default.removeItem(atPath: outside)
-        }
-        #expect(try MuxyAPI.Files.contained(root: root, relativePath: "src/main.swift") == root + "/src/main.swift")
-        try FileManager.default.createSymbolicLink(atPath: root + "/link", withDestinationPath: outside)
-        #expect(throws: FileSystemOperationError.self) {
-            _ = try MuxyAPI.Files.contained(root: root, relativePath: "link/secret.txt")
         }
     }
 
@@ -143,7 +80,7 @@ struct MuxyAPIFilesTests {
         #expect(entryDTO["isDirectory"] as? Bool == false)
         #expect(entryDTO["isIgnored"] as? Bool == true)
 
-        let statDTO = FilesDTO.stat(MuxyAPI.Files.StatResult(
+        let statDTO = FilesDTO.stat(WorkspaceFileService.StatResult(
             name: "a.txt",
             relativePath: "a.txt",
             isDirectory: false,
@@ -151,10 +88,11 @@ struct MuxyAPIFilesTests {
         ))
         #expect(statDTO["size"] as? Int == 12)
 
-        let readDTO = FilesDTO.readResult(MuxyAPI.Files.ReadResult(
+        let readDTO = FilesDTO.readResult(WorkspaceFileService.ReadResult(
             relativePath: "a.txt",
             content: "hello",
-            size: 5
+            size: 5,
+            encoding: .utf8
         ))
         #expect(readDTO["content"] as? String == "hello")
         #expect(readDTO["size"] as? Int == 5)

@@ -192,6 +192,68 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
         VCSDiffDTO(filePath: filePath, rows: [], additions: 0, deletions: 0, truncated: false, isBinary: false)
     }
 
+    var filesListCalls: [(projectID: UUID, path: String)] = []
+    var filesReadCalls: [(projectID: UUID, path: String, encoding: FileEncodingDTO)] = []
+    var filesStatCalls: [(projectID: UUID, path: String)] = []
+    var filesWriteCalls: [(projectID: UUID, path: String, contents: String, encoding: FileEncodingDTO)] = []
+    var filesMkdirCalls: [(projectID: UUID, path: String)] = []
+    var filesRenameCalls: [(projectID: UUID, path: String, newName: String)] = []
+    var filesMoveCalls: [(projectID: UUID, paths: [String], into: String)] = []
+    var filesDeleteCalls: [(projectID: UUID, paths: [String])] = []
+
+    var stubFileEntries: [FileEntryDTO] = []
+    var stubFileContent = FileContentDTO(path: "a.txt", content: "hello", size: 5, encoding: .utf8)
+    var stubFileStat = FileStatDTO(name: "a.txt", path: "a.txt", isDirectory: false, size: 5)
+    var stubFileMovedPaths: [String] = []
+    var filesError: Error?
+
+    func filesList(projectID: UUID, path: String) async throws -> [FileEntryDTO] {
+        filesListCalls.append((projectID, path))
+        if let filesError { throw filesError }
+        return stubFileEntries
+    }
+
+    func filesRead(projectID: UUID, path: String, encoding: FileEncodingDTO) async throws -> FileContentDTO {
+        filesReadCalls.append((projectID, path, encoding))
+        if let filesError { throw filesError }
+        return stubFileContent
+    }
+
+    func filesStat(projectID: UUID, path: String) async throws -> FileStatDTO {
+        filesStatCalls.append((projectID, path))
+        if let filesError { throw filesError }
+        return stubFileStat
+    }
+
+    func filesWrite(projectID: UUID, path: String, contents: String, encoding: FileEncodingDTO) async throws -> String {
+        filesWriteCalls.append((projectID, path, contents, encoding))
+        if let filesError { throw filesError }
+        return path
+    }
+
+    func filesMkdir(projectID: UUID, path: String) async throws -> String {
+        filesMkdirCalls.append((projectID, path))
+        if let filesError { throw filesError }
+        return path
+    }
+
+    func filesRename(projectID: UUID, path: String, newName: String) async throws -> String {
+        filesRenameCalls.append((projectID, path, newName))
+        if let filesError { throw filesError }
+        return newName
+    }
+
+    func filesMove(projectID: UUID, paths: [String], into destination: String) async throws -> [String] {
+        filesMoveCalls.append((projectID, paths, destination))
+        if let filesError { throw filesError }
+        return stubFileMovedPaths
+    }
+
+    func filesDelete(projectID: UUID, paths: [String]) async throws {
+        filesDeleteCalls.append((projectID, paths))
+        if let filesError { throw filesError }
+    }
+
     func getProjectLogo(projectID _: UUID) -> ProjectLogoDTO? { nil }
     func listNotifications() -> [NotificationDTO] { [] }
 
@@ -782,6 +844,175 @@ struct MuxyRemoteServerRoutingTests {
         }
         #expect(worktrees.first?.id == delegate.stubAddedWorktree.id)
         #expect(removeResponse.error == nil)
+    }
+
+    @Test("files read routes return their delegate payloads")
+    func filesReadRoutes() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+        let clientID = authedClient(on: server)
+        delegate.stubFileEntries = [
+            FileEntryDTO(name: "src", path: "src", isDirectory: true, isIgnored: false),
+        ]
+
+        let listResponse = await server.processRequest(
+            MuxyRequest(id: "f1", method: .filesList, params: .filesList(FilesListParams(projectID: projectID, path: "."))),
+            clientID: clientID
+        )
+        let readResponse = await server.processRequest(
+            MuxyRequest(
+                id: "f2",
+                method: .filesRead,
+                params: .filesRead(FilesReadParams(projectID: projectID, path: "a.txt", encoding: .base64))
+            ),
+            clientID: clientID
+        )
+        let statResponse = await server.processRequest(
+            MuxyRequest(id: "f3", method: .filesStat, params: .filesStat(FilesStatParams(projectID: projectID, path: "a.txt"))),
+            clientID: clientID
+        )
+
+        #expect(delegate.filesListCalls.first?.projectID == projectID)
+        #expect(delegate.filesListCalls.first?.path == ".")
+        #expect(delegate.filesReadCalls.first?.encoding == .base64)
+        #expect(delegate.filesStatCalls.first?.path == "a.txt")
+
+        guard case let .files(entries) = listResponse.result,
+              case let .fileContent(content) = readResponse.result,
+              case let .fileStat(stat) = statResponse.result
+        else {
+            Issue.record("expected files, fileContent, and fileStat results")
+            return
+        }
+        #expect(entries.first?.name == "src")
+        #expect(content.content == "hello")
+        #expect(stat.name == "a.txt")
+    }
+
+    @Test("files write routes forward payloads and return paths")
+    func filesWriteRoutes() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+        let clientID = authedClient(on: server)
+        delegate.stubFileMovedPaths = ["archive/a.txt", "archive/b.txt"]
+
+        let writeResponse = await server.processRequest(
+            MuxyRequest(
+                id: "f4",
+                method: .filesWrite,
+                params: .filesWrite(FilesWriteParams(
+                    projectID: projectID,
+                    path: "notes/todo.md",
+                    contents: "# Todo",
+                    encoding: .utf8
+                ))
+            ),
+            clientID: clientID
+        )
+        let mkdirResponse = await server.processRequest(
+            MuxyRequest(id: "f5", method: .filesMkdir, params: .filesMkdir(FilesMkdirParams(projectID: projectID, path: "notes"))),
+            clientID: clientID
+        )
+        let renameResponse = await server.processRequest(
+            MuxyRequest(
+                id: "f6",
+                method: .filesRename,
+                params: .filesRename(FilesRenameParams(projectID: projectID, path: "todo.md", newName: "done.md"))
+            ),
+            clientID: clientID
+        )
+        let moveResponse = await server.processRequest(
+            MuxyRequest(
+                id: "f7",
+                method: .filesMove,
+                params: .filesMove(FilesMoveParams(projectID: projectID, paths: ["a.txt", "b.txt"], into: "archive"))
+            ),
+            clientID: clientID
+        )
+        let deleteResponse = await server.processRequest(
+            MuxyRequest(id: "f8", method: .filesDelete, params: .filesDelete(FilesDeleteParams(projectID: projectID, paths: ["old.log"]))),
+            clientID: clientID
+        )
+
+        #expect(delegate.filesWriteCalls.first?.contents == "# Todo")
+        #expect(delegate.filesWriteCalls.first?.encoding == .utf8)
+        #expect(delegate.filesMkdirCalls.first?.path == "notes")
+        #expect(delegate.filesRenameCalls.first?.newName == "done.md")
+        #expect(delegate.filesMoveCalls.first?.paths == ["a.txt", "b.txt"])
+        #expect(delegate.filesMoveCalls.first?.into == "archive")
+        #expect(delegate.filesDeleteCalls.first?.paths == ["old.log"])
+
+        guard case let .filePaths(written) = writeResponse.result,
+              case let .filePaths(created) = mkdirResponse.result,
+              case let .filePaths(renamed) = renameResponse.result,
+              case let .filePaths(moved) = moveResponse.result,
+              case .ok = deleteResponse.result
+        else {
+            Issue.record("expected filePaths results and ok for delete")
+            return
+        }
+        #expect(written == ["notes/todo.md"])
+        #expect(created == ["notes"])
+        #expect(renamed == ["done.md"])
+        #expect(moved == ["archive/a.txt", "archive/b.txt"])
+    }
+
+    @Test("files methods pass a thrown MuxyError through with its own code")
+    func filesErrorPassthrough() async {
+        let (server, delegate) = makeServer()
+        delegate.filesError = MuxyError(code: 403, message: "path '../x' escapes the workspace root")
+
+        let response = await server.processRequest(
+            MuxyRequest(id: "f9", method: .filesList, params: .filesList(FilesListParams(projectID: UUID(), path: "../x"))),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(response.error?.code == 403)
+        #expect(response.error?.message == "path '../x' escapes the workspace root")
+    }
+
+    @Test("files methods wrap a plain error as 500")
+    func filesErrorWrapped() async {
+        struct Boom: Error, LocalizedError {
+            var errorDescription: String? { "boom" }
+        }
+
+        let (server, delegate) = makeServer()
+        delegate.filesError = Boom()
+
+        let response = await server.processRequest(
+            MuxyRequest(id: "f10", method: .filesRead, params: .filesRead(FilesReadParams(projectID: UUID(), path: "a", encoding: .utf8))),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(response.error?.code == 500)
+        #expect(response.error?.message == "boom")
+    }
+
+    @Test("files methods require authentication")
+    func filesRequireAuth() async {
+        let (server, delegate) = makeServer()
+
+        let response = await server.processRequest(
+            MuxyRequest(id: "f11", method: .filesList, params: .filesList(FilesListParams(projectID: UUID(), path: "."))),
+            clientID: UUID()
+        )
+
+        #expect(delegate.filesListCalls.isEmpty)
+        #expect(response.error?.code == 401)
+    }
+
+    @Test("files methods reject missing params as invalidParams")
+    func filesInvalidParams() async {
+        let (server, delegate) = makeServer()
+
+        let response = await server.processRequest(
+            MuxyRequest(id: "f12", method: .filesWrite, params: nil),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(delegate.filesWriteCalls.isEmpty)
+        #expect(response.error?.code == 400)
     }
 
     @Test("subscribe and unsubscribe return ok")

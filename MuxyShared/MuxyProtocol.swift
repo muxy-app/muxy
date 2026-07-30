@@ -104,6 +104,14 @@ public enum MuxyMethod: String, Codable, Sendable {
     case vcsAddWorktree
     case vcsRemoveWorktree
     case vcsGetDiff
+    case filesList
+    case filesRead
+    case filesStat
+    case filesWrite
+    case filesMkdir
+    case filesRename
+    case filesMove
+    case filesDelete
     case getProjectLogo
     case listNotifications
     case markNotificationRead
@@ -150,6 +158,14 @@ public enum MuxyParams: Codable, Sendable {
     case vcsAddWorktree(VCSAddWorktreeParams)
     case vcsRemoveWorktree(VCSRemoveWorktreeParams)
     case vcsGetDiff(VCSGetDiffParams)
+    case filesList(FilesListParams)
+    case filesRead(FilesReadParams)
+    case filesStat(FilesStatParams)
+    case filesWrite(FilesWriteParams)
+    case filesMkdir(FilesMkdirParams)
+    case filesRename(FilesRenameParams)
+    case filesMove(FilesMoveParams)
+    case filesDelete(FilesDeleteParams)
     case getProjectLogo(GetProjectLogoParams)
     case markNotificationRead(MarkNotificationReadParams)
     case subscribe(SubscribeParams)
@@ -205,6 +221,14 @@ public enum MuxyParams: Codable, Sendable {
         case "vcsAddWorktree": self = try .vcsAddWorktree(container.decode(VCSAddWorktreeParams.self, forKey: .value))
         case "vcsRemoveWorktree": self = try .vcsRemoveWorktree(container.decode(VCSRemoveWorktreeParams.self, forKey: .value))
         case "vcsGetDiff": self = try .vcsGetDiff(container.decode(VCSGetDiffParams.self, forKey: .value))
+        case "filesList": self = try .filesList(container.decode(FilesListParams.self, forKey: .value))
+        case "filesRead": self = try .filesRead(container.decode(FilesReadParams.self, forKey: .value))
+        case "filesStat": self = try .filesStat(container.decode(FilesStatParams.self, forKey: .value))
+        case "filesWrite": self = try .filesWrite(container.decode(FilesWriteParams.self, forKey: .value))
+        case "filesMkdir": self = try .filesMkdir(container.decode(FilesMkdirParams.self, forKey: .value))
+        case "filesRename": self = try .filesRename(container.decode(FilesRenameParams.self, forKey: .value))
+        case "filesMove": self = try .filesMove(container.decode(FilesMoveParams.self, forKey: .value))
+        case "filesDelete": self = try .filesDelete(container.decode(FilesDeleteParams.self, forKey: .value))
         case "getProjectLogo": self = try .getProjectLogo(container.decode(GetProjectLogoParams.self, forKey: .value))
         case "markNotificationRead": self = try .markNotificationRead(container.decode(MarkNotificationReadParams.self, forKey: .value))
         case "subscribe": self = try .subscribe(container.decode(SubscribeParams.self, forKey: .value))
@@ -291,6 +315,22 @@ public enum MuxyParams: Codable, Sendable {
             try container.encode(v, forKey: .value)
         case let .vcsGetDiff(v): try container.encode("vcsGetDiff", forKey: .type)
             try container.encode(v, forKey: .value)
+        case let .filesList(v): try container.encode("filesList", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .filesRead(v): try container.encode("filesRead", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .filesStat(v): try container.encode("filesStat", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .filesWrite(v): try container.encode("filesWrite", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .filesMkdir(v): try container.encode("filesMkdir", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .filesRename(v): try container.encode("filesRename", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .filesMove(v): try container.encode("filesMove", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .filesDelete(v): try container.encode("filesDelete", forKey: .type)
+            try container.encode(v, forKey: .value)
         case let .getProjectLogo(v): try container.encode("getProjectLogo", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .markNotificationRead(v): try container.encode("markNotificationRead", forKey: .type)
@@ -320,6 +360,10 @@ public enum MuxyResult: Codable, Sendable {
     case vcsBranches(VCSBranchesDTO)
     case vcsPRCreated(VCSCreatePRResultDTO)
     case vcsDiff(VCSDiffDTO)
+    case files([FileEntryDTO])
+    case fileContent(FileContentDTO)
+    case fileStat(FileStatDTO)
+    case filePaths([String])
     case projectLogo(ProjectLogoDTO)
     case notifications([NotificationDTO])
     case extensionResult(ExtensionResultDTO)
@@ -348,6 +392,10 @@ public enum MuxyResult: Codable, Sendable {
         case "vcsBranches": self = try .vcsBranches(container.decode(VCSBranchesDTO.self, forKey: .value))
         case "vcsPRCreated": self = try .vcsPRCreated(container.decode(VCSCreatePRResultDTO.self, forKey: .value))
         case "vcsDiff": self = try .vcsDiff(container.decode(VCSDiffDTO.self, forKey: .value))
+        case "files": self = try .files(container.decode([FileEntryDTO].self, forKey: .value))
+        case "fileContent": self = try .fileContent(container.decode(FileContentDTO.self, forKey: .value))
+        case "fileStat": self = try .fileStat(container.decode(FileStatDTO.self, forKey: .value))
+        case "filePaths": self = try .filePaths(container.decode([String].self, forKey: .value))
         case "projectLogo": self = try .projectLogo(container.decode(ProjectLogoDTO.self, forKey: .value))
         case "notifications": self = try .notifications(container.decode([NotificationDTO].self, forKey: .value))
         case "extensionResult": self = try .extensionResult(container.decode(ExtensionResultDTO.self, forKey: .value))
@@ -387,6 +435,14 @@ public enum MuxyResult: Codable, Sendable {
             try container.encode(v, forKey: .value)
         case let .vcsDiff(v): try container.encode("vcsDiff", forKey: .type)
             try container.encode(v, forKey: .value)
+        case let .files(v): try container.encode("files", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .fileContent(v): try container.encode("fileContent", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .fileStat(v): try container.encode("fileStat", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .filePaths(v): try container.encode("filePaths", forKey: .type)
+            try container.encode(v, forKey: .value)
         case let .projectLogo(v): try container.encode("projectLogo", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .notifications(v): try container.encode("notifications", forKey: .type)
@@ -406,6 +462,7 @@ public enum MuxyEventKind: String, Codable, Sendable {
     case projectsChanged
     case paneOwnershipChanged
     case themeChanged
+    case fileChanged
 }
 
 public enum MuxyEventData: Codable, Sendable {
@@ -416,6 +473,7 @@ public enum MuxyEventData: Codable, Sendable {
     case projects([ProjectDTO])
     case paneOwnership(PaneOwnershipEventDTO)
     case deviceTheme(DeviceThemeEventDTO)
+    case fileChanged(FileChangedEventDTO)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -433,6 +491,7 @@ public enum MuxyEventData: Codable, Sendable {
         case "projects": self = try .projects(container.decode([ProjectDTO].self, forKey: .value))
         case "paneOwnership": self = try .paneOwnership(container.decode(PaneOwnershipEventDTO.self, forKey: .value))
         case "deviceTheme": self = try .deviceTheme(container.decode(DeviceThemeEventDTO.self, forKey: .value))
+        case "fileChanged": self = try .fileChanged(container.decode(FileChangedEventDTO.self, forKey: .value))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown event data type: \(type)")
         }
     }
@@ -453,6 +512,8 @@ public enum MuxyEventData: Codable, Sendable {
         case let .paneOwnership(v): try container.encode("paneOwnership", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .deviceTheme(v): try container.encode("deviceTheme", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .fileChanged(v): try container.encode("fileChanged", forKey: .type)
             try container.encode(v, forKey: .value)
         }
     }

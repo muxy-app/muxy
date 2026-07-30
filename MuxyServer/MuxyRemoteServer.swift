@@ -75,6 +75,14 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     ) async throws -> WorktreeDTO
     func vcsRemoveWorktree(projectID: UUID, worktreeID: UUID) async throws
     func vcsGetDiff(projectID: UUID, filePath: String, forceFull: Bool) async throws -> VCSDiffDTO
+    func filesList(projectID: UUID, path: String) async throws -> [FileEntryDTO]
+    func filesRead(projectID: UUID, path: String, encoding: FileEncodingDTO) async throws -> FileContentDTO
+    func filesStat(projectID: UUID, path: String) async throws -> FileStatDTO
+    func filesWrite(projectID: UUID, path: String, contents: String, encoding: FileEncodingDTO) async throws -> String
+    func filesMkdir(projectID: UUID, path: String) async throws -> String
+    func filesRename(projectID: UUID, path: String, newName: String) async throws -> String
+    func filesMove(projectID: UUID, paths: [String], into destination: String) async throws -> [String]
+    func filesDelete(projectID: UUID, paths: [String]) async throws
     func getProjectLogo(projectID: UUID) -> ProjectLogoDTO?
     func listNotifications() -> [NotificationDTO]
     func markNotificationRead(_ notificationID: UUID)
@@ -665,6 +673,111 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
             }
 
+        case .filesList:
+            guard case let .filesList(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let entries = try await delegate.filesList(projectID: params.projectID, path: params.path)
+                return MuxyResponse(id: request.id, result: .files(entries))
+            } catch {
+                return Self.failure(requestID: request.id, error: error)
+            }
+
+        case .filesRead:
+            guard case let .filesRead(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let content = try await delegate.filesRead(
+                    projectID: params.projectID,
+                    path: params.path,
+                    encoding: params.encoding
+                )
+                return MuxyResponse(id: request.id, result: .fileContent(content))
+            } catch {
+                return Self.failure(requestID: request.id, error: error)
+            }
+
+        case .filesStat:
+            guard case let .filesStat(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let stat = try await delegate.filesStat(projectID: params.projectID, path: params.path)
+                return MuxyResponse(id: request.id, result: .fileStat(stat))
+            } catch {
+                return Self.failure(requestID: request.id, error: error)
+            }
+
+        case .filesWrite:
+            guard case let .filesWrite(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let path = try await delegate.filesWrite(
+                    projectID: params.projectID,
+                    path: params.path,
+                    contents: params.contents,
+                    encoding: params.encoding
+                )
+                return MuxyResponse(id: request.id, result: .filePaths([path]))
+            } catch {
+                return Self.failure(requestID: request.id, error: error)
+            }
+
+        case .filesMkdir:
+            guard case let .filesMkdir(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let path = try await delegate.filesMkdir(projectID: params.projectID, path: params.path)
+                return MuxyResponse(id: request.id, result: .filePaths([path]))
+            } catch {
+                return Self.failure(requestID: request.id, error: error)
+            }
+
+        case .filesRename:
+            guard case let .filesRename(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let path = try await delegate.filesRename(
+                    projectID: params.projectID,
+                    path: params.path,
+                    newName: params.newName
+                )
+                return MuxyResponse(id: request.id, result: .filePaths([path]))
+            } catch {
+                return Self.failure(requestID: request.id, error: error)
+            }
+
+        case .filesMove:
+            guard case let .filesMove(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let paths = try await delegate.filesMove(
+                    projectID: params.projectID,
+                    paths: params.paths,
+                    into: params.into
+                )
+                return MuxyResponse(id: request.id, result: .filePaths(paths))
+            } catch {
+                return Self.failure(requestID: request.id, error: error)
+            }
+
+        case .filesDelete:
+            guard case let .filesDelete(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                try await delegate.filesDelete(projectID: params.projectID, paths: params.paths)
+                return MuxyResponse(id: request.id, result: .ok)
+            } catch {
+                return Self.failure(requestID: request.id, error: error)
+            }
+
         case .getProjectLogo:
             guard case let .getProjectLogo(params) = request.params else {
                 return MuxyResponse(id: request.id, error: .invalidParams)
@@ -747,6 +860,13 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 return MuxyResponse(id: request.id, error: error)
             }
         }
+    }
+
+    private static func failure(requestID: String, error: Error) -> MuxyResponse {
+        guard let muxyError = error as? MuxyError else {
+            return MuxyResponse(id: requestID, error: MuxyError(code: 500, message: error.localizedDescription))
+        }
+        return MuxyResponse(id: requestID, error: muxyError)
     }
 
     @MainActor

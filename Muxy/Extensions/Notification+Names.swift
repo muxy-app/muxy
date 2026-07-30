@@ -27,6 +27,7 @@ extension Notification.Name {
     static let toggleNotificationPanel = Notification.Name("MuxyToggleNotificationPanel")
     static let createWorktreeRequested = Notification.Name("MuxyCreateWorktreeRequested")
     static let removeCurrentWorktreeRequested = Notification.Name("MuxyRemoveCurrentWorktreeRequested")
+    static let workspaceFilesDidChange = Notification.Name("MuxyWorkspaceFilesDidChange")
     static let vcsRepoDidChange = Notification.Name("MuxyVCSRepoDidChange")
     static let vcsDidRefresh = Notification.Name("MuxyVCSDidRefresh")
     static let externalDragHoverChanged = Notification.Name("MuxyExternalDragHoverChanged")
@@ -34,6 +35,49 @@ extension Notification.Name {
     static let toggleComposerVoice = Notification.Name("MuxyToggleComposerVoice")
     static let toggleVoiceRecording = Notification.Name("MuxyToggleVoiceRecording")
     static let toggleExtensionConsole = Notification.Name("MuxyToggleExtensionConsole")
+}
+
+struct WorkspaceFilesChange: Sendable {
+    private static let projectIDKey = "projectID"
+    private static let worktreeIDKey = "worktreeID"
+    private static let rootKey = "root"
+    private static let pathsKey = "paths"
+
+    let projectID: UUID
+    let worktreeID: UUID?
+    let root: String
+    let paths: [String]
+
+    init(projectID: UUID, worktreeID: UUID?, root: String, paths: [String]) {
+        self.projectID = projectID
+        self.worktreeID = worktreeID
+        self.root = root
+        self.paths = paths
+    }
+
+    init?(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let projectID = userInfo[Self.projectIDKey] as? UUID,
+              let root = userInfo[Self.rootKey] as? String,
+              let paths = userInfo[Self.pathsKey] as? [String]
+        else { return nil }
+        self.init(
+            projectID: projectID,
+            worktreeID: userInfo[Self.worktreeIDKey] as? UUID,
+            root: root,
+            paths: paths
+        )
+    }
+
+    func post() {
+        var userInfo: [String: Any] = [
+            Self.projectIDKey: projectID,
+            Self.rootKey: root,
+            Self.pathsKey: paths,
+        ]
+        userInfo[Self.worktreeIDKey] = worktreeID
+        NotificationCenter.default.post(name: .workspaceFilesDidChange, object: nil, userInfo: userInfo)
+    }
 }
 
 enum ExternalDragHoverUserInfoKey {

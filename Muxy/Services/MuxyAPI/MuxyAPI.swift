@@ -1873,7 +1873,7 @@ enum MuxyAPI {
             context: WorkspaceContext
         ) -> String? {
             guard context.isRemote else {
-                return Files.resolve(root: root, relativePath: relativePath)
+                return WorkspaceFileService.resolve(root: root, relativePath: relativePath)
             }
             let normalizedRoot = ProjectPickerPathService.standardizedRemotePath(root)
             let trimmed = relativePath.hasPrefix("/") ? String(relativePath.dropFirst()) : relativePath

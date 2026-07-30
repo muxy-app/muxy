@@ -10,7 +10,7 @@ enum FilesDTO {
         ]
     }
 
-    static func stat(_ result: MuxyAPI.Files.StatResult) -> [String: Any] {
+    static func stat(_ result: WorkspaceFileService.StatResult) -> [String: Any] {
         [
             "name": result.name,
             "path": result.relativePath,
@@ -19,7 +19,7 @@ enum FilesDTO {
         ]
     }
 
-    static func readResult(_ result: MuxyAPI.Files.ReadResult) -> [String: Any] {
+    static func readResult(_ result: WorkspaceFileService.ReadResult) -> [String: Any] {
         [
             "path": result.relativePath,
             "content": result.content,

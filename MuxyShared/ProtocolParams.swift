@@ -600,6 +600,88 @@ public struct VCSGetDiffParams: Codable, Sendable {
     }
 }
 
+public struct FilesListParams: Codable, Sendable {
+    public let projectID: UUID
+    public let path: String
+    public init(projectID: UUID, path: String) {
+        self.projectID = projectID
+        self.path = path
+    }
+}
+
+public struct FilesReadParams: Codable, Sendable {
+    public let projectID: UUID
+    public let path: String
+    public let encoding: FileEncodingDTO
+    public init(projectID: UUID, path: String, encoding: FileEncodingDTO) {
+        self.projectID = projectID
+        self.path = path
+        self.encoding = encoding
+    }
+}
+
+public struct FilesStatParams: Codable, Sendable {
+    public let projectID: UUID
+    public let path: String
+    public init(projectID: UUID, path: String) {
+        self.projectID = projectID
+        self.path = path
+    }
+}
+
+public struct FilesWriteParams: Codable, Sendable {
+    public let projectID: UUID
+    public let path: String
+    public let contents: String
+    public let encoding: FileEncodingDTO
+    public init(projectID: UUID, path: String, contents: String, encoding: FileEncodingDTO) {
+        self.projectID = projectID
+        self.path = path
+        self.contents = contents
+        self.encoding = encoding
+    }
+}
+
+public struct FilesMkdirParams: Codable, Sendable {
+    public let projectID: UUID
+    public let path: String
+    public init(projectID: UUID, path: String) {
+        self.projectID = projectID
+        self.path = path
+    }
+}
+
+public struct FilesRenameParams: Codable, Sendable {
+    public let projectID: UUID
+    public let path: String
+    public let newName: String
+    public init(projectID: UUID, path: String, newName: String) {
+        self.projectID = projectID
+        self.path = path
+        self.newName = newName
+    }
+}
+
+public struct FilesMoveParams: Codable, Sendable {
+    public let projectID: UUID
+    public let paths: [String]
+    public let into: String
+    public init(projectID: UUID, paths: [String], into: String) {
+        self.projectID = projectID
+        self.paths = paths
+        self.into = into
+    }
+}
+
+public struct FilesDeleteParams: Codable, Sendable {
+    public let projectID: UUID
+    public let paths: [String]
+    public init(projectID: UUID, paths: [String]) {
+        self.projectID = projectID
+        self.paths = paths
+    }
+}
+
 public struct GetProjectLogoParams: Codable, Sendable {
     public let projectID: UUID
     public init(projectID: UUID) {

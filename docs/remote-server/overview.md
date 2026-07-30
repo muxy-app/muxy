@@ -20,7 +20,7 @@ flowchart TB
 | [Protocol](protocol.md) | Message envelope, request/response/event |
 | [Methods](methods.md) | Every RPC method, its parameters, and result shapes |
 | [Events](events.md) | Server-pushed events and their payloads |
-| [Data Objects](data-objects.md) | Project, Worktree, Workspace, Notification, terminal cells, logo |
+| [Data Objects](data-objects.md) | Project, Worktree, Workspace, Notification, terminal cells, files, logo |
 
 ## Quick reference
 
