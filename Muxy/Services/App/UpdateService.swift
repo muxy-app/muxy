@@ -225,6 +225,7 @@ private final class FeedDelegate: NSObject, SPUUpdaterDelegate {
         case .beta: [channel.rawValue]
         }
     }
+
     func updater(_: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         UpdateSessionRestoration.mark(targetBuild: item.versionString)
         logger.info("Installing update \(item.displayVersionString, privacy: .public)")
