@@ -102,7 +102,7 @@ struct ProviderDiscoveryServiceTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let completionMarker = directory.appendingPathComponent("completed").path
 
-        await #expect(throws: ProviderDiscoveryError.self) {
+        await #expect(throws: SubprocessRunnerError.self) {
             try await ProviderDiscoveryService.runProcess(
                 executablePath: "/bin/sh",
                 arguments: ["-c", "/bin/sleep 1; /usr/bin/touch '\(completionMarker)'"],
@@ -160,18 +160,72 @@ struct ProviderDiscoveryServiceTests {
         #expect(results.0.status == 0)
         #expect(results.1.status == 0)
     }
+
+    @Test("process runner reports launch failures")
+    func processRunnerReportsLaunchFailure() async {
+        await #expect(throws: Error.self) {
+            try await SubprocessRunner.run(SubprocessRequest(executablePath: "/missing/muxy-probe"))
+        }
+    }
+
+    @Test("process runner cancels the process group")
+    func processRunnerCancelsProcessGroup() async throws {
+        let task = Task {
+            try await SubprocessRunner.run(SubprocessRequest(
+                executablePath: "/bin/sh",
+                arguments: ["-c", "(/bin/sleep 10) & wait"]
+            ))
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        task.cancel()
+
+        await #expect(throws: Error.self) {
+            try await task.value
+        }
+    }
+
+    @Test("newer discovery results replace older probes")
+    func newerDiscoveryResultWins() async {
+        let provider = DiscoveryProvider(
+            executablePath: "/tmp/opencode",
+            details: ProviderDiscoveryDetails(version: nil, state: .ready),
+            usesOutputAsVersion: true
+        )
+        defer { provider.resetSettings() }
+        let health = HookHealthStore()
+        let sequence = ProbeSequence()
+        let service = ProviderDiscoveryService(health: health) { _, _, _, _ in
+            let invocation = await sequence.next()
+            if invocation == 1 {
+                try await Task.sleep(for: .milliseconds(100))
+                return providerDiscoveryProcessResult(stdout: "old")
+            }
+            return providerDiscoveryProcessResult(stdout: "new")
+        }
+
+        let first = Task { @MainActor in
+            await service.discover(provider)
+        }
+        try? await Task.sleep(for: .milliseconds(10))
+        let second = Task { @MainActor in
+            await service.discover(provider)
+        }
+        await first.value
+        await second.value
+
+        #expect(health.health(for: provider.id).discovery?.version == "new")
+    }
 }
 
 private func providerDiscoveryProcessResult(
     status: Int32 = 0,
     stdout: String = "",
     stderr: String = ""
-) -> GitProcessResult {
-    GitProcessResult(
+) -> SubprocessResult {
+    SubprocessResult(
         status: status,
-        stdout: stdout,
         stdoutData: Data(stdout.utf8),
-        stderr: stderr,
+        stderrData: Data(stderr.utf8),
         truncated: false
     )
 }
@@ -190,20 +244,38 @@ private final class DiscoveryProvider: AIProviderIntegration, AIAgentLaunchProvi
     let discoveryWorkingDirectory = "/tmp"
     private let executablePath: String?
     private let details: ProviderDiscoveryDetails
+    private let usesOutputAsVersion: Bool
 
-    init(executablePath: String?, details: ProviderDiscoveryDetails) {
+    init(
+        executablePath: String?,
+        details: ProviderDiscoveryDetails,
+        usesOutputAsVersion: Bool = false
+    ) {
         self.executablePath = executablePath
         self.details = details
+        self.usesOutputAsVersion = usesOutputAsVersion
     }
 
     func isToolInstalled() -> Bool { executablePath != nil }
     func agentCLIExecutablePath() -> String? { executablePath }
     func install(hookScriptPath _: String) throws {}
     func uninstall() throws {}
-    func discoveryDetails(from _: String) -> ProviderDiscoveryDetails { details }
+    func discoveryDetails(from output: String) -> ProviderDiscoveryDetails {
+        guard usesOutputAsVersion else { return details }
+        return ProviderDiscoveryDetails(version: output, state: details.state)
+    }
 
     func resetSettings() {
         UserDefaults.standard.removeObject(forKey: settingsKey)
+    }
+}
+
+private actor ProbeSequence {
+    private var value = 0
+
+    func next() -> Int {
+        value += 1
+        return value
     }
 }
 
