@@ -9,16 +9,31 @@ struct FileTreeEntry: Hashable {
 }
 
 enum FileTreeService {
-    static func loadChildren(of directoryAbsolutePath: String, repoRoot: String) async -> [FileTreeEntry] {
-        await GitProcessRunner.offMain {
-            loadChildrenSync(of: directoryAbsolutePath, repoRoot: repoRoot)
+    static func loadChildren(of directoryAbsolutePath: String, repoRoot: String) async throws -> [FileTreeEntry] {
+        try await GitProcessRunner.offMainThrowing {
+            try loadChildrenSync(of: directoryAbsolutePath, repoRoot: repoRoot)
         }
     }
 
-    private static func loadChildrenSync(of directoryAbsolutePath: String, repoRoot: String) -> [FileTreeEntry] {
+    private static func loadChildrenSync(
+        of directoryAbsolutePath: String,
+        repoRoot: String
+    ) throws -> [FileTreeEntry] {
         let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(atPath: directoryAbsolutePath) else {
-            return []
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: directoryAbsolutePath, isDirectory: &isDirectory) else {
+            throw FileSystemOperationError.sourceMissing(directoryAbsolutePath)
+        }
+        guard isDirectory.boolValue else {
+            throw FileSystemOperationError.underlying(
+                "“\((directoryAbsolutePath as NSString).lastPathComponent)” is not a directory"
+            )
+        }
+        let contents: [String]
+        do {
+            contents = try fm.contentsOfDirectory(atPath: directoryAbsolutePath)
+        } catch {
+            throw FileSystemOperationError.underlying(error.localizedDescription)
         }
 
         let classification = classifyNames(in: directoryAbsolutePath, repoRoot: repoRoot, candidates: contents)

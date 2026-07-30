@@ -44,7 +44,7 @@ struct MuxyAPIFilesTests {
         defer { try? FileManager.default.removeItem(atPath: root) }
         try FileManager.default.createDirectory(atPath: root + "/src", withIntermediateDirectories: false)
         try "x".write(toFile: root + "/a.txt", atomically: true, encoding: .utf8)
-        let entries = await FileTreeService.loadChildren(of: root, repoRoot: root)
+        let entries = try await FileTreeService.loadChildren(of: root, repoRoot: root)
         #expect(entries.first?.isDirectory == true)
         #expect(entries.contains { $0.relativePath == "a.txt" })
     }

@@ -4,7 +4,7 @@
 
 On tabs/panels/popovers these methods return a `Promise` (use `await`); in [`runScript`](scripts.md) commands the same calls are **synchronous** and return the value directly. Every `path` is **relative to the active worktree root** (the same root the app shows for the active project). Pass `{ project }` (a project id, name, or path) as the last argument to target a specific project; omit it to use the active one.
 
-Paths are sandboxed to the workspace root. Any path that escapes it — via `..` or a symlink pointing outside — is rejected.
+Paths are sandboxed to the workspace root. Any path that escapes it — via `..` or a symlink pointing outside — is rejected. Pass `""` or `"."` to list or stat the root, or to use it as a `move` destination. The root itself cannot be written, created, renamed, moved, or deleted.
 
 ## Permissions
 
@@ -63,6 +63,8 @@ await muxy.files.delete(["old.log"]);                   // moves to Trash
 ```
 
 - `write` does not create parent directories — call `mkdir` first.
+- `write` rejects UTF-8 content larger than 5 MB.
+- `rename` rejects an existing destination; `move` preserves it and uniquifies the moved entry (`report.txt` → `report 2.txt`).
 - `rename` and `move` keep any open editor tabs pointed at the moved files.
 - `delete` moves entries to the system Trash, not a permanent removal.
 

@@ -110,6 +110,21 @@ struct RemoteServerDelegateFilesTests {
         }
     }
 
+    @Test("listing a missing path is a 500 instead of an empty directory")
+    func missingListTargetIsInternal() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let project = Project(id: UUID(), name: "Demo", path: root, sortOrder: 0)
+        let delegate = makeDelegate(projects: [project])
+
+        do {
+            _ = try await delegate.filesList(projectID: project.id, path: "missing")
+            Issue.record("expected list of a missing directory to throw")
+        } catch let error as MuxyError {
+            #expect(error.code == 500)
+        }
+    }
+
     private func makeTempDir() throws -> String {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("RemoteServerDelegateFilesTests-\(UUID().uuidString)", isDirectory: true)

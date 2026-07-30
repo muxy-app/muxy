@@ -174,7 +174,7 @@ Result shapes: [`vcsStatus`](#vcsstatus-shape) and [`vcsBranches`](#vcsbranches-
 | `filesMove` | `projectID`, `paths`, `into` | `filePaths` |
 | `filesDelete` | `projectID`, `paths` | `ok` |
 
-Every `path` is **relative to the project's active worktree root** — the same root `getWorkspace` describes. Select the worktree first with `selectWorktree`; the file methods always operate on the active one. Pass `""` or `"."` for the root itself. This is the same file surface Muxy exposes to [extensions](../extensions/files.md), reachable over the socket.
+Every `path` is **relative to the project's active worktree root** — the same root `getWorkspace` describes. Select the worktree first with `selectWorktree`; the file methods always operate on the active one. Pass `""` or `"."` to list or stat the root, or to use it as a `filesMove` destination. The root itself cannot be written, created, renamed, moved, or deleted. This is the same file surface Muxy exposes to [extensions](../extensions/files.md), reachable over the socket.
 
 Paths are sandboxed to that root. Any path that resolves outside it — via `..` or a symlink pointing out — is rejected with `403` and never touches disk.
 
@@ -191,6 +191,7 @@ Notes:
 
 - `filesWrite` does not create parent directories — call `filesMkdir` first.
 - `filesMkdir` never overwrites, and the returned path is the one actually created — which may not be the one requested. For a **local** project an existing name yields a uniquified sibling (`notes` → `notes 2`); over **SSH** it is `mkdir -p`, so an existing directory is left alone and its own path comes back. Always use the returned path rather than assuming the request succeeded verbatim.
+- `filesRename` rejects an existing destination. `filesMove` preserves it and uniquifies the moved entry (`report.txt` → `report 2.txt`) for both local and SSH projects.
 - `filesRename` and `filesMove` keep any open editor tabs on the Mac pointed at the moved files.
 - `filesDelete` moves entries to the macOS Trash for local projects. For an **SSH** project it is a remote `rm -rf` and is **not** recoverable.
 - Listings exclude `.git` and sort directories before files, case-insensitively. `isIgnored` reflects `.gitignore` for local projects and is always `false` over SSH.

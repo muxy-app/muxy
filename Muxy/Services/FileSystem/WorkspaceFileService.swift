@@ -25,13 +25,15 @@ enum WorkspaceFileService {
     }
 
     nonisolated static let maxReadBytes = 5 * 1024 * 1024
+    nonisolated static let maxWriteBytes = 5 * 1024 * 1024
 
     static func list(root: Root, path: String) async throws -> [FileTreeEntry] {
         if let remote = root.remoteFileService {
             return try await remote.list(root: root.path, relativePath: path)
         }
         let absolute = try contained(root: root.path, relativePath: path)
-        return await FileTreeService.loadChildren(of: absolute, repoRoot: root.path)
+        let repoRoot = try contained(root: root.path, relativePath: "")
+        return try await FileTreeService.loadChildren(of: absolute, repoRoot: repoRoot)
     }
 
     static func read(root: Root, path: String, encoding: FileEncodingDTO) async throws -> ReadResult {
@@ -86,22 +88,24 @@ enum WorkspaceFileService {
         contents: String,
         encoding: FileEncodingDTO
     ) async throws -> String {
+        let data = try await GitProcessRunner.offMainThrowing {
+            let decoded = try decode(contents, as: encoding)
+            guard decoded.count <= maxWriteBytes else {
+                throw FileSystemOperationError.underlying("file exceeds \(maxWriteBytes) byte write limit")
+            }
+            return decoded
+        }
         if let remote = root.remoteFileService {
             return try await remote.write(
                 root: root.path,
                 relativePath: path,
-                contents: contents,
-                encoding: encoding
+                data: data,
+                maxBytes: maxWriteBytes
             )
         }
         return try await GitProcessRunner.offMainThrowing {
-            let absolute = try contained(root: root.path, relativePath: path)
-            switch encoding {
-            case .utf8:
-                try FileSystemOperations.writeFileSync(contents: contents, atAbsolutePath: absolute)
-            case .base64:
-                try FileSystemOperations.writeFileSync(data: decodeBase64(contents), atAbsolutePath: absolute)
-            }
+            let absolute = try containedMutation(root: root.path, relativePath: path)
+            try FileSystemOperations.writeFileSync(data: data, atAbsolutePath: absolute)
             return relative(absolute, root: root.path)
         }
     }
@@ -111,11 +115,14 @@ enum WorkspaceFileService {
             return try await remote.mkdir(root: root.path, relativePath: path)
         }
         return try await GitProcessRunner.offMainThrowing {
-            let absolute = try contained(root: root.path, relativePath: path)
+            let absolute = try containedMutation(root: root.path, relativePath: path)
             let parent = (absolute as NSString).deletingLastPathComponent
             let name = (absolute as NSString).lastPathComponent
             let created = try FileSystemOperations.createFolderSync(named: name, in: parent)
-            return relative(created, root: root.path)
+            return try relative(
+                containedAbsoluteMutation(root: root.path, absolutePath: created),
+                root: root.path
+            )
         }
     }
 
@@ -124,8 +131,9 @@ enum WorkspaceFileService {
             return try await remote.rename(root: root.path, relativePath: path, newName: newName)
         }
         let moved = try await GitProcessRunner.offMainThrowing {
-            let absolute = try contained(root: root.path, relativePath: path)
-            return try FileSystemOperations.renameSync(at: absolute, to: newName)
+            let absolute = try containedMutation(root: root.path, relativePath: path)
+            let target = try FileSystemOperations.renameSync(at: absolute, to: newName)
+            return try containedAbsoluteMutation(root: root.path, absolutePath: target)
         }
         return relative(moved, root: root.path)
     }
@@ -136,11 +144,14 @@ enum WorkspaceFileService {
         }
         let moved = try await GitProcessRunner.offMainThrowing {
             let destinationAbsolute = try contained(root: root.path, relativePath: destination)
-            let sources = try paths.map { try contained(root: root.path, relativePath: $0) }
-            return try FileSystemOperations.transferSync(
+            let sources = try paths.map { try containedMutation(root: root.path, relativePath: $0) }
+            let results = try FileSystemOperations.transferSync(
                 sources: sources,
                 destinationDirectory: destinationAbsolute
             )
+            return try results.map {
+                try containedAbsoluteMutation(root: root.path, absolutePath: $0)
+            }
         }
         return moved.map { relative($0, root: root.path) }
     }
@@ -150,7 +161,7 @@ enum WorkspaceFileService {
             return try await remote.delete(root: root.path, paths: paths)
         }
         let absolutes = try await GitProcessRunner.offMainThrowing {
-            try paths.map { try contained(root: root.path, relativePath: $0) }
+            try paths.map { try containedMutation(root: root.path, relativePath: $0) }
         }
         try await FileSystemOperations.moveToTrash(absolutes)
     }
@@ -175,6 +186,15 @@ enum WorkspaceFileService {
         return data
     }
 
+    nonisolated static func decode(_ contents: String, as encoding: FileEncodingDTO) throws -> Data {
+        switch encoding {
+        case .utf8:
+            Data(contents.utf8)
+        case .base64:
+            try decodeBase64(contents)
+        }
+    }
+
     nonisolated static func contained(root: String, relativePath: String) throws -> String {
         guard let absolute = resolve(root: root, relativePath: relativePath) else {
             throw FileSystemOperationError.outsideRoot(relativePath)
@@ -182,28 +202,86 @@ enum WorkspaceFileService {
         return absolute
     }
 
+    nonisolated static func containedMutation(root: String, relativePath: String) throws -> String {
+        let absolute = try contained(root: root, relativePath: relativePath)
+        return try requireMutationTarget(absolute, root: root, requestedPath: relativePath)
+    }
+
     nonisolated static func resolve(root: String, relativePath: String) -> String? {
-        let base = URL(fileURLWithPath: root).resolvingSymlinksInPath()
+        let logicalBase = URL(fileURLWithPath: root).standardizedFileURL.path
+        guard let physicalBase = canonicalizeAbsolute(root) else { return nil }
         let trimmed = relativePath.hasPrefix("/") ? String(relativePath.dropFirst()) : relativePath
-        let resolved = canonicalize(base: base, relativePath: trimmed)
-        guard isInside(resolved, base: base) else { return nil }
-        return resolved.path
+        guard let resolved = canonicalize(base: physicalBase, relativePath: trimmed) else { return nil }
+        guard isInside(resolved, base: physicalBase) else { return nil }
+        guard resolved.path != physicalBase.path else { return logicalBase }
+        let prefix = physicalBase.path == "/" ? "/" : physicalBase.path + "/"
+        let relativePath = String(resolved.path.dropFirst(prefix.count))
+        return (logicalBase as NSString).appendingPathComponent(relativePath)
     }
 
     nonisolated static func relative(_ absolute: String, root: String) -> String {
-        let base = URL(fileURLWithPath: root).resolvingSymlinksInPath().path
-        let normalized = URL(fileURLWithPath: absolute).standardizedFileURL.resolvingSymlinksInPath().path
+        let base = canonicalizeAbsolute(root)?.path ?? URL(fileURLWithPath: root).standardizedFileURL.path
+        let normalized = canonicalizeAbsolute(absolute)?.path
+            ?? URL(fileURLWithPath: absolute).standardizedFileURL.path
+        guard normalized != base else { return "" }
         guard normalized.hasPrefix(base + "/") else { return (absolute as NSString).lastPathComponent }
         return String(normalized.dropFirst(base.count + 1))
     }
 
     nonisolated private static func isInside(_ url: URL, base: URL) -> Bool {
-        url.path == base.path || url.path.hasPrefix(base.path + "/")
+        if base.path == "/" {
+            return url.path.hasPrefix("/")
+        }
+        return url.path == base.path || url.path.hasPrefix(base.path + "/")
     }
 
-    nonisolated private static func canonicalize(base: URL, relativePath: String) -> URL {
+    nonisolated private static func containedAbsoluteMutation(
+        root: String,
+        absolutePath: String
+    ) throws -> String {
+        guard let base = canonicalizeAbsolute(root),
+              let lexical = canonicalizeAbsolute(absolutePath)
+        else {
+            throw FileSystemOperationError.outsideRoot(absolutePath)
+        }
+        guard isInside(lexical, base: base) else {
+            throw FileSystemOperationError.outsideRoot(absolutePath)
+        }
+        let relativePath = lexical.path == base.path
+            ? ""
+            : String(lexical.path.dropFirst(base.path.count + 1))
+        return try containedMutation(root: root, relativePath: relativePath)
+    }
+
+    nonisolated private static func requireMutationTarget(
+        _ absolute: String,
+        root: String,
+        requestedPath: String
+    ) throws -> String {
+        guard let base = canonicalizeAbsolute(root)?.path else {
+            throw FileSystemOperationError.outsideRoot(requestedPath)
+        }
+        guard canonicalizeAbsolute(absolute)?.path != base else {
+            throw FileSystemOperationError.outsideRoot(requestedPath)
+        }
+        return absolute
+    }
+
+    nonisolated private static func canonicalizeAbsolute(_ path: String) -> URL? {
+        canonicalize(base: URL(fileURLWithPath: "/"), relativePath: path)
+    }
+
+    nonisolated private static func canonicalize(base: URL, relativePath: String) -> URL? {
         var current = base
-        for component in relativePath.split(separator: "/", omittingEmptySubsequences: true).map(String.init) {
+        var pending = Array(pathComponents(relativePath).reversed())
+        var states: Set<ResolutionState> = []
+        var followedLinkCount = 0
+        while let component = pending.popLast() {
+            let state = ResolutionState(
+                currentPath: current.path,
+                pending: pending + [component]
+            )
+            guard states.insert(state).inserted else { return nil }
             if component == "." {
                 continue
             }
@@ -211,19 +289,32 @@ enum WorkspaceFileService {
                 current = current.deletingLastPathComponent()
                 continue
             }
-            current = follow(current.appendingPathComponent(component), from: current)
+            let candidate = current.appendingPathComponent(component)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: candidate.path)
+            guard (attributes?[.type] as? FileAttributeType) == .typeSymbolicLink else {
+                current = candidate
+                continue
+            }
+            followedLinkCount += 1
+            guard followedLinkCount <= 64,
+                  let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: candidate.path)
+            else {
+                return nil
+            }
+            if destination.hasPrefix("/") {
+                current = URL(fileURLWithPath: "/")
+            }
+            pending.append(contentsOf: pathComponents(destination).reversed())
         }
-        return current.standardizedFileURL
+        return current
     }
 
-    nonisolated private static func follow(_ candidate: URL, from parent: URL) -> URL {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: candidate.path)
-        guard (attributes?[.type] as? FileAttributeType) == .typeSymbolicLink,
-              let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: candidate.path)
-        else { return candidate.standardizedFileURL }
-        let resolved = destination.hasPrefix("/")
-            ? URL(fileURLWithPath: destination)
-            : parent.appendingPathComponent(destination)
-        return resolved.standardizedFileURL
+    nonisolated private static func pathComponents(_ path: String) -> [String] {
+        path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    }
+
+    private struct ResolutionState: Hashable {
+        let currentPath: String
+        let pending: [String]
     }
 }

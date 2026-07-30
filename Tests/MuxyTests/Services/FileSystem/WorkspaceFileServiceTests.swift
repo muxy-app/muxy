@@ -10,8 +10,10 @@ struct WorkspaceFileServiceSandboxTests {
     func resolveAcceptsInRootPaths() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: root) }
-        #expect(WorkspaceFileService.resolve(root: root, relativePath: "src/main.swift") == root + "/src/main.swift")
-        #expect(WorkspaceFileService.resolve(root: root, relativePath: "") == root)
+        let child = WorkspaceFileService.resolve(root: root, relativePath: "src/main.swift")
+        let resolvedRoot = WorkspaceFileService.resolve(root: root, relativePath: "")
+        #expect(child.map { WorkspaceFileService.relative($0, root: root) } == "src/main.swift")
+        #expect(resolvedRoot.map { WorkspaceFileService.relative($0, root: root) } == "")
     }
 
     @Test("resolve rejects parent-traversal escapes")
@@ -34,6 +36,28 @@ struct WorkspaceFileServiceSandboxTests {
         #expect(WorkspaceFileService.resolve(root: root, relativePath: "link/secret.txt") == nil)
     }
 
+    @Test("resolve rejects multi-hop symlink escapes")
+    func resolveRejectsMultiHopSymlinkEscape() throws {
+        let root = try makeTempDir()
+        let outside = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(atPath: root)
+            try? FileManager.default.removeItem(atPath: outside)
+        }
+        try FileManager.default.createSymbolicLink(atPath: root + "/a", withDestinationPath: root + "/b")
+        try FileManager.default.createSymbolicLink(atPath: root + "/b", withDestinationPath: outside)
+        #expect(WorkspaceFileService.resolve(root: root, relativePath: "a/secret.txt") == nil)
+    }
+
+    @Test("resolve rejects symlink cycles")
+    func resolveRejectsSymlinkCycle() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try FileManager.default.createSymbolicLink(atPath: root + "/a", withDestinationPath: root + "/b")
+        try FileManager.default.createSymbolicLink(atPath: root + "/b", withDestinationPath: root + "/a")
+        #expect(WorkspaceFileService.resolve(root: root, relativePath: "a/file.txt") == nil)
+    }
+
     @Test("resolve rejects dangling symlinks that point outside the root")
     func resolveRejectsDanglingSymlinkEscape() throws {
         let root = try makeTempDir()
@@ -50,7 +74,20 @@ struct WorkspaceFileServiceSandboxTests {
         defer { try? FileManager.default.removeItem(atPath: root) }
         try FileManager.default.createDirectory(atPath: root + "/real", withIntermediateDirectories: false)
         try FileManager.default.createSymbolicLink(atPath: root + "/alias", withDestinationPath: root + "/real")
-        #expect(WorkspaceFileService.resolve(root: root, relativePath: "alias/note.txt") == root + "/real/note.txt")
+        let resolved = WorkspaceFileService.resolve(root: root, relativePath: "alias/note.txt")
+        #expect(resolved.map { WorkspaceFileService.relative($0, root: root) } == "real/note.txt")
+    }
+
+    @Test("resolve permits revisiting a symlink without a cycle")
+    func resolvePermitsRevisitedSymlink() throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try FileManager.default.createDirectory(atPath: root + "/real", withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(atPath: root + "/alias", withDestinationPath: root + "/real")
+
+        let resolved = WorkspaceFileService.resolve(root: root, relativePath: "alias/../alias/note.txt")
+
+        #expect(resolved.map { WorkspaceFileService.relative($0, root: root) } == "real/note.txt")
     }
 
     @Test("contained returns in-root paths and throws outsideRoot on escape")
@@ -61,7 +98,8 @@ struct WorkspaceFileServiceSandboxTests {
             try? FileManager.default.removeItem(atPath: root)
             try? FileManager.default.removeItem(atPath: outside)
         }
-        #expect(try WorkspaceFileService.contained(root: root, relativePath: "src/main.swift") == root + "/src/main.swift")
+        let contained = try WorkspaceFileService.contained(root: root, relativePath: "src/main.swift")
+        #expect(WorkspaceFileService.relative(contained, root: root) == "src/main.swift")
         try FileManager.default.createSymbolicLink(atPath: root + "/link", withDestinationPath: outside)
         #expect(throws: FileSystemOperationError.outsideRoot("link/secret.txt")) {
             _ = try WorkspaceFileService.contained(root: root, relativePath: "link/secret.txt")
@@ -78,6 +116,7 @@ struct WorkspaceFileServiceSandboxTests {
     func relativeMapsBackToRoot() throws {
         let root = try makeTempDir()
         defer { try? FileManager.default.removeItem(atPath: root) }
+        #expect(WorkspaceFileService.relative(root, root: root) == "")
         #expect(WorkspaceFileService.relative(root + "/src/main.swift", root: root) == "src/main.swift")
         #expect(WorkspaceFileService.relative("/elsewhere/note.txt", root: root) == "note.txt")
     }
@@ -197,6 +236,32 @@ struct WorkspaceFileServiceLocalTests {
         }
     }
 
+    @Test("write refuses UTF-8 and Base64 payloads past the raw byte limit")
+    func writeSizeLimit() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(atPath: root.path) }
+        let oversized = Data(repeating: 0x41, count: WorkspaceFileService.maxWriteBytes + 1)
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.write(
+                root: root,
+                path: "large.txt",
+                contents: String(decoding: oversized, as: UTF8.self),
+                encoding: .utf8
+            )
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.write(
+                root: root,
+                path: "large.bin",
+                contents: oversized.base64EncodedString(),
+                encoding: .base64
+            )
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.path + "/large.txt"))
+        #expect(!FileManager.default.fileExists(atPath: root.path + "/large.bin"))
+    }
+
     @Test("list, stat, mkdir, rename, and move operate on relative paths")
     func directoryOperations() async throws {
         let root = try makeRoot()
@@ -220,6 +285,103 @@ struct WorkspaceFileServiceLocalTests {
         #expect(stat.relativePath == "notes/done.md")
     }
 
+    @Test("root listing and stat are allowed and stat stays root-relative")
+    func rootReadsAreAllowed() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(atPath: root.path) }
+        try "x".write(toFile: root.path + "/file.txt", atomically: true, encoding: .utf8)
+
+        let entries = try await WorkspaceFileService.list(root: root, path: "")
+        let stat = try await WorkspaceFileService.stat(root: root, path: ".")
+
+        #expect(entries.map(\.name) == ["file.txt"])
+        #expect(stat.relativePath == "")
+        #expect(stat.isDirectory)
+    }
+
+    @Test("root mutations are rejected while moving into the root remains allowed")
+    func rootMutationsAreRejected() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(atPath: root.path) }
+        try FileManager.default.createDirectory(
+            atPath: root.path + "/nested",
+            withIntermediateDirectories: false
+        )
+        try "x".write(toFile: root.path + "/nested/file.txt", atomically: true, encoding: .utf8)
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.write(
+                root: root,
+                path: "",
+                contents: "x",
+                encoding: .utf8
+            )
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.mkdir(root: root, path: ".")
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.rename(root: root, path: "", newName: "renamed")
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.move(root: root, paths: ["."], into: "nested")
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            try await WorkspaceFileService.delete(root: root, paths: [""])
+        }
+
+        let moved = try await WorkspaceFileService.move(
+            root: root,
+            paths: ["nested/file.txt"],
+            into: ""
+        )
+        #expect(moved == ["file.txt"])
+        #expect(FileManager.default.fileExists(atPath: root.path + "/file.txt"))
+    }
+
+    @Test("multi-hop symlink escapes reject reads and writes")
+    func multiHopSymlinkOperationsAreRejected() async throws {
+        let root = try makeRoot()
+        let outside = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(atPath: root.path)
+            try? FileManager.default.removeItem(atPath: outside)
+        }
+        try "secret".write(toFile: outside + "/secret.txt", atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            atPath: root.path + "/a",
+            withDestinationPath: root.path + "/b"
+        )
+        try FileManager.default.createSymbolicLink(atPath: root.path + "/b", withDestinationPath: outside)
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.read(root: root, path: "a/secret.txt", encoding: .utf8)
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.write(
+                root: root,
+                path: "a/created.txt",
+                contents: "nope",
+                encoding: .utf8
+            )
+        }
+        #expect(!FileManager.default.fileExists(atPath: outside + "/created.txt"))
+    }
+
+    @Test("listing a missing path or a file fails")
+    func invalidListTargetsFail() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(atPath: root.path) }
+        try "x".write(toFile: root.path + "/file.txt", atomically: true, encoding: .utf8)
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.list(root: root, path: "missing")
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.list(root: root, path: "file.txt")
+        }
+    }
+
     @Test("operations outside the root are rejected")
     func escapesRejected() async throws {
         let root = try makeRoot()
@@ -235,10 +397,231 @@ struct WorkspaceFileServiceLocalTests {
         }
     }
 
+    @Test("same-name rename rejects a missing source")
+    func sameNameRenameRequiresSource() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(atPath: root.path) }
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await WorkspaceFileService.rename(
+                root: root,
+                path: "missing.txt",
+                newName: "missing.txt"
+            )
+        }
+    }
+
     private func makeRoot() throws -> WorkspaceFileService.Root {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("WorkspaceFileServiceLocalTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return WorkspaceFileService.Root(path: dir.resolvingSymlinksInPath().path, workspaceContext: .local)
+    }
+
+    private func makeTempDir() throws -> String {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkspaceFileServiceLocalTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.resolvingSymlinksInPath().path
+    }
+}
+
+@Suite("RemoteFileService operations")
+struct RemoteFileServiceTests {
+    @Test("multi-hop and dangling external symlinks reject reads and writes")
+    func symlinkEscapesAreRejected() async throws {
+        let root = try makeTempDir()
+        let outside = try makeTempDir()
+        let newlineOutside = root + "\n"
+        try FileManager.default.createDirectory(atPath: newlineOutside, withIntermediateDirectories: false)
+        defer {
+            try? FileManager.default.removeItem(atPath: root)
+            try? FileManager.default.removeItem(atPath: outside)
+            try? FileManager.default.removeItem(atPath: newlineOutside)
+        }
+        try "secret".write(toFile: outside + "/secret.txt", atomically: true, encoding: .utf8)
+        try "secret".write(toFile: newlineOutside + "/secret.txt", atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: root + "/a", withDestinationPath: root + "/b")
+        try FileManager.default.createSymbolicLink(atPath: root + "/b", withDestinationPath: outside)
+        try FileManager.default.createSymbolicLink(
+            atPath: root + "/dangling",
+            withDestinationPath: outside + "/created.txt"
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: root + "/newline",
+            withDestinationPath: newlineOutside
+        )
+        try FileManager.default.createSymbolicLink(
+            atPath: root + "/same-name",
+            withDestinationPath: outside + "/secret.txt"
+        )
+        let service = makeService()
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await service.read(
+                root: root,
+                relativePath: "a/secret.txt",
+                maxBytes: WorkspaceFileService.maxReadBytes,
+                encoding: .utf8
+            )
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await service.read(
+                root: root,
+                relativePath: "newline/secret.txt",
+                maxBytes: WorkspaceFileService.maxReadBytes,
+                encoding: .utf8
+            )
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await service.write(
+                root: root,
+                relativePath: "dangling",
+                data: Data("nope".utf8),
+                maxBytes: WorkspaceFileService.maxWriteBytes
+            )
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await service.rename(
+                root: root,
+                relativePath: "same-name",
+                newName: "same-name"
+            )
+        }
+        #expect(!FileManager.default.fileExists(atPath: outside + "/created.txt"))
+    }
+
+    @Test("invalid UTF-8 remote reads fail")
+    func invalidUTF8Fails() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try Data([0xFF, 0xFE]).write(to: URL(fileURLWithPath: root + "/invalid.bin"))
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await makeService().read(
+                root: root,
+                relativePath: "invalid.bin",
+                maxBytes: WorkspaceFileService.maxReadBytes,
+                encoding: .utf8
+            )
+        }
+    }
+
+    @Test("rename rejects existing files and directories without overwriting")
+    func renameCollisionsFail() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try "source".write(toFile: root + "/source.txt", atomically: true, encoding: .utf8)
+        try "existing".write(toFile: root + "/existing.txt", atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(atPath: root + "/existing", withIntermediateDirectories: false)
+        let service = makeService()
+
+        await #expect(throws: FileSystemOperationError.destinationExists(root + "/existing.txt")) {
+            _ = try await service.rename(root: root, relativePath: "source.txt", newName: "existing.txt")
+        }
+        await #expect(throws: FileSystemOperationError.destinationExists(root + "/existing")) {
+            _ = try await service.rename(root: root, relativePath: "source.txt", newName: "existing")
+        }
+        await #expect(throws: FileSystemOperationError.sourceMissing(root + "/missing.txt")) {
+            _ = try await service.rename(root: root, relativePath: "missing.txt", newName: "missing.txt")
+        }
+        #expect(try String(contentsOfFile: root + "/source.txt", encoding: .utf8) == "source")
+        #expect(try String(contentsOfFile: root + "/existing.txt", encoding: .utf8) == "existing")
+    }
+
+    @Test("move uniquifies existing file and directory destinations")
+    func moveCollisionsAreUniquified() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try FileManager.default.createDirectory(atPath: root + "/first", withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(atPath: root + "/second", withIntermediateDirectories: false)
+        try FileManager.default.createDirectory(atPath: root + "/archive", withIntermediateDirectories: false)
+        try "first".write(toFile: root + "/first/item.txt", atomically: true, encoding: .utf8)
+        try "second".write(toFile: root + "/second/item", atomically: true, encoding: .utf8)
+        try "existing".write(toFile: root + "/archive/item.txt", atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(atPath: root + "/archive/item", withIntermediateDirectories: false)
+        let service = makeService()
+
+        let fileMove = try await service.move(root: root, paths: ["first/item.txt"], into: "archive")
+        let directoryMove = try await service.move(root: root, paths: ["second/item"], into: "archive")
+
+        #expect(fileMove == ["archive/item 2.txt"])
+        #expect(directoryMove == ["archive/item 2"])
+        #expect(try String(contentsOfFile: root + "/archive/item.txt", encoding: .utf8) == "existing")
+        #expect(FileManager.default.fileExists(atPath: root + "/archive/item"))
+        #expect(try String(contentsOfFile: root + "/archive/item 2", encoding: .utf8) == "second")
+    }
+
+    @Test("root reads and move destinations are allowed while root mutations fail")
+    func rootOperationPolicy() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try FileManager.default.createDirectory(atPath: root + "/nested", withIntermediateDirectories: false)
+        try "x".write(toFile: root + "/nested/file.txt", atomically: true, encoding: .utf8)
+        let service = makeService()
+
+        let stat = try await service.stat(root: root, relativePath: "")
+        #expect(stat.relativePath == "")
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await service.write(
+                root: root,
+                relativePath: "",
+                data: Data("x".utf8),
+                maxBytes: WorkspaceFileService.maxWriteBytes
+            )
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await service.mkdir(root: root, relativePath: ".")
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await service.rename(root: root, relativePath: "", newName: "renamed")
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await service.move(root: root, paths: ["."], into: "nested")
+        }
+        await #expect(throws: FileSystemOperationError.self) {
+            try await service.delete(root: root, paths: [""])
+        }
+
+        let moved = try await service.move(root: root, paths: ["nested/file.txt"], into: "")
+        #expect(moved == ["file.txt"])
+    }
+
+    @Test("remote writes enforce the raw byte limit before running a command")
+    func writeSizeLimit() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let oversized = Data(repeating: 0x41, count: WorkspaceFileService.maxWriteBytes + 1)
+
+        await #expect(throws: FileSystemOperationError.self) {
+            _ = try await makeService().write(
+                root: root,
+                relativePath: "large.bin",
+                data: oversized,
+                maxBytes: WorkspaceFileService.maxWriteBytes
+            )
+        }
+        #expect(!FileManager.default.fileExists(atPath: root + "/large.bin"))
+    }
+
+    private func makeService() -> RemoteFileService {
+        RemoteFileService(destination: SSHDestination(host: "unused")) { _, command, input in
+            try await GitProcessRunner.runResolved(
+                ResolvedLaunch(
+                    executable: "/bin/sh",
+                    arguments: ["-c", command],
+                    workingDirectory: nil
+                ),
+                stdinData: input
+            )
+        }
+    }
+
+    private func makeTempDir() throws -> String {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RemoteFileServiceTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.resolvingSymlinksInPath().path
     }
 }

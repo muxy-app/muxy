@@ -108,6 +108,9 @@ enum FileSystemOperations {
         let name = try sanitize(rawName)
         let parent = (absolutePath as NSString).deletingLastPathComponent
         let currentName = (absolutePath as NSString).lastPathComponent
+        guard FileManager.default.fileExists(atPath: absolutePath) else {
+            throw FileSystemOperationError.sourceMissing(absolutePath)
+        }
         if name == currentName {
             return absolutePath
         }
@@ -154,7 +157,7 @@ enum FileSystemOperations {
         return results
     }
 
-    nonisolated private static func sanitize(_ rawName: String) throws -> String {
+    nonisolated static func sanitize(_ rawName: String) throws -> String {
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains("/"), trimmed != ".", trimmed != ".." else {
             throw FileSystemOperationError.invalidName
