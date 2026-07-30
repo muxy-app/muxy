@@ -99,8 +99,13 @@ jobs:
 
             zap trash: [
               "~/Library/Application Support/Muxy",
-              "~/Library/Preferences/app.muxy.Muxy.plist",
-              "~/Library/Saved Application State/app.muxy.Muxy.savedState",
+              "~/Library/Caches/com.muxy.app",
+              "~/Library/HTTPStorages/com.muxy.app",
+              "~/Library/HTTPStorages/com.muxy.app.binarycookies",
+              "~/Library/Logs/Muxy",
+              "~/Library/Preferences/com.muxy.app.plist",
+              "~/Library/Saved Application State/com.muxy.app.savedState",
+              "~/Library/WebKit/com.muxy.app",
             ]
           end
           EOF
