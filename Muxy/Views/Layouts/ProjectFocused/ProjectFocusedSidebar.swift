@@ -75,6 +75,14 @@ enum SidebarLayout {
         }
         return collapsedStyle == .icons
     }
+
+    static func projectActivityIndicatorOffset(isUnread: Bool) -> CGFloat {
+        isUnread ? UIMetrics.spacing2 : UIMetrics.spacing1
+    }
+
+    static func projectListTopInset(isWide: Bool) -> CGFloat {
+        isWide ? 0 : projectActivityIndicatorOffset(isUnread: true)
+    }
 }
 
 struct ProjectFocusedSidebar: View {
@@ -445,6 +453,7 @@ struct ProjectFocusedSidebar: View {
 
                 addButton
             }
+            .padding(.top, SidebarLayout.projectListTopInset(isWide: isWide))
             .padding(.horizontal, isWide ? UIMetrics.spacing3 : UIMetrics.spacing4)
             .padding(.bottom, UIMetrics.spacing2)
             .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { frames in
