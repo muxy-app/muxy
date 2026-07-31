@@ -100,17 +100,21 @@ struct AppRelaunchTests {
         }
 
         let reply = delegate.applicationShouldTerminate(NSApplication.shared)
-        while events.count < 2 {
+        let cleanupStartDeadline = Date().addingTimeInterval(2)
+        while events.count < 2, Date() < cleanupStartDeadline {
             await Task.yield()
         }
 
         #expect(reply == .terminateLater)
+        #expect(events.count == 2, "Terminal cleanup did not start before the deadline")
         #expect(events == ["persist", "cleanup"])
         cleanupReleaseContinuation.yield()
         cleanupReleaseContinuation.finish()
-        while !terminationCleanup.isComplete {
+        let cleanupCompletionDeadline = Date().addingTimeInterval(2)
+        while !terminationCleanup.isComplete, Date() < cleanupCompletionDeadline {
             await Task.yield()
         }
+        #expect(terminationCleanup.isComplete, "Terminal cleanup did not complete before the deadline")
     }
 
     @Test("dismisses attached sheets so termination is not blocked")

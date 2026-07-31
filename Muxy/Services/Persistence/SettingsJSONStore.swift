@@ -11,6 +11,11 @@ enum SettingsJSONStore {
     typealias AutomaticUpdatesUpdater = @MainActor (Bool) -> Void
     typealias AutomaticUpdatesResetter = @MainActor () -> Void
 
+    private struct AutomaticUpdatesActions {
+        let update: AutomaticUpdatesUpdater
+        let reset: AutomaticUpdatesResetter
+    }
+
     private static var defaultsObserver: NSObjectProtocol?
     private static var isApplyingSettings = false
     private static var isSyncingFile = false
@@ -40,10 +45,10 @@ enum SettingsJSONStore {
         quickTerminalEnabledResetter: QuickTerminalEnabledResetter = {
             QuickTerminalPreferences.resetEnabled()
         },
-        automaticUpdatesUpdater: AutomaticUpdatesUpdater = {
+        automaticUpdatesUpdater: @escaping AutomaticUpdatesUpdater = {
             UpdateService.shared.setAutomaticallyDownloadsUpdates($0)
         },
-        automaticUpdatesResetter: AutomaticUpdatesResetter = {
+        automaticUpdatesResetter: @escaping AutomaticUpdatesResetter = {
             UpdateService.shared.resetAutomaticallyDownloadsUpdates()
         }
     ) throws {
@@ -61,16 +66,17 @@ enum SettingsJSONStore {
                 ofItemAtPath: userSettingsURL.path
             )
             isApplyingSettings = true
+            let automaticUpdatesActions = AutomaticUpdatesActions(
+                update: automaticUpdatesUpdater,
+                reset: automaticUpdatesResetter
+            )
             try apply(
                 settings,
                 quickTerminalShortcutUpdater: quickTerminalShortcutUpdater,
                 quickTerminalEnabledUpdater: quickTerminalEnabledUpdater,
                 quickTerminalEnabledResetter: quickTerminalEnabledResetter,
-                automaticUpdatesUpdater: automaticUpdatesUpdater
+                automaticUpdatesActions: automaticUpdatesActions
             )
-            if settings[UpdateService.automaticallyUpdatesKey] is NSNull {
-                automaticUpdatesResetter()
-            }
             isApplyingSettings = false
         } catch {
             isApplyingSettings = false
@@ -226,7 +232,7 @@ enum SettingsJSONStore {
         quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater,
         quickTerminalEnabledUpdater: QuickTerminalEnabledUpdater,
         quickTerminalEnabledResetter: QuickTerminalEnabledResetter,
-        automaticUpdatesUpdater: AutomaticUpdatesUpdater
+        automaticUpdatesActions: AutomaticUpdatesActions
     ) throws {
         if let quickTerminalShortcut = dictionary["shortcuts.quickTerminal"] {
             _ = try applySpecialSetting(
@@ -241,7 +247,9 @@ enum SettingsJSONStore {
             quickTerminalEnabledResetter()
         }
         if let enabled = dictionary[UpdateService.automaticallyUpdatesKey] as? Bool {
-            automaticUpdatesUpdater(enabled)
+            automaticUpdatesActions.update(enabled)
+        } else if dictionary[UpdateService.automaticallyUpdatesKey] is NSNull {
+            automaticUpdatesActions.reset()
         }
         for (key, value) in dictionary where key != "shortcuts.quickTerminal"
             && key != QuickTerminalPreferences.enabledKey
