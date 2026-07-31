@@ -355,6 +355,8 @@ private actor ProbeGate {
     }
 }
 
+private struct ProbeMarkerTimeoutError: Error {}
+
 private func waitForFile(at url: URL) async throws {
     for _ in 0 ..< 250 {
         if FileManager.default.fileExists(atPath: url.path) {
@@ -363,6 +365,7 @@ private func waitForFile(at url: URL) async throws {
         try await Task.sleep(for: .milliseconds(20))
     }
     Issue.record("expected marker file at \(url.path)")
+    throw ProbeMarkerTimeoutError()
 }
 
 private func waitForProcessExit(_ pid: pid_t) async -> Bool {
