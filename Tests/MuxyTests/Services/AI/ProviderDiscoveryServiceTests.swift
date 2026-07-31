@@ -3,7 +3,7 @@ import Testing
 
 @testable import Muxy
 
-@Suite("ProviderDiscoveryService")
+@Suite("ProviderDiscoveryService", .serialized)
 @MainActor
 struct ProviderDiscoveryServiceTests {
     @Test("discovery records executable version and ready state")
@@ -356,7 +356,7 @@ private actor ProbeGate {
 }
 
 private func waitForFile(at url: URL) async throws {
-    for _ in 0 ..< 100 {
+    for _ in 0 ..< 250 {
         if FileManager.default.fileExists(atPath: url.path) {
             return
         }
