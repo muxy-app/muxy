@@ -841,6 +841,25 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func nullAutomaticUpdatesValueResetsToDefault() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [UpdateService.automaticallyUpdatesKey])
+        defer { snapshot.restore() }
+        var didReset = false
+        UserDefaults.standard.set(false, forKey: UpdateService.automaticallyUpdatesKey)
+
+        try SettingsJSONStore.saveUserSettingsText(
+            "{\"\(UpdateService.automaticallyUpdatesKey)\":null}",
+            automaticUpdatesResetter: {
+                didReset = true
+                UserDefaults.standard.removeObject(forKey: UpdateService.automaticallyUpdatesKey)
+            }
+        )
+
+        #expect(didReset)
+        #expect(UserDefaults.standard.object(forKey: UpdateService.automaticallyUpdatesKey) == nil)
+    }
+
+    @Test
     func systemSettingsIncludeAllBackedSettings() throws {
         let data = Data(SettingsJSONStore.systemSettingsText.utf8)
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])

@@ -108,6 +108,11 @@ final class UpdateService: NSObject {
         updater.automaticallyDownloadsUpdates = enabled
     }
 
+    func resetAutomaticallyDownloadsUpdates() {
+        UserDefaults.standard.removeObject(forKey: Self.automaticallyUpdatesKey)
+        automaticallyDownloadsUpdates = updater.automaticallyDownloadsUpdates
+    }
+
     private func applyFeatureFlags() {
         #if DEBUG
         if ProcessInfo.processInfo.environment["FF_UPDATE_AVAILABLE"] != nil {
@@ -135,7 +140,7 @@ final class UpdateService: NSObject {
 }
 
 private final class FeedDelegate: NSObject, SPUUpdaterDelegate {
-    private static let noUpdateErrorCode = 1001
+    private static let noUpdateErrorCode = Int(SUError.noUpdateError.rawValue)
 
     var channel: UpdateChannel
 
@@ -176,7 +181,8 @@ private final class FeedDelegate: NSObject, SPUUpdaterDelegate {
     }
 
     func updater(_: SPUUpdater, didAbortWithError error: Error) {
-        guard (error as NSError).code != Self.noUpdateErrorCode else { return }
+        let error = error as NSError
+        guard error.domain != SUSparkleErrorDomain || error.code != Self.noUpdateErrorCode else { return }
         logger.error("Update cycle aborted: \(error.localizedDescription, privacy: .public)")
     }
 }

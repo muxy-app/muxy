@@ -9,6 +9,7 @@ enum SettingsJSONStore {
     typealias QuickTerminalEnabledUpdater = @MainActor (Bool) -> Void
     typealias QuickTerminalEnabledResetter = @MainActor () -> Void
     typealias AutomaticUpdatesUpdater = @MainActor (Bool) -> Void
+    typealias AutomaticUpdatesResetter = @MainActor () -> Void
 
     private static var defaultsObserver: NSObjectProtocol?
     private static var isApplyingSettings = false
@@ -41,6 +42,9 @@ enum SettingsJSONStore {
         },
         automaticUpdatesUpdater: AutomaticUpdatesUpdater = {
             UpdateService.shared.setAutomaticallyDownloadsUpdates($0)
+        },
+        automaticUpdatesResetter: AutomaticUpdatesResetter = {
+            UpdateService.shared.resetAutomaticallyDownloadsUpdates()
         }
     ) throws {
         let data = Data(text.utf8)
@@ -64,6 +68,9 @@ enum SettingsJSONStore {
                 quickTerminalEnabledResetter: quickTerminalEnabledResetter,
                 automaticUpdatesUpdater: automaticUpdatesUpdater
             )
+            if settings[UpdateService.automaticallyUpdatesKey] is NSNull {
+                automaticUpdatesResetter()
+            }
             isApplyingSettings = false
         } catch {
             isApplyingSettings = false

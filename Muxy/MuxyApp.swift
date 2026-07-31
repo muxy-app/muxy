@@ -247,9 +247,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private weak var settingsWindow: NSWindow?
     private weak var extensionsWindow: NSWindow?
     private weak var whatsNewWindow: NSWindow?
-    private let terminalTerminationCleanup = TerminalTerminationCleanup()
+    private let terminalTerminationCleanup: TerminalTerminationCleanup
+    private let prepareTerminalsForTermination: TerminalTerminationCleanup.Cleanup
+    private let replyToApplicationShouldTerminate: @MainActor (NSApplication) -> Void
     private static let terminalCleanupTimeout: Duration = .seconds(5)
     private var didPersistUserStateForTermination = false
+
+    override convenience init() {
+        self.init(
+            terminalTerminationCleanup: TerminalTerminationCleanup(),
+            prepareTerminalsForTermination: {
+                await TerminalViewRegistry.shared.prepareForTermination()
+            },
+            replyToApplicationShouldTerminate: {
+                $0.reply(toApplicationShouldTerminate: true)
+            }
+        )
+    }
+
+    init(
+        terminalTerminationCleanup: TerminalTerminationCleanup,
+        prepareTerminalsForTermination: @escaping TerminalTerminationCleanup.Cleanup,
+        replyToApplicationShouldTerminate: @escaping @MainActor (NSApplication) -> Void
+    ) {
+        self.terminalTerminationCleanup = terminalTerminationCleanup
+        self.prepareTerminalsForTermination = prepareTerminalsForTermination
+        self.replyToApplicationShouldTerminate = replyToApplicationShouldTerminate
+        super.init()
+    }
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -518,11 +543,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard !terminalTerminationCleanup.isComplete else { return .terminateNow }
         terminalTerminationCleanup.start(
             timeout: Self.terminalCleanupTimeout,
-            cleanup: {
-                await TerminalViewRegistry.shared.prepareForTermination()
-            },
-            completion: {
-                sender.reply(toApplicationShouldTerminate: true)
+            cleanup: prepareTerminalsForTermination,
+            completion: { [replyToApplicationShouldTerminate] in
+                replyToApplicationShouldTerminate(sender)
             }
         )
         return .terminateLater
