@@ -98,14 +98,7 @@ struct InterfaceSettingsView: View {
 
             SettingsSection("Layout") {
                 SettingsRow("App Layout") {
-                    Picker("", selection: layoutSelection) {
-                        ForEach(AppLayout.allCases) { layout in
-                            Text(L10n.resource(key: layout.title)).tag(layout)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .settingsControl(.intrinsic)
+                    AppLayoutPicker(selection: layoutSelection)
                 }
             }
 
@@ -285,6 +278,21 @@ struct InterfaceSettingsView: View {
     private func refreshThemeNames() {
         currentLightTheme = themeService.currentLightThemeName()
         currentDarkTheme = themeService.currentDarkThemeName()
+    }
+}
+
+struct AppLayoutPicker: View {
+    @Binding var selection: AppLayout
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(AppLayout.allCases) { layout in
+                Text(L10n.resource(key: layout.title)).tag(layout)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .settingsControl(.intrinsic)
     }
 }
 
