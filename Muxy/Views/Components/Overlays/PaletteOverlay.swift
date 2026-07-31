@@ -525,16 +525,17 @@ struct PaletteSearchField: NSViewRepresentable {
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
+            let isComposing = (field.currentEditor() as? NSTextView)?.hasMarkedText() == true
             let currentText = syncText(from: field, skipsMarkedText: true)
 
-            if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() {
-                return
-            }
-            if let field = field as? PaletteNSTextField, field.consumeSubmitAfterMarkedTextCommit() {
+            if !isComposing,
+               let field = field as? PaletteNSTextField,
+               field.consumeSubmitAfterMarkedTextCommit()
+            {
                 submit(currentText)
                 return
             }
-            parent.onQueryChange?(field.stringValue)
+            parent.onQueryChange?(currentText)
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {

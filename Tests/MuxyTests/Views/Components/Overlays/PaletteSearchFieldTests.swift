@@ -192,6 +192,35 @@ struct PaletteSearchFieldTests {
         #expect(query.value == "검색")
     }
 
+    @Test("emits query change while IME marked text is still composing")
+    func emitsQueryChangeWhileIMEMarkedTextIsComposing() {
+        let text = PaletteSearchFieldTextBox()
+        let query = PaletteSearchFieldTextBox()
+        let field = PaletteSearchField(
+            text: Binding(
+                get: { text.value },
+                set: { text.value = $0 }
+            ),
+            placeholder: "Search",
+            onSubmit: {},
+            onEscape: {},
+            onArrowUp: {},
+            onArrowDown: {},
+            onQueryChange: { query.value = $0 }
+        )
+        let coordinator = field.makeCoordinator()
+        let control = MarkedTextField()
+        control.markedEditor.string = "한글"
+
+        coordinator.controlTextDidChange(Notification(
+            name: NSControl.textDidChangeNotification,
+            object: control
+        ))
+
+        #expect(text.value.isEmpty)
+        #expect(query.value == "한글")
+    }
+
     @Test("does not submit while IME marked text is active")
     func doesNotSubmitWhileIMEMarkedTextIsActive() {
         let text = PaletteSearchFieldTextBox()
@@ -404,6 +433,14 @@ private final class PaletteSearchFieldTextBox {
 private final class MarkedTextView: NSTextView {
     override func hasMarkedText() -> Bool {
         true
+    }
+}
+
+private final class MarkedTextField: NSTextField {
+    let markedEditor = MarkedTextView()
+
+    override func currentEditor() -> NSText? {
+        markedEditor
     }
 }
 
