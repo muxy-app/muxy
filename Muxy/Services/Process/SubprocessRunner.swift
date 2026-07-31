@@ -38,12 +38,14 @@ struct SubprocessResult: Sendable {
     var stderr: String { String(data: stderrData, encoding: .utf8) ?? "" }
 }
 
-enum SubprocessRunnerError: LocalizedError {
+enum SubprocessRunnerError: LocalizedError, Equatable {
+    case launchFailed(String)
     case timedOut(TimeInterval)
     case cancelled
 
     var errorDescription: String? {
         switch self {
+        case let .launchFailed(detail): "Process failed to launch: \(detail)"
         case let .timedOut(value): "Process timed out after \(Int(value))s"
         case .cancelled: "Process cancelled"
         }
@@ -137,7 +139,7 @@ private final class SubprocessJob: @unchecked Sendable {
         ) { [weak self] in self?.didTerminate() } } catch { lock.unlock()
             stdoutReader.finish()
             stderrReader.finish()
-            finish(.failure(error))
+            finish(.failure(SubprocessRunnerError.launchFailed(error.localizedDescription)))
             return
         }
         lock.unlock()
@@ -192,11 +194,10 @@ private final class SubprocessJob: @unchecked Sendable {
 
     private func finish(_ result: Result<SubprocessResult, Error>) {
         lock.lock()
-        guard !finished else { lock.unlock()
+        guard !finished, let continuation else { lock.unlock()
             return
         }
         finished = true
-        let continuation = continuation
         self.continuation = nil
         process = nil
         stdoutReader = nil
@@ -204,6 +205,6 @@ private final class SubprocessJob: @unchecked Sendable {
         stdout = nil
         stderr = nil
         lock.unlock()
-        continuation?.resume(with: result)
+        continuation.resume(with: result)
     }
 }

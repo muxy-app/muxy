@@ -114,6 +114,10 @@ final class ProviderDiscoveryService {
                     state: details.state
                 )
             )
+        } catch SubprocessRunnerError.cancelled {
+            return
+        } catch is CancellationError {
+            return
         } catch {
             record(
                 provider: provider,
