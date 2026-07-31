@@ -332,11 +332,11 @@ export const MuxyNotificationPlugin = async ({ client }) => {
 
       if (event.type === "permission.replied") {
         const sessionID = event.properties.sessionID
+        if (childSessions.has(sessionID)) return
         currentSessionID = sessionID
         markRecentReply(sessionID)
         advanceSession(sessionID)
-        if (!childSessions.has(sessionID))
-          await send("working", "", "", sessionID)
+        await send("working", "", "", sessionID)
         return
       }
 
@@ -365,11 +365,11 @@ export const MuxyNotificationPlugin = async ({ client }) => {
         event.type === "question.rejected"
       ) {
         const sessionID = event.properties.sessionID
+        if (childSessions.has(sessionID)) return
         currentSessionID = sessionID
         markRecentReply(sessionID)
         advanceSession(sessionID)
-        if (!childSessions.has(sessionID))
-          await send("working", "", "", sessionID)
+        await send("working", "", "", sessionID)
         return
       }
 
@@ -377,10 +377,10 @@ export const MuxyNotificationPlugin = async ({ client }) => {
 
       const sessionID = event.properties.sessionID
       if (event.properties.status.type !== "idle") {
+        if (childSessions.has(sessionID)) return
         currentSessionID = sessionID
         advanceSession(sessionID)
-        if (!childSessions.has(sessionID))
-          await send("working", "", "", sessionID)
+        await send("working", "", "", sessionID)
         return
       }
 

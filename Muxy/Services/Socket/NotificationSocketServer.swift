@@ -855,7 +855,8 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
         HookHealthStore.shared.noteEvent(providerID: providerID)
         let currentSession = appState.locatePane(paneID: message.paneID)?.pane.agentSession
-        if message.shouldUpdateStatus(currentSession: currentSession, providerID: providerID) {
+        let shouldUpdateStatus = message.shouldUpdateStatus(currentSession: currentSession, providerID: providerID)
+        if shouldUpdateStatus {
             AgentStatusStore.shared.update(
                 paneID: message.paneID,
                 providerID: providerID,
@@ -878,6 +879,7 @@ final class NotificationSocketServer: @unchecked Sendable {
                 replacesExisting: message.replacesSessionIdentity
             )
         }
+        guard shouldUpdateStatus else { return }
         guard !message.title.isEmpty || !message.body.isEmpty else { return }
         dispatchNotification(
             type: message.socketType,

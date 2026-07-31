@@ -447,6 +447,7 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     private func configureAgentDetectionCallback(_ view: any TerminalSurface) {
+        let appState = appState
         view.onDetectedAgentChange = { [weak state, weak view] providerID in
             guard let paneID = state?.id else { return }
             DetectedAgentStore.shared.setAgent(providerID, for: paneID)

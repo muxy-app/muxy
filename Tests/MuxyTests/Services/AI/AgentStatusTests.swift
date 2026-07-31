@@ -35,7 +35,7 @@ struct AgentStatusTests {
         #expect(!finished.replacesSessionIdentity)
     }
 
-    @Test("a late completion cannot idle a newer session")
+    @Test("a late completion cannot update or notify a newer session")
     func lateCompletionDoesNotUpdateNewerSessionStatus() {
         let paneID = UUID()
         let sessionA = AgentSessionReference(providerID: "claude", sessionID: "session-a")

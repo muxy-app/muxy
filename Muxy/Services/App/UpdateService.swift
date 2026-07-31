@@ -66,6 +66,11 @@ enum UpdateSessionRestoration {
         defaults.removeObject(forKey: storageKey)
     }
 
+    static func invalidate(targetBuild: String, defaults: UserDefaults = .standard) {
+        guard State(defaults.dictionary(forKey: storageKey))?.targetBuild == targetBuild else { return }
+        invalidate(defaults: defaults)
+    }
+
     static func consumeEligibility(
         currentBuild: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
         defaults: UserDefaults = .standard
@@ -209,6 +214,7 @@ private final class FeedDelegate: NSObject, SPUUpdaterDelegate {
     private static let noUpdateErrorCode = 1001
 
     var channel: UpdateChannel
+    private var installingTargetBuild: String?
 
     init(channel: UpdateChannel) {
         self.channel = channel
@@ -227,13 +233,17 @@ private final class FeedDelegate: NSObject, SPUUpdaterDelegate {
     }
 
     func updater(_: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        installingTargetBuild = item.versionString
         UpdateSessionRestoration.mark(targetBuild: item.versionString)
         logger.info("Installing update \(item.displayVersionString, privacy: .public)")
     }
 
     func updater(_: SPUUpdater, didAbortWithError error: Error) {
         guard (error as NSError).code != Self.noUpdateErrorCode else { return }
-        UpdateSessionRestoration.invalidate()
+        if let installingTargetBuild {
+            UpdateSessionRestoration.invalidate(targetBuild: installingTargetBuild)
+            self.installingTargetBuild = nil
+        }
         logger.error("Update cycle aborted: \(error.localizedDescription, privacy: .public)")
     }
 }

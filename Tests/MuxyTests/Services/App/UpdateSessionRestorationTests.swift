@@ -112,10 +112,21 @@ struct UpdateSessionRestorationTests {
         let defaults = try makeDefaults()
         UpdateSessionRestoration.mark(targetBuild: "200", currentBuild: "100", defaults: defaults)
 
-        UpdateSessionRestoration.invalidate(defaults: defaults)
+        UpdateSessionRestoration.invalidate(targetBuild: "200", defaults: defaults)
         UpdateSessionRestoration.armForTermination(defaults: defaults)
 
         #expect(!UpdateSessionRestoration.consumeEligibility(currentBuild: "200", defaults: defaults))
+    }
+
+    @Test("an unrelated update failure preserves the restoration marker")
+    func unrelatedUpdateFailurePreservesState() throws {
+        let defaults = try makeDefaults()
+        UpdateSessionRestoration.mark(targetBuild: "200", currentBuild: "100", defaults: defaults)
+
+        UpdateSessionRestoration.invalidate(targetBuild: "300", defaults: defaults)
+        UpdateSessionRestoration.armForTermination(defaults: defaults)
+
+        #expect(UpdateSessionRestoration.consumeEligibility(currentBuild: "200", defaults: defaults))
     }
 
     private func makeDefaults() throws -> UserDefaults {
