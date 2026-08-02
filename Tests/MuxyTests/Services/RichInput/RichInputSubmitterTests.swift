@@ -99,7 +99,7 @@ struct RichInputSubmitterTests {
         let segments = RichInputSubmitter.segmentsForCapabilities(
             [.image(url)],
             strategy: .clipboard,
-            capabilities: [.imagePaste],
+            capabilities: [.upload],
             isRemote: false
         )
 
@@ -112,7 +112,7 @@ struct RichInputSubmitterTests {
         let segments = RichInputSubmitter.segmentsForCapabilities(
             [.image(url)],
             strategy: .inlinePath,
-            capabilities: [.imagePaste],
+            capabilities: [.upload],
             isRemote: false
         )
 
@@ -125,11 +125,109 @@ struct RichInputSubmitterTests {
         let segments = RichInputSubmitter.segmentsForCapabilities(
             [.image(url)],
             strategy: .inlinePath,
-            capabilities: [.imagePaste],
+            capabilities: [.upload],
             isRemote: true
         )
 
         #expect(segments == [.image(url)])
+    }
+
+    @Test("remote terminals upload file attachments")
+    func remoteFileAttachment() {
+        let url = URL(fileURLWithPath: "/tmp/report.pdf")
+        let segments = RichInputSubmitter.segmentsForCapabilities(
+            [.file(url)],
+            strategy: .inlinePath,
+            capabilities: [.upload],
+            isRemote: true
+        )
+
+        #expect(segments == [.file(url)])
+    }
+
+    @Test("local terminals inline the escaped local path for file attachments")
+    func localFileAttachment() {
+        let url = URL(fileURLWithPath: "/tmp/my report.pdf")
+        let segments = RichInputSubmitter.segmentsForCapabilities(
+            [.file(url)],
+            strategy: .inlinePath,
+            capabilities: [.upload],
+            isRemote: false
+        )
+
+        #expect(segments == [.text("'/tmp/my report.pdf'")])
+    }
+
+    @Test("resolved text segments coalesce into a single bracketed paste")
+    func coalescesResolvedText() {
+        let first = URL(fileURLWithPath: "/tmp/a.pdf")
+        let second = URL(fileURLWithPath: "/tmp/b.pdf")
+        let segments = RichInputSubmitter.segmentsForCapabilities(
+            [.file(first), .text(" "), .file(second), .text(" look")],
+            strategy: .inlinePath,
+            capabilities: [.upload],
+            isRemote: false
+        )
+
+        #expect(segments == [.text("/tmp/a.pdf /tmp/b.pdf look")])
+    }
+
+    @Test("file attachments precede the body and keep a single separator")
+    func combinesAttachmentsWithBody() {
+        let first = URL(fileURLWithPath: "/tmp/a.pdf")
+        let second = URL(fileURLWithPath: "/tmp/b.pdf")
+
+        #expect(RichInputSubmitter.combinedSegments(
+            fileAttachments: [first, second],
+            body: "review these",
+            imageAttachments: []
+        ) == [.file(first), .text(" "), .file(second), .text(" "), .text("review these")])
+
+        #expect(RichInputSubmitter.combinedSegments(
+            fileAttachments: [first],
+            body: "   ",
+            imageAttachments: []
+        ) == [.file(first)])
+
+        #expect(RichInputSubmitter.combinedSegments(
+            fileAttachments: [],
+            body: "plain",
+            imageAttachments: []
+        ) == [.text("plain")])
+    }
+
+    @Test("failed file upload clears partial input without sending Return")
+    @MainActor
+    func failedFileUpload() async {
+        let target = RichInputSubmissionTestTarget(pasteSucceeds: true, uploadSucceeds: false)
+
+        let submitted = await RichInputSubmitter.submitSegments(
+            [.file(URL(fileURLWithPath: "/tmp/report.pdf")), .text(" review")],
+            to: target,
+            appendReturn: true
+        )
+
+        #expect(!submitted)
+        #expect(!target.events.contains("return"))
+        #expect(target.events.last?.hasPrefix("clear:") == true)
+    }
+
+    @Test("uploaded file paths are submitted escaped and in order")
+    @MainActor
+    func submitsUploadedFilePaths() async {
+        let target = RichInputSubmissionTestTarget(pasteSucceeds: true)
+
+        let submitted = await RichInputSubmitter.submitSegments(
+            [.file(URL(fileURLWithPath: "/tmp/report.pdf")), .text(" review")],
+            to: target,
+            appendReturn: true
+        )
+
+        #expect(submitted)
+        #expect(target.events.contains("upload:report.pdf"))
+        #expect(target.events.contains("text:/tmp/muxy-uploads.session/report.pdf"))
+        #expect(target.events.contains("text: review"))
+        #expect(target.events.last == "return")
     }
 
     @Test("failed image upload clears partial input without sending Return")
@@ -234,11 +332,12 @@ struct RichInputSubmitterTests {
 @MainActor
 private final class RichInputSubmissionTestTarget:
     TerminalInputTransactionTarget,
-    TerminalImagePasteSurface
+    TerminalUploadSurface
 {
-    let imagePasteWorkspaceContext = WorkspaceContext.local
+    let uploadWorkspaceContext = WorkspaceContext.local
     private let identifier: String
     private let pasteSucceeds: Bool
+    private let uploadSucceeds: Bool
     private let probe: RichInputSubmissionProbe?
     private let queue = TerminalInputQueue()
     private(set) var events: [String] = []
@@ -246,10 +345,12 @@ private final class RichInputSubmissionTestTarget:
     init(
         identifier: String = "target",
         pasteSucceeds: Bool,
+        uploadSucceeds: Bool = true,
         probe: RichInputSubmissionProbe? = nil
     ) {
         self.identifier = identifier
         self.pasteSucceeds = pasteSucceeds
+        self.uploadSucceeds = uploadSucceeds
         self.probe = probe
     }
 
@@ -271,16 +372,22 @@ private final class RichInputSubmissionTestTarget:
         queue.enqueueTransaction(operation)
     }
 
-    func beginImagePaste() -> TerminalImagePasteAttempt? {
+    func beginUpload() -> TerminalUploadAttempt? {
         .local(surfaceGeneration: 0)
     }
 
-    func pasteImageData(_ pngData: Data, attempt: TerminalImagePasteAttempt) async -> Bool {
+    func pasteImageData(_ pngData: Data, attempt: TerminalUploadAttempt) async -> Bool {
         events.append("image")
         if let probe {
             await probe.recordPaste(identifier: identifier, data: pngData)
         }
         return pasteSucceeds
+    }
+
+    func remotePath(forFileAt url: URL, attempt: TerminalUploadAttempt) async -> String? {
+        events.append("upload:\(url.lastPathComponent)")
+        guard uploadSucceeds else { return nil }
+        return "/tmp/muxy-uploads.session/\(url.lastPathComponent)"
     }
 
     func enqueueFollower() -> Bool {

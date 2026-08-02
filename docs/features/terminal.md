@@ -4,7 +4,7 @@ Muxy's terminals are powered by [libghostty](https://github.com/ghostty-org/ghos
 
 ## Backend architecture
 
-Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote control, quick terminal creation, search, rich input, process detection, and offline lifecycle depend on Muxy's backend-neutral terminal surface contract. Optional integrations use dedicated capability protocols, so unsupported search, remote snapshots, client themes, offline lifecycle, raw output, and image paste behavior is never invoked. Image attachments fall back to escaped file paths when a backend does not support clipboard image paste. Ghostty-specific handles and callbacks stay inside the Ghostty implementation boundary. There is no user-facing backend selector until another implementation satisfies the capabilities required by these integrations.
+Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote control, quick terminal creation, search, rich input, process detection, and offline lifecycle depend on Muxy's backend-neutral terminal surface contract. Optional integrations use dedicated capability protocols, so unsupported search, remote snapshots, client themes, offline lifecycle, raw output, and attachment upload behavior is never invoked. Image and file attachments fall back to escaped local file paths when a backend does not support attachment uploads. Ghostty-specific handles and callbacks stay inside the Ghostty implementation boundary. There is no user-facing backend selector until another implementation satisfies the capabilities required by these integrations.
 
 ## Background sessions
 
@@ -104,22 +104,38 @@ Reload the configuration with `⌘⇧R`, then open a new terminal. Ghostty appli
 
 Enable **Settings -> Terminal -> Auto-copy terminal selection** to copy selected terminal text on mouse release.
 
-When an SSH terminal receives an image through `Ctrl+V`, `Cmd+V`, right-click Paste, or Composer, Muxy converts
-the image to PNG away from the main UI thread and uploads it to a private, session-scoped temporary directory on
-the remote device. The remote file path is then pasted into the running TUI, allowing tools such as Codex and
-Claude Code to attach the image without access to the Mac clipboard. Encoded image input and converted PNG output
-are limited to 25 MB, and decoded images are limited to 64 megapixels. Composer image attachments must be regular
-files and are read with a fixed 25 MB cap before decoding, so device files and unbounded streams are rejected.
+### Attachments in SSH panes
 
-Uploaded directories and images use owner-only permissions. Partial uploads are removed when an upload is
+A Mac file path does not resolve on a remote device, so an SSH pane uploads every attachment it receives and
+inlines the remote path instead. Muxy accepts attachments through four routes:
+
+| Route | Accepts |
+| --- | --- |
+| `Ctrl+V`, `Cmd+V`, right-click Paste | Clipboard image data, or files copied in Finder |
+| Drag and drop onto the pane | Files |
+| Composer image attachments | Images |
+| Composer file attachments | Files |
+
+Clipboard image data is converted to PNG away from the main UI thread. Files are streamed as-is with their
+extension preserved, so the receiving TUI still recognizes the type; the remote name is the upload identifier
+rather than the original file name. Each upload lands in a private, session-scoped temporary directory on the
+remote device, and the remote path is pasted into the running TUI, letting tools such as Codex and Claude Code
+read the attachment without access to the Mac.
+
+Encoded image input and converted PNG output are limited to 25 MB, and decoded images are limited to 64
+megapixels. Other files are limited to 100 MB. The upload timeout scales with payload size. Every attachment must
+be a regular file, so directories, device files, and unbounded streams are rejected with a toast naming the file.
+
+Uploaded directories and files use owner-only permissions. Partial uploads are removed when an upload is
 interrupted, and the session directory is removed when its terminal ends. A central cleanup coordinator retains
 outstanding cleanup for both open and already-removed panes. On app quit, Muxy waits up to five seconds for those
 tasks before allowing termination to continue. Text paste behavior is unchanged.
 
-The **Settings -> Terminal -> Composer -> Image Submission** strategy applies to local panes only. SSH panes always
-upload the image and inline its remote path, because a Mac file path does not resolve on the remote device. When an
+The **Settings -> Terminal -> Composer -> Image Submission** strategy applies to local panes only. When a Composer
 upload fails, Muxy withholds Return and clears every line it has already submitted, so a partial prompt is never
-left in the TUI.
+left in the TUI. A dropped or pasted batch inlines whichever files uploaded successfully.
+
+Local panes inline the escaped local path for dropped and pasted files, and are unaffected by upload limits.
 
 ## Mouse
 
@@ -175,10 +191,10 @@ losing your size. **Reset Composer Size** in the Composer's More menu returns it
 editor takes whatever room the box has left, so attachments and the dictation status line reduce it while they
 are visible. `Cmd+=` and `Cmd+-` still change the Composer font size rather than the box.
 
-Each Composer submission is serialized with later keyboard input for its target terminal. Text, image paths, and
-the optional Return are submitted as one transaction, including when a Composer message is broadcast to several
-panes. Broadcast targets are processed one at a time, and each unique image attachment is normalized once into
-validated immutable PNG data that is reused across those targets.
+Each Composer submission is serialized with later keyboard input for its target terminal. Text, attachment paths,
+and the optional Return are submitted as one transaction, including when a Composer message is broadcast to
+several panes. Broadcast targets are processed one at a time, and each unique image attachment is normalized once
+into validated immutable PNG data that is reused across those targets.
 
 Composer submission controls stay unavailable while dictation is starting or recording. A dictation error does
 not block typed text from being sent, and its inline message can be dismissed without closing the composer.

@@ -10,7 +10,7 @@ struct TerminalCapabilities: OptionSet, Sendable {
     static let clientTheme = TerminalCapabilities(rawValue: 1 << 2)
     static let offlineLifecycle = TerminalCapabilities(rawValue: 1 << 3)
     static let search = TerminalCapabilities(rawValue: 1 << 4)
-    static let imagePaste = TerminalCapabilities(rawValue: 1 << 5)
+    static let upload = TerminalCapabilities(rawValue: 1 << 5)
 
     static let ghostty: TerminalCapabilities = [
         .rawOutput,
@@ -18,7 +18,7 @@ struct TerminalCapabilities: OptionSet, Sendable {
         .clientTheme,
         .offlineLifecycle,
         .search,
-        .imagePaste,
+        .upload,
     ]
 }
 
@@ -27,9 +27,9 @@ enum TerminalSearchDirection: String {
     case previous
 }
 
-enum TerminalImagePasteAttempt: Equatable, Sendable {
+enum TerminalUploadAttempt: Equatable, Sendable {
     case local(surfaceGeneration: Int)
-    case remote(RemoteImagePasteAttempt)
+    case remote(RemoteUploadAttempt)
 }
 
 @MainActor
@@ -80,11 +80,12 @@ protocol TerminalSearchSurface: AnyObject {
 }
 
 @MainActor
-protocol TerminalImagePasteSurface: AnyObject {
-    var imagePasteWorkspaceContext: WorkspaceContext { get }
+protocol TerminalUploadSurface: AnyObject {
+    var uploadWorkspaceContext: WorkspaceContext { get }
 
-    func beginImagePaste() -> TerminalImagePasteAttempt?
-    func pasteImageData(_ pngData: Data, attempt: TerminalImagePasteAttempt) async -> Bool
+    func beginUpload() -> TerminalUploadAttempt?
+    func pasteImageData(_ pngData: Data, attempt: TerminalUploadAttempt) async -> Bool
+    func remotePath(forFileAt url: URL, attempt: TerminalUploadAttempt) async -> String?
 }
 
 @MainActor
@@ -182,8 +183,8 @@ extension TerminalSurface {
         if self is any TerminalSearchSurface {
             capabilities.insert(.search)
         }
-        if self is any TerminalImagePasteSurface {
-            capabilities.insert(.imagePaste)
+        if self is any TerminalUploadSurface {
+            capabilities.insert(.upload)
         }
         return capabilities
     }

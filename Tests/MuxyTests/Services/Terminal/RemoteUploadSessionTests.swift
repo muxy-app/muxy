@@ -2,16 +2,16 @@ import Testing
 
 @testable import Muxy
 
-@Suite("Remote image paste session")
+@Suite("Remote upload session")
 @MainActor
-struct RemoteImagePasteSessionTests {
+struct RemoteUploadSessionTests {
     @Test("teardown claims every attempt activated before suspended work")
     func teardownClaimsActiveAttempt() {
         var identifiers = [
             "ABCDEF01-2345-6789-ABCD-EF0123456789",
             "FEDCBA98-7654-3210-FEDC-BA9876543210",
         ]
-        let session = RemoteImagePasteSession(
+        let session = RemoteUploadSession(
             sessionID: "01234567-89AB-CDEF-0123-456789ABCDEF",
             identifierGenerator: { identifiers.removeFirst() }
         )
@@ -36,7 +36,7 @@ struct RemoteImagePasteSessionTests {
 
     @Test("cancellation generation and live surface all gate side effects")
     func sideEffectGates() {
-        let session = RemoteImagePasteSession(
+        let session = RemoteUploadSession(
             sessionID: "01234567-89AB-CDEF-0123-456789ABCDEF",
             identifierGenerator: { "ABCDEF01-2345-6789-ABCD-EF0123456789" }
         )

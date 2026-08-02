@@ -1030,6 +1030,7 @@
 "Copies the vanilla JS + Tailwind starter kit (a working panel, topbar item, and command)" = "Copies the vanilla JS + Tailwind starter kit (a working panel, topbar item, and command)";
 "Could not check remote agent providers" = "Could not check remote agent providers";
 "Could not paste image on remote device" = "Could not paste image on remote device";
+"Could not upload attachment to remote device" = "Could not upload attachment to remote device";
 "Creates the extension in %@/<name>" = "Creates the extension in %@/<name>";
 "Extension Location" = "Extension Location";
 "Extension Output" = "Extension Output";

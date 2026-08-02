@@ -1,13 +1,13 @@
 import Foundation
 
-struct RemoteImagePasteAttempt: Equatable, Sendable {
+struct RemoteUploadAttempt: Equatable, Sendable {
     let sessionID: String
-    let imageID: String
+    let uploadID: String
     let surfaceGeneration: Int
 }
 
 @MainActor
-final class RemoteImagePasteSession {
+final class RemoteUploadSession {
     typealias IdentifierGenerator = @MainActor () -> String
 
     private let identifierGenerator: IdentifierGenerator
@@ -22,17 +22,17 @@ final class RemoteImagePasteSession {
         self.identifierGenerator = identifierGenerator
     }
 
-    func begin(surfaceGeneration: Int) -> RemoteImagePasteAttempt {
+    func begin(surfaceGeneration: Int) -> RemoteUploadAttempt {
         isActive = true
-        return RemoteImagePasteAttempt(
+        return RemoteUploadAttempt(
             sessionID: sessionID,
-            imageID: identifierGenerator(),
+            uploadID: identifierGenerator(),
             surfaceGeneration: surfaceGeneration
         )
     }
 
     func permitsSideEffects(
-        for attempt: RemoteImagePasteAttempt,
+        for attempt: RemoteUploadAttempt,
         surfaceGeneration: Int,
         hasLiveSurface: Bool,
         isCancelled: Bool

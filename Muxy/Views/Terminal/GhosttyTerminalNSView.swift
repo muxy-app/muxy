@@ -10,14 +10,14 @@ final class GhosttyTerminalNSView: NSView,
     TerminalClientThemeSurface,
     TerminalOfflineSurface,
     TerminalSearchSurface,
-    TerminalImagePasteSurface,
+    TerminalUploadSurface,
     TerminalBackgroundingSurface,
     TerminalSessionRecoverySurface
 {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     var terminalView: NSView { self }
     let backend = TerminalBackend.ghostty
-    var imagePasteWorkspaceContext: WorkspaceContext { workspaceContext }
+    var uploadWorkspaceContext: WorkspaceContext { workspaceContext }
     private var surfaceFocused: Bool?
     private var workingDirectory: String
     private let command: String?
@@ -110,8 +110,8 @@ final class GhosttyTerminalNSView: NSView,
     private let terminalInputQueue = TerminalInputQueue()
     private var surfaceGeneration = 0
     private static let imagePasteDelay: Duration = .milliseconds(300)
-    private let remoteImagePasteSession = RemoteImagePasteSession()
-    private var precedingRemoteImageCleanup: Task<Void, Never>?
+    private let remoteUploadSession = RemoteUploadSession()
+    private var precedingRemoteUploadCleanup: Task<Void, Never>?
 
     init(
         workingDirectory: String,
@@ -334,7 +334,7 @@ final class GhosttyTerminalNSView: NSView,
     func destroySurface() {
         surfaceGeneration += 1
         let cancelledWorker = terminalInputQueue.cancelAll()
-        scheduleRemoteImageCleanup(after: cancelledWorker)
+        scheduleRemoteUploadCleanup(after: cancelledWorker)
         if let surface {
             if let paneID = streamedPaneID {
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: self)
@@ -874,8 +874,9 @@ final class GhosttyTerminalNSView: NSView,
 
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-        if Self.isImagePasteShortcut(keyCode: event.keyCode, modifierFlags: flags), pasteboardHasImage() {
-            scheduleSystemImagePaste()
+        if Self.isImagePasteShortcut(keyCode: event.keyCode, modifierFlags: flags),
+           schedulePasteboardAttachment()
+        {
             return
         }
         performOrDefer { $0.processKeyDown(event) }
@@ -1028,8 +1029,9 @@ final class GhosttyTerminalNSView: NSView,
         let hasActionModifier = flags.contains(.command) || flags.contains(.control) || flags.contains(.option)
         guard hasActionModifier else { return false }
 
-        if Self.isImagePasteShortcut(keyCode: event.keyCode, modifierFlags: flags), pasteboardHasImage() {
-            scheduleSystemImagePaste()
+        if Self.isImagePasteShortcut(keyCode: event.keyCode, modifierFlags: flags),
+           schedulePasteboardAttachment()
+        {
             return true
         }
 
@@ -1566,7 +1568,7 @@ final class GhosttyTerminalNSView: NSView,
         let paste = ClosureMenuItem(title: L10n.string("Paste")) { [weak self] in
             self?.performContextPaste()
         }
-        paste.isEnabled = NSPasteboard.general.string(forType: .string).map { !$0.isEmpty } ?? pasteboardHasImage()
+        paste.isEnabled = pasteboardHasPastableContent()
         menu.addItem(paste)
 
         menu.addItem(.separator())
@@ -1602,12 +1604,34 @@ final class GhosttyTerminalNSView: NSView,
 
     private func performContextPaste() {
         window?.makeFirstResponder(self)
-        if pasteboardHasImage() {
-            scheduleSystemImagePaste()
+        if schedulePasteboardAttachment() {
             return
         }
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
         insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+
+    private func schedulePasteboardAttachment() -> Bool {
+        if pasteboardHasImage() {
+            scheduleSystemImagePaste()
+            return true
+        }
+        let urls = pasteboardFileURLs()
+        guard !urls.isEmpty else { return false }
+        insertPaths(for: urls)
+        return true
+    }
+
+    private func pasteboardFileURLs() -> [URL] {
+        guard NSPasteboard.general.string(forType: .string) == nil else { return [] }
+        return PasteboardFileURLs.urls(in: .general)
+    }
+
+    private func pasteboardHasPastableContent() -> Bool {
+        if let text = NSPasteboard.general.string(forType: .string) {
+            return !text.isEmpty
+        }
+        return pasteboardHasImage() || !PasteboardFileURLs.urls(in: .general).isEmpty
     }
 
     nonisolated static func isImagePasteShortcut(
@@ -1635,7 +1659,7 @@ final class GhosttyTerminalNSView: NSView,
             return
         }
         terminalInputQueue.enqueue { [weak self] in
-            guard !Task.isCancelled, let attempt = self?.beginImagePaste() else { return }
+            guard !Task.isCancelled, let attempt = self?.beginUpload() else { return }
             do {
                 let pngData = try await ImagePasteData.pngData(from: sourceData)
                 guard !Task.isCancelled, let self else { return }
@@ -2053,15 +2077,15 @@ final class GhosttyTerminalNSView: NSView,
         terminalInputQueue.enqueueTransaction(operation)
     }
 
-    func beginImagePaste() -> TerminalImagePasteAttempt? {
+    func beginUpload() -> TerminalUploadAttempt? {
         guard surface != nil else { return nil }
         if workspaceContext.sshDestination != nil {
-            return .remote(remoteImagePasteSession.begin(surfaceGeneration: surfaceGeneration))
+            return .remote(remoteUploadSession.begin(surfaceGeneration: surfaceGeneration))
         }
         return .local(surfaceGeneration: surfaceGeneration)
     }
 
-    func pasteImageData(_ pngData: Data, attempt: TerminalImagePasteAttempt) async -> Bool {
+    func pasteImageData(_ pngData: Data, attempt: TerminalUploadAttempt) async -> Bool {
         guard pasteAttemptPermitsSideEffects(attempt) else { return false }
         switch attempt {
         case let .remote(remoteAttempt):
@@ -2076,7 +2100,55 @@ final class GhosttyTerminalNSView: NSView,
         }
     }
 
-    private func pasteLocalImage(pngData: Data, attempt: TerminalImagePasteAttempt) async -> Bool {
+    private func insertPaths(for urls: [URL]) {
+        guard workspaceContext.sshDestination != nil else {
+            let text = urls.map { ShellEscaper.escape($0.path) }.joined(separator: " ")
+            insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            return
+        }
+        terminalInputQueue.enqueue { [weak self] in
+            guard let self else { return }
+            var escapedPaths: [String] = []
+            for url in urls {
+                guard !Task.isCancelled, let attempt = beginUpload() else { return }
+                guard let remotePath = await remotePath(forFileAt: url, attempt: attempt) else { continue }
+                escapedPaths.append(ShellEscaper.escape(remotePath))
+            }
+            guard !Task.isCancelled, !escapedPaths.isEmpty else { return }
+            submitRichInput(text: escapedPaths.joined(separator: " "))
+        }
+    }
+
+    func remotePath(forFileAt url: URL, attempt: TerminalUploadAttempt) async -> String? {
+        guard case let .remote(remoteAttempt) = attempt else { return nil }
+        guard pasteAttemptPermitsSideEffects(attempt) else { return nil }
+        guard let destination = workspaceContext.sshDestination else { return nil }
+        do {
+            let data = try await Task.detached(priority: .userInitiated) {
+                try RegularFileReader.data(
+                    contentsOf: url,
+                    maximumByteCount: RemoteUploadService.maximumByteCount
+                )
+            }.value
+            guard pasteAttemptPermitsSideEffects(attempt) else { return nil }
+            return try await RemoteUploadService.upload(
+                data: data,
+                fileExtension: RemoteUploadService.sanitizedExtension(for: url),
+                destination: destination,
+                sessionID: remoteAttempt.sessionID,
+                uploadID: remoteAttempt.uploadID
+            )
+        } catch {
+            guard !Task.isCancelled else { return nil }
+            ToastState.shared.show(
+                title: L10n.string("Could not upload attachment to remote device"),
+                body: "\(url.lastPathComponent): \(error.localizedDescription)"
+            )
+            return nil
+        }
+    }
+
+    private func pasteLocalImage(pngData: Data, attempt: TerminalUploadAttempt) async -> Bool {
         guard pasteAttemptPermitsSideEffects(attempt) else { return false }
         let savedClipboard = SystemPasteboardSnapshot.capture()
         defer { SystemPasteboardSnapshot.restore(items: savedClipboard) }
@@ -2091,15 +2163,16 @@ final class GhosttyTerminalNSView: NSView,
     private func pasteRemoteImage(
         pngData: Data,
         destination: SSHDestination,
-        attempt: RemoteImagePasteAttempt
+        attempt: RemoteUploadAttempt
     ) async -> Bool {
         guard pasteAttemptPermitsSideEffects(.remote(attempt)) else { return false }
         do {
-            let remotePath = try await RemoteImagePasteService.upload(
-                pngData: pngData,
+            let remotePath = try await RemoteUploadService.upload(
+                data: pngData,
+                fileExtension: "png",
                 destination: destination,
                 sessionID: attempt.sessionID,
-                imageID: attempt.imageID
+                uploadID: attempt.uploadID
             )
             guard pasteAttemptPermitsSideEffects(.remote(attempt)) else { return false }
             submitRichInput(text: ShellEscaper.escape(remotePath))
@@ -2114,12 +2187,12 @@ final class GhosttyTerminalNSView: NSView,
         }
     }
 
-    private func pasteAttemptPermitsSideEffects(_ attempt: TerminalImagePasteAttempt) -> Bool {
+    private func pasteAttemptPermitsSideEffects(_ attempt: TerminalUploadAttempt) -> Bool {
         switch attempt {
         case let .local(surfaceGeneration):
             !Task.isCancelled && surface != nil && self.surfaceGeneration == surfaceGeneration
         case let .remote(remoteAttempt):
-            remoteImagePasteSession.permitsSideEffects(
+            remoteUploadSession.permitsSideEffects(
                 for: remoteAttempt,
                 surfaceGeneration: surfaceGeneration,
                 hasLiveSurface: surface != nil,
@@ -2131,16 +2204,16 @@ final class GhosttyTerminalNSView: NSView,
     func scheduleTerminationCleanup() {
         surfaceGeneration += 1
         let cancelledWorker = terminalInputQueue.cancelAll()
-        scheduleRemoteImageCleanup(after: cancelledWorker)
+        scheduleRemoteUploadCleanup(after: cancelledWorker)
     }
 
-    private func scheduleRemoteImageCleanup(after cancelledWorker: Task<Void, Never>?) {
+    private func scheduleRemoteUploadCleanup(after cancelledWorker: Task<Void, Never>?) {
         guard let destination = workspaceContext.sshDestination,
-              let sessionID = remoteImagePasteSession.takeActiveSessionForCleanup()
+              let sessionID = remoteUploadSession.takeActiveSessionForCleanup()
         else { return }
-        let precedingTasks = [precedingRemoteImageCleanup, cancelledWorker].compactMap(\.self)
-        precedingRemoteImageCleanup = TerminalCleanupCoordinator.shared.schedule(after: precedingTasks) {
-            await RemoteImagePasteService.remove(sessionID: sessionID, destination: destination)
+        let precedingTasks = [precedingRemoteUploadCleanup, cancelledWorker].compactMap(\.self)
+        precedingRemoteUploadCleanup = TerminalCleanupCoordinator.shared.schedule(after: precedingTasks) {
+            await RemoteUploadService.remove(sessionID: sessionID, destination: destination)
         }
     }
 
@@ -2329,19 +2402,18 @@ extension GhosttyTerminalNSView {
         onExternalDragHoverChange?(false)
         let paths = droppedPaths(from: sender)
         guard !paths.isEmpty else { return false }
-        let text = paths.map { ShellEscaper.escape($0) }.joined(separator: " ")
-        scheduleFocusAndInsertAfterDrop(text: text)
+        scheduleFocusAndInsertAfterDrop(urls: paths.map { URL(fileURLWithPath: $0) })
         return true
     }
 
-    private func scheduleFocusAndInsertAfterDrop(text: String) {
+    private func scheduleFocusAndInsertAfterDrop(urls: [URL]) {
         RunLoop.main.perform(inModes: [.default]) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 NSApp.activate()
                 self.window?.makeKeyAndOrderFront(nil)
                 self.window?.makeFirstResponder(self)
-                self.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                self.insertPaths(for: urls)
             }
         }
     }
