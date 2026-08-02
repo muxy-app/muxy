@@ -8,9 +8,10 @@ enum SSHInvocationParser {
 
     private static let unreproducibleOptions: Set<Character> = ["J", "F", "W"]
 
-    private static let unreproducibleKeywords = [
-        "proxyjump",
+    private static let unreproducibleKeywords: Set<String> = [
+        "hostname",
         "proxycommand",
+        "proxyjump",
         "remotecommand",
     ]
 
@@ -30,10 +31,7 @@ enum SSHInvocationParser {
             let argument = arguments[index]
             index += 1
 
-            if target != nil {
-                continue
-            }
-            if argument == "--" {
+            if target != nil || argument == "--" {
                 continue
             }
             guard argument.hasPrefix("-"), argument.count > 1 else {
@@ -41,20 +39,13 @@ enum SSHInvocationParser {
                 continue
             }
 
-            var characters = Array(argument.dropFirst())
+            let characters = Array(argument.dropFirst())
             var characterIndex = 0
             while characterIndex < characters.count {
                 let flag = characters[characterIndex]
                 characterIndex += 1
-                guard optionsTakingValue.contains(flag) else {
-                    if unreproducibleOptions.contains(flag) {
-                        return nil
-                    }
-                    continue
-                }
-                if unreproducibleOptions.contains(flag) {
-                    return nil
-                }
+                guard optionsTakingValue.contains(flag) else { continue }
+                guard !unreproducibleOptions.contains(flag) else { return nil }
 
                 let inlineValue = String(characters[characterIndex...])
                 let value: String
@@ -69,19 +60,24 @@ enum SSHInvocationParser {
 
                 switch flag {
                 case "p":
-                    guard let parsed = Int(value), (1 ... 65535).contains(parsed) else { return nil }
-                    port = parsed
+                    guard let parsed = parsedPort(value) else { return nil }
+                    port = port ?? parsed
                 case "l":
-                    user = value
+                    user = user ?? value
                 case "i":
-                    identityFile = value
+                    identityFile = identityFile ?? value
                 case "o":
-                    guard isReproducibleOption(value) else { return nil }
+                    guard applyOption(
+                        value,
+                        user: &user,
+                        port: &port,
+                        identityFile: &identityFile
+                    )
+                    else { return nil }
                 default:
                     continue
                 }
             }
-            characters = []
         }
 
         guard let target else { return nil }
@@ -94,12 +90,47 @@ enum SSHInvocationParser {
         return !invocation.arguments.isEmpty
     }
 
-    private static func isReproducibleOption(_ value: String) -> Bool {
-        let keyword = value.split(separator: "=", maxSplits: 1).first.map {
-            $0.trimmingCharacters(in: .whitespaces).lowercased()
+    private static func applyOption(
+        _ option: String,
+        user: inout String?,
+        port: inout Int?,
+        identityFile: inout String?
+    ) -> Bool {
+        guard let (keyword, value) = splitOption(option) else { return false }
+        guard !unreproducibleKeywords.contains(keyword) else { return false }
+
+        switch keyword {
+        case "port":
+            guard let parsed = parsedPort(value) else { return false }
+            port = port ?? parsed
+        case "user":
+            guard !value.isEmpty else { return false }
+            user = user ?? value
+        case "identityfile":
+            guard !value.isEmpty else { return false }
+            identityFile = identityFile ?? value
+        default:
+            return true
         }
-        guard let keyword else { return true }
-        return !unreproducibleKeywords.contains(keyword)
+        return true
+    }
+
+    private static func splitOption(_ option: String) -> (keyword: String, value: String)? {
+        guard let separatorIndex = option.firstIndex(where: { $0 == "=" || $0.isWhitespace }) else {
+            return nil
+        }
+        let keyword = option[option.startIndex ..< separatorIndex]
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+        let value = option[option.index(after: separatorIndex)...]
+            .trimmingCharacters(in: .whitespaces)
+        guard !keyword.isEmpty else { return nil }
+        return (keyword, value)
+    }
+
+    private static func parsedPort(_ value: String) -> Int? {
+        guard let parsed = Int(value), (1 ... 65535).contains(parsed) else { return nil }
+        return parsed
     }
 
     private static func destination(

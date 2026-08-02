@@ -135,6 +135,62 @@ struct SSHInvocationParserTests {
         #expect(destination.host == "example.com")
     }
 
+    @Test("applies -o values that change where the upload connects")
+    func appliesRoutingOptions() throws {
+        let destination = try #require(SSHInvocationParser.destination(arguments: [
+            "-o", "Port=2222",
+            "-o", "User=deploy",
+            "-o", "IdentityFile=/Users/me/.ssh/id_ed25519",
+            "example.com",
+        ]))
+
+        #expect(destination.port == 2222)
+        #expect(destination.user == "deploy")
+        #expect(destination.identityFile == "/Users/me/.ssh/id_ed25519")
+    }
+
+    @Test("matches ssh precedence where the first value of a repeated option wins")
+    func firstValueWins() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["-p", "2222", "-o", "Port=3333", "example.com"]
+        ))
+
+        #expect(destination.port == 2222)
+    }
+
+    @Test("user@host still overrides an earlier login option")
+    func targetUserOverridesOption() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["-l", "ignored", "deploy@example.com"]
+        ))
+
+        #expect(destination.user == "deploy")
+    }
+
+    @Test("refuses whitespace separated options the same as equals separated ones")
+    func refusesWhitespaceSeparatedOption() {
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-o", "ProxyJump jump", "example.com"]
+        ) == nil)
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-o", "ProxyCommand nc %h %p", "example.com"]
+        ) == nil)
+    }
+
+    @Test("refuses an option that rewrites the host behind an alias")
+    func refusesHostNameOverride() {
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-o", "HostName=real.example.com", "alias"]
+        ) == nil)
+    }
+
+    @Test("refuses a malformed or empty -o value")
+    func refusesMalformedOption() {
+        #expect(SSHInvocationParser.destination(arguments: ["-o", "NoSeparator", "example.com"]) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-o", "Port=abc", "example.com"]) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-o", "User=", "example.com"]) == nil)
+    }
+
     @Test("only matches an ssh executable")
     func onlySSHExecutable() {
         #expect(SSHInvocationParser.destination(from: ProcessInvocation(
