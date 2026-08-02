@@ -25,6 +25,23 @@ enum SocketCommandHandler {
         }
 
         switch cmd {
+        case "config-export":
+            guard let archiveURL = backupURL(from: parts) else { return "error:usage config-export|path" }
+            do {
+                try await BackupService().exportCurrent(to: archiveURL)
+                return "ok"
+            } catch {
+                return "error:\(error.localizedDescription)"
+            }
+        case "config-import":
+            guard let archiveURL = backupURL(from: parts) else { return "error:usage config-import|path" }
+            do {
+                try await BackupService().importAndApply(from: archiveURL)
+                try AppRelaunch.relaunch()
+                return "ok"
+            } catch {
+                return "error:\(error.localizedDescription)"
+            }
         case "split-right":
             return handleSplit(
                 direction: .horizontal,
@@ -967,6 +984,13 @@ enum SocketCommandHandler {
         return trimmed
     }
 
+    private static func backupURL(from parts: [String]) -> URL? {
+        guard parts.count >= 2 else { return nil }
+        let path = parts.dropFirst().joined(separator: "|")
+        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+    }
+
     @MainActor
     private static func handleSplit(
         direction: SplitDirection,
@@ -1037,6 +1061,9 @@ enum SocketCommandHandler {
     }
 
     static func requiredPermissions(command: String, parts: [String]) -> [ExtensionPermission] {
+        if command == "config-export" || command == "config-import" {
+            return [.filesRead, .filesWrite]
+        }
         if command.hasPrefix("browser."), parts.count >= 2 {
             let args = decodeJSONObject(parts[1]) ?? [:]
             return MuxyAPI.Permissions.required(for: command, args: args).map { [$0] } ?? []

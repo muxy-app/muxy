@@ -44,6 +44,29 @@ struct BackupService {
         }
     }
 
+    @MainActor
+    func exportCurrent(to archiveURL: URL, createdAt: Date = Date()) async throws {
+        SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
+        try await export(to: archiveURL, appVersion: currentAppVersion, createdAt: createdAt)
+    }
+
+    @MainActor
+    func importAndApply(from archiveURL: URL) async throws {
+        let backupDirectory = try await importBackup(from: archiveURL, backupStamp: backupStamp())
+        do {
+            try SettingsJSONStore.applyUserSettingsFile()
+        } catch {
+            try await restoreFromPreImport(backupDirectory: backupDirectory)
+            throw error
+        }
+    }
+
+    private func restoreFromPreImport(backupDirectory: URL) async throws {
+        try await GitProcessRunner.offMainThrowing {
+            try restoreCurrentData(from: backupDirectory)
+        }
+    }
+
     @discardableResult
     private func performImport(from archiveURL: URL, backupStamp: String) throws -> URL {
         let staging = try makeTemporaryDirectory()
@@ -213,5 +236,16 @@ struct BackupService {
             .appendingPathComponent("muxy-backup-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private var currentAppVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    private func backupStamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.string(from: Date())
     }
 }

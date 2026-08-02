@@ -15,6 +15,42 @@ struct SocketCommandHandlerTests {
         #expect(result.hasPrefix("error:"))
     }
 
+    @Test("config-export requires a destination path")
+    func exportConfigRequiresPath() async {
+        let appState = makeAppState()
+        let result = await SocketCommandHandler.handleRequest("config-export", appState: appState)
+        #expect(result == "error:usage config-export|path")
+    }
+
+    @Test("config-import requires a source path")
+    func importConfigRequiresPath() async {
+        let appState = makeAppState()
+        let result = await SocketCommandHandler.handleRequest("config-import", appState: appState)
+        #expect(result == "error:usage config-import|path")
+    }
+
+    @Test("config-import rejects an invalid archive")
+    func importConfigRejectsInvalidArchive() async throws {
+        let appState = makeAppState()
+        let archive = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-invalid-\(UUID().uuidString).muxy")
+        try Data("invalid".utf8).write(to: archive)
+        defer { try? FileManager.default.removeItem(at: archive) }
+
+        let result = await SocketCommandHandler.handleRequest(
+            "config-import|\(archive.path)",
+            appState: appState
+        )
+
+        #expect(result.hasPrefix("error:"))
+    }
+
+    @Test("config backup commands require file permissions for extensions")
+    func configBackupRequiresFilePermissions() {
+        #expect(SocketCommandHandler.requiredPermissions(command: "config-export", parts: ["config-export", "/tmp/backup.muxy"]) == [.filesRead, .filesWrite])
+        #expect(SocketCommandHandler.requiredPermissions(command: "config-import", parts: ["config-import", "/tmp/backup.muxy"]) == [.filesRead, .filesWrite])
+    }
+
     @Test("split-right returns new pane ID")
     func splitReturnsNewPaneID() async {
         let appState = makeAppState()

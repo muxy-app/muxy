@@ -22,6 +22,22 @@ Run `muxy <command> --help` (or `-h`) to see the options for a single command:
 muxy create-worktree --help
 ```
 
+## Backup Muxy configuration
+
+Export the full Muxy backup used by the Settings UI:
+
+```bash
+muxy config export ~/Backups/muxy.muxy
+```
+
+Import a backup:
+
+```bash
+muxy config import ~/Backups/muxy.muxy
+```
+
+Import replaces current Muxy data, creates the existing pre-import backup, and restarts Muxy after the restore completes.
+
 ## Open a project
 
 Open the current folder:
