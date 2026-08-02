@@ -36,6 +36,21 @@ struct CreateWorktreeSheetTests {
         #expect(state.selectedBaseBranch == "develop")
     }
 
+    @Test("loaded branches preserve existing selections")
+    func loadedBranchesPreserveSelections() {
+        var state = WorktreeBranchLoadState()
+        state.selectedExistingBranch = "feature"
+        state.selectedBaseBranch = "develop"
+
+        state.finishLoading(
+            branches: ["feature", "develop", "main"],
+            defaultBranch: "main"
+        )
+
+        #expect(state.selectedExistingBranch == "feature")
+        #expect(state.selectedBaseBranch == "develop")
+    }
+
     @Test("branch loading failure leaves selection disabled")
     func branchLoadingFailure() {
         var state = WorktreeBranchLoadState()
