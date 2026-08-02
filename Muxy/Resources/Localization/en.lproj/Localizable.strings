@@ -444,6 +444,7 @@
 "Load Errors" = "Load Errors";
 "Load an extension from any folder for development" = "Load an extension from any folder for development";
 "Loading %@…" = "Loading %@…";
+"Loading branches…" = "Loading branches…";
 "Loading Worktrees…" = "Loading Worktrees…";
 "Loading extensions…" = "Loading extensions…";
 "Loading repository status" = "Loading repository status";

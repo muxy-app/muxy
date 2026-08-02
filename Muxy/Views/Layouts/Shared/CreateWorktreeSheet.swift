@@ -24,6 +24,7 @@ struct CreateWorktreeSheet: View {
     @State private var selectedExistingBranch: String = ""
     @State private var localLocationSelection = WorktreeLocationSelection()
     @State private var availableBranches: [String] = []
+    @State private var isLoadingBranches = true
     @State private var selectedBaseBranch: String = ""
     @State private var setupCommands: [String] = []
     @State private var runSetup = false
@@ -66,23 +67,12 @@ struct CreateWorktreeSheet: View {
                 }
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                     Text(L10n.resource("Base Branch")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
-                    Picker("", selection: $selectedBaseBranch) {
-                        ForEach(availableBranches, id: \.self) { branch in
-                            Text(branch).tag(branch)
-                        }
-                    }
-                    .labelsHidden()
-                    .disabled(availableBranches.isEmpty)
+                    branchPicker(selection: $selectedBaseBranch)
                 }
             } else {
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                     Text(L10n.resource("Branch")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
-                    Picker("", selection: $selectedExistingBranch) {
-                        ForEach(availableBranches, id: \.self) { branch in
-                            Text(branch).tag(branch)
-                        }
-                    }
-                    .labelsHidden()
+                    branchPicker(selection: $selectedExistingBranch)
                 }
             }
 
@@ -136,6 +126,29 @@ struct CreateWorktreeSheet: View {
             } else {
                 localLocationRow
             }
+        }
+    }
+
+    @ViewBuilder
+    private func branchPicker(selection: Binding<String>) -> some View {
+        if isLoadingBranches {
+            HStack(spacing: UIMetrics.spacing3) {
+                ProgressView().controlSize(.small)
+                Text(L10n.resource("Loading branches…"))
+                    .font(.system(size: UIMetrics.fontFootnote))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+            }
+            .frame(maxWidth: .infinity, minHeight: UIMetrics.controlMedium, alignment: .leading)
+            .padding(.horizontal, UIMetrics.spacing3)
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+        } else {
+            Picker("", selection: selection) {
+                ForEach(availableBranches, id: \.self) { branch in
+                    Text(branch).tag(branch)
+                }
+            }
+            .labelsHidden()
+            .disabled(availableBranches.isEmpty)
         }
     }
 
@@ -368,6 +381,7 @@ struct CreateWorktreeSheet: View {
 
     private var canCreate: Bool {
         guard workspaceContext != nil else { return false }
+        guard !isLoadingBranches else { return false }
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         if project.isRemote, remotePath.trimmingCharacters(in: .whitespaces).isEmpty {
             return false
@@ -381,11 +395,12 @@ struct CreateWorktreeSheet: View {
         return !selectedExistingBranch.isEmpty
     }
 
+    @MainActor
     private func loadBranches() async {
+        isLoadingBranches = true
+        defer { isLoadingBranches = false }
         guard let workspaceContext else {
-            await MainActor.run {
-                errorMessage = "The remote context for \(project.name) is unavailable."
-            }
+            errorMessage = "The remote context for \(project.name) is unavailable."
             return
         }
         let gitRepository = GitRepositoryService(context: workspaceContext)
@@ -394,23 +409,19 @@ struct CreateWorktreeSheet: View {
             async let defaultValue = gitRepository.defaultBranch(repoPath: project.path)
             let branches = try await branchesValue
             let resolvedDefault = await defaultValue
-            await MainActor.run {
-                availableBranches = branches
-                if selectedExistingBranch.isEmpty {
-                    selectedExistingBranch = branches.first ?? ""
-                }
-                if selectedBaseBranch.isEmpty {
-                    if let resolvedDefault, branches.contains(resolvedDefault) {
-                        selectedBaseBranch = resolvedDefault
-                    } else {
-                        selectedBaseBranch = branches.first ?? ""
-                    }
+            availableBranches = branches
+            if selectedExistingBranch.isEmpty {
+                selectedExistingBranch = branches.first ?? ""
+            }
+            if selectedBaseBranch.isEmpty {
+                if let resolvedDefault, branches.contains(resolvedDefault) {
+                    selectedBaseBranch = resolvedDefault
+                } else {
+                    selectedBaseBranch = branches.first ?? ""
                 }
             }
         } catch {
-            await MainActor.run {
-                errorMessage = error.localizedDescription
-            }
+            errorMessage = error.localizedDescription
         }
     }
 
