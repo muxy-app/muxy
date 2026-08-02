@@ -6,6 +6,138 @@ enum CreateWorktreeResult {
     case cancelled
 }
 
+struct WorktreeBranchLoadState: Equatable {
+    var branches: [String] = []
+    var selectedExistingBranch = ""
+    var selectedBaseBranch = ""
+    private(set) var isLoading = true
+
+    mutating func beginLoading() {
+        isLoading = true
+    }
+
+    mutating func finishLoading(branches: [String], defaultBranch: String?) {
+        self.branches = branches
+        if selectedExistingBranch.isEmpty {
+            selectedExistingBranch = branches.first ?? ""
+        }
+        if selectedBaseBranch.isEmpty {
+            if let defaultBranch, branches.contains(defaultBranch) {
+                selectedBaseBranch = defaultBranch
+            } else {
+                selectedBaseBranch = branches.first ?? ""
+            }
+        }
+        isLoading = false
+    }
+
+    mutating func failLoading() {
+        isLoading = false
+    }
+}
+
+private struct WorktreeBranchPicker: View {
+    private struct BranchOption: Identifiable {
+        let name: String
+        var id: String { name }
+    }
+
+    let label: String
+    let branches: [String]
+    let isLoading: Bool
+    @Binding var selection: String
+    @State private var isPresented = false
+
+    private var options: [BranchOption] {
+        branches.map(BranchOption.init)
+    }
+
+    var body: some View {
+        if isLoading {
+            loadingField
+        } else {
+            selectionButton
+        }
+    }
+
+    private var loadingField: some View {
+        HStack(spacing: UIMetrics.spacing3) {
+            ProgressView().controlSize(.small)
+            Text(L10n.resource("Loading branches…"))
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .frame(maxWidth: .infinity, minHeight: UIMetrics.controlMedium, alignment: .leading)
+        .padding(.horizontal, UIMetrics.spacing3)
+        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(L10n.string("Loading branches…"))
+    }
+
+    private var selectionButton: some View {
+        Button {
+            isPresented = true
+        } label: {
+            HStack(spacing: UIMetrics.spacing3) {
+                if selection.isEmpty {
+                    Text(L10n.resource("No branches"))
+                        .foregroundStyle(MuxyTheme.fgDim)
+                } else {
+                    Text(selection)
+                        .foregroundStyle(MuxyTheme.fg)
+                }
+                Spacer(minLength: UIMetrics.spacing3)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fgDim)
+            }
+            .font(.system(size: UIMetrics.fontFootnote))
+            .padding(.horizontal, UIMetrics.spacing3)
+            .frame(maxWidth: .infinity, minHeight: UIMetrics.controlMedium, alignment: .leading)
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(branches.isEmpty)
+        .accessibilityLabel(label)
+        .accessibilityValue(selection.isEmpty ? L10n.string("No branches") : selection)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            PopoverPicker(
+                items: options,
+                filterKey: \.name,
+                searchPlaceholder: L10n.string("Search branches…"),
+                emptyLabel: L10n.string("No branches"),
+                onSelect: select,
+                row: { option, isHighlighted in
+                    HStack(spacing: UIMetrics.spacing3) {
+                        Text(option.name)
+                            .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: UIMetrics.spacing3)
+                        if option.name == selection {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                                .foregroundStyle(MuxyTheme.accent)
+                        }
+                    }
+                    .foregroundStyle(MuxyTheme.fg)
+                    .padding(.horizontal, UIMetrics.spacing5)
+                    .padding(.vertical, UIMetrics.spacing3)
+                    .background(isHighlighted ? MuxyTheme.surface : .clear)
+                }
+            )
+        }
+    }
+
+    private func select(_ option: BranchOption) {
+        selection = option.name
+        isPresented = false
+    }
+}
+
 struct CreateWorktreeSheet: View {
     let project: Project
     let onFinish: (CreateWorktreeResult) -> Void
@@ -21,11 +153,8 @@ struct CreateWorktreeSheet: View {
     @State private var branchName: String = ""
     @State private var branchNameEdited = false
     @State private var createNewBranch = true
-    @State private var selectedExistingBranch: String = ""
     @State private var localLocationSelection = WorktreeLocationSelection()
-    @State private var availableBranches: [String] = []
-    @State private var isLoadingBranches = true
-    @State private var selectedBaseBranch: String = ""
+    @State private var branchLoadState = WorktreeBranchLoadState()
     @State private var setupCommands: [String] = []
     @State private var runSetup = false
     @State private var inProgress = false
@@ -67,12 +196,22 @@ struct CreateWorktreeSheet: View {
                 }
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                     Text(L10n.resource("Base Branch")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
-                    branchPicker(selection: $selectedBaseBranch)
+                    WorktreeBranchPicker(
+                        label: L10n.string("Base Branch"),
+                        branches: branchLoadState.branches,
+                        isLoading: branchLoadState.isLoading,
+                        selection: $branchLoadState.selectedBaseBranch
+                    )
                 }
             } else {
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                     Text(L10n.resource("Branch")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
-                    branchPicker(selection: $selectedExistingBranch)
+                    WorktreeBranchPicker(
+                        label: L10n.string("Branch"),
+                        branches: branchLoadState.branches,
+                        isLoading: branchLoadState.isLoading,
+                        selection: $branchLoadState.selectedExistingBranch
+                    )
                 }
             }
 
@@ -126,29 +265,6 @@ struct CreateWorktreeSheet: View {
             } else {
                 localLocationRow
             }
-        }
-    }
-
-    @ViewBuilder
-    private func branchPicker(selection: Binding<String>) -> some View {
-        if isLoadingBranches {
-            HStack(spacing: UIMetrics.spacing3) {
-                ProgressView().controlSize(.small)
-                Text(L10n.resource("Loading branches…"))
-                    .font(.system(size: UIMetrics.fontFootnote))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-            }
-            .frame(maxWidth: .infinity, minHeight: UIMetrics.controlMedium, alignment: .leading)
-            .padding(.horizontal, UIMetrics.spacing3)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
-        } else {
-            Picker("", selection: selection) {
-                ForEach(availableBranches, id: \.self) { branch in
-                    Text(branch).tag(branch)
-                }
-            }
-            .labelsHidden()
-            .disabled(availableBranches.isEmpty)
         }
     }
 
@@ -354,7 +470,7 @@ struct CreateWorktreeSheet: View {
     }
 
     private var displayBranch: String {
-        let branch = createNewBranch ? branchName : selectedExistingBranch
+        let branch = createNewBranch ? branchName : branchLoadState.selectedExistingBranch
         let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "branch" : trimmed
     }
@@ -381,7 +497,7 @@ struct CreateWorktreeSheet: View {
 
     private var canCreate: Bool {
         guard workspaceContext != nil else { return false }
-        guard !isLoadingBranches else { return false }
+        guard !branchLoadState.isLoading else { return false }
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         if project.isRemote, remotePath.trimmingCharacters(in: .whitespaces).isEmpty {
             return false
@@ -392,14 +508,14 @@ struct CreateWorktreeSheet: View {
         if createNewBranch {
             return !branchName.trimmingCharacters(in: .whitespaces).isEmpty
         }
-        return !selectedExistingBranch.isEmpty
+        return !branchLoadState.selectedExistingBranch.isEmpty
     }
 
     @MainActor
     private func loadBranches() async {
-        isLoadingBranches = true
-        defer { isLoadingBranches = false }
+        branchLoadState.beginLoading()
         guard let workspaceContext else {
+            branchLoadState.failLoading()
             errorMessage = "The remote context for \(project.name) is unavailable."
             return
         }
@@ -409,18 +525,9 @@ struct CreateWorktreeSheet: View {
             async let defaultValue = gitRepository.defaultBranch(repoPath: project.path)
             let branches = try await branchesValue
             let resolvedDefault = await defaultValue
-            availableBranches = branches
-            if selectedExistingBranch.isEmpty {
-                selectedExistingBranch = branches.first ?? ""
-            }
-            if selectedBaseBranch.isEmpty {
-                if let resolvedDefault, branches.contains(resolvedDefault) {
-                    selectedBaseBranch = resolvedDefault
-                } else {
-                    selectedBaseBranch = branches.first ?? ""
-                }
-            }
+            branchLoadState.finishLoading(branches: branches, defaultBranch: resolvedDefault)
         } catch {
+            branchLoadState.failLoading()
             errorMessage = error.localizedDescription
         }
     }
@@ -436,7 +543,7 @@ struct CreateWorktreeSheet: View {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         let branch = createNewBranch
             ? branchName.trimmingCharacters(in: .whitespaces)
-            : selectedExistingBranch
+            : branchLoadState.selectedExistingBranch
 
         let slug = WorktreeLocationResolver.slug(from: trimmedName)
         let worktreeDirectory: String
@@ -455,7 +562,7 @@ struct CreateWorktreeSheet: View {
             return
         }
 
-        let trimmedBase = selectedBaseBranch.trimmingCharacters(in: .whitespaces)
+        let trimmedBase = branchLoadState.selectedBaseBranch.trimmingCharacters(in: .whitespaces)
         let baseBranch: String? = createNewBranch && !trimmedBase.isEmpty ? trimmedBase : nil
 
         let request = WorktreeCreationRequest(
