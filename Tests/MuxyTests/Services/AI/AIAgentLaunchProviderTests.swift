@@ -110,11 +110,11 @@ struct AIAgentLaunchProviderTests {
         ])
     }
 
-    @Test("agent tabs launch installed local executables safely")
+    @Test("agent tabs launch installed local providers through the user shell")
     func localAgentTabCommand() {
         let provider = AgentTabLaunchTestProvider(executablePath: "/tmp/Agent Tools/codex")
 
-        #expect(AgentTabLaunchCommand.local(provider: provider) == "'/tmp/Agent Tools/codex'")
+        #expect(AgentTabLaunchCommand.local(provider: provider) == "test-agent")
     }
 
     @Test("agent tabs omit unavailable local providers")
@@ -138,7 +138,7 @@ struct AIAgentLaunchProviderTests {
         let options = AgentTabLaunchOption.resolveLocal(providers: [provider])
 
         #expect(provider.resolutionCount == 1)
-        #expect(options.first?.command == "/tmp/test-agent")
+        #expect(options.first?.command == "test-agent")
         #expect(options.first?.title == "Test Agent")
     }
 

@@ -77,6 +77,24 @@ struct TabAreaTests {
         #expect(pane?.closesOnStartupCommandExit == false)
     }
 
+    @Test("command tab snapshot preserves startup launch")
+    func commandTabSnapshotPreservesStartupLaunch() throws {
+        let area = TabArea(projectPath: testPath)
+        area.createCommandTab(name: "Claude Code", command: "claude", closesOnCommandExit: false)
+
+        let snapshot = try #require(area.activeTab?.snapshot())
+        let restored = TerminalTab(restoring: snapshot)
+        let launch = try #require(restored.content.pane?.consumeRestoredLaunch())
+
+        #expect(snapshot.startupCommand == "claude")
+        #expect(snapshot.startupCommandInteractive == true)
+        #expect(snapshot.closesOnStartupCommandExit == false)
+        #expect(restored.content.pane?.title == "Claude Code")
+        #expect(launch.command == "claude")
+        #expect(launch.interactive == true)
+        #expect(launch.closesOnCommandExit == false)
+    }
+
     @Test("createCommandTab ignores empty command")
     func createCommandTabEmptyCommand() {
         let area = TabArea(projectPath: testPath)

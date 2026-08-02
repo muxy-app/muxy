@@ -172,6 +172,9 @@ struct TerminalTabSnapshot: Codable {
     let paneSessionID: UUID?
     let filePath: String?
     let currentWorkingDirectory: String?
+    let startupCommand: String?
+    let startupCommandInteractive: Bool?
+    let closesOnStartupCommandExit: Bool?
     let extensionID: String?
     let extensionTabTypeID: String?
     let extensionTabData: ExtensionJSON?
@@ -193,6 +196,9 @@ struct TerminalTabSnapshot: Codable {
         paneSessionID: UUID? = nil,
         filePath: String? = nil,
         currentWorkingDirectory: String? = nil,
+        startupCommand: String? = nil,
+        startupCommandInteractive: Bool? = nil,
+        closesOnStartupCommandExit: Bool? = nil,
         extensionID: String? = nil,
         extensionTabTypeID: String? = nil,
         extensionTabData: ExtensionJSON? = nil,
@@ -213,6 +219,9 @@ struct TerminalTabSnapshot: Codable {
         self.paneSessionID = paneSessionID
         self.filePath = filePath
         self.currentWorkingDirectory = currentWorkingDirectory
+        self.startupCommand = startupCommand
+        self.startupCommandInteractive = startupCommandInteractive
+        self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.extensionID = extensionID
         self.extensionTabTypeID = extensionTabTypeID
         self.extensionTabData = extensionTabData
@@ -235,6 +244,9 @@ struct TerminalTabSnapshot: Codable {
         case paneSessionID
         case filePath
         case currentWorkingDirectory
+        case startupCommand
+        case startupCommandInteractive
+        case closesOnStartupCommandExit
         case extensionID
         case extensionTabTypeID
         case extensionTabData
@@ -259,6 +271,9 @@ struct TerminalTabSnapshot: Codable {
         paneSessionID = try container.decodeIfPresent(UUID.self, forKey: .paneSessionID)
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         currentWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .currentWorkingDirectory)
+        startupCommand = try container.decodeIfPresent(String.self, forKey: .startupCommand)
+        startupCommandInteractive = try container.decodeIfPresent(Bool.self, forKey: .startupCommandInteractive)
+        closesOnStartupCommandExit = try container.decodeIfPresent(Bool.self, forKey: .closesOnStartupCommandExit)
         extensionID = try container.decodeIfPresent(String.self, forKey: .extensionID)
         extensionTabTypeID = try container.decodeIfPresent(String.self, forKey: .extensionTabTypeID)
         extensionTabData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .extensionTabData)

@@ -146,7 +146,10 @@ final class TerminalTab: Identifiable {
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
                 usesDefaultTitle: snapshot.paneUsesDefaultTitle,
-                initialWorkingDirectory: restoredWorkingDirectory
+                initialWorkingDirectory: restoredWorkingDirectory,
+                startupCommand: snapshot.startupCommand,
+                startupCommandInteractive: snapshot.startupCommandInteractive ?? false,
+                closesOnStartupCommandExit: snapshot.closesOnStartupCommandExit ?? true
             ))
         case .extensionWebView:
             if let extensionID = snapshot.extensionID,
@@ -178,7 +181,9 @@ final class TerminalTab: Identifiable {
     }
 
     func snapshot() -> TerminalTabSnapshot {
-        TerminalTabSnapshot(
+        let pane = content.pane
+        let startupCommand = pane?.startupCommand
+        return TerminalTabSnapshot(
             kind: content.kind,
             id: id,
             parentTabID: parentTabID,
@@ -187,11 +192,14 @@ final class TerminalTab: Identifiable {
             customIcon: customIcon,
             isPinned: isPinned,
             projectPath: content.projectPath,
-            paneTitle: extensionTabDefaultTitle ?? content.pane?.title,
-            paneUsesDefaultTitle: content.pane?.usesDefaultTitle,
-            paneID: content.pane?.id,
-            paneSessionID: content.pane?.sessionID,
-            currentWorkingDirectory: content.pane?.currentWorkingDirectory,
+            paneTitle: extensionTabDefaultTitle ?? pane?.title,
+            paneUsesDefaultTitle: pane?.usesDefaultTitle,
+            paneID: pane?.id,
+            paneSessionID: pane?.sessionID,
+            currentWorkingDirectory: pane?.currentWorkingDirectory,
+            startupCommand: startupCommand,
+            startupCommandInteractive: startupCommand == nil ? nil : pane?.startupCommandInteractive,
+            closesOnStartupCommandExit: startupCommand == nil ? nil : pane?.closesOnStartupCommandExit,
             extensionID: content.extensionState?.extensionID,
             extensionTabTypeID: content.extensionState?.tabTypeID,
             extensionTabData: content.extensionState?.data,

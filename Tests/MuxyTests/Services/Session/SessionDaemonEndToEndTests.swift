@@ -13,6 +13,11 @@ struct SessionDaemonEndToEndTests {
         let processIDs: [pid_t]
     }
 
+    private static let fishPath = [
+        "/opt/homebrew/bin/fish",
+        "/usr/local/bin/fish",
+    ].first { FileManager.default.isExecutableFile(atPath: $0) }
+
     private func makeIdentifier() throws -> SessionIdentifier {
         try #require(SessionIdentifier(uuidString: UUID().uuidString))
     }
@@ -111,6 +116,97 @@ struct SessionDaemonEndToEndTests {
 
             let output = connection.collectOutput(timeout: 5) { $0.contains("STARTUP_RAN") }
             #expect(output.contains("STARTUP_RAN"))
+        }
+    }
+
+    @Test("runs a fish pane startup command through the persistent session wrapper", .enabled(if: SessionDaemonEndToEndTests.fishPath != nil))
+    func runsFishPaneStartupCommandWrapper() throws {
+        let fishPath = try #require(Self.fishPath)
+        try withHarness { harness in
+            let identifier = try makeIdentifier()
+            let connection = try #require(SessionTestConnection(socketPath: harness.socketPath))
+            defer { connection.close() }
+
+            let wrapper = TerminalLaunchCommand.shellCommand(
+                interactive: true,
+                keepsShellOpen: true,
+                shell: fishPath
+            )
+            connection.send(harness.attachRequest(
+                identifier: identifier,
+                command: wrapper,
+                shell: fishPath,
+                environment: [
+                    SessionEnvironmentEntry(
+                        key: TerminalLaunchCommand.environmentKey,
+                        value: "printf \"FISH_STARTUP_RAN\\n\""
+                    ),
+                ]
+            ))
+
+            let output = connection.collectOutput(timeout: 5) { $0.contains("FISH_STARTUP_RAN") }
+            #expect(output.contains("FISH_STARTUP_RAN"))
+        }
+    }
+
+    @Test("runs a zsh pane startup command through the persistent session wrapper")
+    func runsZshPaneStartupCommandWrapper() throws {
+        try withHarness { harness in
+            let identifier = try makeIdentifier()
+            let connection = try #require(SessionTestConnection(socketPath: harness.socketPath))
+            defer { connection.close() }
+
+            let wrapper = TerminalLaunchCommand.shellCommand(
+                interactive: true,
+                keepsShellOpen: true,
+                shell: "/bin/zsh"
+            )
+            connection.send(harness.attachRequest(
+                identifier: identifier,
+                command: wrapper,
+                shell: "/bin/zsh",
+                environment: [
+                    SessionEnvironmentEntry(
+                        key: TerminalLaunchCommand.environmentKey,
+                        value: "printf \"ZSH_STARTUP_RAN\\n\""
+                    ),
+                ]
+            ))
+
+            let output = connection.collectOutput(timeout: 5) { $0.contains("ZSH_STARTUP_RAN") }
+            #expect(output.contains("ZSH_STARTUP_RAN"))
+        }
+    }
+
+    @Test("runs a remote fish startup command through the bootstrap wrapper", .enabled(if: SessionDaemonEndToEndTests.fishPath != nil))
+    func runsRemoteFishStartupBootstrapWrapper() throws {
+        let fishPath = try #require(Self.fishPath)
+        try withHarness { harness in
+            let identifier = try makeIdentifier()
+            let connection = try #require(SessionTestConnection(socketPath: harness.socketPath))
+            defer { connection.close() }
+
+            let script = TerminalLaunchCommand.remoteShellBootstrapScript(
+                environment: [:],
+                workingDirectory: "",
+                startupCommand: "printf \"REMOTE_FISH_STARTUP_RAN\\n\"",
+                interactive: true,
+                keepsShellOpen: false
+            )
+            connection.send(harness.attachRequest(
+                identifier: identifier,
+                command: "/bin/sh -c \(ShellEscaper.escape(script))",
+                shell: "/bin/sh",
+                environment: [
+                    SessionEnvironmentEntry(
+                        key: "SHELL",
+                        value: fishPath
+                    ),
+                ]
+            ))
+
+            let output = connection.collectOutput(timeout: 5) { $0.contains("REMOTE_FISH_STARTUP_RAN") }
+            #expect(output.contains("REMOTE_FISH_STARTUP_RAN"))
         }
     }
 

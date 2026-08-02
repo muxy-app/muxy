@@ -71,7 +71,9 @@ extension AIAgentLaunchProvider {
 
 enum AgentTabLaunchCommand {
     static func local(provider: any AIAgentLaunchProvider) -> String? {
-        provider.agentCLIExecutablePath().map(ShellEscaper.escape)
+        guard provider.agentCLIExecutablePath() != nil else { return nil }
+
+        return ShellEscaper.escape(provider.agentLaunchConfiguration.executable)
     }
 
     static func remote(provider: any AIAgentLaunchProvider) -> String {
