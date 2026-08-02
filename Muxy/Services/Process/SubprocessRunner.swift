@@ -146,6 +146,7 @@ private final class SubprocessJob: @unchecked Sendable {
         DispatchQueue.global(qos: .utility).async { [input = request.standardInput] in let handle = stdin.fileHandleForWriting
             defer { try? handle.close() }
             if let input {
+                _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
                 try? handle.write(contentsOf: input)
             }
         }

@@ -225,7 +225,8 @@ struct ProviderDiscoveryServiceTests {
         let task = Task {
             try await SubprocessRunner.run(SubprocessRequest(
                 executablePath: "/bin/sh",
-                arguments: ["-c", "/bin/sleep 10 & child=$!; echo $child > '\(pidFile.path)'; wait"]
+                arguments: ["-c", "/bin/sleep 10 & child=$!; echo $child > '\(pidFile.path)'; wait"],
+                standardInput: Data(repeating: 0, count: 1024 * 1024)
             ))
         }
         try await waitForFile(at: pidFile)
