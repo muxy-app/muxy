@@ -4,6 +4,7 @@ struct RemoteUploadAttempt: Equatable, Sendable {
     let sessionID: String
     let uploadID: String
     let surfaceGeneration: Int
+    let destination: SSHDestination
 }
 
 @MainActor
@@ -12,6 +13,7 @@ final class RemoteUploadSession {
 
     private let identifierGenerator: IdentifierGenerator
     private var sessionID: String
+    private var activeDestination: SSHDestination?
     private(set) var isActive = false
 
     init(
@@ -22,12 +24,14 @@ final class RemoteUploadSession {
         self.identifierGenerator = identifierGenerator
     }
 
-    func begin(surfaceGeneration: Int) -> RemoteUploadAttempt {
+    func begin(surfaceGeneration: Int, destination: SSHDestination) -> RemoteUploadAttempt {
         isActive = true
+        activeDestination = destination
         return RemoteUploadAttempt(
             sessionID: sessionID,
             uploadID: identifierGenerator(),
-            surfaceGeneration: surfaceGeneration
+            surfaceGeneration: surfaceGeneration,
+            destination: destination
         )
     }
 
@@ -42,11 +46,12 @@ final class RemoteUploadSession {
         return attempt.sessionID == sessionID
     }
 
-    func takeActiveSessionForCleanup() -> String? {
-        guard isActive else { return nil }
+    func takeActiveSessionForCleanup() -> (sessionID: String, destination: SSHDestination)? {
+        guard isActive, let destination = activeDestination else { return nil }
         let activeSessionID = sessionID
         sessionID = identifierGenerator()
+        activeDestination = nil
         isActive = false
-        return activeSessionID
+        return (activeSessionID, destination)
     }
 }

@@ -16,7 +16,7 @@ struct RemoteUploadSessionTests {
             identifierGenerator: { identifiers.removeFirst() }
         )
 
-        let attempt = session.begin(surfaceGeneration: 4)
+        let attempt = session.begin(surfaceGeneration: 4, destination: SSHDestination(host: "example.com"))
 
         #expect(session.isActive)
         #expect(session.permitsSideEffects(
@@ -25,7 +25,7 @@ struct RemoteUploadSessionTests {
             hasLiveSurface: true,
             isCancelled: false
         ))
-        #expect(session.takeActiveSessionForCleanup() == attempt.sessionID)
+        #expect(session.takeActiveSessionForCleanup()?.sessionID == attempt.sessionID)
         #expect(!session.permitsSideEffects(
             for: attempt,
             surfaceGeneration: 4,
@@ -40,7 +40,7 @@ struct RemoteUploadSessionTests {
             sessionID: "01234567-89AB-CDEF-0123-456789ABCDEF",
             identifierGenerator: { "ABCDEF01-2345-6789-ABCD-EF0123456789" }
         )
-        let attempt = session.begin(surfaceGeneration: 2)
+        let attempt = session.begin(surfaceGeneration: 2, destination: SSHDestination(host: "example.com"))
 
         #expect(!session.permitsSideEffects(
             for: attempt,

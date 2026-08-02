@@ -1,0 +1,155 @@
+import Foundation
+import Testing
+
+@testable import Muxy
+
+@Suite("SSH invocation parsing")
+struct SSHInvocationParserTests {
+    @Test("reads a bare host")
+    func bareHost() throws {
+        let destination = try #require(SSHInvocationParser.destination(arguments: ["example.com"]))
+
+        #expect(destination.host == "example.com")
+        #expect(destination.user == nil)
+        #expect(destination.port == nil)
+    }
+
+    @Test("reads user@host")
+    func userAtHost() throws {
+        let destination = try #require(SSHInvocationParser.destination(arguments: ["deploy@example.com"]))
+
+        #expect(destination.host == "example.com")
+        #expect(destination.user == "deploy")
+        #expect(destination.target == "deploy@example.com")
+    }
+
+    @Test("reads a separated option value")
+    func separatedOptionValue() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["-p", "2222", "-l", "deploy", "example.com"]
+        ))
+
+        #expect(destination.host == "example.com")
+        #expect(destination.port == 2222)
+        #expect(destination.user == "deploy")
+    }
+
+    @Test("reads an attached option value")
+    func attachedOptionValue() throws {
+        let destination = try #require(SSHInvocationParser.destination(arguments: ["-p2222", "example.com"]))
+
+        #expect(destination.port == 2222)
+        #expect(destination.host == "example.com")
+    }
+
+    @Test("skips clustered valueless flags")
+    func clusteredFlags() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["-tt", "-vvv", "-4", "-C", "example.com"]
+        ))
+
+        #expect(destination.host == "example.com")
+    }
+
+    @Test("takes the value of a trailing flag in a cluster")
+    func clusteredFlagWithValue() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["-tp", "2200", "example.com"]
+        ))
+
+        #expect(destination.port == 2200)
+        #expect(destination.host == "example.com")
+    }
+
+    @Test("keeps an identity file")
+    func identityFile() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["-i", "/Users/me/.ssh/id_ed25519", "example.com"]
+        ))
+
+        #expect(destination.identityFile == "/Users/me/.ssh/id_ed25519")
+        #expect(destination.connectionArguments.contains("IdentitiesOnly=yes"))
+    }
+
+    @Test("ignores a remote command after the destination")
+    func remoteCommandIgnored() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["example.com", "sudo", "-p", "9999", "reboot"]
+        ))
+
+        #expect(destination.host == "example.com")
+        #expect(destination.port == nil)
+    }
+
+    @Test("reads an ssh URI")
+    func sshURI() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["ssh://deploy@example.com:2022"]
+        ))
+
+        #expect(destination.host == "example.com")
+        #expect(destination.user == "deploy")
+        #expect(destination.port == 2022)
+    }
+
+    @Test("keeps a config alias verbatim so ssh_config still resolves it")
+    func configAlias() throws {
+        let destination = try #require(SSHInvocationParser.destination(arguments: ["my-server"]))
+
+        #expect(destination.host == "my-server")
+    }
+
+    @Test("refuses invocations it cannot reproduce on a second connection")
+    func refusesUnreproducible() {
+        #expect(SSHInvocationParser.destination(arguments: ["-J", "jump", "example.com"]) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-F", "/tmp/other", "example.com"]) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-W", "host:80", "example.com"]) == nil)
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-o", "ProxyJump=jump", "example.com"]
+        ) == nil)
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-o", "ProxyCommand=nc %h %p", "example.com"]
+        ) == nil)
+    }
+
+    @Test("refuses an invocation with no destination")
+    func refusesMissingDestination() {
+        #expect(SSHInvocationParser.destination(arguments: []) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-v"]) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-p"]) == nil)
+    }
+
+    @Test("refuses a malformed port")
+    func refusesBadPort() {
+        #expect(SSHInvocationParser.destination(arguments: ["-p", "abc", "example.com"]) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-p", "0", "example.com"]) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-p", "70000", "example.com"]) == nil)
+    }
+
+    @Test("accepts an unrelated -o option")
+    func acceptsHarmlessOption() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["-o", "ServerAliveInterval=30", "example.com"]
+        ))
+
+        #expect(destination.host == "example.com")
+    }
+
+    @Test("only matches an ssh executable")
+    func onlySSHExecutable() {
+        #expect(SSHInvocationParser.destination(from: ProcessInvocation(
+            executablePath: "/usr/bin/ssh",
+            arguments: ["ssh", "example.com"]
+        ))?.host == "example.com")
+
+        #expect(SSHInvocationParser.destination(from: ProcessInvocation(
+            executablePath: "/bin/zsh",
+            arguments: ["zsh", "example.com"]
+        )) == nil)
+
+        #expect(SSHInvocationParser.destination(from: ProcessInvocation(
+            executablePath: "/usr/bin/sshfs",
+            arguments: ["sshfs", "example.com"]
+        )) == nil)
+    }
+}

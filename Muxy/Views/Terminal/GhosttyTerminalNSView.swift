@@ -17,7 +17,6 @@ final class GhosttyTerminalNSView: NSView,
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     var terminalView: NSView { self }
     let backend = TerminalBackend.ghostty
-    var uploadWorkspaceContext: WorkspaceContext { workspaceContext }
     private var surfaceFocused: Bool?
     private var workingDirectory: String
     private let command: String?
@@ -1647,7 +1646,7 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     private func scheduleSystemImagePaste() {
-        guard workspaceContext.sshDestination != nil else {
+        guard uploadDestination != nil else {
             sendRemoteBytes(TerminalControlBytes.pasteShortcut)
             return
         }
@@ -2077,22 +2076,37 @@ final class GhosttyTerminalNSView: NSView,
         terminalInputQueue.enqueueTransaction(operation)
     }
 
+    var uploadDestination: SSHDestination? {
+        if let destination = workspaceContext.sshDestination {
+            return destination
+        }
+        return detectedSSHDestination()
+    }
+
+    private func detectedSSHDestination() -> SSHDestination? {
+        guard let processID = foregroundProcessID, processID > 0 else { return nil }
+        guard let invocation = ProcessArgumentsInspector.invocation(pid: UInt64(processID)) else { return nil }
+        return SSHInvocationParser.destination(from: invocation)
+    }
+
     func beginUpload() -> TerminalUploadAttempt? {
         guard surface != nil else { return nil }
-        if workspaceContext.sshDestination != nil {
-            return .remote(remoteUploadSession.begin(surfaceGeneration: surfaceGeneration))
+        guard let destination = uploadDestination else {
+            return .local(surfaceGeneration: surfaceGeneration)
         }
-        return .local(surfaceGeneration: surfaceGeneration)
+        return .remote(remoteUploadSession.begin(
+            surfaceGeneration: surfaceGeneration,
+            destination: destination
+        ))
     }
 
     func pasteImageData(_ pngData: Data, attempt: TerminalUploadAttempt) async -> Bool {
         guard pasteAttemptPermitsSideEffects(attempt) else { return false }
         switch attempt {
         case let .remote(remoteAttempt):
-            guard let destination = workspaceContext.sshDestination else { return false }
             return await pasteRemoteImage(
                 pngData: pngData,
-                destination: destination,
+                destination: remoteAttempt.destination,
                 attempt: remoteAttempt
             )
         case .local:
@@ -2101,7 +2115,7 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     private func insertPaths(for urls: [URL]) {
-        guard workspaceContext.sshDestination != nil else {
+        guard uploadDestination != nil else {
             let text = urls.map { ShellEscaper.escape($0.path) }.joined(separator: " ")
             insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
             return
@@ -2122,7 +2136,6 @@ final class GhosttyTerminalNSView: NSView,
     func remotePath(forFileAt url: URL, attempt: TerminalUploadAttempt) async -> String? {
         guard case let .remote(remoteAttempt) = attempt else { return nil }
         guard pasteAttemptPermitsSideEffects(attempt) else { return nil }
-        guard let destination = workspaceContext.sshDestination else { return nil }
         do {
             let data = try await Task.detached(priority: .userInitiated) {
                 try RegularFileReader.data(
@@ -2134,7 +2147,7 @@ final class GhosttyTerminalNSView: NSView,
             return try await RemoteUploadService.upload(
                 data: data,
                 fileExtension: RemoteUploadService.sanitizedExtension(for: url),
-                destination: destination,
+                destination: remoteAttempt.destination,
                 sessionID: remoteAttempt.sessionID,
                 uploadID: remoteAttempt.uploadID
             )
@@ -2208,12 +2221,13 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     private func scheduleRemoteUploadCleanup(after cancelledWorker: Task<Void, Never>?) {
-        guard let destination = workspaceContext.sshDestination,
-              let sessionID = remoteUploadSession.takeActiveSessionForCleanup()
-        else { return }
+        guard let active = remoteUploadSession.takeActiveSessionForCleanup() else { return }
         let precedingTasks = [precedingRemoteUploadCleanup, cancelledWorker].compactMap(\.self)
         precedingRemoteUploadCleanup = TerminalCleanupCoordinator.shared.schedule(after: precedingTasks) {
-            await RemoteUploadService.remove(sessionID: sessionID, destination: destination)
+            await RemoteUploadService.remove(
+                sessionID: active.sessionID,
+                destination: active.destination
+            )
         }
     }
 

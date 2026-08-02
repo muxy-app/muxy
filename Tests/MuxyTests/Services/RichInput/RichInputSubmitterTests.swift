@@ -334,7 +334,7 @@ private final class RichInputSubmissionTestTarget:
     TerminalInputTransactionTarget,
     TerminalUploadSurface
 {
-    let uploadWorkspaceContext = WorkspaceContext.local
+    let uploadDestination: SSHDestination? = nil
     private let identifier: String
     private let pasteSucceeds: Bool
     private let uploadSucceeds: Bool

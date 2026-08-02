@@ -81,7 +81,7 @@ protocol TerminalSearchSurface: AnyObject {
 
 @MainActor
 protocol TerminalUploadSurface: AnyObject {
-    var uploadWorkspaceContext: WorkspaceContext { get }
+    var uploadDestination: SSHDestination? { get }
 
     func beginUpload() -> TerminalUploadAttempt?
     func pasteImageData(_ pngData: Data, attempt: TerminalUploadAttempt) async -> Bool

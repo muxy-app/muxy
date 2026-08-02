@@ -107,7 +107,18 @@ Enable **Settings -> Terminal -> Auto-copy terminal selection** to copy selected
 ### Attachments in SSH panes
 
 A Mac file path does not resolve on a remote device, so an SSH pane uploads every attachment it receives and
-inlines the remote path instead. Muxy accepts attachments through four routes:
+inlines the remote path instead.
+
+A pane counts as remote in two ways. A tab opened against a device configured under **Settings -> Remote Devices**
+carries its destination directly. A pane where you typed `ssh` yourself is detected from the foreground process:
+Muxy reads the running `ssh` invocation and reconstructs its destination, including `user@host`, `-p`, `-l`, `-i`,
+and `ssh://` URLs. Config aliases are kept verbatim so `ssh_config` still resolves them. Uploads open their own
+connection to that destination and share one multiplexed control socket, so a password-less key or agent is
+required; an invocation Muxy cannot reproduce on a second connection — `-J`, `-F`, `-W`, `ProxyJump`, or
+`ProxyCommand` — is left alone and the pane keeps local-path behavior. A shell reached by chaining `ssh` from one
+server to another is only known as far as the first hop, so it is treated as local.
+
+Muxy accepts attachments through four routes:
 
 | Route | Accepts |
 | --- | --- |

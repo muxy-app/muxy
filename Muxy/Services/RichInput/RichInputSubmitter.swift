@@ -117,7 +117,7 @@ enum RichInputSubmitter {
                     segments,
                     strategy: strategy,
                     capabilities: view.capabilities,
-                    isRemote: uploadContext(for: view).isRemote
+                    isRemote: isRemoteUploadTarget(view)
                 )
             )
         }
@@ -391,8 +391,8 @@ enum RichInputSubmitter {
         }
     }
 
-    private static func uploadContext(for view: any TerminalSurface) -> WorkspaceContext {
-        (view as? any TerminalUploadSurface)?.uploadWorkspaceContext ?? .local
+    private static func isRemoteUploadTarget(_ view: any TerminalSurface) -> Bool {
+        (view as? any TerminalUploadSurface)?.uploadDestination != nil
     }
 
     nonisolated static func tokenize(text: String, images: [URL]) -> [Segment] {
