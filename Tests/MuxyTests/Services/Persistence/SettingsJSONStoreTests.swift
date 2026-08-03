@@ -898,8 +898,8 @@ struct SettingsJSONStoreTests {
 
         try Data("{}".utf8).write(to: SettingsJSONStore.userSettingsURL, options: .atomic)
 
-        #expect(SettingsJSONStore.syncUserSettingsFileWithCurrentSettings())
-        #expect(!SettingsJSONStore.syncUserSettingsFileWithCurrentSettings())
+        #expect(SettingsJSONStore.syncUserSettingsFileWithCurrentSettings() == .updated)
+        #expect(SettingsJSONStore.syncUserSettingsFileWithCurrentSettings() == .unchanged)
     }
 }
 

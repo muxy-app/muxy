@@ -3,7 +3,36 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "BackupService")
 
+private actor BackupOperationLock {
+    private var isLocked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func withLock<T: Sendable>(_ operation: @MainActor @Sendable () async throws -> T) async rethrows -> T {
+        await acquire()
+        defer { release() }
+        return try await operation()
+    }
+
+    private func acquire() async {
+        guard isLocked else {
+            isLocked = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    private func release() {
+        guard !waiters.isEmpty else {
+            isLocked = false
+            return
+        }
+        waiters.removeFirst().resume()
+    }
+}
+
 struct BackupService {
+    private static let operationLock = BackupOperationLock()
+
     let baseDirectory: URL
 
     init(baseDirectory: URL = MuxyFileStorage.appSupportDirectory()) {
@@ -46,18 +75,30 @@ struct BackupService {
 
     @MainActor
     func exportCurrent(to archiveURL: URL, createdAt: Date = Date()) async throws {
-        SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
-        try await export(to: archiveURL, appVersion: currentAppVersion, createdAt: createdAt)
+        try await BackupService.operationLock.withLock {
+            switch SettingsJSONStore.syncUserSettingsFileWithCurrentSettings() {
+            case .updated,
+                 .unchanged:
+                break
+            case .failed:
+                throw SettingsJSONError.syncFailed
+            }
+            try await export(to: archiveURL, appVersion: currentAppVersion, createdAt: createdAt)
+        }
     }
 
     @MainActor
     func importAndApply(from archiveURL: URL) async throws {
-        let backupDirectory = try await importBackup(from: archiveURL, backupStamp: backupStamp())
-        do {
-            try SettingsJSONStore.applyUserSettingsFile()
-        } catch {
-            try await restoreFromPreImport(backupDirectory: backupDirectory)
-            throw error
+        try await BackupService.operationLock.withLock {
+            let backupDirectory = try await importBackup(from: archiveURL, backupStamp: backupStamp())
+            do {
+                try SettingsJSONStore.applyUserSettingsFile(
+                    from: baseDirectory.appendingPathComponent(SettingsCatalog.userSettingsFilename)
+                )
+            } catch {
+                try await restoreFromPreImport(backupDirectory: backupDirectory)
+                throw error
+            }
         }
     }
 
@@ -182,12 +223,12 @@ struct BackupService {
         let fileManager = FileManager.default
 
         for name in BackupArchive.exportableFiles + BackupArchive.exportableDirectories {
-            let source = backupDirectory.appendingPathComponent(name)
-            guard fileManager.fileExists(atPath: source.path) else { continue }
             let destination = baseDirectory.appendingPathComponent(name)
             if fileManager.fileExists(atPath: destination.path) {
                 try fileManager.removeItem(at: destination)
             }
+            let source = backupDirectory.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
             try fileManager.copyItem(at: source, to: destination)
         }
     }

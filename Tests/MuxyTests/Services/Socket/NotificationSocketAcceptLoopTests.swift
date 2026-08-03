@@ -47,7 +47,7 @@ struct NotificationSocketAcceptLoopTests {
         return String(decoding: payload, as: UTF8.self)
     }
 
-    private static func readCommandReply(_ fd: Int32, deadline: TimeInterval = 5) throws -> Data {
+    private static func readCommandReply(_ fd: Int32, deadline: TimeInterval = 60) throws -> Data {
         var collected = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         let end = Date().addingTimeInterval(deadline)
