@@ -454,6 +454,60 @@ struct WorkspaceSnapshotTests {
         #expect(branch.second.allGroups()[0].tabIDs == [secondTabID])
     }
 
+    @Test("promoted pane ownership survives workspace restoration")
+    func promotedPaneOwnershipSurvivesRestore() throws {
+        let project = Project(name: "Test", path: testPath)
+        let worktree = Worktree(name: "main", path: testPath, isPrimary: true)
+        let key = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
+        let ownerArea = TabArea(projectPath: testPath)
+        let ownerTab = ownerArea.activeTab!
+        let childTab = TerminalTab(
+            pane: TerminalPaneState(projectPath: testPath),
+            parentTabID: ownerTab.id
+        )
+        let childArea = TabArea(projectPath: testPath, existingTab: childTab)
+        var state = WorkspaceState(
+            activeProjectID: project.id,
+            activeWorktreeID: [project.id: worktree.id],
+            workspaceRoots: [key: .split(SplitBranch(
+                direction: .horizontal,
+                first: .tabArea(ownerArea),
+                second: .tabArea(childArea)
+            ))],
+            focusedAreaID: [key: ownerArea.id],
+            focusHistory: [:],
+            topLevelTabOrder: [key: [ownerTab.id]],
+            topLevelTabLayouts: [key: .group(TopLevelTabGroup(
+                tabIDs: [ownerTab.id],
+                activeTabID: ownerTab.id
+            ))]
+        )
+
+        _ = WorkspaceReducer.reduce(
+            action: .closePane(projectID: project.id, areaID: ownerArea.id, tabID: ownerTab.id),
+            state: &state
+        )
+        let snapshots = WorkspaceRestorer.snapshotAll(
+            workspaceRoots: state.workspaceRoots,
+            focusedAreaID: state.focusedAreaID,
+            topLevelTabOrder: state.topLevelTabOrder,
+            topLevelTabLayouts: state.topLevelTabLayouts
+        )
+        let data = try JSONEncoder().encode(snapshots)
+        let decoded = try JSONDecoder().decode([WorkspaceSnapshot].self, from: data)
+        let restored = WorkspaceRestorer.restoreAll(
+            from: decoded,
+            projects: [project],
+            worktrees: [project.id: [worktree]]
+        )
+
+        let restoredEntry = try #require(restored.first)
+        let restoredTab = try #require(restoredEntry.root.locateTab(id: childTab.id)?.tab)
+        #expect(restoredTab.parentTabID == nil)
+        #expect(restoredEntry.topLevelTabOrder == [childTab.id])
+        #expect(restoredEntry.topLevelTabLayout.flattenedTabIDs() == [childTab.id])
+    }
+
     @Test("Legacy workspace snapshot restores into one top-level group")
     func legacyWorkspaceRestoresIntoSingleTopLevelGroup() {
         let project = Project(name: "Test", path: testPath)

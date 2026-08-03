@@ -129,6 +129,7 @@ enum ExtensionWebBridge {
             };
 
             let beforeCloseHandler = null;
+            const pendingBeforeCloseCallIDs = new Set();
             window.__muxyResolveBeforeClose = (callID, prevent) => {
                 send('lifecycle.resolveBeforeClose', { callID: String(callID), prevent: !!prevent }).catch(() => {});
             };
@@ -137,18 +138,20 @@ enum ExtensionWebBridge {
                     window.__muxyResolveBeforeClose(callID, false);
                     return;
                 }
+                pendingBeforeCloseCallIDs.add(String(callID));
                 send('lifecycle.ackBeforeClose', { callID: String(callID) }).catch(() => {});
                 let outcome;
                 try {
                     outcome = beforeCloseHandler({ surface: String(reason), instanceID: String(instanceID) });
                 } catch (_) {
+                    pendingBeforeCloseCallIDs.delete(String(callID));
                     window.__muxyResolveBeforeClose(callID, false);
                     return;
                 }
                 Promise.resolve(outcome).then(
                     (value) => window.__muxyResolveBeforeClose(callID, value === true || (value && value.prevent === true)),
                     () => window.__muxyResolveBeforeClose(callID, false),
-                );
+                ).finally(() => pendingBeforeCloseCallIDs.delete(String(callID)));
             };
 
             const muxy = {
@@ -632,7 +635,10 @@ enum ExtensionWebBridge {
                         beforeCloseHandler = typeof handler === 'function' ? handler : null;
                         return () => { if (beforeCloseHandler === handler) beforeCloseHandler = null; };
                     },
-                    close() { return send('lifecycle.closeSelf', {}); },
+                    close() {
+                        const callIDs = Array.from(pendingBeforeCloseCallIDs);
+                        return send('lifecycle.closeSelf', callIDs.length === 1 ? { callID: callIDs[0] } : {});
+                    },
                 },
             };
 

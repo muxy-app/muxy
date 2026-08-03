@@ -173,7 +173,7 @@ muxy tab move 0 2                    # reorder a root tab or a child within its 
 muxy tab close "Server"             # close by index/id/title
 ```
 
-The color must be one of Muxy's palette names: `red`, `orange`, `amber`, `yellow`, `lime`, `green`, `teal`, `cyan`, `blue`, `indigo`, `violet`, `pink`. `set-icon` takes an SF Symbol name. Pin a tab to protect it from a direct `tab close` / `close-pane`; `tab close` is a no-op on a pinned tab, so `unpin` first. Closing a parent tab still closes every child tab it owns, including pinned children.
+The color must be one of Muxy's palette names: `red`, `orange`, `amber`, `yellow`, `lime`, `green`, `teal`, `cyan`, `blue`, `indigo`, `violet`, `pink`. `set-icon` takes an SF Symbol name. Pin a tab to protect it from a direct `tab close` / `close-pane`; both are no-ops for a pinned target, so `unpin` first. `close-pane` removes only the selected pane and promotes the first surviving child when that pane owns the layout. Closing a parent with `tab close` still closes every child tab it owns, including pinned children.
 
 ## Browser
 

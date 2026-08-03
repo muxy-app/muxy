@@ -39,12 +39,12 @@ When your handler has decided the close should happen (the user picked "Save" or
 muxy.lifecycle.close();
 ```
 
-This closes **this** surface and **bypasses** the veto — it will not ask `onBeforeClose` again, so there's no loop. Use it instead of returning `false` when you want to drive the close yourself after your own UI.
+During an `onBeforeClose` request, this approves that pending close without asking the handler again; sibling surfaces can still veto a top-level tab close. With no pending request, it force-closes **this** surface. Use it instead of returning `false` when you want to finish the close from your own UI.
 
 ## Guarantees
 
 - **Fail-open.** If you register no handler, your handler throws, or the page never responds, the close proceeds. A surface can never wedge the close button. A page that *has* a handler is given a few seconds to acknowledge the request; once it does, it may take as long as it needs (e.g. while a human reads a Save / Don't Save dialog) — the close waits for the verdict.
-- **Scoped to closes that include your surface.** A handler runs only when its own surface is being closed. Closing a top-level tab also closes every split-child tab it owns, so Muxy asks the parent and child surfaces together; a veto from any of them cancels the entire hierarchy close and leaves every sibling open. Direct closes of unrelated tabs, panels, popovers, and modals are unaffected.
+- **Scoped to closes that include your surface.** A handler runs only when its own surface is being closed. Close Pane asks only the selected surface and promotes a surviving child when the selected pane owns the layout. Closing a top-level tab asks the parent and every split-child surface together; a veto from any of them cancels the entire hierarchy close and leaves every sibling open. Direct closes of unrelated tabs, panels, popovers, and modals are unaffected.
 - **Bulk closes ask in parallel.** "Close Other Tabs" (and similar) ask every affected surface at once — you get one round of prompts, not a queue of blocking dialogs.
 
 ## Limits

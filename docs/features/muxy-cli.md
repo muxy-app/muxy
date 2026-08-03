@@ -296,6 +296,8 @@ Close a pane:
 muxy close-pane --pane "$PANE"
 ```
 
+This closes only the selected pane. If it owns the split layout, the first surviving child becomes the new top-level tab; `muxy tab close` still closes the complete tab and all of its child panes.
+
 ### Background sessions
 
 When **Settings → Terminal → Background sessions** is on, terminals keep running after Muxy quits. List them:

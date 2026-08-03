@@ -815,7 +815,7 @@ enum MuxyAPI {
             guard let loc = locateTab(paneID: paneID, appState: appState) else {
                 return .failure(.paneNotFound(paneIDString))
             }
-            appState.closeTab(loc.tabID, areaID: loc.areaID, key: loc.key)
+            appState.closePane(loc.tabID, areaID: loc.areaID, key: loc.key)
             return .success(())
         }
 

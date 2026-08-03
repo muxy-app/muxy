@@ -46,6 +46,7 @@
 "5 minutes" = "5 minutes";
 "A" = "A";
 "A process is still running in this tab. Are you sure you want to close it?" = "A process is still running in this tab. Are you sure you want to close it?";
+"A process is still running in this pane. Are you sure you want to close it?" = "A process is still running in this pane. Are you sure you want to close it?";
 "AI" = "AI";
 "AI Providers" = "AI Providers";
 "AI generates only the commit message. Muxy always stages all changes, commits, and pushes. An empty prompt uses the default. Do not include secrets." = "AI generates only the commit message. Muxy always stages all changes, commits, and pushes. An empty prompt uses the default. Do not include secrets.";
@@ -183,6 +184,7 @@
 "Close Other Tabs" = "Close Other Tabs";
 "Close PR" = "Close PR";
 "Close Pane" = "Close Pane";
+"Close Pane?" = "Close Pane?";
 "Close Project Search" = "Close Project Search";
 "Close Project?" = "Close Project?";
 "Close Search" = "Close Search";

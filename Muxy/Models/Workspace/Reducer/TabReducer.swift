@@ -287,6 +287,87 @@ enum TabReducer {
         SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
     }
 
+    static func closePane(
+        _ tabID: UUID,
+        areaID: UUID,
+        key: WorktreeKey,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        guard let root = state.workspaceRoots[key],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID }),
+              !tab.isPinned
+        else { return }
+
+        guard tab.parentTabID == nil else {
+            closeChildPane(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
+            return
+        }
+
+        let children = root.allTabs().filter { $0.parentTabID == tabID }
+        guard !children.isEmpty else {
+            closeTopLevelTab(
+                TopLevelTabCloseRequest(
+                    tab: tab,
+                    areaID: areaID,
+                    key: key,
+                    paneDisposition: .terminate,
+                    preservesFinalWorkspace: false
+                ),
+                state: &state,
+                effects: &effects
+            )
+            return
+        }
+
+        let visibleChildren = root.visibleLayout(forTopLevelTabID: tabID)?
+            .allPanes()
+            .map(\.tab)
+            .filter { $0.parentTabID == tabID }
+            ?? []
+        guard let promoted = visibleChildren.first ?? children.first else { return }
+        let ownerWasFocused = state.focusedAreaID[key] == areaID && area.activeTabID == tabID
+
+        if let paneID = area.closeTab(tabID) {
+            effects.paneIDsToRemove.append(paneID)
+        }
+        promoted.parentTabID = nil
+        for child in children where child.id != promoted.id {
+            child.parentTabID = promoted.id
+        }
+        TopLevelTabReducer.replaceTopLevelTab(tabID, with: promoted.id, key: key, state: &state)
+        effects.topLevelTabReplacements.append(.init(
+            key: key,
+            replacedTabID: tabID,
+            replacementTabID: promoted.id
+        ))
+
+        if area.tabs.isEmpty {
+            SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
+        }
+        guard ownerWasFocused,
+              let promotedLocation = state.workspaceRoots[key]?.locateTab(id: promoted.id)
+        else { return }
+        FocusReducer.focusArea(promotedLocation.area.id, key: key, state: &state)
+        promotedLocation.area.selectTab(promoted.id)
+    }
+
+    private static func closeChildPane(
+        _ tabID: UUID,
+        areaID: UUID,
+        key: WorktreeKey,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        guard let area = state.workspaceRoots[key]?.findArea(id: areaID) else { return }
+        if let paneID = area.closeTab(tabID) {
+            effects.paneIDsToRemove.append(paneID)
+        }
+        guard area.tabs.isEmpty else { return }
+        SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
+    }
+
     static func sendTabToBackground(
         _ tabID: UUID,
         key: WorktreeKey,

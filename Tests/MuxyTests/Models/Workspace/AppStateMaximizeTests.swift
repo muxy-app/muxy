@@ -153,6 +153,32 @@ struct AppStateMaximizeTests {
         #expect(appState.maximizedPanes[key] == nil)
     }
 
+    @Test("owner promotion preserves a maximized surviving child")
+    func ownerPromotionPreservesMaximizedChild() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let appState = makeAppState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let (ownerAreaID, childAreaID) = splitWorkspace(appState, projectID: projectID, key: key)
+        let ownerTab = appState.workspaceRoots[key]!.findArea(id: ownerAreaID)!.activeTab!
+        let childTab = appState.workspaceRoots[key]!.findArea(id: childAreaID)!.activeTab!
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: childAreaID,
+            direction: .vertical,
+            position: .second
+        )))
+        appState.dispatch(.focusArea(projectID: projectID, areaID: childAreaID))
+        appState.toggleMaximize(areaID: childAreaID, for: projectID)
+
+        appState.closePane(ownerTab.id, areaID: ownerAreaID, projectID: projectID)
+
+        #expect(appState.maximizedPanes[key] == AppState.MaximizedPane(
+            topLevelTabID: childTab.id,
+            areaID: childAreaID
+        ))
+    }
+
     @Test("maximize distinguishes docked parents sharing the same pane area")
     func maximizeDistinguishesDockedParentsSharingArea() {
         let projectID = UUID()

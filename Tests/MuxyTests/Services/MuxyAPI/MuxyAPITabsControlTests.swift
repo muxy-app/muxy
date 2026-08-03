@@ -82,6 +82,30 @@ struct MuxyAPITabsControlTests {
         #expect(!area.tabs.contains { $0.id == tab.id })
     }
 
+    @Test("panes.close promotes a child instead of closing its hierarchy")
+    func closeOwnerPanePromotesChild() {
+        let (appState, ownerArea) = makeAppState(tabTitles: ["Owner"])
+        let projectID = appState.activeProjectID!
+        let key = appState.activeWorktreeKey(for: projectID)!
+        let ownerTab = ownerArea.activeTab!
+        let ownerPaneID = ownerTab.content.pane!.id
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: ownerArea.id,
+            direction: .horizontal,
+            position: .second
+        )))
+        let childAreaID = appState.focusedAreaID[key]!
+        let childTab = appState.workspaceRoots[key]!.findArea(id: childAreaID)!.activeTab!
+
+        let result = MuxyAPI.Panes.close(paneIDString: ownerPaneID.uuidString, appState: appState)
+
+        guard case .success = result else { Issue.record("expected success"); return }
+        #expect(appState.workspaceRoots[key]?.allTabs().map(\.id) == [childTab.id])
+        #expect(childTab.parentTabID == nil)
+        #expect(appState.topLevelTabOrder[key] == [childTab.id])
+    }
+
     @Test("move reorders a top-level tab")
     func moveReordersTopLevelTab() {
         let (appState, area) = makeAppState(tabTitles: ["First", "Second", "Third"])

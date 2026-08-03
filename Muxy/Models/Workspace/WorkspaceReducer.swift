@@ -19,10 +19,17 @@ struct WorkspaceSideEffects {
         let areaID: UUID
     }
 
+    struct TopLevelTabReplacement {
+        let key: WorktreeKey
+        let replacedTabID: UUID
+        let replacementTabID: UUID
+    }
+
     var paneIDsToRemove: [UUID] = []
     var paneIDsToRelease: [UUID] = []
     var projectIDsToRemove: [UUID] = []
     var deferredAreaCollapses: [DeferredAreaCollapse] = []
+    var topLevelTabReplacements: [TopLevelTabReplacement] = []
     var createdTabID: UUID?
     var createdPaneID: UUID?
 }
@@ -173,6 +180,14 @@ enum WorkspaceReducer {
         case let .closeTabInWorktree(key, areaID, tabID):
             guard state.workspaceRoots[key] != nil else { break }
             TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
+
+        case let .closePane(projectID, areaID, tabID):
+            guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
+            TabReducer.closePane(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
+
+        case let .closePaneInWorktree(key, areaID, tabID):
+            guard state.workspaceRoots[key] != nil else { break }
+            TabReducer.closePane(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
 
         case let .sendTabToBackground(key, tabID):
             guard state.workspaceRoots[key] != nil else { break }
@@ -326,6 +341,7 @@ enum WorkspaceReducer {
              let .createBrowserTab(projectID, _, _, _),
              let .createBrowserSplit(projectID, _, _, _),
              let .closeTab(projectID, _, _),
+             let .closePane(projectID, _, _),
              let .selectTab(projectID, _, _),
              let .selectTabByIndex(projectID, _),
              let .selectNextTab(projectID),
@@ -365,6 +381,7 @@ enum WorkspaceReducer {
              let .createBrowserTabInWorktree(key, _, _, _),
              let .createBrowserSplitInWorktree(key, _, _, _),
              let .closeTabInWorktree(key, _, _),
+             let .closePaneInWorktree(key, _, _),
              let .sendTabToBackground(key, _),
              let .selectTabInWorktree(key, _, _),
              let .selectNextTabInWorktree(key),
@@ -411,7 +428,7 @@ enum WorkspaceReducer {
     ) {
         guard let area = state.workspaceRoots[key]?.findArea(id: areaID) else { return }
         if let tabID = area.activeTabID {
-            TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
+            TabReducer.closePane(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
         } else {
             SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
         }

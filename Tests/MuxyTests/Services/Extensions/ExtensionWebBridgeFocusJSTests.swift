@@ -62,6 +62,45 @@ struct ExtensionWebBridgeFocusJSTests {
         #expect(context.evaluateScript("globalThis.count")?.toInt32() == 0)
     }
 
+    @Test("lifecycle close identifies its only pending request")
+    func lifecycleCloseIdentifiesPendingRequest() {
+        let context = makeContext()
+        context.evaluateScript("muxy.lifecycle.onBeforeClose(() => muxy.lifecycle.close());")
+
+        context.evaluateScript("window.__muxyBeforeClose('7', 'tab', 'instance-1');")
+
+        #expect(context.evaluateScript(
+            "globalThis.messages.find((message) => message.verb === 'lifecycle.closeSelf').args.callID"
+        )?.toString() == "7")
+    }
+
+    @Test("lifecycle close does not select between concurrent requests")
+    func lifecycleCloseRejectsAmbiguousRequests() {
+        let context = makeContext()
+        context.evaluateScript("muxy.lifecycle.onBeforeClose(() => new Promise(() => {}));")
+        context.evaluateScript("window.__muxyBeforeClose('1', 'tab', 'instance-1');")
+        context.evaluateScript("window.__muxyBeforeClose('2', 'tab', 'instance-1');")
+
+        context.evaluateScript("muxy.lifecycle.close();")
+
+        #expect(context.evaluateScript(
+            "Object.prototype.hasOwnProperty.call(globalThis.messages.find((message) => message.verb === 'lifecycle.closeSelf').args, 'callID')"
+        )?.toBool() == false)
+    }
+
+    @Test("a throwing lifecycle handler does not leave a pending request")
+    func lifecycleThrowCleansPendingRequest() {
+        let context = makeContext()
+        context.evaluateScript("muxy.lifecycle.onBeforeClose(() => { throw new Error('failed'); });")
+        context.evaluateScript("window.__muxyBeforeClose('9', 'tab', 'instance-1');")
+
+        context.evaluateScript("muxy.lifecycle.close();")
+
+        #expect(context.evaluateScript(
+            "Object.prototype.hasOwnProperty.call(globalThis.messages.find((message) => message.verb === 'lifecycle.closeSelf').args, 'callID')"
+        )?.toBool() == false)
+    }
+
     @Test("modal open forwards dynamic flag for query handlers")
     func modalOpenForwardsDynamicFlagForQueryHandlers() {
         let context = makeContext()

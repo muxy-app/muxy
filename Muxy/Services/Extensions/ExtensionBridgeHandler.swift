@@ -130,7 +130,13 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
         resolveLifecycle(callID: callID, verdict: prevent ? .prevent : .allow)
     }
 
-    private func handleCloseSelf(appState: AppState) {
+    private func handleCloseSelf(args: [String: Any], appState: AppState) {
+        if let callID = args["callID"] as? String {
+            guard pendingLifecycle[callID] != nil else { return }
+            resolveLifecycle(callID: callID, verdict: .allow)
+            return
+        }
+        guard pendingLifecycle.isEmpty else { return }
         guard let surfaceKey else { return }
         switch surfaceKey.kind {
         case .tab:
@@ -196,7 +202,7 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
             handleResolveBeforeClose(args: args)
             return NSNull()
         case "lifecycle.closeSelf":
-            handleCloseSelf(appState: appState)
+            handleCloseSelf(args: args, appState: appState)
             return NSNull()
         case "modal.open":
             let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: makeContext(appState: appState))

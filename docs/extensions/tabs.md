@@ -34,7 +34,7 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
 
 The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
 
-Split-child tabs belong to their owning top-level tab. Closing that parent closes every child it owns, including pinned children. If a parent or child page registers [`muxy.lifecycle.onBeforeClose`](lifecycle.md), Muxy asks all participating surfaces in parallel; any veto cancels the entire hierarchy close.
+Split-child tabs belong to their owning top-level tab. Close Pane or `muxy.panes.close()` removes only the selected pane; when the owner pane closes, the first surviving child becomes the new top-level tab. Closing the top-level tab itself closes every child it owns, including pinned children. If a top-level or child page registers [`muxy.lifecycle.onBeforeClose`](lifecycle.md), Muxy asks only the surfaces included by that close intent; any veto cancels that close.
 
 ## File openers
 
@@ -155,7 +155,7 @@ window.muxy = {
     send(paneID, text): Promise<void>,
     sendKeys(paneID, key): Promise<void>,
     readScreen(paneID, lines?): Promise<string>,   // lines defaults to 50, clamped to 1–500
-    close(paneID): Promise<void>,
+    close(paneID): Promise<void>,       // closes only this pane; promotes a child when it owns the layout
     rename(paneID, title): Promise<void>,
   },
 

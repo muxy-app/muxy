@@ -30,6 +30,8 @@ Enums:
 
 `getWorkspace` returns the workspace for the project's **active** worktree; select the worktree first with `selectWorktree`. It returns `404` when the project has no active workspace. The returned tree includes all top-level and split-child tabs without exposing their internal ownership relationship. `selectTab` accepts either kind; selecting a child also activates its owning top-level tab. `createTab` returns `tab` (the newly active top-level tab) or `500` if creation fails.
 
+`closeArea` closes only the area's active pane. If that pane owns child panes, the first surviving child is promoted in the same top-level group; top-level ordering remains pinned-first. `closeTab` continues to close the selected top-level tab and all child panes it owns.
+
 ## Terminal control
 
 | Method | Parameters | Result |

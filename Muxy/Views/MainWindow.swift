@@ -79,14 +79,14 @@ struct MainWindow: View {
     @State private var dragCoordinator = TabDragCoordinator()
     private enum CloseConfirmationKind {
         case lastTab
-        case runningProcess
+        case runningProcess(AppState.CloseScope)
 
         var title: LocalizedStringResource {
             switch self {
             case .lastTab:
                 "Close Project?"
-            case .runningProcess:
-                "Close Tab?"
+            case let .runningProcess(scope):
+                scope == .pane ? "Close Pane?" : "Close Tab?"
             }
         }
 
@@ -94,8 +94,10 @@ struct MainWindow: View {
             switch self {
             case .lastTab:
                 "This is the last tab. Closing it will remove the project from the sidebar."
-            case .runningProcess:
-                "A process is still running in this tab. Are you sure you want to close it?"
+            case let .runningProcess(scope):
+                scope == .pane
+                    ? "A process is still running in this pane. Are you sure you want to close it?"
+                    : "A process is still running in this tab. Are you sure you want to close it?"
             }
         }
     }
@@ -270,7 +272,9 @@ struct MainWindow: View {
                 lastTab: appState.pendingLastTabClose != nil,
                 runningProcess: appState.pendingProcessTabClose != nil,
                 onLastTab: { presentCloseConfirmation(.lastTab) },
-                onRunningProcess: { presentCloseConfirmation(.runningProcess) }
+                onRunningProcess: {
+                    presentCloseConfirmation(.runningProcess(appState.pendingProcessTabClose?.scope ?? .tab))
+                }
             ),
             worktreeKeysSignature: worktreeKeysSignature,
             activeWorktreeSignature: activeWorktreeSignature,
@@ -716,7 +720,13 @@ struct MainWindow: View {
                let key = appState.activeWorktreeKey(for: project.id),
                let focusedAreaID = appState.focusedAreaID[key]
             {
-                let visiblePaneCount = appState.visibleLayout(for: key)?.allPanes().count ?? 0
+                let visiblePanes = appState.visibleLayout(for: key)?.allPanes() ?? []
+                let visiblePaneCount = visiblePanes.count
+                let closeTarget = PaneCloseControlPolicy.target(
+                    isActiveGroup: true,
+                    focusedAreaID: focusedAreaID,
+                    panes: visiblePanes
+                )
                 let isMaximized = appState.maximizedPanes[key] != nil
                 if visiblePaneCount > 1 || isMaximized {
                     let symbol = isMaximized
@@ -726,6 +736,21 @@ struct MainWindow: View {
                     IconButton(symbol: symbol, accessibilityLabel: label) {
                         appState.toggleMaximize(areaID: focusedAreaID, for: project.id)
                     }
+                }
+                if PaneCloseControlPolicy.isVisible(
+                    paneCount: visiblePaneCount,
+                    target: closeTarget
+                ), let closeTarget {
+                    IconButton(symbol: "xmark", accessibilityLabel: L10n.string("Close Pane")) {
+                        appState.closePane(
+                            closeTarget.tabID,
+                            areaID: closeTarget.areaID,
+                            projectID: project.id
+                        )
+                    }
+                    .help(L10n.string(
+                        "Close Pane (\(KeyBindingStore.shared.combo(for: .closePane).displayString))"
+                    ))
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: L10n.string("Split Right")) {
                     appState.dispatch(.splitArea(.init(
@@ -1835,7 +1860,7 @@ struct MainWindow: View {
         alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = "\u{1b}"
 
-        if kind == .runningProcess {
+        if case .runningProcess = kind {
             alert.showsSuppressionButton = true
             alert.suppressionButton?.title = L10n.string("Don't ask again")
         }

@@ -102,6 +102,30 @@ enum TopLevelTabReducer {
         }
     }
 
+    static func replaceTopLevelTab(
+        _ replacedTabID: UUID,
+        with replacementTabID: UUID,
+        key: WorktreeKey,
+        state: inout WorkspaceState
+    ) {
+        if let index = state.topLevelTabOrder[key]?.firstIndex(of: replacedTabID) {
+            state.topLevelTabOrder[key]?[index] = replacementTabID
+        }
+        if let root = state.workspaceRoots[key], let order = state.topLevelTabOrder[key] {
+            state.topLevelTabOrder[key] = pinnedFirst(order, root: root)
+        }
+        guard let group = state.topLevelTabLayouts[key]?.group(containingTabID: replacedTabID),
+              let index = group.tabIDs.firstIndex(of: replacedTabID)
+        else { return }
+        group.tabIDs[index] = replacementTabID
+        if let root = state.workspaceRoots[key] {
+            group.tabIDs = pinnedFirst(group.tabIDs, root: root)
+        }
+        if group.activeTabID == replacedTabID {
+            group.activeTabID = replacementTabID
+        }
+    }
+
     static func reconcile(key: WorktreeKey, state: inout WorkspaceState) {
         guard let root = state.workspaceRoots[key] else {
             state.topLevelTabLayouts.removeValue(forKey: key)

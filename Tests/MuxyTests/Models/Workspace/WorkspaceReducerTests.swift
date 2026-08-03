@@ -618,6 +618,145 @@ struct WorkspaceReducerTests {
         #expect(effects.projectIDsToRemove.contains(projectID))
     }
 
+    @Test("closing an owner pane promotes its child")
+    func closeOwnerPanePromotesChild() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let ownerAreaID = state.focusedAreaID[key]!
+        let ownerTab = state.workspaceRoots[key]!.findArea(id: ownerAreaID)!.activeTab!
+        let ownerPaneID = ownerTab.content.pane!.id
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: ownerAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let childAreaID = state.focusedAreaID[key]!
+        let childTab = state.workspaceRoots[key]!.findArea(id: childAreaID)!.activeTab!
+        _ = WorkspaceReducer.reduce(
+            action: .focusArea(projectID: projectID, areaID: ownerAreaID),
+            state: &state
+        )
+
+        let effects = WorkspaceReducer.reduce(
+            action: .closePane(projectID: projectID, areaID: ownerAreaID, tabID: ownerTab.id),
+            state: &state
+        )
+
+        let root = state.workspaceRoots[key]!
+        #expect(root.allAreas().map(\.id) == [childAreaID])
+        #expect(root.allTabs().map(\.id) == [childTab.id])
+        #expect(childTab.parentTabID == nil)
+        #expect(state.topLevelTabOrder[key] == [childTab.id])
+        #expect(state.topLevelTabLayouts[key]?.flattenedTabIDs() == [childTab.id])
+        #expect(state.focusedAreaID[key] == childAreaID)
+        #expect(effects.paneIDsToRemove == [ownerPaneID])
+    }
+
+    @Test("owner promotion reparents children and preserves its outer tab slot")
+    func closeOwnerPaneReparentsChildren() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let ownerAreaID = state.focusedAreaID[key]!
+        let ownerTab = state.workspaceRoots[key]!.findArea(id: ownerAreaID)!.activeTab!
+
+        _ = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: ownerAreaID),
+            state: &state
+        )
+        let unrelatedTab = state.workspaceRoots[key]!.findArea(id: ownerAreaID)!.activeTab!
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: ownerAreaID, tabID: ownerTab.id),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: ownerAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let firstChildAreaID = state.focusedAreaID[key]!
+        let firstChild = state.workspaceRoots[key]!.findArea(id: firstChildAreaID)!.activeTab!
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: firstChildAreaID,
+                direction: .vertical,
+                position: .second
+            )),
+            state: &state
+        )
+        let secondChildAreaID = state.focusedAreaID[key]!
+        let secondChild = state.workspaceRoots[key]!.findArea(id: secondChildAreaID)!.activeTab!
+        let groupID = state.topLevelTabLayouts[key]!.allGroups()[0].id
+
+        _ = WorkspaceReducer.reduce(
+            action: .closePane(projectID: projectID, areaID: ownerAreaID, tabID: ownerTab.id),
+            state: &state
+        )
+
+        #expect(firstChild.parentTabID == nil)
+        #expect(secondChild.parentTabID == firstChild.id)
+        #expect(state.topLevelTabOrder[key] == [firstChild.id, unrelatedTab.id])
+        let group = state.topLevelTabLayouts[key]!.allGroups()[0]
+        #expect(group.id == groupID)
+        #expect(group.tabIDs == [firstChild.id, unrelatedTab.id])
+        #expect(state.workspaceRoots[key]!.allAreas().contains { $0.id == ownerAreaID })
+    }
+
+    @Test("promoting a pinned child restores pinned-first order")
+    func closeOwnerPanePromotesPinnedChildFirst() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let ownerAreaID = state.focusedAreaID[key]!
+        let ownerTab = state.workspaceRoots[key]!.findArea(id: ownerAreaID)!.activeTab!
+        _ = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: ownerAreaID),
+            state: &state
+        )
+        let unrelatedTab = state.workspaceRoots[key]!.findArea(id: ownerAreaID)!.activeTab!
+        _ = WorkspaceReducer.reduce(
+            action: .selectTab(projectID: projectID, areaID: ownerAreaID, tabID: ownerTab.id),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: ownerAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let childAreaID = state.focusedAreaID[key]!
+        let childTab = state.workspaceRoots[key]!.findArea(id: childAreaID)!.activeTab!
+        childTab.isPinned = true
+        state.topLevelTabOrder[key] = [unrelatedTab.id, ownerTab.id]
+        let group = state.topLevelTabLayouts[key]!.allGroups()[0]
+        group.tabIDs = [unrelatedTab.id, ownerTab.id]
+
+        _ = WorkspaceReducer.reduce(
+            action: .closePane(projectID: projectID, areaID: ownerAreaID, tabID: ownerTab.id),
+            state: &state
+        )
+
+        #expect(state.topLevelTabOrder[key] == [childTab.id, unrelatedTab.id])
+        #expect(group.tabIDs == [childTab.id, unrelatedTab.id])
+    }
+
     @Test("focusArea updates focusedAreaID and maintains history")
     func focusArea() {
         let projectID = UUID()
