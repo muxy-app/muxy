@@ -461,6 +461,28 @@ struct AgentStatusStoreTests {
         #expect(store.isCompletionPending(forPane: paneID))
     }
 
+    @Test("pane identity icon falls back to every active hook provider")
+    func paneIdentityIconFallsBackToEveryActiveHookProvider() {
+        let (store, _, paneID) = makeContext()
+
+        for (index, provider) in AIProviderRegistry.shared.agentLaunchProviders.enumerated() {
+            send(store, paneID, provider: provider.id, .working, sequence: UInt64(index + 1))
+
+            #expect(DetectedAgentStore.shared.agent(for: paneID) == nil)
+            #expect(AgentPaneIdentity.iconName(forPane: paneID, agentStatusStore: store) == provider.iconName)
+        }
+    }
+
+    @Test("detected pane identity wins over active hook provider")
+    func detectedPaneIdentityWinsOverActiveHookProvider() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, provider: "codex", .working, sequence: 1)
+        DetectedAgentStore.shared.setAgent("claude", for: paneID)
+        defer { DetectedAgentStore.shared.resetPane(paneID) }
+
+        #expect(AgentPaneIdentity.iconName(forPane: paneID, agentStatusStore: store) == "claude")
+    }
+
     @Test("ending a session cancels a pending grace transition")
     func endSessionCancelsGrace() {
         let (store, scheduler, paneID) = makeContext()

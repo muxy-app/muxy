@@ -85,7 +85,7 @@ struct PaneTabStrip: View {
                 isOffline: !panes.isEmpty && panes.allSatisfy(\.isOffline),
                 faviconImage: tab.content.browserState?.faviconImage,
                 detectedAgentIconName: paneIDs.compactMap {
-                    DetectedAgentStore.shared.iconName(forPane: $0)
+                    AgentPaneIdentity.iconName(forPane: $0)
                 }.first,
                 agentStatus: agentStatus,
                 hasUnread: relatedTabs.contains { NotificationStore.shared.hasUnread(tabID: $0.id) }

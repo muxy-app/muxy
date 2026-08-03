@@ -661,7 +661,7 @@ struct TabFocusedTabRow: View {
         switch tab.kind {
         case .terminal:
             let agentIconName = relatedTabs.compactMap {
-                DetectedAgentStore.shared.iconName(forPane: $0.content.pane?.id)
+                AgentPaneIdentity.iconName(forPane: $0.content.pane?.id)
             }.first
             if let agentIconName {
                 ProviderIconView(iconName: agentIconName, size: UIMetrics.iconMD)
