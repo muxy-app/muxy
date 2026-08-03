@@ -5,8 +5,8 @@ import Testing
 
 @Suite("LocalizationSelection")
 struct LocalizationSelectionTests {
-    @Test("options always include built-in English")
-    func optionsIncludeEnglish() {
+    @Test("options always include built-in languages")
+    func optionsIncludeBuiltInLanguages() {
         let options = LocalizationSelection.options(
             from: [],
             selectedValue: LocalizationSelection.builtinValue
@@ -16,6 +16,11 @@ struct LocalizationSelectionTests {
             .init(
                 id: LocalizationSelection.builtinValue,
                 title: "English",
+                isAvailable: true
+            ),
+            .init(
+                id: LocalizationSelection.portugueseBrazilValue,
+                title: "Português (Brasil)",
                 isAvailable: true
             ),
         ])
@@ -33,6 +38,7 @@ struct LocalizationSelectionTests {
 
         #expect(options.map(\.title) == [
             "English",
+            "Português (Brasil)",
             "Deutsch — community-de",
             "Deutsch — formal-de",
         ])
@@ -80,4 +86,3 @@ struct LocalizationSelectionTests {
         )
     }
 }
-

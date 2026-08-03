@@ -5,8 +5,9 @@ matches the active app language as well as English setting keys and technical al
 
 ## Language
 
-English is built in. Enabled extensions can provide additional app languages, and every provider appears under
-**Interface → Language** with the extension name so you can choose between multiple providers for the same language.
+English and Brazilian Portuguese are built in. Enabled extensions can provide additional app languages, and every
+provider appears under **Interface → Language** with the extension name so you can choose between multiple providers
+for the same language.
 If the selected extension is disabled, removed, or temporarily invalid, Muxy keeps the selection and uses English
 until that provider becomes available again.
 

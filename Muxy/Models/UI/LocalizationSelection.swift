@@ -10,6 +10,8 @@ enum LocalizationSelection {
     static let storageKey = "muxy.localization"
     static let builtinValue = ""
     static let builtinTitle = "English"
+    static let portugueseBrazilValue = "pt-BR"
+    static let portugueseBrazilTitle = "Português (Brasil)"
 
     @MainActor
     static func resolvedBinding(
@@ -34,6 +36,7 @@ enum LocalizationSelection {
     ) -> [Option] {
         var options = [
             Option(id: builtinValue, title: builtinTitle, isAvailable: true),
+            Option(id: portugueseBrazilValue, title: portugueseBrazilTitle, isAvailable: true),
         ]
         options += bindings.map {
             Option(
@@ -55,6 +58,17 @@ enum LocalizationSelection {
 
     static func value(extensionID: String, localizationID: String) -> String {
         "\(extensionID):\(localizationID)"
+    }
+
+    static func builtinLocaleIdentifier(for value: String) -> String? {
+        switch value {
+        case builtinValue:
+            "en"
+        case portugueseBrazilValue:
+            portugueseBrazilValue
+        default:
+            nil
+        }
     }
 
     static func parse(_ storedValue: String) -> (extensionID: String, localizationID: String)? {

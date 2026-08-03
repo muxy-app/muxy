@@ -16,7 +16,7 @@ extension Bundle {
             }
         }
 
-        return Bundle.main
+        return Bundle.module
     }()
 
     static var providerIconsURL: URL? {

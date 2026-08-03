@@ -6,6 +6,20 @@ import Testing
 @Suite("LocalizationService")
 @MainActor
 struct LocalizationServiceTests {
+    @Test("uses a selected built-in localization")
+    func resolvesBuiltInLocalization() throws {
+        let suiteName = "LocalizationServiceTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let service = LocalizationService(defaults: defaults)
+
+        service.refresh(storedValue: LocalizationSelection.portugueseBrazilValue, bindings: [])
+
+        #expect(service.activeSelection == LocalizationSelection.portugueseBrazilValue)
+        #expect(service.locale.identifier == Locale(identifier: "pt-BR").identifier)
+        #expect(service.string("Settings") == "Configurações")
+    }
+
     @Test("uses selected extension bundle and falls back to English")
     func resolvesSelectedBundleAndEnglishFallback() throws {
         let root = FileManager.default.temporaryDirectory

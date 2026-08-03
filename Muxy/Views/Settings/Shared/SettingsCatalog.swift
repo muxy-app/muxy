@@ -160,7 +160,7 @@ enum SettingsCatalog {
         SettingsCatalogItem(
             key: LocalizationSelection.storageKey,
             title: "App Language",
-            description: "Chooses built-in English or a language provided by an enabled extension.",
+            description: "Chooses a built-in language or one provided by an enabled extension.",
             category: .appearance,
             section: "Language",
             defaultValue: LocalizationSelection.builtinValue,

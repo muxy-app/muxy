@@ -327,6 +327,7 @@
 "Enable it in Settings → Browser." = "Enable it in Settings → Browser.";
 "English" = "English";
 "English is built in. Additional languages can be provided by enabled extensions." = "English is built in. Additional languages can be provided by enabled extensions.";
+"English and Brazilian Portuguese are built in. Additional languages can be provided by enabled extensions." = "English and Brazilian Portuguese are built in. Additional languages can be provided by enabled extensions.";
 "Enter a port between %u and %u." = "Enter a port between %u and %u.";
 "Environment" = "Environment";
 "Expand Composer" = "Expand Composer";
@@ -1325,6 +1326,7 @@
 "Automatically reveals worktrees when switching projects." = "Automatically reveals worktrees when switching projects.";
 "Builds new worktree paths with the required branch variable and optional project variables." = "Builds new worktree paths with the required branch variable and optional project variables.";
 "Chooses built-in English or a language provided by an enabled extension." = "Chooses built-in English or a language provided by an enabled extension.";
+"Chooses a built-in language or one provided by an enabled extension." = "Chooses a built-in language or one provided by an enabled extension.";
 "Chooses how the composer submits images." = "Chooses how the composer submits images.";
 "Chooses the AI CLI used by the Commit top-bar action." = "Chooses the AI CLI used by the Commit top-bar action.";
 "Chooses the AI CLI used by the Create PR top-bar action." = "Chooses the AI CLI used by the Create PR top-bar action.";

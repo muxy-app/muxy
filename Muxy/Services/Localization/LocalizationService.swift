@@ -36,6 +36,17 @@ final class LocalizationService {
         let previousSelection = activeSelection
         let previousLocale = locale
         let previousBundleURL = bundleURL
+        if let localeIdentifier = LocalizationSelection.builtinLocaleIdentifier(for: storedValue) {
+            activeSelection = storedValue
+            locale = Locale(identifier: localeIdentifier)
+            bundleURL = nil
+            postChangeIfNeeded(
+                previousSelection: previousSelection,
+                previousLocale: previousLocale,
+                previousBundleURL: previousBundleURL
+            )
+            return
+        }
         guard let identifier = LocalizationSelection.parse(storedValue),
               let binding = bindings.first(where: {
                   $0.muxyExtension.id == identifier.extensionID
@@ -64,14 +75,11 @@ final class LocalizationService {
     }
 
     func resource(_ resource: LocalizedStringResource) -> LocalizedStringResource {
-        var localizedResource = resource
-        localizedResource.locale = locale
-        guard let bundleURL else { return localizedResource }
-        return LocalizedStringResource(
+        LocalizedStringResource(
             resource.defaultValue,
             table: resource.table,
             locale: locale,
-            bundle: .atURL(bundleURL)
+            bundle: .atURL(localizedBundleURL)
         )
     }
 
@@ -86,6 +94,21 @@ final class LocalizationService {
         let value = string(LocalizedStringResource(String.LocalizationValue(key)))
         searchStringCache[key] = value
         return value
+    }
+
+    private var localizedBundleURL: URL {
+        if let bundleURL {
+            return bundleURL
+        }
+        guard let localeIdentifier = LocalizationSelection.builtinLocaleIdentifier(for: activeSelection),
+              let localizedURL = Bundle.appResources.url(
+                  forResource: localeIdentifier.lowercased(),
+                  withExtension: "lproj"
+              )
+        else {
+            return Bundle.appResources.bundleURL
+        }
+        return localizedURL
     }
 
     private func postChangeIfNeeded(

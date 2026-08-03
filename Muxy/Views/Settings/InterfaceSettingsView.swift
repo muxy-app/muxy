@@ -170,7 +170,7 @@ struct InterfaceSettingsView: View {
         if localizationOptions.contains(where: { $0.id == selectedLocalization && !$0.isAvailable }) {
             return "The selected language extension is unavailable, so Muxy is temporarily using English."
         }
-        return "English is built in. Additional languages can be provided by enabled extensions."
+        return "English and Brazilian Portuguese are built in. Additional languages can be provided by enabled extensions."
     }
 
     @ViewBuilder
