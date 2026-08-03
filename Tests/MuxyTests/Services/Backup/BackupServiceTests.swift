@@ -178,6 +178,40 @@ struct BackupServiceTests {
         #expect(!FileManager.default.fileExists(atPath: target.appendingPathComponent("settings.json").path))
     }
 
+    @Test("import and apply installs a valid settings file into the target")
+    func appliesValidImportedSettings() async throws {
+        let statusBarValue = UserDefaults.standard.object(forKey: "muxy.showStatusBar")
+        defer {
+            if let statusBarValue {
+                UserDefaults.standard.set(statusBarValue, forKey: "muxy.showStatusBar")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "muxy.showStatusBar")
+            }
+        }
+        try await withSettingsFileSnapshot {
+            let target = tempDirectory()
+            try write(Data(#"{"muxy.showStatusBar":true}"#.utf8), named: "settings.json", in: target)
+
+            let staging = tempDirectory()
+            try write(Data(#"{"muxy.showStatusBar":false}"#.utf8), named: "settings.json", in: staging)
+            let manifest = BackupManifest(
+                schemaVersion: BackupManifest.currentSchemaVersion,
+                appVersion: "1.0",
+                createdAt: Date(),
+                files: ["settings.json"]
+            )
+            try JSONEncoder.iso8601.encode(manifest).write(to: staging.appendingPathComponent(BackupManifest.filename))
+            let archive = tempDirectory().appendingPathComponent("valid.muxy")
+            try BackupArchive.zip(directory: staging, to: archive)
+
+            try await BackupService(baseDirectory: target).importAndApply(from: archive)
+
+            let data = try Data(contentsOf: target.appendingPathComponent("settings.json"))
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            #expect(object?["muxy.showStatusBar"] as? Bool == false)
+        }
+    }
+
     @Test("import leaves active data in place when backup preparation fails")
     func leavesActiveDataWhenBackupPreparationFails() async throws {
         let source = try seedSource()
