@@ -379,6 +379,62 @@ struct TerminalBridgeResolveFilePathTests {
         #expect(TerminalBridge.relativePath(outside, inside: dir.path) == nil)
     }
 
+    @Test func routesFileOutsideProjectToDefaultApplication() throws {
+        let project = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let outside = writeFile(
+            URL(fileURLWithPath: NSTemporaryDirectory()),
+            name: "outside-\(UUID().uuidString).png"
+        )
+        defer { try? FileManager.default.removeItem(atPath: outside) }
+        let location = TerminalBridge.ResolvedFileLocation(path: outside, line: nil, column: nil)
+        var openedURL: URL?
+        var openedProjectFile = false
+
+        let opened = TerminalBridge.openFileLocation(
+            location,
+            projectPath: project.path,
+            projectFileOpener: { _ in
+                openedProjectFile = true
+                return true
+            },
+            defaultApplicationOpener: {
+                openedURL = $0
+                return true
+            }
+        )
+
+        #expect(opened)
+        #expect(openedURL == URL(fileURLWithPath: outside))
+        #expect(!openedProjectFile)
+    }
+
+    @Test func routesFileInsideProjectToProjectOpener() throws {
+        let project = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: project) }
+        let file = writeFile(project, name: "inside.png")
+        let location = TerminalBridge.ResolvedFileLocation(path: file, line: nil, column: nil)
+        var openedProjectLocation: TerminalBridge.ResolvedFileLocation?
+        var openedURL: URL?
+
+        let opened = TerminalBridge.openFileLocation(
+            location,
+            projectPath: project.path,
+            projectFileOpener: {
+                openedProjectLocation = $0
+                return true
+            },
+            defaultApplicationOpener: {
+                openedURL = $0
+                return true
+            }
+        )
+
+        #expect(opened)
+        #expect(openedProjectLocation == location)
+        #expect(openedURL == nil)
+    }
+
     @Test func stripsLineSuffixOnlyWhenTrailingNumeric() {
         #expect(TerminalBridge.stripLineColumnSuffix(from: "a.txt:12") == .init(path: "a.txt", line: 12, column: nil))
         #expect(TerminalBridge.stripLineColumnSuffix(from: "a.txt:12:7") == .init(path: "a.txt", line: 12, column: 7))

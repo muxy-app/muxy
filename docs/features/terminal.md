@@ -132,6 +132,9 @@ nor changes a text selection:
 | `⌘` + left-drag | Moves the pane to another area or split |
 | Right-click | Opens the [right-click menu](#right-click-menu) |
 
+File paths inside the current project use its configured file opener. Local files outside the project open in
+their default macOS application.
+
 A `⌘` + left-drag is decided when the gesture starts, so pressing or releasing `⌘` mid-drag never switches
 between moving the pane and selecting text.
 

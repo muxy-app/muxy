@@ -586,25 +586,45 @@ struct TerminalBridge: NSViewRepresentable {
         }
         view.onCmdClickFile = { token in
             guard let location = Self.resolveFileLocation(from: token, projectPath: projectPath) else { return }
-            if Self.openWithRegisteredFileOpener(
+            _ = Self.openFileLocation(
                 location,
                 projectPath: projectPath,
                 projectID: projectID,
                 areaID: areaID,
                 appState: appState
-            ) {
-                return
-            }
-            _ = IDEIntegrationService.shared.openProject(
-                at: projectPath,
-                highlightingFileAt: location.path,
-                line: location.line,
-                column: location.column
             )
         }
         view.onOpenURL = { url in
             if let location = Self.resolveFileLocation(from: url, projectPath: projectPath) {
-                if Self.openWithRegisteredFileOpener(
+                return Self.openFileLocation(
+                    location,
+                    projectPath: projectPath,
+                    projectID: projectID,
+                    areaID: areaID,
+                    appState: appState
+                )
+            }
+            guard Self.isExternalLink(url) else {
+                ToastState.shared.show(L10n.string("File not found"))
+                return false
+            }
+            return Self.openExternalLink(url, appState: appState)
+        }
+    }
+
+    @MainActor
+    private static func openFileLocation(
+        _ location: ResolvedFileLocation,
+        projectPath: String,
+        projectID: UUID?,
+        areaID: UUID,
+        appState: AppState
+    ) -> Bool {
+        openFileLocation(
+            location,
+            projectPath: projectPath,
+            projectFileOpener: { location in
+                if openWithRegisteredFileOpener(
                     location,
                     projectPath: projectPath,
                     projectID: projectID,
@@ -619,13 +639,21 @@ struct TerminalBridge: NSViewRepresentable {
                     line: location.line,
                     column: location.column
                 )
-            }
-            guard Self.isExternalLink(url) else {
-                ToastState.shared.show(L10n.string("File not found"))
-                return false
-            }
-            return Self.openExternalLink(url, appState: appState)
+            },
+            defaultApplicationOpener: { NSWorkspace.shared.open($0) }
+        )
+    }
+
+    static func openFileLocation(
+        _ location: ResolvedFileLocation,
+        projectPath: String,
+        projectFileOpener: (ResolvedFileLocation) -> Bool,
+        defaultApplicationOpener: (URL) -> Bool
+    ) -> Bool {
+        guard relativePath(location.path, inside: projectPath) != nil else {
+            return defaultApplicationOpener(URL(fileURLWithPath: location.path))
         }
+        return projectFileOpener(location)
     }
 
     @MainActor
