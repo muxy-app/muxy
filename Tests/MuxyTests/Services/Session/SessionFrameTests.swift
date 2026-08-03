@@ -92,6 +92,33 @@ struct SessionFrameTests {
     }
 }
 
+@Suite("SessionWindowSizePolicy")
+struct SessionWindowSizePolicyTests {
+    @Test("classifies usable terminal sizes")
+    func classifiesUsableSizes() {
+        #expect(!SessionWindowSizePolicy.isUsable(columns: 0, rows: 0))
+        #expect(!SessionWindowSizePolicy.isUsable(columns: 1, rows: 1))
+        #expect(!SessionWindowSizePolicy.isUsable(columns: 9, rows: 4))
+        #expect(!SessionWindowSizePolicy.isUsable(columns: 10, rows: 3))
+        #expect(SessionWindowSizePolicy.isUsable(columns: 10, rows: 4))
+        #expect(SessionWindowSizePolicy.isUsable(columns: 80, rows: 24))
+    }
+
+    @Test("maps transient attach sizes to unknown")
+    func mapsTransientAttachSizesToUnknown() {
+        #expect(SessionWindowSizePolicy.attachSize(from: nil).columns == 0)
+        #expect(SessionWindowSizePolicy.attachSize(from: (columns: 1, rows: 1)).rows == 0)
+        #expect(SessionWindowSizePolicy.attachSize(from: (columns: 80, rows: 24)).columns == 80)
+    }
+
+    @Test("maps invalid create sizes to the fallback pty size")
+    func mapsInvalidCreateSizesToFallback() {
+        #expect(SessionWindowSizePolicy.createSize(columns: 0, rows: 0).columns == 80)
+        #expect(SessionWindowSizePolicy.createSize(columns: 1, rows: 1).rows == 24)
+        #expect(SessionWindowSizePolicy.createSize(columns: 120, rows: 40).columns == 120)
+    }
+}
+
 @Suite("SessionIdentifier")
 struct SessionIdentifierTests {
     @Test("round-trips a canonical uuid string")
