@@ -1347,7 +1347,7 @@
 "Configures shortcuts that open command tabs." = "Configures shortcuts that open command tabs.";
 "Configures the system-wide shortcut for the quick terminal." = "Configures the system-wide shortcut for the quick terminal.";
 "Confirm Quit" = "Confirm Quit";
-"Confirm Running Process Tab Close" = "Confirm Running Process Tab Close";
+"Confirm Running Process Tab or Pane Close" = "Confirm Running Process Tab or Pane Close";
 "Controls AI provider notification integrations." = "Controls AI provider notification integrations.";
 "Controls anonymous crash report consent when diagnostics are available." = "Controls anonymous crash report consent when diagnostics are available.";
 "Controls how much of the desktop shows through the terminal background." = "Controls how much of the desktop shows through the terminal background.";

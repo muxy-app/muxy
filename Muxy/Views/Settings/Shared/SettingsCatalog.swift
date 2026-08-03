@@ -315,7 +315,7 @@ enum SettingsCatalog {
         ),
         SettingsCatalogItem(
             key: TabCloseConfirmationPreferences.confirmRunningProcessKey,
-            title: "Confirm Running Process Tab Close",
+            title: "Confirm Running Process Tab or Pane Close",
             description: "Asks before closing a terminal tab or pane with a running process.",
             category: .terminal,
             section: "Tabs",
