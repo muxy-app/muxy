@@ -16,8 +16,17 @@ enum AgentPaneIdentity {
         detectedAgentStore: DetectedAgentStore = .shared,
         agentStatusStore: AgentStatusStore = .shared
     ) -> String? {
-        paneIDs.compactMap { detectedAgentStore.agent(for: $0) }.first
-            ?? paneIDs.compactMap { agentStatusStore.activeProviderID(forPane: $0) }.first
+        for paneID in paneIDs {
+            if let providerID = detectedAgentStore.agent(for: paneID) {
+                return providerID
+            }
+        }
+        for paneID in paneIDs {
+            if let providerID = agentStatusStore.activeProviderID(forPane: paneID) {
+                return providerID
+            }
+        }
+        return nil
     }
 
     static func iconName(
