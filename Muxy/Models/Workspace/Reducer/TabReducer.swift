@@ -279,12 +279,7 @@ enum TabReducer {
             return
         }
 
-        if let paneID = area.closeTab(tabID) {
-            effects.paneIDsToRemove.append(paneID)
-        }
-
-        guard area.tabs.isEmpty else { return }
-        SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
+        closeChildPane(tabID, areaID: areaID, key: key, state: &state, effects: &effects)
     }
 
     static func closePane(

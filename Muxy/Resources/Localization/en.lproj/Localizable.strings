@@ -214,7 +214,7 @@
 "Composer" = "Composer";
 "Composer Voice" = "Composer Voice";
 "Confirm Delete All (%lld)" = "Confirm Delete All (%lld)";
-"Confirm before closing a tab with a running process" = "Confirm before closing a tab with a running process";
+"Confirm before closing a tab or pane with a running process" = "Confirm before closing a tab or pane with a running process";
 "Confirm before quitting Muxy" = "Confirm before quitting Muxy";
 "Conflicts" = "Conflicts";
 "Conflicts with \"%@\". Press a different shortcut or Esc to cancel." = "Conflicts with \"%@\". Press a different shortcut or Esc to cancel.";
@@ -1320,7 +1320,7 @@
 "Allow Mobile Connections" = "Allow Mobile Connections";
 "Allows mobile devices to connect to this Mac." = "Allows mobile devices to connect to this Mac.";
 "App Shortcuts" = "App Shortcuts";
-"Asks before closing a terminal tab with a running process." = "Asks before closing a terminal tab with a running process.";
+"Asks before closing a terminal tab or pane with a running process." = "Asks before closing a terminal tab or pane with a running process.";
 "Asks before quitting Muxy." = "Asks before quitting Muxy.";
 "Auto-copy Terminal Selection" = "Auto-copy Terminal Selection";
 "Auto-expand Worktrees" = "Auto-expand Worktrees";
