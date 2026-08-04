@@ -211,6 +211,83 @@ struct GitRepositoryServiceNewAPIsTests {
         #expect(!result.truncated)
     }
 
+    @Test("initial branch resolves its name, has no history, and exposes its staged diff")
+    func initialBranchCommitContext() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try "first version\n".write(
+            to: URL(fileURLWithPath: repo.path).appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try repo.run("add", "README.md")
+
+        let service = GitRepositoryService()
+        let commits = try await service.commitLog(repoPath: repo.path)
+        let stagedDiff = try await service.rawDiff(
+            repoPath: repo.path,
+            filePath: nil,
+            range: nil,
+            staged: true,
+            lineLimit: nil
+        )
+
+        #expect(try await service.currentBranch(repoPath: repo.path) == "main")
+        #expect(commits.isEmpty)
+        #expect(stagedDiff.diff.contains("+first version"))
+    }
+
+    @Test("detached HEAD remains reported as HEAD")
+    func detachedHeadCurrentBranch() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "README.md", contents: "first version\n", message: "initial commit")
+        try repo.run("checkout", "--detach")
+
+        #expect(try await GitRepositoryService().currentBranch(repoPath: repo.path) == "HEAD")
+    }
+
+    @Test("malformed HEAD does not produce an empty commit history")
+    func malformedHeadCommitLogFails() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let headURL = URL(fileURLWithPath: repo.path).appendingPathComponent(".git/HEAD")
+        try "not a valid HEAD\n".write(to: headURL, atomically: true, encoding: .utf8)
+
+        await #expect(throws: Error.self) {
+            try await GitRepositoryService().commitLog(repoPath: repo.path)
+        }
+    }
+
+    @Test("branch refs with missing objects do not produce an empty commit history")
+    func missingBranchRefObjectCommitLogFails() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let branchRefURL = URL(fileURLWithPath: repo.path)
+            .appendingPathComponent(".git/refs/heads/main")
+        try "1111111111111111111111111111111111111111\n".write(
+            to: branchRefURL,
+            atomically: true,
+            encoding: .utf8
+        )
+
+        await #expect(throws: Error.self) {
+            try await GitRepositoryService().commitLog(repoPath: repo.path)
+        }
+    }
+
+    @Test("malformed HEAD does not fall back to a branch name")
+    func malformedHeadCurrentBranchFails() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let headURL = URL(fileURLWithPath: repo.path).appendingPathComponent(".git/HEAD")
+        try "not a valid HEAD\n".write(to: headURL, atomically: true, encoding: .utf8)
+
+        await #expect(throws: Error.self) {
+            try await GitRepositoryService().currentBranch(repoPath: repo.path)
+        }
+    }
+
     @Test("repoSignature changes when the working tree advances")
     func repoSignatureChanges() async throws {
         let repo = try TempGitRepo()
