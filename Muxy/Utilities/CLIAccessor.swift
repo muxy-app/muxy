@@ -3,6 +3,8 @@ import Foundation
 
 @MainActor
 enum CLIAccessor {
+    private static var didRefreshInstalledCLI = false
+
     static func openProjectFromPath(
         _ path: String,
         appState: AppState,
@@ -62,6 +64,65 @@ enum CLIAccessor {
         }
     }
 
+    static func refreshInstalledCLIIfNeeded() {
+        guard !didRefreshInstalledCLI else { return }
+        didRefreshInstalledCLI = true
+
+        let wrapper = CLIWrapperScript.contents(installedAppPath: Bundle.main.bundleURL.path)
+        let localPath = "/usr/local/bin"
+        let home = NSHomeDirectory()
+        let installationPaths = [localPath, "\(home)/bin", "\(home)/.local/bin"]
+        let failedPaths = migrateInstalledCLI(
+            wrapper: wrapper,
+            installationPaths: installationPaths,
+            contentsAtPath: { try? String(contentsOfFile: $0, encoding: .utf8) },
+            installWrapper: { writeWrapper($0, to: $1) }
+        )
+
+        guard failedPaths.contains(localPath), confirmUpdate() else { return }
+
+        Task.detached(priority: .userInitiated) {
+            let success = runAdminInstall(wrapper: wrapper)
+            await MainActor.run {
+                if success {
+                    alert(
+                        title: "CLI Updated",
+                        body: "The Muxy CLI now follows the installed Muxy app version automatically."
+                    )
+                    return
+                }
+                alert(
+                    title: "CLI Update Failed",
+                    body: "Could not update /usr/local/bin/muxy. Use Muxy → Install CLI to try again."
+                )
+            }
+        }
+    }
+
+    static func migrateInstalledCLI(
+        wrapper: String,
+        installationPaths: [String],
+        contentsAtPath: (String) -> String?,
+        installWrapper: (String, String) -> Bool
+    ) -> [String] {
+        var failedPaths: [String] = []
+
+        for binPath in installationPaths {
+            let targetPath = "\(binPath)/muxy"
+            guard let installed = contentsAtPath(targetPath),
+                  CLIWrapperScript.requiresMigration(installed)
+            else {
+                continue
+            }
+            guard installWrapper(wrapper, binPath) else {
+                failedPaths.append(binPath)
+                continue
+            }
+        }
+
+        return failedPaths
+    }
+
     private static func writeWrapper(_ wrapper: String, to binPath: String) -> Bool {
         let target = URL(fileURLWithPath: "\(binPath)/muxy")
         let dir = URL(fileURLWithPath: binPath)
@@ -82,7 +143,11 @@ enum CLIAccessor {
 
     nonisolated private static func runAdminInstall(wrapper: String) -> Bool {
         let quotedWrapper = ShellEscaper.escape(wrapper)
-        let shellCommand = "mkdir -p /usr/local/bin && printf '%s' \(quotedWrapper) > /usr/local/bin/muxy && chmod +x /usr/local/bin/muxy"
+        let shellCommand = "set -e; mkdir -p /usr/local/bin; "
+            + "temp=$(mktemp /usr/local/bin/.muxy.XXXXXX); "
+            + "trap 'rm -f \"$temp\"' EXIT; "
+            + "printf '%s' \(quotedWrapper) > \"$temp\"; "
+            + "chmod 755 \"$temp\"; mv -f \"$temp\" /usr/local/bin/muxy; trap - EXIT"
         let escapedForAppleScript = shellCommand
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -131,6 +196,21 @@ enum CLIAccessor {
         alert.alertStyle = .informational
         alert.addButton(withTitle: L10n.string("Install"))
         alert.addButton(withTitle: L10n.string("Cancel"))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private static func confirmUpdate() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = L10n.string("Update Muxy CLI?")
+        alert.informativeText = L10n.string("""
+        The installed Muxy CLI is an older standalone copy that cannot follow app updates.
+
+        Update it to a wrapper that always runs the CLI bundled with your current \
+        Muxy version. macOS will ask for your administrator password.
+        """)
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: L10n.string("Update"))
+        alert.addButton(withTitle: L10n.string("Not Now"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 

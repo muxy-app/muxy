@@ -178,6 +178,10 @@ struct MuxyApp: App {
                         appState.onProjectSelected = { [projectStore] projectID in
                             projectStore.markActive(id: projectID)
                         }
+                        Task { @MainActor in
+                            await Task.yield()
+                            CLIAccessor.refreshInstalledCLIIfNeeded()
+                        }
                     }
             }
         }

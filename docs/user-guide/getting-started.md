@@ -8,7 +8,7 @@
 
 1. Download the latest build from the releases page.
 2. Drag `Muxy.app` to `/Applications` and launch it.
-3. Optional: **Muxy -> Install CLI** writes a `muxy` wrapper to `/usr/local/bin/muxy`. If that location needs admin access and installation fails, Muxy falls back to `~/bin/muxy` or `~/.local/bin/muxy`.
+3. Optional: **Muxy -> Install CLI** writes a `muxy` wrapper to `/usr/local/bin/muxy`. The wrapper follows Muxy app updates automatically. If that location needs admin access and installation fails, Muxy falls back to `~/bin/muxy` or `~/.local/bin/muxy`.
 
 ## Add your first project
 

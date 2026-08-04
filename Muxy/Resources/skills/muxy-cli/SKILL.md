@@ -29,7 +29,7 @@ Every command talks to the running app over a local Unix socket — except openi
 muxy list-panes >/dev/null 2>&1 || { echo "Muxy not running"; exit 1; }
 ```
 
-If `muxy` itself is not found, it has not been installed — the user installs it from **Muxy → Install CLI** (it lands in `/usr/local/bin`, or `~/bin` / `~/.local/bin` as a fallback). You cannot install it for them.
+If `muxy` itself is not found, it has not been installed — the user installs it from **Muxy → Install CLI** (it lands in `/usr/local/bin`, or `~/bin` / `~/.local/bin` as a fallback). The installed wrapper follows Muxy app updates automatically; the app migrates older standalone installs and requests approval when administrator access is required. You cannot install it for them.
 
 `muxy --help` lists every command; `muxy <command> --help` (or `-h`) prints that command's options.
 

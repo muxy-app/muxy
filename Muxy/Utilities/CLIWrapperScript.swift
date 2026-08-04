@@ -4,6 +4,12 @@ enum CLIWrapperScript {
     static let bundleIdentifier = "com.muxy.app"
     static let bundledScriptRelativePath = "Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
 
+    static func requiresMigration(_ contents: String) -> Bool {
+        guard contents.hasPrefix("#!/bin/bash\n# Muxy CLI wrapper") else { return false }
+        guard !contents.contains(bundledScriptRelativePath) else { return false }
+        return contents.contains("MUXY_SOCKET_PATH") || contents.contains("muxy://open")
+    }
+
     static func contents(installedAppPath: String) -> String {
         let escapedAppPath = ShellEscaper.escape(installedAppPath)
         let escapedRelativePath = ShellEscaper.escape(bundledScriptRelativePath)
