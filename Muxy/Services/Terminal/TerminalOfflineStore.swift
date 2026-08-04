@@ -36,7 +36,7 @@ final class TerminalOfflineStore {
         removePanes([paneID])
     }
 
-    func removePanes<PaneIDs: Sequence>(_ paneIDs: PaneIDs) where PaneIDs.Element == UUID {
+    func removePanes(_ paneIDs: some Sequence<UUID>) {
         var affectedWorktrees: [WorktreeKey: String] = [:]
         for paneID in paneIDs {
             guard let removed = panes.removeValue(forKey: paneID) else { continue }
