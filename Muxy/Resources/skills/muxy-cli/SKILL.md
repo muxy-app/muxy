@@ -226,6 +226,15 @@ muxy browser list --worktree feature/login
 
 Run `browser open` with no URL to open the configured home page (blank by default). Capture the tab ID from `browser open` (or `browser list`) and reuse it; never guess it. After navigating, give the page a moment to load (`wait-for`, `wait-for-navigation`, or a `wait` condition) before reading. Cookies are shared by all tabs on the same profile. If the built-in browser is disabled in Settings, browser actions return an error and `browser list` returns no tabs.
 
+## Backup configuration
+
+```bash
+muxy config export ~/Backups/muxy.muxy
+muxy config import ~/Backups/muxy.muxy
+```
+
+`config export` writes a full Muxy backup (settings, projects, worktrees, workspaces, key bindings, shortcuts, and Ghostty config) with secrets such as SSH keys and paired devices stripped. `config import` replaces current Muxy data, creates a pre-import backup first, applies the imported settings, and restarts Muxy. Paths resolve relative to the calling shell's working directory. Backup commands wait up to 610 seconds by default; set `MUXY_BACKUP_TIMEOUT` to override the timeout.
+
 ## Install the skills into your AI harnesses
 
 `muxy install-skills` installs the Muxy agent skills (`muxy-cli` and `muxy-extension`) into every AI coding harness it detects on the machine — Claude Code, Codex, Cursor, Droid, Grok, OpenCode, and others — using each tool's own skill location. It wraps `npx skills add` with `--global` (all your projects) and `--yes` (non-interactive), and forwards any extra arguments, so you can scope it like `muxy install-skills -a codex`. Run it once so future sessions of those harnesses pick the skills up automatically; it needs `npx` (Node.js) on `PATH` and does not require Muxy to be running.

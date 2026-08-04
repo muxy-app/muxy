@@ -340,8 +340,13 @@ final class OutputReader: @unchecked Sendable {
 
 final class OutputBox: @unchecked Sendable {
     private let lock = NSLock()
+    private let maximumBytes: Int
     private var data = Data()
     private(set) var overflow = false
+
+    init(maximumBytes: Int = ExtensionCommandExecutor.maxOutputBytes) {
+        self.maximumBytes = maximumBytes
+    }
 
     func append(_ chunk: Data) {
         lock.lock()
@@ -349,7 +354,7 @@ final class OutputBox: @unchecked Sendable {
         if overflow {
             return
         }
-        let remaining = ExtensionCommandExecutor.maxOutputBytes - data.count
+        let remaining = maximumBytes - data.count
         if chunk.count <= remaining {
             data.append(chunk)
             return
@@ -364,5 +369,11 @@ final class OutputBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    func value() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
     }
 }

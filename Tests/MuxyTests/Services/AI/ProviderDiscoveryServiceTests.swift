@@ -3,7 +3,7 @@ import Testing
 
 @testable import Muxy
 
-@Suite("ProviderDiscoveryService")
+@Suite("ProviderDiscoveryService", .serialized)
 @MainActor
 struct ProviderDiscoveryServiceTests {
     @Test("discovery records executable version and ready state")
@@ -79,6 +79,29 @@ struct ProviderDiscoveryServiceTests {
         ))
     }
 
+    @Test("cancelled discovery preserves the previous result")
+    func cancelledDiscoveryPreservesPreviousResult() async {
+        let provider = DiscoveryProvider(
+            executablePath: "/tmp/opencode",
+            details: ProviderDiscoveryDetails(version: nil, state: .ready)
+        )
+        defer { provider.resetSettings() }
+        let health = HookHealthStore()
+        let previous = ProviderDiscoverySnapshot(
+            executablePath: "/tmp/opencode",
+            version: "1.18.5",
+            state: .ready
+        )
+        health.noteDiscovery(providerID: provider.id, snapshot: previous)
+        let service = ProviderDiscoveryService(health: health) { _, _, _, _ in
+            throw SubprocessRunnerError.cancelled
+        }
+
+        await service.discover(provider)
+
+        #expect(health.health(for: provider.id).discovery == previous)
+    }
+
     @Test("process runner captures bounded standard output and error")
     func processRunnerCapturesOutput() async throws {
         let result = try await ProviderDiscoveryService.runProcess(
@@ -102,7 +125,7 @@ struct ProviderDiscoveryServiceTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let completionMarker = directory.appendingPathComponent("completed").path
 
-        await #expect(throws: ProviderDiscoveryError.self) {
+        await #expect(throws: SubprocessRunnerError.timedOut(0.05)) {
             try await ProviderDiscoveryService.runProcess(
                 executablePath: "/bin/sh",
                 arguments: ["-c", "/bin/sleep 1; /usr/bin/touch '\(completionMarker)'"],
@@ -160,18 +183,105 @@ struct ProviderDiscoveryServiceTests {
         #expect(results.0.status == 0)
         #expect(results.1.status == 0)
     }
+
+    @Test("process runner reports launch failures")
+    func processRunnerReportsLaunchFailure() async {
+        do {
+            _ = try await SubprocessRunner.run(SubprocessRequest(executablePath: "/missing/muxy-probe"))
+            Issue.record("Expected the process launch to fail")
+        } catch let error as SubprocessRunnerError {
+            guard case .launchFailed = error else {
+                Issue.record("Expected a launch failure, received \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Expected SubprocessRunnerError, received \(error)")
+        }
+    }
+
+    @Test("process runner finishes when cancellation precedes execution")
+    func processRunnerHandlesPreCancelledTask() async {
+        let gate = ProbeGate()
+        let task = Task {
+            await gate.wait()
+            return try await SubprocessRunner.run(SubprocessRequest(executablePath: "/usr/bin/true"))
+        }
+        await gate.waitUntilReady()
+        task.cancel()
+        await gate.open()
+
+        await #expect(throws: SubprocessRunnerError.cancelled) {
+            try await task.value
+        }
+    }
+
+    @Test("process runner cancels the process group")
+    func processRunnerCancelsProcessGroup() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SubprocessCancellationTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let pidFile = directory.appendingPathComponent("child-pid")
+        let task = Task {
+            try await SubprocessRunner.run(SubprocessRequest(
+                executablePath: "/bin/sh",
+                arguments: ["-c", "/bin/sleep 10 & child=$!; echo $child > '\(pidFile.path)'; wait"],
+                standardInput: Data(repeating: 0, count: 1024 * 1024)
+            ))
+        }
+        try await waitForFile(at: pidFile)
+        let pidContents = try String(contentsOf: pidFile, encoding: .utf8)
+        let childPID = try #require(pid_t(pidContents.trimmingCharacters(in: .whitespacesAndNewlines)))
+        task.cancel()
+
+        await #expect(throws: SubprocessRunnerError.cancelled) {
+            try await task.value
+        }
+        #expect(await waitForProcessExit(childPID))
+    }
+
+    @Test("newer discovery results replace older probes")
+    func newerDiscoveryResultWins() async {
+        let provider = DiscoveryProvider(
+            executablePath: "/tmp/opencode",
+            details: ProviderDiscoveryDetails(version: nil, state: .ready),
+            usesOutputAsVersion: true
+        )
+        defer { provider.resetSettings() }
+        let health = HookHealthStore()
+        let sequence = ProbeSequence()
+        let service = ProviderDiscoveryService(health: health) { _, _, _, _ in
+            let invocation = await sequence.next()
+            if invocation == 1 {
+                try await Task.sleep(for: .milliseconds(100))
+                return providerDiscoveryProcessResult(stdout: "old")
+            }
+            return providerDiscoveryProcessResult(stdout: "new")
+        }
+
+        let first = Task { @MainActor in
+            await service.discover(provider)
+        }
+        try? await Task.sleep(for: .milliseconds(10))
+        let second = Task { @MainActor in
+            await service.discover(provider)
+        }
+        await first.value
+        await second.value
+
+        #expect(health.health(for: provider.id).discovery?.version == "new")
+    }
 }
 
 private func providerDiscoveryProcessResult(
     status: Int32 = 0,
     stdout: String = "",
     stderr: String = ""
-) -> GitProcessResult {
-    GitProcessResult(
+) -> SubprocessResult {
+    SubprocessResult(
         status: status,
-        stdout: stdout,
         stdoutData: Data(stdout.utf8),
-        stderr: stderr,
+        stderrData: Data(stderr.utf8),
         truncated: false
     )
 }
@@ -190,21 +300,83 @@ private final class DiscoveryProvider: AIProviderIntegration, AIAgentLaunchProvi
     let discoveryWorkingDirectory = "/tmp"
     private let executablePath: String?
     private let details: ProviderDiscoveryDetails
+    private let usesOutputAsVersion: Bool
 
-    init(executablePath: String?, details: ProviderDiscoveryDetails) {
+    init(
+        executablePath: String?,
+        details: ProviderDiscoveryDetails,
+        usesOutputAsVersion: Bool = false
+    ) {
         self.executablePath = executablePath
         self.details = details
+        self.usesOutputAsVersion = usesOutputAsVersion
     }
 
     func isToolInstalled() -> Bool { executablePath != nil }
     func agentCLIExecutablePath() -> String? { executablePath }
     func install(hookScriptPath _: String) throws {}
     func uninstall() throws {}
-    func discoveryDetails(from _: String) -> ProviderDiscoveryDetails { details }
+    func discoveryDetails(from output: String) -> ProviderDiscoveryDetails {
+        guard usesOutputAsVersion else { return details }
+        return ProviderDiscoveryDetails(version: output, state: details.state)
+    }
 
     func resetSettings() {
         UserDefaults.standard.removeObject(forKey: settingsKey)
     }
+}
+
+private actor ProbeSequence {
+    private var value = 0
+
+    func next() -> Int {
+        value += 1
+        return value
+    }
+}
+
+private actor ProbeGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var ready = false
+
+    func wait() async {
+        ready = true
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func waitUntilReady() async {
+        while !ready {
+            await Task.yield()
+        }
+    }
+
+    func open() {
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+private struct ProbeMarkerTimeoutError: Error {}
+
+private func waitForFile(at url: URL) async throws {
+    for _ in 0 ..< 250 {
+        if FileManager.default.fileExists(atPath: url.path) {
+            return
+        }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    Issue.record("expected marker file at \(url.path)")
+    throw ProbeMarkerTimeoutError()
+}
+
+private func waitForProcessExit(_ pid: pid_t) async -> Bool {
+    for _ in 0 ..< 100 {
+        if kill(pid, 0) == -1, errno == ESRCH {
+            return true
+        }
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+    return false
 }
 
 private final class InvocationRecorder: @unchecked Sendable {

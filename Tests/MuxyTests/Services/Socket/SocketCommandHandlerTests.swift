@@ -15,6 +15,56 @@ struct SocketCommandHandlerTests {
         #expect(result.hasPrefix("error:"))
     }
 
+    @Test("config-export requires a destination path")
+    func exportConfigRequiresPath() async {
+        let appState = makeAppState()
+        let result = await SocketCommandHandler.handleRequest("config-export", appState: appState)
+        #expect(result == "error:usage config-export|path")
+    }
+
+    @Test("config-import requires a source path")
+    func importConfigRequiresPath() async {
+        let appState = makeAppState()
+        let result = await SocketCommandHandler.handleRequest("config-import", appState: appState)
+        #expect(result == "error:usage config-import|path")
+    }
+
+    @Test("config-import rejects an invalid archive")
+    func importConfigRejectsInvalidArchive() async throws {
+        let appState = makeAppState()
+        let archive = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-invalid-\(UUID().uuidString).muxy")
+        try Data("invalid".utf8).write(to: archive)
+        defer { try? FileManager.default.removeItem(at: archive) }
+
+        let result = await SocketCommandHandler.handleRequest(
+            "config-import|\(archive.path)",
+            appState: appState
+        )
+
+        #expect(result.hasPrefix("error:"))
+    }
+
+    @Test("config backup commands reject extension clients")
+    func configBackupRejectsExtensionClients() async {
+        let appState = makeAppState()
+        let context = NotificationSocketServer.ClientContext(extensionID: "test.extension")
+
+        let exportResult = await SocketCommandHandler.handleRequest(
+            "config-export|/tmp/backup.muxy",
+            appState: appState,
+            clientContext: context
+        )
+        let importResult = await SocketCommandHandler.handleRequest(
+            "config-import|/tmp/backup.muxy",
+            appState: appState,
+            clientContext: context
+        )
+
+        #expect(exportResult == "error:config backup commands are unavailable to extensions")
+        #expect(importResult == "error:config backup commands are unavailable to extensions")
+    }
+
     @Test("split-right returns new pane ID")
     func splitReturnsNewPaneID() async {
         let appState = makeAppState()

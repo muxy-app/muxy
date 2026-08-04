@@ -99,11 +99,9 @@ struct BackupSettingsView: View {
 
         errorMessage = nil
         isWorking = true
-        let version = appVersion
-        SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         Task {
             do {
-                try await BackupService().export(to: url, appVersion: version, createdAt: Date())
+                try await BackupService().exportCurrent(to: url)
                 ToastState.shared.show(title: L10n.string("Export complete"), body: url.lastPathComponent)
             } catch {
                 errorMessage = error.localizedDescription
@@ -132,11 +130,9 @@ struct BackupSettingsView: View {
         guard let url = pendingImportURL else { return }
         pendingImportURL = nil
         isWorking = true
-        let stamp = backupStamp()
         Task {
             do {
-                try await BackupService().importBackup(from: url, backupStamp: stamp)
-                try SettingsJSONStore.applyUserSettingsFile()
+                try await BackupService().importAndApply(from: url)
                 isWorking = false
                 try AppRelaunch.relaunch()
             } catch {
@@ -152,16 +148,6 @@ struct BackupSettingsView: View {
             .filter { !$0.isEmpty }
             .joined(separator: "-")
         return "Muxy-Backup-\(sanitizedHost).\(BackupArchive.fileExtension)"
-    }
-
-    private func backupStamp() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-        return formatter.string(from: Date())
-    }
-
-    private var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
     }
 }
 

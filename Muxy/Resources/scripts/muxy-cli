@@ -47,6 +47,7 @@
 COMMAND="$1"
 SOCKET="${MUXY_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"
 NC_TIMEOUT="${MUXY_CLI_TIMEOUT:-10}"
+BACKUP_TIMEOUT="${MUXY_BACKUP_TIMEOUT:-610}"
 
 usage_for() {
     case "$1" in
@@ -74,6 +75,7 @@ usage_for() {
         create-project)    echo "muxy create-project <path> [--create] [--name <name>] [--workspace <workspace>]" ;;
         attach-project)    echo "muxy attach-project <project> --workspace <workspace>" ;;
         detach-project)    echo "muxy detach-project <project>" ;;
+        config)            echo "muxy config <export|import> <path>" ;;
         list-tabs)         echo "muxy list-tabs [--project <p>] [--worktree <w>]" ;;
         switch-tab)        echo "muxy switch-tab <index|id|title> [--project <p>] [--worktree <w>]" ;;
         new-tab)           echo "muxy new-tab [--project <p>] [--worktree <w>]" ;;
@@ -97,6 +99,22 @@ print_command_help() {
 
 wants_help() {
     [ "$1" = "-h" ] || [ "$1" = "--help" ]
+}
+
+resolve_path() {
+    case "$1" in
+        /*) printf '%s\n' "$1" ;;
+        '~') printf '%s\n' "$HOME" ;;
+        '~'/*) printf '%s\n' "$HOME/${1#\~/}" ;;
+        *)
+            local dir
+            dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd) || {
+                echo "Error: no such directory: $(dirname "$1")" >&2
+                exit 1
+            }
+            printf '%s/%s\n' "$dir" "$(basename "$1")"
+            ;;
+    esac
 }
 
 usage() {
@@ -126,6 +144,8 @@ usage() {
     echo "  muxy create-project <path> [--create]    Create or attach a project"
     echo "  muxy attach-project <project> --workspace <workspace>  Move a project into a workspace"
     echo "  muxy detach-project <project>            Remove a project from all workspaces"
+    echo "  muxy config export <path>                Export a full Muxy backup"
+    echo "  muxy config import <path>                Import a full Muxy backup and restart"
     echo "  muxy list-tabs                           List tabs"
     echo "  muxy switch-tab <index|id|title>         Switch active tab"
     echo "  muxy new-tab                             Create a terminal tab"
@@ -670,6 +690,28 @@ case "$COMMAND" in
             die_usage detach-project
         fi
         send_command "detach-project|$(b64_field "$*")"
+        ;;
+    config)
+        shift
+        wants_help "$1" && print_command_help config
+        SUB="${1:-}"
+        shift || true
+        case "$SUB" in
+            export)
+                [ $# -eq 1 ] || die_usage config
+                CONFIG_PATH=$(resolve_path "$1") || exit 1
+                send_command "config-export|$CONFIG_PATH" "$BACKUP_TIMEOUT"
+                ;;
+            import)
+                [ $# -eq 1 ] || die_usage config
+                CONFIG_PATH=$(resolve_path "$1") || exit 1
+                send_command "config-import|$CONFIG_PATH" "$BACKUP_TIMEOUT"
+                ;;
+            *)
+                die_usage config
+                ;;
+        esac
+        exit 0
         ;;
     list-tabs)
         shift

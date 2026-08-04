@@ -3,7 +3,7 @@ import Testing
 
 @testable import Muxy
 
-@Suite("BackupService")
+@Suite("BackupService", .serialized)
 struct BackupServiceTests {
     private func tempDirectory() -> URL {
         let dir = FileManager.default.temporaryDirectory
@@ -14,6 +14,20 @@ struct BackupServiceTests {
 
     private func write(_ data: Data, named name: String, in directory: URL) throws {
         try data.write(to: directory.appendingPathComponent(name), options: .atomic)
+    }
+
+    private func withSettingsFileSnapshot(_ body: () async throws -> Void) async throws {
+        let url = await SettingsJSONStore.userSettingsURL
+        let snapshot = try? Data(contentsOf: url)
+        let existed = FileManager.default.fileExists(atPath: url.path)
+        defer {
+            if existed, let snapshot {
+                try? snapshot.write(to: url, options: .atomic)
+            } else if !existed {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+        try await body()
     }
 
     private func seedSource() throws -> URL {
@@ -97,6 +111,32 @@ struct BackupServiceTests {
         #expect(!FileManager.default.fileExists(atPath: target.appendingPathComponent("approved-devices.json").path))
     }
 
+    @Test("export proceeds when the settings file is already in sync")
+    func exportProceedsWhenSettingsUnchanged() async throws {
+        try await withSettingsFileSnapshot {
+            await SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
+            let archive = tempDirectory().appendingPathComponent("backup.muxy")
+            try await BackupService(baseDirectory: tempDirectory()).exportCurrent(to: archive)
+            #expect(FileManager.default.fileExists(atPath: archive.path))
+        }
+    }
+
+    @Test("concurrent exportCurrent calls complete without interfering")
+    func concurrentExportsComplete() async throws {
+        try await withSettingsFileSnapshot {
+            let service = BackupService(baseDirectory: tempDirectory())
+            let first = tempDirectory().appendingPathComponent("first.muxy")
+            let second = tempDirectory().appendingPathComponent("second.muxy")
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { try await service.exportCurrent(to: first) }
+                group.addTask { try await service.exportCurrent(to: second) }
+                try await group.waitForAll()
+            }
+            #expect(FileManager.default.fileExists(atPath: first.path))
+            #expect(FileManager.default.fileExists(atPath: second.path))
+        }
+    }
+
     @Test("import backs up existing data before replacing")
     func backsUpExistingData() async throws {
         let source = try seedSource()
@@ -109,6 +149,67 @@ struct BackupServiceTests {
 
         let preserved = backupDirectory.appendingPathComponent("projects.json")
         #expect(try Data(contentsOf: preserved) == Data(#"["old"]"#.utf8))
+    }
+
+    @Test("failed settings application restores pre-import data and removes introduced files")
+    func failedApplyRestoresPreImportState() async throws {
+        let target = tempDirectory()
+        try write(Data(#"["old"]"#.utf8), named: "projects.json", in: target)
+
+        let staging = tempDirectory()
+        try write(Data("[]".utf8), named: "settings.json", in: staging)
+        try write(Data("[]".utf8), named: "remote-devices.json", in: staging)
+        let manifest = BackupManifest(
+            schemaVersion: BackupManifest.currentSchemaVersion,
+            appVersion: "1.0",
+            createdAt: Date(),
+            files: ["settings.json", "remote-devices.json"]
+        )
+        try JSONEncoder.iso8601.encode(manifest).write(to: staging.appendingPathComponent(BackupManifest.filename))
+        let archive = tempDirectory().appendingPathComponent("broken.muxy")
+        try BackupArchive.zip(directory: staging, to: archive)
+
+        await #expect(throws: SettingsJSONError.self) {
+            try await BackupService(baseDirectory: target).importAndApply(from: archive)
+        }
+
+        #expect(try Data(contentsOf: target.appendingPathComponent("projects.json")) == Data(#"["old"]"#.utf8))
+        #expect(!FileManager.default.fileExists(atPath: target.appendingPathComponent("remote-devices.json").path))
+        #expect(!FileManager.default.fileExists(atPath: target.appendingPathComponent("settings.json").path))
+    }
+
+    @Test("import and apply installs a valid settings file into the target")
+    func appliesValidImportedSettings() async throws {
+        let statusBarValue = UserDefaults.standard.object(forKey: "muxy.showStatusBar")
+        defer {
+            if let statusBarValue {
+                UserDefaults.standard.set(statusBarValue, forKey: "muxy.showStatusBar")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "muxy.showStatusBar")
+            }
+        }
+        try await withSettingsFileSnapshot {
+            let target = tempDirectory()
+            try write(Data(#"{"muxy.showStatusBar":true}"#.utf8), named: "settings.json", in: target)
+
+            let staging = tempDirectory()
+            try write(Data(#"{"muxy.showStatusBar":false}"#.utf8), named: "settings.json", in: staging)
+            let manifest = BackupManifest(
+                schemaVersion: BackupManifest.currentSchemaVersion,
+                appVersion: "1.0",
+                createdAt: Date(),
+                files: ["settings.json"]
+            )
+            try JSONEncoder.iso8601.encode(manifest).write(to: staging.appendingPathComponent(BackupManifest.filename))
+            let archive = tempDirectory().appendingPathComponent("valid.muxy")
+            try BackupArchive.zip(directory: staging, to: archive)
+
+            try await BackupService(baseDirectory: target).importAndApply(from: archive)
+
+            let data = try Data(contentsOf: target.appendingPathComponent("settings.json"))
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            #expect(object?["muxy.showStatusBar"] as? Bool == false)
+        }
     }
 
     @Test("import leaves active data in place when backup preparation fails")
