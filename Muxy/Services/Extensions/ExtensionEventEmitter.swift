@@ -75,6 +75,52 @@ enum ExtensionEventEmitter {
         ))
     }
 
+    static func emitPaneOffline(forPane paneID: UUID, offline: Bool, appState: AppState) {
+        guard let event = paneOfflineEvent(
+            forPane: paneID,
+            offline: offline,
+            appState: appState
+        )
+        else { return }
+        NotificationSocketServer.shared.broadcast(event: event)
+    }
+
+    static func paneOfflineEvent(
+        forPane paneID: UUID,
+        offline: Bool,
+        appState: AppState
+    ) -> ExtensionEvent? {
+        guard let located = appState.locateTab(forPane: paneID) else { return nil }
+        let context = context(for: located.tab, areaID: located.areaID, key: located.worktreeKey)
+        var eventPayload = payload(from: context)
+        eventPayload["offline"] = offline ? "true" : "false"
+        return ExtensionEvent(name: ExtensionEventName.paneOffline, payload: eventPayload)
+    }
+
+    static func emitWorktreeOffline(worktreeKey: WorktreeKey, worktreePath: String, offline: Bool) {
+        NotificationSocketServer.shared.broadcast(event: worktreeOfflineEvent(
+            worktreeKey: worktreeKey,
+            worktreePath: worktreePath,
+            offline: offline
+        ))
+    }
+
+    static func worktreeOfflineEvent(
+        worktreeKey: WorktreeKey,
+        worktreePath: String,
+        offline: Bool
+    ) -> ExtensionEvent {
+        ExtensionEvent(
+            name: ExtensionEventName.worktreeOffline,
+            payload: [
+                "projectID": worktreeKey.projectID.uuidString,
+                "worktreeID": worktreeKey.worktreeID.uuidString,
+                "worktreePath": worktreePath,
+                "offline": offline ? "true" : "false",
+            ]
+        )
+    }
+
     private static func context(for tab: TerminalTab, areaID: UUID, key: WorktreeKey) -> TabContext {
         TabContext(
             tabID: tab.id,
@@ -140,13 +186,25 @@ enum ExtensionEventEmitter {
         let server = NotificationSocketServer.shared
 
         for paneID in after.panes.subtracting(before.panes) {
+            let context = after.paneContext[paneID]
+            if let context {
+                TerminalOfflineStore.shared.addPane(
+                    paneID,
+                    worktreeKey: WorktreeKey(
+                        projectID: context.projectID,
+                        worktreeID: context.worktreeID
+                    ),
+                    worktreePath: context.projectPath
+                )
+            }
             server.broadcast(event: ExtensionEvent(
                 name: ExtensionEventName.paneCreated,
-                payload: paneEventPayload(paneID: paneID, context: after.paneContext[paneID])
+                payload: paneEventPayload(paneID: paneID, context: context)
             ))
         }
         for paneID in before.panes.subtracting(after.panes) {
             AgentStatusStore.shared.removePane(paneID)
+            TerminalOfflineStore.shared.removePane(paneID)
             server.broadcast(event: ExtensionEvent(
                 name: ExtensionEventName.paneClosed,
                 payload: paneEventPayload(paneID: paneID, context: before.paneContext[paneID])

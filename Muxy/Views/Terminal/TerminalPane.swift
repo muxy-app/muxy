@@ -404,7 +404,15 @@ struct TerminalBridge: NSViewRepresentable {
             return
         }
         offlineSurface.onOfflineChange = { [weak state] offline in
-            state?.isOffline = offline
+            guard let state else { return }
+            guard state.isOffline != offline else { return }
+            state.isOffline = offline
+            ExtensionEventEmitter.emitPaneOffline(
+                forPane: state.id,
+                offline: offline,
+                appState: appState
+            )
+            TerminalOfflineStore.shared.update(paneID: state.id, appState: appState)
         }
     }
 
