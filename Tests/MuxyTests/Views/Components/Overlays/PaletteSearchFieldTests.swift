@@ -221,6 +221,52 @@ struct PaletteSearchFieldTests {
         #expect(query.value == "한글")
     }
 
+    @Test("preserves marked text when editor is reconciled during composition")
+    func preservesMarkedTextDuringReconciliation() {
+        let text = PaletteSearchFieldTextBox()
+        let field = PaletteSearchField(
+            text: Binding(
+                get: { text.value },
+                set: { text.value = $0 }
+            ),
+            placeholder: "Search",
+            onSubmit: {},
+            onEscape: {},
+            onArrowUp: {},
+            onArrowDown: {},
+            onQueryChange: { _ in }
+        )
+        let control = MarkedTextField()
+        control.markedEditor.string = "한글"
+
+        field.reconcileEditorText(control, with: "")
+
+        #expect(control.markedEditor.string == "한글")
+    }
+
+    @Test("reconciles editor text when no marked text is active")
+    func reconcilesEditorTextWhenNotComposing() {
+        let text = PaletteSearchFieldTextBox()
+        let field = PaletteSearchField(
+            text: Binding(
+                get: { text.value },
+                set: { text.value = $0 }
+            ),
+            placeholder: "Search",
+            onSubmit: {},
+            onEscape: {},
+            onArrowUp: {},
+            onArrowDown: {},
+            onQueryChange: { _ in }
+        )
+        let control = NSTextField()
+        control.stringValue = "abc"
+
+        field.reconcileEditorText(control, with: "abc")
+
+        #expect(control.stringValue == "abc")
+    }
+
     @Test("does not submit while IME marked text is active")
     func doesNotSubmitWhileIMEMarkedTextIsActive() {
         let text = PaletteSearchFieldTextBox()
