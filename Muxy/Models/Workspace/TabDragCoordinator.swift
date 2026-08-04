@@ -5,6 +5,28 @@ enum DragCoordinateSpace {
     static let mainWindow = "main-window-drag-space"
 }
 
+enum DragActivation {
+    static let distance: CGFloat = 4
+
+    static func reachesDistance(from origin: CGPoint, to point: CGPoint) -> Bool {
+        let dx = point.x - origin.x
+        let dy = point.y - origin.y
+        return (dx * dx) + (dy * dy) >= distance * distance
+    }
+}
+
+struct CommandDragActivation {
+    private(set) var startedWithCommand: Bool?
+
+    mutating func shouldActivate(commandHeld: Bool, from origin: CGPoint, to point: CGPoint) -> Bool {
+        if startedWithCommand == nil {
+            startedWithCommand = commandHeld
+        }
+        guard startedWithCommand == true else { return false }
+        return DragActivation.reachesDistance(from: origin, to: point)
+    }
+}
+
 enum TabMoveRequest {
     case toArea(tabID: UUID, sourceAreaID: UUID, destinationAreaID: UUID)
     case toNewSplit(tabID: UUID, sourceAreaID: UUID, targetAreaID: UUID, split: SplitPlacement)

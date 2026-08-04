@@ -11,6 +11,7 @@ let package = Package(
     products: [
         .library(name: "MuxyShared", targets: ["MuxyShared"]),
         .executable(name: "muxy-hook", targets: ["MuxyHookBridge"]),
+        .executable(name: "muxy-session", targets: ["MuxySession"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
@@ -53,6 +54,17 @@ let package = Package(
             publicHeadersPath: "."
         ),
         .target(
+            name: "MuxySessionProtocol",
+            path: "MuxySessionProtocol"
+        ),
+        .executableTarget(
+            name: "MuxySession",
+            dependencies: [
+                "MuxySessionProtocol",
+            ],
+            path: "MuxySession"
+        ),
+        .target(
             name: "MuxyServer",
             dependencies: [
                 "MuxyShared",
@@ -65,6 +77,7 @@ let package = Package(
                 "GhosttyKit",
                 "MuxyShared",
                 "MuxyServer",
+                "MuxySessionProtocol",
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
@@ -81,6 +94,7 @@ let package = Package(
                 .copy("Resources/skills"),
                 .copy("Resources/starter-kits"),
                 .copy("Resources/terminfo"),
+                .copy("Resources/tips.json"),
             ],
             linkerSettings: [
                 .unsafeFlags([
@@ -109,6 +123,7 @@ let package = Package(
                 "Muxy",
                 "MuxyShared",
                 "MuxyServer",
+                "MuxySessionProtocol",
                 "MuxyExtensionHost",
                 "MuxyHookKit",
                 .product(name: "Yams", package: "Yams"),

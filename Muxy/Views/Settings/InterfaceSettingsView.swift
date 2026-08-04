@@ -22,6 +22,7 @@ struct InterfaceSettingsView: View {
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyle = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
+    @AppStorage(TipsPreferences.visibleKey) private var showTips = TipsPreferences.defaultVisible
     @AppStorage(SidebarSelection.storageKey) private var activeSidebar = SidebarSelection.builtinValue
     @AppStorage(LocalizationSelection.storageKey)
     private var selectedLocalization = LocalizationSelection.builtinValue
@@ -98,14 +99,7 @@ struct InterfaceSettingsView: View {
 
             SettingsSection("Layout") {
                 SettingsRow("App Layout") {
-                    Picker("", selection: layoutSelection) {
-                        ForEach(AppLayout.allCases) { layout in
-                            Text(L10n.resource(key: layout.title)).tag(layout)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .settingsControl(.intrinsic)
+                    AppLayoutPicker(selection: layoutSelection)
                 }
             }
 
@@ -201,6 +195,8 @@ struct InterfaceSettingsView: View {
 
             SettingsToggleRow(label: L10n.resource("Show Home"), isOn: $showHomeProject)
 
+            SettingsToggleRow(label: L10n.resource("Show Tips"), isOn: $showTips)
+
             SettingsToggleRow(
                 label: L10n.resource("Auto-expand worktrees on project switch"),
                 isOn: $autoExpandWorktrees
@@ -285,6 +281,21 @@ struct InterfaceSettingsView: View {
     private func refreshThemeNames() {
         currentLightTheme = themeService.currentLightThemeName()
         currentDarkTheme = themeService.currentDarkThemeName()
+    }
+}
+
+struct AppLayoutPicker: View {
+    @Binding var selection: AppLayout
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(AppLayout.allCases) { layout in
+                Text(L10n.resource(key: layout.title)).tag(layout)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .settingsControl(.intrinsic)
     }
 }
 

@@ -6,13 +6,19 @@ struct SidebarFooter: View {
 
     @State private var showThemePicker = false
     @State private var showNotifications = false
+    @State private var showTipsPopover = false
     @State private var extensionStore = ExtensionStore.shared
+    @State private var tipsStore = TipsStore.shared
+    @AppStorage(TipsPreferences.visibleKey) private var showTips = TipsPreferences.defaultVisible
 
     private var notificationStore: NotificationStore { NotificationStore.shared }
 
     var body: some View {
         VStack(spacing: 0) {
             if isWide {
+                if showTips, tipsStore.currentTip != nil {
+                    SidebarTipCard(store: tipsStore, onHide: hideTips)
+                }
                 expandedFooter
             } else {
                 collapsedFooter
@@ -23,6 +29,10 @@ struct SidebarFooter: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleNotificationPanel)) { _ in
             showNotifications.toggle()
+        }
+        .onChange(of: showTips) { _, isVisible in
+            guard !isVisible else { return }
+            showTipsPopover = false
         }
     }
 
@@ -58,6 +68,9 @@ struct SidebarFooter: View {
 
     private var collapsedFooter: some View {
         VStack(spacing: UIMetrics.spacing2) {
+            if showTips, tipsStore.currentTip != nil {
+                tipsButton
+            }
             notificationsButton
             extensionsButton
             themeButton
@@ -81,6 +94,21 @@ struct SidebarFooter: View {
     private var sidebarToggleButton: some View {
         IconButton(symbol: "sidebar.left", accessibilityLabel: sidebarToggleLabel) { postToggleSidebar() }
             .help(L10n.string("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))"))
+    }
+
+    private var tipsButton: some View {
+        IconButton(symbol: "lightbulb", accessibilityLabel: L10n.string("Show Muxy Tip")) {
+            showTipsPopover.toggle()
+        }
+        .help(L10n.string("Show Muxy Tip"))
+        .popover(isPresented: $showTipsPopover) {
+            SidebarTipPopover(store: tipsStore, onHide: hideTips)
+        }
+    }
+
+    private func hideTips() {
+        showTipsPopover = false
+        showTips = false
     }
 
     private var notificationsButton: some View {

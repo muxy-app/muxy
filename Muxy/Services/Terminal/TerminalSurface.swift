@@ -88,6 +88,21 @@ protocol TerminalImagePasteSurface: AnyObject {
 }
 
 @MainActor
+protocol TerminalBackgroundingSurface: AnyObject {
+    var canSendToBackground: (() -> Bool)? { get set }
+    var onSendToBackground: (() -> Void)? { get set }
+}
+
+@MainActor
+protocol TerminalSessionRecoverySurface: AnyObject {
+    var onSessionRecoveryFailed: ((Bool) -> Void)? { get set }
+    var isSessionRecoveryFailed: Bool { get }
+
+    func reattachPersistentSession()
+    func reportSessionRecoveryFailure()
+}
+
+@MainActor
 protocol TerminalInputSubmissionTarget: AnyObject {
     func sendRemoteBytes(_ bytes: Data)
     func submitRichInput(text: String)
@@ -106,6 +121,7 @@ protocol TerminalSurface: TerminalInputTransactionTarget {
     var terminalView: NSView { get }
     var backend: TerminalBackend { get }
     var envVars: [(key: String, value: String)] { get set }
+    var sessionMetadata: [(key: String, value: String)] { get set }
     var onTitleChange: ((String) -> Void)? { get set }
     var onWorkingDirectoryChange: ((String) -> Void)? { get set }
     var onFocus: (() -> Void)? { get set }
@@ -122,6 +138,7 @@ protocol TerminalSurface: TerminalInputTransactionTarget {
     var overlayActive: Bool { get set }
     var foregroundProcessID: Int32? { get }
     var hasLiveSurface: Bool { get }
+    var persistentSessionID: UUID? { get }
 
     func tearDown()
     func setVisible(_ visible: Bool)
@@ -144,6 +161,10 @@ protocol TerminalSurface: TerminalInputTransactionTarget {
 
 @MainActor
 extension TerminalSurface {
+    var persistentSessionID: UUID? { nil }
+
+    var usesPersistentSession: Bool { persistentSessionID != nil }
+
     var capabilities: TerminalCapabilities {
         var capabilities: TerminalCapabilities = []
         if self is any TerminalRawOutputSource {

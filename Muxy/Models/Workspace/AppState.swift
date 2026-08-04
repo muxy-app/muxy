@@ -40,11 +40,13 @@ final class AppState {
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
         case createBrowserTab(projectID: UUID, areaID: UUID?, url: URL?, profileID: UUID)
         case createTabInWorktree(key: WorktreeKey, areaID: UUID?)
+        case createSessionTab(key: WorktreeKey, areaID: UUID?, sessionID: UUID, title: String?)
         case createBrowserTabInWorktree(key: WorktreeKey, areaID: UUID?, url: URL?, profileID: UUID)
         case createBrowserSplit(projectID: UUID, areaID: UUID, url: URL?, profileID: UUID)
         case createBrowserSplitInWorktree(key: WorktreeKey, areaID: UUID, url: URL?, profileID: UUID)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case closeTabInWorktree(key: WorktreeKey, areaID: UUID, tabID: UUID)
+        case sendTabToBackground(key: WorktreeKey, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabInWorktree(key: WorktreeKey, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, index: Int)
@@ -398,6 +400,21 @@ final class AppState {
         areas(for: key).contains { !$0.tabs.isEmpty }
     }
 
+    var allTerminalPanes: [TerminalPaneState] {
+        workspaceRoots.values.flatMap { root in
+            root.allAreas().flatMap { area in
+                area.tabs.compactMap(\.content.pane)
+            }
+        }
+    }
+
+    func panes(inWorktree key: WorktreeKey) -> [TerminalPaneState] {
+        guard let root = workspaceRoots[key] else { return [] }
+        return root.allAreas().flatMap { area in
+            area.tabs.compactMap(\.content.pane)
+        }
+    }
+
     func locatePane(paneID: UUID) -> (worktreeKey: WorktreeKey, pane: TerminalPaneState)? {
         for (key, root) in workspaceRoots {
             for area in root.allAreas() {
@@ -562,10 +579,43 @@ final class AppState {
         }
     }
 
+    func canSendTabToBackground(paneID: UUID) -> Bool {
+        backgroundableTab(for: paneID) != nil
+    }
+
+    @discardableResult
+    func sendTabToBackground(paneID: UUID) -> Bool {
+        guard let target = backgroundableTab(for: paneID) else { return false }
+        dispatch(.sendTabToBackground(key: target.key, tabID: target.tabID))
+        TerminalSessionsStore.shared.refresh()
+        return true
+    }
+
     func closeTabs(_ tabIDs: [UUID], areaID: UUID, projectID: UUID) {
         for tabID in tabIDs {
             closeTab(tabID, areaID: areaID, projectID: projectID)
         }
+    }
+
+    private func backgroundableTab(for paneID: UUID) -> (key: WorktreeKey, tabID: UUID)? {
+        guard let location = locateTab(forPane: paneID),
+              let root = workspaceRoots[location.worktreeKey]
+        else { return nil }
+        let topLevelTabID = location.tab.parentTabID ?? location.tab.id
+        guard let topLevelTab = root.locateTab(id: topLevelTabID)?.tab,
+              !topLevelTab.isPinned
+        else { return nil }
+        let ownedTabs = root.allTabs().filter {
+            $0.id == topLevelTabID || $0.parentTabID == topLevelTabID
+        }
+        let panes = ownedTabs.compactMap(\.content.pane)
+        guard !panes.isEmpty,
+              panes.count == ownedTabs.count,
+              panes.allSatisfy({ pane in
+                  terminalViews.hasPersistentSession(for: pane.id, sessionID: pane.sessionID)
+              })
+        else { return nil }
+        return (location.worktreeKey, topLevelTabID)
     }
 
     func closeTabs(_ tabIDs: [UUID], areaID: UUID, key: WorktreeKey) {
@@ -886,6 +936,14 @@ final class AppState {
             terminalViews.removeView(for: paneID)
             TerminalProgressStore.shared.resetPane(paneID)
             DetectedAgentStore.shared.resetPane(paneID)
+            PersistentSessionExitHandler.shared.resetPane(paneID)
+        }
+
+        for paneID in effects.paneIDsToRelease {
+            terminalViews.releaseViewPreservingSession(for: paneID)
+            TerminalProgressStore.shared.resetPane(paneID)
+            DetectedAgentStore.shared.resetPane(paneID)
+            PersistentSessionExitHandler.shared.resetPane(paneID)
         }
 
         if case let .removeProject(projectID) = action {

@@ -42,14 +42,14 @@ struct SettingsView: View {
                 )
                 Rectangle()
                     .fill(SettingsStyle.border)
-                    .frame(width: 1)
+                    .frame(width: SettingsMetrics.dividerThickness)
                 settingsContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .environment(\.settingsSearchQuery, searchText)
                     .environment(\.settingsCategory, selectedBuiltinCategory)
             }
         }
-        .frame(minWidth: 860, minHeight: 620)
+        .frame(minWidth: SettingsMetrics.minimumWindowWidth, minHeight: 620)
         .background(SettingsStyle.background)
         .foregroundStyle(SettingsStyle.foreground)
         .tint(SettingsStyle.accent)

@@ -38,7 +38,8 @@ enum TerminalBackend: String, CaseIterable, Identifiable, Sendable {
                 command: launch.command,
                 commandInteractive: launch.commandInteractive,
                 closesOnCommandExit: launch.closesOnCommandExit,
-                workspaceContext: launch.workspaceContext
+                workspaceContext: launch.workspaceContext,
+                persistentSessionID: launch.persistentSessionID
             )
         }
         precondition(surface.backend == self)
@@ -62,4 +63,21 @@ struct TerminalLaunchRequest {
     let commandInteractive: Bool
     let closesOnCommandExit: Bool
     let workspaceContext: WorkspaceContext
+    let persistentSessionID: UUID?
+
+    init(
+        workingDirectory: String,
+        command: String?,
+        commandInteractive: Bool,
+        closesOnCommandExit: Bool,
+        workspaceContext: WorkspaceContext,
+        persistentSessionID: UUID? = nil
+    ) {
+        self.workingDirectory = workingDirectory
+        self.command = command
+        self.commandInteractive = commandInteractive
+        self.closesOnCommandExit = closesOnCommandExit
+        self.workspaceContext = workspaceContext
+        self.persistentSessionID = persistentSessionID
+    }
 }

@@ -54,5 +54,7 @@ final class UserDefaultsActiveProjectSelectionStore: ActiveProjectSelectionStori
 @MainActor
 protocol TerminalViewRemoving {
     func removeView(for paneID: UUID)
+    func releaseViewPreservingSession(for paneID: UUID)
+    func hasPersistentSession(for paneID: UUID, sessionID: UUID) -> Bool
     func needsConfirmQuit(for paneID: UUID) -> Bool
 }

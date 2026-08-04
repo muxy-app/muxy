@@ -831,6 +831,7 @@ struct MainWindow: View {
                         projectName: project.localizedDisplayName,
                         worktreeName: worktree.branch ?? worktree.name,
                         languageIdentifier: recordingLanguage,
+                        availableSize: geometry.size,
                         broadcasts: $richInputBroadcast,
                         onSubmit: { appendReturn, selectedText in
                             submitRichInput(state, appendReturn: appendReturn, selectedText: selectedText)
@@ -838,7 +839,6 @@ struct MainWindow: View {
                         },
                         onClose: closeComposer
                     )
-                    .frame(width: min(UIMetrics.scaled(570), max(0, geometry.size.width - UIMetrics.spacing8 * 2)))
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
                 }
             }
@@ -1673,7 +1673,7 @@ struct MainWindow: View {
 
     private func panelResize<V: BinaryFloatingPoint>(
         axis: ResizeHandle.Axis,
-        edge: PanelResizeHandle.Edge,
+        edge: ResizeHandle.Edge,
         value: Binding<V>,
         range: ClosedRange<CGFloat>
     ) -> some View {

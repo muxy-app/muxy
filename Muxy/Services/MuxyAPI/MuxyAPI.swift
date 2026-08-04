@@ -1,4 +1,5 @@
 import Foundation
+import MuxySessionProtocol
 import MuxyShared
 import WebKit
 
@@ -396,6 +397,8 @@ enum MuxyAPI {
             "close-pane": "panes.close",
             "rename-pane": "panes.rename",
             "list-panes": "panes.list",
+            "list-sessions": "sessions.list",
+            "kill-session": "sessions.kill",
             "list-projects": "projects.list",
             "switch-project": "projects.switch",
             "list-worktrees": "worktrees.list",
@@ -433,6 +436,8 @@ enum MuxyAPI {
             "panes.readScreen": .panesRead,
             "panes.close": .panesWrite,
             "panes.rename": .panesWrite,
+            "sessions.list": .panesRead,
+            "sessions.kill": .panesWrite,
             "tabs.list": .tabsRead,
             "tabs.switch": .tabsWrite,
             "tabs.new": .tabsWrite,
@@ -1418,6 +1423,47 @@ enum MuxyAPI {
                     status: entry.status
                 )
             }
+        }
+    }
+
+    @MainActor
+    enum Sessions {
+        struct Info: Equatable, Sendable {
+            let sessionID: String
+            let shellProcessID: Int32
+            let workingDirectory: String
+            let isAttached: Bool
+            let title: String
+            let projectID: String
+            let worktreeID: String
+            let tabID: String
+        }
+
+        static func list() async -> [Info] {
+            await PersistentSessionService.shared.liveSessions().map(Self.info(from:))
+        }
+
+        static func info(from descriptor: SessionDescriptor) -> Info {
+            Info(
+                sessionID: descriptor.identifier.uuidString,
+                shellProcessID: descriptor.shellProcessID,
+                workingDirectory: descriptor.workingDirectory,
+                isAttached: descriptor.isAttached,
+                title: descriptor.value(forMetadataKey: SessionMetadataKey.title) ?? "",
+                projectID: descriptor.value(forMetadataKey: SessionMetadataKey.project) ?? "",
+                worktreeID: descriptor.value(forMetadataKey: SessionMetadataKey.worktree) ?? "",
+                tabID: descriptor.value(forMetadataKey: SessionMetadataKey.tab) ?? ""
+            )
+        }
+
+        static func kill(sessionIDString: String) async -> Result<Void, APIError> {
+            guard let sessionID = UUID(uuidString: sessionIDString) else { return .failure(.invalidPaneID) }
+            let sessions = await list()
+            guard sessions.contains(where: { $0.sessionID.caseInsensitiveCompare(sessionIDString) == .orderedSame }) else {
+                return .failure(.paneNotFound(sessionIDString))
+            }
+            PersistentSessionService.shared.endSession(sessionID: sessionID)
+            return .success(())
         }
     }
 

@@ -54,6 +54,7 @@ For the other surfaces, list and parse the **tab-separated** output (the first c
 | `muxy list-worktrees [project]` | `<worktree-id>  <name>  <path>  <branch>  <active>` |
 | `muxy list-workspaces` | `<workspace-id>  <name>  <project-count>  <active>` |
 | `muxy list-tabs` | `<index>  <tab-id>  <kind>  <title>  <active>` |
+| `muxy list-sessions` | `<session-id>  <shell-pid>  <cwd>  <attached>  <title>  <project-id>  <worktree-id>  <tab-id>` |
 
 ```bash
 PANE=$(muxy list-panes | awk -F'\t' '$2=="Tests"{print $1; exit}')
@@ -83,6 +84,16 @@ muxy read-screen --pane "$WEB" --lines 20
 ```
 
 If you need more history than is on screen, that is a sign the work should write to a file you can read directly, not be scraped from a terminal.
+
+## Background sessions
+
+If the user has **Settings → Terminal → Background sessions** on, terminals keep running after Muxy quits. `muxy list-sessions` shows them, along with the tab, project, and worktree each one belongs to, and `muxy kill-session --session <id>` stops one plus everything running inside it:
+
+```bash
+muxy kill-session --session "$SESSION"
+```
+
+Take the ID from the first column: it matches the pane ID only until a tab adopts another session. Closing a session's tab already ends it, so reach for `kill-session` only for a session that outlived its tab. Never kill a session you did not create — it is someone's running work, and it is gone for good.
 
 ## Worktrees and projects
 

@@ -113,7 +113,7 @@ struct TabFocusedSidebar: View {
             }
             .scrollIndicators(.never)
 
-            SidebarFooter()
+            SidebarFooter(isWide: isWide, sidebarExpanded: sidebarExpanded)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

@@ -16,6 +16,7 @@ struct TabAreaView: View {
     @State private var isExternalDragHovering = false
     @State private var externalDragHideTask: Task<Void, any Error>?
     @State private var isCommandDragging = false
+    @State private var commandDragActivation = CommandDragActivation()
 
     private static let externalDragHideDebounce: Duration = .milliseconds(80)
 
@@ -57,7 +58,7 @@ struct TabAreaView: View {
             }
         }
         .simultaneousGesture(
-            DragGesture(minimumDistance: 4, coordinateSpace: .named(DragCoordinateSpace.mainWindow))
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(DragCoordinateSpace.mainWindow))
                 .onChanged { value in
                     handleCommandDragChanged(value)
                 }
@@ -76,6 +77,7 @@ struct TabAreaView: View {
         }
         .onDisappear {
             externalDragHideTask?.cancel()
+            commandDragActivation = CommandDragActivation()
             if isCommandDragging {
                 dragCoordinator.cancelDrag()
                 isCommandDragging = false
@@ -105,7 +107,12 @@ struct TabAreaView: View {
 
     private func handleCommandDragChanged(_ value: DragGesture.Value) {
         if !isCommandDragging {
-            guard NSEvent.modifierFlags.contains(.command) else { return }
+            guard commandDragActivation.shouldActivate(
+                commandHeld: NSEvent.modifierFlags.contains(.command),
+                from: value.startLocation,
+                to: value.location
+            )
+            else { return }
             isCommandDragging = true
             onFocus()
             dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: area.id, projectID: projectID)
@@ -114,6 +121,7 @@ struct TabAreaView: View {
     }
 
     private func handleCommandDragEnded() {
+        commandDragActivation = CommandDragActivation()
         guard isCommandDragging else { return }
         isCommandDragging = false
         guard let result = dragCoordinator.endDrag() else { return }

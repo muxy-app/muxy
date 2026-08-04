@@ -21,9 +21,22 @@ struct ResizeHandleTests {
 
     @Test("panel resize hit areas stay inside their panel edge")
     func panelResizeHitAreasStayInsidePanelEdge() {
-        #expect(PanelResizeHandle.Edge.leading.hitAreaBias == .leading)
-        #expect(PanelResizeHandle.Edge.trailing.hitAreaBias == .trailing)
-        #expect(PanelResizeHandle.Edge.top.hitAreaBias == .leading)
-        #expect(PanelResizeHandle.Edge.bottom.hitAreaBias == .trailing)
+        #expect(ResizeHandle.Edge.leading.hitAreaBias == .leading)
+        #expect(ResizeHandle.Edge.trailing.hitAreaBias == .trailing)
+        #expect(ResizeHandle.Edge.top.hitAreaBias == .leading)
+        #expect(ResizeHandle.Edge.bottom.hitAreaBias == .trailing)
+    }
+
+    @Test("each resize edge drives its own axis and direction")
+    func resizeEdgesDriveTheirAxisAndDirection() {
+        #expect(ResizeHandle.Edge.leading.axis == .horizontal)
+        #expect(ResizeHandle.Edge.trailing.axis == .horizontal)
+        #expect(ResizeHandle.Edge.top.axis == .vertical)
+        #expect(ResizeHandle.Edge.bottom.axis == .vertical)
+
+        #expect(ResizeHandle.Edge.leading.isLeading)
+        #expect(ResizeHandle.Edge.top.isLeading)
+        #expect(!ResizeHandle.Edge.trailing.isLeading)
+        #expect(!ResizeHandle.Edge.bottom.isLeading)
     }
 }

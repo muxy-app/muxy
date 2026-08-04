@@ -111,6 +111,9 @@ strip -Sx "$APP_BUNDLE/Contents/MacOS/MuxyExtensionHost"
 cp "$SPM_BUILD_DIR/muxy-hook" "$APP_BUNDLE/Contents/MacOS/muxy-hook"
 strip -Sx "$APP_BUNDLE/Contents/MacOS/muxy-hook"
 
+cp "$SPM_BUILD_DIR/muxy-session" "$APP_BUNDLE/Contents/MacOS/muxy-session"
+strip -Sx "$APP_BUNDLE/Contents/MacOS/muxy-session"
+
 echo "==> Generating dSYM"
 xcrun dsymutil "$APP_BUNDLE/Contents/MacOS/Muxy" -o "$DSYM_BUNDLE"
 
@@ -198,6 +201,11 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
     /usr/bin/codesign --force --options runtime --timestamp \
         --sign "$SIGN_IDENTITY" \
         "$APP_BUNDLE/Contents/MacOS/muxy-hook"
+
+    echo "==> Signing terminal session helper"
+    /usr/bin/codesign --force --options runtime --timestamp \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/MacOS/muxy-session"
 
     echo "==> Signing app bundle"
     /usr/bin/codesign --force --options runtime --timestamp \

@@ -243,8 +243,6 @@ struct PaneTabStrip: View {
         DebugButton()
     }
 
-    private static let dragActivationDistance: CGFloat = 4
-
     private func handleDragChanged(
         tab: TabSnapshot,
         globalLocation: CGPoint,
@@ -255,12 +253,10 @@ struct PaneTabStrip: View {
             onSelectTab(tab.id)
         }
 
-        let dx = globalLocation.x - dragStartGlobalLocation.x
         let dy = globalLocation.y - dragStartGlobalLocation.y
-        let distance = (dx * dx + dy * dy).squareRoot()
 
         if dragState.draggedID == nil {
-            guard distance >= Self.dragActivationDistance else { return }
+            guard DragActivation.reachesDistance(from: dragStartGlobalLocation, to: globalLocation) else { return }
             dragState.draggedID = tab.id
             dragState.lastReorderTargetID = nil
         }

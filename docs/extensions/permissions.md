@@ -11,8 +11,8 @@ Permissions apply only to identified callers. The host identifies itself on beha
 
 | Permission | Grants |
 | --- | --- |
-| `panes:read` | `read-screen`, `list-panes` |
-| `panes:write` | `split-right`, `split-down`, `send`, `send-keys`, `close-pane`, `rename-pane`. Split requests with a startup command also require `commands:exec`. |
+| `panes:read` | `read-screen`, `list-panes`, `list-sessions` |
+| `panes:write` | `split-right`, `split-down`, `send`, `send-keys`, `close-pane`, `rename-pane`, `kill-session`. Split requests with a startup command also require `commands:exec`. `kill-session` stops a background terminal session and everything running inside it. |
 | `tabs:read` | `list-tabs` |
 | `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab`. Opening a terminal tab with a startup `command` also prompts for runtime consent. |
 | `browser:read` | Read-only browser calls: `browser.list`, `browser.read`, `browser.waitFor`, `browser.waitForNavigation`, `browser.wait` (without `{ function }`), `browser.screenshot`, `browser.getText`, `browser.getHTML`, `browser.getValue`, `browser.getAttribute`, `browser.getCount`, `browser.is`, `browser.find`, `browser.snapshot`, `browser.storage.get`, `browser.cookies.get` — see [Browser](browser.md). |

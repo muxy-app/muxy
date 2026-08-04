@@ -2,6 +2,19 @@ import Foundation
 
 @MainActor
 enum TabReducer {
+    private enum PaneDisposition {
+        case terminate
+        case release
+    }
+
+    private struct TopLevelTabCloseRequest {
+        let tab: TerminalTab
+        let areaID: UUID
+        let key: WorktreeKey
+        let paneDisposition: PaneDisposition
+        let preservesFinalWorkspace: Bool
+    }
+
     static func createTab(projectID: UUID, areaID: UUID?, state: inout WorkspaceState) -> UUID? {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return nil }
         return createTab(key: key, areaID: areaID, state: &state)
@@ -13,6 +26,28 @@ enum TabReducer {
         let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
         let order = normalizedTopLevelOrder(key: key, state: state)
         let tabID = area.createTab()
+        state.topLevelTabOrder[key] = order + [tabID]
+        TopLevelTabReducer.registerTopLevelTab(
+            tabID,
+            alongside: alongsideTabID,
+            key: key,
+            state: &state
+        )
+        return tabID
+    }
+
+    static func createSessionTab(
+        key: WorktreeKey,
+        areaID: UUID?,
+        sessionID: UUID,
+        title: String?,
+        state: inout WorkspaceState
+    ) -> UUID? {
+        guard let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state) else { return nil }
+        FocusReducer.focusArea(area.id, key: key, state: &state)
+        let alongsideTabID = area.activeTab.map { $0.parentTabID ?? $0.id }
+        let order = normalizedTopLevelOrder(key: key, state: state)
+        let tabID = area.createSessionTab(sessionID: sessionID, title: title)
         state.topLevelTabOrder[key] = order + [tabID]
         TopLevelTabReducer.registerTopLevelTab(
             tabID,
@@ -230,7 +265,17 @@ enum TabReducer {
               !tab.isPinned
         else { return }
         if tab.parentTabID == nil {
-            closeTopLevelTab(tab, areaID: areaID, key: key, state: &state, effects: &effects)
+            closeTopLevelTab(
+                TopLevelTabCloseRequest(
+                    tab: tab,
+                    areaID: areaID,
+                    key: key,
+                    paneDisposition: .terminate,
+                    preservesFinalWorkspace: false
+                ),
+                state: &state,
+                effects: &effects
+            )
             return
         }
 
@@ -240,6 +285,32 @@ enum TabReducer {
 
         guard area.tabs.isEmpty else { return }
         SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
+    }
+
+    static func sendTabToBackground(
+        _ tabID: UUID,
+        key: WorktreeKey,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        guard let root = state.workspaceRoots[key],
+              let located = root.locateTab(id: tabID),
+              located.tab.parentTabID == nil,
+              !located.tab.isPinned
+        else { return }
+        let ownedTabs = root.allTabs().filter { $0.id == tabID || $0.parentTabID == tabID }
+        guard !ownedTabs.isEmpty, ownedTabs.allSatisfy({ $0.content.pane != nil }) else { return }
+        closeTopLevelTab(
+            TopLevelTabCloseRequest(
+                tab: located.tab,
+                areaID: located.area.id,
+                key: key,
+                paneDisposition: .release,
+                preservesFinalWorkspace: true
+            ),
+            state: &state,
+            effects: &effects
+        )
     }
 
     static func selectRelativeFlatTab(key: WorktreeKey, offset: Int, state: inout WorkspaceState) {
@@ -277,12 +348,13 @@ enum TabReducer {
     }
 
     private static func closeTopLevelTab(
-        _ tab: TerminalTab,
-        areaID: UUID,
-        key: WorktreeKey,
+        _ request: TopLevelTabCloseRequest,
         state: inout WorkspaceState,
         effects: inout WorkspaceSideEffects
     ) {
+        let tab = request.tab
+        let areaID = request.areaID
+        let key = request.key
         guard var root = state.workspaceRoots[key] else { return }
         let originalOrder = normalizedTopLevelOrder(key: key, state: state)
         let closedIndex = originalOrder.firstIndex(of: tab.id) ?? 0
@@ -291,7 +363,7 @@ enum TabReducer {
             .tabIDs
             ?? originalOrder
         let sourceGroupClosedIndex = sourceGroupOrder.firstIndex(of: tab.id) ?? 0
-        let preservesEmptyWorkspace = state.keepProjectOpenWhenEmpty
+        let preservesEmptyWorkspace = (request.preservesFinalWorkspace || state.keepProjectOpenWhenEmpty)
             && root.allTabs().count(where: { $0.parentTabID == nil }) == 1
         let ownedIDs = Set(root.allTabs().filter { $0.parentTabID == tab.id }.map(\.id) + [tab.id])
         let closedTabWasFocused = state.focusedAreaID[key]
@@ -306,7 +378,12 @@ enum TabReducer {
             let ownedTabs = affectedArea.tabs.filter { ownedIDs.contains($0.id) }
             for ownedTab in ownedTabs {
                 if let paneID = ownedTab.content.pane?.id {
-                    effects.paneIDsToRemove.append(paneID)
+                    switch request.paneDisposition {
+                    case .terminate:
+                        effects.paneIDsToRemove.append(paneID)
+                    case .release:
+                        effects.paneIDsToRelease.append(paneID)
+                    }
                 }
                 _ = affectedArea.extractTabForMove(ownedTab.id)
             }

@@ -41,12 +41,15 @@ enum UpdateChannel: String, CaseIterable, Identifiable {
 @MainActor @Observable
 final class UpdateService: NSObject {
     static let shared = UpdateService()
+    static let automaticallyUpdatesKey = "SUAutomaticallyUpdate"
 
     @ObservationIgnored private let controller: SPUStandardUpdaterController
     @ObservationIgnored private var cancellables = Set<AnyCancellable>()
     @ObservationIgnored private let feedDelegate: FeedDelegate
 
     private(set) var canCheckForUpdates = false
+    private(set) var allowsAutomaticUpdates = false
+    private(set) var automaticallyDownloadsUpdates = false
     private(set) var availableUpdateVersion: String?
 
     var channel: UpdateChannel {
@@ -78,6 +81,12 @@ final class UpdateService: NSObject {
         controller.updater.publisher(for: \.canCheckForUpdates)
             .assign(to: \.canCheckForUpdates, on: self)
             .store(in: &cancellables)
+        controller.updater.publisher(for: \.allowsAutomaticUpdates)
+            .assign(to: \.allowsAutomaticUpdates, on: self)
+            .store(in: &cancellables)
+        controller.updater.publisher(for: \.automaticallyDownloadsUpdates)
+            .assign(to: \.automaticallyDownloadsUpdates, on: self)
+            .store(in: &cancellables)
         observeUpdateNotifications()
         applyFeatureFlags()
     }
@@ -92,6 +101,16 @@ final class UpdateService: NSObject {
 
     func checkForUpdates() {
         controller.checkForUpdates(nil)
+    }
+
+    func setAutomaticallyDownloadsUpdates(_ enabled: Bool) {
+        guard enabled != automaticallyDownloadsUpdates else { return }
+        updater.automaticallyDownloadsUpdates = enabled
+    }
+
+    func resetAutomaticallyDownloadsUpdates() {
+        UserDefaults.standard.removeObject(forKey: Self.automaticallyUpdatesKey)
+        automaticallyDownloadsUpdates = updater.automaticallyDownloadsUpdates
     }
 
     private func applyFeatureFlags() {
@@ -121,6 +140,8 @@ final class UpdateService: NSObject {
 }
 
 private final class FeedDelegate: NSObject, SPUUpdaterDelegate {
+    private static let noUpdateErrorCode = Int(SUError.noUpdateError.rawValue)
+
     var channel: UpdateChannel
 
     init(channel: UpdateChannel) {
@@ -137,5 +158,31 @@ private final class FeedDelegate: NSObject, SPUUpdaterDelegate {
         case .stable: []
         case .beta: [channel.rawValue]
         }
+    }
+
+    func updater(_: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
+        logger.info("Downloaded update \(item.displayVersionString, privacy: .public)")
+    }
+
+    func updater(_: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: Error) {
+        logger
+            .error(
+                "Failed to download update \(item.displayVersionString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
+    }
+
+    func updater(_: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        logger.info("Installing update \(item.displayVersionString, privacy: .public)")
+    }
+
+    func updater(_: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock _: @escaping () -> Void) -> Bool {
+        logger.info("Scheduling update \(item.displayVersionString, privacy: .public) for installation on quit")
+        return false
+    }
+
+    func updater(_: SPUUpdater, didAbortWithError error: Error) {
+        let error = error as NSError
+        guard error.domain != SUSparkleErrorDomain || error.code != Self.noUpdateErrorCode else { return }
+        logger.error("Update cycle aborted: \(error.localizedDescription, privacy: .public)")
     }
 }

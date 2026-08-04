@@ -90,6 +90,23 @@ enum SocketCommandHandler {
             return panes.map { pane in
                 "\(pane.id.uuidString)\t\(pane.title)\t\(pane.workingDirectory)\t\(pane.isFocused)"
             }.joined(separator: "\n")
+        case "list-sessions":
+            let sessions = await MuxyAPI.Sessions.list()
+            return sessions.map { session in
+                [
+                    session.sessionID,
+                    String(session.shellProcessID),
+                    session.workingDirectory,
+                    String(session.isAttached),
+                    session.title,
+                    session.projectID,
+                    session.worktreeID,
+                    session.tabID,
+                ].joined(separator: "\t")
+            }.joined(separator: "\n")
+        case "kill-session":
+            guard parts.count >= 2 else { return "error:usage kill-session|sessionID" }
+            return await serialize(MuxyAPI.Sessions.kill(sessionIDString: parts[1]), ok: "ok")
         case "list-projects":
             guard let projectStore else { return "error:project store unavailable" }
             let projects = MuxyAPI.Projects.list(appState: appState, projectStore: projectStore)

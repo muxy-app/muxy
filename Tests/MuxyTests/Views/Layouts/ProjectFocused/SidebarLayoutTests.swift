@@ -50,6 +50,21 @@ struct SidebarLayoutTests {
         #expect(SidebarLayout.isWide(expanded: true, expandedStyle: .wide))
     }
 
+    @Test("collapsed project list reserves the maximum activity indicator offset")
+    func collapsedProjectListReservesActivityIndicatorOffset() {
+        let topInset = SidebarLayout.projectListTopInset(isWide: false)
+        let unreadOffset = SidebarLayout.projectActivityIndicatorOffset(isUnread: true)
+        let otherOffset = SidebarLayout.projectActivityIndicatorOffset(isUnread: false)
+
+        #expect(topInset == unreadOffset)
+        #expect(topInset >= otherOffset)
+    }
+
+    @Test("wide project list does not reserve collapsed activity indicator space")
+    func wideProjectListDoesNotReserveActivityIndicatorSpace() {
+        #expect(SidebarLayout.projectListTopInset(isWide: true) == 0)
+    }
+
     @Test("clampExpandedWidth clamps below the minimum")
     func clampExpandedBelowMin() {
         #expect(SidebarLayout.clampExpandedWidth(10) == SidebarLayout.minExpandedWidth)

@@ -169,6 +169,7 @@ struct TerminalTabSnapshot: Codable {
     let paneTitle: String
     let paneUsesDefaultTitle: Bool
     let paneID: UUID?
+    let paneSessionID: UUID?
     let filePath: String?
     let currentWorkingDirectory: String?
     let extensionID: String?
@@ -189,6 +190,7 @@ struct TerminalTabSnapshot: Codable {
         paneTitle: String?,
         paneUsesDefaultTitle: Bool? = nil,
         paneID: UUID? = nil,
+        paneSessionID: UUID? = nil,
         filePath: String? = nil,
         currentWorkingDirectory: String? = nil,
         extensionID: String? = nil,
@@ -208,6 +210,7 @@ struct TerminalTabSnapshot: Codable {
         self.paneTitle = paneTitle ?? TerminalPaneState.defaultTitle
         self.paneUsesDefaultTitle = paneUsesDefaultTitle ?? (paneTitle == nil)
         self.paneID = paneID
+        self.paneSessionID = paneSessionID
         self.filePath = filePath
         self.currentWorkingDirectory = currentWorkingDirectory
         self.extensionID = extensionID
@@ -229,6 +232,7 @@ struct TerminalTabSnapshot: Codable {
         case paneTitle
         case paneUsesDefaultTitle
         case paneID
+        case paneSessionID
         case filePath
         case currentWorkingDirectory
         case extensionID
@@ -252,6 +256,7 @@ struct TerminalTabSnapshot: Codable {
         paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? TerminalPaneState.defaultTitle
         paneUsesDefaultTitle = try container.decodeIfPresent(Bool.self, forKey: .paneUsesDefaultTitle) ?? false
         paneID = try container.decodeIfPresent(UUID.self, forKey: .paneID)
+        paneSessionID = try container.decodeIfPresent(UUID.self, forKey: .paneSessionID)
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         currentWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .currentWorkingDirectory)
         extensionID = try container.decodeIfPresent(String.self, forKey: .extensionID)

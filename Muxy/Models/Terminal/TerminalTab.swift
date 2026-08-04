@@ -142,6 +142,7 @@ final class TerminalTab: Identifiable {
             )
             content = .terminal(TerminalPaneState(
                 id: snapshot.paneID ?? UUID(),
+                sessionID: snapshot.paneSessionID,
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
                 usesDefaultTitle: snapshot.paneUsesDefaultTitle,
@@ -189,6 +190,7 @@ final class TerminalTab: Identifiable {
             paneTitle: extensionTabDefaultTitle ?? content.pane?.title,
             paneUsesDefaultTitle: content.pane?.usesDefaultTitle,
             paneID: content.pane?.id,
+            paneSessionID: content.pane?.sessionID,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory,
             extensionID: content.extensionState?.extensionID,
             extensionTabTypeID: content.extensionState?.tabTypeID,

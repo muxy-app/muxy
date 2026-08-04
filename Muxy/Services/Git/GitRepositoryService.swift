@@ -472,6 +472,19 @@ struct GitRepositoryService {
         return .noPR
     }
 
+    private func pullRequestBaseBranch(repoPath: String, number: Int) async -> String? {
+        guard let ghPath = ghExecutable else { return nil }
+        guard case let .found(info) = await ghPRView(
+            ghPath: ghPath,
+            repoPath: repoPath,
+            argument: String(number),
+            jsonFields: Self.prInfoJSONFields
+        )
+        else { return nil }
+        let baseBranch = info.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        return baseBranch.isEmpty ? nil : baseBranch
+    }
+
     private func configuredPullRequestNumber(repoPath: String, branch: String) async -> Int? {
         guard !branch.isEmpty,
               branch.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
@@ -1318,22 +1331,42 @@ struct GitRepositoryService {
         )
     }
 
-    func fetchPullRequestDiffHead(repoPath: String, number: Int, remote: String) async throws -> String {
+    func fetchPullRequestDiffRefs(
+        repoPath: String,
+        number: Int,
+        remote: String,
+        baseBranch: String?
+    ) async throws -> (head: String, base: String?) {
         let localRef = Self.localPullRequestDiffRef(number: number)
         try validateRef(remote)
         try validateRef(localRef)
-        let result = try await runGit(
-            repoPath: repoPath,
-            arguments: ["fetch", remote, "+refs/pull/\(number)/head:\(localRef)"]
-        )
+        let headSpec = "+refs/pull/\(number)/head:\(localRef)"
+
+        if let baseBranch, await isValidBranchRef(repoPath: repoPath, branch: baseBranch) {
+            let localBaseRef = Self.localPullRequestDiffBaseRef(number: number)
+            try validateRef(localBaseRef)
+            let result = try await runGit(
+                repoPath: repoPath,
+                arguments: ["fetch", remote, headSpec, "+refs/heads/\(baseBranch):\(localBaseRef)"]
+            )
+            if result.status == 0 {
+                return (localRef, localBaseRef)
+            }
+        }
+
+        let result = try await runGit(repoPath: repoPath, arguments: ["fetch", remote, headSpec])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to fetch pull request diff." : result.stderr)
         }
-        return localRef
+        return (localRef, nil)
     }
 
     static func localPullRequestDiffRef(number: Int) -> String {
         "refs/muxy/pull/\(number)/head"
+    }
+
+    static func localPullRequestDiffBaseRef(number: Int) -> String {
+        "refs/muxy/pull/\(number)/base"
     }
 
     private static func parseNameStatus(_ data: Data, stats: [String: NumstatEntry]) -> [GitStatusFile] {
@@ -1941,6 +1974,14 @@ struct GitRepositoryService {
         }
     }
 
+    private func isValidBranchRef(repoPath: String, branch: String) async -> Bool {
+        let result = try? await runGit(
+            repoPath: repoPath,
+            arguments: ["check-ref-format", "refs/heads/\(branch)"]
+        )
+        return result?.status == 0
+    }
+
     private func validatePath(repoPath: String, relativePath: String) throws {
         let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
         let resolvedRepo = standardizedPath(repoPath)
@@ -2034,10 +2075,17 @@ struct GitRepositoryService {
     }
 
     func pullRequestDiff(repoPath: String, number: Int, remote: String, lineLimit: Int?) async throws -> RawDiffResult {
-        let localRef = try await fetchPullRequestDiffHead(repoPath: repoPath, number: number, remote: remote)
+        let baseBranch = await pullRequestBaseBranch(repoPath: repoPath, number: number)
+        let refs = try await fetchPullRequestDiffRefs(
+            repoPath: repoPath,
+            number: number,
+            remote: remote,
+            baseBranch: baseBranch
+        )
+        let localRef = refs.head
         let mergeBaseResult = try await runGit(
             repoPath: repoPath,
-            arguments: ["merge-base", "HEAD", localRef]
+            arguments: ["merge-base", refs.base ?? "HEAD", localRef]
         )
         let base = mergeBaseResult.status == 0
             ? mergeBaseResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)

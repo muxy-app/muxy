@@ -47,7 +47,7 @@ struct PanelFrame: ViewModifier {
         }
     }
 
-    private func handle(axis: ResizeHandle.Axis, edge: PanelResizeHandle.Edge) -> some View {
+    private func handle(axis: ResizeHandle.Axis, edge: ResizeHandle.Edge) -> some View {
         PanelResizeHandle(
             axis: axis,
             edge: edge,

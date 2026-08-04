@@ -32,6 +32,8 @@
 	<string>public.app-category.developer-tools</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
 	<key>SentryDSN</key>
 	<string>__MUXY_SENTRY_DSN__</string>
 	<key>NSAppleEventsUsageDescription</key>

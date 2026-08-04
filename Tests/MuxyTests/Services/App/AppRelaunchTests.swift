@@ -57,6 +57,66 @@ struct AppRelaunchTests {
         #expect(!didPersist)
     }
 
+    @Test("termination persists user state only once")
+    func terminationPersistsUserStateOnlyOnce() {
+        let delegate = AppDelegate()
+        var persistCount = 0
+        delegate.onTerminate = {
+            persistCount += 1
+        }
+
+        delegate.persistUserStateForTermination()
+        delegate.persistUserStateForTermination()
+
+        #expect(persistCount == 1)
+    }
+
+    @Test("termination persists user state before terminal cleanup")
+    func terminationPersistsUserStateBeforeTerminalCleanup() async {
+        let storedConfirmQuit = UserDefaults.standard.object(forKey: QuitConfirmationPreferences.confirmQuitKey)
+        defer {
+            if let storedConfirmQuit {
+                UserDefaults.standard.set(storedConfirmQuit, forKey: QuitConfirmationPreferences.confirmQuitKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: QuitConfirmationPreferences.confirmQuitKey)
+            }
+        }
+        QuitConfirmationPreferences.confirmQuit = false
+        let terminationCleanup = TerminalTerminationCleanup()
+        let (cleanupReleases, cleanupReleaseContinuation) = AsyncStream<Void>.makeStream()
+        var events: [String] = []
+        let delegate = AppDelegate(
+            terminalTerminationCleanup: terminationCleanup,
+            prepareTerminalsForTermination: {
+                events.append("cleanup")
+                for await _ in cleanupReleases {
+                    break
+                }
+            },
+            replyToApplicationShouldTerminate: { _ in }
+        )
+        delegate.onTerminate = {
+            events.append("persist")
+        }
+
+        let reply = delegate.applicationShouldTerminate(NSApplication.shared)
+        let cleanupStartDeadline = Date().addingTimeInterval(2)
+        while events.count < 2, Date() < cleanupStartDeadline {
+            await Task.yield()
+        }
+
+        #expect(reply == .terminateLater)
+        #expect(events.count == 2, "Terminal cleanup did not start before the deadline")
+        #expect(events == ["persist", "cleanup"])
+        cleanupReleaseContinuation.yield()
+        cleanupReleaseContinuation.finish()
+        let cleanupCompletionDeadline = Date().addingTimeInterval(2)
+        while !terminationCleanup.isComplete, Date() < cleanupCompletionDeadline {
+            await Task.yield()
+        }
+        #expect(terminationCleanup.isComplete, "Terminal cleanup did not complete before the deadline")
+    }
+
     @Test("dismisses attached sheets so termination is not blocked")
     func dismissesAttachedSheetsBeforeTermination() {
         let parent = NSWindow(

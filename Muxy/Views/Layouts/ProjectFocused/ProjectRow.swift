@@ -282,11 +282,9 @@ struct ProjectRow: View {
         .padding(UIMetrics.scaled(3))
         .overlay(alignment: .topTrailing) {
             if let projectActivity {
+                let offset = SidebarLayout.projectActivityIndicatorOffset(isUnread: projectActivity.isUnread)
                 TerminalActivityIndicator(activity: projectActivity)
-                    .offset(
-                        x: projectActivity.isUnread ? UIMetrics.spacing2 : UIMetrics.spacing1,
-                        y: projectActivity.isUnread ? -UIMetrics.spacing2 : -UIMetrics.spacing1
-                    )
+                    .offset(x: offset, y: -offset)
             }
         }
         .overlay {

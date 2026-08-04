@@ -155,6 +155,7 @@ struct SettingsCatalogTests {
     func settingsUseWorkflowCategories() {
         #expect(SettingsCatalog.items.contains { $0.key == ProjectPickerPreferences.storageKey && $0.category == .projects })
         #expect(SettingsCatalog.items.contains { $0.key == GeneralSettingsKeys.autoCopyTerminalSelection && $0.category == .terminal })
+        #expect(SettingsCatalog.items.contains { $0.key == UpdateService.automaticallyUpdatesKey && $0.category == .general })
         #expect(SettingsCatalog.items.contains { $0.key == RecordingPreferences.languageKey && $0.category == .voice })
     }
 
@@ -197,6 +198,17 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.jsonEditableItems.contains {
             $0.key == WorktreeListPreferences.groupWorktreesKey
         })
+    }
+
+    @Test
+    func tipsSettingIsRegisteredAndSearchable() {
+        let item = SettingsCatalog.items.first { $0.key == TipsPreferences.visibleKey }
+
+        #expect(item?.category == .appearance)
+        #expect(item?.section == "Sidebar")
+        #expect(item?.defaultValue as? Bool == TipsPreferences.defaultVisible)
+        #expect(SettingsCatalog.matchingItems(query: "lightbulb").contains { $0.key == TipsPreferences.visibleKey })
+        #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == TipsPreferences.visibleKey })
     }
 
     @Test

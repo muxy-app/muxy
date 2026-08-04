@@ -296,6 +296,32 @@ Close a pane:
 muxy close-pane --pane "$PANE"
 ```
 
+### Background sessions
+
+When **Settings → Terminal → Background sessions** is on, terminals keep running after Muxy quits. List them:
+
+```bash
+muxy list-sessions
+```
+
+Output is tab-separated:
+
+```text
+<session-id>  <shell-pid>  <working-directory>  <attached>  <title>  <project-id>  <worktree-id>  <tab-id>
+```
+
+`<attached>` is `true` while a terminal pane is connected to the session and `false` while it runs unattended. The last four columns identify which tab, project, and worktree the session belongs to, and are empty for a session that has never been attached from a worktree.
+
+A session ID matches its pane ID until a tab adopts someone else's session, so always take the ID from the first column rather than assuming it is a pane ID.
+
+Stop a session and everything running inside it:
+
+```bash
+muxy kill-session --session "$SESSION"
+```
+
+Closing the session's tab in the app stops it too, so this is mainly for sessions that outlived their tab or that you want to end from a script.
+
 ## Tab control
 
 Tab commands talk to the running Muxy app through a local Unix socket. Muxy must be open.
@@ -443,6 +469,7 @@ The socket is private to your user. It does not grant extra privileges, but any 
 - send text or supported control keys
 - rename or close panes
 - create new splits
+- list and stop background terminal sessions
 
 Avoid exposing sensitive terminal output if you are running untrusted local software.
 

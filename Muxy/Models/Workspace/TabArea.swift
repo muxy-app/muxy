@@ -77,6 +77,19 @@ final class TabArea: Identifiable {
     }
 
     @discardableResult
+    func createSessionTab(sessionID: UUID, title: String?) -> UUID {
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pane = TerminalPaneState(
+            sessionID: sessionID,
+            projectPath: projectPath,
+            title: trimmedTitle?.isEmpty == false ? trimmedTitle : nil
+        )
+        let tab = TerminalTab(pane: pane)
+        insertTab(tab)
+        return tab.id
+    }
+
+    @discardableResult
     func createTab(inDirectory directory: String) -> UUID {
         let tab = TerminalTab(pane: TerminalPaneState(projectPath: directory))
         insertTab(tab)

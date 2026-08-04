@@ -10,7 +10,9 @@ final class GhosttyTerminalNSView: NSView,
     TerminalClientThemeSurface,
     TerminalOfflineSurface,
     TerminalSearchSurface,
-    TerminalImagePasteSurface
+    TerminalImagePasteSurface,
+    TerminalBackgroundingSurface,
+    TerminalSessionRecoverySurface
 {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     var terminalView: NSView { self }
@@ -22,13 +24,19 @@ final class GhosttyTerminalNSView: NSView,
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
     private let workspaceContext: WorkspaceContext
+    let persistentSessionID: UUID?
     var envVars: [(key: String, value: String)] = []
+    var sessionMetadata: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
     var onWorkingDirectoryChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
     var onExternalDragHoverChange: ((Bool) -> Void)?
     var onProcessExit: (() -> Void)?
     var onSplitRequest: ((SplitDirection, SplitPosition) -> Void)?
+    var canSendToBackground: (() -> Bool)?
+    var onSendToBackground: (() -> Void)?
+    var onSessionRecoveryFailed: ((Bool) -> Void)?
+    private(set) var isSessionRecoveryFailed = false
     var onSearchStart: ((String?) -> Void)?
     var onSearchEnd: (() -> Void)?
     var onSearchTotal: ((Int?) -> Void)?
@@ -41,6 +49,10 @@ final class GhosttyTerminalNSView: NSView,
     private var isShowingHandCursor = false
     private var fileHoverUnderlineLayer: CAShapeLayer?
     private var lastMouseTopDownPoint: CGPoint?
+    private var leftMousePressRouting: LeftMousePressRouting = .ignored
+    private var leftMouseDownWindowPoint: NSPoint?
+    private var didDragAfterLeftMouseDown = false
+    private var forwardedRightMousePress = false
     var hasOSC8LinkUnderCursor: Bool = false
     var isFocused: Bool = false
     var overlayActive: Bool = false
@@ -74,6 +86,9 @@ final class GhosttyTerminalNSView: NSView,
 
     var foregroundProcessID: Int32? {
         guard let surface else { return nil }
+        if let persistentSessionID {
+            return PersistentSessionService.shared.foregroundProcessID(sessionID: persistentSessionID)
+        }
         let processID = ghostty_surface_foreground_pid(surface)
         guard processID > 0, processID <= UInt64(Int32.max) else { return nil }
         return Int32(processID)
@@ -103,13 +118,15 @@ final class GhosttyTerminalNSView: NSView,
         command: String? = nil,
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
-        workspaceContext: WorkspaceContext = .local
+        workspaceContext: WorkspaceContext = .local,
+        persistentSessionID: UUID? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
         commandClosesOnExit = closesOnCommandExit
         self.workspaceContext = workspaceContext
+        self.persistentSessionID = persistentSessionID
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -152,7 +169,7 @@ final class GhosttyTerminalNSView: NSView,
     private var pendingSurfaceCreation = false
 
     func createSurface() {
-        guard surface == nil, let app = GhosttyService.shared.app else { return }
+        guard surface == nil, !isSessionRecoveryFailed, let app = GhosttyService.shared.app else { return }
 
         guard let backingSize = backingPixelSize() else {
             pendingSurfaceCreation = true
@@ -181,6 +198,15 @@ final class GhosttyTerminalNSView: NSView,
         surfaceCStringPointers.append(workingDirectoryPointer)
         config.working_directory = UnsafePointer(workingDirectoryPointer)
 
+        let startedPersistentSession = workspaceContext.sshDestination == nil
+            && persistentSessionID != nil
+            && applyPersistentSessionConfiguration(
+                &config,
+                environment: &cEnvVars,
+                launchCommand: launchCommand,
+                workingDirectory: localWorkingDirectory
+            )
+
         if let destination = workspaceContext.sshDestination {
             if let remoteWrapped = strdup(TerminalLaunchCommand.remoteShellCommand(
                 destination: destination,
@@ -193,7 +219,8 @@ final class GhosttyTerminalNSView: NSView,
                 config.command = UnsafePointer(remoteWrapped)
                 config.wait_after_command = false
             }
-        } else if let command = launchCommand,
+        } else if !startedPersistentSession,
+                  let command = launchCommand,
                   let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
                       interactive: commandInteractive,
                       keepsShellOpen: !commandClosesOnExit
@@ -260,7 +287,48 @@ final class GhosttyTerminalNSView: NSView,
         }
 
         applyOcclusionState()
+        if let persistentSessionID {
+            PersistentSessionService.shared.noteSurfaceMaterialized(sessionID: persistentSessionID)
+        }
         startAgentDetection()
+    }
+
+    private func applyPersistentSessionConfiguration(
+        _ config: inout ghostty_surface_config_s,
+        environment: inout [ghostty_env_var_s],
+        launchCommand: String?,
+        workingDirectory: String
+    ) -> Bool {
+        guard let persistentSessionID,
+              let attachCommand = PersistentSessionService.shared.attachCommand(),
+              let attachPointer = strdup(attachCommand)
+        else { return false }
+
+        surfaceCStringPointers.append(attachPointer)
+        config.command = UnsafePointer(attachPointer)
+        config.wait_after_command = false
+
+        let sessionCommand = launchCommand.map { _ in
+            TerminalLaunchCommand.shellCommand(
+                interactive: commandInteractive,
+                keepsShellOpen: !commandClosesOnExit
+            )
+        }
+        var entries = PersistentSessionService.shared.launchEnvironment(
+            sessionID: persistentSessionID,
+            workingDirectory: workingDirectory,
+            command: sessionCommand,
+            metadata: sessionMetadata
+        )
+        if let launchCommand {
+            entries.append((key: TerminalLaunchCommand.environmentKey, value: launchCommand))
+        }
+        for entry in entries {
+            guard let key = strdup(entry.key), let value = strdup(entry.value) else { continue }
+            surfaceCStringPointers.append(contentsOf: [key, value])
+            environment.append(ghostty_env_var_s(key: key, value: value))
+        }
+        return true
     }
 
     func destroySurface() {
@@ -315,6 +383,9 @@ final class GhosttyTerminalNSView: NSView,
         onExternalDragHoverChange = nil
         onProcessExit = nil
         onSplitRequest = nil
+        canSendToBackground = nil
+        onSendToBackground = nil
+        onSessionRecoveryFailed = nil
         onSearchStart = nil
         onSearchEnd = nil
         onSearchTotal = nil
@@ -524,6 +595,13 @@ final class GhosttyTerminalNSView: NSView,
 
     func isTerminalIdle() -> Bool {
         guard let surface else { return true }
+        if let persistentSessionID {
+            return TerminalPersistentSessionPolicy.isIdle(
+                activity: PersistentSessionService.shared.commandActivity(sessionID: persistentSessionID),
+                isShellCommandRunning: shellActivityTracker.isCommandRunning,
+                isAlternateScreen: isAlternateScreenActive(surface: surface)
+            )
+        }
         if ghostty_surface_needs_confirm_quit(surface) {
             return false
         }
@@ -565,6 +643,23 @@ final class GhosttyTerminalNSView: NSView,
         destroySurface()
         isOfflinedState = true
         onOfflineChange?(true)
+    }
+
+    func reattachPersistentSession() {
+        guard persistentSessionID != nil else { return }
+        destroySurface()
+        isSessionRecoveryFailed = false
+        onSessionRecoveryFailed?(false)
+        processExitHandled = false
+        createSurface()
+        applyOcclusionState()
+    }
+
+    func reportSessionRecoveryFailure() {
+        guard persistentSessionID != nil, !isSessionRecoveryFailed else { return }
+        destroySurface()
+        isSessionRecoveryFailed = true
+        onSessionRecoveryFailed?(true)
     }
 
     func applyColorScheme(isDark: Bool) {
@@ -683,6 +778,9 @@ final class GhosttyTerminalNSView: NSView,
 
     func needsConfirmQuit() -> Bool {
         guard let surface else { return false }
+        if let persistentSessionID {
+            return PersistentSessionService.shared.isRunningCommand(sessionID: persistentSessionID)
+        }
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
@@ -979,14 +1077,49 @@ final class GhosttyTerminalNSView: NSView,
         }
     }
 
+    enum LeftMousePressRouting {
+        case ignored
+        case forwardedToSurface
+        case commandPending
+        case commandHandled
+    }
+
+    static func forwardsLeftMousePress(commandHeld: Bool) -> Bool {
+        !commandHeld
+    }
+
+    static func forwardsLeftMouseRelease(routing: LeftMousePressRouting, didDrag: Bool) -> Bool {
+        switch routing {
+        case .forwardedToSurface:
+            true
+        case .commandPending:
+            !didDrag
+        case .ignored,
+             .commandHandled:
+            false
+        }
+    }
+
+    static func reachesSurfaceWhileOverlayActive(routing: LeftMousePressRouting) -> Bool {
+        reachesSurfaceWhileOverlayActive(forwardedPress: routing == .forwardedToSurface)
+    }
+
+    static func reachesSurfaceWhileOverlayActive(forwardedPress: Bool) -> Bool {
+        forwardedPress
+    }
+
     override func mouseDown(with event: NSEvent) {
+        leftMousePressRouting = .ignored
+        leftMouseDownWindowPoint = event.locationInWindow
+        didDragAfterLeftMouseDown = false
         if overlayActive {
             return
         }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
-        let commandWord = event.modifierFlags.contains(.command) && !hasOSC8LinkUnderCursor
+        let commandHeld = event.modifierFlags.contains(.command)
+        let commandWord = commandHeld && !hasOSC8LinkUnderCursor
             ? readQuicklookWordUnderMouse()
             : nil
         let commandFileToken = commandWord.flatMap { resolvedCmdFileToken(for: $0)?.text }
@@ -995,21 +1128,34 @@ final class GhosttyTerminalNSView: NSView,
             openCommandFile: { onCmdClickFile?($0) },
             focusTerminal: claimFocusForMouseDown
         ) {
+            leftMousePressRouting = .commandHandled
             return
         }
         if commandWord != nil {
+            leftMousePressRouting = .commandPending
             return
         }
+        guard Self.forwardsLeftMousePress(commandHeld: commandHeld) else {
+            leftMousePressRouting = .commandPending
+            return
+        }
+        leftMousePressRouting = .forwardedToSurface
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
 
     override func mouseUp(with event: NSEvent) {
-        if overlayActive {
+        let routing = leftMousePressRouting
+        let didDrag = didDragAfterLeftMouseDown
+        leftMousePressRouting = .ignored
+        leftMouseDownWindowPoint = nil
+        didDragAfterLeftMouseDown = false
+        if overlayActive, !Self.reachesSurfaceWhileOverlayActive(routing: routing) {
             return
         }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
+        guard Self.forwardsLeftMouseRelease(routing: routing, didDrag: didDrag) else { return }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
         autoCopySelectionIfEnabled()
     }
@@ -1024,7 +1170,13 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     override func mouseDragged(with event: NSEvent) {
+        updateLeftDragState(with: event)
         mouseMoved(with: event)
+    }
+
+    private func updateLeftDragState(with event: NSEvent) {
+        guard !didDragAfterLeftMouseDown, let origin = leftMouseDownWindowPoint else { return }
+        didDragAfterLeftMouseDown = DragActivation.reachesDistance(from: origin, to: event.locationInWindow)
     }
 
     override func rightMouseDragged(with event: NSEvent) {
@@ -1353,26 +1505,47 @@ final class GhosttyTerminalNSView: NSView,
         return bounds.height / CGFloat(cells.rows)
     }
 
+    static func forwardsRightMouseButton(mouseCaptured: Bool, shiftHeld: Bool) -> Bool {
+        mouseCaptured && !shiftHeld
+    }
+
     override func rightMouseDown(with event: NSEvent) {
+        forwardedRightMousePress = false
         if overlayActive {
             return
         }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
-        if !consumed {
+        guard Self.forwardsRightMouseButton(
+            mouseCaptured: ghostty_surface_mouse_captured(surface),
+            shiftHeld: event.modifierFlags.contains(.shift)
+        )
+        else {
             presentContextMenu(with: event)
+            return
         }
+        forwardedRightMousePress = true
+        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        guard !consumed else { return }
+        forwardedRightMousePress = false
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        presentContextMenu(with: event)
     }
 
     override func rightMouseUp(with event: NSEvent) {
-        if overlayActive {
+        let forwardedPress = forwardedRightMousePress
+        forwardedRightMousePress = false
+        if overlayActive, !Self.reachesSurfaceWhileOverlayActive(forwardedPress: forwardedPress) {
             return
         }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
+        guard forwardedPress else {
+            super.rightMouseUp(with: event)
+            return
+        }
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
         if !consumed {
             super.rightMouseUp(with: event)
@@ -1388,12 +1561,21 @@ final class GhosttyTerminalNSView: NSView,
         settingsFocusCoordinator: SettingsFocusCoordinator = .shared
     ) -> NSMenu {
         let menu = NSMenu(title: L10n.string("Terminal"))
+        menu.autoenablesItems = false
 
         let paste = ClosureMenuItem(title: L10n.string("Paste")) { [weak self] in
             self?.performContextPaste()
         }
         paste.isEnabled = NSPasteboard.general.string(forType: .string).map { !$0.isEmpty } ?? pasteboardHasImage()
         menu.addItem(paste)
+
+        menu.addItem(.separator())
+
+        let sendToBackground = ClosureMenuItem(title: L10n.string("Send to Background")) { [weak self] in
+            self?.onSendToBackground?()
+        }
+        sendToBackground.isEnabled = persistentSessionID != nil && canSendToBackground?() == true
+        menu.addItem(sendToBackground)
 
         menu.addItem(.separator())
 
@@ -2091,7 +2273,9 @@ final class GhosttyTerminalNSView: NSView,
 
     private func detectAgentNow() {
         guard let surface else { return }
-        let foregroundPID = ghostty_surface_foreground_pid(surface)
+        let foregroundPID = persistentSessionID == nil
+            ? ghostty_surface_foreground_pid(surface)
+            : UInt64(max(foregroundProcessID ?? 0, 0))
         let candidateNames = ForegroundProcessInspector.executableNameCandidates(pid: foregroundPID)
         let providerID = AIAgentDetector.providerID(forCandidateNames: candidateNames, executables: agentExecutables)
         watchAgentProcess(providerID: providerID, processID: foregroundPID)

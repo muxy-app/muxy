@@ -183,6 +183,15 @@ enum SettingsCatalog {
             defaultValue: HomeProjectPreferences.defaultVisible
         ),
         SettingsCatalogItem(
+            key: TipsPreferences.visibleKey,
+            title: "Show Tips",
+            description: "Shows Muxy tips at the bottom of the built-in sidebar.",
+            category: .appearance,
+            section: "Sidebar",
+            defaultValue: TipsPreferences.defaultVisible,
+            aliases: ["hints", "help", "sidebar card", "lightbulb"]
+        ),
+        SettingsCatalogItem(
             key: SidebarSelection.storageKey,
             title: "Active Sidebar",
             description: "Chooses the built-in sidebar or one provided by an extension.",
@@ -318,6 +327,14 @@ enum SettingsCatalog {
             description: "Asks before quitting Muxy.",
             category: .general,
             section: "Quit",
+            defaultValue: true
+        ),
+        SettingsCatalogItem(
+            key: UpdateService.automaticallyUpdatesKey,
+            title: "Install Downloaded Updates on Quit",
+            description: "Downloads updates in the background and installs them when Muxy quits.",
+            category: .general,
+            section: "Updates",
             defaultValue: true
         ),
         SettingsCatalogItem(
@@ -465,6 +482,14 @@ enum SettingsCatalog {
             category: .terminal,
             section: "Memory",
             defaultValue: TerminalOfflinePreferences.defaultIdleThreshold
+        ),
+        SettingsCatalogItem(
+            key: TerminalPersistentSessionPreferences.enabledKey,
+            title: "Run New Terminals in the Background",
+            description: "Runs new terminals in a background process so they survive quitting Muxy.",
+            category: .terminal,
+            section: "Background sessions",
+            defaultValue: TerminalPersistentSessionPreferences.defaultIsEnabled
         ),
         SettingsCatalogItem(
             key: "shortcuts.app",

@@ -25,6 +25,7 @@ final class TerminalViewRegistry {
 
     func view(
         for paneID: UUID,
+        sessionID: UUID? = nil,
         workingDirectory: String,
         command: String? = nil,
         commandInteractive: Bool = false,
@@ -35,12 +36,16 @@ final class TerminalViewRegistry {
         if let existing = views[paneID] {
             return existing
         }
+        let usesPersistentSession = TerminalPersistentSessionPolicy.usesPersistentSession(
+            workspaceContext: workspaceContext
+        )
         let view = backend.makeSurface(launch: TerminalLaunchRequest(
             workingDirectory: workingDirectory,
             command: command,
             commandInteractive: commandInteractive,
             closesOnCommandExit: closesOnCommandExit,
-            workspaceContext: workspaceContext
+            workspaceContext: workspaceContext,
+            persistentSessionID: usesPersistentSession ? (sessionID ?? paneID) : nil
         ))
         views[paneID] = view
         paneIDs[ObjectIdentifier(view.terminalView)] = paneID
@@ -52,10 +57,27 @@ final class TerminalViewRegistry {
     }
 
     func removeView(for paneID: UUID) {
-        guard let view = views.removeValue(forKey: paneID) else { return }
+        guard let view = releaseView(for: paneID) else { return }
+        if let sessionID = view.persistentSessionID {
+            PersistentSessionService.shared.endSession(sessionID: sessionID)
+        }
+    }
+
+    @discardableResult
+    func releaseView(for paneID: UUID) -> (any TerminalSurface)? {
+        guard let view = views.removeValue(forKey: paneID) else { return nil }
         TerminalCommandTracker.shared.removePane(paneID)
         view.tearDown()
         paneIDs.removeValue(forKey: ObjectIdentifier(view.terminalView))
+        return view
+    }
+
+    func hasPersistentSession(for paneID: UUID, sessionID: UUID) -> Bool {
+        views[paneID]?.persistentSessionID == sessionID
+    }
+
+    func releaseViewPreservingSession(for paneID: UUID) {
+        releaseView(for: paneID)
     }
 
     func prepareForTermination() async {

@@ -30,9 +30,23 @@ struct TerminalPane: View {
         )
     }
 
+    private var showsUnreachableSessionPlaceholder: Bool {
+        SleepingTabPlaceholderPolicy.shouldPresent(
+            isVisible: visible,
+            isOffline: state.sessionRecoveryFailed,
+            isRemotelyOwned: remoteOwnerName != nil
+        )
+    }
+
     private func wakePane() {
         let surface = TerminalViewRegistry.shared.existingView(for: state.id)
         (surface as? any TerminalOfflineSurface)?.wake()
+        onFocus()
+    }
+
+    private func reconnectPane() {
+        let surface = TerminalViewRegistry.shared.existingView(for: state.id)
+        (surface as? any TerminalSessionRecoverySurface)?.reattachPersistentSession()
         onFocus()
     }
 
@@ -96,11 +110,57 @@ struct TerminalPane: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            if showsSleepingPlaceholder {
+            if showsUnreachableSessionPlaceholder {
+                UnreachableSessionPlaceholder(isFocused: focused, onReconnect: reconnectPane)
+                    .transition(.opacity)
+            } else if showsSleepingPlaceholder {
                 SleepingTabPlaceholder(isFocused: focused, onWake: wakePane)
                     .transition(.opacity)
             }
         }
+    }
+}
+
+struct UnreachableSessionPlaceholder: View {
+    let isFocused: Bool
+    let onReconnect: () -> Void
+
+    var body: some View {
+        VStack(spacing: UIMetrics.spacing7) {
+            Spacer()
+            Image(systemName: "bolt.horizontal.circle")
+                .font(.system(size: UIMetrics.fontMega))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            Text(L10n.resource("Background session unreachable"))
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            Text(L10n.resource("Muxy could not reconnect to this terminal. The session was left running."))
+                .font(.system(size: UIMetrics.fontBody))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: UIMetrics.scaled(360))
+            Button(action: onReconnect) {
+                HStack(spacing: UIMetrics.spacing4) {
+                    Text(L10n.resource("Reconnect"))
+                    if isFocused {
+                        Text(L10n.resource("⏎"))
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
+                            .opacity(0.72)
+                    }
+                }
+            }
+            .keyboardShortcut(isFocused ? KeyboardShortcut(.return, modifiers: []) : nil)
+            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MuxyTheme.bg)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onReconnect)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(L10n.string("Background session unreachable"))
+        .accessibilityHint(L10n.string("Reconnect to the background terminal session"))
     }
 }
 
@@ -367,8 +427,15 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     private func configure(_ surface: any TerminalSurface) {
-        if surface.envVars.isEmpty, !surface.hasLiveSurface, let key = worktreeKey {
-            surface.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
+        if let key = worktreeKey {
+            if surface.envVars.isEmpty, !surface.hasLiveSurface {
+                surface.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
+            }
+            surface.sessionMetadata = TerminalSessionMetadataBuilder.build(
+                worktreeKey: key,
+                tabID: appState.locateTab(forPane: state.id)?.tab.id,
+                title: state.title
+            )
         }
         surface.isFocused = focused
         surface.overlayActive = overlayActive
@@ -376,8 +443,17 @@ struct TerminalBridge: NSViewRepresentable {
         surface.setVisible(visible)
         surface.setFocused(focused)
         surface.onFocus = onFocus
-        surface.onProcessExit = onProcessExit
+        surface.onProcessExit = makeProcessExitHandler(surface)
         surface.onSplitRequest = onSplitRequest
+        if let backgroundingSurface = surface as? any TerminalBackgroundingSurface {
+            let paneID = state.id
+            backgroundingSurface.canSendToBackground = { [weak appState] in
+                appState?.canSendTabToBackground(paneID: paneID) ?? false
+            }
+            backgroundingSurface.onSendToBackground = { [weak appState] in
+                appState?.sendTabToBackground(paneID: paneID)
+            }
+        }
         surface.onExternalDragHoverChange = makeExternalDragHoverHandler(areaID: areaID)
         surface.onTitleChange = { [weak state] title in
             DispatchQueue.main.async {
@@ -390,6 +466,7 @@ struct TerminalBridge: NSViewRepresentable {
             }
         }
         configureOfflineCallback(surface)
+        configureSessionRecoveryCallback(surface)
         configureAgentDetectionCallback(surface)
         if let searchSurface = surface as? any TerminalSearchSurface {
             configureSearchCallbacks(searchSurface)
@@ -405,6 +482,30 @@ struct TerminalBridge: NSViewRepresentable {
         }
         offlineSurface.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
+        }
+    }
+
+    private func configureSessionRecoveryCallback(_ surface: any TerminalSurface) {
+        let recoverySurface = surface as? any TerminalSessionRecoverySurface
+        let hasFailed = recoverySurface?.isSessionRecoveryFailed ?? false
+        if state.sessionRecoveryFailed != hasFailed {
+            state.sessionRecoveryFailed = hasFailed
+        }
+        recoverySurface?.onSessionRecoveryFailed = { [weak state] failed in
+            state?.sessionRecoveryFailed = failed
+        }
+    }
+
+    private func makeProcessExitHandler(_ surface: any TerminalSurface) -> () -> Void {
+        guard let sessionID = surface.persistentSessionID else { return onProcessExit }
+        let paneID = state.id
+        let closePane = onProcessExit
+        return {
+            PersistentSessionExitHandler.shared.handleExit(
+                paneID: paneID,
+                sessionID: sessionID,
+                closePane: closePane
+            )
         }
     }
 
@@ -425,6 +526,7 @@ struct TerminalBridge: NSViewRepresentable {
         let launch = state.consumeRestoredLaunch()
         return TerminalViewRegistry.shared.view(
             for: state.id,
+            sessionID: state.sessionID,
             workingDirectory: state.currentWorkingDirectory ?? state.projectPath,
             command: launch.command,
             commandInteractive: launch.interactive,

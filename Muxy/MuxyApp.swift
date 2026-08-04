@@ -87,6 +87,7 @@ struct MuxyApp: App {
                         NotificationStore.shared.appState = appState
                         NotificationStore.shared.worktreeStore = worktreeStore
                         NotificationStore.shared.markAllAsRead()
+                        PersistentSessionRecovery.shared.recoverRestoredPanes(appState: appState)
                         DesktopNotificationService.shared.start(appState: appState)
                         MemoryDiagnostics.shared.configure(appState: appState)
                         TerminalProgressStore.shared.appState = appState
@@ -247,8 +248,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private weak var settingsWindow: NSWindow?
     private weak var extensionsWindow: NSWindow?
     private weak var whatsNewWindow: NSWindow?
-    private let terminalTerminationCleanup = TerminalTerminationCleanup()
+    private let terminalTerminationCleanup: TerminalTerminationCleanup
+    private let prepareTerminalsForTermination: TerminalTerminationCleanup.Cleanup
+    private let replyToApplicationShouldTerminate: @MainActor (NSApplication) -> Void
     private static let terminalCleanupTimeout: Duration = .seconds(5)
+    private var didPersistUserStateForTermination = false
+
+    override convenience init() {
+        self.init(
+            terminalTerminationCleanup: TerminalTerminationCleanup(),
+            prepareTerminalsForTermination: {
+                await TerminalViewRegistry.shared.prepareForTermination()
+            },
+            replyToApplicationShouldTerminate: {
+                $0.reply(toApplicationShouldTerminate: true)
+            }
+        )
+    }
+
+    init(
+        terminalTerminationCleanup: TerminalTerminationCleanup,
+        prepareTerminalsForTermination: @escaping TerminalTerminationCleanup.Cleanup,
+        replyToApplicationShouldTerminate: @escaping @MainActor (NSApplication) -> Void
+    ) {
+        self.terminalTerminationCleanup = terminalTerminationCleanup
+        self.prepareTerminalsForTermination = prepareTerminalsForTermination
+        self.replyToApplicationShouldTerminate = replyToApplicationShouldTerminate
+        super.init()
+    }
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -513,14 +540,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let reply = AppRelaunch.isRelaunching ? NSApplication.TerminateReply.terminateNow : confirmQuitIfNeeded()
         guard reply == .terminateNow else { return reply }
+        persistUserStateForTermination()
         guard !terminalTerminationCleanup.isComplete else { return .terminateNow }
         terminalTerminationCleanup.start(
             timeout: Self.terminalCleanupTimeout,
-            cleanup: {
-                await TerminalViewRegistry.shared.prepareForTermination()
-            },
-            completion: {
-                sender.reply(toApplicationShouldTerminate: true)
+            cleanup: prepareTerminalsForTermination,
+            completion: { [replyToApplicationShouldTerminate] in
+                replyToApplicationShouldTerminate(sender)
             }
         )
         return .terminateLater
@@ -592,7 +618,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func persistUserStateForTermination() {
-        guard !AppRelaunch.isRelaunching else { return }
+        guard !AppRelaunch.isRelaunching, !didPersistUserStateForTermination else { return }
+        didPersistUserStateForTermination = true
         onTerminate?()
         RichInputDraftStore.shared.flush()
     }

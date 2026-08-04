@@ -8,7 +8,10 @@ extension EnvironmentValues {
 }
 
 enum SettingsMetrics {
+    static let minimumWindowWidth: CGFloat = 860
     static let sidebarWidth: CGFloat = 210
+    static let dividerThickness: CGFloat = 1
+    static let minimumContentWidth = minimumWindowWidth - sidebarWidth - dividerThickness
     static let horizontalPadding: CGFloat = 12
     static let verticalPadding: CGFloat = 12
     static let rowVerticalPadding: CGFloat = 6
@@ -54,7 +57,7 @@ struct SettingsDivider: View {
     var body: some View {
         Rectangle()
             .fill(SettingsStyle.border)
-            .frame(height: 1)
+            .frame(height: SettingsMetrics.dividerThickness)
     }
 }
 

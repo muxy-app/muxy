@@ -16,6 +16,8 @@ struct ProjectStatusBar: View {
     @Environment(ExtensionStore.self) private var extensionStore
     @State private var popoverHost = PopoverHost.shared
     @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
+    @AppStorage(TerminalPersistentSessionPreferences.enabledKey)
+    private var backgroundSessionsEnabled = TerminalPersistentSessionPreferences.defaultIsEnabled
 
     var body: some View {
         HStack(spacing: 8) {
@@ -62,6 +64,9 @@ struct ProjectStatusBar: View {
             if activePane != nil {
                 separator
                 voiceRecordingButton
+            }
+            if backgroundSessionsEnabled, !isRemoteWorkspace {
+                TerminalSessionsButton()
             }
             if showResourceUsage {
                 separator

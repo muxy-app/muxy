@@ -9,12 +9,16 @@ struct FocusedComposerView: View {
     let projectName: String
     let worktreeName: String
     let languageIdentifier: String
+    let availableSize: CGSize
     @Binding var broadcasts: Bool
     let onSubmit: (_ appendReturn: Bool, _ selectedText: String?) -> Void
     let onClose: () -> Void
 
     @State private var editorSettings = EditorSettings.shared
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize = RichInputPreferences.defaultFontSize
+    @AppStorage(ComposerLayoutPreferences.widthKey) private var storedWidth = ComposerLayoutPreferences.defaultWidth
+    @AppStorage(ComposerLayoutPreferences.heightKey) private var storedHeight = ComposerLayoutPreferences.defaultHeight
+    @AppStorage(ComposerLayoutPreferences.expandedKey) private var isExpanded = ComposerLayoutPreferences.defaultExpanded
     @State private var insertion: RichInputTextEditor.Insertion?
     @State private var submission: RichInputTextEditor.Submission?
 
@@ -34,6 +38,8 @@ struct FocusedComposerView: View {
                         .fill(MuxyTheme.surface)
                 }
         }
+        .overlay(resizeEdges)
+        .frame(width: UIMetrics.scaled(layoutSize.width), height: UIMetrics.scaled(layoutSize.height))
         .shadow(color: .black.opacity(0.45), radius: UIMetrics.scaled(36), y: UIMetrics.scaled(18))
         .onDrop(of: [UTType.fileURL, UTType.image], isTargeted: nil, perform: handleDrop)
         .onChange(of: state.text) { persistDraft() }
@@ -56,6 +62,18 @@ struct FocusedComposerView: View {
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgDim)
             Spacer(minLength: UIMetrics.spacing3)
+            Button(action: toggleExpanded) {
+                Image(systemName: isExpanded
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right"
+                )
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(MuxyTheme.fgDim)
+            .accessibilityLabel(expandLabel)
+            .help(expandLabel)
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
@@ -66,6 +84,36 @@ struct FocusedComposerView: View {
             .accessibilityLabel(L10n.string("Close Composer"))
         }
         .frame(height: UIMetrics.scaled(22))
+    }
+
+    private var expandLabel: String {
+        isExpanded ? L10n.string("Collapse Composer") : L10n.string("Expand Composer")
+    }
+
+    private var resizeEdges: some View {
+        ZStack {
+            HStack(spacing: 0) {
+                widthEdge(.leading)
+                Spacer(minLength: 0)
+                widthEdge(.trailing)
+            }
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                ComposerResizeEdge(
+                    edge: .bottom,
+                    captureAnchor: { layoutSize.height },
+                    apply: applyHeight
+                )
+            }
+        }
+    }
+
+    private func widthEdge(_ edge: ResizeHandle.Edge) -> some View {
+        ComposerResizeEdge(
+            edge: edge,
+            captureAnchor: { layoutSize.width },
+            apply: applyWidth
+        )
     }
 
     private var editor: some View {
@@ -80,7 +128,7 @@ struct FocusedComposerView: View {
             callbacks: editorCallbacks
         )
         .padding(.bottom, voice.showsFeedback ? UIMetrics.scaled(30) : 0)
-        .frame(height: UIMetrics.scaled(146))
+        .frame(maxHeight: .infinity)
         .background(MuxyTheme.bg.opacity(0.001))
         .overlay(alignment: .topLeading) {
             if state.text.isEmpty {
@@ -204,6 +252,8 @@ struct FocusedComposerView: View {
                     requestSubmission(appendReturn: false)
                 }
                 .disabled(!voice.canSubmit)
+                Divider()
+                Button(L10n.string("Reset Composer Size"), action: resetSize)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
@@ -268,6 +318,54 @@ struct FocusedComposerView: View {
             },
             onPasteFileURL: addAttachment
         )
+    }
+
+    private var layoutSize: CGSize {
+        ComposerLayoutPreferences.size(
+            width: storedWidth,
+            height: storedHeight,
+            isExpanded: isExpanded,
+            available: logicalAvailableSize
+        )
+    }
+
+    private var logicalAvailableSize: CGSize {
+        CGSize(
+            width: UIMetrics.unscaled(availableSize.width),
+            height: UIMetrics.unscaled(availableSize.height)
+        )
+    }
+
+    private func applyWidth(_ width: CGFloat) {
+        detachFromExpanded()
+        storedWidth = Double(ComposerLayoutPreferences.clampedWidth(width, available: logicalAvailableSize))
+    }
+
+    private func applyHeight(_ height: CGFloat) {
+        detachFromExpanded()
+        storedHeight = Double(ComposerLayoutPreferences.clampedHeight(height, available: logicalAvailableSize))
+    }
+
+    private func detachFromExpanded() {
+        guard isExpanded else { return }
+        let current = layoutSize
+        storedWidth = Double(current.width)
+        storedHeight = Double(current.height)
+        isExpanded = false
+    }
+
+    private func toggleExpanded() {
+        withAnimation(.easeOut(duration: 0.14)) {
+            isExpanded.toggle()
+        }
+    }
+
+    private func resetSize() {
+        withAnimation(.easeOut(duration: 0.14)) {
+            isExpanded = ComposerLayoutPreferences.defaultExpanded
+            storedWidth = ComposerLayoutPreferences.defaultWidth
+            storedHeight = ComposerLayoutPreferences.defaultHeight
+        }
     }
 
     private var clampedFontSize: CGFloat {

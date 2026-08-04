@@ -57,4 +57,10 @@ enum UIMetrics {
     static func scaled(_ value: CGFloat) -> CGFloat {
         value * UIScale.shared.multiplier
     }
+
+    static func unscaled(_ value: CGFloat) -> CGFloat {
+        let multiplier = UIScale.shared.multiplier
+        guard multiplier > 0 else { return value }
+        return value / multiplier
+    }
 }

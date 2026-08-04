@@ -17,13 +17,38 @@ struct ResizeHandle: View {
         case trailing
     }
 
+    enum Edge {
+        case leading
+        case trailing
+        case top
+        case bottom
+
+        var axis: Axis {
+            switch self {
+            case .leading,
+                 .trailing:
+                .horizontal
+            case .top,
+                 .bottom:
+                .vertical
+            }
+        }
+
+        var isLeading: Bool {
+            self == .leading || self == .top
+        }
+
+        var hitAreaBias: HitAreaBias {
+            isLeading ? .leading : .trailing
+        }
+    }
+
     let axis: Axis
     var hitAreaBias: HitAreaBias = .centered
     var onEnd: (() -> Void)?
     let onDrag: (DragGesture.Value) -> Void
     @State private var hovering = false
-    @State private var dragCursorPushed = false
-    @GestureState private var dragging = false
+    @State private var dragging = false
 
     private var active: Bool { hovering || dragging }
 
@@ -32,37 +57,15 @@ struct ResizeHandle: View {
             .fill(active ? MuxyTheme.accent : MuxyTheme.border)
             .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
             .overlay(alignment: handleAlignment) {
-                Rectangle()
-                    .fill(Color.black.opacity(0.001))
-                    .frame(
-                        width: axis == .horizontal ? UIMetrics.resizeHandleHitArea : nil,
-                        height: axis == .vertical ? UIMetrics.resizeHandleHitArea : nil
-                    )
-                    .background {
-                        ResizeCursorRegion(axis: axis) { hovering = $0 }
-                    }
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .updating($dragging) { _, state, _ in state = true }
-                            .onChanged { value in
-                                activateDragCursor()
-                                onDrag(value)
-                            }
-                            .onEnded { _ in
-                                onEnd?()
-                                releaseDragCursor()
-                            }
-                    )
+                ResizeDragArea(
+                    axis: axis,
+                    onHoverChange: { hovering = $0 },
+                    onDraggingChange: { dragging = $0 },
+                    onEnd: onEnd,
+                    onDrag: onDrag
+                )
             }
             .zIndex(1)
-            .onChange(of: dragging) { _, isDragging in
-                guard !isDragging else { return }
-                releaseDragCursor()
-            }
-            .onDisappear {
-                releaseDragCursor()
-            }
     }
 
     private var handleAlignment: Alignment {
@@ -74,6 +77,49 @@ struct ResizeHandle: View {
         case .trailing:
             axis == .horizontal ? .trailing : .bottom
         }
+    }
+}
+
+struct ResizeDragArea: View {
+    let axis: ResizeHandle.Axis
+    var onHoverChange: ((Bool) -> Void)?
+    var onDraggingChange: ((Bool) -> Void)?
+    var onEnd: (() -> Void)?
+    let onDrag: (DragGesture.Value) -> Void
+    @State private var dragCursorPushed = false
+    @GestureState private var dragging = false
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.black.opacity(0.001))
+            .frame(
+                width: axis == .horizontal ? UIMetrics.resizeHandleHitArea : nil,
+                height: axis == .vertical ? UIMetrics.resizeHandleHitArea : nil
+            )
+            .background {
+                ResizeCursorRegion(axis: axis) { onHoverChange?($0) }
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .updating($dragging) { _, state, _ in state = true }
+                    .onChanged { value in
+                        activateDragCursor()
+                        onDrag(value)
+                    }
+                    .onEnded { _ in
+                        onEnd?()
+                        releaseDragCursor()
+                    }
+            )
+            .onChange(of: dragging) { _, isDragging in
+                onDraggingChange?(isDragging)
+                guard !isDragging else { return }
+                releaseDragCursor()
+            }
+            .onDisappear {
+                releaseDragCursor()
+            }
     }
 
     private func activateDragCursor() {
@@ -185,26 +231,8 @@ struct AnchoredResizeHandle<Anchor>: View {
 }
 
 struct PanelResizeHandle: View {
-    enum Edge {
-        case leading
-        case trailing
-        case top
-        case bottom
-
-        var hitAreaBias: ResizeHandle.HitAreaBias {
-            switch self {
-            case .leading,
-                 .top:
-                .leading
-            case .trailing,
-                 .bottom:
-                .trailing
-            }
-        }
-    }
-
     let axis: ResizeHandle.Axis
-    var edge: Edge = .leading
+    var edge: ResizeHandle.Edge = .leading
     let current: () -> CGFloat
     let apply: (CGFloat) -> Void
 
@@ -214,8 +242,7 @@ struct PanelResizeHandle: View {
             hitAreaBias: edge.hitAreaBias,
             captureAnchor: current,
             onTranslate: { start, delta in
-                let signed = (edge == .leading || edge == .top) ? -delta : delta
-                apply(start + signed)
+                apply(start + (edge.isLeading ? -delta : delta))
             }
         )
         .accessibilityHidden(true)

@@ -6,6 +6,48 @@ Muxy's terminals are powered by [libghostty](https://github.com/ghostty-org/ghos
 
 Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote control, quick terminal creation, search, rich input, process detection, and offline lifecycle depend on Muxy's backend-neutral terminal surface contract. Optional integrations use dedicated capability protocols, so unsupported search, remote snapshots, client themes, offline lifecycle, raw output, and image paste behavior is never invoked. Image attachments fall back to escaped file paths when a backend does not support clipboard image paste. Ghostty-specific handles and callbacks stay inside the Ghostty implementation boundary. There is no user-facing backend selector until another implementation satisfies the capabilities required by these integrations.
 
+## Background sessions
+
+**Settings → Terminal → Background sessions** runs each new terminal in a detached process so it survives quitting Muxy, the way tmux does. It is off by default and only affects terminals opened after it is switched on; terminals that are already open keep their current behavior.
+
+libghostty owns the PTY of every surface it creates and offers no way to hand a surface an existing PTY, so a background terminal cannot simply be adopted. Muxy uses the same split tmux does. A `muxy-session` daemon owns the real PTY of every background session and lives in its own session (`setsid`), which is what lets it outlive the app. The surface runs `muxy-session attach`, a small client that proxies bytes, window size, and the final exit status over a unix socket. Quitting Muxy kills the clients and leaves the daemon and its shells running.
+
+Each pane carries a session ID that defaults to its own pane ID and is persisted in workspace snapshots, so reopening Muxy reattaches each restored pane to its own session. Because the two IDs are separate, a pane can also adopt a session that started somewhere else. On reattach the daemon replays a capped 256 KB buffer of recent output and sends `SIGWINCH` to the foreground process group so full-screen programs repaint. The daemon exits on its own once it has been idle with no sessions.
+
+The attach client starts a daemon on demand and keeps retrying the whole connect-and-launch cycle until it succeeds or its budget runs out, so a terminal opened while an idle daemon is shutting down does not fail. A connection that drops before the session is handed over is retried on a fresh socket rather than reported as an exit, and a daemon that is idling out accepts anything still waiting in its listen backlog before it closes.
+
+Every attach carries metadata identifying the project, worktree, tab, and title the session belongs to, and the daemon refreshes it each time a client reattaches. That is what lets Muxy group sessions by worktree and show which tab owns one. The attach also carries a protocol version; a session started by a different version of Muxy is refused with a clear message rather than being misread.
+
+### Recovering sessions
+
+Reopening Muxy reattaches every restored pane whose session is still running, without waiting for you to click the tab, so output keeps flowing and scrollback keeps building from the moment the window appears.
+
+Closing a tab ends its session. To keep a local background-backed tab running without its visible terminal, right-click inside the terminal and choose **Send to Background**. The tab closes without stopping its processes and its sessions appear in the status bar as detached. A split tab moves all of its terminal sessions together. The action is unavailable for pinned tabs, mixed-content splits, remote terminals, and terminals opened without background sessions enabled.
+
+Sessions are never killed behind your back otherwise: one whose tab is gone keeps running and shows up in the status bar as detached, where you can reattach or stop it. Sending the final visible tab to the background keeps its project and worktree open so the status-bar entry remains accessible.
+
+When an attach client goes away, Muxy asks the daemon what actually happened before touching the tab. Only a session the daemon reports as gone closes its tab; a session that is still running, or a daemon that cannot be reached, is treated as a dropped connection and reattached with a short backoff. If several attempts in a row fail, the tab stays open showing a **Reconnect** placeholder and the session keeps running, so a daemon crash or a version mismatch after an update can never close tabs or discard work. A tab that has been healthy for a while starts its retry budget over.
+
+The status bar lists only the sessions in the current project and worktree that **no tab currently owns**, since a session already open in a tab is not something you need to recover. Ownership is decided by the pane pointing at the session, not by whether a client happens to be connected, so a tab whose terminal was freed by the idle-memory setting still counts as owning its session. When every session in the worktree is open in a tab, the status bar item disappears entirely.
+
+Each row shows the session's title and working directory with three actions:
+
+- **Active tab** points the focused terminal tab at that session. The session the tab was showing keeps running and becomes detached, so it takes the vacated slot in the list.
+- **New tab** opens a tab in the current worktree attached to that session.
+- **Stop** ends the session and everything running inside it.
+
+A session can only ever be owned by one tab, because the daemon accepts a single attached client. Adopting a session hands its previous owner back a fresh session of its own rather than leaving that tab looking at a dead terminal.
+
+Ghostty only injects its shell integration into shells it spawns itself, so the daemon reproduces that injection using the contract the bundled scripts document: `ZDOTDIR` plus `GHOSTTY_ZSH_ZDOTDIR` for zsh, `ENV` plus `GHOSTTY_BASH_INJECT` and POSIX mode for bash, and `XDG_DATA_DIRS` plus `GHOSTTY_SHELL_INTEGRATION_XDG_DIR` for fish, elvish, and nushell. Background terminals in those shells keep working-directory tracking, tab titles, prompt marks, and AI progress. Other shells run normally but lose those integrations, exactly as they do under tmux.
+
+Because the surface's own foreground process is the attach client, Muxy resolves the real foreground process from the session's tty through `sysctl(KERN_PROC_TTY)`. Agent detection, the running-process close confirmation, the idle-memory sweep, and AI hook to pane mapping behave the same as in a normal terminal. Idleness in particular has to come from the session rather than the surface: the attach client is not a shell, so judging it locally would keep every background terminal awake forever and disable the idle-memory setting app-wide. A session whose state cannot be resolved is treated as busy and left running.
+
+The control socket lives in Muxy's Application Support directory with `0700` on the directory and `0600` on the socket, falling back to a user-scoped `/tmp/muxy-<uid>` only when the primary path exceeds the 104-byte `sun_path` limit. The daemon verifies the peer's uid with `LOCAL_PEERCRED` and refuses connections from other users. A development build uses its own `sessions-dev` directory and `/tmp/muxy-dev-<uid>` fallback, so running a dev build alongside the release app keeps two fully separate daemons — neither build can list, adopt, or stop the other's sessions.
+
+Remote SSH panes and the quick terminal are never backed by a background session.
+
+`muxy list-sessions` and `muxy kill-session --session <id>` manage sessions from a shell. See [Muxy CLI](muxy-cli.md).
+
 ## Quick terminal
 
 Assign Double Shift or a conventional global shortcut to open the quick terminal from anywhere. On a display with a camera cutout, it expands out of the cutout like a dynamic island. It always starts in your home directory and keeps the same shell, working directory, and history while hidden.
@@ -79,6 +121,23 @@ upload the image and inline its remote path, because a Mac file path does not re
 upload fails, Muxy withholds Return and clears every line it has already submitted, so a partial prompt is never
 left in the TUI.
 
+## Mouse
+
+Plain left-click and drag selects terminal text. `⌘` and right-click are reserved for Muxy, and neither starts
+nor changes a text selection:
+
+| Gesture | Result |
+| --- | --- |
+| `⌘` + left-click | Opens the file path or link under the pointer |
+| `⌘` + left-drag | Moves the pane to another area or split |
+| Right-click | Opens the [right-click menu](#right-click-menu) |
+
+A `⌘` + left-drag is decided when the gesture starts, so pressing or releasing `⌘` mid-drag never switches
+between moving the pane and selecting text.
+
+Programs that enable mouse reporting keep receiving right-click. Hold `Shift` while right-clicking such a program
+to get Muxy's menu instead.
+
 ## Working directory
 
 Muxy tracks the cwd via Ghostty's shell integration (OSC 7). The directory is persisted in workspace snapshots so newly recreated tabs land in the same folder when applicable.
@@ -102,7 +161,19 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 `Cmd+I` opens the focused composer for multiline prompts, files, images, and broadcast sends. `Cmd+Shift+I`
 opens the legacy voice recorder normally, or starts on-device dictation inside the focused composer when it is
 already open. Stop Composer dictation to insert the transcript at the editor cursor, or press Return while
-recording, then edit or send it normally.
+recording, then edit or send it normally. Composer dictation requires an installed on-device speech language plus
+microphone and speech recognition access.
+
+Long prompts can use a larger Composer. Drag its left, right, or bottom edge to resize it; because the Composer
+stays centered, a dragged edge grows the box symmetrically and follows the pointer. The expand button in the
+Composer header switches to a large preset instead, which is capped so it stays readable on big displays and
+shrinks to fit smaller windows; dragging an edge is what grows the Composer beyond that preset, and pressing the
+button again restores the size you dragged. Both the size and
+the expanded state are remembered across Composer sessions and app restarts, are stored independently of the UI
+Scale preset, and are always clamped to the current window, so a smaller window shrinks the Composer without
+losing your size. **Reset Composer Size** in the Composer's More menu returns it to the default size. The text
+editor takes whatever room the box has left, so attachments and the dictation status line reduce it while they
+are visible. `Cmd+=` and `Cmd+-` still change the Composer font size rather than the box.
 
 Each Composer submission is serialized with later keyboard input for its target terminal. Text, image paths, and
 the optional Return are submitted as one transaction, including when a Composer message is broadcast to several
@@ -118,7 +189,9 @@ the control that was focused before recording and can optionally press Return af
 
 ## Right-click menu
 
-Inside a terminal pane: **Paste**, **Split Right**, **Split Left**, **Split Down**, **Split Up**, and **Terminal Settings…**. Terminal Settings opens Muxy's settings directly on the Terminal section.
+Inside a terminal pane: **Paste**, **Send to Background**, **Split Right**, **Split Left**, **Split Down**, **Split Up**, and **Terminal Settings…**. Terminal Settings opens Muxy's settings directly on the Terminal section. Send to Background closes an eligible local background-backed tab while leaving its processes running.
+
+Opening the menu never selects terminal text. While a program has mouse reporting enabled the right button belongs to that program, so hold `Shift` to open the menu instead.
 
 Splitting creates a child pane inside the current top-level tab. Each pane keeps its own terminal, browser, source-control, or extension surface, while a one-pixel divider replaces the old per-pane tab strip. Child panes do not appear as separate entries in the window tab strip or the Tab Focused sidebar. An agent running in a child pane does appear as its own entry in the Agents Focused sidebar, and selecting it activates both the child pane and its parent top-level tab.
 

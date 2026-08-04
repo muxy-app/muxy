@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 struct AppEnvironment {
-    static let isDevelopment: Bool = {
+    nonisolated static let isDevelopment: Bool = {
         #if DEBUG
         true
         #else

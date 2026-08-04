@@ -13,6 +13,16 @@ until that provider becomes available again.
 Translation providers contain resource-only catalogs and cannot add executable code through the language feature.
 Extension authors can follow the [localization provider guide](../extensions/localizations.md).
 
+## Updates
+
+Muxy checks for updates automatically and downloads available releases in the background. Sparkle can offer
+**Install on Quit** for a downloaded release, applying it the next time Muxy quits without interrupting current work.
+Choose **Install and Relaunch** to apply the update immediately when that option is presented.
+
+Use **Install downloaded updates on quit** to control this behavior. Muxy saves workspace and draft state before the
+terminal shutdown cleanup begins, so a normal update-driven restart restores the last saved workspace.
+The same setting is available as `SUAutomaticallyUpdate` in `settings.json`.
+
 ## Worktree path templates
 
 Set the default under **Projects -> Worktrees** and choose **Template**. Every template must include `{branch}` and can
@@ -35,6 +45,34 @@ global setting. Remote worktrees keep their remote workspace layout.
 In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to show **Nest worktrees inside projects**.
 It is off by default. Turn it on to nest all worktrees under their project; turn it off to keep worktrees as top-level rows. Tab
 Focused shows top-level worktrees only when they have open tabs, while Agents Focused shows every secondary worktree.
+
+## Sidebar tips
+
+Muxy shows one tip at the bottom of the built-in sidebar. The starting tip is selected when Muxy launches and stays
+stable until you use the previous or next button. In an icon-only sidebar, select the lightbulb button to open the same
+tip in a popover.
+
+Select the close button on a tip, then confirm **Hide Tips** to hide tips. Turn on
+**Settings → Interface → Sidebar → Show Tips** to show them again. The preference is stored as `muxy.tips.visible` in
+`settings.json`. Extension-provided sidebars control their own content and do not show the built-in tip card.
+
+## Background sessions
+
+Open **Settings → Terminal → Background sessions** to keep terminals running after Muxy quits:
+
+- **Run new terminals in the background** starts each new terminal in a separate background process, like tmux. Quitting Muxy leaves those terminals running, and reopening it reconnects them along with their recent output.
+- Only terminals opened after the setting is switched on are affected. Terminals that are already open keep their current behavior.
+- Reopening Muxy reattaches every restored tab whose session is still running, without waiting for you to click the tab.
+- Closing a tab ends its session. Right-click an eligible local terminal and choose **Send to Background** to close its tab without stopping its processes; the session then stays available from the status bar.
+- If Muxy loses its connection to a still-running session, it reconnects on its own. A tab only closes when the session itself has ended; when reconnecting keeps failing the tab waits with a **Reconnect** button instead, and the session keeps running.
+- Turning the setting off asks for confirmation and then stops every terminal still running in the background.
+- Remote SSH terminals and the quick terminal are never run this way.
+
+The status bar shows how many background terminals in the current project and worktree are **not** open in a tab. Its popover lists those and can point the focused tab at one, open a new tab attached to one, or stop one. It disappears when nothing is waiting, so it only appears when you have something to recover.
+
+Background terminals keep working-directory tracking, tab titles, and AI progress in zsh, bash, fish, elvish, and nushell. Other shells run normally but lose those integrations, the same limitation tmux has.
+
+The setting is stored as `muxy.terminalPersistentSession.enabled` in `settings.json`. Use `muxy list-sessions` and `muxy kill-session --session <id>` to inspect and stop sessions from a shell.
 
 ## Quick terminal
 

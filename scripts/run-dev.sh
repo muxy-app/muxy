@@ -5,6 +5,7 @@ set -euo pipefail
 root="${0:A:h:h}"
 binary="$root/.build/debug/Muxy"
 hook_binary="$root/.build/debug/muxy-hook"
+session_binary="$root/.build/debug/muxy-session"
 
 args=()
 for arg in "$@"; do
@@ -30,6 +31,7 @@ else
     "$root/Muxy"/**/*(.) \
     "$root/MuxyShared"/**/*(.) \
     "$root/MuxyServer"/**/*(.) \
+    "$root/MuxySessionProtocol"/**/*(.) \
     "$root/GhosttyKit"/**/*(.); do
     if [[ "$path" -nt "$binary" ]]; then
       needs_build=true
@@ -56,12 +58,33 @@ else
   done
 fi
 
+needs_session_build=false
+
+if [[ ! -x "$session_binary" ]]; then
+  needs_session_build=true
+else
+  for path in \
+    "$root/Package.swift" \
+    "$root/Package.resolved" \
+    "$root/MuxySession"/**/*(.) \
+    "$root/MuxySessionProtocol"/**/*(.); do
+    if [[ "$path" -nt "$session_binary" ]]; then
+      needs_session_build=true
+      break
+    fi
+  done
+fi
+
 if [[ "$needs_build" == true ]]; then
   swift build --product Muxy --skip-update
 fi
 
 if [[ "$needs_hook_build" == true ]]; then
   swift build --product muxy-hook --skip-update
+fi
+
+if [[ "$needs_session_build" == true ]]; then
+  swift build --product muxy-session --skip-update
 fi
 
 exec "$binary" "${args[@]}"
