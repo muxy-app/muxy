@@ -33,8 +33,18 @@ final class TerminalOfflineStore {
     }
 
     func removePane(_ paneID: UUID) {
-        guard let removed = panes.removeValue(forKey: paneID) else { return }
-        recompute(worktreeKey: removed.worktreeKey, worktreePath: removed.worktreePath)
+        removePanes([paneID])
+    }
+
+    func removePanes<PaneIDs: Sequence>(_ paneIDs: PaneIDs) where PaneIDs.Element == UUID {
+        var affectedWorktrees: [WorktreeKey: String] = [:]
+        for paneID in paneIDs {
+            guard let removed = panes.removeValue(forKey: paneID) else { continue }
+            affectedWorktrees[removed.worktreeKey] = removed.worktreePath
+        }
+        for (worktreeKey, worktreePath) in affectedWorktrees {
+            recompute(worktreeKey: worktreeKey, worktreePath: worktreePath)
+        }
     }
 
     func state(for worktreeKey: WorktreeKey) -> Bool? {

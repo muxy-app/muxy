@@ -27,5 +27,6 @@ afterwards.
 - The payload carries `worktreePath`, so the background script can act on the directory without
   `muxy.worktrees.list()` (which background scripts do not have).
 - Every `offline: "true"` is followed by an `offline: "false"`, so the stack is never left stopped.
-- Only stacks this extension stopped are restarted, and work is serialized per worktree so a fast
-  sleep/wake cycle cannot interleave a `stop` with a `start`.
+- Only services this extension stopped are restarted, so services that were already stopped stay
+  stopped. Work is serialized per worktree so a fast sleep/wake cycle cannot interleave a `stop`
+  with a `start`.

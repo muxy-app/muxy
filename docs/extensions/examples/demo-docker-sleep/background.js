@@ -1,7 +1,7 @@
 const COMPOSE_FILES = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml'];
 const EXEC_TIMEOUT_MS = 120000;
 
-const suspended = new Set();
+const suspended = new Map();
 const pending = new Map();
 
 async function run(argv, cwd) {
@@ -29,21 +29,22 @@ async function suspend(worktreePath) {
   if (!(await hasComposeProject(worktreePath))) return;
   const services = await runningServices(worktreePath);
   if (services.length === 0) return;
-  await run(['docker', 'compose', 'stop'], worktreePath);
-  suspended.add(worktreePath);
+  await run(['docker', 'compose', 'stop', ...services], worktreePath);
+  suspended.set(worktreePath, services);
   await muxy.notifications.notify({
     title: 'Docker paused',
-    body: `Stopped ${services.length} container(s) in ${worktreePath}`,
+    body: `Stopped ${services.length} service(s) in ${worktreePath}`,
   });
 }
 
 async function resume(worktreePath) {
-  if (!suspended.has(worktreePath)) return;
+  const services = suspended.get(worktreePath);
+  if (!services) return;
+  await run(['docker', 'compose', 'start', ...services], worktreePath);
   suspended.delete(worktreePath);
-  await run(['docker', 'compose', 'start'], worktreePath);
   await muxy.notifications.notify({
     title: 'Docker resumed',
-    body: `Restarted the compose stack in ${worktreePath}`,
+    body: `Restarted ${services.length} service(s) in ${worktreePath}`,
   });
 }
 

@@ -93,6 +93,19 @@ struct TerminalOfflineStoreTests {
         #expect(context.recorder.events.isEmpty)
     }
 
+    @Test("removing mixed-state panes together uses the final worktree state")
+    func removingMixedStatePanesTogetherUsesFinalState() throws {
+        let context = makeContext()
+        let panes = try #require(paneStates(in: context.appState))
+
+        panes[1].isOffline = true
+        context.store.update(paneID: panes[1].id, appState: context.appState)
+        context.store.removePanes([panes[0].id, panes[1].id])
+
+        #expect(context.store.state(for: context.worktreeKey) == nil)
+        #expect(context.recorder.events.isEmpty)
+    }
+
     @Test("a pane created in an offline worktree reports it online")
     func createdPaneReportsWorktreeOnline() throws {
         let context = makeContext()

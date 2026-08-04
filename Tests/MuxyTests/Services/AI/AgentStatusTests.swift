@@ -556,6 +556,26 @@ struct AgentStatusStoreTests {
         send(store, paneID, .idle, sequence: 1)
         #expect(store.status(forPane: paneID) == .idle)
     }
+
+    @Test("batch pane close drops every session")
+    func batchPaneCloseDropsEverySession() throws {
+        let (store, _, firstPaneID) = makeContext()
+        let appState = try #require(NotificationStore.shared.appState)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = try #require(appState.workspaceRoots[key]?.allAreas().first)
+        area.createTab()
+        let secondPaneID = try #require(area.tabs.last?.content.pane?.id)
+        send(store, firstPaneID, .working, sequence: 1)
+        send(store, secondPaneID, .waiting, sequence: 2)
+
+        store.removePanes([firstPaneID, secondPaneID])
+
+        #expect(store.status(forPane: firstPaneID) == nil)
+        #expect(store.status(forPane: secondPaneID) == nil)
+        #expect(store.entries[worktreeID] == nil)
+        #expect(!store.isCompletionPending(forPane: firstPaneID))
+        #expect(!store.isCompletionPending(forPane: secondPaneID))
+    }
 }
 
 private final class WorkspacePersistenceStub: WorkspacePersisting {

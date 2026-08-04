@@ -202,9 +202,10 @@ enum ExtensionEventEmitter {
                 payload: paneEventPayload(paneID: paneID, context: context)
             ))
         }
-        for paneID in before.panes.subtracting(after.panes) {
-            AgentStatusStore.shared.removePane(paneID)
-            TerminalOfflineStore.shared.removePane(paneID)
+        let removedPaneIDs = before.panes.subtracting(after.panes)
+        AgentStatusStore.shared.removePanes(removedPaneIDs)
+        TerminalOfflineStore.shared.removePanes(removedPaneIDs)
+        for paneID in removedPaneIDs {
             server.broadcast(event: ExtensionEvent(
                 name: ExtensionEventName.paneClosed,
                 payload: paneEventPayload(paneID: paneID, context: before.paneContext[paneID])
