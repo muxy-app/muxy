@@ -133,6 +133,7 @@
 "Browser" = "Browser";
 "Browser Profile" = "Browser Profile";
 "Browse…" = "Browse…";
+"Browse Language Extensions…" = "Browse Language Extensions…";
 "Browsing" = "Browsing";
 "Broadcast Off — Send to Active Pane" = "Broadcast Off — Send to Active Pane";
 "Broadcast On — Send to All Split Panes" = "Broadcast On — Send to All Split Panes";
@@ -364,6 +365,7 @@
 "Failed to update branch" = "Failed to update branch";
 "File not found" = "File not found";
 "Find" = "Find";
+"Find and install language packs from the Extension Store." = "Find and install language packs from the Extension Store.";
 "Find a project folder" = "Find a project folder";
 "Find on page" = "Find on page";
 "Finder" = "Finder";
@@ -479,6 +481,7 @@
 "Mobile App Repository" = "Mobile App Repository";
 "More Composer Actions" = "More Composer Actions";
 "More matches available — keep typing to narrow the results." = "More matches available — keep typing to narrow the results.";
+"More Languages" = "More Languages";
 "Morse" = "Morse";
 "Most Popular" = "Most Popular";
 "Move Pane Down" = "Move Pane Down";

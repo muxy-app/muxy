@@ -15,6 +15,7 @@ extension Notification.Name {
     static let openExtensionsModal = Notification.Name("MuxyOpenExtensionsModal")
     static let openWhatsNewModal = Notification.Name("MuxyOpenWhatsNewModal")
     static let openExtensionInstall = Notification.Name("MuxyOpenExtensionInstall")
+    static let openExtensionBrowse = Notification.Name("MuxyOpenExtensionBrowse")
     static let openExtensionDirectoryAsProject = Notification.Name("MuxyOpenExtensionDirectoryAsProject")
     static let focusProjectPickerDefaultLocation = Notification.Name("MuxyFocusProjectPickerDefaultLocation")
     static let focusRemoteDevicesSettings = Notification.Name("MuxyFocusRemoteDevicesSettings")
@@ -96,4 +97,35 @@ enum OpenRemoteProjectPickerUserInfoKey {
 
 enum ExtensionInstallUserInfoKey {
     static let name = "name"
+}
+
+struct ExtensionsPresentationRequest: Equatable, Sendable {
+    private static let categoryKey = "category"
+
+    let browseCategory: String?
+
+    init(browseCategory: String? = nil) {
+        self.browseCategory = browseCategory
+    }
+
+    init(_ notification: Notification) {
+        browseCategory = notification.userInfo?[Self.categoryKey] as? String
+    }
+
+    func post(notificationCenter: NotificationCenter = .default) {
+        var userInfo: [String: Any]?
+        if let browseCategory {
+            userInfo = [Self.categoryKey: browseCategory]
+        }
+        notificationCenter.post(name: .openExtensionsModal, object: nil, userInfo: userInfo)
+    }
+
+    func postBrowse(notificationCenter: NotificationCenter = .default) {
+        guard let browseCategory else { return }
+        notificationCenter.post(
+            name: .openExtensionBrowse,
+            object: nil,
+            userInfo: [Self.categoryKey: browseCategory]
+        )
+    }
 }

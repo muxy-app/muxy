@@ -236,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private var pendingOpenPaths: [String] = []
     private var pendingInstallName: String?
+    private var pendingExtensionsRequest: ExtensionsPresentationRequest?
     private var isReadyForModals = false
     private var systemAppearanceObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
@@ -639,9 +640,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             forName: .openExtensionsModal,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let request = ExtensionsPresentationRequest(notification)
             MainActor.assumeIsolated {
-                self?.presentExtensionsModal()
+                self?.handleExtensionsRequest(request)
             }
         }
         whatsNewObserver = NotificationCenter.default.addObserver(
@@ -685,7 +687,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             size: CGSize(width: 980, height: 680),
             existing: settingsWindow,
             delegate: self,
-            onClosed: { [weak self] in self?.settingsWindow = nil }
+            onClosed: { [weak self] in
+                self?.settingsWindow = nil
+                self?.presentPendingExtensionsRequest()
+            }
         )
         settingsWindow = AppModalPresenter.present(config) {
             settingsContent?() ?? AnyView(SettingsView())
@@ -693,7 +698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @MainActor
-    private func presentExtensionsModal(installName: String? = nil) {
+    private func presentExtensionsModal(installName: String? = nil, browseCategory: String? = nil) {
         let config = AppModalConfig(
             title: L10n.string("Extensions"),
             size: CGSize(width: 880, height: 620),
@@ -702,7 +707,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onClosed: { [weak self] in self?.extensionsWindow = nil }
         )
         extensionsWindow = AppModalPresenter.present(config) {
-            ExtensionsView(installName: installName)
+            ExtensionsView(installName: installName, browseCategory: browseCategory)
         }
         if let installName {
             NotificationCenter.default.post(
@@ -711,6 +716,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 userInfo: [ExtensionInstallUserInfoKey.name: installName]
             )
         }
+        ExtensionsPresentationRequest(browseCategory: browseCategory).postBrowse()
+    }
+
+    private func handleExtensionsRequest(_ request: ExtensionsPresentationRequest) {
+        guard let settingsWindow else {
+            presentExtensionsModal(browseCategory: request.browseCategory)
+            return
+        }
+        pendingExtensionsRequest = request
+        settingsWindow.close()
+    }
+
+    private func presentPendingExtensionsRequest() {
+        guard let request = pendingExtensionsRequest else { return }
+        pendingExtensionsRequest = nil
+        presentExtensionsModal(browseCategory: request.browseCategory)
     }
 
     @MainActor

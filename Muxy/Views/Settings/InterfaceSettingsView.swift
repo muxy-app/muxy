@@ -95,6 +95,19 @@ struct InterfaceSettingsView: View {
                     .labelsHidden()
                     .settingsControl()
                 }
+                SettingsRow("More Languages") {
+                    Button {
+                        ExtensionsPresentationRequest(
+                            browseCategory: ExtensionMarketplaceCategory.localization
+                        ).post()
+                    } label: {
+                        Text(L10n.resource("Browse Language Extensions…"))
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
+                    .foregroundStyle(SettingsStyle.accent)
+                    .help(L10n.string("Find and install language packs from the Extension Store."))
+                }
             }
 
             SettingsSection("Layout") {

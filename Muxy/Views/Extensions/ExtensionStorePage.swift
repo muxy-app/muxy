@@ -36,6 +36,16 @@ struct ExtensionStorePage: View {
 
     private let columns = [GridItem(.adaptive(minimum: 240, maximum: 360), spacing: 12)]
 
+    init(
+        store: ExtensionStore,
+        initialCategory: String? = nil,
+        onSelect: @escaping (String) -> Void
+    ) {
+        self.store = store
+        self.onSelect = onSelect
+        _selectedCategory = State(initialValue: initialCategory)
+    }
+
     private var loadKey: LoadKey {
         LoadKey(query: committedQuery, sort: sort, category: selectedCategory)
     }
