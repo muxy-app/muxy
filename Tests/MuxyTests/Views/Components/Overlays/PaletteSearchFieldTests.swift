@@ -259,12 +259,13 @@ struct PaletteSearchFieldTests {
             onArrowDown: {},
             onQueryChange: { _ in }
         )
-        let control = NSTextField()
-        control.stringValue = "abc"
+        let control = PlainTextField()
+        control.editor.string = "abc"
 
-        field.reconcileEditorText(control, with: "abc")
+        field.reconcileEditorText(control, with: "xyz")
 
-        #expect(control.stringValue == "abc")
+        #expect(control.editor.string == "xyz")
+        #expect(control.editor.selectedRange == NSRange(location: ("xyz" as NSString).length, length: 0))
     }
 
     @Test("does not submit while IME marked text is active")
@@ -487,6 +488,14 @@ private final class MarkedTextField: NSTextField {
 
     override func currentEditor() -> NSText? {
         markedEditor
+    }
+}
+
+private final class PlainTextField: NSTextField {
+    let editor = NSTextView()
+
+    override func currentEditor() -> NSText? {
+        editor
     }
 }
 
