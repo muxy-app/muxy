@@ -270,10 +270,14 @@ enum RichInputSubmitter {
         case .text:
             return false
         case let .file(url):
-            guard let remotePath = await uploadSurface.remotePath(forFileAt: url, attempt: attempt) else {
+            guard let submissionPath = await uploadSurface.submissionPath(
+                forFileAt: url,
+                attempt: attempt
+            )
+            else {
                 return false
             }
-            view.submitRichInput(text: ShellEscaper.escape(remotePath))
+            view.submitRichInput(text: submissionPath)
             return true
         case let .image(url):
             let pngData: Data

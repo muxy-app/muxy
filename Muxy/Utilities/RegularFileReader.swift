@@ -3,15 +3,12 @@ import Foundation
 
 enum RegularFileReadError: LocalizedError, Equatable {
     case unsupportedFileType
-    case empty
     case tooLarge(maximumByteCount: Int)
 
     var errorDescription: String? {
         switch self {
         case .unsupportedFileType:
             "Only regular files can be attached."
-        case .empty:
-            "The file is empty."
         case let .tooLarge(maximumByteCount):
             "The file exceeds the \(maximumByteCount / (1024 * 1024)) MB limit."
         }
@@ -59,7 +56,6 @@ enum RegularFileReader {
     }
 
     static func validateByteCount(_ data: Data, maximumByteCount: Int) throws -> Data {
-        guard !data.isEmpty else { throw RegularFileReadError.empty }
         guard data.count <= maximumByteCount else {
             throw RegularFileReadError.tooLarge(maximumByteCount: maximumByteCount)
         }

@@ -7,13 +7,29 @@ struct RemoteUploadAttempt: Equatable, Sendable {
     let destination: SSHDestination
 }
 
+struct RemoteUploadCleanup: Equatable, Sendable {
+    let sessionID: String
+    let destinations: Set<SSHDestination>
+}
+
+extension TerminalUploadAttempt {
+    func matches(destination: SSHDestination?) -> Bool {
+        switch self {
+        case .local:
+            destination == nil
+        case let .remote(attempt):
+            attempt.destination == destination
+        }
+    }
+}
+
 @MainActor
 final class RemoteUploadSession {
     typealias IdentifierGenerator = @MainActor () -> String
 
     private let identifierGenerator: IdentifierGenerator
     private var sessionID: String
-    private var activeDestination: SSHDestination?
+    private var activeDestinations: Set<SSHDestination> = []
     private(set) var isActive = false
 
     init(
@@ -26,7 +42,7 @@ final class RemoteUploadSession {
 
     func begin(surfaceGeneration: Int, destination: SSHDestination) -> RemoteUploadAttempt {
         isActive = true
-        activeDestination = destination
+        activeDestinations.insert(destination)
         return RemoteUploadAttempt(
             sessionID: sessionID,
             uploadID: identifierGenerator(),
@@ -37,21 +53,26 @@ final class RemoteUploadSession {
 
     func permitsSideEffects(
         for attempt: RemoteUploadAttempt,
+        currentDestination: SSHDestination?,
         surfaceGeneration: Int,
         hasLiveSurface: Bool,
         isCancelled: Bool
     ) -> Bool {
         guard !isCancelled, hasLiveSurface, isActive else { return false }
         guard attempt.surfaceGeneration == surfaceGeneration else { return false }
-        return attempt.sessionID == sessionID
+        guard attempt.destination == currentDestination else { return false }
+        return attempt.sessionID == sessionID && activeDestinations.contains(attempt.destination)
     }
 
-    func takeActiveSessionForCleanup() -> (sessionID: String, destination: SSHDestination)? {
-        guard isActive, let destination = activeDestination else { return nil }
-        let activeSessionID = sessionID
+    func takeActiveSessionForCleanup() -> RemoteUploadCleanup? {
+        guard isActive, !activeDestinations.isEmpty else { return nil }
+        let cleanup = RemoteUploadCleanup(
+            sessionID: sessionID,
+            destinations: activeDestinations
+        )
         sessionID = identifierGenerator()
-        activeDestination = nil
+        activeDestinations = []
         isActive = false
-        return (activeSessionID, destination)
+        return cleanup
     }
 }

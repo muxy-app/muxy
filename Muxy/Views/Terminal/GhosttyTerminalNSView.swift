@@ -2100,8 +2100,17 @@ final class GhosttyTerminalNSView: NSView,
         ))
     }
 
+    func beginUpload(matching attempt: TerminalUploadAttempt) -> TerminalUploadAttempt? {
+        guard uploadAttemptPermitsSideEffects(attempt) else { return nil }
+        guard case let .remote(remoteAttempt) = attempt else { return attempt }
+        return .remote(remoteUploadSession.begin(
+            surfaceGeneration: remoteAttempt.surfaceGeneration,
+            destination: remoteAttempt.destination
+        ))
+    }
+
     func pasteImageData(_ pngData: Data, attempt: TerminalUploadAttempt) async -> Bool {
-        guard pasteAttemptPermitsSideEffects(attempt) else { return false }
+        guard uploadAttemptPermitsSideEffects(attempt) else { return false }
         switch attempt {
         case let .remote(remoteAttempt):
             return await pasteRemoteImage(
@@ -2122,20 +2131,16 @@ final class GhosttyTerminalNSView: NSView,
         }
         terminalInputQueue.enqueue { [weak self] in
             guard let self else { return }
-            var escapedPaths: [String] = []
-            for url in urls {
-                guard !Task.isCancelled, let attempt = beginUpload() else { return }
-                guard let remotePath = await remotePath(forFileAt: url, attempt: attempt) else { continue }
-                escapedPaths.append(ShellEscaper.escape(remotePath))
-            }
-            guard !Task.isCancelled, !escapedPaths.isEmpty else { return }
+            guard !Task.isCancelled, let attempt = beginUpload() else { return }
+            guard let escapedPaths = await submissionPaths(forFilesAt: urls, attempt: attempt) else { return }
+            guard !escapedPaths.isEmpty else { return }
             submitRichInput(text: escapedPaths.joined(separator: " "))
         }
     }
 
     func remotePath(forFileAt url: URL, attempt: TerminalUploadAttempt) async -> String? {
         guard case let .remote(remoteAttempt) = attempt else { return nil }
-        guard pasteAttemptPermitsSideEffects(attempt) else { return nil }
+        guard uploadAttemptPermitsSideEffects(attempt) else { return nil }
         do {
             let data = try await Task.detached(priority: .userInitiated) {
                 try RegularFileReader.data(
@@ -2143,14 +2148,23 @@ final class GhosttyTerminalNSView: NSView,
                     maximumByteCount: RemoteUploadService.maximumByteCount
                 )
             }.value
-            guard pasteAttemptPermitsSideEffects(attempt) else { return nil }
-            return try await RemoteUploadService.upload(
+            guard uploadAttemptPermitsSideEffects(attempt) else { return nil }
+            let remotePath = try await RemoteUploadService.upload(
                 data: data,
                 fileExtension: RemoteUploadService.sanitizedExtension(for: url),
                 destination: remoteAttempt.destination,
                 sessionID: remoteAttempt.sessionID,
                 uploadID: remoteAttempt.uploadID
             )
+            guard uploadAttemptPermitsSideEffects(attempt) else {
+                guard !Task.isCancelled else { return nil }
+                ToastState.shared.show(
+                    title: L10n.string("Could not upload attachment to remote device"),
+                    body: "\(url.lastPathComponent): \(L10n.string("The SSH destination changed during upload."))"
+                )
+                return nil
+            }
+            return remotePath
         } catch {
             guard !Task.isCancelled else { return nil }
             ToastState.shared.show(
@@ -2162,7 +2176,7 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     private func pasteLocalImage(pngData: Data, attempt: TerminalUploadAttempt) async -> Bool {
-        guard pasteAttemptPermitsSideEffects(attempt) else { return false }
+        guard uploadAttemptPermitsSideEffects(attempt) else { return false }
         let savedClipboard = SystemPasteboardSnapshot.capture()
         defer { SystemPasteboardSnapshot.restore(items: savedClipboard) }
         let pasteboard = NSPasteboard.general
@@ -2170,7 +2184,7 @@ final class GhosttyTerminalNSView: NSView,
         pasteboard.setData(pngData, forType: .png)
         sendRemoteBytes(TerminalControlBytes.pasteShortcut)
         try? await Task.sleep(for: Self.imagePasteDelay)
-        return pasteAttemptPermitsSideEffects(attempt)
+        return uploadAttemptPermitsSideEffects(attempt)
     }
 
     private func pasteRemoteImage(
@@ -2178,7 +2192,7 @@ final class GhosttyTerminalNSView: NSView,
         destination: SSHDestination,
         attempt: RemoteUploadAttempt
     ) async -> Bool {
-        guard pasteAttemptPermitsSideEffects(.remote(attempt)) else { return false }
+        guard uploadAttemptPermitsSideEffects(.remote(attempt)) else { return false }
         do {
             let remotePath = try await RemoteUploadService.upload(
                 data: pngData,
@@ -2187,7 +2201,7 @@ final class GhosttyTerminalNSView: NSView,
                 sessionID: attempt.sessionID,
                 uploadID: attempt.uploadID
             )
-            guard pasteAttemptPermitsSideEffects(.remote(attempt)) else { return false }
+            guard uploadAttemptPermitsSideEffects(.remote(attempt)) else { return false }
             submitRichInput(text: ShellEscaper.escape(remotePath))
             return true
         } catch {
@@ -2200,13 +2214,15 @@ final class GhosttyTerminalNSView: NSView,
         }
     }
 
-    private func pasteAttemptPermitsSideEffects(_ attempt: TerminalUploadAttempt) -> Bool {
+    func uploadAttemptPermitsSideEffects(_ attempt: TerminalUploadAttempt) -> Bool {
         switch attempt {
         case let .local(surfaceGeneration):
-            !Task.isCancelled && surface != nil && self.surfaceGeneration == surfaceGeneration
+            guard attempt.matches(destination: uploadDestination) else { return false }
+            return !Task.isCancelled && surface != nil && self.surfaceGeneration == surfaceGeneration
         case let .remote(remoteAttempt):
-            remoteUploadSession.permitsSideEffects(
+            return remoteUploadSession.permitsSideEffects(
                 for: remoteAttempt,
+                currentDestination: uploadDestination,
                 surfaceGeneration: surfaceGeneration,
                 hasLiveSurface: surface != nil,
                 isCancelled: Task.isCancelled
@@ -2224,10 +2240,12 @@ final class GhosttyTerminalNSView: NSView,
         guard let active = remoteUploadSession.takeActiveSessionForCleanup() else { return }
         let precedingTasks = [precedingRemoteUploadCleanup, cancelledWorker].compactMap(\.self)
         precedingRemoteUploadCleanup = TerminalCleanupCoordinator.shared.schedule(after: precedingTasks) {
-            await RemoteUploadService.remove(
-                sessionID: active.sessionID,
-                destination: active.destination
-            )
+            for destination in active.destinations {
+                await RemoteUploadService.remove(
+                    sessionID: active.sessionID,
+                    destination: destination
+                )
+            }
         }
     }
 

@@ -6,35 +6,38 @@ enum SSHInvocationParser {
         "O", "P", "p", "Q", "R", "S", "W", "w", "o",
     ]
 
-    private static let unreproducibleOptions: Set<Character> = ["J", "F", "W"]
-
-    private static let unreproducibleKeywords: Set<String> = [
-        "hostname",
-        "proxycommand",
-        "proxyjump",
-        "remotecommand",
-    ]
+    private static let supportedOptionsTakingValue: Set<Character> = ["i", "l", "o", "p"]
+    private static let ignoredOptions: Set<Character> = ["C", "N", "n", "q", "T", "t", "v"]
 
     static func destination(from invocation: ProcessInvocation) -> SSHDestination? {
         guard isSSHExecutable(invocation) else { return nil }
-        return destination(arguments: Array(invocation.arguments.dropFirst()))
+        return destination(
+            arguments: Array(invocation.arguments.dropFirst()),
+            workingDirectory: invocation.workingDirectory
+        )
     }
 
-    static func destination(arguments: [String]) -> SSHDestination? {
+    static func destination(
+        arguments: [String],
+        workingDirectory: String? = nil
+    ) -> SSHDestination? {
         var target: String?
         var user: String?
         var port: Int?
         var identityFile: String?
         var index = 0
+        var acceptsOptions = true
 
         while index < arguments.count {
             let argument = arguments[index]
             index += 1
 
-            if target != nil || argument == "--" {
+            guard target == nil else { return nil }
+            if acceptsOptions, argument == "--" {
+                acceptsOptions = false
                 continue
             }
-            guard argument.hasPrefix("-"), argument.count > 1 else {
+            guard acceptsOptions, argument.hasPrefix("-"), argument.count > 1 else {
                 target = argument
                 continue
             }
@@ -44,8 +47,11 @@ enum SSHInvocationParser {
             while characterIndex < characters.count {
                 let flag = characters[characterIndex]
                 characterIndex += 1
-                guard optionsTakingValue.contains(flag) else { continue }
-                guard !unreproducibleOptions.contains(flag) else { return nil }
+                guard optionsTakingValue.contains(flag) else {
+                    guard ignoredOptions.contains(flag) else { return nil }
+                    continue
+                }
+                guard supportedOptionsTakingValue.contains(flag) else { return nil }
 
                 let inlineValue = String(characters[characterIndex...])
                 let value: String
@@ -65,10 +71,16 @@ enum SSHInvocationParser {
                 case "l":
                     user = user ?? value
                 case "i":
-                    identityFile = identityFile ?? value
+                    guard applyIdentityFile(
+                        value,
+                        workingDirectory: workingDirectory,
+                        identityFile: &identityFile
+                    )
+                    else { return nil }
                 case "o":
                     guard applyOption(
                         value,
+                        workingDirectory: workingDirectory,
                         user: &user,
                         port: &port,
                         identityFile: &identityFile
@@ -92,12 +104,12 @@ enum SSHInvocationParser {
 
     private static func applyOption(
         _ option: String,
+        workingDirectory: String?,
         user: inout String?,
         port: inout Int?,
         identityFile: inout String?
     ) -> Bool {
         guard let (keyword, value) = splitOption(option) else { return false }
-        guard !unreproducibleKeywords.contains(keyword) else { return false }
 
         switch keyword {
         case "port":
@@ -107,12 +119,45 @@ enum SSHInvocationParser {
             guard !value.isEmpty else { return false }
             user = user ?? value
         case "identityfile":
-            guard !value.isEmpty else { return false }
-            identityFile = identityFile ?? value
+            return applyIdentityFile(
+                value,
+                workingDirectory: workingDirectory,
+                identityFile: &identityFile
+            )
         default:
-            return true
+            return false
         }
         return true
+    }
+
+    private static func applyIdentityFile(
+        _ value: String,
+        workingDirectory: String?,
+        identityFile: inout String?
+    ) -> Bool {
+        guard identityFile == nil,
+              let resolved = resolvedIdentityFile(value, workingDirectory: workingDirectory)
+        else { return false }
+        identityFile = resolved
+        return true
+    }
+
+    private static func resolvedIdentityFile(
+        _ value: String,
+        workingDirectory: String?
+    ) -> String? {
+        guard !value.isEmpty else { return nil }
+        guard !value.contains("%"), !value.contains("${") else { return nil }
+        if (value as NSString).isAbsolutePath
+            || value.hasPrefix("~")
+            || value.lowercased() == "none"
+        {
+            return value
+        }
+        guard let workingDirectory, (workingDirectory as NSString).isAbsolutePath else {
+            return nil
+        }
+        return (workingDirectory as NSString).appendingPathComponent(value)
     }
 
     private static func splitOption(_ option: String) -> (keyword: String, value: String)? {

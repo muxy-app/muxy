@@ -1031,6 +1031,7 @@
 "Could not check remote agent providers" = "Could not check remote agent providers";
 "Could not paste image on remote device" = "Could not paste image on remote device";
 "Could not upload attachment to remote device" = "Could not upload attachment to remote device";
+"The SSH destination changed during upload." = "The SSH destination changed during upload.";
 "Creates the extension in %@/<name>" = "Creates the extension in %@/<name>";
 "Extension Location" = "Extension Location";
 "Extension Output" = "Extension Output";

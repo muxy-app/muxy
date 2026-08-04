@@ -41,16 +41,14 @@ struct RegularFileReaderTests {
         }
     }
 
-    @Test("rejects an empty file")
-    func rejectsEmptyFile() throws {
+    @Test("reads an empty regular file")
+    func readsEmptyFile() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("empty.bin")
         #expect(FileManager.default.createFile(atPath: url.path, contents: nil))
 
-        #expect(throws: RegularFileReadError.empty) {
-            try RegularFileReader.data(contentsOf: url, maximumByteCount: maximumByteCount)
-        }
+        #expect(try RegularFileReader.data(contentsOf: url, maximumByteCount: maximumByteCount).isEmpty)
     }
 
     @Test("rejects a directory")

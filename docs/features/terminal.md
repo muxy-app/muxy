@@ -111,12 +111,17 @@ inlines the remote path instead.
 
 A pane counts as remote in two ways. A tab opened against a device configured under **Settings -> Remote Devices**
 carries its destination directly. A pane where you typed `ssh` yourself is detected from the foreground process:
-Muxy reads the running `ssh` invocation and reconstructs its destination, including `user@host`, `-p`, `-l`, `-i`,
-and `ssh://` URLs. Config aliases are kept verbatim so `ssh_config` still resolves them. Uploads open their own
-connection to that destination and share one multiplexed control socket, so a password-less key or agent is
-required; an invocation Muxy cannot reproduce on a second connection — `-J`, `-F`, `-W`, `ProxyJump`, or
-`ProxyCommand` — is left alone and the pane keeps local-path behavior. A shell reached by chaining `ssh` from one
-server to another is only known as far as the first hop, so it is treated as local.
+Muxy reads the running `ssh` invocation and reconstructs simple destinations using `user@host`, `-p`, `-l`, one
+`-i`, or an `ssh://` URL. Config aliases are kept verbatim so `ssh_config` still resolves them. Relative identity
+paths are resolved from the running SSH process's working directory. Uploads open their own connection to that
+destination and share one multiplexed control socket, so a password-less key or agent is required. Invocations
+with remote commands, multiple identities, or options Muxy cannot reproduce exactly are left alone and the pane
+keeps local-path behavior. This includes `-J`, `-F`, `-W`, `-P`, `ProxyJump`, `ProxyCommand`, and unrepresented
+`-o` settings. Identity paths containing environment or percent-token expansion are also refused.
+
+Muxy refuses a chained invocation such as `ssh bastion ssh target`. If another SSH session is started later from
+inside an interactive remote shell, macOS still exposes only the first local SSH process. Muxy cannot identify the
+later hop, so attachment upload in nested interactive SSH sessions is unsupported.
 
 Muxy accepts attachments through four routes:
 
@@ -134,8 +139,9 @@ remote device, and the remote path is pasted into the running TUI, letting tools
 read the attachment without access to the Mac.
 
 Encoded image input and converted PNG output are limited to 25 MB, and decoded images are limited to 64
-megapixels. Other files are limited to 100 MB. The upload timeout scales with payload size. Every attachment must
-be a regular file, so directories, device files, and unbounded streams are rejected with a toast naming the file.
+megapixels. Other files, including empty files, are limited to 100 MB. The upload timeout scales with payload size.
+Every attachment must be a regular file, so directories, device files, and unbounded streams are rejected with a
+toast naming the file.
 
 Uploaded directories and files use owner-only permissions. Partial uploads are removed when an upload is
 interrupted, and the session directory is removed when its terminal ends. A central cleanup coordinator retains

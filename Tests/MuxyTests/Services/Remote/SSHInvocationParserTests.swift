@@ -45,7 +45,7 @@ struct SSHInvocationParserTests {
     @Test("skips clustered valueless flags")
     func clusteredFlags() throws {
         let destination = try #require(SSHInvocationParser.destination(
-            arguments: ["-tt", "-vvv", "-4", "-C", "example.com"]
+            arguments: ["-tt", "-vvv", "-C", "example.com"]
         ))
 
         #expect(destination.host == "example.com")
@@ -71,14 +71,14 @@ struct SSHInvocationParserTests {
         #expect(destination.connectionArguments.contains("IdentitiesOnly=yes"))
     }
 
-    @Test("ignores a remote command after the destination")
-    func remoteCommandIgnored() throws {
-        let destination = try #require(SSHInvocationParser.destination(
+    @Test("refuses a remote command after the destination")
+    func remoteCommandRefused() {
+        #expect(SSHInvocationParser.destination(
             arguments: ["example.com", "sudo", "-p", "9999", "reboot"]
-        ))
-
-        #expect(destination.host == "example.com")
-        #expect(destination.port == nil)
+        ) == nil)
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-t", "bastion", "ssh", "target"]
+        ) == nil)
     }
 
     @Test("reads an ssh URI")
@@ -99,7 +99,7 @@ struct SSHInvocationParserTests {
         #expect(destination.host == "my-server")
     }
 
-    @Test("refuses invocations it cannot reproduce on a second connection")
+    @Test("refuses unsupported value-taking options")
     func refusesUnreproducible() {
         #expect(SSHInvocationParser.destination(arguments: ["-J", "jump", "example.com"]) == nil)
         #expect(SSHInvocationParser.destination(arguments: ["-F", "/tmp/other", "example.com"]) == nil)
@@ -110,6 +110,9 @@ struct SSHInvocationParserTests {
         #expect(SSHInvocationParser.destination(
             arguments: ["-o", "ProxyCommand=nc %h %p", "example.com"]
         ) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-P", "production", "example.com"]) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-I", "/tmp/provider", "example.com"]) == nil)
+        #expect(SSHInvocationParser.destination(arguments: ["-4", "example.com"]) == nil)
     }
 
     @Test("refuses an invocation with no destination")
@@ -126,13 +129,14 @@ struct SSHInvocationParserTests {
         #expect(SSHInvocationParser.destination(arguments: ["-p", "70000", "example.com"]) == nil)
     }
 
-    @Test("accepts an unrelated -o option")
-    func acceptsHarmlessOption() throws {
-        let destination = try #require(SSHInvocationParser.destination(
+    @Test("refuses unrepresented -o options")
+    func refusesUnrepresentedOption() {
+        #expect(SSHInvocationParser.destination(
             arguments: ["-o", "ServerAliveInterval=30", "example.com"]
-        ))
-
-        #expect(destination.host == "example.com")
+        ) == nil)
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-o", "CanonicalizeHostname=yes", "example.com"]
+        ) == nil)
     }
 
     @Test("applies -o values that change where the upload connects")
@@ -156,6 +160,43 @@ struct SSHInvocationParserTests {
         ))
 
         #expect(destination.port == 2222)
+    }
+
+    @Test("refuses multiple additive identity files")
+    func refusesMultipleIdentityFiles() {
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-i", "/tmp/first", "-i", "/tmp/second", "example.com"]
+        ) == nil)
+        #expect(SSHInvocationParser.destination(arguments: [
+            "-o", "IdentityFile=/tmp/first",
+            "-o", "IdentityFile=/tmp/second",
+            "example.com",
+        ]) == nil)
+    }
+
+    @Test("resolves a relative identity from the ssh process working directory")
+    func resolvesRelativeIdentity() throws {
+        let destination = try #require(SSHInvocationParser.destination(
+            arguments: ["-i", "keys/../keys/id_ed25519", "example.com"],
+            workingDirectory: "/Users/example/project"
+        ))
+
+        #expect(destination.identityFile == "/Users/example/project/keys/../keys/id_ed25519")
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-i", "keys/id_ed25519", "example.com"]
+        ) == nil)
+    }
+
+    @Test("refuses identity expansion that cannot be reconstructed faithfully")
+    func refusesExpandedIdentity() {
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-i", "%d/.ssh/id_ed25519", "example.com"],
+            workingDirectory: "/Users/example/project"
+        ) == nil)
+        #expect(SSHInvocationParser.destination(
+            arguments: ["-o", "IdentityFile=${SSH_KEYS}/id_ed25519", "example.com"],
+            workingDirectory: "/Users/example/project"
+        ) == nil)
     }
 
     @Test("user@host still overrides an earlier login option")

@@ -4,15 +4,12 @@ import OSLog
 private let logger = Logger(subsystem: "app.muxy", category: "RemoteUploadService")
 
 enum RemoteUploadError: LocalizedError {
-    case emptyPayload
     case invalidIdentifier
     case uploadFailed(String)
     case invalidRemotePath
 
     var errorDescription: String? {
         switch self {
-        case .emptyPayload:
-            "The attachment is empty."
         case .invalidIdentifier:
             "The upload identifier is invalid."
         case let .uploadFailed(detail):
@@ -37,7 +34,6 @@ enum RemoteUploadService {
         sessionID: String,
         uploadID: String
     ) async throws -> String {
-        guard !data.isEmpty else { throw RemoteUploadError.emptyPayload }
         guard isValidIdentifier(sessionID), isValidIdentifier(uploadID) else {
             throw RemoteUploadError.invalidIdentifier
         }

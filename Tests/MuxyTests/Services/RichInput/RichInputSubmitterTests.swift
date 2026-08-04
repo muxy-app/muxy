@@ -230,6 +230,94 @@ struct RichInputSubmitterTests {
         #expect(target.events.last == "return")
     }
 
+    @Test("file route drift to a local terminal submits the escaped local path")
+    @MainActor
+    func localFileAttemptFallback() async {
+        let target = RichInputSubmissionTestTarget(
+            pasteSucceeds: true,
+            uploadAttempt: .local(surfaceGeneration: 0),
+            uploadDestination: nil
+        )
+
+        let submitted = await RichInputSubmitter.submitSegments(
+            [.file(URL(fileURLWithPath: "/tmp/my report.pdf"))],
+            to: target,
+            appendReturn: false
+        )
+
+        #expect(submitted)
+        #expect(target.events == ["clear:0", "text:'/tmp/my report.pdf'"])
+    }
+
+    @Test("file route drift from local to remote aborts submission")
+    @MainActor
+    func localToRemoteFileRouteDrift() async {
+        let remote = SSHDestination(host: "example.com")
+        let target = RichInputSubmissionTestTarget(
+            pasteSucceeds: true,
+            uploadAttempt: .local(surfaceGeneration: 0),
+            uploadDestination: nil,
+            destinationAfterClear: remote
+        )
+
+        let submitted = await RichInputSubmitter.submitSegments(
+            [.file(URL(fileURLWithPath: "/tmp/my report.pdf"))],
+            to: target,
+            appendReturn: false
+        )
+
+        #expect(!submitted)
+        #expect(!target.events.contains { $0.hasPrefix("text:") })
+    }
+
+    @Test("multi-file route drift aborts the entire path batch")
+    @MainActor
+    func multiFileRouteDrift() async throws {
+        let first = SSHDestination(host: "first.example.com")
+        let second = SSHDestination(host: "second.example.com")
+        let attempt = TerminalUploadAttempt.remote(RemoteUploadAttempt(
+            sessionID: "01234567-89AB-CDEF-0123-456789ABCDEF",
+            uploadID: "ABCDEF01-2345-6789-ABCD-EF0123456789",
+            surfaceGeneration: 0,
+            destination: first
+        ))
+        let target = RichInputSubmissionTestTarget(
+            pasteSucceeds: true,
+            uploadAttempt: attempt,
+            uploadDestination: first,
+            destinationAfterRemotePath: second
+        )
+
+        let paths = await target.submissionPaths(
+            forFilesAt: [
+                URL(fileURLWithPath: "/tmp/first.pdf"),
+                URL(fileURLWithPath: "/tmp/second.pdf"),
+            ],
+            attempt: attempt
+        )
+
+        #expect(paths == nil)
+        #expect(target.events == ["upload:first.pdf"])
+    }
+
+    @Test("multi-file uploads use distinct remote paths for the same extension")
+    @MainActor
+    func multiFileUploadIDs() async throws {
+        let target = RichInputSubmissionTestTarget(pasteSucceeds: true)
+        let attempt = try #require(target.beginUpload())
+
+        let paths = await target.submissionPaths(
+            forFilesAt: [
+                URL(fileURLWithPath: "/tmp/first.pdf"),
+                URL(fileURLWithPath: "/tmp/second.pdf"),
+            ],
+            attempt: attempt
+        )
+
+        #expect(paths?.count == 2)
+        #expect(Set(target.remoteUploadIDs).count == 2)
+    }
+
     @Test("failed image upload clears partial input without sending Return")
     @MainActor
     func failedImageUpload() async {
@@ -334,23 +422,41 @@ private final class RichInputSubmissionTestTarget:
     TerminalInputTransactionTarget,
     TerminalUploadSurface
 {
-    let uploadDestination: SSHDestination? = nil
+    private(set) var uploadDestination: SSHDestination?
     private let identifier: String
     private let pasteSucceeds: Bool
     private let uploadSucceeds: Bool
+    private let uploadAttempt: TerminalUploadAttempt
+    private let destinationAfterClear: SSHDestination?
+    private let destinationAfterRemotePath: SSHDestination?
     private let probe: RichInputSubmissionProbe?
     private let queue = TerminalInputQueue()
+    private var continuationCount = 0
     private(set) var events: [String] = []
+    private(set) var remoteUploadIDs: [String] = []
 
     init(
         identifier: String = "target",
         pasteSucceeds: Bool,
         uploadSucceeds: Bool = true,
+        uploadAttempt: TerminalUploadAttempt = .remote(RemoteUploadAttempt(
+            sessionID: "01234567-89AB-CDEF-0123-456789ABCDEF",
+            uploadID: "ABCDEF01-2345-6789-ABCD-EF0123456789",
+            surfaceGeneration: 0,
+            destination: SSHDestination(host: "example.com")
+        )),
+        uploadDestination: SSHDestination? = SSHDestination(host: "example.com"),
+        destinationAfterClear: SSHDestination? = nil,
+        destinationAfterRemotePath: SSHDestination? = nil,
         probe: RichInputSubmissionProbe? = nil
     ) {
         self.identifier = identifier
         self.pasteSucceeds = pasteSucceeds
         self.uploadSucceeds = uploadSucceeds
+        self.uploadAttempt = uploadAttempt
+        self.uploadDestination = uploadDestination
+        self.destinationAfterClear = destinationAfterClear
+        self.destinationAfterRemotePath = destinationAfterRemotePath
         self.probe = probe
     }
 
@@ -364,6 +470,9 @@ private final class RichInputSubmissionTestTarget:
 
     func clearTerminalInput(lineBreakCount: Int) {
         events.append("clear:\(lineBreakCount)")
+        if let destinationAfterClear {
+            uploadDestination = destinationAfterClear
+        }
     }
 
     func enqueueInputTransaction(
@@ -373,7 +482,23 @@ private final class RichInputSubmissionTestTarget:
     }
 
     func beginUpload() -> TerminalUploadAttempt? {
-        .local(surfaceGeneration: 0)
+        uploadAttempt
+    }
+
+    func beginUpload(matching attempt: TerminalUploadAttempt) -> TerminalUploadAttempt? {
+        guard uploadAttemptPermitsSideEffects(attempt) else { return nil }
+        guard case let .remote(remoteAttempt) = attempt else { return attempt }
+        continuationCount += 1
+        return .remote(RemoteUploadAttempt(
+            sessionID: remoteAttempt.sessionID,
+            uploadID: "\(remoteAttempt.uploadID)-\(continuationCount)",
+            surfaceGeneration: remoteAttempt.surfaceGeneration,
+            destination: remoteAttempt.destination
+        ))
+    }
+
+    func uploadAttemptPermitsSideEffects(_ attempt: TerminalUploadAttempt) -> Bool {
+        attempt.matches(destination: uploadDestination)
     }
 
     func pasteImageData(_ pngData: Data, attempt: TerminalUploadAttempt) async -> Bool {
@@ -387,6 +512,12 @@ private final class RichInputSubmissionTestTarget:
     func remotePath(forFileAt url: URL, attempt: TerminalUploadAttempt) async -> String? {
         events.append("upload:\(url.lastPathComponent)")
         guard uploadSucceeds else { return nil }
+        if case let .remote(remoteAttempt) = attempt {
+            remoteUploadIDs.append(remoteAttempt.uploadID)
+        }
+        if let destinationAfterRemotePath {
+            uploadDestination = destinationAfterRemotePath
+        }
         return "/tmp/muxy-uploads.session/\(url.lastPathComponent)"
     }
 

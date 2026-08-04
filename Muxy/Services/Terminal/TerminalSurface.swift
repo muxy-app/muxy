@@ -84,8 +84,45 @@ protocol TerminalUploadSurface: AnyObject {
     var uploadDestination: SSHDestination? { get }
 
     func beginUpload() -> TerminalUploadAttempt?
+    func beginUpload(matching attempt: TerminalUploadAttempt) -> TerminalUploadAttempt?
+    func uploadAttemptPermitsSideEffects(_ attempt: TerminalUploadAttempt) -> Bool
     func pasteImageData(_ pngData: Data, attempt: TerminalUploadAttempt) async -> Bool
     func remotePath(forFileAt url: URL, attempt: TerminalUploadAttempt) async -> String?
+}
+
+@MainActor
+extension TerminalUploadSurface {
+    func submissionPath(forFileAt url: URL, attempt: TerminalUploadAttempt) async -> String? {
+        guard uploadAttemptPermitsSideEffects(attempt) else { return nil }
+        switch attempt {
+        case .local:
+            return ShellEscaper.escape(url.path)
+        case .remote:
+            guard let remotePath = await remotePath(forFileAt: url, attempt: attempt) else {
+                return nil
+            }
+            guard uploadAttemptPermitsSideEffects(attempt) else { return nil }
+            return ShellEscaper.escape(remotePath)
+        }
+    }
+
+    func submissionPaths(forFilesAt urls: [URL], attempt: TerminalUploadAttempt) async -> [String]? {
+        var paths: [String] = []
+        for (index, url) in urls.enumerated() {
+            guard !Task.isCancelled else { return nil }
+            let fileAttempt: TerminalUploadAttempt
+            if index == urls.startIndex {
+                fileAttempt = attempt
+            } else {
+                guard let nextAttempt = beginUpload(matching: attempt) else { return nil }
+                fileAttempt = nextAttempt
+            }
+            guard let path = await submissionPath(forFileAt: url, attempt: fileAttempt) else { return nil }
+            paths.append(path)
+        }
+        guard uploadAttemptPermitsSideEffects(attempt) else { return nil }
+        return paths
+    }
 }
 
 @MainActor
