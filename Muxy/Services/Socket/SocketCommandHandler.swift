@@ -16,6 +16,12 @@ enum SocketCommandHandler {
             return "error:empty command"
         }
 
+        if clientContext.extensionID != nil,
+           cmd == "config-export" || cmd == "config-import"
+        {
+            return "error:config backup commands are unavailable to extensions"
+        }
+
         if let extensionID = clientContext.extensionID {
             for required in requiredPermissions(command: cmd, parts: parts)
                 where !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: required)
@@ -1061,9 +1067,6 @@ enum SocketCommandHandler {
     }
 
     static func requiredPermissions(command: String, parts: [String]) -> [ExtensionPermission] {
-        if command == "config-export" || command == "config-import" {
-            return [.filesRead, .filesWrite]
-        }
         if command.hasPrefix("browser."), parts.count >= 2 {
             let args = decodeJSONObject(parts[1]) ?? [:]
             return MuxyAPI.Permissions.required(for: command, args: args).map { [$0] } ?? []

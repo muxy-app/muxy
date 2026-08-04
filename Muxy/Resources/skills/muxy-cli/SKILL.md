@@ -233,7 +233,7 @@ muxy config export ~/Backups/muxy.muxy
 muxy config import ~/Backups/muxy.muxy
 ```
 
-`config export` writes a full Muxy backup (settings, projects, worktrees, workspaces, key bindings, shortcuts, and Ghostty config) with secrets such as SSH keys and paired devices stripped. `config import` replaces current Muxy data, creates a pre-import backup first, applies the imported settings, and restarts Muxy. Paths resolve relative to the calling shell's working directory. For extensions, both commands require the `files.read` and `files.write` permissions.
+`config export` writes a full Muxy backup (settings, projects, worktrees, workspaces, key bindings, shortcuts, and Ghostty config) with secrets such as SSH keys and paired devices stripped. `config import` replaces current Muxy data, creates a pre-import backup first, applies the imported settings, and restarts Muxy. Paths resolve relative to the calling shell's working directory. Backup commands wait up to 610 seconds by default; set `MUXY_BACKUP_TIMEOUT` to override the timeout.
 
 ## Install the skills into your AI harnesses
 

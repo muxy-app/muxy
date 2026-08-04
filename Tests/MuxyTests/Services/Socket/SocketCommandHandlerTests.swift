@@ -45,10 +45,24 @@ struct SocketCommandHandlerTests {
         #expect(result.hasPrefix("error:"))
     }
 
-    @Test("config backup commands require file permissions for extensions")
-    func configBackupRequiresFilePermissions() {
-        #expect(SocketCommandHandler.requiredPermissions(command: "config-export", parts: ["config-export", "/tmp/backup.muxy"]) == [.filesRead, .filesWrite])
-        #expect(SocketCommandHandler.requiredPermissions(command: "config-import", parts: ["config-import", "/tmp/backup.muxy"]) == [.filesRead, .filesWrite])
+    @Test("config backup commands reject extension clients")
+    func configBackupRejectsExtensionClients() async {
+        let appState = makeAppState()
+        let context = NotificationSocketServer.ClientContext(extensionID: "test.extension")
+
+        let exportResult = await SocketCommandHandler.handleRequest(
+            "config-export|/tmp/backup.muxy",
+            appState: appState,
+            clientContext: context
+        )
+        let importResult = await SocketCommandHandler.handleRequest(
+            "config-import|/tmp/backup.muxy",
+            appState: appState,
+            clientContext: context
+        )
+
+        #expect(exportResult == "error:config backup commands are unavailable to extensions")
+        #expect(importResult == "error:config backup commands are unavailable to extensions")
     }
 
     @Test("split-right returns new pane ID")

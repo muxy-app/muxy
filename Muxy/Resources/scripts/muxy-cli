@@ -47,6 +47,7 @@
 COMMAND="$1"
 SOCKET="${MUXY_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"
 NC_TIMEOUT="${MUXY_CLI_TIMEOUT:-10}"
+BACKUP_TIMEOUT="${MUXY_BACKUP_TIMEOUT:-610}"
 
 usage_for() {
     case "$1" in
@@ -103,8 +104,8 @@ wants_help() {
 resolve_path() {
     case "$1" in
         /*) printf '%s\n' "$1" ;;
-        ~) printf '%s\n' "$HOME" ;;
-        ~/*) printf '%s\n' "$HOME/${1#\~/}" ;;
+        '~') printf '%s\n' "$HOME" ;;
+        '~'/*) printf '%s\n' "$HOME/${1#\~/}" ;;
         *)
             local dir
             dir=$(cd "$(dirname "$1")" 2>/dev/null && pwd) || {
@@ -699,12 +700,12 @@ case "$COMMAND" in
             export)
                 [ $# -eq 1 ] || die_usage config
                 CONFIG_PATH=$(resolve_path "$1") || exit 1
-                send_command "config-export|$CONFIG_PATH"
+                send_command "config-export|$CONFIG_PATH" "$BACKUP_TIMEOUT"
                 ;;
             import)
                 [ $# -eq 1 ] || die_usage config
                 CONFIG_PATH=$(resolve_path "$1") || exit 1
-                send_command "config-import|$CONFIG_PATH"
+                send_command "config-import|$CONFIG_PATH" "$BACKUP_TIMEOUT"
                 ;;
             *)
                 die_usage config
