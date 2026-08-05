@@ -3,10 +3,19 @@ import Foundation
 enum CLIWrapperScript {
     static let bundleIdentifier = "com.muxy.app"
     static let bundledScriptRelativePath = "Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+    static let currentFormatVersion = 1
 
-    static func requiresMigration(_ contents: String) -> Bool {
+    static func requiresMigration(
+        _ contents: String,
+        targetVersion: Int = currentFormatVersion
+    ) -> Bool {
         guard contents.hasPrefix("#!/bin/bash\n# Muxy CLI wrapper") else { return false }
-        guard !contents.contains(bundledScriptRelativePath) else { return false }
+        if contents.contains(bundledScriptRelativePath) {
+            guard let installedVersion = formatVersion(in: contents) else {
+                return targetVersion > 1
+            }
+            return installedVersion < targetVersion
+        }
         return contents.contains("MUXY_SOCKET_PATH") || contents.contains("muxy://open")
     }
 
@@ -16,8 +25,9 @@ enum CLIWrapperScript {
         let escapedBundleID = ShellEscaper.escape(bundleIdentifier)
         return """
         #!/bin/bash
-        # Muxy CLI wrapper. Resolves the bundled muxy-cli at runtime so it never
-        # goes stale across app updates and survives the app being moved.
+        # Muxy CLI wrapper version \(currentFormatVersion)
+        # Resolves the bundled muxy-cli at runtime so it never goes stale across
+        # app updates and survives the app being moved.
         REL=\(escapedRelativePath)
 
         resolve_script() {
@@ -41,5 +51,13 @@ enum CLIWrapperScript {
         echo "Error: Muxy.app not found. Reinstall the CLI from Muxy → Install CLI." >&2
         exit 1
         """
+    }
+
+    private static func formatVersion(in contents: String) -> Int? {
+        let prefix = "# Muxy CLI wrapper version "
+        guard let line = contents.split(separator: "\n").first(where: { $0.hasPrefix(prefix) }) else {
+            return nil
+        }
+        return Int(line.dropFirst(prefix.count))
     }
 }

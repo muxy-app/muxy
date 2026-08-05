@@ -141,6 +141,8 @@
 "Built-in browser is disabled" = "Built-in browser is disabled";
 "CLI Installation Failed" = "CLI Installation Failed";
 "CLI Installed" = "CLI Installed";
+"CLI Update Incomplete" = "CLI Update Incomplete";
+"CLI Updated" = "CLI Updated";
 "Cancel" = "Cancel";
 "Cancel Dictation" = "Cancel Dictation";
 "Cancel pending pull request action" = "Cancel pending pull request action";
@@ -241,6 +243,7 @@
 "Could not restore project" = "Could not restore project";
 "Could not start %@" = "Could not start %@";
 "Could not update %@" = "Could not update %@";
+"Could not update %@. Use Muxy → Install CLI to try again." = "Could not update %@. Use Muxy → Install CLI to try again.";
 "Could not verify that this branch has no pull request." = "Could not verify that this branch has no pull request.";
 "Couldn't load the release notes." = "Couldn't load the release notes.";
 "Create" = "Create";
@@ -560,6 +563,7 @@
 "No upstream" = "No upstream";
 "None" = "None";
 "None available" = "None available";
+"Not Now" = "Not Now";
 "Not selected" = "Not selected";
 "Notifications" = "Notifications";
 "OFFICIAL" = "OFFICIAL";
@@ -1125,10 +1129,12 @@
 "Testing…" = "Testing…";
 "That key cannot be used as a global shortcut." = "That key cannot be used as a global shortcut.";
 "The Beta channel ships every change merged to main and may be unstable. Switch back to Stable to receive only tagged releases." = "The Beta channel ships every change merged to main and may be unstable. Switch back to Stable to receive only tagged releases.";
+"The Muxy CLI now follows the installed Muxy app version automatically." = "The Muxy CLI now follows the installed Muxy app version automatically.";
 "The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved." = "The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved.";
 "The built-in browser is off. Browser tabs, the toolbar globe, and terminal-link opening are disabled, and terminal links open in your system browser." = "The built-in browser is off. Browser tabs, the toolbar globe, and terminal-link opening are disabled, and terminal links open in your system browser.";
 "The device will be disconnected immediately and must request approval again to reconnect." = "The device will be disconnected immediately and must request approval again to reconnect.";
 "The folder index reached its safety limit. Refine the search location or enter a path." = "The folder index reached its safety limit. Refine the search location or enter a path.";
+"The installed Muxy CLI is an older standalone copy that cannot follow app updates.\n\nUpdate it to a wrapper that always runs the CLI bundled with your current Muxy version. macOS will ask for your administrator password." = "The installed Muxy CLI is an older standalone copy that cannot follow app updates.\n\nUpdate it to a wrapper that always runs the CLI bundled with your current Muxy version. macOS will ask for your administrator password.";
 "The selected devices will be disconnected immediately and must request approval again to reconnect." = "The selected devices will be disconnected immediately and must request approval again to reconnect.";
 "The selected extension opener is unavailable, so terminal file links currently use the project target selected separately in the top bar." = "The selected extension opener is unavailable, so terminal file links currently use the project target selected separately in the top bar.";
 "The selected language extension is unavailable, so Muxy is temporarily using English." = "The selected language extension is unavailable, so Muxy is temporarily using English.";
@@ -1189,12 +1195,14 @@
 "Unstage All" = "Unstage All";
 "Unstaged changes to this file will be permanently discarded." = "Unstaged changes to this file will be permanently discarded.";
 "Up to date" = "Up to date";
+"Update" = "Update";
 "Update %@" = "Update %@";
 "Update All (%lld)" = "Update All (%lld)";
 "Update all extensions with available updates" = "Update all extensions with available updates";
 "Update available: version %@" = "Update available: version %@";
 "Update channel" = "Update channel";
 "Update from %@" = "Update from %@";
+"Update Muxy CLI?" = "Update Muxy CLI?";
 "Update to v%@" = "Update to v%@";
 "Update v%@" = "Update v%@";
 "Updated %lld extensions" = "Updated %lld extensions";

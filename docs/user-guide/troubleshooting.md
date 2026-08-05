@@ -40,7 +40,7 @@ log show --predicate 'subsystem == "app.muxy"' --last 10m --info --debug
 
 Run **Muxy -> Install CLI** from the menu. Muxy first tries `/usr/local/bin/muxy`, then falls back to `~/bin/muxy` or `~/.local/bin/muxy` if needed. Make sure the installed directory is on your `$PATH`.
 
-Muxy normally updates the CLI automatically through its installed wrapper. After upgrading an installation that still has a protected standalone CLI, accept the one-time **Update Muxy CLI** prompt or run **Muxy -> Install CLI** again.
+Muxy normally updates the CLI automatically through its installed wrapper. After upgrading an installation that still has a protected standalone CLI, choose **Update** in the window-attached **Update Muxy CLI** prompt. Choose **Don't ask again** to suppress that wrapper update, or run **Muxy -> Install CLI** later to update it manually.
 
 ## Project won't open via `muxy <path>`
 

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ struct CLIWrapperScriptTests {
     func wrapperExecsBundledScript() {
         let wrapper = CLIWrapperScript.contents(installedAppPath: "/Applications/Muxy.app")
         #expect(wrapper.hasPrefix("#!/bin/bash"))
+        #expect(wrapper.contains("# Muxy CLI wrapper version \(CLIWrapperScript.currentFormatVersion)"))
         #expect(wrapper.contains("exec \"$SCRIPT\" \"$@\""))
         #expect(wrapper.contains(CLIWrapperScript.bundledScriptRelativePath))
         #expect(!wrapper.contains("send_command"))
@@ -64,6 +66,20 @@ struct CLIWrapperScriptTests {
         #expect(!CLIWrapperScript.requiresMigration(unrelated))
     }
 
+    @Test("runtime wrapper format versions support future migrations")
+    func runtimeWrapperVersionsAreMigratable() {
+        let current = CLIWrapperScript.contents(installedAppPath: "/Applications/Muxy.app")
+        let unversioned = current.replacingOccurrences(
+            of: "# Muxy CLI wrapper version \(CLIWrapperScript.currentFormatVersion)",
+            with: "# Muxy CLI wrapper. Resolves the bundled muxy-cli"
+        )
+
+        #expect(!CLIWrapperScript.requiresMigration(current))
+        #expect(!CLIWrapperScript.requiresMigration(unversioned))
+        #expect(CLIWrapperScript.requiresMigration(current, targetVersion: 2))
+        #expect(CLIWrapperScript.requiresMigration(unversioned, targetVersion: 2))
+    }
+
     @Test("migration updates legacy copies and preserves current and unrelated executables")
     @MainActor
     func migratesOnlyLegacyInstallations() {
@@ -108,13 +124,89 @@ struct CLIWrapperScriptTests {
         open "muxy://open?path=$1"
         """
 
+        let installationPaths = ["/usr/local/bin", "/Users/me/bin", "/Users/me/.local/bin"]
         let failedPaths = CLIAccessor.migrateInstalledCLI(
             wrapper: wrapper,
-            installationPaths: ["/usr/local/bin"],
+            installationPaths: installationPaths,
             contentsAtPath: { _ in legacy },
             installWrapper: { _, _ in false }
         )
 
-        #expect(failedPaths == ["/usr/local/bin"])
+        #expect(failedPaths == installationPaths)
+        #expect(CLIAccessor.migrationFailureLabels(failedPaths, home: "/Users/me") == [
+            "/usr/local/bin/muxy",
+            "~/bin/muxy",
+            "~/.local/bin/muxy",
+        ])
+    }
+
+    @Test("privileged installation uses fixed system tools and quotes wrapper contents")
+    func privilegedInstallCommandIsHardened() {
+        let wrapper = "#!/bin/bash\nprintf '%s' '\"$(touch /tmp/injected)\"'\n"
+        let expected = "#!/bin/bash\nprintf 'legacy'\n"
+        let command = CLIAccessor.adminInstallShellCommand(
+            wrapper: wrapper,
+            expectedInstalledContents: expected
+        )
+
+        #expect(command.contains("PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH"))
+        #expect(command.contains("umask 022"))
+        #expect(command.contains("/bin/mkdir -p /usr/local/bin"))
+        #expect(command.contains("/usr/bin/mktemp /usr/local/bin/.muxy.XXXXXX"))
+        #expect(command.contains("/usr/bin/printf '%s' \(ShellEscaper.quote(wrapper))"))
+        #expect(command.contains("/usr/bin/mktemp /usr/local/bin/.muxy.expected.XXXXXX"))
+        #expect(command.contains("/usr/bin/printf '%s' \(ShellEscaper.quote(expected))"))
+        #expect(command.contains("/usr/bin/cmp -s \"$expected\" /usr/local/bin/muxy"))
+        #expect(command.contains("/bin/chmod 755"))
+        #expect(command.contains("/bin/mv -f"))
+        #expect(command.contains("/bin/rm -f"))
+    }
+
+    @Test("manual privileged installation does not require an existing wrapper")
+    func manualPrivilegedInstallDoesNotCompareTarget() {
+        let command = CLIAccessor.adminInstallShellCommand(wrapper: "wrapper")
+
+        #expect(!command.contains(".muxy.expected."))
+        #expect(!command.contains("/usr/bin/cmp"))
+    }
+
+    @Test("CLI update sheets require an unobstructed main window")
+    @MainActor
+    func cliUpdateSheetRequiresReadyMainWindow() {
+        let mainWindow = NSWindow()
+        let keyWindow = NSWindow()
+        let existingSheet = NSWindow()
+
+        #expect(CLIAccessor.readyWindow(keyWindow: keyWindow, mainWindow: mainWindow) === mainWindow)
+
+        mainWindow.beginSheet(existingSheet)
+        #expect(CLIAccessor.readyWindow(keyWindow: existingSheet, mainWindow: mainWindow) == nil)
+        mainWindow.endSheet(existingSheet)
+
+        #expect(CLIAccessor.readyWindow(keyWindow: keyWindow, mainWindow: nil) === keyWindow)
+    }
+
+    @Test("wrapper replacement stages executable content before replacing the target")
+    @MainActor
+    func wrapperReplacementIsAtomic() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-cli-wrapper-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let target = directory.appendingPathComponent("muxy")
+        try Data("legacy".utf8).write(to: target)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+
+        let wrapper = CLIWrapperScript.contents(installedAppPath: "/Applications/Muxy.app")
+        #expect(CLIAccessor.writeWrapper(wrapper, to: directory.path))
+
+        let saved = try String(contentsOf: target, encoding: .utf8)
+        let attributes = try FileManager.default.attributesOfItem(atPath: target.path)
+        let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
+        let remainingItems = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+
+        #expect(saved == wrapper)
+        #expect(permissions.intValue == FilePermissions.executable)
+        #expect(remainingItems == ["muxy"])
     }
 }

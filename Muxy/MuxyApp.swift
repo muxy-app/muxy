@@ -180,7 +180,7 @@ struct MuxyApp: App {
                         }
                         Task { @MainActor in
                             await Task.yield()
-                            CLIAccessor.refreshInstalledCLIIfNeeded()
+                            await CLIAccessor.refreshInstalledCLIIfNeeded()
                         }
                     }
             }
