@@ -172,7 +172,7 @@ final class LoginShellPath: @unchecked Sendable {
     }
 
     static func extractAvailableCommands(from output: Data, expected: Set<String>) -> Set<String> {
-        guard let text = String(bytes: output, encoding: .utf8) else { return [] }
+        guard let text = decodedShellOutput(from: output) else { return [] }
         let startMarker = "__MUXY_COMMAND_AVAILABILITY_START__"
         let endMarker = "__MUXY_COMMAND_AVAILABILITY_END__"
         guard let startRange = text.range(of: startMarker),

@@ -88,6 +88,22 @@ struct LoginShellPathTests {
         #expect(available == ["codex"])
     }
 
+    @Test("agent command availability tolerates a truncated UTF-8 scalar before results")
+    func commandAvailabilityToleratesTruncatedUTF8() {
+        let output = Data([0x80]) + Data("""
+        __MUXY_COMMAND_AVAILABILITY_START__
+        codex
+        __MUXY_COMMAND_AVAILABILITY_END__
+        """.utf8)
+
+        let available = LoginShellPath.extractAvailableCommands(
+            from: output,
+            expected: ["codex", "claude"]
+        )
+
+        #expect(available == ["codex"])
+    }
+
     @Test("login shell lookup extracts PATH without startup output")
     func loginShellLookupExtractsPathWithoutStartupOutput() {
         let output = """
