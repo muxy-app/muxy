@@ -612,14 +612,7 @@ struct TabFocusedTabRow: View {
     @ViewBuilder
     private var trailingContent: some View {
         if !tab.isPinned, closeButtonVisible {
-            Image(systemName: "xmark")
-                .font(.system(size: UIMetrics.fontCaption, weight: .bold))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
-                .contentShape(Rectangle())
-                .onTapGesture { close() }
-                .accessibilityLabel(L10n.string("Close Tab"))
-                .accessibilityAddTraits(.isButton)
+            TabCloseButton { close() }
         } else {
             statusAccessory
         }
