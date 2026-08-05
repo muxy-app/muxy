@@ -7,6 +7,7 @@ struct CommandTabRequest: Equatable {
     let command: String
     let closesOnCommandExit: Bool
     let directory: String?
+    let startupCommandRestoration: StartupCommandRestoration
 
     init(
         projectID: UUID,
@@ -14,7 +15,8 @@ struct CommandTabRequest: Equatable {
         name: String,
         command: String,
         closesOnCommandExit: Bool,
-        directory: String? = nil
+        directory: String? = nil,
+        startupCommandRestoration: StartupCommandRestoration = .restore
     ) {
         self.projectID = projectID
         self.areaID = areaID
@@ -22,5 +24,6 @@ struct CommandTabRequest: Equatable {
         self.command = command
         self.closesOnCommandExit = closesOnCommandExit
         self.directory = directory
+        self.startupCommandRestoration = startupCommandRestoration
     }
 }

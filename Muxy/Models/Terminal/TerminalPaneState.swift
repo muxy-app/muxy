@@ -1,5 +1,10 @@
 import Foundation
 
+enum StartupCommandRestoration: String, Codable, Equatable {
+    case restore
+    case initialLaunchOnly
+}
+
 struct TerminalPaneLaunch: Equatable {
     let command: String?
     let interactive: Bool
@@ -20,6 +25,7 @@ final class TerminalPaneState: Identifiable {
     let startupCommand: String?
     let startupCommandInteractive: Bool
     let closesOnStartupCommandExit: Bool
+    let startupCommandRestoration: StartupCommandRestoration
     let externalEditorFilePath: String?
     var isOffline = false
     var sessionRecoveryFailed = false
@@ -36,6 +42,7 @@ final class TerminalPaneState: Identifiable {
         startupCommand: String? = nil,
         startupCommandInteractive: Bool = false,
         closesOnStartupCommandExit: Bool = true,
+        startupCommandRestoration: StartupCommandRestoration = .restore,
         externalEditorFilePath: String? = nil
     ) {
         self.id = id
@@ -47,6 +54,7 @@ final class TerminalPaneState: Identifiable {
         self.startupCommand = startupCommand
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
+        self.startupCommandRestoration = startupCommandRestoration
         self.externalEditorFilePath = externalEditorFilePath
     }
 

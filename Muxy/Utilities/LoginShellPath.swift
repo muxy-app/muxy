@@ -129,6 +129,61 @@ final class LoginShellPath: @unchecked Sendable {
         return extractEnvironment(from: output)
     }
 
+    static func availableCommands(_ commands: [String]) async -> Set<String> {
+        await Task.detached(priority: .utility) {
+            availableCommands(commands, shellPath: UserShell.path(), readShellOutput: Self.readShellOutput)
+        }.value
+    }
+
+    static func availableCommands(
+        _ commands: [String],
+        shellPath: String,
+        readShellOutput: (String, [String], DispatchTimeInterval) -> Data?
+    ) -> Set<String> {
+        guard !commands.isEmpty else { return [] }
+        guard let output = readShellOutput(
+            shellPath,
+            commandAvailabilityArguments(shellPath: shellPath, commands: commands),
+            .seconds(3)
+        )
+        else { return [] }
+        return extractAvailableCommands(from: output, expected: Set(commands))
+    }
+
+    static func commandAvailabilityArguments(shellPath: String, commands: [String]) -> [String] {
+        let startMarker = "__MUXY_COMMAND_AVAILABILITY_START__"
+        let endMarker = "__MUXY_COMMAND_AVAILABILITY_END__"
+        let checks = commands.map { command in
+            let escaped = ShellEscaper.escape(command)
+            if URL(fileURLWithPath: shellPath).lastPathComponent == "fish" {
+                return "type -q \(escaped); and printf '%s\\n' \(escaped)"
+            }
+            return "command -v \(escaped) >/dev/null 2>&1 && printf '%s\\n' \(escaped)"
+        }
+        let script = ([
+            "printf '%s\\n' \(ShellEscaper.escape(startMarker))",
+        ] + checks + [
+            "printf '%s\\n' \(ShellEscaper.escape(endMarker))",
+        ]).joined(separator: "; ")
+        if URL(fileURLWithPath: shellPath).lastPathComponent == "fish" {
+            return ["-l", "-c", script]
+        }
+        return ["-l", "-i", "-c", script]
+    }
+
+    static func extractAvailableCommands(from output: Data, expected: Set<String>) -> Set<String> {
+        guard let text = String(bytes: output, encoding: .utf8) else { return [] }
+        let startMarker = "__MUXY_COMMAND_AVAILABILITY_START__"
+        let endMarker = "__MUXY_COMMAND_AVAILABILITY_END__"
+        guard let startRange = text.range(of: startMarker),
+              let endRange = text.range(of: endMarker, range: startRange.upperBound ..< text.endIndex)
+        else { return [] }
+        return Set(text[startRange.upperBound ..< endRange.lowerBound]
+            .split(whereSeparator: \.isNewline)
+            .map(String.init))
+            .intersection(expected)
+    }
+
     private static func readShellOutput(
         shellPath: String,
         arguments: [String],

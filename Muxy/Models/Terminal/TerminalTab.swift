@@ -140,6 +140,7 @@ final class TerminalTab: Identifiable {
                 snapshot.currentWorkingDirectory,
                 projectPath: snapshot.projectPath
             )
+            let restoresStartupCommand = snapshot.startupCommandRestoration == .restore
             content = .terminal(TerminalPaneState(
                 id: snapshot.paneID ?? UUID(),
                 sessionID: snapshot.paneSessionID,
@@ -147,9 +148,10 @@ final class TerminalTab: Identifiable {
                 title: snapshot.paneTitle,
                 usesDefaultTitle: snapshot.paneUsesDefaultTitle,
                 initialWorkingDirectory: restoredWorkingDirectory,
-                startupCommand: snapshot.startupCommand,
+                startupCommand: restoresStartupCommand ? snapshot.startupCommand : nil,
                 startupCommandInteractive: snapshot.startupCommandInteractive ?? false,
-                closesOnStartupCommandExit: snapshot.closesOnStartupCommandExit ?? true
+                closesOnStartupCommandExit: snapshot.closesOnStartupCommandExit ?? true,
+                startupCommandRestoration: restoresStartupCommand ? .restore : .initialLaunchOnly
             ))
         case .extensionWebView:
             if let extensionID = snapshot.extensionID,
@@ -183,6 +185,7 @@ final class TerminalTab: Identifiable {
     func snapshot() -> TerminalTabSnapshot {
         let pane = content.pane
         let startupCommand = pane?.startupCommand
+        let startupCommandRestoration = pane?.startupCommandRestoration
         return TerminalTabSnapshot(
             kind: content.kind,
             id: id,
@@ -200,6 +203,7 @@ final class TerminalTab: Identifiable {
             startupCommand: startupCommand,
             startupCommandInteractive: startupCommand == nil ? nil : pane?.startupCommandInteractive,
             closesOnStartupCommandExit: startupCommand == nil ? nil : pane?.closesOnStartupCommandExit,
+            startupCommandRestoration: startupCommand == nil ? nil : startupCommandRestoration,
             extensionID: content.extensionState?.extensionID,
             extensionTabTypeID: content.extensionState?.tabTypeID,
             extensionTabData: content.extensionState?.data,

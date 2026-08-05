@@ -101,7 +101,8 @@ final class TabArea: Identifiable {
         name: String,
         command: String,
         closesOnCommandExit: Bool = true,
-        directory: String? = nil
+        directory: String? = nil,
+        startupCommandRestoration: StartupCommandRestoration = .restore
     ) -> UUID? {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
@@ -112,7 +113,8 @@ final class TabArea: Identifiable {
             initialWorkingDirectory: directory,
             startupCommand: trimmedCommand,
             startupCommandInteractive: true,
-            closesOnStartupCommandExit: closesOnCommandExit
+            closesOnStartupCommandExit: closesOnCommandExit,
+            startupCommandRestoration: startupCommandRestoration
         )
         let tab = TerminalTab(pane: pane)
         insertTab(tab)

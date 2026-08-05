@@ -114,14 +114,17 @@ struct AIAgentLaunchProviderTests {
     func localAgentTabCommand() {
         let provider = AgentTabLaunchTestProvider(executablePath: "/tmp/Agent Tools/codex")
 
-        #expect(AgentTabLaunchCommand.local(provider: provider) == "test-agent")
+        #expect(AgentTabLaunchCommand.local(
+            provider: provider,
+            availableExecutables: ["test-agent"]
+        ) == "test-agent")
     }
 
     @Test("agent tabs omit unavailable local providers")
     func unavailableLocalAgentTabCommand() {
         let provider = AgentTabLaunchTestProvider(executablePath: nil)
 
-        #expect(AgentTabLaunchCommand.local(provider: provider) == nil)
+        #expect(AgentTabLaunchCommand.local(provider: provider, availableExecutables: []) == nil)
     }
 
     @Test("agent tabs escape remote executable names")
@@ -131,15 +134,32 @@ struct AIAgentLaunchProviderTests {
         #expect(AgentTabLaunchCommand.remote(provider: provider) == "test-agent")
     }
 
-    @Test("agent launch options resolve each local executable once")
-    func launchOptionsSnapshotExecutableResolution() {
+    @Test("agent launch options resolve availability through the login shell once")
+    @MainActor
+    func launchOptionsResolveLoginShellAvailability() async {
         let provider = CountingAgentTabLaunchTestProvider()
+        var resolutionCount = 0
 
-        let options = AgentTabLaunchOption.resolveLocal(providers: [provider])
+        let options = await AgentTabLaunchOption.resolveLocal(providers: [provider]) { commands in
+            resolutionCount += 1
+            #expect(commands == ["test-agent"])
+            return ["test-agent"]
+        }
 
-        #expect(provider.resolutionCount == 1)
+        #expect(provider.resolutionCount == 0)
+        #expect(resolutionCount == 1)
         #expect(options.first?.command == "test-agent")
         #expect(options.first?.title == "Test Agent")
+    }
+
+    @Test("agent launch options do not trust filesystem resolution outside the login shell")
+    @MainActor
+    func launchOptionsRejectFilesystemOnlyAvailability() async {
+        let provider = AgentTabLaunchTestProvider(executablePath: "/tmp/test-agent")
+
+        let options = await AgentTabLaunchOption.resolveLocal(providers: [provider]) { _ in [] }
+
+        #expect(options.first?.command == nil)
     }
 
     @Test("remote launch options disable providers missing from the remote PATH")

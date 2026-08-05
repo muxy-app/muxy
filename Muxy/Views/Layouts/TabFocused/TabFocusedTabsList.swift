@@ -100,9 +100,15 @@ struct AgentsFocusedTabActions: View {
     private func presentProviders() {
         providerTask?.cancel()
         guard case let .ssh(destination) = workspaceContext else {
-            options = AgentTabLaunchOption.resolveLocal()
-            loadingProviders = false
+            options = []
+            loadingProviders = true
             showingProviders = true
+            providerTask = Task {
+                let resolved = await AgentTabLaunchOption.resolveLocal()
+                guard !Task.isCancelled else { return }
+                options = resolved
+                loadingProviders = false
+            }
             return
         }
 
@@ -169,7 +175,8 @@ enum AgentsFocusedTabLauncher {
             areaID: nil,
             name: request.name,
             command: request.command,
-            closesOnCommandExit: false
+            closesOnCommandExit: false,
+            startupCommandRestoration: .restore
         )))
         guard let tabID = effects.createdTabID,
               let key = appState.activeWorktreeKey(for: request.project.id),

@@ -89,10 +89,30 @@ struct TabAreaTests {
         #expect(snapshot.startupCommand == "claude")
         #expect(snapshot.startupCommandInteractive == true)
         #expect(snapshot.closesOnStartupCommandExit == false)
+        #expect(snapshot.startupCommandRestoration == .restore)
         #expect(restored.content.pane?.title == "Claude Code")
         #expect(launch.command == "claude")
         #expect(launch.interactive == true)
         #expect(launch.closesOnCommandExit == false)
+    }
+
+    @Test("legacy command snapshots do not restore startup commands")
+    func legacyCommandTabSnapshotDoesNotRestoreStartupLaunch() {
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "Extension Command",
+            startupCommand: "npm run dev",
+            startupCommandInteractive: true,
+            closesOnStartupCommandExit: false
+        )
+
+        let restored = TerminalTab(restoring: snapshot)
+
+        #expect(restored.content.pane?.consumeRestoredLaunch().command == nil)
     }
 
     @Test("createCommandTab ignores empty command")

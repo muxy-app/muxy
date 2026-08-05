@@ -48,6 +48,46 @@ struct LoginShellPathTests {
         #expect(LoginShellPath.shellArguments.last?.contains("printenv COPILOT_HOME") == true)
     }
 
+    @Test("agent command availability uses fish startup flags and function lookup")
+    func commandAvailabilityUsesFishSemantics() {
+        let arguments = LoginShellPath.commandAvailabilityArguments(
+            shellPath: "/opt/homebrew/bin/fish",
+            commands: ["codex"]
+        )
+
+        #expect(arguments.prefix(2) == ["-l", "-c"])
+        #expect(arguments.last?.contains("type -q codex") == true)
+    }
+
+    @Test("agent command availability preserves zsh interactive startup semantics")
+    func commandAvailabilityUsesZshSemantics() {
+        let arguments = LoginShellPath.commandAvailabilityArguments(
+            shellPath: "/bin/zsh",
+            commands: ["codex"]
+        )
+
+        #expect(arguments.prefix(3) == ["-l", "-i", "-c"])
+        #expect(arguments.last?.contains("command -v codex") == true)
+    }
+
+    @Test("agent command availability accepts only marked login shell results")
+    func commandAvailabilityAcceptsMarkedResults() {
+        let available = LoginShellPath.availableCommands(
+            ["codex", "claude"],
+            shellPath: "/bin/zsh"
+        ) { _, _, _ in
+            Data("""
+            startup noise
+            __MUXY_COMMAND_AVAILABILITY_START__
+            codex
+            unrelated
+            __MUXY_COMMAND_AVAILABILITY_END__
+            """.utf8)
+        }
+
+        #expect(available == ["codex"])
+    }
+
     @Test("login shell lookup extracts PATH without startup output")
     func loginShellLookupExtractsPathWithoutStartupOutput() {
         let output = """

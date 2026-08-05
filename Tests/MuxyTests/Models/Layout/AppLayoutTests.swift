@@ -290,6 +290,8 @@ struct AgentsFocusedTabLauncherTests {
         #expect(appState.activeWorktreeID[targetProject.id] == targetWorktree.id)
         #expect(agentTabs.count == 1)
         #expect(agentTabs.first?.content.pane?.title == "Codex")
+        let restored = TerminalTab(restoring: try #require(agentTabs.first?.snapshot()))
+        #expect(restored.content.pane?.consumeRestoredLaunch().command == "codex")
         let paneID = try #require(agentTabs.first?.content.pane?.id)
         defer { DetectedAgentStore.shared.resetPane(paneID) }
         #expect(DetectedAgentStore.shared.agent(for: paneID) == "codex")

@@ -175,6 +175,7 @@ struct TerminalTabSnapshot: Codable {
     let startupCommand: String?
     let startupCommandInteractive: Bool?
     let closesOnStartupCommandExit: Bool?
+    let startupCommandRestoration: StartupCommandRestoration?
     let extensionID: String?
     let extensionTabTypeID: String?
     let extensionTabData: ExtensionJSON?
@@ -199,6 +200,7 @@ struct TerminalTabSnapshot: Codable {
         startupCommand: String? = nil,
         startupCommandInteractive: Bool? = nil,
         closesOnStartupCommandExit: Bool? = nil,
+        startupCommandRestoration: StartupCommandRestoration? = nil,
         extensionID: String? = nil,
         extensionTabTypeID: String? = nil,
         extensionTabData: ExtensionJSON? = nil,
@@ -222,6 +224,7 @@ struct TerminalTabSnapshot: Codable {
         self.startupCommand = startupCommand
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
+        self.startupCommandRestoration = startupCommandRestoration
         self.extensionID = extensionID
         self.extensionTabTypeID = extensionTabTypeID
         self.extensionTabData = extensionTabData
@@ -247,6 +250,7 @@ struct TerminalTabSnapshot: Codable {
         case startupCommand
         case startupCommandInteractive
         case closesOnStartupCommandExit
+        case startupCommandRestoration
         case extensionID
         case extensionTabTypeID
         case extensionTabData
@@ -274,6 +278,7 @@ struct TerminalTabSnapshot: Codable {
         startupCommand = try container.decodeIfPresent(String.self, forKey: .startupCommand)
         startupCommandInteractive = try container.decodeIfPresent(Bool.self, forKey: .startupCommandInteractive)
         closesOnStartupCommandExit = try container.decodeIfPresent(Bool.self, forKey: .closesOnStartupCommandExit)
+        startupCommandRestoration = try container.decodeIfPresent(StartupCommandRestoration.self, forKey: .startupCommandRestoration)
         extensionID = try container.decodeIfPresent(String.self, forKey: .extensionID)
         extensionTabTypeID = try container.decodeIfPresent(String.self, forKey: .extensionTabTypeID)
         extensionTabData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .extensionTabData)

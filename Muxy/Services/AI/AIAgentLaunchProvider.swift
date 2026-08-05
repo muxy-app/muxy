@@ -70,8 +70,8 @@ extension AIAgentLaunchProvider {
 }
 
 enum AgentTabLaunchCommand {
-    static func local(provider: any AIAgentLaunchProvider) -> String? {
-        guard provider.agentCLIExecutablePath() != nil else { return nil }
+    static func local(provider: any AIAgentLaunchProvider, availableExecutables: Set<String>) -> String? {
+        guard availableExecutables.contains(provider.agentLaunchConfiguration.executable) else { return nil }
 
         return ShellEscaper.escape(provider.agentLaunchConfiguration.executable)
     }
@@ -91,11 +91,21 @@ struct AgentTabLaunchOption: Identifiable {
         command == nil ? "\(provider.displayName) · Not installed" : provider.displayName
     }
 
-    static func resolveLocal(providers: [any AIAgentLaunchProvider]) -> [Self] {
-        providers.map { provider in
+    @MainActor
+    static func resolveLocal(
+        providers: [any AIAgentLaunchProvider],
+        resolveAvailableCommands: ([String]) async -> Set<String> = { await LoginShellPath.availableCommands($0) }
+    ) async -> [Self] {
+        let availableExecutables = await resolveAvailableCommands(
+            Array(Set(providers.map(\.agentLaunchConfiguration.executable))).sorted()
+        )
+        return providers.map { provider in
             Self(
                 provider: provider,
-                command: AgentTabLaunchCommand.local(provider: provider)
+                command: AgentTabLaunchCommand.local(
+                    provider: provider,
+                    availableExecutables: availableExecutables
+                )
             )
         }
     }
@@ -115,8 +125,8 @@ struct AgentTabLaunchOption: Identifiable {
     }
 
     @MainActor
-    static func resolveLocal() -> [Self] {
-        resolveLocal(providers: AIProviderRegistry.shared.agentLaunchProviders)
+    static func resolveLocal() async -> [Self] {
+        await resolveLocal(providers: AIProviderRegistry.shared.agentLaunchProviders)
     }
 
     @MainActor
@@ -132,19 +142,19 @@ struct AgentTabLaunchOption: Identifiable {
 
 @MainActor
 enum AgentTabLaunchOptionsLoader {
-    typealias LocalResolver = @MainActor () -> [AgentTabLaunchOption]
+    typealias LocalResolver = @MainActor () async -> [AgentTabLaunchOption]
     typealias RemoteResolver = @MainActor (SSHDestination) async throws -> [AgentTabLaunchOption]
 
     static func resolve(
         context: WorkspaceContext,
-        localResolver: LocalResolver = { AgentTabLaunchOption.resolveLocal() },
+        localResolver: LocalResolver = { await AgentTabLaunchOption.resolveLocal() },
         remoteResolver: RemoteResolver = { destination in
             try await AgentTabLaunchOption.resolveRemote(destination: destination)
         }
     ) async throws -> [AgentTabLaunchOption] {
         let options: [AgentTabLaunchOption] = switch context {
         case .local:
-            localResolver()
+            await localResolver()
         case let .ssh(destination):
             try await remoteResolver(destination)
         }

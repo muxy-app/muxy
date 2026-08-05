@@ -118,7 +118,8 @@ enum TabReducer {
             name: request.name,
             command: request.command,
             closesOnCommandExit: request.closesOnCommandExit,
-            directory: request.directory
+            directory: request.directory,
+            startupCommandRestoration: request.startupCommandRestoration
         )
         if let tabID {
             state.topLevelTabOrder[key] = order + [tabID]

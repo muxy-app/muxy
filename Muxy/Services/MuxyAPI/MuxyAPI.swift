@@ -1907,7 +1907,8 @@ enum MuxyAPI {
                 name: command,
                 command: command,
                 closesOnCommandExit: false,
-                directory: resolvedDirectory
+                directory: resolvedDirectory,
+                startupCommandRestoration: .initialLaunchOnly
             )))
             guard let tabID = effects.createdTabID else { return .failure(.tabCreateFailed) }
             return .success(tabID)
