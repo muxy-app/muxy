@@ -22,6 +22,7 @@ struct CreateWorktreeSheetTests {
 
         #expect(!state.isLoading)
         #expect(state.branchOptions.map(\.name) == ["feature", "main"])
+        #expect(state.branchOptions.map(\.id) == ["feature", "main"])
         #expect(state.selectedExistingBranch == "feature")
         #expect(state.selectedBaseBranch == "main")
     }
