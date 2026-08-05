@@ -211,10 +211,49 @@ public struct SessionReplayBuffer: Sendable {
                 index += 1
                 continue
             }
-            guard let end = escapeTerminator(in: bytes, from: index) else { return index }
+            guard let end = escapeTerminator(in: bytes, from: index) else {
+                return trailingUTF8SafeEnd(in: bytes, endingAt: index)
+            }
             index = end
         }
-        return bytes.count
+        return trailingUTF8SafeEnd(in: bytes, endingAt: bytes.count)
+    }
+
+    private func trailingUTF8SafeEnd(in bytes: [UInt8], endingAt end: Int) -> Int {
+        guard end > 0 else { return 0 }
+        var sequenceStart = end - 1
+        var continuationCount = 0
+        while sequenceStart > 0,
+              isUTF8Continuation(bytes[sequenceStart]),
+              continuationCount < 3
+        {
+            sequenceStart -= 1
+            continuationCount += 1
+        }
+        guard let expectedLength = utf8SequenceLength(startingWith: bytes[sequenceStart]) else { return end }
+        let actualLength = end - sequenceStart
+        guard actualLength < expectedLength else { return end }
+        guard bytes[(sequenceStart + 1) ..< end].allSatisfy(isUTF8Continuation) else { return end }
+        return sequenceStart
+    }
+
+    private func utf8SequenceLength(startingWith byte: UInt8) -> Int? {
+        switch byte {
+        case 0x00 ... 0x7F:
+            1
+        case 0xC2 ... 0xDF:
+            2
+        case 0xE0 ... 0xEF:
+            3
+        case 0xF0 ... 0xF4:
+            4
+        default:
+            nil
+        }
+    }
+
+    private func isUTF8Continuation(_ byte: UInt8) -> Bool {
+        byte >= 0x80 && byte <= 0xBF
     }
 
     private func escapeTerminator(in bytes: [UInt8], from index: Int) -> Int? {

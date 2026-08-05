@@ -194,6 +194,54 @@ struct SessionReplayBufferTests {
         #expect(String(decoding: buffer.replayBytes, as: UTF8.self) == "ready")
     }
 
+    @Test("replay drops incomplete trailing utf8 scalars")
+    func replayDropsIncompleteTrailingUTF8Scalars() {
+        let prefix = Array("ready".utf8)
+        let incompleteScalars: [[UInt8]] = [
+            [0xC2],
+            [0xE2],
+            [0xE2, 0x82],
+            [0xF0],
+            [0xF0, 0x9F],
+            [0xF0, 0x9F, 0x98],
+        ]
+        for incompleteScalar in incompleteScalars {
+            var buffer = SessionReplayBuffer(capacity: 16)
+            buffer.append(prefix + incompleteScalar)
+            #expect(buffer.replayBytes == prefix)
+        }
+    }
+
+    @Test("replay keeps complete trailing utf8 scalars")
+    func replayKeepsCompleteTrailingUTF8Scalars() {
+        let prefix = Array("ready".utf8)
+        let completeScalars: [[UInt8]] = [
+            [0xC2, 0xA2],
+            [0xE2, 0x82, 0xAC],
+            [0xF0, 0x9F, 0x98, 0x80],
+        ]
+        for completeScalar in completeScalars {
+            var buffer = SessionReplayBuffer(capacity: 16)
+            buffer.append(prefix + completeScalar)
+            #expect(buffer.replayBytes == prefix + completeScalar)
+        }
+    }
+
+    @Test("replay sanitizes utf8 before an incomplete escape sequence")
+    func replaySanitizesUTF8BeforeIncompleteEscape() {
+        let prefix = Array("ready".utf8)
+        let incompleteEscape = Array("\u{1B}]10;rgb".utf8)
+
+        var incompleteScalar = SessionReplayBuffer(capacity: 32)
+        incompleteScalar.append(prefix + [0xE2, 0x82] + incompleteEscape)
+        #expect(incompleteScalar.replayBytes == prefix)
+
+        let completeScalar: [UInt8] = [0xE2, 0x82, 0xAC]
+        var completeScalarBuffer = SessionReplayBuffer(capacity: 32)
+        completeScalarBuffer.append(prefix + completeScalar + incompleteEscape)
+        #expect(completeScalarBuffer.replayBytes == prefix + completeScalar)
+    }
+
     @Test("alternate screen suppresses replay until main screen output resumes")
     func alternateScreenSuppressesReplay() {
         var buffer = SessionReplayBuffer(capacity: 64)
