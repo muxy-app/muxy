@@ -17,6 +17,7 @@ struct LeftClickView: NSViewRepresentable {
 
 final class LeftClickNSView: NSView {
     var action: (() -> Void)?
+    private var isPressed = false
 
     override func isAccessibilityElement() -> Bool {
         false
@@ -24,15 +25,21 @@ final class LeftClickNSView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let currentEvent = NSApp.currentEvent,
-              currentEvent.type == .leftMouseDown
+              currentEvent.type == .leftMouseDown || currentEvent.type == .leftMouseUp
         else { return nil }
         return super.hitTest(point)
     }
 
-    override func mouseDown(with event: NSEvent) {}
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+    }
 
     override func mouseUp(with event: NSEvent) {
-        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        let wasPressed = isPressed
+        isPressed = false
+        guard wasPressed,
+              bounds.contains(convert(event.locationInWindow, from: nil))
+        else { return }
         action?()
     }
 }
