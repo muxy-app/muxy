@@ -29,6 +29,25 @@ enum ProjectListSearch {
     }
 }
 
+struct ProjectWorktreeExpansionState {
+    private var expandedProjectIDs: Set<UUID> = []
+
+    subscript(projectID: UUID) -> Bool {
+        get { expandedProjectIDs.contains(projectID) }
+        set {
+            if newValue {
+                expandedProjectIDs.insert(projectID)
+            } else {
+                expandedProjectIDs.remove(projectID)
+            }
+        }
+    }
+
+    mutating func retain(projectIDs: Set<UUID>) {
+        expandedProjectIDs.formIntersection(projectIDs)
+    }
+}
+
 @MainActor
 enum SidebarLayout {
     static var collapsedWidth: CGFloat { UIMetrics.sidebarCollapsedWidth }
@@ -95,6 +114,7 @@ struct ProjectFocusedSidebar: View {
     @State private var isExternalDropTargeted = false
     @State private var projectPendingRemoval: Project?
     @State private var projectSearchText = ""
+    @State private var worktreeExpansion = ProjectWorktreeExpansionState()
     @FocusState private var isProjectSearchFocused: Bool
     let expanded: Bool
     let expandedCustomWidth: CGFloat
@@ -133,6 +153,9 @@ struct ProjectFocusedSidebar: View {
             .opacity(isHidden ? 0 : 1)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(L10n.string("Sidebar"))
+            .onChange(of: Set(navigableProjects.map(\.id))) { _, projectIDs in
+                worktreeExpansion.retain(projectIDs: projectIDs)
+            }
             .alert(
                 L10n.string("Remove \"\(projectPendingRemoval?.name ?? "")\"?"),
                 isPresented: removalAlertBinding,
@@ -488,6 +511,7 @@ struct ProjectFocusedSidebar: View {
                 project: project,
                 shortcutIndex: shortcutIndex,
                 isAnyDragging: dragState.draggedID != nil,
+                worktreesExpanded: worktreesExpandedBinding(for: project.id),
                 onSelect: { select(project) },
                 onRemove: { remove(project) },
                 onRename: { renameProject(project, to: $0) },
@@ -512,6 +536,13 @@ struct ProjectFocusedSidebar: View {
                 onSetPinned: { projectStore.setPinned(id: project.id, to: $0) }
             )
         }
+    }
+
+    private func worktreesExpandedBinding(for projectID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { worktreeExpansion[projectID] },
+            set: { worktreeExpansion[projectID] = $0 }
+        )
     }
 
     private func renameProject(_ project: Project, to name: String) {

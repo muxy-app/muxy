@@ -13,6 +13,7 @@ struct ExpandedProjectRow: View {
     let project: Project
     let shortcutIndex: Int?
     let isAnyDragging: Bool
+    @Binding var worktreesExpanded: Bool
     let onSelect: () -> Void
     let onRemove: () -> Void
     let onRename: (String) -> Void
@@ -37,7 +38,6 @@ struct ExpandedProjectRow: View {
     @State private var isCheckingGitRepo = true
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableExpandedImage?
-    @State private var worktreesExpanded = false
     @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
     @State private var showSymbolPicker = false
