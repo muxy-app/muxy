@@ -155,10 +155,5 @@ private struct AgentsFocusedTabDragState {
     var lastReorderTargetID: UUID?
 }
 
-private struct AgentsFocusedTabRowFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [UUID: CGRect] = [:]
-
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue()) { _, new in new }
-    }
-}
+private enum AgentsFocusedTabRowFrameTag {}
+private typealias AgentsFocusedTabRowFramePreferenceKey = UUIDFramePreferenceKey<AgentsFocusedTabRowFrameTag>

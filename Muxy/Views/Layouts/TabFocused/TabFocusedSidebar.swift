@@ -119,6 +119,12 @@ struct TabFocusedSidebar: View {
                     guard projectDragState.draggedID != nil else { return }
                     projectDragState.frames = frames
                 }
+                .onChange(of: reorderableProjects.map(\.id)) { _, projectIDs in
+                    guard let draggedID = projectDragState.draggedID,
+                          !projectIDs.contains(draggedID)
+                    else { return }
+                    handleProjectDragEnded()
+                }
             }
             .scrollIndicators(.never)
             .coordinateSpace(name: AgentsFocusedProjectDragCoordinateSpace.sidebar)
@@ -180,12 +186,6 @@ struct TabFocusedSidebar: View {
         ForEach(projects) { project in
             agentsFocusedProjectBlock(project, numbers: numbers)
         }
-        .onChange(of: projects.map(\.id)) { _, projectIDs in
-            guard let draggedID = projectDragState.draggedID,
-                  !projectIDs.contains(draggedID)
-            else { return }
-            handleProjectDragEnded()
-        }
     }
 
     private func agentsFocusedProjectBlock(_ project: Project, numbers: [UUID: Int]) -> some View {
@@ -231,7 +231,8 @@ struct TabFocusedSidebar: View {
     }
 
     private func isProjectReorderable(_ project: Project) -> Bool {
-        !project.isHome
+        sortMode == .manual
+            && !project.isHome
             && !project.isRemote
             && !projectGroupStore.isRemoteWorkspaceActive
             && projectStore.storedProjects.contains(where: { $0.id == project.id })
@@ -241,19 +242,9 @@ struct TabFocusedSidebar: View {
         projects.filter(isProjectReorderable)
     }
 
-    private func beginManualProjectReorder() {
-        let reorderable = reorderableProjects
-        guard !reorderable.isEmpty else { return }
-        projectStore.persistOrder(
-            reorderable.map(\.id),
-            scopedTo: Set(reorderable.map(\.id))
-        )
-        sortModeRaw = ProjectSortMode.manual.rawValue
-    }
-
     private func handleProjectDragChanged(project: Project, location: CGPoint) {
+        guard isProjectReorderable(project) else { return }
         if projectDragState.draggedID == nil {
-            beginManualProjectReorder()
             projectDragState.draggedID = project.id
             projectDragState.lastReorderTargetID = nil
         }
@@ -269,6 +260,7 @@ struct TabFocusedSidebar: View {
     }
 
     private func reorderProjectsIfNeeded(at location: CGPoint) {
+        let candidates = reorderableProjects
         guard let draggedID = projectDragState.draggedID else { return }
         var hoveredTargetID: UUID?
 
@@ -276,13 +268,13 @@ struct TabFocusedSidebar: View {
             guard frame.contains(location) else { continue }
             hoveredTargetID = id
             guard projectDragState.lastReorderTargetID != id,
-                  let sourceIndex = reorderableProjects.firstIndex(where: { $0.id == draggedID }),
-                  let destinationIndex = reorderableProjects.firstIndex(where: { $0.id == id }),
-                  reorderableProjects[sourceIndex].isPinned == reorderableProjects[destinationIndex].isPinned
+                  let sourceIndex = candidates.firstIndex(where: { $0.id == draggedID }),
+                  let destinationIndex = candidates.firstIndex(where: { $0.id == id }),
+                  candidates[sourceIndex].isPinned == candidates[destinationIndex].isPinned
             else { return }
 
             projectDragState.lastReorderTargetID = id
-            var reorderedProjects = reorderableProjects
+            var reorderedProjects = candidates
             reorderedProjects.move(
                 fromOffsets: IndexSet(integer: sourceIndex),
                 toOffset: destinationIndex > sourceIndex ? destinationIndex + 1 : destinationIndex
