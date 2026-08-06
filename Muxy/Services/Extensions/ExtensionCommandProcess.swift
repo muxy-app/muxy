@@ -127,7 +127,7 @@ final class CancellableProcess: @unchecked Sendable {
             self.source = nil
             lock.unlock()
             source?.cancel()
-            DispatchQueue.global(qos: .userInitiated).async { [self] in
+            monitoringQueue.async { [self] in
                 onTermination()
             }
             return false
@@ -135,7 +135,7 @@ final class CancellableProcess: @unchecked Sendable {
         state = .terminating
         lock.unlock()
         kill(-processIdentifier, SIGTERM)
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(200)) { [self] in
+        monitoringQueue.asyncAfter(deadline: .now() + .milliseconds(200)) { [self] in
             kill(-processIdentifier, SIGKILL)
             lock.lock()
             guard state == .terminating else {
@@ -219,7 +219,7 @@ final class CancellableProcess: @unchecked Sendable {
 
     private func processDidExit() {
         lock.lock()
-        guard state == .running else {
+        guard state == .running || state == .terminating else {
             lock.unlock()
             return
         }

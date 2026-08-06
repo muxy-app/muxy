@@ -328,11 +328,51 @@ struct ExtensionCommandExecutorTests {
 
         try await waitForUnreapedProcessExit(runningProcess.processIdentifier)
         #expect(!runningProcess.terminate())
-        #expect(await completion.wait())
         #expect(runningProcess.terminationStatus == 0)
 
         monitoringQueue.resume()
         monitoringQueueIsSuspended = false
+        #expect(await completion.wait())
+    }
+
+    @Test("terminated process completion uses monitoring queue")
+    func terminatedProcessCompletionUsesMonitoringQueue() async throws {
+        let monitoringQueue = DispatchQueue(label: "muxy.exec.test.terminate-monitor")
+        monitoringQueue.suspend()
+        var monitoringQueueIsSuspended = true
+        defer {
+            if monitoringQueueIsSuspended {
+                monitoringQueue.resume()
+            }
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["5"]
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let completion = ProcessCompletionBox()
+        let runningProcess = try CancellableProcess.launch(
+            configuredProcess: process,
+            stdinPipe: stdinPipe,
+            stdoutPipe: stdoutPipe,
+            stderrPipe: stderrPipe,
+            monitoringQueue: monitoringQueue
+        ) {
+            completion.complete()
+        }
+        try? stdinPipe.fileHandleForWriting.close()
+
+        #expect(runningProcess.terminate())
+
+        try await Task.sleep(for: .milliseconds(350))
+        #expect(!completion.isCompleted)
+
+        monitoringQueue.resume()
+        monitoringQueueIsSuspended = false
+
+        #expect(await completion.wait(milliseconds: 1000))
     }
 
     @Test("cancelled owner state prevents authorization and launch")
@@ -772,18 +812,18 @@ private final class ProcessCompletionBox: @unchecked Sendable {
         lock.unlock()
     }
 
-    func wait() async -> Bool {
-        for _ in 0 ..< 100 {
-            if isCompleted() { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return false
-    }
-
-    private func isCompleted() -> Bool {
+    var isCompleted: Bool {
         lock.lock()
         defer { lock.unlock() }
         return completed
+    }
+
+    func wait(milliseconds: Int = 2000) async -> Bool {
+        for _ in 0 ..< max(1, milliseconds / 20) {
+            if isCompleted { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return false
     }
 }
 

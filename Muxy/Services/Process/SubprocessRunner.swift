@@ -64,6 +64,10 @@ private final class SubprocessJob: @unchecked Sendable {
         label: "app.muxy.subprocess-timeout",
         qos: .userInitiated
     )
+    private static let monitoringQueue = DispatchQueue(
+        label: "app.muxy.subprocess-monitor",
+        qos: .userInitiated
+    )
 
     private let request: SubprocessRequest
     private let lock = NSLock()
@@ -140,7 +144,8 @@ private final class SubprocessJob: @unchecked Sendable {
             configuredProcess: configured,
             stdinPipe: stdin,
             stdoutPipe: stdoutPipe,
-            stderrPipe: stderrPipe
+            stderrPipe: stderrPipe,
+            monitoringQueue: Self.monitoringQueue
         ) { [weak self] in self?.didTerminate() } } catch { lock.unlock()
             stdoutReader.finish()
             stderrReader.finish()
