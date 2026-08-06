@@ -137,6 +137,10 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
 
     func writeClipboard(location: ghostty_clipboard_e, content: UnsafePointer<ghostty_clipboard_content_s>?, len: UInt) {
         guard let content, len > 0 else { return }
+        if location == GHOSTTY_CLIPBOARD_SELECTION {
+            let autoCopyEnabled = UserDefaults.standard.bool(forKey: GeneralSettingsKeys.autoCopyTerminalSelection)
+            guard Self.shouldWriteSelectionClipboard(settingEnabled: autoCopyEnabled) else { return }
+        }
         let buffer = UnsafeBufferPointer(start: content, count: Int(len))
         for item in buffer {
             guard let dataPtr = item.data else { continue }
@@ -148,6 +152,10 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             NSPasteboard.general.setString(String(cString: dataPtr), forType: .string)
             return
         }
+    }
+
+    static func shouldWriteSelectionClipboard(settingEnabled: Bool) -> Bool {
+        settingEnabled
     }
 
     func closeSurface(userdata: UnsafeMutableRawPointer?, needsConfirm: Bool) {
