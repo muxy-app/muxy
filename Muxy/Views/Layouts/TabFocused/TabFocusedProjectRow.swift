@@ -22,6 +22,8 @@ struct TabFocusedProjectRow: View {
     let shortcutNumbers: [UUID: Int]
     var content: TabFocusedSidebarContent = .tabs
     let groupWorktrees: Bool
+    var onProjectHeaderDragChanged: ((Project, CGPoint) -> Void)?
+    var onProjectHeaderDragEnded: (() -> Void)?
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -187,6 +189,19 @@ struct TabFocusedProjectRow: View {
         .padding(.horizontal, TabFocusedSidebarMetrics.rowOuterInset)
         .padding(.vertical, TabFocusedSidebarMetrics.rowVerticalPadding)
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
+        .gesture(
+            DragGesture(
+                minimumDistance: 6,
+                coordinateSpace: .named(AgentsFocusedProjectDragCoordinateSpace.sidebar)
+            )
+            .onChanged { value in
+                onProjectHeaderDragChanged?(project, value.location)
+            }
+            .onEnded { _ in
+                onProjectHeaderDragEnded?()
+            },
+            including: !isWorktreeRow && onProjectHeaderDragChanged != nil ? .all : .none
+        )
         .onHover { hovered = $0 }
         .onTapGesture { handleTap() }
         .contextMenu {

@@ -47,6 +47,94 @@ struct AppStateTopLevelTabTests {
         #expect(groups.contains { $0.tabIDs == [secondTabID] })
     }
 
+    @Test("visible tab reorder keeps non-agent tab slots stable")
+    func visibleTabReorderPreservesHiddenTabs() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let appState = makeAppState(projectID: projectID, worktreeID: worktreeID)
+        let areaID = appState.focusedAreaID[key]!
+        let firstTabID = appState.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
+        let hiddenTabID = appState.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
+        let lastTabID = appState.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        let group = TopLevelTabGroup(tabIDs: [firstTabID, hiddenTabID, lastTabID], activeTabID: lastTabID)
+        appState.topLevelTabOrder[key] = group.tabIDs
+        appState.topLevelTabLayouts[key] = .group(group)
+
+        appState.reorderVisibleTopLevelTabs(
+            for: key,
+            moving: lastTabID,
+            over: firstTabID,
+            visibleTopLevelTabIDs: [firstTabID, lastTabID]
+        )
+
+        #expect(group.tabIDs == [lastTabID, hiddenTabID, firstTabID])
+        #expect(appState.topLevelTabs(for: key).map(\.tab.id) == group.tabIDs)
+    }
+
+    @Test("visible tab reorder does not move tabs between docked groups")
+    func visibleTabReorderDoesNotCrossDockedGroups() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let appState = makeAppState(projectID: projectID, worktreeID: worktreeID)
+        let areaID = appState.focusedAreaID[key]!
+        let firstTabID = appState.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
+        let secondTabID = appState.workspaceRoots[key]!.findArea(id: areaID)!.activeTabID!
+        let firstGroup = TopLevelTabGroup(tabIDs: [firstTabID], activeTabID: firstTabID)
+        let secondGroup = TopLevelTabGroup(tabIDs: [secondTabID], activeTabID: secondTabID)
+        appState.topLevelTabOrder[key] = [firstTabID, secondTabID]
+        appState.topLevelTabLayouts[key] = .split(TopLevelTabBranch(
+            direction: .horizontal,
+            first: .group(firstGroup),
+            second: .group(secondGroup)
+        ))
+
+        appState.reorderVisibleTopLevelTabs(
+            for: key,
+            moving: firstTabID,
+            over: secondTabID,
+            visibleTopLevelTabIDs: [firstTabID, secondTabID]
+        )
+
+        #expect(firstGroup.tabIDs == [firstTabID])
+        #expect(secondGroup.tabIDs == [secondTabID])
+        #expect(appState.topLevelTabs(for: key).map(\.tab.id) == [firstTabID, secondTabID])
+    }
+
+    @Test("visible tab reorder does not cross pinned tabs")
+    func visibleTabReorderDoesNotCrossPinnedBoundary() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let appState = makeAppState(projectID: projectID, worktreeID: worktreeID)
+        let areaID = appState.focusedAreaID[key]!
+        let area = appState.workspaceRoots[key]!.findArea(id: areaID)!
+        let pinnedTabID = area.activeTabID!
+        appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
+        let unpinnedTabID = area.activeTabID!
+        area.togglePin(pinnedTabID)
+        let group = TopLevelTabGroup(
+            tabIDs: [pinnedTabID, unpinnedTabID],
+            activeTabID: unpinnedTabID
+        )
+        appState.topLevelTabOrder[key] = group.tabIDs
+        appState.topLevelTabLayouts[key] = .group(group)
+
+        appState.reorderVisibleTopLevelTabs(
+            for: key,
+            moving: unpinnedTabID,
+            over: pinnedTabID,
+            visibleTopLevelTabIDs: group.tabIDs
+        )
+
+        #expect(group.tabIDs == [pinnedTabID, unpinnedTabID])
+        #expect(appState.topLevelTabs(for: key).map(\.tab.id) == group.tabIDs)
+    }
+
     @Test("empty workspace retains an area for its tab strip actions")
     func emptyWorkspaceRetainsTabStripArea() {
         let projectID = UUID()
