@@ -4,8 +4,8 @@ import Testing
 
 @Suite("TerminalActivity")
 struct TerminalActivityTests {
-    @Test("explicit progress has highest priority")
-    func explicitProgressWins() {
+    @Test("waiting takes priority over explicit progress")
+    func waitingWinsOverExplicitProgress() {
         let progress = TerminalProgress(kind: .set, percent: 40)
         let activity = TerminalActivity.resolve(
             progress: progress,
@@ -13,16 +13,28 @@ struct TerminalActivityTests {
             unreadCount: 2,
             completionPending: true
         )
-        #expect(activity == .working(progress))
+        #expect(activity == .waiting)
     }
 
-    @Test("agent working takes priority over waiting indicators")
+    @Test("finished takes priority over active progress and unread")
+    func finishedWinsOverProgressAndUnread() {
+        let progress = TerminalProgress(kind: .set, percent: 40)
+        let activity = TerminalActivity.resolve(
+            progress: progress,
+            agentStatus: .working,
+            unreadCount: 2,
+            completionPending: true
+        )
+        #expect(activity == .finished)
+    }
+
+    @Test("agent working takes priority over unread")
     func agentWorkingWins() {
         let activity = TerminalActivity.resolve(
             progress: nil,
             agentStatus: .working,
             unreadCount: 2,
-            completionPending: true
+            completionPending: false
         )
         #expect(activity == .working(TerminalProgress(kind: .indeterminate, percent: nil)))
     }
@@ -38,15 +50,15 @@ struct TerminalActivityTests {
         #expect(activity == .waiting)
     }
 
-    @Test("unread takes priority over finished")
-    func unreadWins() {
+    @Test("finished takes priority over unread")
+    func finishedWinsOverUnread() {
         let activity = TerminalActivity.resolve(
             progress: nil,
             agentStatus: .idle,
             unreadCount: 2,
             completionPending: true
         )
-        #expect(activity == .unread(2))
+        #expect(activity == .finished)
     }
 
     @Test("finished appears without higher-priority activity")

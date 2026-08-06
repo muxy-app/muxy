@@ -13,6 +13,7 @@ struct TabFocusedSidebar: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @State private var expansionStore = TabFocusedSidebarState.shared
+    @State private var agentStatusStore = AgentStatusStore.shared
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
     @AppStorage(WorktreeListPreferences.groupWorktreesKey)
@@ -40,15 +41,41 @@ struct TabFocusedSidebar: View {
         return Project.home
     }
 
-    private var projects: [Project] {
+    private var allProjects: [Project] {
         let stored = projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
-        let all = homeProject.map { [$0] + stored } ?? stored
+        return homeProject.map { [$0] + stored } ?? stored
+    }
+
+    private var projects: [Project] {
+        let all = allProjects
         return TabFocusedSidebarProjectSelection.resolve(
             projects: all,
             focusMode: expansionStore.focusMode,
             activeProjectID: appState.activeProjectID,
             content: content
         )
+    }
+
+    private var attentionItems: [TabFocusedAttentionItem] {
+        agentStatusStore.attentionEntries().compactMap { entry in
+            guard let location = appState.locateTab(forPane: entry.paneID) else { return nil }
+            let project = allProjects.first { $0.id == entry.projectID }
+            let worktree = worktreeStore.worktree(projectID: entry.projectID, worktreeID: entry.worktreeID)
+            let scopeTitle = [project?.localizedDisplayName, worktree?.sidebarDisplayName]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+            return TabFocusedAttentionItem(
+                paneID: entry.paneID,
+                projectID: entry.projectID,
+                worktreeID: entry.worktreeID,
+                worktreePath: worktree?.path ?? location.tab.content.projectPath,
+                areaID: location.areaID,
+                tabID: location.tab.id,
+                tabTitle: location.tab.localizedTitle,
+                scopeTitle: scopeTitle.isEmpty ? location.tab.content.projectPath : scopeTitle,
+                state: entry.status == .waiting ? .waiting : .finished
+            )
+        }
     }
 
     private var rows: [TabFocusedSidebarRowItem] {
@@ -88,6 +115,12 @@ struct TabFocusedSidebar: View {
             }
             .padding(.horizontal, UIMetrics.spacing3)
             .padding(.top, UIMetrics.spacing2)
+
+            if !attentionItems.isEmpty {
+                TabFocusedAttentionMenu(items: attentionItems, onSelect: navigate(to:))
+                    .padding(.horizontal, UIMetrics.spacing3)
+                    .padding(.top, UIMetrics.spacing2)
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -145,6 +178,16 @@ struct TabFocusedSidebar: View {
             worktreeStore: worktreeStore,
             projectGroupStore: projectGroupStore
         )
+    }
+
+    private func navigate(to item: TabFocusedAttentionItem) {
+        appState.dispatch(.selectProject(
+            projectID: item.projectID,
+            worktreeID: item.worktreeID,
+            worktreePath: item.worktreePath
+        ))
+        appState.dispatch(.focusArea(projectID: item.projectID, areaID: item.areaID))
+        appState.dispatch(.selectTab(projectID: item.projectID, areaID: item.areaID, tabID: item.tabID))
     }
 
     private var displayedRecentlyRemovedProjects: [RecentlyRemovedProject] {

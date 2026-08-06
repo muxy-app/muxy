@@ -19,20 +19,20 @@ enum TerminalActivity: Equatable {
         unreadCount: Int,
         completionPending: Bool
     ) -> TerminalActivity? {
+        if agentStatus == .waiting {
+            return .waiting
+        }
+        if completionPending {
+            return .finished
+        }
         if let progress {
             return .working(progress)
         }
         if agentStatus == .working {
             return .working(TerminalProgress(kind: .indeterminate, percent: nil))
         }
-        if agentStatus == .waiting {
-            return .waiting
-        }
         if unreadCount > 0 {
             return .unread(unreadCount)
-        }
-        if completionPending {
-            return .finished
         }
         return nil
     }

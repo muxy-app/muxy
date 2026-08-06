@@ -247,13 +247,13 @@ struct AgentStatusTests {
         #expect(AgentStatusStore.winningEntry(among: []) == nil)
     }
 
-    @Test("the most active pane wins regardless of recency")
-    func aggregatePrefersMostActive() {
+    @Test("a waiting pane wins over a working pane regardless of recency")
+    func aggregatePrefersWaiting() {
         let worktreeID = UUID()
         let working = entry(.working, worktreeID: worktreeID, at: 0)
         let waiting = entry(.waiting, worktreeID: worktreeID, at: 100)
         let idle = entry(.idle, worktreeID: worktreeID, at: 200)
-        #expect(AgentStatusStore.winningEntry(among: [idle, waiting, working]) == working)
+        #expect(AgentStatusStore.winningEntry(among: [idle, waiting, working]) == waiting)
     }
 
     @Test("ties on status break toward the most recent pane")
@@ -384,6 +384,21 @@ struct AgentStatusStoreTests {
         store.clearCompletion(for: paneID)
         send(store, paneID, .idle, sequence: 2)
         #expect(!store.isCompletionPending(forPane: paneID))
+    }
+
+    @Test("attention entries include waiting and finished panes")
+    func attentionEntriesIncludeWaitingAndFinishedPanes() {
+        let (store, _, paneIDs) = makeContext(paneCount: 2)
+        let finishedPaneID = paneIDs[0]
+        let waitingPaneID = paneIDs[1]
+
+        send(store, finishedPaneID, .working, sequence: 1)
+        send(store, finishedPaneID, .idle, sequence: 2)
+        send(store, waitingPaneID, .waiting, sequence: 3)
+
+        let entries = store.attentionEntries()
+        #expect(entries.map(\.paneID).contains(finishedPaneID))
+        #expect(entries.map(\.paneID).contains(waitingPaneID))
     }
 
     @Test("detection loss idles a working agent only after grace with no hook events")

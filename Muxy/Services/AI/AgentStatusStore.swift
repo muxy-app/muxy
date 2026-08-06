@@ -9,7 +9,7 @@ enum AgentStatus: String, Equatable, Codable {
     var priority: Int {
         switch self {
         case .working: 2
-        case .waiting: 1
+        case .waiting: 3
         case .idle: 0
         }
     }
@@ -245,6 +245,17 @@ final class AgentStatusStore {
 
     func hasCompletionPending(forProject projectID: UUID) -> Bool {
         completionPending.contains { panes[$0]?.projectID == projectID }
+    }
+
+    func attentionEntries() -> [Entry] {
+        panes.values
+            .filter { $0.status == .waiting || completionPending.contains($0.paneID) }
+            .sorted { lhs, rhs in
+                if lhs.status.priority != rhs.status.priority {
+                    return lhs.status.priority > rhs.status.priority
+                }
+                return lhs.updatedAt > rhs.updatedAt
+            }
     }
 
     nonisolated static func marksCompletion(from previous: AgentStatus?, to current: AgentStatus) -> Bool {

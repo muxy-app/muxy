@@ -10,16 +10,16 @@ struct TerminalActivityIndicator: View {
                 .controlSize(.mini)
                 .accessibilityLabel(L10n.string("Working"))
         case .waiting:
-            Circle()
-                .fill(MuxyTheme.warning)
-                .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
+            Image(systemName: "questionmark.circle.fill")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .foregroundStyle(MuxyTheme.warning)
                 .accessibilityLabel(L10n.string("Waiting for attention"))
         case let .unread(count):
             NotificationBadge(count: count)
         case .finished:
-            Circle()
-                .fill(MuxyTheme.accent)
-                .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .foregroundStyle(MuxyTheme.accent)
                 .accessibilityLabel(L10n.string("Finished"))
         }
     }

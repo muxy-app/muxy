@@ -363,6 +363,15 @@ struct TabFocusedTabRow: View {
         TerminalProgress.tabIndicator(progress: paneProgress, agentStatus: agentStatus)
     }
 
+    private var tabAttention: TerminalActivity? {
+        TerminalActivity.resolve(
+            progress: nil,
+            agentStatus: agentStatus == .waiting ? .waiting : nil,
+            unreadCount: !active && hasUnread ? 1 : 0,
+            completionPending: !active && hasCompletionPending
+        )
+    }
+
     private var hasCompletionPending: Bool {
         relatedTabs.compactMap { $0.content.pane?.id }.contains {
             progressStore.isCompletionPending(for: $0)
@@ -384,16 +393,6 @@ struct TabFocusedTabRow: View {
             AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
         }
         return statuses.contains(.waiting) ? .waiting : statuses.first
-    }
-
-    private var statusDotColor: Color? {
-        if agentStatus == .waiting {
-            return MuxyTheme.warning
-        }
-        if !active, hasUnread || hasCompletionPending {
-            return MuxyTheme.accent
-        }
-        return nil
     }
 
     @State private var hovered = false
@@ -627,22 +626,20 @@ struct TabFocusedTabRow: View {
 
     @ViewBuilder
     private var statusAccessory: some View {
-        if tab.isPinned {
+        if let tabAttention {
+            TerminalActivityIndicator(activity: tabAttention)
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+        } else if tab.isPinned {
             Image(systemName: "pin.fill")
                 .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
-        } else if let shortcutNumber, let combo = shortcutHint {
-            ShortcutIconBadge(number: shortcutNumber, size: UIMetrics.iconMD, combo: combo)
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         } else if let progress = tabProgress {
             TerminalProgressCircle(progress: progress)
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                 .transition(.opacity)
-        } else if let dotColor = statusDotColor {
-            Circle()
-                .fill(dotColor)
-                .frame(width: UIMetrics.scaled(7), height: UIMetrics.scaled(7))
+        } else if let shortcutNumber, let combo = shortcutHint {
+            ShortcutIconBadge(number: shortcutNumber, size: UIMetrics.iconMD, combo: combo)
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         } else if isIdle, !active {
             Image(systemName: "moon.zzz")
