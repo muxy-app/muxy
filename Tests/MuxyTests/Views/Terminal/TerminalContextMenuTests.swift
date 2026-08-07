@@ -59,6 +59,48 @@ struct TerminalContextMenuTests {
         #expect(!view.makeContextMenu().autoenablesItems)
     }
 
+    @Test("close pane shows its shortcut and invokes the clicked pane action")
+    func closePaneInvokesAction() throws {
+        let flag = TerminalClosePaneActionFlag()
+        let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
+        view.onClosePane = {
+            flag.didInvoke = true
+        }
+
+        let item = try menuItem(titled: "Close Pane", in: view.makeContextMenu())
+        let shortcut = KeyBindingStore.shared.combo(for: .closePane)
+
+        #expect(item.isEnabled)
+        #expect(item.keyEquivalent == shortcut.nsKeyEquivalent)
+        #expect(item.keyEquivalentModifierMask == shortcut.nsModifierFlags)
+
+        _ = item.target?.perform(item.action, with: item)
+
+        #expect(flag.didInvoke)
+    }
+
+    @Test("close pane is disabled when the pane cannot be closed independently")
+    func closePaneRequiresAvailableAction() throws {
+        let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
+
+        let item = try menuItem(titled: "Close Pane", in: view.makeContextMenu())
+
+        #expect(!item.isEnabled)
+    }
+
+    @Test("split actions show their configured shortcuts")
+    func splitActionsShowShortcuts() throws {
+        let menu = GhosttyTerminalNSView(workingDirectory: "/tmp").makeContextMenu()
+
+        for (title, action) in [("Split Right", ShortcutAction.splitRight), ("Split Down", .splitDown)] {
+            let item = try menuItem(titled: title, in: menu)
+            let shortcut = KeyBindingStore.shared.combo(for: action)
+
+            #expect(item.keyEquivalent == shortcut.nsKeyEquivalent)
+            #expect(item.keyEquivalentModifierMask == shortcut.nsModifierFlags)
+        }
+    }
+
     @Test("terminal settings item opens settings focused on Terminal")
     func terminalSettingsItemOpensTerminalSettings() throws {
         let notificationCenter = NotificationCenter()
@@ -95,6 +137,11 @@ struct TerminalContextMenuTests {
             $0.title == L10n.string("Send to Background")
         })
     }
+
+    private func menuItem(titled title: String, in menu: NSMenu) throws -> NSMenuItem {
+        menu.update()
+        return try #require(menu.items.first { $0.title == L10n.string(key: title) })
+    }
 }
 
 private final class TerminalSettingsOpenFlag: @unchecked Sendable {
@@ -102,5 +149,9 @@ private final class TerminalSettingsOpenFlag: @unchecked Sendable {
 }
 
 private final class TerminalBackgroundActionFlag {
+    var didInvoke = false
+}
+
+private final class TerminalClosePaneActionFlag {
     var didInvoke = false
 }

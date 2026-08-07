@@ -10,6 +10,7 @@ struct TerminalPane: View {
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
+    let onClosePane: (() -> Void)?
 
     @Bindable private var ownership = PaneOwnershipStore.shared
     @Environment(\.overlayActive) private var overlayActive
@@ -72,7 +73,8 @@ struct TerminalPane: View {
                 topLevelGroupID: topLevelGroupID,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
-                onSplitRequest: onSplitRequest
+                onSplitRequest: onSplitRequest,
+                onClosePane: onClosePane
             )
             .accessibilityElement(children: .contain)
             .accessibilityLabel(L10n.string("Terminal"))
@@ -253,6 +255,7 @@ struct TerminalBridge: NSViewRepresentable {
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
+    let onClosePane: (() -> Void)?
     @Environment(\.overlayActive) private var overlayActive
     @Environment(\.activeWorktreeKey) private var worktreeKey
     @Environment(\.paneWorkspaceContext) private var workspaceContext
@@ -445,6 +448,7 @@ struct TerminalBridge: NSViewRepresentable {
         surface.onFocus = onFocus
         surface.onProcessExit = makeProcessExitHandler(surface)
         surface.onSplitRequest = onSplitRequest
+        surface.onClosePane = onClosePane
         if let backgroundingSurface = surface as? any TerminalBackgroundingSurface {
             let paneID = state.id
             backgroundingSurface.canSendToBackground = { [weak appState] in

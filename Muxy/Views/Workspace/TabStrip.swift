@@ -2,31 +2,6 @@ import MuxyShared
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct PaneCloseTarget: Equatable {
-    let areaID: UUID
-    let tabID: UUID
-    let isPinned: Bool
-}
-
-@MainActor
-enum PaneCloseControlPolicy {
-    static func target(
-        isActiveGroup: Bool,
-        focusedAreaID: UUID?,
-        panes: [(area: TabArea, tab: TerminalTab)]
-    ) -> PaneCloseTarget? {
-        guard isActiveGroup,
-              let focusedAreaID,
-              let pane = panes.first(where: { $0.area.id == focusedAreaID })
-        else { return nil }
-        return PaneCloseTarget(areaID: pane.area.id, tabID: pane.tab.id, isPinned: pane.tab.isPinned)
-    }
-
-    static func isVisible(paneCount: Int, target: PaneCloseTarget?) -> Bool {
-        paneCount > 1 && target?.isPinned == false
-    }
-}
-
 struct PaneTabStrip: View {
     struct TabSnapshot: Identifiable {
         let id: UUID
@@ -74,7 +49,6 @@ struct PaneTabStrip: View {
     var showMaximizeButton = false
     var isMaximized = false
     var onToggleMaximize: (() -> Void)?
-    var onClosePane: (() -> Void)?
     let onCreateTabAdjacent: (UUID, TabArea.InsertSide) -> Void
     let onTogglePin: (UUID) -> Void
     let onSetCustomTitle: (UUID, String?) -> Void
@@ -159,10 +133,6 @@ struct PaneTabStrip: View {
                         : L10n.string("Maximize Pane")
                     IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
                         .help(shortcutTooltip(L10n.string("Toggle Maximize Pane"), for: .toggleMaximizePane))
-                }
-                if let onClosePane {
-                    IconButton(symbol: "xmark", accessibilityLabel: L10n.string("Close Pane"), action: onClosePane)
-                        .help(shortcutTooltip(L10n.string("Close Pane"), for: .closePane))
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: L10n.string("Split Right")) { onSplit(.horizontal) }
                     .help(shortcutTooltip(L10n.string("Split Right"), for: .splitRight))

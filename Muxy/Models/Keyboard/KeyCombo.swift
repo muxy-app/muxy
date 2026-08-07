@@ -218,6 +218,24 @@ struct KeyCombo: Codable, Equatable, Hashable {
         NSEvent.ModifierFlags(rawValue: modifiers).intersection(Self.supportedModifierMask)
     }
 
+    var nsKeyEquivalent: String {
+        guard isAssigned else { return "" }
+        return switch key {
+        case Self.leftArrowKey: Self.functionKeyEquivalent(NSLeftArrowFunctionKey)
+        case Self.rightArrowKey: Self.functionKeyEquivalent(NSRightArrowFunctionKey)
+        case Self.upArrowKey: Self.functionKeyEquivalent(NSUpArrowFunctionKey)
+        case Self.downArrowKey: Self.functionKeyEquivalent(NSDownArrowFunctionKey)
+        case Self.tabKey: "\t"
+        case Self.returnKey: "\r"
+        case Self.spaceKey: " "
+        default: key
+        }
+    }
+
+    private static func functionKeyEquivalent(_ value: Int) -> String {
+        Unicode.Scalar(value).map(String.init) ?? ""
+    }
+
     var swiftUIKeyEquivalent: KeyEquivalent {
         switch key {
         case "[": KeyEquivalent("[")

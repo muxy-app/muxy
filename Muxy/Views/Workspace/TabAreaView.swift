@@ -30,6 +30,19 @@ struct TabAreaView: View {
         return (draggedTab.parentTabID ?? draggedTab.id) == (tab.parentTabID ?? tab.id)
     }
 
+    private var closePaneAction: (() -> Void)? {
+        guard !tab.isPinned,
+              let worktreeKey,
+              let visibleLayout = appState.visibleLayout(for: worktreeKey, groupID: topLevelGroupID),
+              visibleLayout.allPanes().count > 1
+        else { return nil }
+        let tabID = tab.id
+        let areaID = area.id
+        return { [weak appState] in
+            appState?.closePane(tabID, areaID: areaID, projectID: projectID)
+        }
+    }
+
     var body: some View {
         TabContentView(
             tab: tab,
@@ -47,7 +60,8 @@ struct TabAreaView: View {
                     direction: direction,
                     position: position
                 )))
-            }
+            },
+            onClosePane: closePaneAction
         )
         .overlay {
             if ownsActivePaneDrag,
@@ -168,6 +182,7 @@ private struct TabContentView: View {
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
+    let onClosePane: (() -> Void)?
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
 
     var body: some View {
@@ -181,7 +196,8 @@ private struct TabContentView: View {
                 topLevelGroupID: topLevelGroupID,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
-                onSplitRequest: onSplitRequest
+                onSplitRequest: onSplitRequest,
+                onClosePane: onClosePane
             )
         case let .extensionWebView(extensionState):
             ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)

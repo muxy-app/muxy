@@ -144,6 +144,19 @@ struct KeyComboTests {
         #expect(modifiers.contains(.option))
     }
 
+    @Test("AppKit key equivalents support configured menu shortcuts")
+    func appKitKeyEquivalents() {
+        #expect(KeyCombo(key: "w", command: true).nsKeyEquivalent == "w")
+        #expect(KeyCombo(key: "tab", control: true).nsKeyEquivalent == "\t")
+        #expect(KeyCombo(key: "return", command: true).nsKeyEquivalent == "\r")
+        #expect(KeyCombo(key: "space", command: true).nsKeyEquivalent == " ")
+        #expect(
+            KeyCombo(key: "leftarrow", command: true).nsKeyEquivalent
+                == String(Unicode.Scalar(NSLeftArrowFunctionKey)!)
+        )
+        #expect(KeyCombo(key: "", modifiers: 0).nsKeyEquivalent.isEmpty)
+    }
+
     @Test("scalar uses ANSI keyCode mapping")
     func scalarFromKeyCode() {
         #expect(KeyCombo.scalar(for: 9)?.value == Unicode.Scalar("v").value)

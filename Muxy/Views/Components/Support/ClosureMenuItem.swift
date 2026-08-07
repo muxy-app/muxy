@@ -9,6 +9,11 @@ final class ClosureMenuItem: NSMenuItem {
         target = self
     }
 
+    convenience init(title: String, shortcut: KeyCombo, handler: @escaping () -> Void) {
+        self.init(title: title, keyEquivalent: shortcut.nsKeyEquivalent, handler: handler)
+        keyEquivalentModifierMask = shortcut.nsModifierFlags
+    }
+
     @available(*, unavailable)
     required init(coder: NSCoder) {
         fatalError("init(coder:) is not supported")

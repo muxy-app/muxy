@@ -39,30 +39,6 @@ struct TopLevelTabGroupStrip: View {
         return panes.first?.area.id
     }
 
-    private var closeTarget: PaneCloseTarget? {
-        PaneCloseControlPolicy.target(
-            isActiveGroup: appState.activeTopLevelTabID(for: worktreeKey) == group?.activeTabID,
-            focusedAreaID: appState.focusedAreaID[worktreeKey],
-            panes: visibleLayout?.allPanes() ?? []
-        )
-    }
-
-    private var closePaneAction: (() -> Void)? {
-        guard let closeTarget,
-              PaneCloseControlPolicy.isVisible(
-                  paneCount: visibleLayout?.allPanes().count ?? 0,
-                  target: closeTarget
-              )
-        else { return nil }
-        return {
-            appState.closePane(
-                closeTarget.tabID,
-                areaID: closeTarget.areaID,
-                projectID: project.id
-            )
-        }
-    }
-
     private var maximizedAreaID: UUID? {
         guard let maximizedPane = appState.maximizedPanes[worktreeKey],
               maximizedPane.topLevelTabID == group?.activeTabID,
@@ -124,7 +100,6 @@ struct TopLevelTabGroupStrip: View {
                         )
                     }
                 },
-                onClosePane: closePaneAction,
                 onCreateTabAdjacent: createTabAdjacent,
                 onTogglePin: { tabID in
                     appState.togglePinTopLevelTab(tabID, for: worktreeKey)

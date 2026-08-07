@@ -720,13 +720,7 @@ struct MainWindow: View {
                let key = appState.activeWorktreeKey(for: project.id),
                let focusedAreaID = appState.focusedAreaID[key]
             {
-                let visiblePanes = appState.visibleLayout(for: key)?.allPanes() ?? []
-                let visiblePaneCount = visiblePanes.count
-                let closeTarget = PaneCloseControlPolicy.target(
-                    isActiveGroup: true,
-                    focusedAreaID: focusedAreaID,
-                    panes: visiblePanes
-                )
+                let visiblePaneCount = appState.visibleLayout(for: key)?.allPanes().count ?? 0
                 let isMaximized = appState.maximizedPanes[key] != nil
                 if visiblePaneCount > 1 || isMaximized {
                     let symbol = isMaximized
@@ -736,21 +730,6 @@ struct MainWindow: View {
                     IconButton(symbol: symbol, accessibilityLabel: label) {
                         appState.toggleMaximize(areaID: focusedAreaID, for: project.id)
                     }
-                }
-                if PaneCloseControlPolicy.isVisible(
-                    paneCount: visiblePaneCount,
-                    target: closeTarget
-                ), let closeTarget {
-                    IconButton(symbol: "xmark", accessibilityLabel: L10n.string("Close Pane")) {
-                        appState.closePane(
-                            closeTarget.tabID,
-                            areaID: closeTarget.areaID,
-                            projectID: project.id
-                        )
-                    }
-                    .help(L10n.string(
-                        "Close Pane (\(KeyBindingStore.shared.combo(for: .closePane).displayString))"
-                    ))
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: L10n.string("Split Right")) {
                     appState.dispatch(.splitArea(.init(

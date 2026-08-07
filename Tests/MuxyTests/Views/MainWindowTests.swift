@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 @testable import Muxy
 
@@ -54,50 +53,5 @@ struct MainWindowVoiceInputPolicyTests {
 
     @Test func activatesVoiceInVisibleComposer() {
         #expect(MainWindowVoiceInputPolicy.target(composerVisible: true) == .composer)
-    }
-}
-
-@Suite("Pane close control policy")
-@MainActor
-struct PaneCloseControlPolicyTests {
-    @Test("shows the close control for an unpinned split target")
-    func splitTargetVisibility() {
-        let area = TabArea(projectPath: "/tmp/test")
-        let target = PaneCloseControlPolicy.target(
-            isActiveGroup: true,
-            focusedAreaID: area.id,
-            panes: [(area, area.activeTab!)]
-        )
-
-        #expect(PaneCloseControlPolicy.isVisible(paneCount: 2, target: target))
-    }
-
-    @Test("hides the close control without a split, target, or closable tab")
-    func unavailableTargetVisibility() {
-        let area = TabArea(projectPath: "/tmp/test")
-        let tab = area.activeTab!
-        let target = PaneCloseTarget(areaID: area.id, tabID: tab.id, isPinned: false)
-        let pinnedTarget = PaneCloseTarget(areaID: area.id, tabID: tab.id, isPinned: true)
-
-        #expect(!PaneCloseControlPolicy.isVisible(paneCount: 1, target: target))
-        #expect(!PaneCloseControlPolicy.isVisible(paneCount: 2, target: nil))
-        #expect(!PaneCloseControlPolicy.isVisible(paneCount: 2, target: pinnedTarget))
-    }
-
-    @Test("does not target an inactive group or an area outside the visible layout")
-    func explicitTargeting() {
-        let area = TabArea(projectPath: "/tmp/test")
-        let panes = [(area: area, tab: area.activeTab!)]
-
-        #expect(PaneCloseControlPolicy.target(
-            isActiveGroup: false,
-            focusedAreaID: area.id,
-            panes: panes
-        ) == nil)
-        #expect(PaneCloseControlPolicy.target(
-            isActiveGroup: true,
-            focusedAreaID: UUID(),
-            panes: panes
-        ) == nil)
     }
 }

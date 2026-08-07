@@ -33,6 +33,7 @@ final class GhosttyTerminalNSView: NSView,
     var onExternalDragHoverChange: ((Bool) -> Void)?
     var onProcessExit: (() -> Void)?
     var onSplitRequest: ((SplitDirection, SplitPosition) -> Void)?
+    var onClosePane: (() -> Void)?
     var canSendToBackground: (() -> Bool)?
     var onSendToBackground: (() -> Void)?
     var onSessionRecoveryFailed: ((Bool) -> Void)?
@@ -383,6 +384,7 @@ final class GhosttyTerminalNSView: NSView,
         onExternalDragHoverChange = nil
         onProcessExit = nil
         onSplitRequest = nil
+        onClosePane = nil
         canSendToBackground = nil
         onSendToBackground = nil
         onSessionRecoveryFailed = nil
@@ -1579,10 +1581,26 @@ final class GhosttyTerminalNSView: NSView,
 
         menu.addItem(.separator())
 
-        menu.addItem(contextSplitMenuItem(title: L10n.string("Split Right"), direction: .horizontal, position: .second))
+        menu.addItem(contextSplitMenuItem(
+            title: L10n.string("Split Right"),
+            direction: .horizontal,
+            position: .second,
+            shortcut: .splitRight
+        ))
         menu.addItem(contextSplitMenuItem(title: L10n.string("Split Left"), direction: .horizontal, position: .first))
-        menu.addItem(contextSplitMenuItem(title: L10n.string("Split Down"), direction: .vertical, position: .second))
+        menu.addItem(contextSplitMenuItem(
+            title: L10n.string("Split Down"),
+            direction: .vertical,
+            position: .second,
+            shortcut: .splitDown
+        ))
         menu.addItem(contextSplitMenuItem(title: L10n.string("Split Up"), direction: .vertical, position: .first))
+
+        let closePane = contextMenuItem(title: L10n.string("Close Pane"), shortcut: .closePane) { [weak self] in
+            self?.onClosePane?()
+        }
+        closePane.isEnabled = onClosePane != nil
+        menu.addItem(closePane)
 
         menu.addItem(.separator())
 
@@ -1594,10 +1612,28 @@ final class GhosttyTerminalNSView: NSView,
         return menu
     }
 
-    private func contextSplitMenuItem(title: String, direction: SplitDirection, position: SplitPosition) -> NSMenuItem {
-        ClosureMenuItem(title: title) { [weak self] in
+    private func contextSplitMenuItem(
+        title: String,
+        direction: SplitDirection,
+        position: SplitPosition,
+        shortcut: ShortcutAction? = nil
+    ) -> NSMenuItem {
+        contextMenuItem(title: title, shortcut: shortcut) { [weak self] in
             self?.onSplitRequest?(direction, position)
         }
+    }
+
+    private func contextMenuItem(
+        title: String,
+        shortcut: ShortcutAction?,
+        handler: @escaping () -> Void
+    ) -> NSMenuItem {
+        guard let shortcut else { return ClosureMenuItem(title: title, handler: handler) }
+        return ClosureMenuItem(
+            title: title,
+            shortcut: KeyBindingStore.shared.combo(for: shortcut),
+            handler: handler
+        )
     }
 
     private func performContextPaste() {
