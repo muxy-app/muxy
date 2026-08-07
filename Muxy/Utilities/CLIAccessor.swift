@@ -349,10 +349,31 @@ enum CLIAccessor {
     }
 
     private static func waitForKeyWindow() async {
-        for await _ in NotificationCenter.default.notifications(named: NSWindow.didBecomeKeyNotification) {
-            guard readyWindow() != nil else { continue }
-            return
+        let center = NotificationCenter.default
+        let holder = ObserverHolder()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            holder.token = center.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    guard readyWindow() != nil, let token = holder.token else { return }
+                    center.removeObserver(token)
+                    holder.token = nil
+                    continuation.resume()
+                }
+            }
+            guard readyWindow() != nil, let token = holder.token else { return }
+            center.removeObserver(token)
+            holder.token = nil
+            continuation.resume()
         }
+    }
+
+    @MainActor
+    private final class ObserverHolder {
+        var token: NSObjectProtocol?
     }
 
     private static func alert(
