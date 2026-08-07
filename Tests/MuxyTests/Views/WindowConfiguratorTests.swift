@@ -15,10 +15,10 @@ struct WindowConfiguratorTests {
         #expect(window.tabbingMode == .disallowed)
     }
 
-    @Test("uses a tinted native sidebar material")
-    func usesTintedNativeSidebarMaterial() {
+    @Test("uses a theme-bound native sidebar material")
+    func usesThemeBoundNativeSidebarMaterial() {
         #expect(AppSidebarVibrancy.material == .sidebar)
-        #expect(AppSidebarVibrancy.blendingMode == .behindWindow)
+        #expect(AppSidebarVibrancy.blendingMode == .withinWindow)
         #expect(AppSidebarVibrancy.state == .active)
         #expect(AppSidebarVibrancy.themeOverlayOpacity == 0.6)
     }

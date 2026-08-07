@@ -99,6 +99,6 @@ Open **Settings → Interface → Appearance** to make the main window's workspa
 - **App transparency** controls how much of the desktop shows through terminal panes, the top bar, and the status bar from 0–55%. The default is 0, which keeps the window opaque.
 - **App vibrancy** continuously controls the native macOS material intensity from 0–100%. The main window itself stays opaque, so the desktop shows through the vibrancy material and the effect needs a vibrancy above zero.
 
-The sidebar keeps its separate **Vibrancy** toggle in the same settings category. Both sliders apply immediately to open terminals, including split panes, and to the top bar and status bar. The values are stored in `settings.json` as `muxy.app.transparency` (integer percentage 0–55) and `muxy.app.blur` (integer material intensity 0–100).
+The sidebar keeps its separate **Vibrancy** toggle in the same settings category. Sidebar vibrancy blends with Muxy's theme inside the window and does not expose desktop colors. Both sliders apply immediately to open terminals, including split panes, and to the top bar and status bar. The values are stored in `settings.json` as `muxy.app.transparency` (integer percentage 0–55) and `muxy.app.blur` (integer material intensity 0–100).
 
 When macOS Reduce Transparency or Increase Contrast is enabled, Muxy renders the workspace opaque and unblurred without changing the saved settings. A terminal pane controlled by a remote device keeps its opaque client theme until control returns to the Mac.
