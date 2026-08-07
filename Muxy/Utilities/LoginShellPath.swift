@@ -189,8 +189,8 @@ final class LoginShellPath: @unchecked Sendable {
 
     private static func terminate(_ process: Process) {
         process.terminate()
-        let deadline = Date().addingTimeInterval(0.5)
-        while process.isRunning, Date() < deadline {
+        let deadline = ContinuousClock.now + .milliseconds(500)
+        while process.isRunning, ContinuousClock.now < deadline {
             usleep(10000)
         }
         guard process.isRunning else { return }
