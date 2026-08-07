@@ -163,7 +163,7 @@ final class LoginShellPath: @unchecked Sendable {
         stderrReader.start()
 
         let waiter = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
+        Thread.detachNewThread {
             process.waitUntilExit()
             waiter.signal()
         }
@@ -254,7 +254,7 @@ private final class BoundedPipeReader: @unchecked Sendable {
     }
 
     func start() {
-        DispatchQueue.global(qos: .utility).async { [self] in
+        Thread.detachNewThread { [self] in
             var collected = Data()
             while true {
                 let chunk = (try? handle.read(upToCount: 65536)) ?? Data()

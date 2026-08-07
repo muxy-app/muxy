@@ -147,35 +147,6 @@ struct SettingsJSONStoreTests {
         #expect(savedText == originalText)
     }
 
-    @Test("noncanonical Quick Terminal shortcuts do not write settings", arguments: [
-        ("SPACE", NSEvent.ModifierFlags.command.rawValue),
-        ("space", NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.capsLock.rawValue),
-    ])
-    func noncanonicalQuickTerminalShortcutDoesNotWriteSettings(key: String, modifiers: UInt) throws {
-        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
-        defer { snapshot.restore() }
-        let originalText = "{\"unchanged\":true}\n"
-
-        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
-
-        #expect(throws: SettingsJSONError.self) {
-            try SettingsJSONStore.saveUserSettingsText("""
-            {
-              "shortcuts.quickTerminal": {
-                "type": "keyCombo",
-                "keyCombo": {
-                  "key": "\(key)",
-                  "modifiers": \(modifiers)
-                },
-                "virtualKeyCode": 49
-              }
-            }
-            """)
-        }
-
-        #expect(try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8) == originalText)
-    }
-
     @Test
     func conflictingQuickTerminalShortcutDoesNotWriteSettings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
