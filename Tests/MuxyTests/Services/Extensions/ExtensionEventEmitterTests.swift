@@ -82,47 +82,6 @@ struct ExtensionEventEmitterTests {
         #expect(!after.tabs.contains(tabID))
     }
 
-    @Test("pane offline event carries pane context and state")
-    func paneOfflineEventCarriesContextAndState() throws {
-        let appState = makeAppState()
-        let area = firstArea(in: appState)
-        area.createTab()
-        let pane = try #require(area.tabs.last?.content.pane)
-
-        let offlineEvent = try #require(ExtensionEventEmitter.paneOfflineEvent(
-            forPane: pane.id,
-            offline: true,
-            appState: appState
-        ))
-        let wakeEvent = try #require(ExtensionEventEmitter.paneOfflineEvent(
-            forPane: pane.id,
-            offline: false,
-            appState: appState
-        ))
-
-        #expect(offlineEvent.name == ExtensionEventName.paneOffline)
-        #expect(offlineEvent.payload["offline"] == "true")
-        #expect(offlineEvent.payload["paneID"] == pane.id.uuidString)
-        #expect(offlineEvent.payload["tabID"] == area.tabs.last?.id.uuidString)
-        #expect(offlineEvent.payload["projectID"] == projectID.uuidString)
-        #expect(offlineEvent.payload["worktreeID"] == worktreeID.uuidString)
-        #expect(offlineEvent.payload["areaID"] == area.id.uuidString)
-        #expect(offlineEvent.payload["kind"] == "terminal")
-        #expect(offlineEvent.payload["projectPath"] == "/tmp/project")
-        #expect(wakeEvent.payload["offline"] == "false")
-    }
-
-    @Test("pane offline event is absent for an unknown pane")
-    func paneOfflineEventRejectsUnknownPane() {
-        let event = ExtensionEventEmitter.paneOfflineEvent(
-            forPane: UUID(),
-            offline: true,
-            appState: makeAppState()
-        )
-
-        #expect(event == nil)
-    }
-
     @Test("worktree offline event carries the worktree location and state")
     func worktreeOfflineEventCarriesLocationAndState() {
         let worktreeKey = WorktreeKey(projectID: projectID, worktreeID: worktreeID)

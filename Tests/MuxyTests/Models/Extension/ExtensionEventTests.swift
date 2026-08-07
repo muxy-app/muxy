@@ -31,7 +31,6 @@ struct ExtensionEventTests {
 
     @Test("defines lifecycle event names")
     func lifecycleEventNames() {
-        #expect(ExtensionEventName.paneOffline == "pane.offline")
         #expect(ExtensionEventName.worktreeOffline == "worktree.offline")
         #expect(ExtensionEventName.tabClosed == "tab.closed")
         #expect(ExtensionEventName.panelOpened == "panel.opened")

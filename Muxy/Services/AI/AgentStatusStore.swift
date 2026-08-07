@@ -155,24 +155,14 @@ final class AgentStatusStore {
     }
 
     func removePane(_ paneID: UUID) {
-        removePanes([paneID])
-    }
-
-    func removePanes(_ paneIDs: some Sequence<UUID>) {
-        var affectedWorktreeIDs = Set<UUID>()
-        for paneID in paneIDs {
-            cancelGrace(for: paneID)
-            detectionLost.remove(paneID)
-            endedSessionPaneIDs.remove(paneID)
-            detectedAgentProcessIDs.removeValue(forKey: paneID)
-            appliedSequence.removeValue(forKey: paneID)
-            completionPending.remove(paneID)
-            guard let removed = panes.removeValue(forKey: paneID) else { continue }
-            affectedWorktreeIDs.insert(removed.worktreeID)
-        }
-        for worktreeID in affectedWorktreeIDs {
-            recompute(worktreeID: worktreeID)
-        }
+        cancelGrace(for: paneID)
+        detectionLost.remove(paneID)
+        endedSessionPaneIDs.remove(paneID)
+        detectedAgentProcessIDs.removeValue(forKey: paneID)
+        appliedSequence.removeValue(forKey: paneID)
+        completionPending.remove(paneID)
+        guard let removed = panes.removeValue(forKey: paneID) else { return }
+        recompute(worktreeID: removed.worktreeID)
     }
 
     func commandExited(paneID: UUID, closesPane: Bool) {

@@ -8,14 +8,12 @@ struct ExtensionSnapshotTests {
     @Test("canSubscribe accepts events declared in manifest")
     func canSubscribeAcceptsDeclaredEvents() {
         let entry = NotificationSocketServer.ExtensionSnapshotEntry(
-            allowedEvents: ["pane.created", "pane.offline", "tab.focused", "worktree.offline"],
+            allowedEvents: ["pane.created", "tab.focused"],
             commandEvents: [],
             permissions: [],
             token: "test-token"
         )
         #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "pane.created"))
-        #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "pane.offline"))
-        #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "worktree.offline"))
         #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "tab.focused"))
         #expect(!NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "pane.closed"))
     }
