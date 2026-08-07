@@ -5,6 +5,7 @@ import Testing
 
 @testable import Muxy
 
+@MainActor
 @Suite("SelectionClipboardWrite", .serialized)
 struct SelectionClipboardWriteTests {
     @Test("shouldWriteSelectionClipboard is false when the setting is disabled")
@@ -68,6 +69,28 @@ struct SelectionClipboardWriteTests {
         }
     }
 
+    @Test("selection-clipboard cleanup restores non-text pasteboard types")
+    func cleanupPreservesNonTextPasteboardTypes() throws {
+        let pasteboard = NSPasteboard.general
+        let outerSnapshot = SystemPasteboardSnapshot.capture()
+        defer { SystemPasteboardSnapshot.restore(items: outerSnapshot) }
+
+        let pngData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x6D, 0x75, 0x78, 0x79])
+        pasteboard.clearContents()
+        pasteboard.setData(pngData, forType: .png)
+        pasteboard.setString("muxy-original-string", forType: .string)
+
+        try withControlledGlobals(autoCopy: true) {
+            Self.writeToAdapter(location: GHOSTTY_CLIPBOARD_SELECTION, payload: "copied-by-ghostty")
+
+            #expect(pasteboard.string(forType: .string) == "copied-by-ghostty")
+            #expect(pasteboard.data(forType: .png) == nil)
+        }
+
+        #expect(pasteboard.string(forType: .string) == "muxy-original-string")
+        #expect(pasteboard.data(forType: .png) == pngData)
+    }
+
     private static func writeToAdapter(location: ghostty_clipboard_e, payload: String) {
         let adapter = GhosttyRuntimeEventAdapter()
         payload.withCString { dataPtr in
@@ -83,8 +106,7 @@ struct SelectionClipboardWriteTests {
     private func withControlledGlobals<T>(autoCopy: Bool?, _ body: () throws -> T) throws -> T {
         let key = GeneralSettingsKeys.autoCopyTerminalSelection
         let originalValue = UserDefaults.standard.object(forKey: key)
-        let pasteboard = NSPasteboard.general
-        let originalPasteboard = pasteboard.string(forType: .string)
+        let savedPasteboard = SystemPasteboardSnapshot.capture()
 
         if let autoCopy {
             UserDefaults.standard.set(autoCopy, forKey: key)
@@ -97,10 +119,7 @@ struct SelectionClipboardWriteTests {
             } else {
                 UserDefaults.standard.removeObject(forKey: key)
             }
-            if let originalPasteboard {
-                pasteboard.clearContents()
-                pasteboard.setString(originalPasteboard, forType: .string)
-            }
+            SystemPasteboardSnapshot.restore(items: savedPasteboard)
         }
         return try body()
     }
