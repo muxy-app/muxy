@@ -65,6 +65,7 @@ enum RichInputSubmitter {
     enum Segment: Equatable {
         case text(String)
         case image(URL)
+        case file(URL)
     }
 
     struct TargetSubmission {
@@ -99,17 +100,11 @@ enum RichInputSubmitter {
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedBody.isEmpty || !fileAttachments.isEmpty || !imageAttachments.isEmpty else { return }
 
-        let pathParts = fileAttachments.map { ShellEscaper.escape($0.path) }
-        var combined = ""
-        if pathParts.isEmpty {
-            combined = body
-        } else if trimmedBody.isEmpty {
-            combined = pathParts.joined(separator: " ")
-        } else {
-            combined = pathParts.joined(separator: " ") + " " + body
-        }
-
-        let segments = tokenize(text: combined, images: imageAttachments)
+        let segments = combinedSegments(
+            fileAttachments: fileAttachments,
+            body: body,
+            imageAttachments: imageAttachments
+        )
         let strategy = EditorSettings.shared.richInputImageStrategy
 
         let views = paneIDs.compactMap { TerminalViewRegistry.shared.existingView(for: $0) }
@@ -122,7 +117,7 @@ enum RichInputSubmitter {
                     segments,
                     strategy: strategy,
                     capabilities: view.capabilities,
-                    isRemote: imagePasteContext(for: view).isRemote
+                    isRemote: isRemoteUploadTarget(view)
                 )
             )
         }
@@ -215,21 +210,14 @@ enum RichInputSubmitter {
         appendReturn: Bool,
         normalizationBatch: RichInputImageNormalizationBatch
     ) async -> Bool {
-        let hasImages = segments.contains { segment in
-            if case .image = segment {
-                true
-            } else {
-                false
+        let uploadSurface = view as? any TerminalUploadSurface
+        var uploadAttempts: [Int: TerminalUploadAttempt] = [:]
+        for (index, segment) in segments.enumerated() {
+            if case .text = segment {
+                continue
             }
-        }
-        let imageSurface = view as? any TerminalImagePasteSurface
-        var imageAttempts: [URL: [TerminalImagePasteAttempt]] = [:]
-        if hasImages {
-            for segment in segments {
-                guard case let .image(url) = segment else { continue }
-                guard let attempt = imageSurface?.beginImagePaste() else { return false }
-                imageAttempts[url, default: []].append(attempt)
-            }
+            guard let attempt = uploadSurface?.beginUpload() else { return false }
+            uploadAttempts[index] = attempt
         }
         view.clearTerminalInput(lineBreakCount: 0)
         do {
@@ -239,47 +227,70 @@ enum RichInputSubmitter {
         }
         guard !Task.isCancelled else { return false }
 
-        guard hasImages else {
+        guard !uploadAttempts.isEmpty else {
             view.sendRemoteBytes(textOnlyPayload(segments: segments, appendReturn: appendReturn))
             return true
         }
-        guard let imageSurface else { return false }
-        var consumedImageCounts: [URL: Int] = [:]
+        guard let uploadSurface else { return false }
         var submittedLineBreaks = 0
-        for segment in segments {
+        for (index, segment) in segments.enumerated() {
             guard !Task.isCancelled else { return false }
-            switch segment {
-            case let .text(chunk):
-                guard !chunk.isEmpty else { continue }
+            guard let attempt = uploadAttempts[index] else {
+                guard case let .text(chunk) = segment, !chunk.isEmpty else { continue }
                 view.submitRichInput(text: chunk)
                 submittedLineBreaks += chunk.count(where: \.isNewline)
-            case let .image(url):
-                let attemptIndex = consumedImageCounts[url, default: 0]
-                guard let attempts = imageAttempts[url], attemptIndex < attempts.count else {
-                    view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
-                    return false
-                }
-                consumedImageCounts[url] = attemptIndex + 1
-                let pngData: Data
-                do {
-                    pngData = try await normalizationBatch.pngData(for: url)
-                } catch {
-                    guard !Task.isCancelled else { return false }
-                    ToastState.shared.show(error.localizedDescription)
-                    view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
-                    return false
-                }
-                guard !Task.isCancelled else { return false }
-                guard await imageSurface.pasteImageData(pngData, attempt: attempts[attemptIndex]) else {
-                    view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
-                    return false
-                }
+                continue
+            }
+            let submitted = await submitAttachment(
+                segment,
+                attempt: attempt,
+                to: view,
+                uploadSurface: uploadSurface,
+                normalizationBatch: normalizationBatch
+            )
+            guard submitted else {
+                view.clearTerminalInput(lineBreakCount: submittedLineBreaks)
+                return false
             }
         }
         if appendReturn {
             view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
         }
         return true
+    }
+
+    private static func submitAttachment(
+        _ segment: Segment,
+        attempt: TerminalUploadAttempt,
+        to view: any TerminalInputSubmissionTarget,
+        uploadSurface: any TerminalUploadSurface,
+        normalizationBatch: RichInputImageNormalizationBatch
+    ) async -> Bool {
+        switch segment {
+        case .text:
+            return false
+        case let .file(url):
+            guard let submissionPath = await uploadSurface.submissionPath(
+                forFileAt: url,
+                attempt: attempt
+            )
+            else {
+                return false
+            }
+            view.submitRichInput(text: submissionPath)
+            return true
+        case let .image(url):
+            let pngData: Data
+            do {
+                pngData = try await normalizationBatch.pngData(for: url)
+            } catch {
+                guard !Task.isCancelled else { return false }
+                ToastState.shared.show(error.localizedDescription)
+                return false
+            }
+            guard !Task.isCancelled else { return false }
+            return await uploadSurface.pasteImageData(pngData, attempt: attempt)
+        }
     }
 
     nonisolated static func selectedSubmissionText(_ selectedText: String?) -> String? {
@@ -303,18 +314,33 @@ enum RichInputSubmitter {
         return payload
     }
 
+    nonisolated static func combinedSegments(
+        fileAttachments: [URL],
+        body: String,
+        imageAttachments: [URL]
+    ) -> [Segment] {
+        guard !fileAttachments.isEmpty else {
+            return tokenize(text: body, images: imageAttachments)
+        }
+        var segments = Array(fileAttachments.flatMap { [Segment.file($0), .text(" ")] }.dropLast())
+        guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return segments }
+        segments.append(.text(" "))
+        segments.append(contentsOf: tokenize(text: body, images: imageAttachments))
+        return segments
+    }
+
     nonisolated static func segmentsForCapabilities(
         _ segments: [Segment],
         strategy: RichInputImageStrategy,
         capabilities: TerminalCapabilities,
         isRemote: Bool
     ) -> [Segment] {
-        resolvedSegments(
+        coalesced(resolvedSegments(
             segments,
             strategy: strategy,
             capabilities: capabilities,
             isRemote: isRemote
-        )
+        ))
     }
 
     nonisolated static func resolvedSegments(
@@ -333,21 +359,44 @@ enum RichInputSubmitter {
         }
     }
 
+    nonisolated static func coalesced(_ segments: [Segment]) -> [Segment] {
+        var result: [Segment] = []
+        for segment in segments {
+            guard case let .text(chunk) = segment,
+                  case let .text(previous)? = result.last
+            else {
+                result.append(segment)
+                continue
+            }
+            result[result.count - 1] = .text(previous + chunk)
+        }
+        return result
+    }
+
     nonisolated private static func resolvedSegment(
         _ segment: Segment,
         strategy: RichInputImageStrategy,
         capabilities: TerminalCapabilities,
         isRemote: Bool
     ) -> Segment {
-        guard case let .image(url) = segment else { return segment }
-        if capabilities.contains(.imagePaste), strategy == .clipboard || isRemote {
+        switch segment {
+        case .text:
+            return segment
+        case let .file(url):
+            guard capabilities.contains(.upload), isRemote else {
+                return .text(ShellEscaper.escape(url.path))
+            }
+            return segment
+        case let .image(url):
+            guard capabilities.contains(.upload), strategy == .clipboard || isRemote else {
+                return .text(ShellEscaper.escape(url.path))
+            }
             return segment
         }
-        return .text(ShellEscaper.escape(url.path))
     }
 
-    private static func imagePasteContext(for view: any TerminalSurface) -> WorkspaceContext {
-        (view as? any TerminalImagePasteSurface)?.imagePasteWorkspaceContext ?? .local
+    private static func isRemoteUploadTarget(_ view: any TerminalSurface) -> Bool {
+        (view as? any TerminalUploadSurface)?.uploadDestination != nil
     }
 
     nonisolated static func tokenize(text: String, images: [URL]) -> [Segment] {

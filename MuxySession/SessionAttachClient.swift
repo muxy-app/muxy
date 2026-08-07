@@ -212,7 +212,8 @@ enum SessionAttachClient {
     }
 
     private static func sendResize(_ connection: SessionConnection) {
-        guard let size = SessionPTY.windowSize(descriptor: STDIN_FILENO) else { return }
+        let size = SessionWindowSizePolicy.attachSize(from: SessionPTY.windowSize(descriptor: STDIN_FILENO))
+        guard SessionWindowSizePolicy.isUsable(columns: size.columns, rows: size.rows) else { return }
         connection.enqueue(SessionFrame(
             kind: .resize,
             payload: SessionResizePayload.encode(columns: size.columns, rows: size.rows)
@@ -220,7 +221,7 @@ enum SessionAttachClient {
     }
 
     private static func makeRequest(_ configuration: Configuration) -> SessionAttachRequest {
-        let size = SessionPTY.windowSize(descriptor: STDIN_FILENO) ?? (columns: 80, rows: 24)
+        let size = SessionWindowSizePolicy.attachSize(from: SessionPTY.windowSize(descriptor: STDIN_FILENO))
         let environment = SessionProcessEnvironment.current()
             .filter { !$0.key.hasPrefix("MUXY_SESSION_") }
             .map { SessionEnvironmentEntry(key: $0.key, value: $0.value) }

@@ -4,6 +4,17 @@ import Foundation
 struct ProcessInvocation {
     let executablePath: String
     let arguments: [String]
+    let workingDirectory: String?
+
+    init(
+        executablePath: String,
+        arguments: [String],
+        workingDirectory: String? = nil
+    ) {
+        self.executablePath = executablePath
+        self.arguments = arguments
+        self.workingDirectory = workingDirectory
+    }
 }
 
 enum ProcessArgumentsInspector {
@@ -39,6 +50,23 @@ enum ProcessArgumentsInspector {
         while arguments.count < Int(argumentCount), offset < buffer.count {
             arguments.append(readString())
         }
-        return ProcessInvocation(executablePath: executablePath, arguments: arguments)
+        return ProcessInvocation(
+            executablePath: executablePath,
+            arguments: arguments,
+            workingDirectory: workingDirectory(pid: Int32(pid))
+        )
+    }
+
+    private static func workingDirectory(pid: Int32) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        let result = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size)
+        guard result == size else { return nil }
+        let path = withUnsafeBytes(of: info.pvi_cdir.vip_path) { rawBuffer in
+            let bytes = rawBuffer.prefix { $0 != 0 }
+            return String(bytes: bytes, encoding: .utf8)
+        }
+        guard let path, !path.isEmpty else { return nil }
+        return path
     }
 }

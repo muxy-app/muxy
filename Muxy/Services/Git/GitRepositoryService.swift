@@ -229,6 +229,22 @@ struct GitRepositoryService {
     }
 
     func currentBranch(repoPath: String) async throws -> String {
+        let symbolicRef = try await runGit(
+            repoPath: repoPath,
+            arguments: ["symbolic-ref", "--quiet", "--short", "HEAD"]
+        )
+        if symbolicRef.status == 0 {
+            let branch = symbolicRef.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !branch.isEmpty else {
+                throw GitError.commandFailed("Failed to get current branch.")
+            }
+            return branch
+        }
+        guard symbolicRef.status == 1 else {
+            throw GitError.commandFailed(
+                symbolicRef.stderr.isEmpty ? "Failed to get current branch." : symbolicRef.stderr
+            )
+        }
         let result = try await runGit(
             repoPath: repoPath,
             arguments: ["rev-parse", "--abbrev-ref", "HEAD"]
@@ -1887,6 +1903,21 @@ struct GitRepositoryService {
             ]
         )
         guard result.status == 0 else {
+            let symbolicRef = try await runGit(
+                repoPath: repoPath,
+                arguments: ["symbolic-ref", "--quiet", "HEAD"]
+            )
+            let headRef = symbolicRef.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard symbolicRef.status == 0, headRef.hasPrefix("refs/heads/") else {
+                throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load commit history." : result.stderr)
+            }
+            let branchRef = try await runGit(
+                repoPath: repoPath,
+                arguments: ["show-ref", "--verify", "--quiet", headRef]
+            )
+            if branchRef.status == 1 {
+                return []
+            }
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load commit history." : result.stderr)
         }
         return GitCommitLogParser.parseCommitLog(result.stdout)

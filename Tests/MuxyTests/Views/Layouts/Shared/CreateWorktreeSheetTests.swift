@@ -9,7 +9,7 @@ struct CreateWorktreeSheetTests {
         let state = WorktreeBranchLoadState()
 
         #expect(state.isLoading)
-        #expect(state.branches.isEmpty)
+        #expect(state.branchOptions.isEmpty)
         #expect(state.selectedExistingBranch.isEmpty)
         #expect(state.selectedBaseBranch.isEmpty)
     }
@@ -21,7 +21,8 @@ struct CreateWorktreeSheetTests {
         state.finishLoading(branches: ["feature", "main"], defaultBranch: "main")
 
         #expect(!state.isLoading)
-        #expect(state.branches == ["feature", "main"])
+        #expect(state.branchOptions.map(\.name) == ["feature", "main"])
+        #expect(state.branchOptions.map(\.id) == ["feature", "main"])
         #expect(state.selectedExistingBranch == "feature")
         #expect(state.selectedBaseBranch == "main")
     }
@@ -58,7 +59,7 @@ struct CreateWorktreeSheetTests {
         state.failLoading()
 
         #expect(!state.isLoading)
-        #expect(state.branches.isEmpty)
+        #expect(state.branchOptions.isEmpty)
         #expect(state.selectedExistingBranch.isEmpty)
         #expect(state.selectedBaseBranch.isEmpty)
     }

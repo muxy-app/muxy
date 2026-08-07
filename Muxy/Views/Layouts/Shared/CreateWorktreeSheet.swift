@@ -6,8 +6,13 @@ enum CreateWorktreeResult {
     case cancelled
 }
 
+struct WorktreeBranchOption: Equatable, Identifiable {
+    let name: String
+    var id: String { name }
+}
+
 struct WorktreeBranchLoadState: Equatable {
-    var branches: [String] = []
+    var branchOptions: [WorktreeBranchOption] = []
     var selectedExistingBranch = ""
     var selectedBaseBranch = ""
     private(set) var isLoading = true
@@ -17,7 +22,7 @@ struct WorktreeBranchLoadState: Equatable {
     }
 
     mutating func finishLoading(branches: [String], defaultBranch: String?) {
-        self.branches = branches
+        branchOptions = branches.map(WorktreeBranchOption.init)
         if selectedExistingBranch.isEmpty {
             selectedExistingBranch = branches.first ?? ""
         }
@@ -37,20 +42,11 @@ struct WorktreeBranchLoadState: Equatable {
 }
 
 private struct WorktreeBranchPicker: View {
-    private struct BranchOption: Identifiable {
-        let name: String
-        var id: String { name }
-    }
-
     let label: String
-    let branches: [String]
+    let options: [WorktreeBranchOption]
     let isLoading: Bool
     @Binding var selection: String
     @State private var isPresented = false
-
-    private var options: [BranchOption] {
-        branches.map(BranchOption.init)
-    }
 
     var body: some View {
         if isLoading {
@@ -100,7 +96,7 @@ private struct WorktreeBranchPicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(branches.isEmpty)
+        .disabled(options.isEmpty)
         .accessibilityLabel(label)
         .accessibilityValue(selection.isEmpty ? L10n.string("No branches") : selection)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
@@ -132,7 +128,7 @@ private struct WorktreeBranchPicker: View {
         }
     }
 
-    private func select(_ option: BranchOption) {
+    private func select(_ option: WorktreeBranchOption) {
         selection = option.name
         isPresented = false
     }
@@ -198,7 +194,7 @@ struct CreateWorktreeSheet: View {
                     Text(L10n.resource("Base Branch")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
                     WorktreeBranchPicker(
                         label: L10n.string("Base Branch"),
-                        branches: branchLoadState.branches,
+                        options: branchLoadState.branchOptions,
                         isLoading: branchLoadState.isLoading,
                         selection: $branchLoadState.selectedBaseBranch
                     )
@@ -208,7 +204,7 @@ struct CreateWorktreeSheet: View {
                     Text(L10n.resource("Branch")).font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
                     WorktreeBranchPicker(
                         label: L10n.string("Branch"),
-                        branches: branchLoadState.branches,
+                        options: branchLoadState.branchOptions,
                         isLoading: branchLoadState.isLoading,
                         selection: $branchLoadState.selectedExistingBranch
                     )

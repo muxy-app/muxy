@@ -318,6 +318,14 @@ struct AgentStatusStoreTests {
     private func makeContext(
         agentProcessAlive: Bool = false
     ) -> (AgentStatusStore, ManualGraceScheduler, UUID) {
+        let (store, scheduler, paneIDs) = makeContext(paneCount: 1, agentProcessAlive: agentProcessAlive)
+        return (store, scheduler, paneIDs[0])
+    }
+
+    private func makeContext(
+        paneCount: Int,
+        agentProcessAlive: Bool = false
+    ) -> (AgentStatusStore, ManualGraceScheduler, [UUID]) {
         let scheduler = ManualGraceScheduler()
         let store = AgentStatusStore(
             scheduler: scheduler,
@@ -332,18 +340,21 @@ struct AgentStatusStoreTests {
         )
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         let area = TabArea(projectPath: "/tmp/project")
+        for _ in 1 ..< paneCount {
+            area.createTab()
+        }
         appState.activeProjectID = projectID
         appState.activeWorktreeID[projectID] = worktreeID
         appState.workspaceRoots[key] = .tabArea(area)
         appState.focusedAreaID[key] = area.id
-        let paneID = area.tabs.last!.content.pane!.id
+        let paneIDs = area.tabs.compactMap { $0.content.pane?.id }
 
         NotificationStore.shared.appState = appState
         NotificationStore.shared.worktreeStore = WorktreeStore(
             persistence: WorktreePersistenceStub(),
             projects: []
         )
-        return (store, scheduler, paneID)
+        return (store, scheduler, paneIDs)
     }
 
     private func send(
@@ -459,6 +470,40 @@ struct AgentStatusStoreTests {
         #expect(store.activeProviderID(forPane: paneID) == nil)
         #expect(store.status(forPane: paneID) == .idle)
         #expect(store.isCompletionPending(forPane: paneID))
+    }
+
+    @Test("pane identity icon falls back to every active hook provider")
+    func paneIdentityIconFallsBackToEveryActiveHookProvider() {
+        let (store, _, paneID) = makeContext()
+
+        for (index, provider) in AIProviderRegistry.shared.agentLaunchProviders.enumerated() {
+            send(store, paneID, provider: provider.id, .working, sequence: UInt64(index + 1))
+
+            #expect(DetectedAgentStore.shared.agent(for: paneID) == nil)
+            #expect(AgentPaneIdentity.iconName(forPane: paneID, agentStatusStore: store) == provider.iconName)
+        }
+    }
+
+    @Test("detected pane identity wins over active hook provider")
+    func detectedPaneIdentityWinsOverActiveHookProvider() {
+        let (store, _, paneID) = makeContext()
+        send(store, paneID, provider: "codex", .working, sequence: 1)
+        DetectedAgentStore.shared.setAgent("claude", for: paneID)
+        defer { DetectedAgentStore.shared.resetPane(paneID) }
+
+        #expect(AgentPaneIdentity.iconName(forPane: paneID, agentStatusStore: store) == "claude")
+    }
+
+    @Test("pane identity icon prefers detected panes before hook panes")
+    func paneIdentityIconPrefersDetectedPanesBeforeHookPanes() {
+        let (store, _, paneIDs) = makeContext(paneCount: 2)
+        let hookPaneID = paneIDs[0]
+        let detectedPaneID = paneIDs[1]
+        send(store, hookPaneID, provider: "codex", .working, sequence: 1)
+        DetectedAgentStore.shared.setAgent("claude", for: detectedPaneID)
+        defer { DetectedAgentStore.shared.resetPane(detectedPaneID) }
+
+        #expect(AgentPaneIdentity.iconName(forPanes: paneIDs, agentStatusStore: store) == "claude")
     }
 
     @Test("ending a session cancels a pending grace transition")

@@ -67,6 +67,49 @@ struct SessionDaemonEndToEndTests {
         }
     }
 
+    @Test("uses fallback pty size for a new session with a transient attach size")
+    func usesFallbackSizeForTransientInitialAttach() throws {
+        try withHarness { harness in
+            let identifier = try makeIdentifier()
+            let connection = try #require(SessionTestConnection(socketPath: harness.socketPath))
+            defer { connection.close() }
+
+            connection.send(harness.attachRequest(
+                identifier: identifier,
+                command: "",
+                columns: 1,
+                rows: 1
+            ))
+            _ = try #require(connection.waitForFrame(timeout: 5) { $0.kind == .attached })
+
+            connection.send(SessionFrame(kind: .input, payload: Array("stty size\n".utf8)))
+            let output = connection.collectOutput(timeout: 5) { $0.contains("24 80") || $0.contains("1 1") }
+            #expect(output.contains("24 80"))
+        }
+    }
+
+    @Test("does not resize an existing session from a transient reattach size")
+    func ignoresTransientSizeForExistingSessionReattach() throws {
+        try withHarness { harness in
+            let identifier = try makeIdentifier()
+            let first = try #require(SessionTestConnection(socketPath: harness.socketPath))
+            first.send(harness.attachRequest(identifier: identifier, command: "", columns: 80, rows: 24))
+            _ = try #require(first.waitForFrame(timeout: 5) { $0.kind == .attached })
+            first.send(SessionFrame(kind: .input, payload: Array("stty size\n".utf8)))
+            _ = first.collectOutput(timeout: 5) { $0.contains("24 80") || $0.contains("1 1") }
+            first.close()
+
+            let second = try #require(SessionTestConnection(socketPath: harness.socketPath))
+            defer { second.close() }
+            second.send(harness.attachRequest(identifier: identifier, command: "", columns: 1, rows: 1))
+            _ = try #require(second.waitForFrame(timeout: 5) { $0.kind == .attached })
+            second.send(SessionFrame(kind: .input, payload: Array("stty size\n".utf8)))
+            let output = second.collectOutput(timeout: 5) { $0.contains("24 80") || $0.contains("1 1") }
+            #expect(output.contains("24 80"))
+            #expect(!output.contains("1 1"))
+        }
+    }
+
     @Test("forwards input to the session")
     func forwardsInput() throws {
         try withHarness { harness in
