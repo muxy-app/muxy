@@ -19,7 +19,6 @@ struct FocusedComposerView: View {
     @State private var editorSettings = EditorSettings.shared
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize = RichInputPreferences.defaultFontSize
     @AppStorage(RichInputPreferences.clearAfterSendingKey) private var clearAfterSending = RichInputPreferences.defaultClearAfterSending
-    @AppStorage(RichInputPreferences.clearOnCloseKey) private var clearOnClose = RichInputPreferences.defaultClearOnClose
     @AppStorage(ComposerLayoutPreferences.widthKey) private var storedWidth = ComposerLayoutPreferences.defaultWidth
     @AppStorage(ComposerLayoutPreferences.heightKey) private var storedHeight = ComposerLayoutPreferences.defaultHeight
     @AppStorage(ComposerLayoutPreferences.expandedKey) private var isExpanded = ComposerLayoutPreferences.defaultExpanded
@@ -103,7 +102,7 @@ struct FocusedComposerView: View {
             .foregroundStyle(MuxyTheme.fgDim)
             .accessibilityLabel(expandLabel)
             .help(expandLabel)
-            Button(action: close) {
+            Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
@@ -420,14 +419,6 @@ struct FocusedComposerView: View {
 
     private func persistDraft() {
         RichInputDraftStore.shared.scheduleSave(state.draft, for: worktreeKey)
-    }
-
-    private func close() {
-        if clearOnClose {
-            state.clear()
-            persistDraft()
-        }
-        onClose()
     }
 
     private func requestSubmission(appendReturn: Bool) {

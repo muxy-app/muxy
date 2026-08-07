@@ -111,6 +111,7 @@ struct MainWindow: View {
     @AppStorage(RichInputPreferences.positionKey)
     private var richInputPanelPosition = RichInputPreferences.defaultPosition
     @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
+    @AppStorage(RichInputPreferences.clearOnCloseKey) private var clearOnClose = RichInputPreferences.defaultClearOnClose
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
     @State private var richInputPresentation = RichInputPresentationController()
     @State private var composerVoice = ComposerVoiceState()
@@ -1867,8 +1868,18 @@ struct MainWindow: View {
 
     private func closeRichInput() {
         guard richInputPresentation.close() else { return }
+        clearRichInputDraftIfNeeded()
         composerVoice.cancel()
         restoreActiveTerminalFocus()
+    }
+
+    private func clearRichInputDraftIfNeeded() {
+        guard clearOnClose,
+              let state = activeRichInputState,
+              let worktreeKey = activeWorktreeKey
+        else { return }
+        state.clear()
+        RichInputDraftStore.shared.scheduleSave(state.draft, for: worktreeKey)
     }
 
     private func restoreActiveTerminalFocus() {
