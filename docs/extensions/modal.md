@@ -180,7 +180,7 @@ muxy.events.subscribe('command.pick', () => {
 
 ## Webview modal (`openWebview`)
 
-When a picker is not enough, open a **webview modal**: a centered, omnibox-style overlay that renders **your own HTML** in a fresh page. The content is entirely yours — a form, an informational panel, a list, a confirmation, or any mix. Muxy owns the scrim, the frame, and Escape/outside-click dismissal; you own everything inside.
+When a picker is not enough, open a **webview modal**: a top-centered, omnibox-style overlay that renders **your own HTML** in a fresh page. The content is entirely yours — a form, an informational panel, a list, a confirmation, or any mix. Muxy owns the scrim, the frame, and Escape/outside-click dismissal; you own everything inside.
 
 `openWebview` is available on **webview pages** (tabs, panels, popovers, sidebars) and in **`background.js`** via `window.muxy`. It needs the `panels:write` permission. To open it from a shortcut with nothing else on screen, prefer `background.js` (always running) or the declarative [`openModal` command action](#opening-from-a-shortcut-openmodal).
 
@@ -256,4 +256,4 @@ The `openModal` action carries the modal fields inline (`entry` required; `width
 - The result flows back only via `submitWebview(value)` — `lifecycle.close()` and outside-click / Escape resolve with `null`. The result payload is capped at 256 KB.
 - Only one webview modal is shown at a time; opening a new one resolves the previous opener with `null`.
 - `muxy.lifecycle.onBeforeClose(({ surface }) => ...)` runs before close (`surface` is `"modalWebview"`), so the modal page can guard against losing unsaved input.
-- The overlay presents on the main Muxy window, styled like the omnibox.
+- The overlay presents on the main Muxy window at the same top-center position as the omnibox.
