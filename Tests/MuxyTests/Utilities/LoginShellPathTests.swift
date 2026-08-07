@@ -128,6 +128,21 @@ struct LoginShellPathTests {
         #expect(path == nil)
     }
 
+    @Test("login shell lookup force terminates a stalled process")
+    func loginShellLookupForceTerminatesStalledProcess() {
+        let clock = ContinuousClock()
+        let started = clock.now
+
+        let path = LoginShellPath.readPath(
+            shellPath: "/bin/sh",
+            arguments: ["-c", "trap '' TERM; exec /bin/sleep 10"],
+            timeout: .milliseconds(100)
+        )
+
+        #expect(path == nil)
+        #expect(started.duration(to: clock.now) < .seconds(5))
+    }
+
     @Test("login shell lookup tolerates a truncated UTF-8 scalar before PATH")
     func loginShellLookupToleratesTruncatedUTF8() {
         let output = Data([0x80]) + Data(

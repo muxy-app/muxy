@@ -66,7 +66,8 @@ private final class SubprocessJob: @unchecked Sendable {
     )
     private static let monitoringQueue = DispatchQueue(
         label: "app.muxy.subprocess-monitor",
-        qos: .userInitiated
+        qos: .userInitiated,
+        attributes: .concurrent
     )
 
     private let request: SubprocessRequest

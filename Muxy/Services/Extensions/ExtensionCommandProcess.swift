@@ -4,7 +4,8 @@ import Foundation
 final class CancellableProcess: @unchecked Sendable {
     private static let controlQueue = DispatchQueue(
         label: "app.muxy.cancellable-process-control",
-        qos: .userInitiated
+        qos: .userInitiated,
+        attributes: .concurrent
     )
 
     private enum State: Equatable {
