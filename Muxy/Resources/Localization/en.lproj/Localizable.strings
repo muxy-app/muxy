@@ -172,9 +172,11 @@
 "Clean" = "Clean";
 "Clean working tree" = "Clean working tree";
 "Clear" = "Clear";
+"Clear After Sending" = "Clear After Sending";
 "Clear All" = "Clear All";
 "Clear Data" = "Clear Data";
 "Clear data for “%@”?" = "Clear data for “%@”?";
+"Clear on Close" = "Clear on Close";
 "Cleared browsing data for “%@”" = "Cleared browsing data for “%@”";
 "Click again to close now. Otherwise it will close automatically after five seconds." = "Click again to close now. Otherwise it will close automatically after five seconds.";
 "Click again to merge now. Otherwise it will merge automatically after five seconds." = "Click again to merge now. Otherwise it will merge automatically after five seconds.";

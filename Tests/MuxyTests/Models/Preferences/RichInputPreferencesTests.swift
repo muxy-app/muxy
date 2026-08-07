@@ -17,4 +17,12 @@ struct RichInputPreferencesTests {
         #expect(RichInputPresentationMode(rawValue: "panel") == .panel)
         #expect(RichInputPresentationMode(rawValue: "floating") == .floating)
     }
+
+    @Test("clear options default off with stable persisted keys")
+    func clearOptionsDefaultOff() {
+        #expect(RichInputPreferences.defaultClearAfterSending == false)
+        #expect(RichInputPreferences.defaultClearOnClose == false)
+        #expect(RichInputPreferences.clearAfterSendingKey == "muxy.richInput.clearAfterSending")
+        #expect(RichInputPreferences.clearOnCloseKey == "muxy.richInput.clearOnClose")
+    }
 }

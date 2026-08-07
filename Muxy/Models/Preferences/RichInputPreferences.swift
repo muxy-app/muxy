@@ -29,4 +29,10 @@ enum RichInputPreferences {
 
     static let positionKey = "muxy.richInput.position"
     static let defaultPosition: PanelPosition = .right
+
+    static let clearAfterSendingKey = "muxy.richInput.clearAfterSending"
+    static let defaultClearAfterSending = false
+
+    static let clearOnCloseKey = "muxy.richInput.clearOnClose"
+    static let defaultClearOnClose = false
 }
