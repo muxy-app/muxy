@@ -103,6 +103,7 @@ struct ExtensionsPresentationRequest: Equatable, Sendable {
     private static let categoryKey = "category"
 
     let browseCategory: String?
+    var requiresSettingsHandoff: Bool { browseCategory != nil }
 
     init(browseCategory: String? = nil) {
         self.browseCategory = browseCategory

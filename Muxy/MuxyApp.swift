@@ -720,7 +720,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handleExtensionsRequest(_ request: ExtensionsPresentationRequest) {
-        guard let settingsWindow else {
+        guard request.requiresSettingsHandoff, let settingsWindow else {
             presentExtensionsModal(browseCategory: request.browseCategory)
             return
         }

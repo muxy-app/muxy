@@ -13,6 +13,7 @@ struct ExtensionsPresentationRequestTests {
         )
 
         #expect(request == ExtensionsPresentationRequest())
+        #expect(!request.requiresSettingsHandoff)
     }
 
     @Test("browse request preserves its category across notifications")
@@ -21,19 +22,20 @@ struct ExtensionsPresentationRequestTests {
         let expected = ExtensionsPresentationRequest(
             browseCategory: ExtensionMarketplaceCategory.localization
         )
-        var received: ExtensionsPresentationRequest?
+        let recorder = ExtensionsPresentationRequestRecorder()
         let observer = notificationCenter.addObserver(
             forName: .openExtensionsModal,
             object: nil,
             queue: nil
         ) { notification in
-            received = ExtensionsPresentationRequest(notification)
+            recorder.record(notification)
         }
         defer { notificationCenter.removeObserver(observer) }
 
         expected.post(notificationCenter: notificationCenter)
 
-        #expect(received == expected)
+        #expect(recorder.request == expected)
+        #expect(expected.requiresSettingsHandoff)
     }
 
     @Test("browse handoff posts the category to an existing Extensions window")
@@ -42,18 +44,35 @@ struct ExtensionsPresentationRequestTests {
         let expected = ExtensionsPresentationRequest(
             browseCategory: ExtensionMarketplaceCategory.localization
         )
-        var received: ExtensionsPresentationRequest?
+        let recorder = ExtensionsPresentationRequestRecorder()
         let observer = notificationCenter.addObserver(
             forName: .openExtensionBrowse,
             object: nil,
             queue: nil
         ) { notification in
-            received = ExtensionsPresentationRequest(notification)
+            recorder.record(notification)
         }
         defer { notificationCenter.removeObserver(observer) }
 
         expected.postBrowse(notificationCenter: notificationCenter)
 
-        #expect(received == expected)
+        #expect(recorder.request == expected)
+    }
+}
+
+private final class ExtensionsPresentationRequestRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: ExtensionsPresentationRequest?
+
+    var request: ExtensionsPresentationRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func record(_ notification: Notification) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage = ExtensionsPresentationRequest(notification)
     }
 }
