@@ -62,7 +62,8 @@ enum SubprocessRunner {
 private final class SubprocessJob: @unchecked Sendable {
     private static let timeoutQueue = DispatchQueue(
         label: "app.muxy.subprocess-timeouts",
-        qos: .userInitiated
+        qos: .userInitiated,
+        attributes: .concurrent
     )
 
     private let request: SubprocessRequest
