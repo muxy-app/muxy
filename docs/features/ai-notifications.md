@@ -1,6 +1,6 @@
 # AI notifications
 
-Muxy tracks the AI coding agents running inside its terminals — Claude Code, Codex, Cursor, GitHub Copilot, Droid, Grok, OpenCode, and Pi — and surfaces their lifecycle as pane and worktree status, completion badges, and notifications when a turn finishes or an agent needs attention.
+Muxy tracks the AI coding agents running inside its terminals — Claude Code, Codex, Cursor, GitHub Copilot, Droid, Grok, Kiro CLI, OpenCode, and Pi — and surfaces their lifecycle as pane and worktree status, completion badges, and notifications when a turn finishes or an agent needs attention.
 
 There are two independent sources of truth, and hooks are authoritative.
 
@@ -43,7 +43,7 @@ The bridge retries an event when an ack does not arrive within its delivery budg
 The compiled hook bridge (`muxy-hook`) and the provider shims are staged into `~/Library/Application Support/Muxy/hooks` (`hooks-dev` for debug builds) with private permissions:
 
 - `muxy-hook` — the compiled bridge every hook invokes.
-- `muxy-claude-hook.sh`, `muxy-codex-hook.sh`, `muxy-copilot-hook.sh`, `muxy-cursor-hook.sh`, `muxy-droid-hook.sh`, `muxy-grok-hook.sh` — thin shell shims that exec the colocated `muxy-hook`.
+- `muxy-claude-hook.sh`, `muxy-codex-hook.sh`, `muxy-copilot-hook.sh`, `muxy-cursor-hook.sh`, `muxy-droid-hook.sh`, `muxy-grok-hook.sh`, `muxy-kiro-hook.sh` — thin shell shims that exec the colocated `muxy-hook`.
 - `opencode-muxy-plugin.js`, `muxy-pi-extension.ts` — plugin/extension entry points that spawn the staged `muxy-hook`. When the binary is missing they log a clear error to their own stderr and skip the event. That stderr never reaches Muxy, so nothing restages automatically — use **Refresh** in Settings to restage.
 
 The OpenCode entry point is installed globally at `~/.config/opencode/plugins/muxy-notify.js`. OpenCode loads local plugins at startup, so restart any running OpenCode session after Muxy first installs or repairs this file.
