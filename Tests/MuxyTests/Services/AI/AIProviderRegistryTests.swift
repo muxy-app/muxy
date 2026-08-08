@@ -32,6 +32,7 @@ struct AIProviderRegistryTests {
             "opencode": "opencode",
             "pi": "pi",
             "grok_hook": "grok",
+            "kiro_hook": "kiro",
         ]
         for (socketType, providerID) in expected {
             #expect(AIProviderRegistry.shared.notificationSource(for: socketType) == .aiProvider(providerID))
@@ -71,6 +72,7 @@ struct AIProviderRegistryTests {
             "droid",
             "pi",
             "grok",
+            "kiro",
         ])
     }
 
