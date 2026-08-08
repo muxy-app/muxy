@@ -11,7 +11,7 @@ struct KiroProvider: AIProviderIntegration, AIAgentLaunchProvider {
     var agentLaunchConfiguration: AIAgentLaunchConfiguration {
         AIAgentLaunchConfiguration(
             executable: "kiro-cli",
-            headlessArguments: ["chat", "--no-interactive"]
+            headlessArguments: ["chat", "--no-interactive", "--trust-tools="]
         )
     }
 

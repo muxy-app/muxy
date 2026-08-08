@@ -162,7 +162,7 @@ struct KiroProviderTests {
 
             let config = fixture.provider.agentLaunchConfiguration
             #expect(config.executable == "kiro-cli")
-            #expect(config.headlessArguments == ["chat", "--no-interactive"])
+            #expect(config.headlessArguments == ["chat", "--no-interactive", "--trust-tools="])
         }
     }
 
