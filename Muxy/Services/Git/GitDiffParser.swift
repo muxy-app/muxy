@@ -18,6 +18,11 @@ enum GitDiffParser {
         for rawLine in patch.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
             let line = String(rawLine)
 
+            if line.hasPrefix("diff --git ") {
+                inHunk = false
+                continue
+            }
+
             if line.hasPrefix("@@") {
                 inHunk = true
                 let (oldStart, newStart) = parseHunkHeader(line)
