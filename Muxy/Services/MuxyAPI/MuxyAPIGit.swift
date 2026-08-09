@@ -592,11 +592,11 @@ extension MuxyAPI {
             let resolvedProjectIdentifier = project.id.uuidString
             let workspaceContext = context.projectGroupStore.workspaceContext(for: project)
             let timeout = TimeInterval(timeoutMs) / 1000
-            return await write(resolvedProjectIdentifier, operation: "worktree.remove", context: context) { repoPath, _ in
+            return await write(resolvedProjectIdentifier, operation: "worktree.remove", context: context) { _, _ in
                 let deadline = OperationDeadline(timeout: timeout)
                 let resolution = try await GitWorktreeService.resolveWorktreePath(
                     trimmedPath,
-                    repoPath: repoPath,
+                    repoPath: project.path,
                     context: workspaceContext,
                     timeout: deadline.remaining()
                 )
@@ -610,7 +610,7 @@ extension MuxyAPI {
                 )
                 else {
                     try await GitWorktreeService.shared.removeWorktree(
-                        repoPath: repoPath,
+                        repoPath: project.path,
                         path: expandedPath,
                         force: force,
                         context: workspaceContext,

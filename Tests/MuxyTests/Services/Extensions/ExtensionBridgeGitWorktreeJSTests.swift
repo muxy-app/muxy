@@ -25,6 +25,10 @@ struct ExtensionBridgeGitWorktreeJSTests {
         #expect(args?["path"] as? String == "/tmp/worktree")
         #expect(args?["force"] as? Bool == true)
         #expect(args?["timeoutMs"] as? Int == 1234)
+
+        context.evaluateScript("muxy.git.worktree.remove({ path: '/tmp/worktree', force: false })")
+
+        #expect(args?["timeoutMs"] is NSNull)
     }
 
     @Test("web bridge forwards worktree removal timeout")
@@ -52,5 +56,9 @@ struct ExtensionBridgeGitWorktreeJSTests {
         #expect(context.evaluateScript("capturedMessage.args.path")?.toString() == "/tmp/worktree")
         #expect(context.evaluateScript("capturedMessage.args.force")?.toBool() == true)
         #expect(context.evaluateScript("capturedMessage.args.timeoutMs")?.toInt32() == 1234)
+
+        context.evaluateScript("muxy.git.worktree.remove({ path: '/tmp/worktree', force: false })")
+
+        #expect(context.evaluateScript("capturedMessage.args.timeoutMs === null")?.toBool() == true)
     }
 }

@@ -406,15 +406,17 @@ final class WorktreeStore {
         guard directoryRemoved == true, !context.isRemote, !worktree.isExternallyManaged else {
             return directoryRemoved
         }
-        removeParentDirectoryIfEmpty(for: worktree.path)
+        await removeParentDirectoryIfEmpty(for: worktree.path)
         return true
     }
 
-    nonisolated private static func removeParentDirectoryIfEmpty(for path: String) {
-        let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
-        let children = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
-        guard children.isEmpty else { return }
-        try? FileManager.default.removeItem(at: parent)
+    nonisolated private static func removeParentDirectoryIfEmpty(for path: String) async {
+        await GitProcessRunner.offMain {
+            let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
+            let children = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
+            guard children.isEmpty else { return }
+            try? FileManager.default.removeItem(at: parent)
+        }
     }
 
     static func cleanupOnDisk(

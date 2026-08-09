@@ -338,12 +338,19 @@ private enum ProcessLaunchError: Error, LocalizedError {
 }
 
 final class OutputReader: @unchecked Sendable {
+    private enum CallbackEvent {
+        case data(Data)
+        case finish
+    }
+
     private let lock = NSLock()
     private let handle: FileHandle
     private let box: OutputBox
     private let onData: (@Sendable (Data) -> Void)?
     private let onFinish: (@Sendable () -> Void)?
     private var finished = false
+    private var callbackEvents: [CallbackEvent] = []
+    private var deliveringCallbacks = false
 
     init(
         pipe: Pipe,
@@ -365,8 +372,10 @@ final class OutputReader: @unchecked Sendable {
 
     func finish() {
         lock.lock()
-        defer { lock.unlock() }
-        guard !finished else { return }
+        guard !finished else {
+            lock.unlock()
+            return
+        }
         finished = true
         handle.readabilityHandler = nil
 
@@ -381,7 +390,7 @@ final class OutputReader: @unchecked Sendable {
                 read(descriptor, bytes.baseAddress, bytes.count)
             }
             if bytesRead > 0 {
-                append(Data(buffer.prefix(Int(bytesRead))))
+                callbackEvents.append(.data(Data(buffer.prefix(Int(bytesRead)))))
                 continue
             }
             if bytesRead == -1, errno == EINTR {
@@ -390,27 +399,65 @@ final class OutputReader: @unchecked Sendable {
             break
         }
         try? handle.close()
-        onFinish?()
+        callbackEvents.append(.finish)
+        let shouldDeliver = beginDeliveringCallbacks()
+        lock.unlock()
+        if shouldDeliver {
+            deliverCallbacks()
+        }
     }
 
     private func readAvailableData() {
         lock.lock()
-        defer { lock.unlock() }
-        guard !finished else { return }
+        guard !finished else {
+            lock.unlock()
+            return
+        }
         let data = handle.availableData
-        guard data.isEmpty else {
-            append(data)
+        if !data.isEmpty {
+            callbackEvents.append(.data(data))
+            let shouldDeliver = beginDeliveringCallbacks()
+            lock.unlock()
+            if shouldDeliver {
+                deliverCallbacks()
+            }
             return
         }
         finished = true
         handle.readabilityHandler = nil
         try? handle.close()
-        onFinish?()
+        callbackEvents.append(.finish)
+        let shouldDeliver = beginDeliveringCallbacks()
+        lock.unlock()
+        if shouldDeliver {
+            deliverCallbacks()
+        }
     }
 
-    private func append(_ data: Data) {
-        box.append(data)
-        onData?(data)
+    private func beginDeliveringCallbacks() -> Bool {
+        guard !deliveringCallbacks else { return false }
+        deliveringCallbacks = true
+        return true
+    }
+
+    private func deliverCallbacks() {
+        while true {
+            lock.lock()
+            guard !callbackEvents.isEmpty else {
+                deliveringCallbacks = false
+                lock.unlock()
+                return
+            }
+            let event = callbackEvents.removeFirst()
+            lock.unlock()
+            switch event {
+            case let .data(data):
+                box.append(data)
+                onData?(data)
+            case .finish:
+                onFinish?()
+            }
+        }
     }
 }
 

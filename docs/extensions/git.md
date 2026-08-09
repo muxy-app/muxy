@@ -170,6 +170,7 @@ A rejected promise carries a message string:
 - `user denied consent for git.<op>` — the write consent prompt was denied.
 - `project not found …` — the `project` selector did not resolve.
 - `invalid arguments …` — a required field was missing.
+- `Git timed out after <n>s`, `Process timed out after <n>s`, or `Operation timed out after <n>s` — `timeoutMs` expired during removal.
 - Anything else surfaces the underlying git/`gh` error text.
 
 ```js

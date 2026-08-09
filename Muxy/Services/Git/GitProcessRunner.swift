@@ -275,10 +275,11 @@ enum GitProcessRunner {
         let stdinWriter = AsyncDataWriter(handle: stdinPipe.fileHandleForWriting)
         guard handle.attach(
             cancellableProcess,
-            stdinWriter: stdinWriter,
-            outputHandles: [stdoutPipe.fileHandleForReading, stderrPipe.fileHandleForReading]
+            stdinWriter: stdinWriter
         )
         else {
+            try? stdoutPipe.fileHandleForReading.close()
+            try? stderrPipe.fileHandleForReading.close()
             cancellableProcess.releaseReaping()
             exited.wait()
             handle.detach()
@@ -291,12 +292,15 @@ enum GitProcessRunner {
             )
         }
         defer { handle.detach() }
+        configureNonblockingRead(stdoutPipe.fileHandleForReading)
+        configureNonblockingRead(stderrPipe.fileHandleForReading)
 
         let stderrCollector = AsyncDataCollector()
         stderrCollector.start(
             reading: stderrPipe.fileHandleForReading,
             on: stderrDrainQueue,
-            byteLimit: spec.outputByteLimit
+            byteLimit: spec.outputByteLimit,
+            processHandle: handle
         )
 
         stdinWriter.start(
@@ -316,6 +320,8 @@ enum GitProcessRunner {
             handle.terminate()
             stdinWriter.waitUntilFinished()
             _ = stderrCollector.wait()
+            try? stdoutPipe.fileHandleForReading.close()
+            try? stderrPipe.fileHandleForReading.close()
             cancellableProcess.releaseReaping()
             exited.wait()
             throw error
@@ -323,6 +329,8 @@ enum GitProcessRunner {
 
         stdinWriter.waitUntilFinished()
         let stderrRead = stderrCollector.wait()
+        try? stdoutPipe.fileHandleForReading.close()
+        try? stderrPipe.fileHandleForReading.close()
         cancellableProcess.releaseReaping()
         exited.wait()
 
@@ -361,19 +369,34 @@ enum GitProcessRunner {
         )
     }
 
+    private static func configureNonblockingRead(_ handle: FileHandle) {
+        let descriptor = handle.fileDescriptor
+        let flags = fcntl(descriptor, F_GETFL)
+        if flags >= 0 {
+            _ = fcntl(descriptor, F_SETFL, flags | O_NONBLOCK)
+        }
+    }
+
     private static func readWithByteLimit(
         handle: FileHandle,
         processHandle: ProcessHandle,
         byteLimit: Int?
     ) throws -> OutputRead {
         guard let byteLimit else {
-            return OutputRead(data: handle.readDataToEndOfFile(), truncated: false)
+            var collected = Data()
+            while true {
+                let chunk = try processHandle.read(from: handle)
+                guard !chunk.isEmpty else {
+                    return OutputRead(data: collected, truncated: false)
+                }
+                collected.append(chunk)
+            }
         }
 
         var collected = Data()
         let chunkSize = 65536
         while true {
-            let chunk = try handle.read(upToCount: chunkSize) ?? Data()
+            let chunk = try processHandle.read(from: handle, maximumBytes: chunkSize)
             if chunk.isEmpty {
                 return OutputRead(data: collected, truncated: false)
             }
@@ -400,7 +423,7 @@ enum GitProcessRunner {
         let chunkSize = 65536
 
         while true {
-            let chunk = try handle.read(upToCount: chunkSize) ?? Data()
+            let chunk = try processHandle.read(from: handle, maximumBytes: chunkSize)
             if chunk.isEmpty {
                 return OutputRead(data: collected, truncated: false)
             }
@@ -532,7 +555,6 @@ private final class ProcessHandle: @unchecked Sendable {
     private let lock = NSLock()
     private var process: CancellableProcess?
     private var stdinWriter: AsyncDataWriter?
-    private var outputHandles: [FileHandle] = []
     private var cancelled = false
 
     var wasCancelled: Bool {
@@ -543,19 +565,16 @@ private final class ProcessHandle: @unchecked Sendable {
 
     func attach(
         _ process: CancellableProcess,
-        stdinWriter: AsyncDataWriter?,
-        outputHandles: [FileHandle]
+        stdinWriter: AsyncDataWriter?
     ) -> Bool {
         lock.lock()
         self.process = process
         self.stdinWriter = stdinWriter
-        self.outputHandles = outputHandles
         let shouldTerminate = cancelled
         lock.unlock()
         guard shouldTerminate else { return true }
         process.terminateProcessGroup()
         stdinWriter?.cancel()
-        outputHandles.forEach { try? $0.close() }
         return false
     }
 
@@ -563,7 +582,6 @@ private final class ProcessHandle: @unchecked Sendable {
         lock.lock()
         process = nil
         stdinWriter = nil
-        outputHandles = []
         lock.unlock()
     }
 
@@ -572,11 +590,38 @@ private final class ProcessHandle: @unchecked Sendable {
         cancelled = true
         let process = process
         let stdinWriter = stdinWriter
-        let outputHandles = outputHandles
         lock.unlock()
         process?.terminateProcessGroup()
         stdinWriter?.cancel()
-        outputHandles.forEach { try? $0.close() }
+    }
+
+    func read(from handle: FileHandle, maximumBytes: Int = 65536) throws -> Data {
+        let descriptor = handle.fileDescriptor
+        var buffer = [UInt8](repeating: 0, count: maximumBytes)
+        while !wasCancelled {
+            let bytesRead = buffer.withUnsafeMutableBytes { bytes in
+                Darwin.read(descriptor, bytes.baseAddress, bytes.count)
+            }
+            if bytesRead > 0 {
+                return Data(buffer.prefix(Int(bytesRead)))
+            }
+            if bytesRead == 0 {
+                return Data()
+            }
+            if errno == EINTR {
+                continue
+            }
+            guard errno == EAGAIN || errno == EWOULDBLOCK else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            var pollDescriptor = pollfd(
+                fd: descriptor,
+                events: Int16(POLLIN | POLLERR | POLLHUP),
+                revents: 0
+            )
+            _ = Darwin.poll(&pollDescriptor, 1, 50)
+        }
+        return Data()
     }
 }
 
@@ -586,12 +631,17 @@ private final class AsyncDataCollector: @unchecked Sendable {
     private var truncated = false
     private let semaphore = DispatchSemaphore(value: 0)
 
-    func start(reading handle: FileHandle, on queue: DispatchQueue, byteLimit: Int?) {
+    func start(
+        reading handle: FileHandle,
+        on queue: DispatchQueue,
+        byteLimit: Int?,
+        processHandle: ProcessHandle
+    ) {
         queue.async { [self] in
             var collected = Data()
             var didTruncate = false
             while true {
-                let chunk = (try? handle.read(upToCount: 65536)) ?? Data()
+                let chunk = (try? processHandle.read(from: handle)) ?? Data()
                 if chunk.isEmpty {
                     break
                 }

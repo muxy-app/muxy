@@ -165,6 +165,7 @@ struct WorktreeTeardownRunnerTests {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxy-teardown-timeout-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
         let collected = LineCollector()
 
         await #expect(throws: SubprocessRunnerError.self) {
@@ -172,7 +173,7 @@ struct WorktreeTeardownRunnerTests {
                 command: "printf partial; sleep 10 &",
                 workingDirectory: directory.path,
                 environment: ProcessInfo.processInfo.environment,
-                timeout: 0.05,
+                timeout: 0.5,
                 emit: { collected.append($0) }
             )
         }
