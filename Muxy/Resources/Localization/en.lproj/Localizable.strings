@@ -79,6 +79,7 @@
 "Allow %@?" = "Allow %@?";
 "Allow & remember" = "Allow & remember";
 "Allow mobile device connections" = "Allow mobile device connections";
+"Always Show Project Search" = "Always Show Project Search";
 "Automatic updates are unavailable for this configuration." = "Automatic updates are unavailable for this configuration.";
 "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data." = "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data.";
 "App" = "App";
@@ -176,6 +177,7 @@
 "Clear All" = "Clear All";
 "Clear Data" = "Clear Data";
 "Clear data for “%@”?" = "Clear data for “%@”?";
+"Clear project search" = "Clear project search";
 "Cleared browsing data for “%@”" = "Cleared browsing data for “%@”";
 "Click again to close now. Otherwise it will close automatically after five seconds." = "Click again to close now. Otherwise it will close automatically after five seconds.";
 "Click again to merge now. Otherwise it will merge automatically after five seconds." = "Click again to merge now. Otherwise it will merge automatically after five seconds.";
@@ -1422,6 +1424,7 @@
 "Shows a macOS notification when Muxy is not frontmost." = "Shows a macOS notification when Muxy is not frontmost.";
 "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling." = "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling.";
 "Shows or hides the status bar." = "Shows or hides the status bar.";
+"Shows the project search field whenever the project-focused sidebar is expanded." = "Shows the project search field whenever the project-focused sidebar is expanded.";
 "Shows the QR code used to pair a mobile device." = "Shows the QR code used to pair a mobile device.";
 "Shows the permanent Home project at the top of the sidebar." = "Shows the permanent Home project at the top of the sidebar.";
 "Shows Muxy tips at the bottom of the built-in sidebar." = "Shows Muxy tips at the bottom of the built-in sidebar.";

@@ -32,6 +32,8 @@ struct InterfaceSettingsView: View {
     private var orderWorktreesByMRU = WorktreeListPreferences.defaultOrderByMRU
     @AppStorage(WorktreeListPreferences.groupWorktreesKey)
     private var groupWorktrees = WorktreeListPreferences.defaultGroupWorktrees
+    @AppStorage(ProjectSearchPreferences.visibleKey)
+    private var showProjectSearch = ProjectSearchPreferences.defaultVisible
 
     private var layoutSelection: Binding<AppLayout> {
         Binding(get: { layoutStore.layout }, set: { layoutStore.set($0) })
@@ -216,6 +218,11 @@ struct InterfaceSettingsView: View {
             )
 
             if isProjectFocused {
+                SettingsToggleRow(
+                    label: L10n.resource("Always Show Project Search"),
+                    isOn: $showProjectSearch
+                )
+
                 SettingsRow("Collapsed Style") {
                     Picker("", selection: $sidebarCollapsedStyle) {
                         ForEach(SidebarCollapsedStyle.allCases) { style in

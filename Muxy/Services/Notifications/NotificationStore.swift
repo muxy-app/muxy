@@ -16,12 +16,49 @@ final class NotificationStore {
     private(set) var readStateVersion: Int = 0
 
     private static let maxNotifications = 200
+    private static let duplicateWindow: TimeInterval = 2
     private static let defaults = UserDefaults.standard
     weak var desktopNotifier: (any DesktopNotificationDelivering)?
     private static let store = CodableFileStore<[MuxyNotification]>(
         fileURL: MuxyFileStorage.fileURL(filename: "notifications.json")
     )
     private var saveTask: Task<Void, Never>?
+    private var pendingDesktopDeliveries: [DesktopDelivery] = []
+
+    enum DesktopDeliveryIngress: Equatable {
+        case aiHook(providerID: String)
+        case terminalOSC
+    }
+
+    private struct DesktopDelivery {
+        let ingress: DesktopDeliveryIngress
+        let projectID: UUID
+        let worktreeID: UUID
+        let areaID: UUID
+        let tabID: UUID
+        let title: String
+        let body: String
+        let timestamp: Date
+
+        init(notification: MuxyNotification, ingress: DesktopDeliveryIngress) {
+            self.ingress = ingress
+            projectID = notification.projectID
+            worktreeID = notification.worktreeID
+            areaID = notification.areaID
+            tabID = notification.tabID
+            title = Self.normalizedTitle(notification.title)
+            body = notification.body
+            timestamp = notification.timestamp
+        }
+
+        private static func normalizedTitle(_ title: String) -> String {
+            switch title {
+            case "Task completed!",
+                 "Command executed!": "completion"
+            default: title
+            }
+        }
+    }
 
     private init() {
         notifications = Self.loadFromDisk()
@@ -78,7 +115,8 @@ final class NotificationStore {
         source: MuxyNotification.Source,
         title: String,
         body: String,
-        appState: AppState
+        appState: AppState,
+        desktopDeliveryIngress: DesktopDeliveryIngress? = nil
     ) {
         guard let worktreeStore else {
             logger.debug("Notification dropped: worktreeStore not set")
@@ -102,7 +140,11 @@ final class NotificationStore {
             title: title,
             body: body
         )
-        insertIfNotFocused(notification, appState: appState)
+        insertIfNotFocused(
+            notification,
+            appState: appState,
+            desktopDeliveryIngress: desktopDeliveryIngress
+        )
     }
 
     func addWithContext(
@@ -110,7 +152,9 @@ final class NotificationStore {
         source: MuxyNotification.Source,
         title: String,
         body: String,
-        appState: AppState
+        appState: AppState,
+        timestamp: Date = Date(),
+        desktopDeliveryIngress: DesktopDeliveryIngress? = nil
     ) {
         let notification = MuxyNotification(
             paneID: UUID(),
@@ -121,14 +165,23 @@ final class NotificationStore {
             worktreePath: context.worktreePath,
             source: source,
             title: title,
-            body: body
+            body: body,
+            timestamp: timestamp
         )
-        insertIfNotFocused(notification, appState: appState)
+        insertIfNotFocused(
+            notification,
+            appState: appState,
+            desktopDeliveryIngress: desktopDeliveryIngress
+        )
     }
 
-    private func insertIfNotFocused(_ notification: MuxyNotification, appState: AppState) {
+    private func insertIfNotFocused(
+        _ notification: MuxyNotification,
+        appState: AppState,
+        desktopDeliveryIngress: DesktopDeliveryIngress?
+    ) {
         if notification.source == .osc,
-           NSApp.isActive,
+           NSApplication.shared.isActive,
            NotificationNavigator.isActiveTab(notification.tabID, appState: appState)
         {
             playSound()
@@ -138,7 +191,7 @@ final class NotificationStore {
         notifications.insert(notification, at: 0)
         trimIfNeeded()
         scheduleSave()
-        deliverNotification(notification)
+        deliverNotification(notification, desktopDeliveryIngress: desktopDeliveryIngress)
         broadcastExtensionEvent(notification)
     }
 
@@ -158,17 +211,56 @@ final class NotificationStore {
         ))
     }
 
-    private func deliverNotification(_ notification: MuxyNotification) {
+    private func deliverNotification(
+        _ notification: MuxyNotification,
+        desktopDeliveryIngress: DesktopDeliveryIngress?
+    ) {
         let plan = NotificationSettings.deliveryPlan(defaults: Self.defaults)
         if plan.showToast {
             ToastState.shared.show(title: notification.title, body: notification.body) { [weak self] in
                 self?.activate(notificationID: notification.id)
             }
         }
-        if plan.showDesktop {
+        if plan.showDesktop, shouldDeliverDesktopNotification(notification, ingress: desktopDeliveryIngress) {
             desktopNotifier?.deliver(notification)
         }
         playSound()
+    }
+
+    private func shouldDeliverDesktopNotification(
+        _ notification: MuxyNotification,
+        ingress: DesktopDeliveryIngress?
+    ) -> Bool {
+        guard let ingress else { return true }
+        let delivery = DesktopDelivery(notification: notification, ingress: ingress)
+        pendingDesktopDeliveries.removeAll {
+            abs($0.timestamp.timeIntervalSince(delivery.timestamp)) > Self.duplicateWindow
+        }
+        let matches = pendingDesktopDeliveries.indices.filter {
+            Self.isComplementaryDesktopDeliveryPair(pendingDesktopDeliveries[$0], delivery)
+        }
+        guard matches.count == 1, let match = matches.first else {
+            guard matches.isEmpty else { return true }
+            pendingDesktopDeliveries.append(delivery)
+            return true
+        }
+        pendingDesktopDeliveries.remove(at: match)
+        return false
+    }
+
+    private static func isComplementaryDesktopDeliveryPair(
+        _ lhs: DesktopDelivery,
+        _ rhs: DesktopDelivery
+    ) -> Bool {
+        lhs.projectID == rhs.projectID &&
+            lhs.worktreeID == rhs.worktreeID &&
+            lhs.areaID == rhs.areaID &&
+            lhs.tabID == rhs.tabID &&
+            lhs.title == rhs.title &&
+            lhs.body == rhs.body &&
+            abs(lhs.timestamp.timeIntervalSince(rhs.timestamp)) <= duplicateWindow &&
+            ((lhs.ingress == .terminalOSC && rhs.ingress.isAIHook) ||
+                (lhs.ingress.isAIHook && rhs.ingress == .terminalOSC))
     }
 
     private func activate(notificationID: UUID) {
@@ -229,6 +321,7 @@ final class NotificationStore {
 
     func clear() {
         notifications.removeAll()
+        pendingDesktopDeliveries.removeAll()
         scheduleSave()
     }
 
@@ -262,5 +355,14 @@ final class NotificationStore {
             logger.error("Failed to load notifications: \(error.localizedDescription)")
             return []
         }
+    }
+}
+
+private extension NotificationStore.DesktopDeliveryIngress {
+    var isAIHook: Bool {
+        if case .aiHook = self {
+            return true
+        }
+        return false
     }
 }

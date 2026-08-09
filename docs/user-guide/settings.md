@@ -48,6 +48,13 @@ In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to s
 It is off by default. Turn it on to nest all worktrees under their project; turn it off to keep worktrees as top-level rows. Tab
 Focused shows top-level worktrees only when they have open tabs, while Agents Focused shows every secondary worktree.
 
+## Project search
+
+In the Project Focused layout, turn on **Settings → Interface → Sidebar → Always Show Project Search** to keep the
+project search field visible whenever the sidebar uses its expanded style. The setting is off by default, and the
+search field is unavailable while it is off or while the sidebar uses an icon-only style. The preference is stored as
+`muxy.showProjectSearch` in `settings.json`.
+
 ## Sidebar tips
 
 Muxy shows one tip at the bottom of the built-in sidebar. The starting tip is selected when Muxy launches and stays

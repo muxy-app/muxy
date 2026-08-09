@@ -435,9 +435,17 @@ final class AppState {
     }
 
     func locateTab(forPane paneID: UUID) -> PaneTabLocation? {
+        locateTab { $0.content.pane?.id == paneID }
+    }
+
+    func locateTab(forBrowserState stateID: UUID) -> PaneTabLocation? {
+        locateTab { $0.content.browserState?.id == stateID }
+    }
+
+    private func locateTab(matching predicate: (TerminalTab) -> Bool) -> PaneTabLocation? {
         for (key, root) in workspaceRoots {
             for area in root.allAreas() {
-                for tab in area.tabs where tab.content.pane?.id == paneID {
+                for tab in area.tabs where predicate(tab) {
                     return PaneTabLocation(worktreeKey: key, areaID: area.id, tab: tab)
                 }
             }

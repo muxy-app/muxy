@@ -192,6 +192,15 @@ enum SettingsCatalog {
             aliases: ["hints", "help", "sidebar card", "lightbulb"]
         ),
         SettingsCatalogItem(
+            key: ProjectSearchPreferences.visibleKey,
+            title: "Always Show Project Search",
+            description: "Shows the project search field whenever the project-focused sidebar is expanded.",
+            category: .appearance,
+            section: "Sidebar",
+            defaultValue: ProjectSearchPreferences.defaultVisible,
+            aliases: ["find projects", "search bar", "search box"]
+        ),
+        SettingsCatalogItem(
             key: SidebarSelection.storageKey,
             title: "Active Sidebar",
             description: "Chooses the built-in sidebar or one provided by an extension.",

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os
 
@@ -138,6 +139,9 @@ final class LoginShellPath: @unchecked Sendable {
         process.executableURL = URL(fileURLWithPath: shellPath)
         process.arguments = arguments
 
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardOutput = stdout
@@ -162,19 +166,14 @@ final class LoginShellPath: @unchecked Sendable {
         stdoutReader.start()
         stderrReader.start()
 
-        let waiter = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
+        if exited.wait(timeout: deadline) == .timedOut {
+            terminate(process)
             process.waitUntilExit()
-            waiter.signal()
-        }
-        if waiter.wait(timeout: deadline) == .timedOut {
-            if process.isRunning {
-                process.terminate()
-            }
             stdoutReader.cancel()
             stderrReader.cancel()
             return nil
         }
+        process.waitUntilExit()
 
         guard let stdoutData = stdoutReader.wait(until: deadline),
               stderrReader.wait(until: deadline) != nil
@@ -186,6 +185,16 @@ final class LoginShellPath: @unchecked Sendable {
         guard process.terminationStatus == 0 else { return nil }
 
         return stdoutData
+    }
+
+    private static func terminate(_ process: Process) {
+        process.terminate()
+        let deadline = ContinuousClock.now + .milliseconds(500)
+        while process.isRunning, ContinuousClock.now < deadline {
+            usleep(10000)
+        }
+        guard process.isRunning else { return }
+        kill(process.processIdentifier, SIGKILL)
     }
 
     static func extractPath(from shellOutputData: Data) -> String? {
@@ -247,6 +256,7 @@ private final class BoundedPipeReader: @unchecked Sendable {
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var data = Data()
+    private var finished = false
 
     init(handle: FileHandle, byteLimit: Int) {
         self.handle = handle
@@ -254,27 +264,8 @@ private final class BoundedPipeReader: @unchecked Sendable {
     }
 
     func start() {
-        DispatchQueue.global(qos: .utility).async { [self] in
-            var collected = Data()
-            while true {
-                let chunk = (try? handle.read(upToCount: 65536)) ?? Data()
-                if chunk.isEmpty {
-                    break
-                }
-                if chunk.count >= byteLimit {
-                    collected = Data(chunk.suffix(byteLimit))
-                    continue
-                }
-                let overflow = collected.count + chunk.count - byteLimit
-                if overflow > 0 {
-                    collected.removeFirst(overflow)
-                }
-                collected.append(chunk)
-            }
-            lock.withLock {
-                data = collected
-            }
-            semaphore.signal()
+        handle.readabilityHandler = { [weak self] _ in
+            self?.readAvailableData()
         }
     }
 
@@ -284,6 +275,44 @@ private final class BoundedPipeReader: @unchecked Sendable {
     }
 
     func cancel() {
+        finish()
+    }
+
+    private func readAvailableData() {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        let chunk = handle.availableData
+        guard !chunk.isEmpty else {
+            lock.unlock()
+            finish()
+            return
+        }
+        if chunk.count >= byteLimit {
+            data = Data(chunk.suffix(byteLimit))
+            lock.unlock()
+            return
+        }
+        let overflow = data.count + chunk.count - byteLimit
+        if overflow > 0 {
+            data.removeFirst(overflow)
+        }
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    private func finish() {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        handle.readabilityHandler = nil
         try? handle.close()
+        lock.unlock()
+        semaphore.signal()
     }
 }

@@ -298,7 +298,8 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             source: .osc,
             title: title,
             body: body,
-            appState: appState
+            appState: appState,
+            desktopDeliveryIngress: .terminalOSC
         )
     }
 

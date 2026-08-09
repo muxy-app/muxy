@@ -822,7 +822,13 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.dispatchNotification(type: type, title: title, body: body, paneIDString: paneIDString)
+            self?.dispatchNotification(
+                type: type,
+                title: title,
+                body: body,
+                paneIDString: paneIDString,
+                desktopDeliveryIngress: nil
+            )
         }
     }
 
@@ -845,7 +851,8 @@ final class NotificationSocketServer: @unchecked Sendable {
             type: message.socketType,
             title: message.title.isEmpty ? "Task completed!" : message.title,
             body: message.body,
-            paneIDString: message.paneID.uuidString
+            paneIDString: message.paneID.uuidString,
+            desktopDeliveryIngress: .aiHook(providerID: providerID)
         )
     }
 
@@ -888,12 +895,19 @@ final class NotificationSocketServer: @unchecked Sendable {
             type: message.provider,
             title: title,
             body: message.body,
-            paneIDString: paneIDString
+            paneIDString: paneIDString,
+            desktopDeliveryIngress: .aiHook(providerID: providerID)
         )
     }
 
     @MainActor
-    private func dispatchNotification(type: String, title: String, body: String, paneIDString: String?) {
+    private func dispatchNotification(
+        type: String,
+        title: String,
+        body: String,
+        paneIDString: String?,
+        desktopDeliveryIngress: NotificationStore.DesktopDeliveryIngress?
+    ) {
         guard let appState = NotificationStore.shared.appState else { return }
 
         let source = AIProviderRegistry.shared.notificationSource(for: type)
@@ -904,7 +918,8 @@ final class NotificationSocketServer: @unchecked Sendable {
                 source: source,
                 title: title,
                 body: body,
-                appState: appState
+                appState: appState,
+                desktopDeliveryIngress: desktopDeliveryIngress
             )
             return
         }
@@ -919,7 +934,8 @@ final class NotificationSocketServer: @unchecked Sendable {
             source: source,
             title: title,
             body: body,
-            appState: appState
+            appState: appState,
+            desktopDeliveryIngress: desktopDeliveryIngress
         )
     }
 

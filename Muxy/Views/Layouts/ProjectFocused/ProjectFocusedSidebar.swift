@@ -29,6 +29,65 @@ enum ProjectListSearch {
     }
 }
 
+struct ProjectSearchField: View {
+    @Binding var text: String
+    let isEnabled: Bool
+    let isWide: Bool
+
+    var body: some View {
+        Group {
+            if isEnabled, isWide {
+                searchField
+                    .padding(.horizontal, UIMetrics.spacing3)
+            }
+        }
+        .onChange(of: isEnabled) { _, isEnabled in
+            guard !isEnabled else { return }
+            text = ""
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: UIMetrics.spacing2) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .accessibilityHidden(true)
+
+            TextField(L10n.string("Search projects"), text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+                .accessibilityLabel(L10n.string("Search projects"))
+
+            if !text.isEmpty {
+                Button {
+                    clear()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: UIMetrics.fontFootnote))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.string("Clear project search"))
+                .help(L10n.string("Clear project search"))
+            }
+        }
+        .padding(.horizontal, UIMetrics.spacing4)
+        .frame(height: UIMetrics.controlMedium)
+        .background(
+            MuxyTheme.surface,
+            in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+        )
+    }
+
+    func clear() {
+        text = ""
+    }
+}
+
 @MainActor
 enum SidebarLayout {
     static var collapsedWidth: CGFloat { UIMetrics.sidebarCollapsedWidth }
@@ -95,7 +154,6 @@ struct ProjectFocusedSidebar: View {
     @State private var isExternalDropTargeted = false
     @State private var projectPendingRemoval: Project?
     @State private var projectSearchText = ""
-    @FocusState private var isProjectSearchFocused: Bool
     let expanded: Bool
     let expandedCustomWidth: CGFloat
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
@@ -218,19 +276,6 @@ struct ProjectFocusedSidebar: View {
         .help(L10n.string("Sort Projects: \(L10n.string(key: sortMode.title))"))
     }
 
-    private var projectSearchToggle: some View {
-        Button(action: toggleProjectSearch) {
-            SidebarHeaderIconButtonLabel(
-                systemName: isProjectSearchVisible ? "xmark" : "magnifyingglass",
-                accessibilityLabel: isProjectSearchVisible
-                    ? L10n.string("Close Project Search")
-                    : L10n.string("Search Projects")
-            )
-        }
-        .buttonStyle(.plain)
-        .help(isProjectSearchVisible ? L10n.string("Close Project Search") : L10n.string("Search Projects"))
-    }
-
     private var remoteProjectMenu: some View {
         Menu {
             let devices = remoteDeviceStore.sshDevices()
@@ -348,7 +393,6 @@ struct ProjectFocusedSidebar: View {
                 if showSortMenu {
                     sortMenu
                 }
-                projectSearchToggle
             }
         } else {
             WorkspaceSwitcher(isWide: isWide)
@@ -365,53 +409,14 @@ struct ProjectFocusedSidebar: View {
                 .padding(.horizontal, isWide ? UIMetrics.spacing3 : UIMetrics.spacing4)
                 .padding(.top, UIMetrics.spacing2)
 
-            if isWide, isProjectSearchVisible {
-                projectSearchField
-                    .padding(.horizontal, UIMetrics.spacing3)
-            }
+            ProjectSearchField(
+                text: $projectSearchText,
+                isEnabled: isProjectSearchVisible,
+                isWide: isWide
+            )
 
             scrollableProjects
         }
-    }
-
-    private var projectSearchField: some View {
-        HStack(spacing: UIMetrics.spacing2) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: UIMetrics.fontFootnote))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .accessibilityHidden(true)
-
-            TextField(L10n.string("Search projects"), text: $projectSearchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fg)
-                .focused($isProjectSearchFocused)
-                .onExitCommand(perform: hideProjectSearch)
-                .accessibilityLabel(L10n.string("Search projects"))
-        }
-        .padding(.horizontal, UIMetrics.spacing4)
-        .frame(height: UIMetrics.controlMedium)
-        .background(
-            MuxyTheme.surface,
-            in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-        )
-    }
-
-    private func toggleProjectSearch() {
-        guard isProjectSearchVisible else {
-            isProjectSearchVisible = true
-            DispatchQueue.main.async {
-                isProjectSearchFocused = true
-            }
-            return
-        }
-        hideProjectSearch()
-    }
-
-    private func hideProjectSearch() {
-        projectSearchText = ""
-        isProjectSearchFocused = false
-        isProjectSearchVisible = false
     }
 
     private var scrollableProjects: some View {
