@@ -9,8 +9,16 @@ struct GitProcessResult {
     let truncated: Bool
 }
 
-enum GitProcessError: Error {
+enum GitProcessError: LocalizedError {
     case launchFailed(String)
+    case timedOut(TimeInterval)
+
+    var errorDescription: String? {
+        switch self {
+        case let .launchFailed(message): message
+        case let .timedOut(seconds): "Git timed out after \(Int(seconds))s"
+        }
+    }
 }
 
 enum GitProcessRunner {
@@ -66,7 +74,8 @@ enum GitProcessRunner {
         arguments: [String],
         lineLimit: Int? = nil,
         outputByteLimit: Int? = nil,
-        context: WorkspaceContext = .local
+        context: WorkspaceContext = .local,
+        timeout: TimeInterval? = nil
     ) async throws -> GitProcessResult {
         guard case let .ssh(destination) = context else {
             return try await runProcess(
@@ -77,7 +86,8 @@ enum GitProcessRunner {
                     lineLimit: lineLimit,
                     outputByteLimit: outputByteLimit,
                     signpostName: "git"
-                )
+                ),
+                timeout: timeout
             )
         }
         let resolved = CommandTransform.resolve(
@@ -86,7 +96,7 @@ enum GitProcessRunner {
             workingDirectory: nil,
             in: .ssh(destination)
         )
-        return try await SSHCommandRunner.withTimeout(SSHCommandRunner.defaultTimeout) {
+        return try await SSHCommandRunner.withTimeout(timeout ?? SSHCommandRunner.defaultTimeout) {
             try await runProcess(
                 ProcessSpec(
                     executable: resolved.executable,
@@ -163,15 +173,28 @@ enum GitProcessRunner {
         )
     }
 
-    private static func runProcess(_ spec: ProcessSpec) async throws -> GitProcessResult {
+    private static func runProcess(_ spec: ProcessSpec, timeout: TimeInterval? = nil) async throws -> GitProcessResult {
+        guard let timeout else { return try await runProcessWithoutTimeout(spec) }
+        do {
+            return try await AsyncTimeout.run(seconds: timeout) {
+                try await runProcessWithoutTimeout(spec)
+            }
+        } catch AsyncTimeoutError.timedOut {
+            throw GitProcessError.timedOut(timeout)
+        }
+    }
+
+    private static func runProcessWithoutTimeout(_ spec: ProcessSpec) async throws -> GitProcessResult {
         let handle = ProcessHandle()
-        return try await withTaskCancellationHandler {
+        let result = try await withTaskCancellationHandler {
             try await dispatch {
                 try runProcessSync(spec, handle: handle)
             }
         } onCancel: {
             handle.terminate()
         }
+        try Task.checkCancellation()
+        return result
     }
 
     private static func dispatch(
@@ -230,23 +253,37 @@ enum GitProcessRunner {
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
-        let stdinPipe = spec.stdinData.map { _ in Pipe() }
-        if let stdinPipe {
-            process.standardInput = stdinPipe
-        }
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
 
+        let exited = DispatchSemaphore(value: 0)
+        let cancellableProcess: CancellableProcess
         do {
-            try process.run()
+            cancellableProcess = try CancellableProcess.launch(
+                configuredProcess: process,
+                stdinPipe: stdinPipe,
+                stdoutPipe: stdoutPipe,
+                stderrPipe: stderrPipe,
+                deferReaping: true
+            ) {
+                exited.signal()
+            }
         } catch {
             throw GitProcessError.launchFailed(error.localizedDescription)
         }
 
-        let stdinWriter = stdinPipe.map { AsyncDataWriter(handle: $0.fileHandleForWriting) }
-        guard handle.attach(process, stdinWriter: stdinWriter) else {
-            process.waitUntilExit()
+        let stdinWriter = AsyncDataWriter(handle: stdinPipe.fileHandleForWriting)
+        guard handle.attach(
+            cancellableProcess,
+            stdinWriter: stdinWriter,
+            outputHandles: [stdoutPipe.fileHandleForReading, stderrPipe.fileHandleForReading]
+        )
+        else {
+            cancellableProcess.releaseReaping()
+            exited.wait()
             handle.detach()
             return GitProcessResult(
-                status: process.terminationStatus,
+                status: cancellableProcess.terminationStatus,
                 stdout: "",
                 stdoutData: Data(),
                 stderr: "",
@@ -262,12 +299,10 @@ enum GitProcessRunner {
             byteLimit: spec.outputByteLimit
         )
 
-        if let stdinWriter, let stdinData = spec.stdinData {
-            stdinWriter.start(
-                writing: stdinData,
-                on: stdinWriteQueue
-            )
-        }
+        stdinWriter.start(
+            writing: spec.stdinData ?? Data(),
+            on: stdinWriteQueue
+        )
 
         let stdoutRead: OutputRead
         do {
@@ -279,23 +314,25 @@ enum GitProcessRunner {
             )
         } catch {
             handle.terminate()
-            stdinWriter?.waitUntilFinished()
+            stdinWriter.waitUntilFinished()
             _ = stderrCollector.wait()
-            process.waitUntilExit()
+            cancellableProcess.releaseReaping()
+            exited.wait()
             throw error
         }
 
-        process.waitUntilExit()
-        stdinWriter?.waitUntilFinished()
+        stdinWriter.waitUntilFinished()
         let stderrRead = stderrCollector.wait()
+        cancellableProcess.releaseReaping()
+        exited.wait()
 
         let stdout = String(data: stdoutRead.data, encoding: .utf8) ?? ""
         let stderr = String(data: stderrRead.data, encoding: .utf8) ?? ""
         let truncated = stdoutRead.truncated
             || stderrRead.truncated
-            || process.terminationReason == .uncaughtSignal
+            || handle.wasCancelled
         return GitProcessResult(
-            status: process.terminationStatus,
+            status: cancellableProcess.terminationStatus,
             stdout: stdout,
             stdoutData: stdoutRead.data,
             stderr: stderr,
@@ -492,26 +529,33 @@ private struct OutputRead {
 }
 
 private final class ProcessHandle: @unchecked Sendable {
-    private static let terminationQueue = DispatchQueue(
-        label: "app.muxy.git-process-termination",
-        qos: .userInitiated
-    )
-    private static let forceTerminationDelay = DispatchTimeInterval.seconds(1)
-
     private let lock = NSLock()
-    private var process: Process?
+    private var process: CancellableProcess?
     private var stdinWriter: AsyncDataWriter?
+    private var outputHandles: [FileHandle] = []
     private var cancelled = false
 
-    func attach(_ process: Process, stdinWriter: AsyncDataWriter?) -> Bool {
+    var wasCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func attach(
+        _ process: CancellableProcess,
+        stdinWriter: AsyncDataWriter?,
+        outputHandles: [FileHandle]
+    ) -> Bool {
         lock.lock()
         self.process = process
         self.stdinWriter = stdinWriter
+        self.outputHandles = outputHandles
         let shouldTerminate = cancelled
         lock.unlock()
         guard shouldTerminate else { return true }
+        process.terminateProcessGroup()
         stdinWriter?.cancel()
-        terminateRunning(process)
+        outputHandles.forEach { try? $0.close() }
         return false
     }
 
@@ -519,6 +563,7 @@ private final class ProcessHandle: @unchecked Sendable {
         lock.lock()
         process = nil
         stdinWriter = nil
+        outputHandles = []
         lock.unlock()
     }
 
@@ -527,29 +572,11 @@ private final class ProcessHandle: @unchecked Sendable {
         cancelled = true
         let process = process
         let stdinWriter = stdinWriter
+        let outputHandles = outputHandles
         lock.unlock()
+        process?.terminateProcessGroup()
         stdinWriter?.cancel()
-        guard let process else { return }
-        terminateRunning(process)
-    }
-
-    private func terminateRunning(_ process: Process) {
-        guard process.isRunning else { return }
-        process.terminate()
-        Self.terminationQueue.asyncAfter(deadline: .now() + Self.forceTerminationDelay) { [weak self] in
-            self?.forceTerminateIfNeeded()
-        }
-    }
-
-    private func forceTerminateIfNeeded() {
-        lock.lock()
-        guard cancelled, let process, process.isRunning else {
-            lock.unlock()
-            return
-        }
-        let processIdentifier = process.processIdentifier
-        lock.unlock()
-        _ = Darwin.kill(processIdentifier, SIGKILL)
+        outputHandles.forEach { try? $0.close() }
     }
 }
 

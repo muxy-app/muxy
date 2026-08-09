@@ -41,7 +41,7 @@ enum SSHCommandRunner {
         try await withThrowingTaskGroup(of: GitProcessResult.self) { group in
             group.addTask { try await operation() }
             group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                try await Task.sleep(for: .seconds(timeout))
                 throw SSHCommandError.timedOut(timeout)
             }
             defer { group.cancelAll() }

@@ -30,7 +30,21 @@ protocol GitWorktreeListing {
 }
 
 actor GitWorktreeService: GitWorktreeListing {
+    struct WorktreePathResolution {
+        let path: String
+        let remoteHomePath: String?
+    }
+
+    typealias RemovalRunner = @Sendable (
+        _ repoPath: String,
+        _ arguments: [String],
+        _ context: WorkspaceContext,
+        _ timeout: TimeInterval
+    ) async throws -> GitProcessResult
+
     static let shared = GitWorktreeService()
+    static let defaultWorktreeRemovalTimeout: TimeInterval = 300
+    private static let removalReconciliationTimeout: TimeInterval = 5
     private static let maxConcurrentRepositoryChecksPerContext = 4
     private static let localRepositoryCheckTimeout = Duration.seconds(10)
 
@@ -92,15 +106,25 @@ actor GitWorktreeService: GitWorktreeListing {
     }
 
     func hasUncommittedChanges(worktreePath: String, context: WorkspaceContext = .local) async -> Bool {
-        guard let result = try? await GitProcessRunner.runGit(
+        await (try? uncommittedChanges(worktreePath: worktreePath, context: context)) ?? false
+    }
+
+    func uncommittedChanges(
+        worktreePath: String,
+        context: WorkspaceContext = .local,
+        timeout: TimeInterval? = nil
+    ) async throws -> Bool {
+        let result = try await GitProcessRunner.runGit(
             repoPath: worktreePath,
             arguments: ["status", "--porcelain=1", "--untracked-files=all"],
-            context: context
+            context: context,
+            timeout: timeout
         )
-        else {
-            return false
+        guard result.status == 0 else {
+            throw GitWorktreeError.commandFailed(
+                result.stderr.isEmpty ? "Failed to inspect worktree changes." : result.stderr
+            )
         }
-        guard result.status == 0 else { return false }
         return !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -165,19 +189,58 @@ actor GitWorktreeService: GitWorktreeListing {
         repoPath: String,
         path: String,
         force: Bool = false,
-        context: WorkspaceContext = .local
+        context: WorkspaceContext = .local,
+        timeout: TimeInterval = defaultWorktreeRemovalTimeout,
+        removalRunner: RemovalRunner = runRemoval
     ) async throws {
+        let deadline = OperationDeadline(timeout: timeout)
+        let target = Self.canonicalPath(path, context: context)
+        let wasRegistered = try await listWorktrees(
+            repoPath: repoPath,
+            context: context,
+            timeout: deadline.remaining()
+        )
+        .contains { Self.canonicalPath($0.path, context: context) == target }
+        if !wasRegistered, try await context.fileOps.exists(at: path, timeout: deadline.remaining()) {
+            throw GitWorktreeError.commandFailed("Worktree is not registered with this repository.")
+        }
+
         var args: [String] = ["worktree", "remove"]
         if force {
             args.append("--force")
         }
         args += ["--", path]
-        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args, context: context)
+        let result: GitProcessResult
+        do {
+            result = try await removalRunner(repoPath, args, context, deadline.remaining())
+        } catch {
+            guard Self.isTimeout(error), try await !isRegistered(
+                target: target,
+                repoPath: repoPath,
+                context: context,
+                timeout: Self.removalReconciliationTimeout
+            )
+            else { throw error }
+            return
+        }
+        guard result.status != 0 else { return }
+        if try await context.fileOps.exists(at: path, timeout: deadline.remaining()) {
+            throw GitWorktreeError.commandFailed(
+                result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
+            )
+        }
 
-        try? await pruneWorktrees(repoPath: repoPath, context: context)
-        let target = Self.canonicalPath(path, context: context)
-        let stillRegistered = try await listWorktrees(repoPath: repoPath, context: context)
-            .contains { Self.canonicalPath($0.path, context: context) == target }
+        if let remaining = try? deadline.remaining() {
+            try? await pruneWorktrees(repoPath: repoPath, context: context, timeout: remaining)
+        }
+        try Task.checkCancellation()
+        let verificationTimeout = (try? deadline.remaining()) ?? Self.removalReconciliationTimeout
+        let stillRegistered = try await isRegistered(
+            target: target,
+            repoPath: repoPath,
+            context: context,
+            timeout: verificationTimeout
+        )
         guard stillRegistered else { return }
 
         throw GitWorktreeError.commandFailed(
@@ -185,11 +248,12 @@ actor GitWorktreeService: GitWorktreeListing {
         )
     }
 
-    private func pruneWorktrees(repoPath: String, context: WorkspaceContext) async throws {
+    private func pruneWorktrees(repoPath: String, context: WorkspaceContext, timeout: TimeInterval) async throws {
         let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["worktree", "prune"],
-            context: context
+            context: context,
+            timeout: timeout
         )
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
@@ -198,14 +262,131 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
+    private func isRegistered(
+        target: String,
+        repoPath: String,
+        context: WorkspaceContext,
+        timeout: TimeInterval
+    ) async throws -> Bool {
+        try await listWorktrees(repoPath: repoPath, context: context, timeout: timeout)
+            .contains { Self.canonicalPath($0.path, context: context) == target }
+    }
+
+    private static func runRemoval(
+        repoPath: String,
+        arguments: [String],
+        context: WorkspaceContext,
+        timeout: TimeInterval
+    ) async throws -> GitProcessResult {
+        try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: arguments,
+            context: context,
+            timeout: timeout
+        )
+    }
+
+    private static func isTimeout(_ error: Error) -> Bool {
+        if let error = error as? GitProcessError, case .timedOut = error {
+            return true
+        }
+        if let error = error as? SSHCommandError, case .timedOut = error {
+            return true
+        }
+        return false
+    }
+
+    private func listWorktrees(
+        repoPath: String,
+        context: WorkspaceContext,
+        timeout: TimeInterval
+    ) async throws -> [GitWorktreeRecord] {
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["worktree", "list", "--porcelain"],
+            context: context,
+            timeout: timeout
+        )
+        guard result.status == 0 else {
+            throw GitWorktreeError.commandFailed(
+                result.stderr.isEmpty ? "Failed to list worktrees." : result.stderr
+            )
+        }
+        return parsePorcelain(result.stdout)
+    }
+
     static func canonicalPath(_ path: String, context: WorkspaceContext = .local) -> String {
-        guard !context.isRemote else { return path }
+        guard !context.isRemote else { return ProjectPickerPathService.standardizedRemotePath(path) }
         let standardized = URL(fileURLWithPath: path).standardizedFileURL
         let resolved = standardized.resolvingSymlinksInPath()
         guard resolved.path == standardized.path else { return resolved.path }
 
         let parent = standardized.deletingLastPathComponent().resolvingSymlinksInPath()
         return parent.appendingPathComponent(standardized.lastPathComponent).path
+    }
+
+    static func resolveWorktreePath(
+        _ path: String,
+        repoPath: String,
+        context: WorkspaceContext,
+        timeout: TimeInterval
+    ) async throws -> WorktreePathResolution {
+        guard case let .ssh(destination) = context else {
+            return WorktreePathResolution(
+                path: canonicalPath(NSString(string: path).expandingTildeInPath),
+                remoteHomePath: nil
+            )
+        }
+        let deadline = OperationDeadline(timeout: timeout)
+        let homeResult = try await SSHCommandRunner.run(
+            destination: destination,
+            remoteCommand: "printf '%s' \"$HOME\"",
+            timeout: deadline.remaining()
+        )
+        guard homeResult.status == 0 else {
+            throw GitWorktreeError.commandFailed(
+                homeResult.stderr.isEmpty ? "Failed to resolve the remote home directory." : homeResult.stderr
+            )
+        }
+        let homePath = homeResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let absolutePath = expandedRemotePath(path, repoPath: repoPath, homePath: homePath)
+        let quotedPath = RemoteCommandBuilder.quoteRemotePath(absolutePath)
+        let resolved = try await SSHCommandRunner.run(
+            destination: destination,
+            remoteCommand: "if [ -d \(quotedPath) ]; then cd \(quotedPath) && pwd -P; else printf '%s' \(quotedPath); fi",
+            timeout: deadline.remaining()
+        )
+        guard resolved.status == 0 else {
+            throw GitWorktreeError.commandFailed(
+                resolved.stderr.isEmpty ? "Failed to resolve the remote worktree path." : resolved.stderr
+            )
+        }
+        return WorktreePathResolution(
+            path: canonicalPath(
+                resolved.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+                context: context
+            ),
+            remoteHomePath: homePath
+        )
+    }
+
+    static func expandedRemotePath(_ path: String, repoPath: String, homePath: String) -> String {
+        func expandHome(_ value: String) -> String {
+            if value == "~" {
+                return homePath
+            }
+            if value.hasPrefix("~/") {
+                return homePath + value.dropFirst()
+            }
+            return value
+        }
+
+        let expandedPath = expandHome(path)
+        guard !expandedPath.hasPrefix("/") else {
+            return ProjectPickerPathService.standardizedRemotePath(expandedPath)
+        }
+        let expandedRepoPath = expandHome(repoPath)
+        return ProjectPickerPathService.standardizedRemotePath(expandedRepoPath + "/" + expandedPath)
     }
 
     func resolvedRepositoryRoot(repoPath: String, context: WorkspaceContext) async -> String? {

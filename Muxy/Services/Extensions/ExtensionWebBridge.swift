@@ -558,6 +558,7 @@ enum ExtensionWebBridge {
                             project: gitProject(o),
                             path: String((o || {}).path || ''),
                             force: Boolean((o || {}).force),
+                            timeoutMs: (o || {}).timeoutMs == null ? null : Number(o.timeoutMs),
                         }); },
                         switchTo(o) {
                             return send('git.worktree.switch', { project: gitProject(o), identifier: String((o || {}).identifier || '') });

@@ -9,6 +9,8 @@ struct SubprocessRequest: Sendable {
     let standardInput: Data?
     let timeout: TimeInterval?
     let outputByteLimit: Int
+    let onStandardOutput: (@Sendable (Data) -> Void)?
+    let onStandardError: (@Sendable (Data) -> Void)?
 
     init(
         executablePath: String,
@@ -17,7 +19,9 @@ struct SubprocessRequest: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         standardInput: Data? = nil,
         timeout: TimeInterval? = nil,
-        outputByteLimit: Int = 64 * 1024
+        outputByteLimit: Int = 64 * 1024,
+        onStandardOutput: (@Sendable (Data) -> Void)? = nil,
+        onStandardError: (@Sendable (Data) -> Void)? = nil
     ) {
         self.executablePath = executablePath
         self.arguments = arguments
@@ -26,6 +30,8 @@ struct SubprocessRequest: Sendable {
         self.standardInput = standardInput
         self.timeout = timeout
         self.outputByteLimit = outputByteLimit
+        self.onStandardOutput = onStandardOutput
+        self.onStandardError = onStandardError
     }
 }
 
@@ -70,6 +76,11 @@ private final class SubprocessJob: @unchecked Sendable {
         attributes: .concurrent
     )
 
+    private enum TerminationReason {
+        case timedOut(TimeInterval)
+        case cancelled
+    }
+
     private let request: SubprocessRequest
     private let lock = NSLock()
     private var continuation: CheckedContinuation<SubprocessResult, Error>?
@@ -78,9 +89,11 @@ private final class SubprocessJob: @unchecked Sendable {
     private var stderrReader: OutputReader?
     private var stdout: OutputBox?
     private var stderr: OutputBox?
-    private var timedOut = false
-    private var cancelled = false
+    private var terminationReason: TerminationReason?
     private var finished = false
+    private var processExited = false
+    private var stdoutFinished = false
+    private var stderrFinished = false
 
     init(request: SubprocessRequest) {
         self.request = request
@@ -90,7 +103,7 @@ private final class SubprocessJob: @unchecked Sendable {
         try await withCheckedThrowingContinuation { continuation in
             lock.lock()
             self.continuation = continuation
-            let wasCancelled = cancelled
+            let wasCancelled = terminationReason != nil
             lock.unlock()
             guard !wasCancelled else {
                 finish(.failure(SubprocessRunnerError.cancelled))
@@ -105,13 +118,15 @@ private final class SubprocessJob: @unchecked Sendable {
         guard !finished else { lock.unlock()
             return
         }
-        cancelled = true
+        if terminationReason == nil {
+            terminationReason = .cancelled
+        }
         let process = process
         lock.unlock()
         guard let process else { finish(.failure(SubprocessRunnerError.cancelled))
             return
         }
-        _ = process.terminate()
+        process.terminateProcessGroup()
     }
 
     private func launch() {
@@ -127,11 +142,22 @@ private final class SubprocessJob: @unchecked Sendable {
         configured.standardOutput = stdoutPipe
         configured.standardError = stderrPipe
         let stdout = OutputBox(maximumBytes: request.outputByteLimit), stderr = OutputBox(maximumBytes: request.outputByteLimit)
-        let stdoutReader = OutputReader(pipe: stdoutPipe, box: stdout), stderrReader = OutputReader(pipe: stderrPipe, box: stderr)
+        let stdoutReader = OutputReader(
+            pipe: stdoutPipe,
+            box: stdout,
+            onData: request.onStandardOutput,
+            onFinish: { [weak self] in self?.outputFinished(stdout: true) }
+        )
+        let stderrReader = OutputReader(
+            pipe: stderrPipe,
+            box: stderr,
+            onData: request.onStandardError,
+            onFinish: { [weak self] in self?.outputFinished(stdout: false) }
+        )
         stdoutReader.start()
         stderrReader.start()
         lock.lock()
-        guard !cancelled else { lock.unlock()
+        guard terminationReason == nil else { lock.unlock()
             stdoutReader.finish()
             stderrReader.finish()
             finish(.failure(SubprocessRunnerError.cancelled))
@@ -146,7 +172,8 @@ private final class SubprocessJob: @unchecked Sendable {
             stdinPipe: stdin,
             stdoutPipe: stdoutPipe,
             stderrPipe: stderrPipe,
-            monitoringQueue: Self.monitoringQueue
+            monitoringQueue: Self.monitoringQueue,
+            deferReaping: true
         ) { [weak self] in self?.didTerminate() } } catch { lock.unlock()
             stdoutReader.finish()
             stderrReader.finish()
@@ -170,29 +197,58 @@ private final class SubprocessJob: @unchecked Sendable {
 
     private func timeout() {
         lock.lock()
-        guard !finished, !cancelled, let process else { lock.unlock()
+        guard !finished, terminationReason == nil, let process else { lock.unlock()
             return
         }
-        timedOut = true
+        terminationReason = .timedOut(request.timeout ?? 0)
         lock.unlock()
-        _ = process.terminate()
+        process.terminateProcessGroup()
     }
 
     private func didTerminate() {
         lock.lock()
-        let wasCancelled = cancelled
-        let didTimeOut = timedOut
-        let status = process?.terminationStatus ?? -1
+        processExited = true
+        let shouldForceFinishOutput = terminationReason != nil
         let readers = (stdoutReader, stderrReader)
+        lock.unlock()
+        if shouldForceFinishOutput {
+            readers.0?.finish()
+            readers.1?.finish()
+        }
+        finishIfReady()
+    }
+
+    private func outputFinished(stdout: Bool) {
+        lock.lock()
+        if stdout {
+            stdoutFinished = true
+        } else {
+            stderrFinished = true
+        }
+        let shouldRelease = stdoutFinished && stderrFinished
+        let process = process
+        lock.unlock()
+        if shouldRelease {
+            process?.releaseReaping()
+        }
+        finishIfReady()
+    }
+
+    private func finishIfReady() {
+        lock.lock()
+        guard processExited, stdoutFinished, stderrFinished else {
+            lock.unlock()
+            return
+        }
+        let terminationReason = terminationReason
+        let status = process?.terminationStatus ?? -1
         let output = (stdout, stderr)
         lock.unlock()
-        readers.0?.finish()
-        readers.1?.finish()
-        if wasCancelled {
+        if case .cancelled = terminationReason {
             finish(.failure(SubprocessRunnerError.cancelled))
             return
         }
-        if didTimeOut, let timeout = request.timeout {
+        if case let .timedOut(timeout) = terminationReason {
             finish(.failure(SubprocessRunnerError.timedOut(timeout)))
             return
         }

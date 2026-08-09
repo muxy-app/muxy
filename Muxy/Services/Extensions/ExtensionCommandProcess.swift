@@ -10,15 +10,23 @@ final class CancellableProcess: @unchecked Sendable {
 
     private enum State: Equatable {
         case running
+        case exited
         case terminating
         case reaping
         case finished
+    }
+
+    private enum TerminationResult: Equatable {
+        case initiated
+        case reaped
+        case inactive
     }
 
     let processIdentifier: pid_t
     private let lock = NSLock()
     private let onTermination: @Sendable () -> Void
     private let monitoringQueue: DispatchQueue
+    private var deferReaping: Bool
     private var state = State.running
     private var status: Int32 = -1
     private var source: DispatchSourceProcess?
@@ -32,10 +40,12 @@ final class CancellableProcess: @unchecked Sendable {
     private init(
         processIdentifier: pid_t,
         monitoringQueue: DispatchQueue,
+        deferReaping: Bool,
         onTermination: @escaping @Sendable () -> Void
     ) {
         self.processIdentifier = processIdentifier
         self.monitoringQueue = monitoringQueue
+        self.deferReaping = deferReaping
         self.onTermination = onTermination
     }
 
@@ -45,6 +55,7 @@ final class CancellableProcess: @unchecked Sendable {
         stdoutPipe: Pipe,
         stderrPipe: Pipe,
         monitoringQueue: DispatchQueue = .global(qos: .userInitiated),
+        deferReaping: Bool = false,
         onTermination: @escaping @Sendable () -> Void
     ) throws -> CancellableProcess {
         guard let executable = configuredProcess.executableURL?.path else {
@@ -109,6 +120,7 @@ final class CancellableProcess: @unchecked Sendable {
         let process = CancellableProcess(
             processIdentifier: pid,
             monitoringQueue: monitoringQueue,
+            deferReaping: deferReaping,
             onTermination: onTermination
         )
         process.startMonitoring()
@@ -116,10 +128,40 @@ final class CancellableProcess: @unchecked Sendable {
     }
 
     func terminate() -> Bool {
+        switch requestTermination() {
+        case .initiated: true
+        case .reaped,
+             .inactive: false
+        }
+    }
+
+    func terminateProcessGroup() {
+        _ = requestTermination()
+    }
+
+    func releaseReaping() {
         lock.lock()
-        guard state == .running else {
+        deferReaping = false
+        guard state == .exited else {
             lock.unlock()
-            return false
+            return
+        }
+        state = .reaping
+        lock.unlock()
+        reapClaimedProcess()
+    }
+
+    private func requestTermination() -> TerminationResult {
+        lock.lock()
+        guard state == .running || state == .exited else {
+            lock.unlock()
+            return .inactive
+        }
+        if deferReaping {
+            state = .terminating
+            lock.unlock()
+            scheduleTermination()
+            return .initiated
         }
         var waitStatus: Int32 = 0
         var waitResult: pid_t
@@ -136,10 +178,15 @@ final class CancellableProcess: @unchecked Sendable {
             Self.controlQueue.async { [self] in
                 onTermination()
             }
-            return false
+            return .reaped
         }
         state = .terminating
         lock.unlock()
+        scheduleTermination()
+        return .initiated
+    }
+
+    private func scheduleTermination() {
         kill(-processIdentifier, SIGTERM)
         Self.controlQueue.asyncAfter(deadline: .now() + .milliseconds(200)) { [self] in
             lock.lock()
@@ -152,7 +199,6 @@ final class CancellableProcess: @unchecked Sendable {
             kill(-processIdentifier, SIGKILL)
             reapClaimedProcess()
         }
-        return true
     }
 
     private static func addPipeActions(
@@ -229,6 +275,14 @@ final class CancellableProcess: @unchecked Sendable {
             lock.unlock()
             return
         }
+        if deferReaping {
+            state = .exited
+            let source = self.source
+            self.source = nil
+            lock.unlock()
+            source?.cancel()
+            return
+        }
         state = .reaping
         lock.unlock()
         reapClaimedProcess()
@@ -287,11 +341,20 @@ final class OutputReader: @unchecked Sendable {
     private let lock = NSLock()
     private let handle: FileHandle
     private let box: OutputBox
+    private let onData: (@Sendable (Data) -> Void)?
+    private let onFinish: (@Sendable () -> Void)?
     private var finished = false
 
-    init(pipe: Pipe, box: OutputBox) {
+    init(
+        pipe: Pipe,
+        box: OutputBox,
+        onData: (@Sendable (Data) -> Void)? = nil,
+        onFinish: (@Sendable () -> Void)? = nil
+    ) {
         handle = pipe.fileHandleForReading
         self.box = box
+        self.onData = onData
+        self.onFinish = onFinish
     }
 
     func start() {
@@ -318,7 +381,7 @@ final class OutputReader: @unchecked Sendable {
                 read(descriptor, bytes.baseAddress, bytes.count)
             }
             if bytesRead > 0 {
-                box.append(Data(buffer.prefix(Int(bytesRead))))
+                append(Data(buffer.prefix(Int(bytesRead))))
                 continue
             }
             if bytesRead == -1, errno == EINTR {
@@ -327,6 +390,7 @@ final class OutputReader: @unchecked Sendable {
             break
         }
         try? handle.close()
+        onFinish?()
     }
 
     private func readAvailableData() {
@@ -335,12 +399,18 @@ final class OutputReader: @unchecked Sendable {
         guard !finished else { return }
         let data = handle.availableData
         guard data.isEmpty else {
-            box.append(data)
+            append(data)
             return
         }
         finished = true
         handle.readabilityHandler = nil
         try? handle.close()
+        onFinish?()
+    }
+
+    private func append(_ data: Data) {
+        box.append(data)
+        onData?(data)
     }
 }
 

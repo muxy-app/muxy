@@ -1038,13 +1038,17 @@ enum MuxyAPIDispatcher {
                 context: git
             ))
         case "git.worktree.remove":
-            try await unwrap(MuxyAPI.Git.removeWorktree(
+            let removed = try await unwrap(MuxyAPI.Git.removeWorktree(
                 projectIdentifier: project,
                 path: stringArg(args, "path"),
                 force: args["force"] as? Bool ?? false,
+                timeoutMs: intArg(args, "timeoutMs") ?? MuxyAPI.Git.defaultWorktreeRemovalTimeoutMs,
                 context: git
             ))
-            return NSNull()
+            return [
+                "path": removed.path,
+                "dirRemoved": removed.dirRemoved.map { $0 as Any } ?? NSNull(),
+            ]
         case "git.worktree.switch":
             guard let projectStore = context.projectStore,
                   let worktreeStore = context.worktreeStore
