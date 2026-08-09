@@ -191,6 +191,7 @@ final class SessionDaemon {
                   let session = sessions[identifier],
                   let size = try? SessionResizePayload.decode(frame.payload)
             else { return }
+            guard SessionWindowSizePolicy.isUsable(columns: size.columns, rows: size.rows) else { return }
             SessionPTY.resize(masterDescriptor: session.masterDescriptor, columns: size.columns, rows: size.rows)
         case .list:
             connection.enqueue(SessionFrame(
@@ -256,11 +257,13 @@ final class SessionDaemon {
         session.metadata = request.metadata
         connection.attachedSession = session.identifier
 
-        SessionPTY.resize(
-            masterDescriptor: session.masterDescriptor,
-            columns: request.columns,
-            rows: request.rows
-        )
+        if SessionWindowSizePolicy.isUsable(columns: request.columns, rows: request.rows) {
+            SessionPTY.resize(
+                masterDescriptor: session.masterDescriptor,
+                columns: request.columns,
+                rows: request.rows
+            )
+        }
         connection.enqueue(SessionFrame(
             kind: .attached,
             payload: SessionAttachAccepted(
@@ -274,7 +277,7 @@ final class SessionDaemon {
     }
 
     private func enqueueReplay(session: PTYSession, connection: SessionConnection) {
-        let bytes = session.replay.bytes
+        let bytes = session.replay.replayBytes
         guard !bytes.isEmpty else { return }
         var index = 0
         while index < bytes.count {
@@ -291,11 +294,12 @@ final class SessionDaemon {
             resourcesDirectory: request.resourcesDirectory,
             environment: request.environment
         )
+        let size = SessionWindowSizePolicy.createSize(columns: request.columns, rows: request.rows)
         guard let process = SessionPTY.spawn(
             invocation: invocation,
             workingDirectory: request.workingDirectory,
-            columns: request.columns,
-            rows: request.rows
+            columns: size.columns,
+            rows: size.rows
         )
         else {
             connection.enqueue(SessionFrame(kind: .failure, payload: SessionTextPayload.encode("failed to start the session")))

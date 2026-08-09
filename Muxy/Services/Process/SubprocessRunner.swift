@@ -60,6 +60,16 @@ enum SubprocessRunner {
 }
 
 private final class SubprocessJob: @unchecked Sendable {
+    private static let timeoutQueue = DispatchQueue(
+        label: "app.muxy.subprocess-timeout",
+        qos: .userInitiated
+    )
+    private static let monitoringQueue = DispatchQueue(
+        label: "app.muxy.subprocess-monitor",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
     private let request: SubprocessRequest
     private let lock = NSLock()
     private var continuation: CheckedContinuation<SubprocessResult, Error>?
@@ -135,7 +145,8 @@ private final class SubprocessJob: @unchecked Sendable {
             configuredProcess: configured,
             stdinPipe: stdin,
             stdoutPipe: stdoutPipe,
-            stderrPipe: stderrPipe
+            stderrPipe: stderrPipe,
+            monitoringQueue: Self.monitoringQueue
         ) { [weak self] in self?.didTerminate() } } catch { lock.unlock()
             stdoutReader.finish()
             stderrReader.finish()
@@ -153,7 +164,7 @@ private final class SubprocessJob: @unchecked Sendable {
         if let timeout = request
             .timeout
         {
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [weak self] in self?.timeout() }
+            Self.timeoutQueue.asyncAfter(deadline: .now() + timeout) { [weak self] in self?.timeout() }
         }
     }
 

@@ -148,6 +148,9 @@ struct SettingsCatalogTests {
     @Test
     func categoryMatchingUsesCatalogItems() {
         #expect(SettingsCatalog.categoryMatches(.richInput, query: "rich input"))
+        #expect(SettingsCatalog.matchingItems(query: "floating").contains {
+            $0.key == RichInputPreferences.presentationModeKey
+        })
         #expect(!SettingsCatalog.categoryMatches(.mobile, query: "rich input"))
     }
 

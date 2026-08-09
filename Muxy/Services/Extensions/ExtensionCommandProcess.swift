@@ -2,6 +2,12 @@ import Darwin
 import Foundation
 
 final class CancellableProcess: @unchecked Sendable {
+    private static let controlQueue = DispatchQueue(
+        label: "app.muxy.cancellable-process-control",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
     private enum State: Equatable {
         case running
         case terminating
@@ -127,7 +133,7 @@ final class CancellableProcess: @unchecked Sendable {
             self.source = nil
             lock.unlock()
             source?.cancel()
-            DispatchQueue.global(qos: .userInitiated).async { [self] in
+            Self.controlQueue.async { [self] in
                 onTermination()
             }
             return false
@@ -135,8 +141,7 @@ final class CancellableProcess: @unchecked Sendable {
         state = .terminating
         lock.unlock()
         kill(-processIdentifier, SIGTERM)
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(200)) { [self] in
-            kill(-processIdentifier, SIGKILL)
+        Self.controlQueue.asyncAfter(deadline: .now() + .milliseconds(200)) { [self] in
             lock.lock()
             guard state == .terminating else {
                 lock.unlock()
@@ -144,6 +149,7 @@ final class CancellableProcess: @unchecked Sendable {
             }
             state = .reaping
             lock.unlock()
+            kill(-processIdentifier, SIGKILL)
             reapClaimedProcess()
         }
         return true

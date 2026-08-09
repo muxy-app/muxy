@@ -440,6 +440,15 @@ enum SettingsCatalog {
             defaultValue: SidebarExpandedStyle.defaultValue.rawValue
         ),
         SettingsCatalogItem(
+            key: RichInputPreferences.presentationModeKey,
+            title: "Composer Presentation",
+            description: "Chooses whether the composer opens as a workspace panel or a floating modal.",
+            category: .richInput,
+            section: "Composer",
+            defaultValue: RichInputPreferences.defaultPresentationMode.rawValue,
+            aliases: ["rich input", "panel", "floating"]
+        ),
+        SettingsCatalogItem(
             key: "editor.richInputImageStrategy",
             title: "Composer Image Submission",
             description: "Chooses how the composer submits images.",

@@ -134,6 +134,8 @@
 "Browser Profile" = "Browser Profile";
 "Browse…" = "Browse…";
 "Browsing" = "Browsing";
+"Broadcast Off — Send to Active Pane" = "Broadcast Off — Send to Active Pane";
+"Broadcast On — Send to All Split Panes" = "Broadcast On — Send to All Split Panes";
 "Built-in" = "Built-in";
 "Built-in (Top Bar Project Target)" = "Built-in (Top Bar Project Target)";
 "Built-in browser is disabled" = "Built-in browser is disabled";
@@ -166,6 +168,7 @@
 "Choose the AI provider for %@" = "Choose the AI provider for %@";
 "Choose where to save the Muxy backup" = "Choose where to save the Muxy backup";
 "Choose…" = "Choose…";
+"Chooses whether the composer opens as a workspace panel or a floating modal." = "Chooses whether the composer opens as a workspace panel or a floating modal.";
 "Clean" = "Clean";
 "Clean working tree" = "Clean working tree";
 "Clear" = "Clear";
@@ -210,6 +213,7 @@
 "Committed and pushed" = "Committed and pushed";
 "Committing" = "Committing";
 "Composer" = "Composer";
+"Composer Presentation" = "Composer Presentation";
 "Composer Voice" = "Composer Voice";
 "Confirm Delete All (%lld)" = "Confirm Delete All (%lld)";
 "Confirm before closing a tab with a running process" = "Confirm before closing a tab with a running process";
@@ -365,6 +369,7 @@
 "Finder" = "Finder";
 "Finished" = "Finished";
 "Fix Search Location" = "Fix Search Location";
+"Floating" = "Floating";
 "Focus Pane Down" = "Focus Pane Down";
 "Focus Pane Left" = "Focus Pane Left";
 "Focus Pane Right" = "Focus Pane Right";
@@ -588,6 +593,7 @@
 "PRIMARY" = "PRIMARY";
 "Pair Mobile Device" = "Pair Mobile Device";
 "Pairing network" = "Pairing network";
+"Panel" = "Panel";
 "Panes" = "Panes";
 "Paste" = "Paste";
 "Path Is Not a Folder" = "Path Is Not a Folder";
@@ -605,6 +611,7 @@
 "Port %@" = "Port %@";
 "Port must be between 1 and 65535." = "Port must be between 1 and 65535.";
 "Position" = "Position";
+"Presentation" = "Presentation";
 "Press Return after inserting" = "Press Return after inserting";
 "Press a global shortcut, or Escape to cancel." = "Press a global shortcut, or Escape to cancel.";
 "Press key…" = "Press key…";
@@ -730,6 +737,7 @@
 "Revoke 1 device?" = "Revoke 1 device?";
 "Revoke Selected (%lld)" = "Revoke Selected (%lld)";
 "Revoking removes the device's access. It will need to request approval again to reconnect." = "Revoking removes the device's access. It will need to request approval again to reconnect.";
+"Rich Input" = "Rich Input";
 "Right" = "Right";
 "After enabling background sessions and opening a new local terminal, right-click inside its unpinned terminal-only tab and choose Send to Background to close the tab without stopping its processes." = "After enabling background sessions and opening a new local terminal, right-click inside its unpinned terminal-only tab and choose Send to Background to close the tab without stopping its processes.";
 "Run New Terminals in the Background" = "Run New Terminals in the Background";
@@ -1031,6 +1039,8 @@
 "Copies the vanilla JS + Tailwind starter kit (a working panel, topbar item, and command)" = "Copies the vanilla JS + Tailwind starter kit (a working panel, topbar item, and command)";
 "Could not check remote agent providers" = "Could not check remote agent providers";
 "Could not paste image on remote device" = "Could not paste image on remote device";
+"Could not upload attachment to remote device" = "Could not upload attachment to remote device";
+"The SSH destination changed during upload." = "The SSH destination changed during upload.";
 "Creates the extension in %@/<name>" = "Creates the extension in %@/<name>";
 "Extension Location" = "Extension Location";
 "Extension Output" = "Extension Output";
@@ -1195,6 +1205,8 @@
 "Updates" = "Updates";
 "Updating…" = "Updating…";
 "Use App Default" = "Use App Default";
+"Use Composer Panel" = "Use Composer Panel";
+"Use Floating Composer" = "Use Floating Composer";
 "Use Global Prompt" = "Use Global Prompt";
 "Use Path" = "Use Path";
 "Use existing branch" = "Use existing branch";

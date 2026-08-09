@@ -84,9 +84,7 @@ struct PaneTabStrip: View {
                 customIcon: tab.content.extensionState?.customIcon,
                 isOffline: !panes.isEmpty && panes.allSatisfy(\.isOffline),
                 faviconImage: tab.content.browserState?.faviconImage,
-                detectedAgentIconName: paneIDs.compactMap {
-                    DetectedAgentStore.shared.iconName(forPane: $0)
-                }.first,
+                detectedAgentIconName: AgentPaneIdentity.iconName(forPanes: paneIDs),
                 agentStatus: agentStatus,
                 hasUnread: relatedTabs.contains { NotificationStore.shared.hasUnread(tabID: $0.id) }
             )
@@ -634,15 +632,8 @@ private struct TabCell: View {
 
     private var trailingAccessory: some View {
         ZStack {
-            if !tab.isPinned {
-                Image(systemName: "xmark")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
-                    .foregroundStyle(MuxyTheme.fgDim)
-                    .opacity(closeButtonVisible ? 1 : 0)
-                    .allowsHitTesting(closeButtonVisible)
-                    .onTapGesture(perform: onClose)
-                    .accessibilityLabel(L10n.string("Close Tab"))
-                    .accessibilityAddTraits(.isButton)
+            if closeButtonVisible {
+                TabCloseButton(action: onClose)
             }
         }
         .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)

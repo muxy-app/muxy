@@ -3,6 +3,8 @@ import SwiftUI
 struct RichInputSettingsView: View {
     @State private var settings = EditorSettings.shared
     @State private var monoFonts: [String] = []
+    @AppStorage(RichInputPreferences.presentationModeKey)
+    private var presentationMode = RichInputPreferences.defaultPresentationMode
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,6 +16,7 @@ struct RichInputSettingsView: View {
                 Spacer()
                 Button(L10n.string("Reset to Defaults")) {
                     settings.resetToDefaults()
+                    presentationMode = RichInputPreferences.defaultPresentationMode
                 }
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .buttonStyle(.borderless)
@@ -37,6 +40,17 @@ struct RichInputSettingsView: View {
             """,
             showsDivider: false
         ) {
+            SettingsRow("Presentation") {
+                Picker("", selection: $presentationMode) {
+                    ForEach(RichInputPresentationMode.allCases) { mode in
+                        Text(L10n.resource(key: mode.displayName)).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .settingsControl(.intrinsic)
+            }
+
             SettingsRow("Image Submission") {
                 Picker("", selection: $settings.richInputImageStrategy) {
                     ForEach(RichInputImageStrategy.allCases) { strategy in

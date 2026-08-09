@@ -363,6 +363,7 @@ enum SettingsJSONStore {
             AppBackgroundStyle.storageKey: Set(AppBackgroundStyle.allCases.map(\.rawValue)),
             SidebarCollapsedStyle.storageKey: Set(SidebarCollapsedStyle.allCases.map(\.rawValue)),
             SidebarExpandedStyle.storageKey: Set(SidebarExpandedStyle.allCases.map(\.rawValue)),
+            RichInputPreferences.presentationModeKey: Set(RichInputPresentationMode.allCases.map(\.rawValue)),
             "editor.richInputImageStrategy": Set(RichInputImageStrategy.allCases.map(\.rawValue)),
             NotificationSettings.Key.sound: Set(NotificationSound.allCases.map(\.rawValue)),
             NotificationSettings.Key.toastPosition: Set(ToastPosition.allCases.map(\.rawValue)),
