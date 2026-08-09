@@ -698,7 +698,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @MainActor
-    private func presentExtensionsModal(installName: String? = nil, browseCategory: String? = nil) {
+    private func presentExtensionsModal(
+        installName: String? = nil,
+        request: ExtensionsPresentationRequest? = nil
+    ) {
         let config = AppModalConfig(
             title: L10n.string("Extensions"),
             size: CGSize(width: 880, height: 620),
@@ -707,7 +710,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onClosed: { [weak self] in self?.extensionsWindow = nil }
         )
         extensionsWindow = AppModalPresenter.present(config) {
-            ExtensionsView(installName: installName, browseCategory: browseCategory)
+            ExtensionsView(installName: installName, browseRequest: request)
         }
         if let installName {
             NotificationCenter.default.post(
@@ -716,12 +719,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 userInfo: [ExtensionInstallUserInfoKey.name: installName]
             )
         }
-        ExtensionsPresentationRequest(browseCategory: browseCategory).postBrowse()
+        request?.postBrowse()
     }
 
     private func handleExtensionsRequest(_ request: ExtensionsPresentationRequest) {
         guard request.requiresSettingsHandoff, let settingsWindow else {
-            presentExtensionsModal(browseCategory: request.browseCategory)
+            presentExtensionsModal(request: request)
             return
         }
         pendingExtensionsRequest = request
@@ -731,7 +734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func presentPendingExtensionsRequest() {
         guard let request = pendingExtensionsRequest else { return }
         pendingExtensionsRequest = nil
-        presentExtensionsModal(browseCategory: request.browseCategory)
+        presentExtensionsModal(request: request)
     }
 
     @MainActor

@@ -12,7 +12,7 @@ struct ExtensionsPresentationRequestTests {
             Notification(name: .openExtensionsModal)
         )
 
-        #expect(request == ExtensionsPresentationRequest())
+        #expect(request.browseCategory == nil)
         #expect(!request.requiresSettingsHandoff)
     }
 
@@ -57,6 +57,19 @@ struct ExtensionsPresentationRequestTests {
         expected.postBrowse(notificationCenter: notificationCenter)
 
         #expect(recorder.request == expected)
+    }
+
+    @Test("repeated browse requests receive distinct identities")
+    func repeatedBrowseRequests() {
+        let first = ExtensionsPresentationRequest(
+            browseCategory: ExtensionMarketplaceCategory.localization
+        )
+        let second = ExtensionsPresentationRequest(
+            browseCategory: ExtensionMarketplaceCategory.localization
+        )
+
+        #expect(first.browseCategory == second.browseCategory)
+        #expect(first.id != second.id)
     }
 }
 

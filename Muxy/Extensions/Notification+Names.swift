@@ -99,24 +99,28 @@ enum ExtensionInstallUserInfoKey {
     static let name = "name"
 }
 
-struct ExtensionsPresentationRequest: Equatable, Sendable {
+struct ExtensionsPresentationRequest: Equatable, Identifiable, Sendable {
+    private static let idKey = "id"
     private static let categoryKey = "category"
 
+    let id: UUID
     let browseCategory: String?
     var requiresSettingsHandoff: Bool { browseCategory != nil }
 
-    init(browseCategory: String? = nil) {
+    init(id: UUID = UUID(), browseCategory: String? = nil) {
+        self.id = id
         self.browseCategory = browseCategory
     }
 
     init(_ notification: Notification) {
+        id = notification.userInfo?[Self.idKey] as? UUID ?? UUID()
         browseCategory = notification.userInfo?[Self.categoryKey] as? String
     }
 
     func post(notificationCenter: NotificationCenter = .default) {
-        var userInfo: [String: Any]?
+        var userInfo: [String: Any] = [Self.idKey: id]
         if let browseCategory {
-            userInfo = [Self.categoryKey: browseCategory]
+            userInfo[Self.categoryKey] = browseCategory
         }
         notificationCenter.post(name: .openExtensionsModal, object: nil, userInfo: userInfo)
     }
@@ -126,7 +130,10 @@ struct ExtensionsPresentationRequest: Equatable, Sendable {
         notificationCenter.post(
             name: .openExtensionBrowse,
             object: nil,
-            userInfo: [Self.categoryKey: browseCategory]
+            userInfo: [
+                Self.idKey: id,
+                Self.categoryKey: browseCategory,
+            ]
         )
     }
 }
