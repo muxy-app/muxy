@@ -1,6 +1,6 @@
 # Localizations
 
-Muxy includes English. An enabled extension can add one or more app languages by declaring `muxy.localizations`. The user chooses a provider in **Settings → Interface → Language**. If several enabled extensions provide the same language, each appears separately with its extension name.
+Muxy includes English. An enabled extension can add one or more app languages by declaring `muxy.localizations`. Users can discover language providers from **Settings → Interface → Language → Browse Language Extensions…**, which opens the Extension Store's localization category. After installation and enablement, the user chooses a provider in **Settings → Interface → Language**. If several enabled extensions provide the same language, each appears separately with its extension name.
 
 Translations do not belong in `package.json`. The manifest contains only provider metadata and a path:
 

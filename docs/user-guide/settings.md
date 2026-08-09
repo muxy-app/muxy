@@ -7,6 +7,8 @@ matches the active app language as well as English setting keys and technical al
 
 English is built in. Enabled extensions can provide additional app languages, and every provider appears under
 **Interface → Language** with the extension name so you can choose between multiple providers for the same language.
+Choose **Browse Language Extensions…** to open the Extension Store already filtered to available language packs.
+After installing and enabling a pack, its languages appear automatically in the app-language picker.
 If the selected extension is disabled, removed, or temporarily invalid, Muxy keeps the selection and uses English
 until that provider becomes available again.
 
@@ -45,6 +47,13 @@ global setting. Remote worktrees keep their remote workspace layout.
 In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to show **Nest worktrees inside projects**.
 It is off by default. Turn it on to nest all worktrees under their project; turn it off to keep worktrees as top-level rows. Tab
 Focused shows top-level worktrees only when they have open tabs, while Agents Focused shows every secondary worktree.
+
+## Project search
+
+In the Project Focused layout, turn on **Settings → Interface → Sidebar → Always Show Project Search** to keep the
+project search field visible whenever the sidebar uses its expanded style. The setting is off by default, and the
+search field is unavailable while it is off or while the sidebar uses an icon-only style. The preference is stored as
+`muxy.showProjectSearch` in `settings.json`.
 
 ## Sidebar tips
 
