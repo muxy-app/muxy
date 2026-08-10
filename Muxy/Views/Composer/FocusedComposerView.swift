@@ -12,7 +12,7 @@ struct FocusedComposerView: View {
     let availableSize: CGSize
     let presentationMode: RichInputPresentationMode
     @Binding var broadcasts: Bool
-    let onSubmit: (_ appendReturn: Bool, _ selectedText: String?) -> Void
+    let onSubmit: (_ appendReturn: Bool, _ selectedText: String?) -> Task<Bool, Never>?
     let onChangePresentationMode: (RichInputPresentationMode) -> Void
     let onClose: () -> Void
 
@@ -428,9 +428,12 @@ struct FocusedComposerView: View {
 
     private func submitIfPossible(appendReturn: Bool, selectedText: String?) {
         guard voice.canSubmit else { return }
-        onSubmit(appendReturn, selectedText)
-        if clearAfterSending {
-            state.clear()
+        let submittedRevision = state.draftRevision
+        guard let submission = onSubmit(appendReturn, selectedText), clearAfterSending else { return }
+        Task { @MainActor in
+            guard await submission.value,
+                  state.clear(ifUnchangedSince: submittedRevision)
+            else { return }
             persistDraft()
         }
     }

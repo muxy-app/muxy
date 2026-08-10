@@ -32,4 +32,33 @@ struct RichInputDraftStoreTests {
 
         try? FileManager.default.removeItem(at: url)
     }
+
+    @Test("targeted clearing removes only the closed Composer draft")
+    func targetedClearingRemovesOnlyClosedDraft() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-targeted-draft-clear-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let closedKey = WorktreeKey(projectID: UUID(), worktreeID: UUID())
+        let activeKey = WorktreeKey(projectID: UUID(), worktreeID: UUID())
+        let closedState = RichInputState()
+        let activeState = RichInputState()
+        closedState.text = "closed draft"
+        activeState.text = "active draft"
+        let store = RichInputDraftStore(fileURL: url)
+        store.scheduleSave(closedState.draft, for: closedKey)
+        store.scheduleSave(activeState.draft, for: activeKey)
+        store.flush()
+
+        RichInputDraftClearer.clear(
+            target: RichInputPresentationTarget(worktreeKey: closedKey, paneID: UUID()),
+            states: [closedKey: closedState, activeKey: activeState],
+            store: store
+        )
+        store.flush()
+
+        #expect(closedState.draft == .empty)
+        #expect(activeState.text == "active draft")
+        #expect(store.draft(for: closedKey) == nil)
+        #expect(store.draft(for: activeKey)?.text == "active draft")
+    }
 }

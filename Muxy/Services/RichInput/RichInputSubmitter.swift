@@ -78,11 +78,16 @@ enum RichInputSubmitter {
         let normalizationBatch: RichInputImageNormalizationBatch
 
         @MainActor
-        func waitUntilFinished() async {
+        func waitUntilFinished() async -> Bool {
+            var allSucceeded = true
             for handle in handles {
-                _ = await handle.value()
+                let succeeded = await handle.value()
+                if !succeeded {
+                    allSucceeded = false
+                }
             }
             normalizationBatch.cancel()
+            return allSucceeded
         }
     }
 
@@ -91,14 +96,14 @@ enum RichInputSubmitter {
         paneIDs: [UUID],
         appendReturn: Bool,
         selectedText: String? = nil
-    ) {
-        guard !paneIDs.isEmpty else { return }
+    ) -> Task<Bool, Never>? {
+        guard !paneIDs.isEmpty else { return nil }
         let selectedBody = selectedSubmissionText(selectedText)
         let body = selectedBody ?? richInput.text
         let fileAttachments = selectedBody == nil ? richInput.fileAttachments : []
         let imageAttachments = richInput.imageAttachments
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedBody.isEmpty || !fileAttachments.isEmpty || !imageAttachments.isEmpty else { return }
+        guard !trimmedBody.isEmpty || !fileAttachments.isEmpty || !imageAttachments.isEmpty else { return nil }
 
         let segments = combinedSegments(
             fileAttachments: fileAttachments,
@@ -108,7 +113,7 @@ enum RichInputSubmitter {
         let strategy = EditorSettings.shared.richInputImageStrategy
 
         let views = paneIDs.compactMap { TerminalViewRegistry.shared.existingView(for: $0) }
-        guard !views.isEmpty else { return }
+        guard !views.isEmpty else { return nil }
         let focusTarget = views.count == 1 ? views.first : nil
         let targetSubmissions = views.map { view in
             TargetSubmission(
@@ -126,12 +131,13 @@ enum RichInputSubmitter {
             appendReturn: appendReturn
         )
 
-        Task { @MainActor in
-            await enqueued.waitUntilFinished()
+        return Task { @MainActor in
+            let submitted = await enqueued.waitUntilFinished()
 
             if let focusTarget {
                 focusTarget.terminalView.window?.makeFirstResponder(focusTarget.terminalView)
             }
+            return submitted
         }
     }
 

@@ -72,12 +72,14 @@ final class RichInputPresentationController {
         panelWasVisible = isPanelVisible
     }
 
-    func reconcilePanelHostChange(voice: ComposerVoiceState) {
+    @discardableResult
+    func reconcilePanelHostChange(voice: ComposerVoiceState) -> Bool {
         let panelIsVisible = isPanelVisible
         defer { panelWasVisible = panelIsVisible }
-        guard panelWasVisible, !panelIsVisible, !isFloatingVisible else { return }
+        guard panelWasVisible, !panelIsVisible, !isFloatingVisible else { return false }
         target = nil
         voice.cancel()
+        return true
     }
 
     @discardableResult

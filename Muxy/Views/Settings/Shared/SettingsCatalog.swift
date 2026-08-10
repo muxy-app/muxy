@@ -458,6 +458,24 @@ enum SettingsCatalog {
             aliases: ["rich input", "panel", "floating"]
         ),
         SettingsCatalogItem(
+            key: RichInputPreferences.clearAfterSendingKey,
+            title: "Clear After Sending",
+            description: "Clears text and attachments after a successful Composer submission.",
+            category: .richInput,
+            section: "Composer",
+            defaultValue: RichInputPreferences.defaultClearAfterSending,
+            aliases: ["rich input", "draft", "send"]
+        ),
+        SettingsCatalogItem(
+            key: RichInputPreferences.clearOnCloseKey,
+            title: "Clear on Close",
+            description: "Clears text and attachments whenever the Composer closes.",
+            category: .richInput,
+            section: "Composer",
+            defaultValue: RichInputPreferences.defaultClearOnClose,
+            aliases: ["rich input", "draft", "dismiss"]
+        ),
+        SettingsCatalogItem(
             key: "editor.richInputImageStrategy",
             title: "Composer Image Submission",
             description: "Chooses how the composer submits images.",

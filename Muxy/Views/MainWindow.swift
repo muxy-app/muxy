@@ -191,10 +191,14 @@ struct MainWindow: View {
                 synchronizeRichInputPresentationMode(mode)
             }
             .onChange(of: panelHost.placements) {
-                richInputPresentation.reconcilePanelHostChange(voice: composerVoice)
+                let closedTarget = richInputPresentation.target
+                guard richInputPresentation.reconcilePanelHostChange(voice: composerVoice) else { return }
+                clearRichInputDraftIfNeeded(for: closedTarget)
             }
             .onChange(of: activeRichInputTarget) { _, target in
+                let closedTarget = richInputPresentation.target
                 guard richInputPresentation.reconcileTargetChange(target, voice: composerVoice) else { return }
+                clearRichInputDraftIfNeeded(for: closedTarget)
                 restoreActiveTerminalFocus()
             }
     }
@@ -849,8 +853,14 @@ struct MainWindow: View {
                         presentationMode: .floating,
                         broadcasts: $richInputBroadcast,
                         onSubmit: { appendReturn, selectedText in
-                            submitRichInput(state, appendReturn: appendReturn, selectedText: selectedText)
+                            guard let submission = submitRichInput(
+                                state,
+                                appendReturn: appendReturn,
+                                selectedText: selectedText
+                            )
+                            else { return nil }
                             closeComposer()
+                            return submission
                         },
                         onChangePresentationMode: changeRichInputPresentationMode,
                         onClose: closeComposer
@@ -1867,19 +1877,20 @@ struct MainWindow: View {
     }
 
     private func closeRichInput() {
+        let closedTarget = richInputPresentation.target
         guard richInputPresentation.close() else { return }
-        clearRichInputDraftIfNeeded()
+        clearRichInputDraftIfNeeded(for: closedTarget)
         composerVoice.cancel()
         restoreActiveTerminalFocus()
     }
 
-    private func clearRichInputDraftIfNeeded() {
-        guard clearOnClose,
-              let state = activeRichInputState,
-              let worktreeKey = activeWorktreeKey
-        else { return }
-        state.clear()
-        RichInputDraftStore.shared.scheduleSave(state.draft, for: worktreeKey)
+    private func clearRichInputDraftIfNeeded(for target: RichInputPresentationTarget?) {
+        guard clearOnClose else { return }
+        RichInputDraftClearer.clear(
+            target: target,
+            states: richInputStates,
+            store: .shared
+        )
     }
 
     private func restoreActiveTerminalFocus() {
@@ -1907,10 +1918,14 @@ struct MainWindow: View {
         richInputPresentation.movePanel(to: richInputPanelPosition)
     }
 
-    private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool, selectedText: String?) {
+    private func submitRichInput(
+        _ richInput: RichInputState,
+        appendReturn: Bool,
+        selectedText: String?
+    ) -> Task<Bool, Never>? {
         let paneIDs = richInputBroadcast ? visibleTerminalPaneIDs() : [activeRichInputPaneID].compactMap(\.self)
-        guard !paneIDs.isEmpty else { return }
-        RichInputSubmitter.submit(
+        guard !paneIDs.isEmpty else { return nil }
+        return RichInputSubmitter.submit(
             richInput: richInput,
             paneIDs: paneIDs,
             appendReturn: appendReturn,

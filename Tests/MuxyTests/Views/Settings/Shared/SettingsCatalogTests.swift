@@ -151,6 +151,12 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.matchingItems(query: "floating").contains {
             $0.key == RichInputPreferences.presentationModeKey
         })
+        #expect(SettingsCatalog.matchingItems(query: "clear after sending").contains {
+            $0.key == RichInputPreferences.clearAfterSendingKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "clear on close").contains {
+            $0.key == RichInputPreferences.clearOnCloseKey
+        })
         #expect(!SettingsCatalog.categoryMatches(.mobile, query: "rich input"))
     }
 
@@ -284,6 +290,14 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.items.contains { $0.key.hasPrefix("editor.") })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputImageStrategy" })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputLineHeightMultiplier" })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == RichInputPreferences.clearAfterSendingKey
+                && ($0.defaultValue as? Bool) == RichInputPreferences.defaultClearAfterSending
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == RichInputPreferences.clearOnCloseKey
+                && ($0.defaultValue as? Bool) == RichInputPreferences.defaultClearOnClose
+        })
         #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.position" })
         #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.floating" })
     }

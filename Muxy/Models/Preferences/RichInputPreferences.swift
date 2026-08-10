@@ -35,4 +35,9 @@ enum RichInputPreferences {
 
     static let clearOnCloseKey = "muxy.richInput.clearOnClose"
     static let defaultClearOnClose = false
+
+    static func resetClearOptions(in defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: clearAfterSendingKey)
+        defaults.removeObject(forKey: clearOnCloseKey)
+    }
 }

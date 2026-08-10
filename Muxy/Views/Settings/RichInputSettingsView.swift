@@ -21,6 +21,7 @@ struct RichInputSettingsView: View {
                 Button(L10n.string("Reset to Defaults")) {
                     settings.resetToDefaults()
                     presentationMode = RichInputPreferences.defaultPresentationMode
+                    RichInputPreferences.resetClearOptions()
                 }
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .buttonStyle(.borderless)

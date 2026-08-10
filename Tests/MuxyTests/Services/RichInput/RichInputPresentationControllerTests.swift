@@ -68,8 +68,9 @@ struct RichInputPresentationControllerTests {
         controller.present(mode: .panel, position: .right, target: firstTarget)
 
         host.open("extension:files", at: .right, mode: .pinned)
-        controller.reconcilePanelHostChange(voice: voice)
+        let didClose = controller.reconcilePanelHostChange(voice: voice)
 
+        #expect(didClose)
         #expect(!controller.isVisible)
         #expect(controller.target == nil)
         #expect(recorder.cancelCount == 1)

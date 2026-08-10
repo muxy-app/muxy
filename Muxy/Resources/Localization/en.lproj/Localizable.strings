@@ -181,6 +181,8 @@
 "Clear on Close" = "Clear on Close";
 "Clear project search" = "Clear project search";
 "Cleared browsing data for “%@”" = "Cleared browsing data for “%@”";
+"Clears text and attachments after a successful Composer submission." = "Clears text and attachments after a successful Composer submission.";
+"Clears text and attachments whenever the Composer closes." = "Clears text and attachments whenever the Composer closes.";
 "Click again to close now. Otherwise it will close automatically after five seconds." = "Click again to close now. Otherwise it will close automatically after five seconds.";
 "Click again to merge now. Otherwise it will merge automatically after five seconds." = "Click again to merge now. Otherwise it will merge automatically after five seconds.";
 "Click to retry. GitHub pull requests require an installed and authenticated gh CLI." = "Click to retry. GitHub pull requests require an installed and authenticated gh CLI.";
