@@ -151,6 +151,12 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.matchingItems(query: "floating").contains {
             $0.key == RichInputPreferences.presentationModeKey
         })
+        #expect(SettingsCatalog.matchingItems(query: "clear after sending").contains {
+            $0.key == RichInputPreferences.clearAfterSendingKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "clear on close").contains {
+            $0.key == RichInputPreferences.clearOnCloseKey
+        })
         #expect(!SettingsCatalog.categoryMatches(.mobile, query: "rich input"))
     }
 
@@ -215,6 +221,19 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func projectSearchSettingIsRegisteredAndSearchable() {
+        let item = SettingsCatalog.items.first { $0.key == ProjectSearchPreferences.visibleKey }
+
+        #expect(item?.category == .appearance)
+        #expect(item?.section == "Sidebar")
+        #expect(item?.defaultValue as? Bool == ProjectSearchPreferences.defaultVisible)
+        #expect(SettingsCatalog.matchingItems(query: "search bar").contains {
+            $0.key == ProjectSearchPreferences.visibleKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == ProjectSearchPreferences.visibleKey })
+    }
+
+    @Test
     func worktreePathTemplateIsRegisteredAndSearchable() {
         #expect(SettingsCatalog.jsonEditableItems.contains {
             $0.key == GeneralSettingsKeys.defaultWorktreePathTemplate
@@ -271,6 +290,14 @@ struct SettingsCatalogTests {
         #expect(SettingsCatalog.items.contains { $0.key.hasPrefix("editor.") })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputImageStrategy" })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputLineHeightMultiplier" })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == RichInputPreferences.clearAfterSendingKey
+                && ($0.defaultValue as? Bool) == RichInputPreferences.defaultClearAfterSending
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains {
+            $0.key == RichInputPreferences.clearOnCloseKey
+                && ($0.defaultValue as? Bool) == RichInputPreferences.defaultClearOnClose
+        })
         #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.position" })
         #expect(!SettingsCatalog.items.contains { $0.key == "muxy.richInput.floating" })
     }

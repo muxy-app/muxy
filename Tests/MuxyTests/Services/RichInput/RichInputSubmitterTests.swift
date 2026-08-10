@@ -405,15 +405,32 @@ struct RichInputSubmitterTests {
 
         #expect(firstFollower)
         #expect(secondFollower)
-        await enqueued.waitUntilFinished()
+        let submitted = await enqueued.waitUntilFinished()
         await first.waitUntilIdle()
         await second.waitUntilIdle()
 
+        #expect(submitted)
         #expect(probe.normalizationCalls[imageURL] == 1)
         #expect(probe.maximumConcurrentPastes == 1)
         #expect(probe.pasteOrder == ["first", "first", "second", "second"])
         #expect(first.events.suffix(2) == ["return", "follower"])
         #expect(second.events.suffix(2) == ["return", "follower"])
+    }
+
+    @Test("submission completion reports transaction failure")
+    @MainActor
+    func submissionCompletionReportsFailure() async {
+        let target = RichInputSubmissionTestTarget(pasteSucceeds: true, uploadSucceeds: false)
+        let submission = RichInputSubmitter.TargetSubmission(
+            target: target,
+            segments: [.file(URL(fileURLWithPath: "/tmp/report.pdf"))]
+        )
+
+        let enqueued = RichInputSubmitter.enqueueSubmissions([submission], appendReturn: true)
+        let submitted = await enqueued.waitUntilFinished()
+
+        #expect(!submitted)
+        #expect(!target.events.contains("return"))
     }
 }
 

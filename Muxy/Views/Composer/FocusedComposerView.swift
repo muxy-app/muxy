@@ -12,12 +12,14 @@ struct FocusedComposerView: View {
     let availableSize: CGSize
     let presentationMode: RichInputPresentationMode
     @Binding var broadcasts: Bool
-    let onSubmit: (_ appendReturn: Bool, _ selectedText: String?) -> Void
+    let onSubmit: (_ appendReturn: Bool, _ selectedText: String?) -> Task<Bool, Never>?
     let onChangePresentationMode: (RichInputPresentationMode) -> Void
     let onClose: () -> Void
 
     @State private var editorSettings = EditorSettings.shared
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize = RichInputPreferences.defaultFontSize
+    @AppStorage(RichInputPreferences.clearAfterSendingKey) private var clearAfterSending = RichInputPreferences.defaultClearAfterSending
+    @AppStorage(RichInputPreferences.clearOnCloseKey) private var clearOnClose = RichInputPreferences.defaultClearOnClose
     @AppStorage(ComposerLayoutPreferences.widthKey) private var storedWidth = ComposerLayoutPreferences.defaultWidth
     @AppStorage(ComposerLayoutPreferences.heightKey) private var storedHeight = ComposerLayoutPreferences.defaultHeight
     @AppStorage(ComposerLayoutPreferences.expandedKey) private var isExpanded = ComposerLayoutPreferences.defaultExpanded
@@ -280,6 +282,13 @@ struct FocusedComposerView: View {
                 }
                 .disabled(!voice.canSubmit)
                 Divider()
+                Toggle(isOn: $clearAfterSending) {
+                    Text(L10n.resource("Clear After Sending"))
+                }
+                Toggle(isOn: $clearOnClose) {
+                    Text(L10n.resource("Clear on Close"))
+                }
+                Divider()
                 Button(presentationModeSwitchLabel) {
                     onChangePresentationMode(presentationMode == .panel ? .floating : .panel)
                 }
@@ -427,7 +436,14 @@ struct FocusedComposerView: View {
 
     private func submitIfPossible(appendReturn: Bool, selectedText: String?) {
         guard voice.canSubmit else { return }
-        onSubmit(appendReturn, selectedText)
+        let submittedRevision = state.draftRevision
+        guard let submission = onSubmit(appendReturn, selectedText), clearAfterSending else { return }
+        Task { @MainActor in
+            guard await submission.value,
+                  state.clear(ifUnchangedSince: submittedRevision)
+            else { return }
+            persistDraft()
+        }
     }
 
     private func toggleVoice() {

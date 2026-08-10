@@ -3,10 +3,22 @@
 Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to find settings by name. Search
 matches the active app language as well as English setting keys and technical aliases.
 
+## Composer
+
+Open **Settings → Composer** to choose how the Composer is presented and whether its draft is cleared automatically.
+**Clear After Sending** clears text and attachments after a successful submission; newer edits made while a
+submission finishes are preserved. **Clear on Close** clears the draft whenever the Composer closes, regardless of
+the dismissal path. It also clears the previous worktree's draft when an open Composer panel follows a worktree
+change, while same-worktree pane changes preserve the draft. Both options are also available from the Composer's More
+menu. They are off by default and are stored as `muxy.richInput.clearAfterSending` and
+`muxy.richInput.clearOnClose` in `settings.json`.
+
 ## Language
 
 English is built in. Enabled extensions can provide additional app languages, and every provider appears under
 **Interface → Language** with the extension name so you can choose between multiple providers for the same language.
+Choose **Browse Language Extensions…** to open the Extension Store already filtered to available language packs.
+After installing and enabling a pack, its languages appear automatically in the app-language picker.
 If the selected extension is disabled, removed, or temporarily invalid, Muxy keeps the selection and uses English
 until that provider becomes available again.
 
@@ -45,6 +57,13 @@ global setting. Remote worktrees keep their remote workspace layout.
 In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to show **Nest worktrees inside projects**.
 It is off by default. Turn it on to nest all worktrees under their project; turn it off to keep worktrees as top-level rows. Tab
 Focused shows top-level worktrees only when they have open tabs, while Agents Focused shows every secondary worktree.
+
+## Project search
+
+In the Project Focused layout, turn on **Settings → Interface → Sidebar → Always Show Project Search** to keep the
+project search field visible whenever the sidebar uses its expanded style. The setting is off by default, and the
+search field is unavailable while it is off or while the sidebar uses an icon-only style. The preference is stored as
+`muxy.showProjectSearch` in `settings.json`.
 
 ## Sidebar tips
 

@@ -66,8 +66,8 @@ struct ProjectListSearchTests {
         #expect(ProjectListSearch.activeQuery("Alpha", isVisible: true, isWide: false).isEmpty)
     }
 
-    @Test("search field is hidden by default")
-    func searchFieldIsHiddenByDefault() {
+    @Test("always show search is disabled by default")
+    func alwaysShowSearchIsDisabledByDefault() {
         #expect(!ProjectSearchPreferences.defaultVisible)
     }
 

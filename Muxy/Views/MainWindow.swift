@@ -111,6 +111,7 @@ struct MainWindow: View {
     @AppStorage(RichInputPreferences.positionKey)
     private var richInputPanelPosition = RichInputPreferences.defaultPosition
     @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
+    @AppStorage(RichInputPreferences.clearOnCloseKey) private var clearOnClose = RichInputPreferences.defaultClearOnClose
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
     @State private var richInputPresentation = RichInputPresentationController()
     @State private var composerVoice = ComposerVoiceState()
@@ -190,11 +191,21 @@ struct MainWindow: View {
                 synchronizeRichInputPresentationMode(mode)
             }
             .onChange(of: panelHost.placements) {
-                richInputPresentation.reconcilePanelHostChange(voice: composerVoice)
+                let closedTarget = richInputPresentation.target
+                guard richInputPresentation.reconcilePanelHostChange(voice: composerVoice) else { return }
+                clearRichInputDraftIfNeeded(for: closedTarget)
             }
             .onChange(of: activeRichInputTarget) { _, target in
-                guard richInputPresentation.reconcileTargetChange(target, voice: composerVoice) else { return }
-                restoreActiveTerminalFocus()
+                switch richInputPresentation.reconcileTargetChange(target, voice: composerVoice) {
+                case .unchanged,
+                     .rebound:
+                    return
+                case let .transferredAcrossWorktrees(previousTarget):
+                    clearRichInputDraftIfNeeded(for: previousTarget)
+                case let .closed(previousTarget):
+                    clearRichInputDraftIfNeeded(for: previousTarget)
+                    restoreActiveTerminalFocus()
+                }
             }
     }
 
@@ -848,8 +859,14 @@ struct MainWindow: View {
                         presentationMode: .floating,
                         broadcasts: $richInputBroadcast,
                         onSubmit: { appendReturn, selectedText in
-                            submitRichInput(state, appendReturn: appendReturn, selectedText: selectedText)
+                            guard let submission = submitRichInput(
+                                state,
+                                appendReturn: appendReturn,
+                                selectedText: selectedText
+                            )
+                            else { return nil }
                             closeComposer()
+                            return submission
                         },
                         onChangePresentationMode: changeRichInputPresentationMode,
                         onClose: closeComposer
@@ -1866,9 +1883,20 @@ struct MainWindow: View {
     }
 
     private func closeRichInput() {
+        let closedTarget = richInputPresentation.target
         guard richInputPresentation.close() else { return }
+        clearRichInputDraftIfNeeded(for: closedTarget)
         composerVoice.cancel()
         restoreActiveTerminalFocus()
+    }
+
+    private func clearRichInputDraftIfNeeded(for target: RichInputPresentationTarget?) {
+        guard clearOnClose else { return }
+        RichInputDraftClearer.clear(
+            target: target,
+            states: richInputStates,
+            store: .shared
+        )
     }
 
     private func restoreActiveTerminalFocus() {
@@ -1896,10 +1924,14 @@ struct MainWindow: View {
         richInputPresentation.movePanel(to: richInputPanelPosition)
     }
 
-    private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool, selectedText: String?) {
+    private func submitRichInput(
+        _ richInput: RichInputState,
+        appendReturn: Bool,
+        selectedText: String?
+    ) -> Task<Bool, Never>? {
         let paneIDs = richInputBroadcast ? visibleTerminalPaneIDs() : [activeRichInputPaneID].compactMap(\.self)
-        guard !paneIDs.isEmpty else { return }
-        RichInputSubmitter.submit(
+        guard !paneIDs.isEmpty else { return nil }
+        return RichInputSubmitter.submit(
             richInput: richInput,
             paneIDs: paneIDs,
             appendReturn: appendReturn,

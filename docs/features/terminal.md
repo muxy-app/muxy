@@ -199,6 +199,13 @@ open the centered modal instead. Choose **Use Composer Panel** from the floating
 back. The presentation choice, panel position, and both layouts' sizes persist across app restarts, and switching
 an open Composer preserves its draft and attachments.
 
+Use **Settings -> Composer** or the Composer's More menu to control automatic clearing. **Clear After Sending**
+removes the submitted text and attachments only after every target finishes successfully. If the draft changes
+while a submission is finishing, Muxy preserves the newer content. **Clear on Close** removes the draft whenever
+the Composer closes, including floating auto-close, target loss, and panel displacement. When an open Composer panel
+moves to another worktree, it clears the previous worktree's draft while preserving drafts across pane changes in
+the same worktree. Both options are off by default.
+
 `Cmd+Shift+I` opens the legacy voice recorder normally, or starts on-device dictation inside either Composer
 presentation when it is already open. Stop Composer dictation to insert the transcript at the editor cursor, or
 press Return while recording, then edit or send it normally. Composer dictation requires an installed on-device

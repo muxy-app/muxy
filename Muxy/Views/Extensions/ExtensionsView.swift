@@ -3,12 +3,14 @@ import SwiftUI
 
 struct ExtensionsView: View {
     let installName: String?
+    let browseRequest: ExtensionsPresentationRequest?
 
     @State private var store = ExtensionStore.shared
     @State private var grantStore = ExtensionGrantStore.shared
     @State private var tab: Tab = .installed
     @State private var selectedExtensionID: String?
     @State private var activeInstallName: String?
+    @State private var activeBrowseRequest: ExtensionsPresentationRequest?
     @State private var showCreateSheet = false
     @State private var isUpdatingAll = false
 
@@ -17,9 +19,12 @@ struct ExtensionsView: View {
         case installed
     }
 
-    init(installName: String? = nil) {
+    init(installName: String? = nil, browseRequest: ExtensionsPresentationRequest? = nil) {
         self.installName = installName
+        self.browseRequest = browseRequest
+        _tab = State(initialValue: browseRequest?.browseCategory == nil ? .installed : .browse)
         _activeInstallName = State(initialValue: installName)
+        _activeBrowseRequest = State(initialValue: browseRequest)
     }
 
     private var isShowingInstallPage: Bool { activeInstallName != nil }
@@ -53,6 +58,14 @@ struct ExtensionsView: View {
             selectedExtensionID = nil
             activeInstallName = name
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openExtensionBrowse)) { notification in
+            let request = ExtensionsPresentationRequest(notification)
+            guard request.browseCategory != nil else { return }
+            selectedExtensionID = nil
+            activeInstallName = nil
+            activeBrowseRequest = request
+            tab = .browse
+        }
         .task {
             await store.checkForUpdates()
         }
@@ -80,11 +93,13 @@ struct ExtensionsView: View {
         } else if tab == .browse {
             ExtensionStorePage(
                 store: store,
+                initialCategory: activeBrowseRequest?.browseCategory,
                 onSelect: { name in
                     selectedExtensionID = nil
                     activeInstallName = name
                 }
             )
+            .id(activeBrowseRequest?.id)
         } else {
             ExtensionsListPage(
                 store: store,

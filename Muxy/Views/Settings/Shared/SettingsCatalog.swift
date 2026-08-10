@@ -192,6 +192,15 @@ enum SettingsCatalog {
             aliases: ["hints", "help", "sidebar card", "lightbulb"]
         ),
         SettingsCatalogItem(
+            key: ProjectSearchPreferences.visibleKey,
+            title: "Always Show Project Search",
+            description: "Shows the project search field whenever the project-focused sidebar is expanded.",
+            category: .appearance,
+            section: "Sidebar",
+            defaultValue: ProjectSearchPreferences.defaultVisible,
+            aliases: ["find projects", "search bar", "search box"]
+        ),
+        SettingsCatalogItem(
             key: SidebarSelection.storageKey,
             title: "Active Sidebar",
             description: "Chooses the built-in sidebar or one provided by an extension.",
@@ -447,6 +456,24 @@ enum SettingsCatalog {
             section: "Composer",
             defaultValue: RichInputPreferences.defaultPresentationMode.rawValue,
             aliases: ["rich input", "panel", "floating"]
+        ),
+        SettingsCatalogItem(
+            key: RichInputPreferences.clearAfterSendingKey,
+            title: "Clear After Sending",
+            description: "Clears text and attachments after a successful Composer submission.",
+            category: .richInput,
+            section: "Composer",
+            defaultValue: RichInputPreferences.defaultClearAfterSending,
+            aliases: ["rich input", "draft", "send"]
+        ),
+        SettingsCatalogItem(
+            key: RichInputPreferences.clearOnCloseKey,
+            title: "Clear on Close",
+            description: "Clears text and attachments whenever the Composer closes.",
+            category: .richInput,
+            section: "Composer",
+            defaultValue: RichInputPreferences.defaultClearOnClose,
+            aliases: ["rich input", "draft", "dismiss"]
         ),
         SettingsCatalogItem(
             key: "editor.richInputImageStrategy",

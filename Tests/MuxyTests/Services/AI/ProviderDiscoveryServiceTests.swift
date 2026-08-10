@@ -119,18 +119,19 @@ struct ProviderDiscoveryServiceTests {
 
     @Test("process runner terminates timed out probes")
     func processRunnerTerminatesTimeout() async throws {
+        let timeout: TimeInterval = 0.25
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProviderDiscoveryTimeoutTests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let completionMarker = directory.appendingPathComponent("completed").path
 
-        await #expect(throws: SubprocessRunnerError.timedOut(0.05)) {
+        await #expect(throws: SubprocessRunnerError.timedOut(timeout)) {
             try await ProviderDiscoveryService.runProcess(
                 executablePath: "/bin/sh",
-                arguments: ["-c", "/bin/sleep 1; /usr/bin/touch '\(completionMarker)'"],
+                arguments: ["-c", "/bin/sleep 5; /usr/bin/touch '\(completionMarker)'"],
                 workingDirectory: directory.path,
-                timeout: 0.05
+                timeout: timeout
             )
         }
 

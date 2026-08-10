@@ -79,6 +79,7 @@
 "Allow %@?" = "Allow %@?";
 "Allow & remember" = "Allow & remember";
 "Allow mobile device connections" = "Allow mobile device connections";
+"Always Show Project Search" = "Always Show Project Search";
 "Automatic updates are unavailable for this configuration." = "Automatic updates are unavailable for this configuration.";
 "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data." = "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data.";
 "App" = "App";
@@ -133,6 +134,7 @@
 "Browser" = "Browser";
 "Browser Profile" = "Browser Profile";
 "Browse…" = "Browse…";
+"Browse Language Extensions…" = "Browse Language Extensions…";
 "Browsing" = "Browsing";
 "Broadcast Off — Send to Active Pane" = "Broadcast Off — Send to Active Pane";
 "Broadcast On — Send to All Split Panes" = "Broadcast On — Send to All Split Panes";
@@ -172,10 +174,15 @@
 "Clean" = "Clean";
 "Clean working tree" = "Clean working tree";
 "Clear" = "Clear";
+"Clear After Sending" = "Clear After Sending";
 "Clear All" = "Clear All";
 "Clear Data" = "Clear Data";
 "Clear data for “%@”?" = "Clear data for “%@”?";
+"Clear on Close" = "Clear on Close";
+"Clear project search" = "Clear project search";
 "Cleared browsing data for “%@”" = "Cleared browsing data for “%@”";
+"Clears text and attachments after a successful Composer submission." = "Clears text and attachments after a successful Composer submission.";
+"Clears text and attachments whenever the Composer closes." = "Clears text and attachments whenever the Composer closes.";
 "Click again to close now. Otherwise it will close automatically after five seconds." = "Click again to close now. Otherwise it will close automatically after five seconds.";
 "Click again to merge now. Otherwise it will merge automatically after five seconds." = "Click again to merge now. Otherwise it will merge automatically after five seconds.";
 "Click to retry. GitHub pull requests require an installed and authenticated gh CLI." = "Click to retry. GitHub pull requests require an installed and authenticated gh CLI.";
@@ -364,6 +371,7 @@
 "Failed to update branch" = "Failed to update branch";
 "File not found" = "File not found";
 "Find" = "Find";
+"Find and install language packs from the Extension Store." = "Find and install language packs from the Extension Store.";
 "Find a project folder" = "Find a project folder";
 "Find on page" = "Find on page";
 "Finder" = "Finder";
@@ -479,6 +487,7 @@
 "Mobile App Repository" = "Mobile App Repository";
 "More Composer Actions" = "More Composer Actions";
 "More matches available — keep typing to narrow the results." = "More matches available — keep typing to narrow the results.";
+"More Languages" = "More Languages";
 "Morse" = "Morse";
 "Most Popular" = "Most Popular";
 "Move Pane Down" = "Move Pane Down";
@@ -1419,6 +1428,7 @@
 "Shows a macOS notification when Muxy is not frontmost." = "Shows a macOS notification when Muxy is not frontmost.";
 "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling." = "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling.";
 "Shows or hides the status bar." = "Shows or hides the status bar.";
+"Shows the project search field whenever the project-focused sidebar is expanded." = "Shows the project search field whenever the project-focused sidebar is expanded.";
 "Shows the QR code used to pair a mobile device." = "Shows the QR code used to pair a mobile device.";
 "Shows the permanent Home project at the top of the sidebar." = "Shows the permanent Home project at the top of the sidebar.";
 "Shows Muxy tips at the bottom of the built-in sidebar." = "Shows Muxy tips at the bottom of the built-in sidebar.";
