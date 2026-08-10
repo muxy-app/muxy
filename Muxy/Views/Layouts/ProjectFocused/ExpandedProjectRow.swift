@@ -14,6 +14,8 @@ struct ExpandedProjectRow: View {
     let shortcutIndex: Int?
     let isAnyDragging: Bool
     @Binding var worktreesExpanded: Bool
+    let isWorktreeAutoExpandPending: Bool
+    let onResolveWorktreeAutoExpand: (Bool) -> Void
     let onSelect: () -> Void
     let onRemove: () -> Void
     let onRename: (String) -> Void
@@ -36,6 +38,7 @@ struct ExpandedProjectRow: View {
     @State private var renameText = ""
     @State private var isGitRepo = false
     @State private var isCheckingGitRepo = true
+    @State private var verifiedGitRepoPath: String?
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableExpandedImage?
     @State private var isRefreshingWorktrees = false
@@ -132,12 +135,15 @@ struct ExpandedProjectRow: View {
                 isCheckingGitRepo = false
                 return
             }
+            if autoExpandWorktrees, isActive, hasWorktreeUI {
+                onResolveWorktreeAutoExpand(true)
+            }
             let context = projectGroupStore.workspaceContext(for: project)
             if let cached = GitRepoStatusCache.shared.cachedStatus(for: project.path, context: context) {
                 isGitRepo = cached
                 isCheckingGitRepo = false
                 if autoExpandWorktrees, isActive, hasWorktreeUI {
-                    worktreesExpanded = true
+                    onResolveWorktreeAutoExpand(true)
                 }
             }
             try? await Task.sleep(for: .seconds(2))
@@ -149,15 +155,20 @@ struct ExpandedProjectRow: View {
             guard !Task.isCancelled else { return }
             isGitRepo = result
             isCheckingGitRepo = false
+            verifiedGitRepoPath = project.path
             GitRepoStatusCache.shared.update(path: project.path, context: context, isGitRepo: isGitRepo)
-            if autoExpandWorktrees, isActive, hasWorktreeUI {
-                worktreesExpanded = true
+            if autoExpandWorktrees, isActive {
+                onResolveWorktreeAutoExpand(hasWorktreeUI)
             }
         }
-        .onChange(of: isActive) { _, active in
-            guard autoExpandWorktrees, active, hasWorktreeUI else { return }
-            withAnimation(.easeInOut(duration: 0.15)) {
-                worktreesExpanded = true
+        .onChange(of: isWorktreeAutoExpandPending) { _, isPending in
+            guard isPending, autoExpandWorktrees, isActive else { return }
+            if hasWorktreeUI {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    onResolveWorktreeAutoExpand(true)
+                }
+            } else if verifiedGitRepoPath == project.path {
+                onResolveWorktreeAutoExpand(false)
             }
         }
         .contextMenu {

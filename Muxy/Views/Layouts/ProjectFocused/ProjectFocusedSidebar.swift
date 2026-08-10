@@ -30,21 +30,52 @@ enum ProjectListSearch {
 }
 
 struct ProjectWorktreeExpansionState {
-    private var expandedProjectIDs: Set<UUID> = []
+    private var expansionByProjectID: [UUID: Bool] = [:]
+    private var pendingAutoExpandProjectID: UUID?
 
     subscript(projectID: UUID) -> Bool {
-        get { expandedProjectIDs.contains(projectID) }
+        get { expansionByProjectID[projectID] ?? false }
         set {
-            if newValue {
-                expandedProjectIDs.insert(projectID)
-            } else {
-                expandedProjectIDs.remove(projectID)
-            }
+            expansionByProjectID[projectID] = newValue
+            guard pendingAutoExpandProjectID == projectID else { return }
+            pendingAutoExpandProjectID = nil
         }
     }
 
+    mutating func initializeExpanded(projectID: UUID) {
+        guard expansionByProjectID[projectID] == nil else { return }
+        expansionByProjectID[projectID] = true
+    }
+
+    mutating func requestAutoExpand(projectID: UUID) {
+        pendingAutoExpandProjectID = projectID
+    }
+
+    mutating func cancelAutoExpandRequest() {
+        pendingAutoExpandProjectID = nil
+    }
+
+    func hasPendingAutoExpandRequest(projectID: UUID) -> Bool {
+        pendingAutoExpandProjectID == projectID
+    }
+
+    mutating func resolveAutoExpand(projectID: UUID, isEligible: Bool) {
+        guard isEligible else {
+            guard pendingAutoExpandProjectID == projectID else { return }
+            pendingAutoExpandProjectID = nil
+            return
+        }
+        if pendingAutoExpandProjectID == projectID {
+            self[projectID] = true
+            return
+        }
+        initializeExpanded(projectID: projectID)
+    }
+
     mutating func retain(projectIDs: Set<UUID>) {
-        expandedProjectIDs.formIntersection(projectIDs)
+        expansionByProjectID = expansionByProjectID.filter { projectIDs.contains($0.key) }
+        guard let pendingAutoExpandProjectID, !projectIDs.contains(pendingAutoExpandProjectID) else { return }
+        self.pendingAutoExpandProjectID = nil
     }
 }
 
@@ -182,6 +213,8 @@ struct ProjectFocusedSidebar: View {
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
     @AppStorage(ProjectSearchPreferences.visibleKey)
     private var isProjectSearchVisible = ProjectSearchPreferences.defaultVisible
+    @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
+    private var autoExpandWorktrees = false
 
     private var collapsedStyle: SidebarCollapsedStyle {
         SidebarCollapsedStyle(rawValue: collapsedStyleRaw) ?? .defaultValue
@@ -213,6 +246,13 @@ struct ProjectFocusedSidebar: View {
             .accessibilityLabel(L10n.string("Sidebar"))
             .onChange(of: Set(navigableProjects.map(\.id))) { _, projectIDs in
                 worktreeExpansion.retain(projectIDs: projectIDs)
+            }
+            .onChange(of: appState.activeProjectID) { _, projectID in
+                handleActiveProjectChange(projectID)
+            }
+            .onChange(of: autoExpandWorktrees) { _, isEnabled in
+                guard !isEnabled else { return }
+                worktreeExpansion.cancelAutoExpandRequest()
             }
             .alert(
                 L10n.string("Remove \"\(projectPendingRemoval?.name ?? "")\"?"),
@@ -517,6 +557,10 @@ struct ProjectFocusedSidebar: View {
                 shortcutIndex: shortcutIndex,
                 isAnyDragging: dragState.draggedID != nil,
                 worktreesExpanded: worktreesExpandedBinding(for: project.id),
+                isWorktreeAutoExpandPending: worktreeExpansion.hasPendingAutoExpandRequest(projectID: project.id),
+                onResolveWorktreeAutoExpand: { isEligible in
+                    worktreeExpansion.resolveAutoExpand(projectID: project.id, isEligible: isEligible)
+                },
                 onSelect: { select(project) },
                 onRemove: { remove(project) },
                 onRename: { renameProject(project, to: $0) },
@@ -550,6 +594,16 @@ struct ProjectFocusedSidebar: View {
         )
     }
 
+    private func handleActiveProjectChange(_ projectID: UUID?) {
+        worktreeExpansion.cancelAutoExpandRequest()
+        let projectCandidates = projectStore.projects + projectGroupStore.remoteProjects
+        guard autoExpandWorktrees,
+              let projectID,
+              projectCandidates.first(where: { $0.id == projectID })?.worktreesEnabled == true
+        else { return }
+        worktreeExpansion.requestAutoExpand(projectID: projectID)
+    }
+
     private func renameProject(_ project: Project, to name: String) {
         guard project.remoteWorkspaceID == nil else {
             projectGroupStore.renameRemoteProject(id: project.id, to: name)
@@ -559,6 +613,9 @@ struct ProjectFocusedSidebar: View {
     }
 
     private func setWorktreesEnabled(_ project: Project, to enabled: Bool) {
+        if !enabled {
+            worktreeExpansion[project.id] = false
+        }
         guard project.remoteWorkspaceID == nil else {
             projectGroupStore.setRemoteProjectWorktreesEnabled(id: project.id, to: enabled)
             return
