@@ -30,9 +30,8 @@ protocol GitWorktreeListing {
 }
 
 actor GitWorktreeService: GitWorktreeListing {
-    struct WorktreePathResolution: Sendable {
+    struct WorktreePathResolution {
         let path: String
-        let identityPaths: Set<String>
         let remoteHomePath: String?
     }
 
@@ -46,7 +45,6 @@ actor GitWorktreeService: GitWorktreeListing {
     static let shared = GitWorktreeService()
     static let defaultWorktreeRemovalTimeout: TimeInterval = 300
     private static let removalReconciliationTimeout: TimeInterval = 5
-    private static let maximumCanonicalPathOutputByteCount = 1024 * 1024
     private static let maxConcurrentRepositoryChecksPerContext = 4
     private static let localRepositoryCheckTimeout = Duration.seconds(10)
 
@@ -130,46 +128,6 @@ actor GitWorktreeService: GitWorktreeListing {
         return !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    func uncommittedChangesIfRegistered(
-        repoPath: String,
-        resolution: WorktreePathResolution,
-        context: WorkspaceContext,
-        deadline: OperationDeadline
-    ) async throws -> Bool {
-        guard try await isWorktreeRegistered(
-            repoPath: repoPath,
-            resolution: resolution,
-            context: context,
-            deadline: deadline
-        )
-        else { return false }
-
-        let hasChanges: Bool
-        do {
-            hasChanges = try await uncommittedChanges(
-                worktreePath: resolution.path,
-                context: context,
-                timeout: deadline.remaining()
-            )
-        } catch {
-            guard try await isWorktreeRegistered(
-                repoPath: repoPath,
-                resolution: resolution,
-                context: context,
-                deadline: deadline
-            )
-            else { return false }
-            throw error
-        }
-        guard hasChanges else { return false }
-        return try await isWorktreeRegistered(
-            repoPath: repoPath,
-            resolution: resolution,
-            context: context,
-            deadline: deadline
-        )
-    }
-
     func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord] {
         try await listWorktrees(repoPath: repoPath, context: .local)
     }
@@ -227,59 +185,24 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
-    @discardableResult
     func removeWorktree(
         repoPath: String,
         path: String,
         force: Bool = false,
         context: WorkspaceContext = .local,
         timeout: TimeInterval = defaultWorktreeRemovalTimeout,
-        trustedTrackedPath: Bool = false,
         removalRunner: RemovalRunner = runRemoval
-    ) async throws -> WorktreePathResolution {
+    ) async throws {
         let deadline = OperationDeadline(timeout: timeout)
-        let resolution = try await Self.resolveWorktreePath(
-            path,
-            repoPath: repoPath,
-            context: context,
-            deadline: deadline
-        )
-        return try await removeWorktree(
-            repoPath: repoPath,
-            resolution: resolution,
-            force: force,
-            context: context,
-            deadline: deadline,
-            trustedTrackedPath: trustedTrackedPath,
-            removalRunner: removalRunner
-        )
-    }
-
-    @discardableResult
-    func removeWorktree(
-        repoPath: String,
-        resolution: WorktreePathResolution,
-        force: Bool = false,
-        context: WorkspaceContext = .local,
-        deadline: OperationDeadline,
-        trustedTrackedPath: Bool = false,
-        removalRunner: RemovalRunner = runRemoval
-    ) async throws -> WorktreePathResolution {
-        let path = resolution.path
-        let wasRegistered = try await isRegistered(
-            resolution: resolution,
+        let target = Self.canonicalPath(path, context: context)
+        let wasRegistered = try await listWorktrees(
             repoPath: repoPath,
             context: context,
             timeout: deadline.remaining()
         )
-        if !wasRegistered {
-            if trustedTrackedPath {
-                return resolution
-            }
-            if try await context.fileOps.exists(at: path, timeout: deadline.remaining()) {
-                throw GitWorktreeError.commandFailed("Worktree is not registered with this repository.")
-            }
-            return resolution
+        .contains { Self.canonicalPath($0.path, context: context) == target }
+        if !wasRegistered, try await context.fileOps.exists(at: path, timeout: deadline.remaining()) {
+            throw GitWorktreeError.commandFailed("Worktree is not registered with this repository.")
         }
 
         var args: [String] = ["worktree", "remove"]
@@ -290,32 +213,17 @@ actor GitWorktreeService: GitWorktreeListing {
         let result: GitProcessResult
         do {
             result = try await removalRunner(repoPath, args, context, deadline.remaining())
-        } catch let removalError {
-            guard Self.isTimeout(removalError) else { throw removalError }
-            try Task.checkCancellation()
-            let remainsRegistered: Bool
-            do {
-                remainsRegistered = try await isRegistered(
-                    resolution: resolution,
-                    repoPath: repoPath,
-                    context: context,
-                    timeout: deadline.remaining(upTo: Self.removalReconciliationTimeout)
-                )
-            } catch {
-                try Task.checkCancellation()
-                throw removalError
-            }
-            guard !remainsRegistered else { throw removalError }
-            return resolution
+        } catch {
+            guard Self.isTimeout(error), try await !isRegistered(
+                target: target,
+                repoPath: repoPath,
+                context: context,
+                timeout: Self.removalReconciliationTimeout
+            )
+            else { throw error }
+            return
         }
-        guard result.status != 0 else { return resolution }
-        let remainsRegistered = try await isRegistered(
-            resolution: resolution,
-            repoPath: repoPath,
-            context: context,
-            timeout: deadline.remaining()
-        )
-        guard remainsRegistered else { return resolution }
+        guard result.status != 0 else { return }
         if try await context.fileOps.exists(at: path, timeout: deadline.remaining()) {
             throw GitWorktreeError.commandFailed(
                 result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
@@ -326,13 +234,14 @@ actor GitWorktreeService: GitWorktreeListing {
             try? await pruneWorktrees(repoPath: repoPath, context: context, timeout: remaining)
         }
         try Task.checkCancellation()
+        let verificationTimeout = (try? deadline.remaining()) ?? Self.removalReconciliationTimeout
         let stillRegistered = try await isRegistered(
-            resolution: resolution,
+            target: target,
             repoPath: repoPath,
             context: context,
-            timeout: deadline.remaining()
+            timeout: verificationTimeout
         )
-        guard stillRegistered else { return resolution }
+        guard stillRegistered else { return }
 
         throw GitWorktreeError.commandFailed(
             result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
@@ -354,30 +263,13 @@ actor GitWorktreeService: GitWorktreeListing {
     }
 
     private func isRegistered(
-        resolution: WorktreePathResolution,
+        target: String,
         repoPath: String,
         context: WorkspaceContext,
         timeout: TimeInterval
     ) async throws -> Bool {
-        let targets = Set(resolution.identityPaths.map {
-            Self.normalizedPathIdentity($0, context: context)
-        })
-        return try await listWorktrees(repoPath: repoPath, context: context, timeout: timeout)
-            .contains { targets.contains(Self.normalizedPathIdentity($0.path, context: context)) }
-    }
-
-    func isWorktreeRegistered(
-        repoPath: String,
-        resolution: WorktreePathResolution,
-        context: WorkspaceContext,
-        deadline: OperationDeadline
-    ) async throws -> Bool {
-        try await isRegistered(
-            resolution: resolution,
-            repoPath: repoPath,
-            context: context,
-            timeout: deadline.remaining()
-        )
+        try await listWorktrees(repoPath: repoPath, context: context, timeout: timeout)
+            .contains { Self.canonicalPath($0.path, context: context) == target }
     }
 
     private static func runRemoval(
@@ -439,27 +331,13 @@ actor GitWorktreeService: GitWorktreeListing {
         context: WorkspaceContext,
         timeout: TimeInterval
     ) async throws -> WorktreePathResolution {
-        try await resolveWorktreePath(
-            path,
-            repoPath: repoPath,
-            context: context,
-            deadline: OperationDeadline(timeout: timeout)
-        )
-    }
-
-    static func resolveWorktreePath(
-        _ path: String,
-        repoPath: String,
-        context: WorkspaceContext,
-        deadline: OperationDeadline
-    ) async throws -> WorktreePathResolution {
         guard case let .ssh(destination) = context else {
-            return try await resolveLocalWorktreePaths(
-                [path],
-                repoPath: repoPath,
-                deadline: deadline
-            )[0]
+            return WorktreePathResolution(
+                path: canonicalPath(NSString(string: path).expandingTildeInPath),
+                remoteHomePath: nil
+            )
         }
+        let deadline = OperationDeadline(timeout: timeout)
         let homeResult = try await SSHCommandRunner.run(
             destination: destination,
             remoteCommand: "printf '%s' \"$HOME\"",
@@ -471,197 +349,25 @@ actor GitWorktreeService: GitWorktreeListing {
             )
         }
         let homePath = homeResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        return try await resolveRemoteWorktreePaths(
-            [path],
-            repoPath: repoPath,
-            homePath: homePath,
+        let absolutePath = expandedRemotePath(path, repoPath: repoPath, homePath: homePath)
+        let quotedPath = RemoteCommandBuilder.quoteRemotePath(absolutePath)
+        let resolved = try await SSHCommandRunner.run(
             destination: destination,
-            deadline: deadline
-        )[0]
-    }
-
-    static func resolveRemoteWorktreePaths(
-        _ paths: [String],
-        repoPath: String,
-        homePath: String,
-        destination: SSHDestination,
-        deadline: OperationDeadline
-    ) async throws -> [WorktreePathResolution] {
-        guard !paths.isEmpty else { return [] }
-        let absolutePaths = paths.map {
-            expandedRemotePath($0, repoPath: repoPath, homePath: homePath)
-        }
-        let result = try await SSHCommandRunner.run(
-            destination: destination,
-            remoteCommand: remotePathResolutionCommand(absolutePaths),
-            timeout: deadline.remaining(),
-            outputByteLimit: maximumCanonicalPathOutputByteCount
+            remoteCommand: "if [ -d \(quotedPath) ]; then cd \(quotedPath) && pwd -P; else printf '%s' \(quotedPath); fi",
+            timeout: deadline.remaining()
         )
-        guard result.status == 0, !result.truncated else {
+        guard resolved.status == 0 else {
             throw GitWorktreeError.commandFailed(
-                result.stderr.isEmpty ? "Failed to resolve the remote worktree path." : result.stderr
+                resolved.stderr.isEmpty ? "Failed to resolve the remote worktree path." : resolved.stderr
             )
         }
-        let encodedPaths = try decodeCanonicalPathOutput(
-            result.stdoutData,
-            expectedCount: paths.count
+        return WorktreePathResolution(
+            path: canonicalPath(
+                resolved.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+                context: context
+            ),
+            remoteHomePath: homePath
         )
-        _ = try deadline.remaining()
-        return zip(absolutePaths, encodedPaths).map { absolutePath, encodedPath in
-            let resolvedPath = ProjectPickerPathService.standardizedRemotePath(encodedPath)
-            return WorktreePathResolution(
-                path: resolvedPath,
-                identityPaths: [absolutePath, resolvedPath],
-                remoteHomePath: homePath
-            )
-        }
-    }
-
-    static func remotePathResolutionCommand(_ absolutePaths: [String]) -> String {
-        let arguments = absolutePaths
-            .map(RemoteCommandBuilder.quoteRemotePath)
-            .joined(separator: " ")
-        return """
-        set -- \(arguments)
-        \(pathResolutionScript)
-        """
-    }
-
-    private static let pathResolutionScript = """
-    for input in "$@"; do
-      candidate=$input
-      suffix=
-      hops=0
-      emitted=0
-      while :; do
-        while [ ! -e "$candidate" ] && [ ! -L "$candidate" ]; do
-          [ "$candidate" != / ] || break
-          case "$candidate" in
-            */*) name=${candidate##*/}; parent=${candidate%/*}; [ -n "$parent" ] || parent=/ ;;
-            *) name=$candidate; parent=. ;;
-          esac
-          suffix=/$name$suffix
-          candidate=$parent
-        done
-        if [ -L "$candidate" ]; then
-          link=$(readlink -n "$candidate" && printf '\\001') || break
-          link=${link%?}
-          hops=$((hops + 1))
-          [ "$hops" -le 40 ] || break
-          case "$link" in
-            /*) candidate=$link ;;
-            *)
-              case "$candidate" in
-                */*) parent=${candidate%/*}; [ -n "$parent" ] || parent=/ ;;
-                *) parent=. ;;
-              esac
-              candidate=$parent/$link
-              ;;
-          esac
-          continue
-        fi
-        if [ -d "$candidate" ]; then
-          if (cd -P "$candidate" 2>/dev/null && printf '%s%s\\000' "$PWD" "$suffix"); then
-            emitted=1
-          fi
-          break
-        fi
-        [ -e "$candidate" ] || break
-        case "$candidate" in
-          */*) name=${candidate##*/}; parent=${candidate%/*}; [ -n "$parent" ] || parent=/ ;;
-          *) name=$candidate; parent=. ;;
-        esac
-        suffix=/$name$suffix
-        candidate=$parent
-      done
-      [ "$emitted" -eq 1 ] || printf '%s\\000' "$input"
-    done
-    """
-
-    static func resolveLocalWorktreePaths(
-        _ paths: [String],
-        repoPath: String,
-        deadline: OperationDeadline
-    ) async throws -> [WorktreePathResolution] {
-        guard !paths.isEmpty else { return [] }
-        let expandedPaths = paths.map { NSString(string: $0).expandingTildeInPath }
-        let hasRelativePath = expandedPaths.contains { !$0.hasPrefix("/") }
-        let resolvedRepository: String? = if hasRelativePath {
-            try await canonicalLocalPaths(
-                [NSString(string: repoPath).expandingTildeInPath],
-                deadline: deadline
-            )[0]
-        } else {
-            nil
-        }
-        let absolutePaths = paths.map { absoluteLocalPath($0, repoPath: repoPath) }
-        let resolutionInputs = zip(expandedPaths, absolutePaths).map { expandedPath, absolutePath in
-            guard !expandedPath.hasPrefix("/"), let resolvedRepository else { return absolutePath }
-            return URL(fileURLWithPath: resolvedRepository)
-                .appendingPathComponent(expandedPath)
-                .standardizedFileURL
-                .path
-        }
-        let resolvedPaths = try await canonicalLocalPaths(resolutionInputs, deadline: deadline)
-        return zip(zip(absolutePaths, resolutionInputs), resolvedPaths).map { inputs, resolvedPath in
-            WorktreePathResolution(
-                path: resolvedPath,
-                identityPaths: [inputs.0, inputs.1, resolvedPath],
-                remoteHomePath: nil
-            )
-        }
-    }
-
-    static func canonicalLocalPaths(_ paths: [String], deadline: OperationDeadline) async throws -> [String] {
-        guard !paths.isEmpty else { return [] }
-        let result = try await SubprocessRunner.run(SubprocessRequest(
-            executablePath: "/bin/zsh",
-            arguments: [
-                "-f",
-                "-c",
-                pathResolutionScript,
-                "muxy-resolve-paths",
-            ] + paths,
-            timeout: deadline.remaining(),
-            outputByteLimit: maximumCanonicalPathOutputByteCount
-        ))
-        guard result.status == 0, !result.truncated else {
-            throw GitWorktreeError.commandFailed("Failed to resolve the local worktree path.")
-        }
-        let resolvedPaths = try decodeCanonicalPathOutput(
-            result.stdoutData,
-            expectedCount: paths.count
-        )
-        _ = try deadline.remaining()
-        return resolvedPaths
-    }
-
-    static func decodeCanonicalPathOutput(_ data: Data, expectedCount: Int) throws -> [String] {
-        var encodedPaths = data.split(separator: 0, omittingEmptySubsequences: false)
-        guard encodedPaths.last?.isEmpty == true else {
-            throw GitWorktreeError.commandFailed("Failed to decode resolved worktree paths.")
-        }
-        encodedPaths.removeLast()
-        let resolvedPaths = encodedPaths.compactMap { String(data: Data($0), encoding: .utf8) }
-        guard resolvedPaths.count == expectedCount else {
-            throw GitWorktreeError.commandFailed("Failed to decode resolved worktree paths.")
-        }
-        return resolvedPaths
-    }
-
-    static func absoluteLocalPath(_ path: String, repoPath: String) -> String {
-        let expandedPath = NSString(string: path).expandingTildeInPath
-        guard !expandedPath.hasPrefix("/") else {
-            return URL(fileURLWithPath: expandedPath).standardizedFileURL.path
-        }
-        let expandedRepoPath = NSString(string: repoPath).expandingTildeInPath
-        let repository = URL(fileURLWithPath: expandedRepoPath).standardizedFileURL
-        return repository.appendingPathComponent(expandedPath).standardizedFileURL.path
-    }
-
-    static func normalizedPathIdentity(_ path: String, context: WorkspaceContext) -> String {
-        guard !context.isRemote else { return ProjectPickerPathService.standardizedRemotePath(path) }
-        return URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     static func expandedRemotePath(_ path: String, repoPath: String, homePath: String) -> String {

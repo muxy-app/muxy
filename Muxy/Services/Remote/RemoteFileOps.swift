@@ -1,30 +1,5 @@
 import Foundation
 
-enum FilePresenceCommand {
-    static let script = """
-    if [ -e "$1" ] || [ -L "$1" ]; then exit 0; fi
-    candidate="$1"
-    while :; do
-      case "$candidate" in
-        */*) candidate=${candidate%/*}; [ -n "$candidate" ] || candidate=/ ;;
-        *) candidate=. ;;
-      esac
-      if [ -L "$candidate" ] && [ ! -e "$candidate" ]; then exit 2; fi
-      if [ -e "$candidate" ]; then
-        [ ! -d "$candidate" ] && exit 1
-        [ -x "$candidate" ] && exit 1
-        exit 2
-      fi
-      [ "$candidate" = / ] || [ "$candidate" = . ] || continue
-      exit 2
-    done
-    """
-
-    static func remote(path: String) -> String {
-        "set -- \(RemoteCommandBuilder.quoteRemotePath(path)); \(script)"
-    }
-}
-
 protocol RemoteFileOps: Sendable {
     func makeDirectory(at path: String) async throws
     func removeItem(at path: String) async throws
@@ -61,7 +36,16 @@ struct LocalFileOps: RemoteFileOps {
             executablePath: "/bin/sh",
             arguments: [
                 "-c",
-                FilePresenceCommand.script,
+                """
+                if [ -e "$1" ] || [ -L "$1" ]; then exit 0; fi
+                case "$1" in
+                  */*) parent=${1%/*}; [ -n "$parent" ] || parent=/ ;;
+                  *) parent=. ;;
+                esac
+                [ ! -e "$parent" ] && exit 1
+                [ -x "$parent" ] && exit 1
+                exit 2
+                """,
                 "muxy-path-exists",
                 path,
             ],
@@ -83,20 +67,33 @@ struct SSHFileOps: RemoteFileOps {
     }
 
     func exists(at path: String) async -> Bool {
+        let quoted = RemoteCommandBuilder.quoteRemotePath(path)
+        let quotedParent = RemoteCommandBuilder.quoteRemotePath(parentPath(of: path))
         let result = try? await SSHCommandRunner.run(
             destination: destination,
-            remoteCommand: FilePresenceCommand.remote(path: path)
+            remoteCommand: presenceCommand(path: quoted, parent: quotedParent)
         )
         return result?.status != 1
     }
 
     func exists(at path: String, timeout: TimeInterval) async throws -> Bool {
+        let quoted = RemoteCommandBuilder.quoteRemotePath(path)
+        let quotedParent = RemoteCommandBuilder.quoteRemotePath(parentPath(of: path))
         let result = try await SSHCommandRunner.run(
             destination: destination,
-            remoteCommand: FilePresenceCommand.remote(path: path),
+            remoteCommand: presenceCommand(path: quoted, parent: quotedParent),
             timeout: timeout
         )
         return result.status != 1
+    }
+
+    private func parentPath(of path: String) -> String {
+        let parent = NSString(string: path).deletingLastPathComponent
+        return parent.isEmpty ? "." : parent
+    }
+
+    private func presenceCommand(path: String, parent: String) -> String {
+        "if [ -e \(path) ] || [ -L \(path) ]; then exit 0; fi; [ ! -e \(parent) ] && exit 1; [ -x \(parent) ] && exit 1; exit 2"
     }
 
     private func run(_ remoteCommand: String) async throws {

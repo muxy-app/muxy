@@ -883,8 +883,7 @@ enum MuxyAPIDispatcher {
             appState: context.appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
-            projectGroupStore: projectGroupStore,
-            consent: ExtensionConsentService.shared
+            projectGroupStore: projectGroupStore
         )
         let project = args["project"] as? String
         let fresh = args["fresh"] as? Bool ?? false

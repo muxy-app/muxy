@@ -45,8 +45,4 @@ struct OperationDeadline: Sendable {
         guard remaining > 0 else { throw AsyncTimeoutError.timedOut(timeout) }
         return remaining
     }
-
-    func remaining(upTo maximum: TimeInterval) throws -> TimeInterval {
-        try min(remaining(), maximum)
-    }
 }
