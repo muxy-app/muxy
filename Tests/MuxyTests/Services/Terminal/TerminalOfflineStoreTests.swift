@@ -46,6 +46,25 @@ struct TerminalOfflineStoreTests {
         ])
     }
 
+    @Test("offline event uses the worktree root when a pane starts in a subdirectory")
+    func offlineEventUsesWorktreeRoot() throws {
+        let panePath = "\(projectPath)/packages/app"
+        let context = makeContext(additionalPanePath: panePath)
+        let panes = try #require(paneStates(in: context.appState))
+        let nestedPane = try #require(panes.first(where: { $0.projectPath == panePath }))
+
+        for pane in panes where pane.id != nestedPane.id {
+            pane.isOffline = true
+            context.store.update(paneID: pane.id, appState: context.appState)
+        }
+        nestedPane.isOffline = true
+        context.store.update(paneID: nestedPane.id, appState: context.appState)
+
+        #expect(context.recorder.events == [
+            Emission(worktreeKey: context.worktreeKey, worktreePath: projectPath, offline: true),
+        ])
+    }
+
     @Test("closing an online pane leaves an offline worktree behind")
     func closingOnlinePaneReportsOfflineWorktree() throws {
         let context = makeContext()
@@ -176,7 +195,7 @@ struct TerminalOfflineStoreTests {
         let worktreeKey: WorktreeKey
     }
 
-    private func makeContext() -> Context {
+    private func makeContext(additionalPanePath: String? = nil) -> Context {
         let appState = AppState(
             selectionStore: OfflineSelectionStoreStub(),
             terminalViews: OfflineTerminalViewRemovingStub(),
@@ -188,7 +207,11 @@ struct TerminalOfflineStoreTests {
         appState.activeWorktreeID[projectID] = worktreeID
         appState.workspaceRoots[worktreeKey] = .tabArea(area)
         appState.focusedAreaID[worktreeKey] = area.id
-        area.createTab()
+        if let additionalPanePath {
+            area.createTab(inDirectory: additionalPanePath)
+        } else {
+            area.createTab()
+        }
 
         let recorder = EmissionRecorder()
         let store = TerminalOfflineStore { key, path, offline in

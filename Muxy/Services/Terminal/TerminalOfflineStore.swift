@@ -27,9 +27,12 @@ final class TerminalOfflineStore {
     }
 
     func update(paneID: UUID, appState: AppState) {
-        guard let located = appState.locatePane(paneID: paneID) else { return }
-        syncPanes(in: located.worktreeKey, appState: appState)
-        recompute(worktreeKey: located.worktreeKey, worktreePath: located.pane.projectPath)
+        guard let located = appState.locateTab(forPane: paneID),
+              let worktreePath = appState.workspaceRoots[located.worktreeKey]?
+              .findArea(id: located.areaID)?.projectPath
+        else { return }
+        syncPanes(in: located.worktreeKey, worktreePath: worktreePath, appState: appState)
+        recompute(worktreeKey: located.worktreeKey, worktreePath: worktreePath)
     }
 
     func removePane(_ paneID: UUID) {
@@ -51,7 +54,7 @@ final class TerminalOfflineStore {
         worktreeStates[worktreeKey]
     }
 
-    private func syncPanes(in worktreeKey: WorktreeKey, appState: AppState) {
+    private func syncPanes(in worktreeKey: WorktreeKey, worktreePath: String, appState: AppState) {
         let currentPanes = appState.workspaceRoots[worktreeKey]?.allAreas()
             .flatMap(\.tabs)
             .compactMap(\.content.pane) ?? []
@@ -62,7 +65,7 @@ final class TerminalOfflineStore {
         for pane in currentPanes {
             panes[pane.id] = PaneEntry(
                 worktreeKey: worktreeKey,
-                worktreePath: pane.projectPath,
+                worktreePath: worktreePath,
                 offline: pane.isOffline
             )
         }

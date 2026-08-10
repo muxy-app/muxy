@@ -30,6 +30,7 @@ enum ExtensionEventEmitter {
         let activeTabIDPerArea: [UUID: UUID]
         let tabContext: [UUID: TabContext]
         let paneContext: [UUID: TabContext]
+        let worktreePathByPaneID: [UUID: String]
     }
 
     static func snapshot(from appState: AppState) -> WorkspaceSnapshot {
@@ -38,6 +39,7 @@ enum ExtensionEventEmitter {
         var activeTabs: [UUID: UUID] = [:]
         var tabContext: [UUID: TabContext] = [:]
         var paneContext: [UUID: TabContext] = [:]
+        var worktreePathByPaneID: [UUID: String] = [:]
         for (key, root) in appState.workspaceRoots {
             for area in root.allAreas() {
                 if let activeTabID = area.activeTabID {
@@ -50,6 +52,7 @@ enum ExtensionEventEmitter {
                     if let pane = tab.content.pane {
                         panes.insert(pane.id)
                         paneContext[pane.id] = context
+                        worktreePathByPaneID[pane.id] = area.projectPath
                     }
                 }
             }
@@ -62,7 +65,8 @@ enum ExtensionEventEmitter {
             focusedAreaID: appState.focusedAreaID,
             activeTabIDPerArea: activeTabs,
             tabContext: tabContext,
-            paneContext: paneContext
+            paneContext: paneContext,
+            worktreePathByPaneID: worktreePathByPaneID
         )
     }
 
@@ -165,14 +169,14 @@ enum ExtensionEventEmitter {
 
         for paneID in after.panes.subtracting(before.panes) {
             let context = after.paneContext[paneID]
-            if let context {
+            if let context, let worktreePath = after.worktreePathByPaneID[paneID] {
                 TerminalOfflineStore.shared.addPane(
                     paneID,
                     worktreeKey: WorktreeKey(
                         projectID: context.projectID,
                         worktreeID: context.worktreeID
                     ),
-                    worktreePath: context.projectPath
+                    worktreePath: worktreePath
                 )
             }
             server.broadcast(event: ExtensionEvent(
