@@ -1,6 +1,6 @@
 # AI notifications
 
-Muxy tracks the AI coding agents running inside its terminals — Claude Code, Codex, Cursor, GitHub Copilot, Droid, Grok, Kiro CLI, OpenCode, and Pi — and surfaces their lifecycle as pane and worktree status, completion badges, and notifications when a turn finishes or an agent needs attention.
+Muxy tracks the AI coding agents running inside its terminals — Claude Code, Codex, Cursor, GitHub Copilot, Droid, Grok, Kiro CLI, OpenCode, and Pi — and surfaces their lifecycle as pane and worktree status, completion badges, and notifications when a turn finishes, or — for providers that expose a waiting hook — when an agent needs attention.
 
 There are two independent sources of truth, and hooks are authoritative.
 
