@@ -196,10 +196,16 @@ struct MainWindow: View {
                 clearRichInputDraftIfNeeded(for: closedTarget)
             }
             .onChange(of: activeRichInputTarget) { _, target in
-                let closedTarget = richInputPresentation.target
-                guard richInputPresentation.reconcileTargetChange(target, voice: composerVoice) else { return }
-                clearRichInputDraftIfNeeded(for: closedTarget)
-                restoreActiveTerminalFocus()
+                switch richInputPresentation.reconcileTargetChange(target, voice: composerVoice) {
+                case .unchanged,
+                     .rebound:
+                    return
+                case let .transferredAcrossWorktrees(previousTarget):
+                    clearRichInputDraftIfNeeded(for: previousTarget)
+                case let .closed(previousTarget):
+                    clearRichInputDraftIfNeeded(for: previousTarget)
+                    restoreActiveTerminalFocus()
+                }
             }
     }
 

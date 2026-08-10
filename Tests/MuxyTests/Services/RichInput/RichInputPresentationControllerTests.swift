@@ -94,8 +94,8 @@ struct RichInputPresentationControllerTests {
         #expect(state.imageAttachments.map(\.path) == ["/tmp/image.png"])
     }
 
-    @Test("target changes cancel dictation and rebind an open panel")
-    func targetChangesCancelDictationAndRebindPanel() {
+    @Test("cross-worktree target changes report the previous draft and rebind an open panel")
+    func crossWorktreeTargetChangesReportPreviousDraftAndRebindPanel() {
         let host = PanelHost()
         let controller = RichInputPresentationController(panelHost: host)
         let recorder = RichInputPresentationVoiceRecorderStub()
@@ -107,12 +107,30 @@ struct RichInputPresentationControllerTests {
         )
         controller.present(mode: .panel, position: .right, target: firstTarget)
 
-        let didClose = controller.reconcileTargetChange(nextTarget, voice: voice)
+        let reconciliation = controller.reconcileTargetChange(nextTarget, voice: voice)
 
-        #expect(!didClose)
+        #expect(reconciliation == .transferredAcrossWorktrees(previousTarget: firstTarget))
         #expect(controller.isPanelVisible)
         #expect(controller.target == nextTarget)
         #expect(recorder.cancelCount == 1)
+    }
+
+    @Test("same-worktree pane changes rebind without reporting a worktree transfer")
+    func sameWorktreePaneChangesRebindWithoutWorktreeTransfer() {
+        let host = PanelHost()
+        let controller = RichInputPresentationController(panelHost: host)
+        let voice = ComposerVoiceState(recorder: RichInputPresentationVoiceRecorderStub())
+        let nextTarget = RichInputPresentationTarget(
+            worktreeKey: firstTarget.worktreeKey,
+            paneID: UUID()
+        )
+        controller.present(mode: .panel, position: .right, target: firstTarget)
+
+        let reconciliation = controller.reconcileTargetChange(nextTarget, voice: voice)
+
+        #expect(reconciliation == .rebound)
+        #expect(controller.isPanelVisible)
+        #expect(controller.target == nextTarget)
     }
 
     @Test("losing the target closes the panel and cancels dictation")
@@ -124,9 +142,9 @@ struct RichInputPresentationControllerTests {
         let voice = ComposerVoiceState(recorder: recorder)
         controller.present(mode: .panel, position: .right, target: firstTarget)
 
-        let didClose = controller.reconcileTargetChange(nil, voice: voice)
+        let reconciliation = controller.reconcileTargetChange(nil, voice: voice)
 
-        #expect(didClose)
+        #expect(reconciliation == .closed(previousTarget: firstTarget))
         #expect(!controller.isVisible)
         #expect(controller.target == nil)
         #expect(recorder.cancelCount == 1)
@@ -145,9 +163,9 @@ struct RichInputPresentationControllerTests {
         )
         controller.present(mode: .floating, position: .right, target: firstTarget)
 
-        let didClose = controller.reconcileTargetChange(nextTarget, voice: voice)
+        let reconciliation = controller.reconcileTargetChange(nextTarget, voice: voice)
 
-        #expect(didClose)
+        #expect(reconciliation == .closed(previousTarget: firstTarget))
         #expect(!controller.isVisible)
         #expect(controller.target == nil)
         #expect(recorder.cancelCount == 1)
