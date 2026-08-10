@@ -6,9 +6,29 @@ extension MuxyAPI {
         static let defaultWorktreeRemovalTimeoutMs = 30000
         static let maxWorktreeRemovalTimeoutMs = 3_600_000
 
+        typealias RemoteWorktreePathResolver = @Sendable (
+            [String],
+            String,
+            String,
+            SSHDestination,
+            OperationDeadline
+        ) async throws -> [GitWorktreeService.WorktreePathResolution]
+
         struct RemoveWorktreeResult: Sendable, Equatable {
             let path: String
             let dirRemoved: Bool?
+        }
+
+        struct TrackedWorktreeResult {
+            let project: Project
+            let worktree: Worktree
+            let matchingWorktrees: [Worktree]
+        }
+
+        private struct TrackedWorktreeState: Equatable {
+            let path: String
+            let source: WorktreeSource
+            let isPrimary: Bool
         }
 
         struct Context {
@@ -17,6 +37,7 @@ extension MuxyAPI {
             let projectStore: ProjectStore
             let worktreeStore: WorktreeStore
             let projectGroupStore: ProjectGroupStore
+            let consent: ExtensionConsentService
         }
 
         static let maxLogCount = 1000
@@ -598,23 +619,25 @@ extension MuxyAPI {
                     trimmedPath,
                     repoPath: project.path,
                     context: workspaceContext,
-                    timeout: deadline.remaining()
+                    deadline: deadline
                 )
                 let expandedPath = resolution.path
-                guard let tracked = trackedWorktree(
+                guard let tracked = try await trackedWorktree(
                     path: expandedPath,
+                    identityPaths: resolution.identityPaths,
                     project: project,
                     context: context,
                     workspaceContext: workspaceContext,
-                    remoteHomePath: resolution.remoteHomePath
+                    remoteHomePath: resolution.remoteHomePath,
+                    deadline: deadline
                 )
                 else {
                     try await GitWorktreeService.shared.removeWorktree(
                         repoPath: project.path,
-                        path: expandedPath,
+                        resolution: resolution,
                         force: force,
                         context: workspaceContext,
-                        timeout: deadline.remaining()
+                        deadline: deadline
                     )
                     let dirRemoved = await (try? workspaceContext.fileOps.exists(
                         at: expandedPath,
@@ -623,58 +646,167 @@ extension MuxyAPI {
                     return RemoveWorktreeResult(path: expandedPath, dirRemoved: dirRemoved)
                 }
 
-                var worktree = tracked.worktree
-                worktree.path = expandedPath
-                if !force, try await GitWorktreeService.shared.uncommittedChanges(
-                    worktreePath: worktree.path,
+                if !force, try await GitWorktreeService.shared.uncommittedChangesIfRegistered(
+                    repoPath: tracked.project.path,
+                    resolution: resolution,
                     context: workspaceContext,
-                    timeout: deadline.remaining()
+                    deadline: deadline
                 ) {
                     throw APIError.invalidArguments("worktree has uncommitted changes; pass force to remove it")
                 }
                 let dirRemoved = try await WorktreeStore.cleanupOnDisk(
-                    worktree: worktree,
+                    worktree: tracked.worktree,
                     repoPath: tracked.project.path,
                     context: workspaceContext,
                     force: force,
-                    timeout: deadline.remaining()
+                    deadline: deadline,
+                    pathResolution: resolution
                 )
-                forgetWorktree(project: tracked.project, worktree: tracked.worktree, context: context)
+                forgetWorktrees(
+                    project: tracked.project,
+                    worktrees: tracked.matchingWorktrees,
+                    context: context
+                )
                 return RemoveWorktreeResult(path: expandedPath, dirRemoved: dirRemoved)
             }
         }
 
         static func trackedWorktree(
             path: String,
+            identityPaths: Set<String>? = nil,
             project: Project,
             context: Context,
             workspaceContext: WorkspaceContext = .local,
-            remoteHomePath: String? = nil
-        ) -> (project: Project, worktree: Worktree)? {
-            let target = GitWorktreeService.canonicalPath(path, context: workspaceContext)
-            guard let worktree = context.worktreeStore.list(for: project.id).first(where: {
-                let storedPath: String = if workspaceContext.isRemote, let remoteHomePath {
-                    GitWorktreeService.expandedRemotePath(
-                        $0.path,
-                        repoPath: project.path,
-                        homePath: remoteHomePath
-                    )
+            remoteHomePath: String? = nil,
+            timeout: TimeInterval = GitWorktreeService.defaultWorktreeRemovalTimeout
+        ) async throws -> TrackedWorktreeResult? {
+            try await trackedWorktree(
+                path: path,
+                identityPaths: identityPaths,
+                project: project,
+                context: context,
+                workspaceContext: workspaceContext,
+                remoteHomePath: remoteHomePath,
+                deadline: OperationDeadline(timeout: timeout)
+            )
+        }
+
+        static func trackedWorktree(
+            path: String,
+            identityPaths: Set<String>? = nil,
+            project: Project,
+            context: Context,
+            workspaceContext: WorkspaceContext = .local,
+            remoteHomePath: String? = nil,
+            deadline: OperationDeadline,
+            remotePathResolver: RemoteWorktreePathResolver = GitWorktreeService.resolveRemoteWorktreePaths
+        ) async throws -> TrackedWorktreeResult? {
+            let targets = Set((identityPaths ?? [path]).map {
+                GitWorktreeService.normalizedPathIdentity($0, context: workspaceContext)
+            })
+            while true {
+                _ = try deadline.remaining()
+                let worktrees = context.worktreeStore.list(for: project.id)
+                let snapshot = trackedWorktreeState(worktrees)
+                let matched: [Worktree]
+                if workspaceContext.isRemote {
+                    let expandedStoredPaths = worktrees.map { worktree in
+                        if let remoteHomePath {
+                            GitWorktreeService.expandedRemotePath(
+                                worktree.path,
+                                repoPath: project.path,
+                                homePath: remoteHomePath
+                            )
+                        } else {
+                            worktree.path
+                        }
+                    }
+                    let lexicalMatches = zip(worktrees, expandedStoredPaths).compactMap { worktree, storedPath in
+                        let identity = GitWorktreeService.normalizedPathIdentity(
+                            storedPath,
+                            context: workspaceContext
+                        )
+                        return targets.contains(identity) ? worktree : nil
+                    }
+                    if let remoteHomePath, case let .ssh(destination) = workspaceContext {
+                        let storedResolutions = try await remotePathResolver(
+                            worktrees.map(\.path),
+                            project.path,
+                            remoteHomePath,
+                            destination,
+                            deadline
+                        )
+                        guard storedResolutions.count == worktrees.count else {
+                            throw GitWorktreeService.GitWorktreeError.commandFailed(
+                                "Failed to resolve tracked remote worktree paths."
+                            )
+                        }
+                        matched = zip(worktrees, storedResolutions).compactMap { worktree, resolution in
+                            let storedIdentities = Set(resolution.identityPaths.map {
+                                GitWorktreeService.normalizedPathIdentity($0, context: workspaceContext)
+                            })
+                            return targets.isDisjoint(with: storedIdentities) ? nil : worktree
+                        }
+                    } else {
+                        matched = lexicalMatches
+                    }
                 } else {
-                    $0.path
+                    let storedResolutions = try await GitWorktreeService.resolveLocalWorktreePaths(
+                        worktrees.map(\.path),
+                        repoPath: project.path,
+                        deadline: deadline
+                    )
+                    matched = zip(worktrees, storedResolutions).compactMap { worktree, resolution in
+                        let storedIdentities = Set(resolution.identityPaths.map {
+                            GitWorktreeService.normalizedPathIdentity($0, context: workspaceContext)
+                        })
+                        return targets.isDisjoint(with: storedIdentities) ? nil : worktree
+                    }
                 }
-                return GitWorktreeService.canonicalPath(storedPath, context: workspaceContext) == target
-            }), worktree.canBeRemoved
-            else { return nil }
-            return (project, worktree)
+                _ = try deadline.remaining()
+                let currentWorktrees = context.worktreeStore.list(for: project.id)
+                guard snapshot == trackedWorktreeState(currentWorktrees) else { continue }
+                let currentByID = Dictionary(uniqueKeysWithValues: currentWorktrees.map { ($0.id, $0) })
+                let revalidated = matched.compactMap { currentByID[$0.id] }
+                guard !revalidated.isEmpty,
+                      revalidated.allSatisfy(\.canBeRemoved),
+                      let owner = revalidated.first(where: { !$0.isExternallyManaged }) ?? revalidated.first
+                else { return nil }
+                return TrackedWorktreeResult(
+                    project: project,
+                    worktree: owner,
+                    matchingWorktrees: revalidated
+                )
+            }
+        }
+
+        private static func trackedWorktreeState(_ worktrees: [Worktree]) -> [UUID: TrackedWorktreeState] {
+            Dictionary(uniqueKeysWithValues: worktrees.map { worktree in
+                (
+                    worktree.id,
+                    TrackedWorktreeState(
+                        path: worktree.path,
+                        source: worktree.source,
+                        isPrimary: worktree.isPrimary
+                    )
+                )
+            })
         }
 
         static func forgetWorktree(project: Project, worktree: Worktree, context: Context) {
-            let remaining = context.worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
+            forgetWorktrees(project: project, worktrees: [worktree], context: context)
+        }
+
+        static func forgetWorktrees(project: Project, worktrees: [Worktree], context: Context) {
+            let removedIDs = Set(worktrees.map(\.id))
+            let remaining = context.worktreeStore.list(for: project.id).filter { !removedIDs.contains($0.id) }
             let replacement = remaining.first { $0.id == context.appState.activeWorktreeID[project.id] }
                 ?? remaining.first { $0.isPrimary }
                 ?? remaining.first
-            context.appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
-            context.worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            for worktree in worktrees {
+                context.appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
+                context.worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            }
         }
 
         private static func diffHints(staged: Bool?) -> GitRepositoryService.DiffHints {
@@ -739,7 +871,7 @@ extension MuxyAPI {
                 payload: .git(operation: operation, repoPath: resolved.path),
                 source: "muxy-api"
             )
-            guard await ExtensionConsentService.shared.gate(consent) == .allow else {
+            guard await context.consent.gate(consent) == .allow else {
                 return .failure(.consentDenied(verb: "git.\(operation)"))
             }
             do {

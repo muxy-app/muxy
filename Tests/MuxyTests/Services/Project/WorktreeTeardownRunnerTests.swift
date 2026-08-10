@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -180,6 +181,44 @@ struct WorktreeTeardownRunnerTests {
         #expect(collected.snapshot().contains { $0.channel == .stdout && $0.text == "partial" })
     }
 
+    @Test("run bounds configuration reads with the caller deadline")
+    func runBoundsConfigurationReads() async throws {
+        let projectPath = try makeProjectDirectory()
+        defer { try? FileManager.default.removeItem(atPath: projectPath) }
+        let configPath = URL(fileURLWithPath: projectPath)
+            .appendingPathComponent(".muxy/worktree.json")
+        let fifoResult = configPath.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return Int32(-1) }
+            return Darwin.mkfifo(path, S_IRUSR | S_IWUSR)
+        }
+        #expect(fifoResult == 0)
+        let worktreePath = try makeWorktreeDirectory()
+        defer { try? FileManager.default.removeItem(atPath: worktreePath) }
+        let worktree = Worktree(
+            name: "Feature",
+            path: worktreePath,
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
+        let clock = ContinuousClock()
+        let started = clock.now
+
+        var thrownError: Error?
+        do {
+            try await WorktreeTeardownRunner.run(
+                sourceProjectPath: projectPath,
+                worktree: worktree,
+                timeout: 0.2
+            )
+        } catch {
+            thrownError = error
+        }
+
+        #expect(thrownError is AsyncTimeoutError || thrownError is SubprocessRunnerError)
+        #expect(started.duration(to: clock.now) < .seconds(3))
+    }
+
     private func makeWorktreeDirectory() throws -> String {
         let path = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxy-teardown-worktree-\(UUID().uuidString)", isDirectory: true)
@@ -188,15 +227,23 @@ struct WorktreeTeardownRunnerTests {
     }
 
     private func makeProjectConfig(teardown: [String]) throws -> String {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("muxy-teardown-tests-\(UUID().uuidString)", isDirectory: true)
+        let root = URL(fileURLWithPath: try makeProjectDirectory())
         let configDirectory = root.appendingPathComponent(".muxy", isDirectory: true)
-        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(WorktreeConfig(
             setup: [],
             teardown: teardown.map { WorktreeConfig.SetupCommand(command: $0) }
         ))
         try data.write(to: configDirectory.appendingPathComponent("worktree.json"))
+        return root.path
+    }
+
+    private func makeProjectDirectory() throws -> String {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-teardown-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".muxy", isDirectory: true),
+            withIntermediateDirectories: true
+        )
         return root.path
     }
 }

@@ -26,6 +26,7 @@ enum WorktreeTeardownError: LocalizedError {
 
 enum WorktreeTeardownRunner {
     static let defaultTimeout: TimeInterval = 300
+    private static let maximumConfigByteCount = 1024 * 1024
 
     typealias Executor = @Sendable (
         _ command: String,
@@ -42,10 +43,25 @@ enum WorktreeTeardownRunner {
         emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in },
         executor: Executor = execute
     ) async throws {
-        guard !worktree.isExternallyManaged,
-              FileManager.default.fileExists(atPath: worktree.path),
-              let config = WorktreeConfig.load(fromProjectPath: sourceProjectPath)
-        else { return }
+        try await run(
+            sourceProjectPath: sourceProjectPath,
+            worktree: worktree,
+            deadline: OperationDeadline(timeout: timeout),
+            emit: emit,
+            executor: executor
+        )
+    }
+
+    static func run(
+        sourceProjectPath: String,
+        worktree: Worktree,
+        deadline: OperationDeadline,
+        emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in },
+        executor: Executor = execute
+    ) async throws {
+        guard !worktree.isExternallyManaged else { return }
+        guard try await LocalFileOps().exists(at: worktree.path, timeout: deadline.remaining()) else { return }
+        guard let config = try await loadConfig(sourceProjectPath: sourceProjectPath, deadline: deadline) else { return }
 
         let commands = config.teardown
             .map(\.command)
@@ -54,7 +70,6 @@ enum WorktreeTeardownRunner {
         guard !commands.isEmpty else { return }
 
         let environment = environment(for: worktree)
-        let deadline = OperationDeadline(timeout: timeout)
         for command in commands {
             emit(WorktreeTeardownOutputLine(channel: .command, text: "$ \(command)"))
             let status = try await executor(command, worktree, environment, deadline.remaining(), emit)
@@ -66,6 +81,23 @@ enum WorktreeTeardownRunner {
                 throw WorktreeTeardownError.commandFailed(command: command)
             }
         }
+    }
+
+    private static func loadConfig(sourceProjectPath: String, deadline: OperationDeadline) async throws -> WorktreeConfig? {
+        let path = URL(fileURLWithPath: sourceProjectPath)
+            .appendingPathComponent(".muxy")
+            .appendingPathComponent("worktree.json")
+            .path
+        let result = try await SubprocessRunner.run(SubprocessRequest(
+            executablePath: "/bin/cat",
+            arguments: [path],
+            timeout: deadline.remaining(),
+            outputByteLimit: maximumConfigByteCount
+        ))
+        guard result.status == 0, !result.truncated else { return nil }
+        let config = try? JSONDecoder().decode(WorktreeConfig.self, from: result.stdoutData)
+        _ = try deadline.remaining()
+        return config
     }
 
     private static func execute(

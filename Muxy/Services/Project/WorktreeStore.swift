@@ -379,44 +379,95 @@ final class WorktreeStore {
         context: WorkspaceContext = .local,
         force: Bool = true,
         timeout: TimeInterval = GitWorktreeService.defaultWorktreeRemovalTimeout,
+        pathResolution: GitWorktreeService.WorktreePathResolution? = nil,
         teardownEmit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in }
     ) async throws -> Bool? {
-        guard worktree.canBeRemoved else { return await !(context.fileOps.exists(at: worktree.path)) }
-        let deadline = OperationDeadline(timeout: timeout)
+        try await cleanupOnDisk(
+            worktree: worktree,
+            repoPath: repoPath,
+            context: context,
+            force: force,
+            deadline: OperationDeadline(timeout: timeout),
+            pathResolution: pathResolution,
+            teardownEmit: teardownEmit
+        )
+    }
+
+    @discardableResult
+    static func cleanupOnDisk(
+        worktree: Worktree,
+        repoPath: String,
+        context: WorkspaceContext = .local,
+        force: Bool = true,
+        deadline: OperationDeadline,
+        pathResolution: GitWorktreeService.WorktreePathResolution? = nil,
+        teardownEmit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in }
+    ) async throws -> Bool? {
+        guard worktree.canBeRemoved else {
+            let exists = try? await context.fileOps.exists(at: worktree.path, timeout: deadline.remaining())
+            return exists.map { !$0 }
+        }
+        let resolution: GitWorktreeService.WorktreePathResolution = if let pathResolution {
+            pathResolution
+        } else {
+            try await GitWorktreeService.resolveWorktreePath(
+                worktree.path,
+                repoPath: repoPath,
+                context: context,
+                deadline: deadline
+            )
+        }
+        let isRegistered = try await GitWorktreeService.shared.isWorktreeRegistered(
+            repoPath: repoPath,
+            resolution: resolution,
+            context: context,
+            deadline: deadline
+        )
+        guard isRegistered else {
+            let exists = try? await context.fileOps.exists(at: resolution.path, timeout: deadline.remaining())
+            return exists.map { !$0 }
+        }
+        var resolvedWorktree = worktree
+        resolvedWorktree.path = resolution.path
         if !context.isRemote {
             try await WorktreeTeardownRunner.run(
                 sourceProjectPath: repoPath,
-                worktree: worktree,
-                timeout: deadline.remaining(),
+                worktree: resolvedWorktree,
+                deadline: deadline,
                 emit: teardownEmit
             )
         }
         try await GitWorktreeService.shared.removeWorktree(
             repoPath: repoPath,
-            path: worktree.path,
+            resolution: resolution,
             force: force,
             context: context,
-            timeout: deadline.remaining()
+            deadline: deadline,
+            trustedTrackedPath: true
         )
 
         let directoryRemoved = await (try? context.fileOps.exists(
-            at: worktree.path,
+            at: resolution.path,
             timeout: deadline.remaining()
         )).map { !$0 }
         guard directoryRemoved == true, !context.isRemote, !worktree.isExternallyManaged else {
             return directoryRemoved
         }
-        await removeParentDirectoryIfEmpty(for: worktree.path)
+        await removeParentDirectoryIfEmpty(for: resolution.path, deadline: deadline)
         return true
     }
 
-    nonisolated private static func removeParentDirectoryIfEmpty(for path: String) async {
-        await GitProcessRunner.offMain {
-            let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
-            let children = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
-            guard children.isEmpty else { return }
-            try? FileManager.default.removeItem(at: parent)
-        }
+    nonisolated private static func removeParentDirectoryIfEmpty(
+        for path: String,
+        deadline: OperationDeadline
+    ) async {
+        guard let timeout = try? deadline.remaining() else { return }
+        let parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
+        _ = try? await SubprocessRunner.run(SubprocessRequest(
+            executablePath: "/bin/rmdir",
+            arguments: [parent],
+            timeout: timeout
+        ))
     }
 
     static func cleanupOnDisk(
@@ -435,7 +486,7 @@ final class WorktreeStore {
         let children = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
         for child in children {
             let childPath = root.appendingPathComponent(child).path
-            try? await GitWorktreeService.shared.removeWorktree(
+            _ = try? await GitWorktreeService.shared.removeWorktree(
                 repoPath: project.path,
                 path: childPath,
                 force: true
