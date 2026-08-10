@@ -19,6 +19,7 @@ struct FocusedComposerView: View {
     @State private var editorSettings = EditorSettings.shared
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize = RichInputPreferences.defaultFontSize
     @AppStorage(RichInputPreferences.clearAfterSendingKey) private var clearAfterSending = RichInputPreferences.defaultClearAfterSending
+    @AppStorage(RichInputPreferences.clearOnCloseKey) private var clearOnClose = RichInputPreferences.defaultClearOnClose
     @AppStorage(ComposerLayoutPreferences.widthKey) private var storedWidth = ComposerLayoutPreferences.defaultWidth
     @AppStorage(ComposerLayoutPreferences.heightKey) private var storedHeight = ComposerLayoutPreferences.defaultHeight
     @AppStorage(ComposerLayoutPreferences.expandedKey) private var isExpanded = ComposerLayoutPreferences.defaultExpanded
@@ -280,6 +281,13 @@ struct FocusedComposerView: View {
                     requestSubmission(appendReturn: false)
                 }
                 .disabled(!voice.canSubmit)
+                Divider()
+                Toggle(isOn: $clearAfterSending) {
+                    Text(L10n.resource("Clear After Sending"))
+                }
+                Toggle(isOn: $clearOnClose) {
+                    Text(L10n.resource("Clear on Close"))
+                }
                 Divider()
                 Button(presentationModeSwitchLabel) {
                     onChangePresentationMode(presentationMode == .panel ? .floating : .panel)

@@ -8,8 +8,8 @@ matches the active app language as well as English setting keys and technical al
 Open **Settings → Composer** to choose how the Composer is presented and whether its draft is cleared automatically.
 **Clear After Sending** clears text and attachments after a successful submission; newer edits made while a
 submission finishes are preserved. **Clear on Close** clears the draft whenever the Composer closes, regardless of
-the dismissal path. Both settings are off by default and are stored as `muxy.richInput.clearAfterSending` and
-`muxy.richInput.clearOnClose` in `settings.json`.
+the dismissal path. Both options are also available from the Composer's More menu. They are off by default and are
+stored as `muxy.richInput.clearAfterSending` and `muxy.richInput.clearOnClose` in `settings.json`.
 
 ## Language
 
