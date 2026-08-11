@@ -117,7 +117,7 @@ struct ModelCoverageTests {
         #expect(SidebarExpandedStyle.current == .icons)
     }
 
-    @Test("Worktree config decodes object, string, missing, and invalid setup formats")
+    @Test("Worktree config decodes object, string, and missing setup formats")
     func worktreeConfigDecodesSupportedFormats() throws {
         let objectData = #"{"setup":[{"command":"swift build","name":"Build"}]}"#.data(using: .utf8)!
         let objectConfig = try JSONDecoder().decode(WorktreeConfig.self, from: objectData)
@@ -131,7 +131,9 @@ struct ModelCoverageTests {
         #expect(stringConfig.setup.allSatisfy { $0.name == nil })
 
         let invalidData = #"{"setup":true}"#.data(using: .utf8)!
-        #expect(try JSONDecoder().decode(WorktreeConfig.self, from: invalidData).setup.isEmpty)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(WorktreeConfig.self, from: invalidData)
+        }
 
         let encoded = try JSONEncoder().encode(WorktreeConfig(setup: [
             WorktreeConfig.SetupCommand(command: "make", name: nil),

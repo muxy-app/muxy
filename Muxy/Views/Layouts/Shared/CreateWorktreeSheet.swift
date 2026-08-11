@@ -173,7 +173,7 @@ struct CreateWorktreeSheet: View {
     @State private var createNewBranch = true
     @State private var localLocationSelection = WorktreeLocationSelection()
     @State private var branchLoadState = WorktreeBranchLoadState()
-    @State private var setupCommands: [String] = []
+    @State private var setupCommands: [WorktreeConfig.ResolvedCommand] = []
     @State private var runSetup = false
     @State private var inProgress = false
     @State private var errorMessage: String?
@@ -353,21 +353,29 @@ struct CreateWorktreeSheet: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
-                Text(L10n.resource("Setup commands from .muxy/worktree.json"))
+                Text(L10n.resource("Setup commands"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
             }
-            Text(L10n.resource("These commands will run in the new worktree's terminal. Only enable this if you trust this repository."))
+            Text(L10n
+                .resource(
+                    "Setup commands run in the new worktree. Review project commands before enabling them; per-machine commands are local."
+                ))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                ForEach(setupCommands, id: \.self) { command in
-                    Text(command)
-                        .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
-                        .foregroundStyle(MuxyTheme.fg)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(Array(setupCommands.enumerated()), id: \.offset) { _, command in
+                    HStack(alignment: .firstTextBaseline, spacing: UIMetrics.spacing3) {
+                        Text(command.command.command)
+                            .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
+                            .foregroundStyle(MuxyTheme.fg)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(setupCommandSourceLabel(command.source))
+                            .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                    }
                 }
             }
             .padding(UIMetrics.spacing4)
@@ -419,15 +427,23 @@ struct CreateWorktreeSheet: View {
             return
         }
         do {
-            setupCommands = try WorktreeConfig.setupCommands(
+            setupCommands = try WorktreeConfig.resolvedSetupCommands(
                 sourceProjectPath: project.path,
                 globalConfigURL: WorktreeConfig.globalConfigURL()
             )
-            .map(\.command)
-            .filter { !$0.isEmpty }
+            .filter { !$0.command.command.isEmpty }
         } catch {
             setupCommands = []
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func setupCommandSourceLabel(_ source: WorktreeConfig.CommandSource) -> LocalizedStringResource {
+        switch source {
+        case .global:
+            "Per-machine"
+        case .project:
+            "Project"
         }
     }
 

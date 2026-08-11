@@ -47,12 +47,17 @@ struct WorktreeTeardownRunnerTests {
             sourceProjectPath: projectPath,
             globalConfigURL: globalConfigURL
         )
+        let resolvedSetup = try WorktreeConfig.resolvedSetupCommands(
+            sourceProjectPath: projectPath,
+            globalConfigURL: globalConfigURL
+        )
         let teardown = try WorktreeConfig.teardownCommands(
             sourceProjectPath: projectPath,
             globalConfigURL: globalConfigURL
         )
 
         #expect(setup.map(\.command) == ["global up", "project up"])
+        #expect(resolvedSetup.map(\.source) == [.global, .project])
         #expect(teardown.map(\.command) == ["project down", "global down"])
     }
 
@@ -127,6 +132,18 @@ struct WorktreeTeardownRunnerTests {
             )
         }
         #expect(capture.commands.isEmpty)
+    }
+
+    @Test("invalid project setup field blocks command resolution")
+    func invalidProjectSetupFieldBlocksResolution() throws {
+        let projectPath = try makeInvalidProjectConfig(contents: #"{"setup":true}"#)
+
+        #expect(throws: WorktreeConfigError.self) {
+            try WorktreeConfig.setupCommands(
+                sourceProjectPath: projectPath,
+                globalConfigURL: missingGlobalConfigURL
+            )
+        }
     }
 
     @Test("run executes teardown commands with worktree environment")
@@ -318,8 +335,22 @@ struct WorktreeTeardownRunnerTests {
             .appendingPathComponent("muxy-invalid-global-config-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let configURL = root.appendingPathComponent("worktree.json")
-        try "{".write(to: configURL, atomically: true, encoding: .utf8)
+        try #"{"teardown":true}"#.write(to: configURL, atomically: true, encoding: .utf8)
         return configURL
+    }
+
+    private func makeInvalidProjectConfig(contents: String) throws -> String {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-invalid-project-config-tests-\(UUID().uuidString)", isDirectory: true)
+        let configURL = root
+            .appendingPathComponent(".muxy", isDirectory: true)
+            .appendingPathComponent("worktree.json")
+        try FileManager.default.createDirectory(
+            at: configURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try contents.write(to: configURL, atomically: true, encoding: .utf8)
+        return root.path
     }
 
     private func writeConfig(setup: [String], teardown: [String], to url: URL) throws {

@@ -603,6 +603,7 @@
 "Open this release on GitHub" = "Open this release on GitHub";
 "Optional setup commands" = "Optional setup commands";
 "Optional summary" = "Optional summary";
+"Per-machine" = "Per-machine";
 "Order worktrees by most-recently-used" = "Order worktrees by most-recently-used";
 "PAUSED" = "PAUSED";
 "PR #%lld" = "PR #%lld";
@@ -655,6 +656,7 @@
 "Project 7" = "Project 7";
 "Project 8" = "Project 8";
 "Project 9" = "Project 9";
+"Project" = "Project";
 "Project Focused" = "Project Focused";
 "Project Navigation" = "Project Navigation";
 "Project name" = "Project name";
@@ -818,7 +820,7 @@
 "Set Tab Color…" = "Set Tab Color…";
 "Settings" = "Settings";
 "Settings..." = "Settings...";
-"Setup commands from .muxy/worktree.json" = "Setup commands from .muxy/worktree.json";
+"Setup commands" = "Setup commands";
 "Shell exited" = "Shell exited";
 "Shortcut" = "Shortcut";
 "Shortcut listener is inactive." = "Shortcut listener is inactive.";
@@ -1169,7 +1171,7 @@
 "Theme Picker (%@)" = "Theme Picker (%@)";
 "Muxy Tip" = "Muxy Tip";
 "Transparency shows the desktop through terminal panes, the top bar, and the status bar. Vibrancy controls the native macOS material intensity and is required for the effect." = "Transparency shows the desktop through terminal panes, the top bar, and the status bar. Vibrancy controls the native macOS material intensity and is required for the effect.";
-"These commands will run in the new worktree's terminal. Only enable this if you trust this repository." = "These commands will run in the new worktree's terminal. Only enable this if you trust this repository.";
+"Setup commands run in the new worktree. Review project commands before enabling them; per-machine commands are local." = "Setup commands run in the new worktree. Review project commands before enabling them; per-machine commands are local.";
 "This PR has conflicts and cannot be merged." = "This PR has conflicts and cannot be merged.";
 "This branch is out of date with the base branch. Update it before merging." = "This branch is out of date with the base branch. Update it before merging.";
 "This device is not used by any workspace." = "This device is not used by any workspace.";

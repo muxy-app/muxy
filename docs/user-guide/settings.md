@@ -55,8 +55,8 @@ global setting. Remote worktrees keep their remote workspace layout.
 ## Worktree lifecycle hooks
 
 Muxy can run setup and teardown commands for Muxy-managed local worktrees. Put project-specific hooks in
-`<project>/.muxy/worktree.json` and per-machine hooks in `~/.config/muxy/worktree.json`. If
-`XDG_CONFIG_HOME` is set, the per-machine file is `$XDG_CONFIG_HOME/muxy/worktree.json` instead.
+`<project>/.muxy/worktree.json`. The per-machine file is `$XDG_CONFIG_HOME/muxy/worktree.json` when
+`XDG_CONFIG_HOME` is set to a non-empty value, or `~/.config/muxy/worktree.json` otherwise.
 
 Both files use the same format. Commands may be strings or objects with a `command` and optional `name`:
 
@@ -71,6 +71,9 @@ Both files use the same format. Commands may be strings or objects with a `comma
   ]
 }
 ```
+
+The creation dialog labels each setup command as **Per-machine** or **Project**. Project hook files may come from the
+repository, so review those commands before enabling them. Per-machine commands come from your local configuration.
 
 Setup commands run after Muxy creates and registers a managed local worktree. Per-machine setup runs before project
 setup. The creation dialog lets you disable setup for that worktree; CLI and mobile creation run configured setup by

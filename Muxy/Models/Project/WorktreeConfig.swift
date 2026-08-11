@@ -15,7 +15,7 @@ enum WorktreeConfigError: LocalizedError {
 }
 
 struct WorktreeConfig: Codable {
-    struct SetupCommand: Codable {
+    struct SetupCommand: Codable, Hashable {
         let command: String
         let name: String?
 
@@ -23,6 +23,16 @@ struct WorktreeConfig: Codable {
             self.command = command
             self.name = name
         }
+    }
+
+    enum CommandSource: Hashable {
+        case global
+        case project
+    }
+
+    struct ResolvedCommand: Hashable {
+        let command: SetupCommand
+        let source: CommandSource
     }
 
     let setup: [SetupCommand]
@@ -40,15 +50,16 @@ struct WorktreeConfig: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        setup = Self.decodeCommands(from: container, forKey: .setup)
-        teardown = Self.decodeCommands(from: container, forKey: .teardown)
+        setup = try Self.decodeCommands(from: container, forKey: .setup)
+        teardown = try Self.decodeCommands(from: container, forKey: .teardown)
     }
 
     private static func decodeCommands(
         from container: KeyedDecodingContainer<CodingKeys>,
         forKey key: CodingKeys
-    ) -> [SetupCommand] {
-        guard var array = try? container.nestedUnkeyedContainer(forKey: key) else { return [] }
+    ) throws -> [SetupCommand] {
+        guard container.contains(key) else { return [] }
+        var array = try container.nestedUnkeyedContainer(forKey: key)
         var commands: [SetupCommand] = []
         while !array.isAtEnd {
             if let command = try? array.decode(SetupCommand.self) {
@@ -86,9 +97,20 @@ struct WorktreeConfig: Codable {
     }
 
     static func setupCommands(sourceProjectPath: String, globalConfigURL: URL) throws -> [SetupCommand] {
+        try resolvedSetupCommands(
+            sourceProjectPath: sourceProjectPath,
+            globalConfigURL: globalConfigURL
+        ).map(\.command)
+    }
+
+    static func resolvedSetupCommands(
+        sourceProjectPath: String,
+        globalConfigURL: URL
+    ) throws -> [ResolvedCommand] {
         let global = try load(from: globalConfigURL)?.setup ?? []
         let project = try load(fromProjectPath: sourceProjectPath)?.setup ?? []
-        return global + project
+        return global.map { ResolvedCommand(command: $0, source: .global) }
+            + project.map { ResolvedCommand(command: $0, source: .project) }
     }
 
     static func teardownCommands(sourceProjectPath: String, globalConfigURL: URL) throws -> [SetupCommand] {
