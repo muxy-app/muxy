@@ -33,8 +33,8 @@ struct TerminalLaunchCommandTests {
         #expect(!command.contains("else exit $muxy_status"))
     }
 
-    @Test("Builds fish-compatible startup commands with matching exit behavior")
-    func buildsFishCompatibleStartupCommands() {
+    @Test("Builds fish startup commands without changing interactive shell behavior")
+    func buildsFishStartupCommandsWithoutChangingInteractiveShellBehavior() {
         let closingCommand = TerminalLaunchCommand.shellCommand(
             interactive: true,
             shell: "/opt/homebrew/bin/fish"
@@ -44,14 +44,20 @@ struct TerminalLaunchCommandTests {
             keepsShellOpen: true,
             shell: "/opt/homebrew/bin/fish"
         )
+        let nonInteractiveCommand = TerminalLaunchCommand.shellCommand(
+            interactive: false,
+            shell: "/opt/homebrew/bin/fish"
+        )
 
-        #expect(closingCommand.hasPrefix("/opt/homebrew/bin/fish -l -c 'eval \"$MUXY_STARTUP_COMMAND\"; set muxy_status $status;"))
+        #expect(closingCommand.hasPrefix("/opt/homebrew/bin/fish -l -i -c 'eval \"$MUXY_STARTUP_COMMAND\"; set muxy_status $status;"))
         #expect(closingCommand.contains("if test $muxy_status -ne 0"))
         #expect(closingCommand.contains("exec \"$argv[1]\" -l"))
         #expect(closingCommand.contains("else exit $muxy_status"))
         #expect(!closingCommand.contains("muxy_status=$?"))
         #expect(!closingCommand.contains("then exec \"$0\" -l"))
         #expect(persistentCommand.contains("else exec \"$argv[1]\" -l"))
+        #expect(nonInteractiveCommand.hasPrefix("/opt/homebrew/bin/fish -l -c 'eval \"$MUXY_STARTUP_COMMAND\"; set muxy_status $status;"))
+        #expect(!nonInteractiveCommand.hasPrefix("/opt/homebrew/bin/fish -l -i -c"))
     }
 
     @Test("Launch wrapper does not embed user command")
@@ -111,6 +117,7 @@ struct TerminalLaunchCommandTests {
         #expect(command.contains("exec /bin/sh -c"))
         #expect(command.contains("__muxy_shell_name=${__muxy_shell##*/}"))
         #expect(command.contains("case \"$__muxy_shell_name\" in fish)"))
+        #expect(command.contains("fish) exec \"$__muxy_shell\" -l -i -c"))
         #expect(command.contains("set muxy_status $status"))
         #expect(command.contains("else exec \"$argv[1]\" -l"))
         #expect(command.contains("*) exec \"$__muxy_shell\" -l -i -c"))

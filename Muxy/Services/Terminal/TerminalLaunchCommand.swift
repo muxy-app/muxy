@@ -8,7 +8,7 @@ enum TerminalLaunchCommand {
         keepsShellOpen: Bool = false,
         shell: String = UserShell.path()
     ) -> String {
-        let flags = startupShellFlags(interactive: interactive, shell: shell)
+        let flags = startupShellFlags(interactive: interactive)
         let escapedShell = ShellEscaper.escape(shell)
         return "\(escapedShell) \(flags) -c '\(script(shell: shell, keepsShellOpen: keepsShellOpen))' \(escapedShell)"
     }
@@ -71,7 +71,7 @@ enum TerminalLaunchCommand {
         keepsShellOpen: Bool
     ) -> String {
         let posixFlags = interactive ? "-l -i" : "-l"
-        let fishFlags = startupShellFlags(interactive: interactive, shell: "fish")
+        let fishFlags = startupShellFlags(interactive: interactive)
         let posixScript = ShellEscaper.escape(posixScript(keepsShellOpen: keepsShellOpen))
         let fishScript = ShellEscaper.escape(fishScript(keepsShellOpen: keepsShellOpen))
         let fishBranch = "fish) exec \"$__muxy_shell\" \(fishFlags) -c \(fishScript) \"$__muxy_shell\""
@@ -86,11 +86,8 @@ enum TerminalLaunchCommand {
         return posixScript(keepsShellOpen: keepsShellOpen)
     }
 
-    private static func startupShellFlags(interactive: Bool, shell: String) -> String {
-        if interactive, isFishShell(shell) {
-            return "-l"
-        }
-        return interactive ? "-l -i" : "-l"
+    private static func startupShellFlags(interactive: Bool) -> String {
+        interactive ? "-l -i" : "-l"
     }
 
     private static func isFishShell(_ shell: String) -> Bool {
