@@ -110,8 +110,8 @@ struct AIAgentLaunchProviderTests {
         ])
     }
 
-    @Test("agent tab menus omit unavailable local providers")
-    func unavailableLocalAgentTabCommand() {
+    @Test("agent tab menus mark unavailable local providers as not installed")
+    func unavailableLocalProviderIsMarkedNotInstalled() {
         let provider = AgentTabLaunchTestProvider(executablePath: nil)
         let options = AgentTabLaunchOption.resolveLocal(providers: [provider])
 
@@ -135,6 +135,18 @@ struct AIAgentLaunchProviderTests {
         #expect(provider.resolutionCount == 1)
         #expect(options.first?.command == "test-agent")
         #expect(options.first?.title == "Test Agent")
+    }
+
+    @Test("agent tabs shell-escape configured local executable names")
+    func localAgentTabCommandEscapesConfiguredExecutable() {
+        let provider = AgentTabLaunchTestProvider(
+            executable: "test agent",
+            executablePath: "/tmp/test-agent"
+        )
+
+        let options = AgentTabLaunchOption.resolveLocal(providers: [provider])
+
+        #expect(options.first?.command == "'test agent'")
     }
 
     @Test("remote launch options disable providers missing from the remote PATH")
@@ -263,10 +275,15 @@ private struct AgentTabLaunchTestProvider: AIAgentLaunchProvider {
     let displayName = "Test Agent"
     let iconName = "sparkles"
     let executablePath: String?
-    let agentLaunchConfiguration = AIAgentLaunchConfiguration(
-        executable: "test-agent",
-        headlessArguments: []
-    )
+    let agentLaunchConfiguration: AIAgentLaunchConfiguration
+
+    init(executable: String = "test-agent", executablePath: String?) {
+        self.executablePath = executablePath
+        agentLaunchConfiguration = AIAgentLaunchConfiguration(
+            executable: executable,
+            headlessArguments: []
+        )
+    }
 
     func agentCLIExecutablePath() -> String? {
         executablePath
