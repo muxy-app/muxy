@@ -110,18 +110,13 @@ struct AIAgentLaunchProviderTests {
         ])
     }
 
-    @Test("agent tabs launch installed local executables safely")
-    func localAgentTabCommand() {
-        let provider = AgentTabLaunchTestProvider(executablePath: "/tmp/Agent Tools/codex")
-
-        #expect(AgentTabLaunchCommand.local(provider: provider) == "'/tmp/Agent Tools/codex'")
-    }
-
-    @Test("agent tabs omit unavailable local providers")
+    @Test("agent tab menus omit unavailable local providers")
     func unavailableLocalAgentTabCommand() {
         let provider = AgentTabLaunchTestProvider(executablePath: nil)
+        let options = AgentTabLaunchOption.resolveLocal(providers: [provider])
 
-        #expect(AgentTabLaunchCommand.local(provider: provider) == nil)
+        #expect(options.first?.command == nil)
+        #expect(options.first?.title == "Test Agent · Not installed")
     }
 
     @Test("agent tabs escape remote executable names")
@@ -131,14 +126,14 @@ struct AIAgentLaunchProviderTests {
         #expect(AgentTabLaunchCommand.remote(provider: provider) == "test-agent")
     }
 
-    @Test("agent launch options resolve each local executable once")
-    func launchOptionsSnapshotExecutableResolution() {
+    @Test("agent tab menus launch available local providers through shell commands")
+    func launchOptionsUseShellCommandAfterAvailabilityCheck() {
         let provider = CountingAgentTabLaunchTestProvider()
 
         let options = AgentTabLaunchOption.resolveLocal(providers: [provider])
 
         #expect(provider.resolutionCount == 1)
-        #expect(options.first?.command == "/tmp/test-agent")
+        #expect(options.first?.command == "test-agent")
         #expect(options.first?.title == "Test Agent")
     }
 
