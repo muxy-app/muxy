@@ -1194,7 +1194,7 @@ final class GhosttyTerminalNSView: NSView,
         lastMouseTopDownPoint = pt
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
         updateCmdHoverCursor(modifierFlags: event.modifierFlags)
-        scrollbarOverlay.flashIfNearScroller(point: convert(event.locationInWindow, from: nil))
+        scrollbarOverlay.extendReveal(point: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
