@@ -52,6 +52,37 @@ Choose **Folder** to retain Muxy's existing folder layout. A global folder store
 `<folder>/<worktree-name>`. A project-specific template or folder selected in that dialog takes precedence over the
 global setting. Remote worktrees keep their remote workspace layout.
 
+## Worktree lifecycle hooks
+
+Muxy can run setup and teardown commands for Muxy-managed local worktrees. Put project-specific hooks in
+`<project>/.muxy/worktree.json` and per-machine hooks in `~/.config/muxy/worktree.json`. If
+`XDG_CONFIG_HOME` is set, the per-machine file is `$XDG_CONFIG_HOME/muxy/worktree.json` instead.
+
+Both files use the same format. Commands may be strings or objects with a `command` and optional `name`:
+
+```json
+{
+  "setup": [
+    "docker compose up -d",
+    { "name": "Install dependencies", "command": "pnpm install" }
+  ],
+  "teardown": [
+    "docker compose down"
+  ]
+}
+```
+
+Setup commands run after Muxy creates and registers a managed local worktree. Per-machine setup runs before project
+setup. The creation dialog lets you disable setup for that worktree; CLI and mobile creation run configured setup by
+default. Each command runs in its own shell with a shared five-minute total budget. A failed setup command stops later
+setup commands and is logged, but does not undo the successfully created worktree.
+
+Teardown commands run before Git removes the worktree, in the reverse layer order: project teardown first, then
+per-machine teardown. A teardown command failure or invalid present configuration stops the removal and leaves the
+worktree registered. Every hook command uses the worktree as its working directory and receives `MUXY_PROJECT_PATH`,
+`MUXY_WORKTREE_PATH`, `MUXY_WORKTREE_NAME`, and `MUXY_WORKTREE_BRANCH`. Hooks do not run for remote or externally
+managed worktrees.
+
 ## Focused-layout worktree grouping
 
 In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to show **Nest worktrees inside projects**.

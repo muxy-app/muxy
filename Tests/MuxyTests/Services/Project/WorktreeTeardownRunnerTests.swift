@@ -24,6 +24,111 @@ struct WorktreeTeardownRunnerTests {
         #expect(config.teardown[1].name == "cleanup")
     }
 
+    @Test("global config path uses XDG_CONFIG_HOME when available")
+    func globalConfigPathUsesXDGConfigHome() {
+        let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)
+
+        let xdgURL = WorktreeConfig.globalConfigURL(
+            homeDirectory: home,
+            environment: ["XDG_CONFIG_HOME": "/tmp/config"]
+        )
+        let fallbackURL = WorktreeConfig.globalConfigURL(homeDirectory: home, environment: [:])
+
+        #expect(xdgURL.path == "/tmp/config/muxy/worktree.json")
+        #expect(fallbackURL.path == "/Users/example/.config/muxy/worktree.json")
+    }
+
+    @Test("global and project commands compose in lifecycle order")
+    func commandsComposeInLifecycleOrder() throws {
+        let projectPath = try makeProjectConfig(setup: ["project up"], teardown: ["project down"])
+        let globalConfigURL = try makeGlobalConfig(setup: ["global up"], teardown: ["global down"])
+
+        let setup = try WorktreeConfig.setupCommands(
+            sourceProjectPath: projectPath,
+            globalConfigURL: globalConfigURL
+        )
+        let teardown = try WorktreeConfig.teardownCommands(
+            sourceProjectPath: projectPath,
+            globalConfigURL: globalConfigURL
+        )
+
+        #expect(setup.map(\.command) == ["global up", "project up"])
+        #expect(teardown.map(\.command) == ["project down", "global down"])
+    }
+
+    @Test("setup runner executes global then project commands with worktree environment")
+    func setupRunnerExecutesLayeredCommands() async throws {
+        let projectPath = try makeProjectConfig(setup: ["global follows"], teardown: [])
+        let globalConfigURL = try makeGlobalConfig(setup: ["global first"], teardown: [])
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: "feature/test",
+            source: .muxy,
+            isPrimary: false
+        )
+        let capture = SetupExecutionCapture()
+
+        await WorktreeSetupRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            globalConfigURL: globalConfigURL,
+            executor: capture.executor(returning: 0)
+        )
+
+        #expect(capture.commands == ["global first", "global follows"])
+        #expect(capture.environments.allSatisfy { $0["MUXY_PROJECT_PATH"] == projectPath })
+        #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_PATH"] == worktree.path })
+    }
+
+    @Test("run executes global teardown without a project config")
+    func runExecutesGlobalTeardownWithoutProjectConfig() async throws {
+        let projectPath = try makeDirectory(prefix: "muxy-project")
+        let globalConfigURL = try makeGlobalConfig(teardown: ["global cleanup"])
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: "feature/test",
+            source: .muxy,
+            isPrimary: false
+        )
+        let capture = ExecutionCapture()
+
+        try await WorktreeTeardownRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            globalConfigURL: globalConfigURL,
+            executor: capture.executor(returning: 0)
+        )
+
+        #expect(capture.commands == ["global cleanup"])
+        #expect(capture.environments.first?["MUXY_PROJECT_PATH"] == projectPath)
+    }
+
+    @Test("invalid global teardown config blocks command execution")
+    func invalidGlobalTeardownConfigBlocksExecution() async throws {
+        let projectPath = try makeDirectory(prefix: "muxy-project")
+        let globalConfigURL = try makeInvalidGlobalConfig()
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
+        let capture = ExecutionCapture()
+
+        await #expect(throws: WorktreeConfigError.self) {
+            try await WorktreeTeardownRunner.run(
+                sourceProjectPath: projectPath,
+                worktree: worktree,
+                globalConfigURL: globalConfigURL,
+                executor: capture.executor(returning: 0)
+            )
+        }
+        #expect(capture.commands.isEmpty)
+    }
+
     @Test("run executes teardown commands with worktree environment")
     func runExecutesTeardownCommandsWithEnvironment() async throws {
         let projectPath = try makeProjectConfig(teardown: [" first ", "", "second"])
@@ -40,6 +145,7 @@ struct WorktreeTeardownRunnerTests {
         try await WorktreeTeardownRunner.run(
             sourceProjectPath: projectPath,
             worktree: worktree,
+            globalConfigURL: missingGlobalConfigURL,
             executor: capture.executor(returning: 0)
         )
 
@@ -65,6 +171,7 @@ struct WorktreeTeardownRunnerTests {
         try await WorktreeTeardownRunner.run(
             sourceProjectPath: projectPath,
             worktree: worktree,
+            globalConfigURL: missingGlobalConfigURL,
             executor: capture.executor(returning: 0)
         )
 
@@ -86,6 +193,7 @@ struct WorktreeTeardownRunnerTests {
         try await WorktreeTeardownRunner.run(
             sourceProjectPath: projectPath,
             worktree: worktree,
+            globalConfigURL: missingGlobalConfigURL,
             executor: capture.executor(returning: 0)
         )
 
@@ -108,6 +216,7 @@ struct WorktreeTeardownRunnerTests {
             try await WorktreeTeardownRunner.run(
                 sourceProjectPath: projectPath,
                 worktree: worktree,
+                globalConfigURL: missingGlobalConfigURL,
                 executor: capture.executor(returning: 1)
             )
         }
@@ -130,6 +239,7 @@ struct WorktreeTeardownRunnerTests {
             sourceProjectPath: projectPath,
             worktree: worktree,
             emit: { collected.append($0) },
+            globalConfigURL: missingGlobalConfigURL,
             executor: { _, _, _, _, emit in
                 emit(WorktreeTeardownOutputLine(channel: .stdout, text: "hello"))
                 return 0
@@ -182,23 +292,58 @@ struct WorktreeTeardownRunnerTests {
     }
 
     private func makeWorktreeDirectory() throws -> String {
-        let path = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("muxy-teardown-worktree-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
-        return path.path
+        try makeDirectory(prefix: "muxy-teardown-worktree")
     }
 
-    private func makeProjectConfig(teardown: [String]) throws -> String {
+    private func makeProjectConfig(setup: [String] = [], teardown: [String]) throws -> String {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxy-teardown-tests-\(UUID().uuidString)", isDirectory: true)
-        let configDirectory = root.appendingPathComponent(".muxy", isDirectory: true)
-        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        let configURL = root
+            .appendingPathComponent(".muxy", isDirectory: true)
+            .appendingPathComponent("worktree.json")
+        try writeConfig(setup: setup, teardown: teardown, to: configURL)
+        return root.path
+    }
+
+    private func makeGlobalConfig(setup: [String] = [], teardown: [String]) throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-global-config-tests-\(UUID().uuidString)", isDirectory: true)
+        let configURL = root.appendingPathComponent("worktree.json")
+        try writeConfig(setup: setup, teardown: teardown, to: configURL)
+        return configURL
+    }
+
+    private func makeInvalidGlobalConfig() throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-invalid-global-config-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let configURL = root.appendingPathComponent("worktree.json")
+        try "{".write(to: configURL, atomically: true, encoding: .utf8)
+        return configURL
+    }
+
+    private func writeConfig(setup: [String], teardown: [String], to url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         let data = try JSONEncoder().encode(WorktreeConfig(
-            setup: [],
+            setup: setup.map { WorktreeConfig.SetupCommand(command: $0) },
             teardown: teardown.map { WorktreeConfig.SetupCommand(command: $0) }
         ))
-        try data.write(to: configDirectory.appendingPathComponent("worktree.json"))
-        return root.path
+        try data.write(to: url)
+    }
+
+    private func makeDirectory(prefix: String) throws -> String {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url.path
+    }
+
+    private var missingGlobalConfigURL: URL {
+        URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-missing-global-config-\(UUID().uuidString)")
     }
 }
 
@@ -212,6 +357,25 @@ private final class ExecutionCapture: @unchecked Sendable {
 
     func executor(returning status: Int32) -> WorktreeTeardownRunner.Executor {
         { command, _, environment, _, _ in
+            self.queue.sync {
+                self._commands.append(command)
+                self._environments.append(environment)
+            }
+            return status
+        }
+    }
+}
+
+private final class SetupExecutionCapture: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "tests.setup-execution-capture")
+    private var _commands: [String] = []
+    private var _environments: [[String: String]] = []
+
+    var commands: [String] { queue.sync { _commands } }
+    var environments: [[String: String]] { queue.sync { _environments } }
+
+    func executor(returning status: Int32) -> WorktreeSetupRunner.Executor {
+        { command, _, environment, _ in
             self.queue.sync {
                 self._commands.append(command)
                 self._environments.append(environment)

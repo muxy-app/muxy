@@ -495,19 +495,9 @@ struct ExpandedProjectRow: View {
 
     private func handleCreateWorktreeResult(_ result: CreateWorktreeResult) {
         switch result {
-        case let .created(worktree, runSetup):
+        case let .created(worktree):
             appState.selectWorktree(projectID: project.id, worktree: worktree)
             worktreesExpanded = true
-            if runSetup,
-               let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
-            {
-                Task {
-                    await WorktreeSetupRunner.run(
-                        sourceProjectPath: project.path,
-                        paneID: paneID
-                    )
-                }
-            }
         case .cancelled:
             break
         }

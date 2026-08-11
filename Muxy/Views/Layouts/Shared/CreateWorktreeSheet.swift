@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum CreateWorktreeResult {
-    case created(Worktree, runSetup: Bool)
+    case created(Worktree)
     case cancelled
 }
 
@@ -389,11 +389,15 @@ struct CreateWorktreeSheet: View {
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
             }
-            Text(L10n.resource("To run setup commands after creating a worktree, add .muxy/worktree.json in this repository."))
+            Text(L10n.resource("Add setup commands to this project or the per-machine worktree configuration."))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
             Text(L10n.resource("\(project.path)/.muxy/worktree.json"))
+                .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fg)
+                .textSelection(.enabled)
+            Text(verbatim: WorktreeConfig.globalConfigURL().path)
                 .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fg)
                 .textSelection(.enabled)
@@ -414,11 +418,17 @@ struct CreateWorktreeSheet: View {
             setupCommands = []
             return
         }
-        guard let config = WorktreeConfig.load(fromProjectPath: project.path) else {
+        do {
+            setupCommands = try WorktreeConfig.setupCommands(
+                sourceProjectPath: project.path,
+                globalConfigURL: WorktreeConfig.globalConfigURL()
+            )
+            .map(\.command)
+            .filter { !$0.isEmpty }
+        } catch {
             setupCommands = []
-            return
+            errorMessage = error.localizedDescription
         }
-        setupCommands = config.setup.map(\.command).filter { !$0.isEmpty }
     }
 
     private func loadLocation() {
@@ -603,7 +613,8 @@ struct CreateWorktreeSheet: View {
             path: worktreeDirectory,
             branch: branch,
             createBranch: createNewBranch,
-            baseBranch: baseBranch
+            baseBranch: baseBranch,
+            runSetup: runSetup
         )
 
         do {
@@ -620,7 +631,7 @@ struct CreateWorktreeSheet: View {
                 )
             }
             inProgress = false
-            onFinish(.created(worktree, runSetup: runSetup))
+            onFinish(.created(worktree))
         } catch {
             inProgress = false
             errorMessage = error.localizedDescription

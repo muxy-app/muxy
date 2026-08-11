@@ -1439,14 +1439,8 @@ struct MainWindow: View {
 
     private func handleCreateWorktreeResult(_ result: CreateWorktreeResult, project: Project) {
         worktreeCreationProject = nil
-        guard case let .created(worktree, runSetup) = result else { return }
+        guard case let .created(worktree) = result else { return }
         appState.selectWorktree(projectID: project.id, worktree: worktree)
-        guard runSetup,
-              let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
-        else { return }
-        Task {
-            await WorktreeSetupRunner.run(sourceProjectPath: project.path, paneID: paneID)
-        }
     }
 
     private func requestRemoveCurrentWorktree() {

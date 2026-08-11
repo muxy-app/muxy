@@ -140,7 +140,7 @@ struct ModelCoverageTests {
         #expect(decoded.setup[0].command == "make")
     }
 
-    @Test("Worktree config load reads project file and ignores missing or invalid files")
+    @Test("Worktree config load reads project file, ignores missing files, and rejects invalid files")
     func worktreeConfigLoadReadsProjectFile() throws {
         let projectURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-worktree-config-\(UUID().uuidString)")
@@ -148,14 +148,16 @@ struct ModelCoverageTests {
         try FileManager.default.createDirectory(at: muxyURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: projectURL) }
 
-        #expect(WorktreeConfig.load(fromProjectPath: projectURL.path) == nil)
+        #expect(try WorktreeConfig.load(fromProjectPath: projectURL.path) == nil)
 
         let configURL = muxyURL.appendingPathComponent("worktree.json")
         try #"{"setup":["bootstrap"]}"#.write(to: configURL, atomically: true, encoding: .utf8)
-        #expect(WorktreeConfig.load(fromProjectPath: projectURL.path)?.setup.first?.command == "bootstrap")
+        #expect(try WorktreeConfig.load(fromProjectPath: projectURL.path)?.setup.first?.command == "bootstrap")
 
         try "{".write(to: configURL, atomically: true, encoding: .utf8)
-        #expect(WorktreeConfig.load(fromProjectPath: projectURL.path) == nil)
+        #expect(throws: WorktreeConfigError.self) {
+            try WorktreeConfig.load(fromProjectPath: projectURL.path)
+        }
     }
 
     @Test("Layout config parses and discovers supported files")

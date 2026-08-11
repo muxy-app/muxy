@@ -66,6 +66,7 @@
 "Add Prompt" = "Add Prompt";
 "Add Remote Device" = "Add Remote Device";
 "Add a remote device to connect this workspace to a server." = "Add a remote device to connect this workspace to a server.";
+"Add setup commands to this project or the per-machine worktree configuration." = "Add setup commands to this project or the per-machine worktree configuration.";
 "Additional Prompt" = "Additional Prompt";
 "Additional prompt" = "Additional prompt";
 "Advanced" = "Advanced";
@@ -1191,7 +1192,6 @@
 "This will terminate any process currently listening on port %@." = "This will terminate any process currently listening on port %@.";
 "This worktree has uncommitted changes. Removing it will permanently discard them." = "This worktree has uncommitted changes. Removing it will permanently discard them.";
 "Tink" = "Tink";
-"To run setup commands after creating a worktree, add .muxy/worktree.json in this repository." = "To run setup commands after creating a worktree, add .muxy/worktree.json in this repository.";
 "Toast" = "Toast";
 "Toggle App Layout" = "Toggle App Layout";
 "Toggle Composer" = "Toggle Composer";

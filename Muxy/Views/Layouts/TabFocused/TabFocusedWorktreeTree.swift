@@ -38,15 +38,9 @@ struct TabFocusedWorktreeTree: View {
     }
 
     private func handleCreateWorktreeResult(_ result: CreateWorktreeResult) {
-        guard case let .created(worktree, runSetup) = result else { return }
+        guard case let .created(worktree) = result else { return }
         appState.selectWorktree(projectID: project.id, worktree: worktree)
         expansionStore.set(worktree.id, expanded: true)
-        guard runSetup,
-              let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
-        else { return }
-        Task {
-            await WorktreeSetupRunner.run(sourceProjectPath: project.path, paneID: paneID)
-        }
     }
 }
 

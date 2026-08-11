@@ -36,6 +36,23 @@ struct WorktreeCreationRequest {
     let branch: String
     let createBranch: Bool
     let baseBranch: String?
+    let runSetup: Bool
+
+    init(
+        name: String,
+        path: String,
+        branch: String,
+        createBranch: Bool,
+        baseBranch: String?,
+        runSetup: Bool = true
+    ) {
+        self.name = name
+        self.path = path
+        self.branch = branch
+        self.createBranch = createBranch
+        self.baseBranch = baseBranch
+        self.runSetup = runSetup
+    }
 }
 
 @MainActor
@@ -53,6 +70,7 @@ final class WorktreeStore {
     private let persistence: any WorktreePersisting
     private let listGitWorktrees: @Sendable (String) async throws -> [GitWorktreeRecord]
     private let addGitWorktree: @Sendable (String, String, String, Bool, String?) async throws -> Void
+    private let runWorktreeSetup: (String, Worktree) async -> Void
 
     init(
         persistence: any WorktreePersisting,
@@ -68,11 +86,15 @@ final class WorktreeStore {
                 baseBranch: $4
             )
         },
+        runWorktreeSetup: @escaping (String, Worktree) async -> Void = {
+            await WorktreeSetupRunner.run(sourceProjectPath: $0, worktree: $1)
+        },
         projects: [Project] = []
     ) {
         self.persistence = persistence
         self.listGitWorktrees = listGitWorktrees
         self.addGitWorktree = addGitWorktree
+        self.runWorktreeSetup = runWorktreeSetup
         guard !projects.isEmpty else { return }
         loadAll(projects: projects)
     }
@@ -183,6 +205,9 @@ final class WorktreeStore {
             isPrimary: false
         )
         store(worktree, for: project.id, context: context)
+        if request.runSetup, !context.isRemote {
+            await runWorktreeSetup(project.path, worktree)
+        }
         return worktree
     }
 
