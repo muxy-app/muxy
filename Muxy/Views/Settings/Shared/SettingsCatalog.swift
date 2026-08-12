@@ -707,7 +707,7 @@ enum SettingsCatalog {
         SettingsCatalogItem(
             key: MobileServerService.scrollbackCapKey,
             title: "Scrollback Buffer Cap",
-            description: "Maximum scrollback history size in MB for mobile terminal sessions.",
+            description: "Scrollback history kept per terminal, in MB, for replay to mobile devices.",
             category: .mobile,
             section: "Mobile",
             defaultValue: MobileServerService.defaultScrollbackCapMB,

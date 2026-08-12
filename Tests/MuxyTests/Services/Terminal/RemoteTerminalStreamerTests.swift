@@ -121,50 +121,55 @@ struct RemoteTerminalStreamerTests {
         streamer.detach(paneID: paneID, surface: surface)
     }
 
-    @Test("isAltBuffer defaults to false for an unknown pane")
-    func isAltBufferDefaultsFalse() {
-        let streamer = RemoteTerminalStreamer()
-
-        #expect(!streamer.isAltBuffer(for: UUID()))
-    }
-
-    @Test("setAltBuffer sets the tracked buffer mode")
-    func setAltBufferSetsState() {
+    @Test("resetPane releases the buffer for a removed pane")
+    func resetPaneReleasesBuffer() {
         let streamer = RemoteTerminalStreamer()
         let paneID = UUID()
 
-        streamer.setAltBuffer(for: paneID, active: true)
-        #expect(streamer.isAltBuffer(for: paneID))
+        streamer.appendScrollback(paneID: paneID, bytes: Data("hello".utf8), byteLimit: 1024)
+        streamer.resetPane(paneID)
 
-        streamer.setAltBuffer(for: paneID, active: false)
-        #expect(!streamer.isAltBuffer(for: paneID))
+        #expect(streamer.scrollbackData(for: paneID) == nil)
     }
 
-    @Test("forward detects alt buffer entry from the output stream")
-    func forwardDetectsAltBufferEnable() {
+    @Test("resetPane leaves other panes untouched")
+    func resetPaneIsScopedToOnePane() {
+        let streamer = RemoteTerminalStreamer()
+        let removed = UUID()
+        let kept = UUID()
+
+        streamer.appendScrollback(paneID: removed, bytes: Data("gone".utf8), byteLimit: 1024)
+        streamer.appendScrollback(paneID: kept, bytes: Data("stays".utf8), byteLimit: 1024)
+        streamer.resetPane(removed)
+
+        #expect(streamer.scrollbackData(for: kept) == Data("stays".utf8))
+    }
+
+    @Test("detach preserves the buffer so a later takeover can replay it")
+    func detachPreservesBuffer() {
         let streamer = RemoteTerminalStreamer()
         let surface = TerminalRawOutputTestSource()
         let paneID = UUID()
 
         streamer.attach(paneID: paneID, surface: surface)
-        surface.fire(Data("hello\u{1B}[?1049h".utf8))
-
-        #expect(streamer.isAltBuffer(for: paneID))
+        surface.fire(Data("history".utf8))
         streamer.detach(paneID: paneID, surface: surface)
+
+        #expect(streamer.scrollbackData(for: paneID) == Data("history".utf8))
     }
 
-    @Test("forward detects alt buffer exit from the output stream")
-    func forwardDetectsAltBufferDisable() {
+    @Test("appendScrollback keeps the newest bytes after trimming")
+    func appendScrollbackKeepsNewestBytes() {
         let streamer = RemoteTerminalStreamer()
-        let surface = TerminalRawOutputTestSource()
         let paneID = UUID()
+        let byteLimit = 8
 
-        streamer.attach(paneID: paneID, surface: surface)
-        surface.fire(Data("\u{1B}[?1049h".utf8))
-        surface.fire(Data("\u{1B}[?1049l".utf8))
+        streamer.appendScrollback(paneID: paneID, bytes: Data("abcdefgh".utf8), byteLimit: byteLimit)
+        streamer.appendScrollback(paneID: paneID, bytes: Data("ij".utf8), byteLimit: byteLimit)
 
-        #expect(!streamer.isAltBuffer(for: paneID))
-        streamer.detach(paneID: paneID, surface: surface)
+        let buffer = streamer.scrollbackData(for: paneID)
+        #expect(buffer?.count ?? 0 <= byteLimit)
+        #expect(buffer?.suffix(2) == Data("ij".utf8))
     }
 }
 

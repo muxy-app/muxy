@@ -80,7 +80,7 @@ struct MobileSettingsView: View {
                     .padding(.vertical, SettingsMetrics.rowVerticalPadding)
                 }
 
-                SettingsRow("Scrollback buffer cap (MB)") {
+                SettingsRow("Scrollback per terminal (MB)") {
                     TextField(L10n.string("\(MobileServerService.defaultScrollbackCapMB)"), text: $capText)
                         .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
                         .settingsTextInput(width: SettingsMetrics.controlWidth)

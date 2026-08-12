@@ -1474,7 +1474,7 @@
 "In a local workspace, open Add Project → Recently Removed to restore a removed project whose folder still exists, without changing its files." = "In a local workspace, open Add Project → Recently Removed to restore a removed project whose folder still exists, without changing its files.";
 "Install the muxy CLI from the Muxy menu to script splits, send keys, and read visible terminal output. [Read the CLI docs](https://muxy.app/docs/features/muxy-cli)." = "Install the muxy CLI from the Muxy menu to script splits, send keys, and read visible terminal output. [Read the CLI docs](https://muxy.app/docs/features/muxy-cli).";
 "Muxy can track supported coding agents and notify you when a turn finishes or needs input. Check Settings → Notifications." = "Muxy can track supported coding agents and notify you when a turn finishes or needs input. Check Settings → Notifications.";
-"Scrollback buffer cap (MB)" = "Scrollback buffer cap (MB)";
+"Scrollback per terminal (MB)" = "Scrollback per terminal (MB)";
 "Enter a value between 1 and 128 MB." = "Enter a value between 1 and 128 MB.";
 "Scrollback Buffer Cap" = "Scrollback Buffer Cap";
-"Maximum scrollback history size in MB for mobile terminal sessions." = "Maximum scrollback history size in MB for mobile terminal sessions.";
+"Scrollback history kept per terminal, in MB, for replay to mobile devices." = "Scrollback history kept per terminal, in MB, for replay to mobile devices.";

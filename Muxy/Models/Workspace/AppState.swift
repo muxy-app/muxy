@@ -945,6 +945,7 @@ final class AppState {
             TerminalProgressStore.shared.resetPane(paneID)
             DetectedAgentStore.shared.resetPane(paneID)
             PersistentSessionExitHandler.shared.resetPane(paneID)
+            RemoteTerminalStreamer.shared.resetPane(paneID)
         }
 
         for paneID in effects.paneIDsToRelease {
