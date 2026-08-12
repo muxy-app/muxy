@@ -16,6 +16,10 @@ final class MobileServerService {
     static let minPort: UInt16 = 1024
     static let maxPort: UInt16 = 65535
 
+    static let defaultScrollbackCapMB = 8
+    static let minScrollbackCapMB = 1
+    static let maxScrollbackCapMB = 128
+
     static var enabledKey: String {
         AppEnvironment.isDevelopment
             ? "app.muxy.mobile.serverEnabled.dev"
@@ -26,6 +30,12 @@ final class MobileServerService {
         AppEnvironment.isDevelopment
             ? "app.muxy.mobile.serverPort.dev"
             : "app.muxy.mobile.serverPort"
+    }
+
+    static var scrollbackCapKey: String {
+        AppEnvironment.isDevelopment
+            ? "app.muxy.mobile.scrollbackCap.dev"
+            : "app.muxy.mobile.scrollbackCap"
     }
 
     private(set) var isEnabled: Bool {
@@ -42,6 +52,13 @@ final class MobileServerService {
                 setEnabled(false)
             }
             lastError = nil
+        }
+    }
+
+    var scrollbackCapMB: Int {
+        didSet {
+            guard scrollbackCapMB != oldValue else { return }
+            UserDefaults.standard.set(scrollbackCapMB, forKey: Self.scrollbackCapKey)
         }
     }
 
@@ -65,6 +82,12 @@ final class MobileServerService {
             } else {
                 port = Self.defaultPort
             }
+        }
+        let storedCap = UserDefaults.standard.object(forKey: Self.scrollbackCapKey) as? Int
+        if let storedCap, Self.isValidScrollbackCap(storedCap) {
+            scrollbackCapMB = storedCap
+        } else {
+            scrollbackCapMB = Self.defaultScrollbackCapMB
         }
         ApprovedDevicesStore.shared.onRevoke = { [weak self] deviceID in
             self?.server?.disconnect(deviceID: deviceID)
@@ -105,6 +128,10 @@ final class MobileServerService {
 
     static func isValid(port: UInt16) -> Bool {
         port >= minPort && port <= maxPort
+    }
+
+    static func isValidScrollbackCap(_ mb: Int) -> Bool {
+        mb >= minScrollbackCapMB && mb <= maxScrollbackCapMB
     }
 
     private func retireCurrentServer() {

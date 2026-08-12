@@ -16,6 +16,8 @@ struct MobileSettingsView: View {
     @State private var showBatchRevokeConfirmation = false
     @State private var portText: String = ""
     @State private var portValidationError: String?
+    @State private var capText: String = ""
+    @State private var capValidationError: String?
     @State private var showFreePortConfirmation = false
     @State private var didCopyPairingLink = false
     @State private var pairingHosts: [MobilePairingHost] = []
@@ -77,6 +79,25 @@ struct MobileSettingsView: View {
                     .padding(.horizontal, SettingsMetrics.horizontalPadding)
                     .padding(.vertical, SettingsMetrics.rowVerticalPadding)
                 }
+
+                SettingsRow("Scrollback buffer cap (MB)") {
+                    TextField(L10n.string("\(MobileServerService.defaultScrollbackCapMB)"), text: $capText)
+                        .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
+                        .settingsTextInput(width: SettingsMetrics.controlWidth)
+                        .onChange(of: capText) { _, _ in
+                            capValidationError = nil
+                        }
+                        .onSubmit { _ = commitCap() }
+                }
+
+                if let error = capValidationError {
+                    Text(error)
+                        .font(.system(size: SettingsMetrics.footnoteFontSize))
+                        .foregroundStyle(SettingsStyle.destructive)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+                        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+                }
             }
 
             if service.isEnabled, let selectedHost, let uri = pairingURI(for: selectedHost) {
@@ -109,6 +130,7 @@ struct MobileSettingsView: View {
         }
         .onAppear {
             portText = String(service.port)
+            capText = String(service.scrollbackCapMB)
             refreshPairingHosts()
             startPathMonitor()
         }
@@ -117,6 +139,12 @@ struct MobileSettingsView: View {
             let text = String(newValue)
             if portText != text {
                 portText = text
+            }
+        }
+        .onChange(of: service.scrollbackCapMB) { _, newValue in
+            let text = String(newValue)
+            if capText != text {
+                capText = text
             }
         }
         .onChange(of: service.isEnabled) { _, _ in
@@ -185,6 +213,20 @@ struct MobileSettingsView: View {
         portValidationError = nil
         service.port = value
         portText = String(value)
+        return true
+    }
+
+    private func commitCap() -> Bool {
+        let trimmed = capText.trimmingCharacters(in: .whitespaces)
+        guard let value = Int(trimmed), MobileServerService.isValidScrollbackCap(value) else {
+            capValidationError = L10n.string(
+                "Enter a value between \(MobileServerService.minScrollbackCapMB) and \(MobileServerService.maxScrollbackCapMB) MB."
+            )
+            return false
+        }
+        capValidationError = nil
+        service.scrollbackCapMB = value
+        capText = String(value)
         return true
     }
 

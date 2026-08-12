@@ -386,6 +386,11 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
+        // Alt-screen apps (opencode, vim, ...) scroll inside the app, so deltas must reach
+        // the server terminal. Main-buffer shells scroll from the client's replayed
+        // scrollback; forwarding those deltas re-renders the server terminal and mirrors
+        // output back to the client, which re-triggers scroll in a feedback loop.
+        guard RemoteTerminalStreamer.shared.isAltBuffer(for: paneID) else { return }
         ensureTerminalView(paneID: paneID)?.scrollTerminal(
             deltaX: deltaX,
             deltaY: deltaY,
@@ -445,7 +450,19 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
         guard ensureTerminalView(paneID: paneID) != nil else { return }
-        let snapshotBytes = buildTerminalSnapshot(paneID: paneID)
+
+        let content = getTerminalContent(paneID: paneID)
+        if let content {
+            RemoteTerminalStreamer.shared.setAltBuffer(for: paneID, active: content.altScreen)
+        }
+
+        if let replay = RemoteTerminalStreamer.shared.scrollbackData(for: paneID) {
+            let dto = TerminalOutputEventDTO(paneID: paneID, bytes: replay)
+            let event = MuxyEvent(event: .terminalOutput, data: .terminalOutput(dto))
+            server?.send(event, to: clientID)
+        }
+
+        let snapshotBytes = content.map { RemoteTerminalSnapshotBuilder.buildBytes(from: $0) }
         PaneOwnershipStore.shared.assign(paneID: paneID, to: clientID)
         if let bytes = snapshotBytes, !bytes.isEmpty {
             let dto = TerminalOutputEventDTO(paneID: paneID, bytes: bytes)
