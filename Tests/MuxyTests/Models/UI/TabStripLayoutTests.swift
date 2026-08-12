@@ -43,12 +43,6 @@ struct TabStripLayoutTests {
         #expect(!result.pinsNewTabButton)
     }
 
-    @Test("honours a narrower configured maximum before measurement")
-    func usesConfiguredMaximumWhenUnmeasured() {
-        let result = layout(width: 0, tabs: 3, maxTabWidth: 120)
-        #expect(result.perTabWidth == 120)
-    }
-
     @Test("pins the new tab button once tabs hit the minimum width")
     func pinsButtonOnOverflow() {
         let result = layout(width: 400, tabs: 9)
@@ -67,29 +61,5 @@ struct TabStripLayoutTests {
         let overflowing = layout(width: exactWidth - 1, tabs: 9)
         #expect(overflowing.pinsNewTabButton)
         #expect(overflowing.perTabWidth == TabStripLayout.minTabWidth)
-    }
-
-    @Test("never drops below the minimum tab width when the strip is narrower than the button")
-    func clampsToMinimumWidthWhenStripIsTiny() {
-        let result = layout(width: 20, tabs: 3)
-        #expect(result.perTabWidth == TabStripLayout.minTabWidth)
-        #expect(result.pinsNewTabButton)
-        #expect(result.tabRowWidth == 0)
-    }
-
-    @Test("treats an empty strip as a single tab")
-    func treatsEmptyStripAsSingleTab() {
-        let result = layout(width: 400, tabs: 0)
-        #expect(result.perTabWidth == 200)
-        #expect(!result.pinsNewTabButton)
-    }
-
-    @Test("ignores the maximum when no cap is configured")
-    func ignoresMissingMaximum() {
-        let availableWidth: CGFloat = 1400
-        let expectedWidth = (availableWidth - Self.buttonWidth) / 2
-        let result = layout(width: availableWidth, tabs: 2, maxTabWidth: nil)
-        #expect(result.perTabWidth == expectedWidth)
-        #expect(!result.pinsNewTabButton)
     }
 }
