@@ -136,8 +136,6 @@ struct PaneTabStrip: View {
                     .help(shortcutTooltip(L10n.string("Split Right"), for: .splitRight))
                 IconButton(symbol: "square.split.1x2", accessibilityLabel: L10n.string("Split Down")) { onSplit(.vertical) }
                     .help(shortcutTooltip(L10n.string("Split Down"), for: .splitDown))
-                IconButton(symbol: "plus", accessibilityLabel: L10n.string("New Tab")) { onCreateTab() }
-                    .help(shortcutTooltip(L10n.string("New Tab"), for: .newTab))
                 if let onOpenBrowser {
                     IconButton(symbol: "globe", accessibilityLabel: L10n.string("Open Browser Tab"), action: onOpenBrowser)
                         .help(L10n.string("Open Browser Tab"))
@@ -158,7 +156,8 @@ struct PaneTabStrip: View {
 
     private func tabRow(availableWidth: CGFloat) -> some View {
         let count = max(tabs.count, 1)
-        let effectiveWidth = availableWidth > 0 ? availableWidth : TabCell.maxWidth * CGFloat(count)
+        let widthForTabs = availableWidth - newTabButtonWidth
+        let effectiveWidth = widthForTabs > 0 ? widthForTabs : TabCell.maxWidth * CGFloat(count)
         let perTabIdeal = effectiveWidth / CGFloat(count)
         let perTabMaxWidth = TabWidthPreferences.effectiveMaxWidth(from: maxTabWidth)
         let cappedWidth = perTabMaxWidth.map { min($0, perTabIdeal) } ?? perTabIdeal
@@ -218,7 +217,19 @@ struct PaneTabStrip: View {
                         }
                 )
             }
+
+            newTabButton
+                .padding(.leading, UIMetrics.spacing2)
         }
+    }
+
+    private var newTabButton: some View {
+        IconButton(symbol: "plus", accessibilityLabel: L10n.string("New Tab")) { onCreateTab() }
+            .help(shortcutTooltip(L10n.string("New Tab"), for: .newTab))
+    }
+
+    private var newTabButtonWidth: CGFloat {
+        UIMetrics.controlMedium + UIMetrics.spacing2
     }
 
     private func closableOthersCount(excluding tabID: UUID) -> Int {
