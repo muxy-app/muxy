@@ -94,10 +94,16 @@ struct PaneTabStrip: View {
     var body: some View {
         HStack(spacing: 0) {
             GeometryReader { geo in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    tabRow(availableWidth: geo.size.width)
-                        .frame(minWidth: geo.size.width, alignment: .leading)
-                        .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
+                let layout = tabStripLayout(availableWidth: geo.size.width)
+                HStack(spacing: 0) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        tabRow(layout: layout)
+                            .frame(minWidth: layout.tabRowWidth, alignment: .leading)
+                            .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
+                    }
+                    if layout.pinsNewTabButton {
+                        newTabButton
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
@@ -154,16 +160,17 @@ struct PaneTabStrip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func tabRow(availableWidth: CGFloat) -> some View {
-        let count = max(tabs.count, 1)
-        let widthForTabs = availableWidth - newTabButtonWidth
-        let effectiveWidth = widthForTabs > 0 ? widthForTabs : TabCell.maxWidth * CGFloat(count)
-        let perTabIdeal = effectiveWidth / CGFloat(count)
-        let perTabMaxWidth = TabWidthPreferences.effectiveMaxWidth(from: maxTabWidth)
-        let cappedWidth = perTabMaxWidth.map { min($0, perTabIdeal) } ?? perTabIdeal
-        let perTabWidth = max(TabCell.minWidth, cappedWidth)
+    private func tabStripLayout(availableWidth: CGFloat) -> TabStripLayout {
+        TabStripLayout(
+            availableWidth: availableWidth,
+            tabCount: tabs.count,
+            maxTabWidth: TabWidthPreferences.effectiveMaxWidth(from: maxTabWidth),
+            newTabButtonWidth: Self.newTabButtonWidth
+        )
+    }
 
-        return HStack(spacing: 0) {
+    private func tabRow(layout: TabStripLayout) -> some View {
+        HStack(spacing: 0) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                 let globalIndex = shortcutIndicesByTabID?[tab.id] ?? index
                 TabCell(
@@ -188,7 +195,7 @@ struct PaneTabStrip: View {
                     onSetCustomTitle: { onSetCustomTitle(tab.id, $0) },
                     onSetColorID: { onSetColorID(tab.id, $0) }
                 )
-                .frame(width: perTabWidth)
+                .frame(width: layout.perTabWidth)
                 .background {
                     if dragState.draggedID != nil {
                         GeometryReader { geo in
@@ -218,18 +225,24 @@ struct PaneTabStrip: View {
                 )
             }
 
-            newTabButton
-                .padding(.leading, UIMetrics.spacing2)
+            if !layout.pinsNewTabButton {
+                newTabButton
+            }
         }
+    }
+
+    private static var newTabButtonSpacing: CGFloat {
+        UIMetrics.spacing2
+    }
+
+    private static var newTabButtonWidth: CGFloat {
+        UIMetrics.controlMedium + newTabButtonSpacing
     }
 
     private var newTabButton: some View {
         IconButton(symbol: "plus", accessibilityLabel: L10n.string("New Tab")) { onCreateTab() }
             .help(shortcutTooltip(L10n.string("New Tab"), for: .newTab))
-    }
-
-    private var newTabButtonWidth: CGFloat {
-        UIMetrics.controlMedium + UIMetrics.spacing2
+            .padding(.leading, Self.newTabButtonSpacing)
     }
 
     private func closableOthersCount(excluding tabID: UUID) -> Int {
@@ -360,8 +373,6 @@ private struct TabWidthPreferenceKey: PreferenceKey {
 }
 
 private struct TabCell: View {
-    static let minWidth: CGFloat = 44
-    static let maxWidth: CGFloat = 200
     static let titleHideThreshold: CGFloat = 80
 
     let tab: PaneTabStrip.TabSnapshot
@@ -388,7 +399,7 @@ private struct TabCell: View {
     @State private var isRenaming = false
     @State private var renameText = ""
     @State private var showColorPicker = false
-    @State private var measuredWidth: CGFloat = TabCell.maxWidth
+    @State private var measuredWidth: CGFloat = TabStripLayout.maxTabWidth
     @State private var externalDragOverCell = false
     @State private var springLoadTask: Task<Void, any Error>?
     @State private var completionFlashOn = false
