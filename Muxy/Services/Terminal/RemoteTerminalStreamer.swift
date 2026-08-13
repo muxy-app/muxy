@@ -54,9 +54,6 @@ final class RemoteTerminalStreamer {
         server?.send(event, to: clientID)
     }
 
-    // Appends in place: binding the stored buffer to a local `var` would make the
-    // dictionary and the local share storage, so every append would copy the whole
-    // buffer (up to the configured cap) before mutating it.
     func appendScrollback(paneID: UUID, bytes: Data, byteLimit: Int) {
         scrollbackBuffers[paneID, default: Data()].append(bytes)
         guard let count = scrollbackBuffers[paneID]?.count, count > byteLimit else { return }
