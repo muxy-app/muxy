@@ -2,13 +2,6 @@ import AppKit
 import MuxyShared
 import SwiftUI
 
-enum ExpandedProjectActivityScope {
-    static func worktreeID(worktreesExpanded: Bool, activeWorktreeID: UUID?) -> UUID? {
-        guard worktreesExpanded else { return nil }
-        return activeWorktreeID
-    }
-}
-
 struct ExpandedProjectRow: View {
     let project: Project
     let shortcutIndex: Int?
@@ -63,39 +56,18 @@ struct ExpandedProjectRow: View {
     }
 
     private var projectActivity: TerminalActivity? {
+        guard SidebarProjectIndicatorPolicy.showsProjectLevelIndicator(isExpanded: worktreesExpanded) else {
+            return nil
+        }
         let progressStore = TerminalProgressStore.shared
         let agentStore = AgentStatusStore.shared
-        let scopedWorktreeID = ExpandedProjectActivityScope.worktreeID(
-            worktreesExpanded: worktreesExpanded,
-            activeWorktreeID: activeWorktreeID
-        )
-        let hasProgress = if let scopedWorktreeID {
-            progressStore.hasActiveProgress(forWorktree: scopedWorktreeID)
-        } else {
-            progressStore.hasActiveProgress(for: project.id)
-        }
-        let agentStatus = if let scopedWorktreeID {
-            agentStore.status(forWorktree: scopedWorktreeID)
-        } else {
-            agentStore.status(forProject: project.id)
-        }
-        let unreadCount = if let scopedWorktreeID {
-            NotificationStore.shared.unreadCount(for: project.id, worktreeID: scopedWorktreeID)
-        } else {
-            NotificationStore.shared.unreadCount(for: project.id)
-        }
-        let completionPending = if let scopedWorktreeID {
-            progressStore.hasCompletionPending(forWorktree: scopedWorktreeID)
-                || agentStore.hasCompletionPending(forWorktree: scopedWorktreeID)
-        } else {
-            progressStore.hasCompletionPending(for: project.id)
-                || agentStore.hasCompletionPending(forProject: project.id)
-        }
+        let hasProgress = progressStore.hasActiveProgress(for: project.id)
         return TerminalActivity.resolve(
             progress: hasProgress ? TerminalProgress(kind: .indeterminate, percent: nil) : nil,
-            agentStatus: agentStatus,
-            unreadCount: unreadCount,
-            completionPending: completionPending
+            agentStatus: agentStore.status(forProject: project.id),
+            unreadCount: NotificationStore.shared.unreadCount(for: project.id),
+            completionPending: progressStore.hasCompletionPending(for: project.id)
+                || agentStore.hasCompletionPending(forProject: project.id)
         )
     }
 
@@ -360,7 +332,9 @@ struct ExpandedProjectRow: View {
     private var worktreeControl: some View {
         if hasWorktreeUI {
             worktreeChevron
-        } else if isCheckingGitRepo {
+        } else if isCheckingGitRepo,
+                  SidebarProjectIndicatorPolicy.showsProjectLevelIndicator(isExpanded: worktreesExpanded)
+        {
             ProgressView()
                 .controlSize(.mini)
                 .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
@@ -687,7 +661,7 @@ private struct ExpandedWorktreeRow: View {
     }
 
     var body: some View {
-        HStack(spacing: UIMetrics.spacing3) {
+        HStack(spacing: UIMetrics.spacing4) {
             leadingIndicator
 
             if isRenaming {
@@ -720,7 +694,7 @@ private struct ExpandedWorktreeRow: View {
                     .scaleEffect(0.7)
             }
         }
-        .padding(.horizontal, UIMetrics.spacing4)
+        .padding(.horizontal, UIMetrics.spacing2)
         .padding(.vertical, UIMetrics.scaled(7))
         .background(rowBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
@@ -762,10 +736,10 @@ private struct ExpandedWorktreeRow: View {
     private var leadingIndicator: some View {
         if let activity {
             TerminalActivityIndicator(activity: activity)
-                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+                .frame(width: UIMetrics.iconXXL, height: UIMetrics.scaled(18))
         } else {
             Color.clear
-                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+                .frame(width: UIMetrics.iconXXL, height: UIMetrics.scaled(18))
         }
     }
 
@@ -803,17 +777,17 @@ private struct ExpandedNewWorktreeButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: UIMetrics.spacing3) {
+            HStack(spacing: UIMetrics.spacing4) {
                 Image(systemName: "plus")
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
-                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
+                    .frame(width: UIMetrics.iconXXL, height: UIMetrics.scaled(8))
                 Text(L10n.resource("New Worktree"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
                 Spacer()
             }
-            .padding(.horizontal, UIMetrics.spacing4)
+            .padding(.horizontal, UIMetrics.spacing2)
             .padding(.vertical, UIMetrics.scaled(5))
         }
         .buttonStyle(.plain)

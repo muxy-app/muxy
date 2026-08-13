@@ -88,6 +88,8 @@ struct TabFocusedProjectRow: View {
     }
 
     private var rowActivity: TerminalActivity? {
+        guard isWorktreeRow || SidebarProjectIndicatorPolicy.showsProjectLevelIndicator(isExpanded: isExpanded)
+        else { return nil }
         let worktreeIDs = TabFocusedActivityScope.worktreeIDs(
             rowWorktreeID: worktree?.id,
             primaryWorktreeID: worktreeStore.primary(for: project.id)?.id,
@@ -374,7 +376,7 @@ struct TabFocusedProjectRow: View {
             } else if !isFocused {
                 if isWorktreeRow {
                     worktreeIndicator
-                } else if !isExpanded {
+                } else if SidebarProjectIndicatorPolicy.showsProjectLevelIndicator(isExpanded: isExpanded) {
                     statusIndicator
                 }
             }
