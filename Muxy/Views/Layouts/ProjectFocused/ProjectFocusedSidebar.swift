@@ -194,6 +194,12 @@ enum SidebarLayout {
     }
 }
 
+enum SidebarProjectIndicatorPolicy {
+    static func showsProjectLevelIndicator(isExpanded: Bool) -> Bool {
+        !isExpanded
+    }
+}
+
 struct ProjectFocusedSidebar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore

@@ -280,7 +280,9 @@ final class ThemeService {
         for dir in themeDirectories() {
             guard let files = try? FileManager.default.contentsOfDirectory(atPath: dir) else { continue }
             for file in files {
-                guard let theme = parseThemeFile(atPath: dir + "/" + file, name: file) else { continue }
+                guard themesByName[file] == nil,
+                      let theme = parseThemeFile(atPath: dir + "/" + file, name: file)
+                else { continue }
                 themesByName[theme.name] = theme
             }
         }
@@ -299,11 +301,10 @@ final class ThemeService {
     }
 
     nonisolated private static func themeDirectories() -> [String] {
-        var dirs: [String] = []
+        var dirs: [String] = [NSHomeDirectory() + "/.config/ghostty/themes"]
         if let bundled = Bundle.appResources.resourceURL?.appendingPathComponent("ghostty/themes").path {
             dirs.append(bundled)
         }
-        dirs.append(NSHomeDirectory() + "/.config/ghostty/themes")
         return dirs
     }
 

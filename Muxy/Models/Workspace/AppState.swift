@@ -375,6 +375,45 @@ final class AppState {
         saveWorkspaces()
     }
 
+    func reorderVisibleTopLevelTabs(
+        for key: WorktreeKey,
+        moving movingTabID: UUID,
+        over targetTabID: UUID,
+        visibleTopLevelTabIDs: [UUID]
+    ) {
+        guard let layout = topLevelTabLayouts[key],
+              let group = layout.group(containingTabID: movingTabID),
+              layout.group(containingTabID: targetTabID)?.id == group.id
+        else { return }
+
+        let tabsByID = Dictionary(uniqueKeysWithValues: topLevelTabs(for: key).map { ($0.tab.id, $0.tab) })
+        guard let movingTab = tabsByID[movingTabID],
+              let targetTab = tabsByID[targetTabID],
+              movingTab.isPinned == targetTab.isPinned
+        else { return }
+
+        let visibleIDs = Set(visibleTopLevelTabIDs)
+        let visibleGroupOrder = group.tabIDs.filter { visibleIDs.contains($0) }
+        let reorderedGroup = StableSubsetOrder.reordering(
+            fullOrder: group.tabIDs,
+            visibleOrder: visibleGroupOrder,
+            moving: movingTabID,
+            over: targetTabID
+        )
+        guard reorderedGroup != group.tabIDs else { return }
+
+        group.tabIDs = reorderedGroup
+        var globalOrder = topLevelTabs(for: key).map(\.tab.id)
+        let groupIDs = Set(reorderedGroup)
+        var replacementIndex = 0
+        for index in globalOrder.indices where groupIDs.contains(globalOrder[index]) {
+            globalOrder[index] = reorderedGroup[replacementIndex]
+            replacementIndex += 1
+        }
+        topLevelTabOrder[key] = globalOrder
+        saveWorkspaces()
+    }
+
     func togglePinTopLevelTab(_ tabID: UUID, for key: WorktreeKey) {
         guard let located = workspaceRoots[key]?.locateTab(id: tabID),
               located.tab.parentTabID == nil

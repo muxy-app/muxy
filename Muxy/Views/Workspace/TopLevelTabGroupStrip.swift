@@ -5,6 +5,7 @@ struct TopLevelTabGroupStrip: View {
     let worktreeKey: WorktreeKey
     let groupID: UUID
     var isWindowTitleBar = false
+    var showsWindowTopbarActions = true
     var showDevelopmentBadge = false
     var openProjectPath: String?
 
@@ -61,6 +62,7 @@ struct TopLevelTabGroupStrip: View {
                 activeTabID: group.activeTabID,
                 isFocused: appState.activeTopLevelTabID(for: worktreeKey) == group.activeTabID,
                 isWindowTitleBar: isWindowTitleBar,
+                showsWindowTopbarActions: showsWindowTopbarActions,
                 showDevelopmentBadge: showDevelopmentBadge,
                 openProjectPath: openProjectPath,
                 projectID: project.id,

@@ -31,6 +31,7 @@ struct PaneTabStrip: View {
     let activeTabID: UUID?
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
+    var showsWindowTopbarActions = true
     var showDevelopmentBadge = false
     var openProjectPath: String?
     let projectID: UUID
@@ -94,59 +95,73 @@ struct PaneTabStrip: View {
     var body: some View {
         HStack(spacing: 0) {
             GeometryReader { geo in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    tabRow(availableWidth: geo.size.width)
-                        .frame(minWidth: geo.size.width, alignment: .leading)
-                        .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
+                let layout = tabStripLayout(availableWidth: geo.size.width)
+                HStack(spacing: 0) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        tabRow(layout: layout)
+                            .frame(minWidth: layout.tabRowWidth, alignment: .leading)
+                            .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
+                    }
+                    if layout.pinsNewTabButton {
+                        newTabButton
+                    }
                 }
             }
             .frame(maxWidth: .infinity)
             .layoutPriority(1)
             .frame(height: UIMetrics.scaled(32))
 
-            HStack(spacing: 0) {
-                if isWindowTitleBar, let openProjectPath {
-                    OpenProjectControl(projectPath: openProjectPath)
-                }
-                if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
-                    UpdateBadge(version: version) {
-                        UpdateService.shared.checkForUpdates()
+            if !isWindowTitleBar || showsWindowTopbarActions {
+                HStack(spacing: 0) {
+                    if isWindowTitleBar, let openProjectPath {
+                        OpenProjectControl(projectPath: openProjectPath)
                     }
-                    .padding(.trailing, UIMetrics.spacing2)
-                }
-                if showDevelopmentBadge {
-                    developmentBadge
-                        .padding(.trailing, UIMetrics.spacing3)
-                }
-                if isWindowTitleBar {
-                    LayoutPickerMenu(projectID: projectID)
-                    ExtensionTopbarItems()
-                }
-                if showMaximizeButton || isMaximized, let onToggleMaximize {
-                    let symbol = isMaximized
-                        ? "arrow.down.right.and.arrow.up.left"
-                        : "arrow.up.left.and.arrow.down.right"
-                    let label = isMaximized
-                        ? L10n.string("Restore Pane")
-                        : L10n.string("Maximize Pane")
-                    IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
-                        .help(shortcutTooltip(L10n.string("Toggle Maximize Pane"), for: .toggleMaximizePane))
-                }
-                IconButton(symbol: "square.split.2x1", accessibilityLabel: L10n.string("Split Right")) { onSplit(.horizontal) }
+                    if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
+                        UpdateBadge(version: version) {
+                            UpdateService.shared.checkForUpdates()
+                        }
+                        .padding(.trailing, UIMetrics.spacing2)
+                    }
+                    if showDevelopmentBadge {
+                        developmentBadge
+                            .padding(.trailing, UIMetrics.spacing3)
+                    }
+                    if isWindowTitleBar {
+                        LayoutPickerMenu(projectID: projectID)
+                        ExtensionTopbarItems()
+                    }
+                    if showMaximizeButton || isMaximized, let onToggleMaximize {
+                        let symbol = isMaximized
+                            ? "arrow.down.right.and.arrow.up.left"
+                            : "arrow.up.left.and.arrow.down.right"
+                        let label = isMaximized
+                            ? L10n.string("Restore Pane")
+                            : L10n.string("Maximize Pane")
+                        IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
+                            .help(shortcutTooltip(L10n.string("Toggle Maximize Pane"), for: .toggleMaximizePane))
+                    }
+                    IconButton(symbol: "square.split.2x1", accessibilityLabel: L10n.string("Split Right")) {
+                        onSplit(.horizontal)
+                    }
                     .help(shortcutTooltip(L10n.string("Split Right"), for: .splitRight))
-                IconButton(symbol: "square.split.1x2", accessibilityLabel: L10n.string("Split Down")) { onSplit(.vertical) }
+                    IconButton(symbol: "square.split.1x2", accessibilityLabel: L10n.string("Split Down")) {
+                        onSplit(.vertical)
+                    }
                     .help(shortcutTooltip(L10n.string("Split Down"), for: .splitDown))
-                IconButton(symbol: "plus", accessibilityLabel: L10n.string("New Tab")) { onCreateTab() }
-                    .help(shortcutTooltip(L10n.string("New Tab"), for: .newTab))
-                if let onOpenBrowser {
-                    IconButton(symbol: "globe", accessibilityLabel: L10n.string("Open Browser Tab"), action: onOpenBrowser)
+                    if let onOpenBrowser {
+                        IconButton(
+                            symbol: "globe",
+                            accessibilityLabel: L10n.string("Open Browser Tab"),
+                            action: onOpenBrowser
+                        )
                         .help(L10n.string("Open Browser Tab"))
+                    }
                 }
+                .padding(.leading, UIMetrics.spacing4)
+                .padding(.trailing, UIMetrics.spacing2)
+                .fixedSize(horizontal: true, vertical: false)
+                .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
             }
-            .padding(.leading, UIMetrics.spacing4)
-            .padding(.trailing, UIMetrics.spacing2)
-            .fixedSize(horizontal: true, vertical: false)
-            .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
         }
         .frame(height: UIMetrics.scaled(32))
         .onPreferenceChange(TabFramePreferenceKey.self) { frames in
@@ -156,15 +171,17 @@ struct PaneTabStrip: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func tabRow(availableWidth: CGFloat) -> some View {
-        let count = max(tabs.count, 1)
-        let effectiveWidth = availableWidth > 0 ? availableWidth : TabCell.maxWidth * CGFloat(count)
-        let perTabIdeal = effectiveWidth / CGFloat(count)
-        let perTabMaxWidth = TabWidthPreferences.effectiveMaxWidth(from: maxTabWidth)
-        let cappedWidth = perTabMaxWidth.map { min($0, perTabIdeal) } ?? perTabIdeal
-        let perTabWidth = max(TabCell.minWidth, cappedWidth)
+    private func tabStripLayout(availableWidth: CGFloat) -> TabStripLayout {
+        TabStripLayout(
+            availableWidth: availableWidth,
+            tabCount: tabs.count,
+            maxTabWidth: TabWidthPreferences.effectiveMaxWidth(from: maxTabWidth),
+            newTabButtonWidth: Self.newTabButtonWidth
+        )
+    }
 
-        return HStack(spacing: 0) {
+    private func tabRow(layout: TabStripLayout) -> some View {
+        HStack(spacing: 0) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                 let globalIndex = shortcutIndicesByTabID?[tab.id] ?? index
                 TabCell(
@@ -189,7 +206,7 @@ struct PaneTabStrip: View {
                     onSetCustomTitle: { onSetCustomTitle(tab.id, $0) },
                     onSetColorID: { onSetColorID(tab.id, $0) }
                 )
-                .frame(width: perTabWidth)
+                .frame(width: layout.perTabWidth)
                 .background {
                     if dragState.draggedID != nil {
                         GeometryReader { geo in
@@ -218,7 +235,25 @@ struct PaneTabStrip: View {
                         }
                 )
             }
+
+            if !layout.pinsNewTabButton {
+                newTabButton
+            }
         }
+    }
+
+    private static var newTabButtonSpacing: CGFloat {
+        UIMetrics.spacing2
+    }
+
+    private static var newTabButtonWidth: CGFloat {
+        UIMetrics.controlMedium + newTabButtonSpacing
+    }
+
+    private var newTabButton: some View {
+        IconButton(symbol: "plus", accessibilityLabel: L10n.string("New Tab")) { onCreateTab() }
+            .help(shortcutTooltip(L10n.string("New Tab"), for: .newTab))
+            .padding(.leading, Self.newTabButtonSpacing)
     }
 
     private func closableOthersCount(excluding tabID: UUID) -> Int {
@@ -349,8 +384,6 @@ private struct TabWidthPreferenceKey: PreferenceKey {
 }
 
 private struct TabCell: View {
-    static let minWidth: CGFloat = 44
-    static let maxWidth: CGFloat = 200
     static let titleHideThreshold: CGFloat = 80
 
     let tab: PaneTabStrip.TabSnapshot
@@ -377,7 +410,7 @@ private struct TabCell: View {
     @State private var isRenaming = false
     @State private var renameText = ""
     @State private var showColorPicker = false
-    @State private var measuredWidth: CGFloat = TabCell.maxWidth
+    @State private var measuredWidth: CGFloat = TabStripLayout.maxTabWidth
     @State private var externalDragOverCell = false
     @State private var springLoadTask: Task<Void, any Error>?
     @State private var completionFlashOn = false

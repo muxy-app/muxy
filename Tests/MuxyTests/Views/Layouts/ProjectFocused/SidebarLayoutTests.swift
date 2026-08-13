@@ -103,6 +103,15 @@ struct SidebarLayoutTests {
     }
 }
 
+@Suite("Sidebar project indicator policy")
+struct SidebarProjectIndicatorPolicyTests {
+    @Test("project-level indicators are shown only while the project is collapsed")
+    func projectLevelIndicatorVisibility() {
+        #expect(SidebarProjectIndicatorPolicy.showsProjectLevelIndicator(isExpanded: false))
+        #expect(!SidebarProjectIndicatorPolicy.showsProjectLevelIndicator(isExpanded: true))
+    }
+}
+
 @Suite("MainWindowLayout")
 struct MainWindowLayoutTests {
     @Test("collapsed icon sidebar keeps its own rail width")

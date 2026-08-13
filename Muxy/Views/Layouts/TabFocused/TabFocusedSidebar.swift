@@ -19,6 +19,7 @@ struct TabFocusedSidebar: View {
     private var groupWorktrees = WorktreeListPreferences.defaultGroupWorktrees
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = true
+    @State private var projectDragState = AgentsFocusedProjectDragState()
 
     private var expandedStyle: SidebarExpandedStyle {
         SidebarExpandedStyle(rawValue: expandedStyleRaw) ?? .defaultValue
@@ -91,14 +92,18 @@ struct TabFocusedSidebar: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(rows) { row in
-                        TabFocusedProjectRow(
-                            project: row.project,
-                            worktree: row.worktree,
-                            shortcutNumbers: numbers,
-                            content: content,
-                            groupWorktrees: groupWorktrees
-                        )
+                    if content == .agents {
+                        agentsFocusedProjectBlocks(numbers: numbers)
+                    } else {
+                        ForEach(rows) { row in
+                            TabFocusedProjectRow(
+                                project: row.project,
+                                worktree: row.worktree,
+                                shortcutNumbers: numbers,
+                                content: content,
+                                groupWorktrees: groupWorktrees
+                            )
+                        }
                     }
                     if content == .agents || !expansionStore.focusMode {
                         TabFocusedAddProjectRow(
@@ -110,8 +115,19 @@ struct TabFocusedSidebar: View {
                 }
                 .padding(.top, UIMetrics.spacing5)
                 .padding(.bottom, UIMetrics.spacing3)
+                .onPreferenceChange(UUIDFramePreferenceKey<AgentsFocusedProjectFrameTag>.self) { frames in
+                    guard projectDragState.draggedID != nil else { return }
+                    projectDragState.frames = frames
+                }
+                .onChange(of: reorderableProjects.map(\.id)) { _, projectIDs in
+                    guard let draggedID = projectDragState.draggedID,
+                          !projectIDs.contains(draggedID)
+                    else { return }
+                    handleProjectDragEnded()
+                }
             }
             .scrollIndicators(.never)
+            .coordinateSpace(name: AgentsFocusedProjectDragCoordinateSpace.sidebar)
 
             SidebarFooter(isWide: isWide, sidebarExpanded: sidebarExpanded)
         }
@@ -165,7 +181,161 @@ struct TabFocusedSidebar: View {
             ToastState.shared.show(title: L10n.string("Could not restore project"), body: error.localizedDescription)
         }
     }
+
+    private func agentsFocusedProjectBlocks(numbers: [UUID: Int]) -> some View {
+        ForEach(projects) { project in
+            agentsFocusedProjectBlock(project, numbers: numbers)
+        }
+    }
+
+    private func agentsFocusedProjectBlock(_ project: Project, numbers: [UUID: Int]) -> some View {
+        let reorderable = isProjectReorderable(project)
+        let onDragChanged: ((Project, CGPoint) -> Void)? = reorderable
+            ? { _, location in handleProjectDragChanged(project: project, location: location) }
+            : nil
+        let onDragEnded: (() -> Void)? = reorderable ? { handleProjectDragEnded() } : nil
+
+        return AgentsFocusedProjectBlock(
+            project: project,
+            standaloneWorktrees: standaloneWorktrees(for: project),
+            shortcutNumbers: numbers,
+            groupWorktrees: groupWorktrees,
+            onProjectHeaderDragChanged: onDragChanged,
+            onProjectHeaderDragEnded: onDragEnded
+        )
+        .opacity(projectDragState.draggedID == project.id ? 0.5 : 1)
+        .background {
+            if projectDragState.draggedID != nil, reorderable {
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: UUIDFramePreferenceKey<AgentsFocusedProjectFrameTag>.self,
+                        value: [
+                            project.id: geo.frame(
+                                in: .named(AgentsFocusedProjectDragCoordinateSpace.sidebar)
+                            ),
+                        ]
+                    )
+                }
+            }
+        }
+    }
+
+    private func standaloneWorktrees(for project: Project) -> [Worktree] {
+        TabFocusedSidebarRows.standaloneWorktrees(
+            project: project,
+            content: content,
+            groupWorktrees: groupWorktrees,
+            worktrees: worktreeStore.list(for: project.id),
+            hasTabs: { appState.hasTabs(for: $0) }
+        )
+    }
+
+    private func isProjectReorderable(_ project: Project) -> Bool {
+        sortMode == .manual
+            && !project.isHome
+            && !project.isRemote
+            && !projectGroupStore.isRemoteWorkspaceActive
+            && projectStore.storedProjects.contains(where: { $0.id == project.id })
+    }
+
+    private var reorderableProjects: [Project] {
+        projects.filter(isProjectReorderable)
+    }
+
+    private func handleProjectDragChanged(project: Project, location: CGPoint) {
+        guard isProjectReorderable(project) else { return }
+        if projectDragState.draggedID == nil {
+            projectDragState.draggedID = project.id
+            projectDragState.lastReorderTargetID = nil
+        }
+        reorderProjectsIfNeeded(at: location)
+    }
+
+    private func handleProjectDragEnded() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            projectDragState.draggedID = nil
+            projectDragState.frames = [:]
+            projectDragState.lastReorderTargetID = nil
+        }
+    }
+
+    private func reorderProjectsIfNeeded(at location: CGPoint) {
+        let candidates = reorderableProjects
+        guard let draggedID = projectDragState.draggedID else { return }
+        var hoveredTargetID: UUID?
+
+        for (id, frame) in projectDragState.frames where id != draggedID {
+            guard frame.contains(location) else { continue }
+            hoveredTargetID = id
+            guard projectDragState.lastReorderTargetID != id,
+                  let sourceIndex = candidates.firstIndex(where: { $0.id == draggedID }),
+                  let destinationIndex = candidates.firstIndex(where: { $0.id == id }),
+                  candidates[sourceIndex].isPinned == candidates[destinationIndex].isPinned
+            else { return }
+
+            projectDragState.lastReorderTargetID = id
+            var reorderedProjects = candidates
+            reorderedProjects.move(
+                fromOffsets: IndexSet(integer: sourceIndex),
+                toOffset: destinationIndex > sourceIndex ? destinationIndex + 1 : destinationIndex
+            )
+            withAnimation(.easeInOut(duration: 0.15)) {
+                projectStore.persistOrder(
+                    reorderedProjects.map(\.id),
+                    scopedTo: Set(reorderedProjects.map(\.id))
+                )
+            }
+            return
+        }
+
+        if hoveredTargetID == nil {
+            projectDragState.lastReorderTargetID = nil
+        }
+    }
 }
+
+private struct AgentsFocusedProjectBlock: View {
+    let project: Project
+    let standaloneWorktrees: [Worktree]
+    let shortcutNumbers: [UUID: Int]
+    let groupWorktrees: Bool
+    let onProjectHeaderDragChanged: ((Project, CGPoint) -> Void)?
+    let onProjectHeaderDragEnded: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            TabFocusedProjectRow(
+                project: project,
+                shortcutNumbers: shortcutNumbers,
+                content: .agents,
+                groupWorktrees: groupWorktrees,
+                onProjectHeaderDragChanged: onProjectHeaderDragChanged,
+                onProjectHeaderDragEnded: onProjectHeaderDragEnded
+            )
+            ForEach(standaloneWorktrees) { worktree in
+                TabFocusedProjectRow(
+                    project: project,
+                    worktree: worktree,
+                    shortcutNumbers: shortcutNumbers,
+                    content: .agents,
+                    groupWorktrees: groupWorktrees
+                )
+            }
+        }
+    }
+}
+
+private struct AgentsFocusedProjectDragState {
+    var draggedID: UUID?
+    var frames: [UUID: CGRect] = [:]
+    var lastReorderTargetID: UUID?
+}
+
+enum AgentsFocusedProjectDragCoordinateSpace {
+    static let sidebar = "AgentsFocusedProjectSidebar"
+}
+
+private enum AgentsFocusedProjectFrameTag {}
 
 struct AgentsFocusedSidebar: View {
     var body: some View {

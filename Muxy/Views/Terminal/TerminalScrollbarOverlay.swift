@@ -10,7 +10,8 @@ final class TerminalScrollbarOverlay: NSView {
     private var len = 0
     private var offset = 0
     private var cellHeight: CGFloat = 0
-    private var isLiveScrolling = false
+    private var interaction = TerminalScrollbarInteraction()
+    private var isLiveScrolling: Bool { interaction.isDragging }
     private var lastSentRow: Int?
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
@@ -39,6 +40,9 @@ final class TerminalScrollbarOverlay: NSView {
         scrollView.drawsBackground = false
         scrollView.contentView.clipsToBounds = false
         scrollView.documentView = documentView
+        scrollView.allowsScrollerHit = { [weak self] in
+            self?.interaction.allowsScrollerHit(now: Date()) ?? false
+        }
         addSubview(scrollView)
     }
 
@@ -48,14 +52,14 @@ final class TerminalScrollbarOverlay: NSView {
             object: scrollView,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.isLiveScrolling = true }
+            MainActor.assumeIsolated { self?.interaction.beginDrag() }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScrollView.didEndLiveScrollNotification,
             object: scrollView,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.isLiveScrolling = false }
+            MainActor.assumeIsolated { self?.interaction.endDrag(now: Date()) }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: NSScrollView.didLiveScrollNotification,
@@ -83,13 +87,15 @@ final class TerminalScrollbarOverlay: NSView {
 
     func flash() {
         guard hasScrollableContent else { return }
+        interaction.reveal(now: Date())
         scrollView.flashScrollers()
     }
 
-    func flashIfNearScroller(point: NSPoint) {
-        guard hasScrollableContent else { return }
+    func extendReveal(point: NSPoint) {
+        guard hasScrollableContent, interaction.allowsScrollerHit(now: Date()) else { return }
         let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: scrollView.scrollerStyle)
         guard point.x >= bounds.maxX - scrollerWidth * 2 else { return }
+        interaction.reveal(now: Date())
         scrollView.flashScrollers()
     }
 
@@ -133,7 +139,10 @@ final class TerminalScrollbarOverlay: NSView {
 }
 
 private final class TerminalScrollbarScrollView: NSScrollView {
+    var allowsScrollerHit: () -> Bool = { false }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard allowsScrollerHit() else { return nil }
         guard let scroller = verticalScroller, !scroller.isHidden else { return nil }
         let scrollerPoint = scroller.convert(point, from: superview)
         guard scroller.bounds.contains(scrollerPoint) else { return nil }

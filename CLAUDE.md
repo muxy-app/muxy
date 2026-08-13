@@ -14,7 +14,7 @@ swiftformat --lint .          # Check formatting only
 swiftlint lint --strict       # Check linting only
 ```
 
-Run `scripts/checks.sh --fix` after every task.
+For code-changing tasks, run `scripts/checks.sh --fix` before handoff. Do not run it for read-only review or analysis unless the user explicitly asks.
 
 Test processes use isolated Application Support storage.
 
@@ -27,7 +27,7 @@ Test processes use isolated Application Support storage.
 - Clean Architecture
 - Best Practices
 - No Hacky Solutions
-- No guessing and No assumption! Work with certainity.
+- Do not present assumptions as facts. Verify material claims and state uncertainty when evidence is unavailable.
 
 ## Main Rules
 
@@ -35,17 +35,17 @@ Test processes use isolated Application Support storage.
 - All code must be self-explanatory and cleanly structured
 - Use early returns instead of nested conditionals
 - Don't patch symptoms, fix root causes
-- For every task, Consider how it will impact the architecture and code quality, not just the immediate problem
-- Follow the existing code's pattern but offer refactors if they improve code quality and maintainability.
+- For code changes, consider architecture and code quality in proportion to the change's scope and risk
+- Follow existing code patterns. Keep optional refactors separate and within the requested scope.
 - Use logs for debugging.
-- If the feature is testable, then you must write tests.
-- Never answer any question without a proper investigation and exploring the codebase.
+- Test the critical and reasonable paths only and do not overtest.
+- Investigate the code directly relevant to the task. Expand beyond direct dependencies only when evidence identifies a concrete reason.
 - Prioritize problem comprehension over premature implementation. Validate the approach before execution to avoid rework
-- Plan properly before executing to not double work
+- Plan in proportion to the task's complexity and risk
 - Low memory and CPU usage is one of the key factors
 - Simpler, flexible and scalable approaches are key factors
 - Never run the app. User will run and test visually
-- Documenting must be done accurate. At each round of tasks also review the related docs and fix/improve if needed.
+- When code changes affect documented behavior, public APIs, hooks, configuration, or workflows, update the related documentation accurately.
 - If contributed using AI, the LLM name is mandatory to be mentioned in the PR description.
 
 ## Extensions
@@ -56,5 +56,7 @@ Test processes use isolated Application Support storage.
 
 ## Code Review
 
-- Review the PRs/Code against the purpose of the PR/Issue/Asked. If you find unrelated issues to the PR during the review, Report them in a separate section.
+- Review changes against the stated PR, issue, or task. Start with the diff, directly affected code, and closest relevant tests. Expand only when a concrete ambiguity or risk requires it.
+- Do not proactively search for unrelated issues. If one is encountered while following a changed code path, report it separately.
+- Read-only reviews do not run builds, linters, tests, or `scripts/checks.sh` unless the user explicitly asks.
 - Apply review recommendations only after user's confirmation.

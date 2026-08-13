@@ -58,6 +58,13 @@ In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to s
 It is off by default. Turn it on to nest all worktrees under their project; turn it off to keep worktrees as top-level rows. Tab
 Focused shows top-level worktrees only when they have open tabs, while Agents Focused shows every secondary worktree.
 
+## Top bar actions
+
+Turn off **Settings → Interface → Interface → Show Top Bar Actions** to hide every window-level control on the right
+side of the top bar. The top bar remains visible in every layout, including the tab strip and its new-tab button in
+Projects Focused and Agents Focused. Pane-local tab strips and their controls are unaffected. The preference is stored
+as `muxy.showTopBarActions` in `settings.json` and defaults to on.
+
 ## Project search
 
 In the Project Focused layout, turn on **Settings → Interface → Sidebar → Always Show Project Search** to keep the

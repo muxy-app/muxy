@@ -133,6 +133,19 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func topbarActionsSettingIsRegisteredAndSearchable() {
+        let item = SettingsCatalog.items.first { $0.key == TopbarPreferences.actionsVisibleKey }
+
+        #expect(item?.category == .appearance)
+        #expect(item?.section == "Interface")
+        #expect(item?.defaultValue as? Bool == TopbarPreferences.defaultActionsVisible)
+        #expect(SettingsCatalog.matchingItems(query: "hide top bar icons").contains {
+            $0.key == TopbarPreferences.actionsVisibleKey
+        })
+        #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == TopbarPreferences.actionsVisibleKey })
+    }
+
+    @Test
     func matchCountSummaryIsOmittedWithoutQuery() {
         #expect(SettingsCatalog.matchCountSummary(for: .general, query: "") == nil)
         #expect(SettingsCatalog.matchCountSummary(for: .general, query: "   ") == nil)

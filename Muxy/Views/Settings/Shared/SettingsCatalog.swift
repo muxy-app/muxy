@@ -392,6 +392,15 @@ enum SettingsCatalog {
             aliases: ["tabs", "tab width", "full-width"]
         ),
         SettingsCatalogItem(
+            key: TopbarPreferences.actionsVisibleKey,
+            title: "Show Top Bar Actions",
+            description: "Shows or hides the window-level controls on the right side of the top bar.",
+            category: .appearance,
+            section: "Interface",
+            defaultValue: TopbarPreferences.defaultActionsVisible,
+            aliases: ["topbar", "title bar", "tab strip controls", "hide top bar icons"]
+        ),
+        SettingsCatalogItem(
             key: "muxy.showStatusBar",
             title: "Show Status Bar",
             description: "Shows or hides the status bar.",

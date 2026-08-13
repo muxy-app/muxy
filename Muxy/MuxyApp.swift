@@ -423,7 +423,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         SentryService.shared.start()
         NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate()
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+        }
         setAppIcon()
         _ = GhosttyService.shared
         GhosttyService.shared.applyInitialColorScheme()
