@@ -62,6 +62,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/tabType" }
         },
+        "homeViews": {
+          "type": "array",
+          "description": "Global full-window extension views shown outside project tab restoration.",
+          "items": { "$ref": "#/$defs/homeView" }
+        },
         "fileOpeners": {
           "type": "array",
           "description": "File openers this extension contributes. Muxy passes filePath plus optional line/column data to the referenced tabType when a terminal link opens a project file.",
@@ -197,6 +202,18 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "title": { "type": "string" },
+        "entry": { "type": "string", "minLength": 1 },
+        "defaultData": {}
+      }
+    },
+    "homeView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "entry"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "icon": { "$ref": "#/$defs/icon" },
         "entry": { "type": "string", "minLength": 1 },
         "defaultData": {}
       }

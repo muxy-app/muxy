@@ -284,6 +284,14 @@ struct ExtensionSidebar: Codable, Equatable, Identifiable {
     }
 }
 
+struct ExtensionHomeView: Codable, Equatable, Identifiable {
+    let id: String
+    let title: String
+    let icon: ExtensionIcon?
+    let entry: String
+    let defaultData: ExtensionJSON?
+}
+
 enum ExtensionIcon: Codable, Equatable {
     case symbol(String)
     case svg(String)
@@ -667,6 +675,7 @@ struct ExtensionManifest: Codable, Equatable {
     let events: [String]
     let commands: [ExtensionPaletteCommand]
     let tabTypes: [ExtensionTabType]
+    let homeViews: [ExtensionHomeView]
     let panels: [ExtensionPanel]
     let popovers: [ExtensionPopover]
     let sidebar: ExtensionSidebar?
@@ -686,6 +695,7 @@ struct ExtensionManifest: Codable, Equatable {
         case events
         case commands
         case tabTypes
+        case homeViews
         case panels
         case popovers
         case sidebar
@@ -706,6 +716,7 @@ struct ExtensionManifest: Codable, Equatable {
         events: [String] = [],
         commands: [ExtensionPaletteCommand] = [],
         tabTypes: [ExtensionTabType] = [],
+        homeViews: [ExtensionHomeView] = [],
         panels: [ExtensionPanel] = [],
         popovers: [ExtensionPopover] = [],
         sidebar: ExtensionSidebar? = nil,
@@ -724,6 +735,7 @@ struct ExtensionManifest: Codable, Equatable {
         self.events = events
         self.commands = commands
         self.tabTypes = tabTypes
+        self.homeViews = homeViews
         self.panels = panels
         self.popovers = popovers
         self.sidebar = sidebar
@@ -745,6 +757,7 @@ struct ExtensionManifest: Codable, Equatable {
         events = try container.decodeIfPresent([String].self, forKey: .events) ?? []
         commands = try container.decodeIfPresent([ExtensionPaletteCommand].self, forKey: .commands) ?? []
         tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
+        homeViews = try container.decodeIfPresent([ExtensionHomeView].self, forKey: .homeViews) ?? []
         panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
         popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
         sidebar = try container.decodeIfPresent(ExtensionSidebar.self, forKey: .sidebar)
@@ -766,6 +779,7 @@ struct ExtensionManifest: Codable, Equatable {
         events = muxy.events
         commands = muxy.commands
         tabTypes = muxy.tabTypes
+        homeViews = muxy.homeViews
         panels = muxy.panels
         popovers = muxy.popovers
         sidebar = muxy.sidebar
@@ -780,6 +794,10 @@ struct ExtensionManifest: Codable, Equatable {
 
     func tabType(id: String) -> ExtensionTabType? {
         tabTypes.first { $0.id == id }
+    }
+
+    func homeView(id: String) -> ExtensionHomeView? {
+        homeViews.first { $0.id == id }
     }
 
     func panel(id: String) -> ExtensionPanel? {
@@ -833,6 +851,7 @@ struct MuxyManifestBody: Codable, Equatable {
     let events: [String]
     let commands: [ExtensionPaletteCommand]
     let tabTypes: [ExtensionTabType]
+    let homeViews: [ExtensionHomeView]
     let panels: [ExtensionPanel]
     let popovers: [ExtensionPopover]
     let sidebar: ExtensionSidebar?
@@ -850,6 +869,7 @@ struct MuxyManifestBody: Codable, Equatable {
         case events
         case commands
         case tabTypes
+        case homeViews
         case panels
         case popovers
         case sidebar
@@ -869,6 +889,7 @@ struct MuxyManifestBody: Codable, Equatable {
         events = try container.decodeIfPresent([String].self, forKey: .events) ?? []
         commands = try container.decodeIfPresent([ExtensionPaletteCommand].self, forKey: .commands) ?? []
         tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
+        homeViews = try container.decodeIfPresent([ExtensionHomeView].self, forKey: .homeViews) ?? []
         panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
         popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
         sidebar = try container.decodeIfPresent(ExtensionSidebar.self, forKey: .sidebar)
@@ -893,6 +914,14 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case tabTypeEntryMissing(tabTypeID: String, url: URL)
     case tabTypeEntryOutsideDirectory(tabTypeID: String, url: URL)
     case duplicateTabType(String)
+    case homeViewEmptyID
+    case homeViewEmptyTitle(homeViewID: String)
+    case homeViewEntryEmpty(homeViewID: String)
+    case homeViewEntryMissing(homeViewID: String, url: URL)
+    case homeViewEntryOutsideDirectory(homeViewID: String, url: URL)
+    case homeViewSVGMissing(homeViewID: String, url: URL)
+    case homeViewSVGOutsideDirectory(homeViewID: String, url: URL)
+    case duplicateHomeView(String)
     case panelEntryMissing(panelID: String, url: URL)
     case panelEntryOutsideDirectory(panelID: String, url: URL)
     case duplicatePanel(String)
@@ -974,6 +1003,22 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Tab type '\(tabTypeID)' entry at \(url.path) escapes the extension directory"
         case let .duplicateTabType(id):
             "Duplicate tab type '\(id)'"
+        case .homeViewEmptyID:
+            "Home view id must not be empty"
+        case let .homeViewEmptyTitle(homeViewID):
+            "Home view '\(homeViewID)' title must not be empty"
+        case let .homeViewEntryEmpty(homeViewID):
+            "Home view '\(homeViewID)' entry must not be empty"
+        case let .homeViewEntryMissing(homeViewID, url):
+            "Home view '\(homeViewID)' entry not found at \(url.path)"
+        case let .homeViewEntryOutsideDirectory(homeViewID, url):
+            "Home view '\(homeViewID)' entry at \(url.path) escapes the extension directory"
+        case let .homeViewSVGMissing(homeViewID, url):
+            "Home view '\(homeViewID)' icon SVG not found at \(url.path)"
+        case let .homeViewSVGOutsideDirectory(homeViewID, url):
+            "Home view '\(homeViewID)' icon SVG at \(url.path) escapes the extension directory"
+        case let .duplicateHomeView(id):
+            "Duplicate home view '\(id)'"
         case let .panelEntryMissing(panelID, url):
             "Panel '\(panelID)' entry not found at \(url.path)"
         case let .panelEntryOutsideDirectory(panelID, url):
@@ -1171,6 +1216,7 @@ enum ExtensionManifestLoader {
         }
 
         try validateTabTypes(manifest: manifest, in: muxyExtension)
+        try validateHomeViews(manifest: manifest, in: muxyExtension)
         try validateFileOpeners(manifest: manifest)
         try validateLocalizations(manifest: manifest, in: muxyExtension)
         try validatePanels(manifest: manifest, in: muxyExtension)
@@ -1236,6 +1282,39 @@ enum ExtensionManifestLoader {
             }
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw ExtensionLoadError.tabTypeEntryMissing(tabTypeID: tabType.id, url: url)
+            }
+        }
+    }
+
+    private static func validateHomeViews(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
+        var seen = Set<String>()
+        for homeView in manifest.homeViews {
+            guard !homeView.id.isEmpty else { throw ExtensionLoadError.homeViewEmptyID }
+            guard seen.insert(homeView.id).inserted else {
+                throw ExtensionLoadError.duplicateHomeView(homeView.id)
+            }
+            guard !homeView.title.isEmpty else {
+                throw ExtensionLoadError.homeViewEmptyTitle(homeViewID: homeView.id)
+            }
+            guard !homeView.entry.isEmpty else {
+                throw ExtensionLoadError.homeViewEntryEmpty(homeViewID: homeView.id)
+            }
+            guard let url = muxyExtension.resolveResource(homeView.entry) else {
+                throw ExtensionLoadError.homeViewEntryOutsideDirectory(
+                    homeViewID: homeView.id,
+                    url: muxyExtension.directory.appendingPathComponent(homeView.entry)
+                )
+            }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw ExtensionLoadError.homeViewEntryMissing(homeViewID: homeView.id, url: url)
+            }
+            if let icon = homeView.icon {
+                try validateIcon(
+                    icon,
+                    in: muxyExtension,
+                    missing: { ExtensionLoadError.homeViewSVGMissing(homeViewID: homeView.id, url: $0) },
+                    outside: { ExtensionLoadError.homeViewSVGOutsideDirectory(homeViewID: homeView.id, url: $0) }
+                )
             }
         }
     }
