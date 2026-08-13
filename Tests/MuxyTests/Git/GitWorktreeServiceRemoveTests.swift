@@ -73,6 +73,24 @@ struct GitWorktreeServiceRemoveTests {
         #expect(records.contains { GitWorktreeService.canonicalPath($0.path) == target })
     }
 
+    @Test("rejects a directory that is not a registered worktree")
+    func rejectsUnregisteredDirectory() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let directory = repo.siblingPath("not-a-worktree")
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+
+        await #expect(throws: Error.self) {
+            try await GitWorktreeService.shared.removeWorktree(
+                repoPath: repo.path,
+                path: directory,
+                force: true
+            )
+        }
+
+        #expect(FileManager.default.fileExists(atPath: directory))
+    }
+
     @Test("cleanupOnDisk removes the worktree but keeps its branch")
     func cleanupKeepsBranch() async throws {
         let repo = try TempGitRepo()
@@ -89,11 +107,110 @@ struct GitWorktreeServiceRemoveTests {
         )
 
         let worktree = Worktree(name: "keep-branch-wt", path: worktreePath, branch: "feature", isPrimary: false)
-        try await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: repo.path)
+        let dirRemoved = try await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: repo.path)
 
         let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
         #expect(!records.contains { $0.path == worktreePath })
         #expect(repo.branchExists("feature"))
+        #expect(dirRemoved == true)
+    }
+
+    @Test("cleanupOnDisk without force preserves a dirty worktree")
+    func cleanupWithoutForcePreservesDirtyWorktree() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("dirty-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "dirty-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        try "dirty".write(
+            toFile: URL(fileURLWithPath: worktreePath).appendingPathComponent("a.txt").path,
+            atomically: true,
+            encoding: .utf8
+        )
+        let worktree = Worktree(name: "dirty-wt", path: worktreePath, branch: "dirty-feature", isPrimary: false)
+
+        await #expect(throws: Error.self) {
+            try await WorktreeStore.cleanupOnDisk(
+                worktree: worktree,
+                repoPath: repo.path,
+                force: false
+            )
+        }
+
+        #expect(FileManager.default.fileExists(atPath: worktreePath))
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        let target = GitWorktreeService.canonicalPath(worktreePath)
+        #expect(records.contains { GitWorktreeService.canonicalPath($0.path) == target })
+    }
+
+    @Test("uncommitted change inspection surfaces git failures")
+    func uncommittedChangeInspectionSurfacesGitFailures() async {
+        await #expect(throws: Error.self) {
+            try await GitWorktreeService.shared.uncommittedChanges(
+                worktreePath: "/tmp/muxy-missing-worktree-\(UUID().uuidString)"
+            )
+        }
+    }
+
+    @Test("a timeout after git deregisters the worktree is reconciled as success")
+    func reconcilesTimeoutAfterDeregistration() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("timeout-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "timeout-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+
+        try await GitWorktreeService.shared.removeWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            force: true,
+            removalRunner: { repoPath, arguments, context, timeout in
+                _ = try await GitProcessRunner.runGit(
+                    repoPath: repoPath,
+                    arguments: arguments,
+                    context: context,
+                    timeout: timeout
+                )
+                throw GitProcessError.timedOut(timeout)
+            }
+        )
+
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        let target = GitWorktreeService.canonicalPath(worktreePath)
+        #expect(!records.contains { GitWorktreeService.canonicalPath($0.path) == target })
+    }
+
+    @Test("remote worktree paths expand home and resolve relative to the repository")
+    func expandsRemoteWorktreePaths() {
+        #expect(GitWorktreeService.expandedRemotePath(
+            "~/app-feature",
+            repoPath: "~/app",
+            homePath: "/home/test"
+        ) == "/home/test/app-feature")
+        #expect(GitWorktreeService.expandedRemotePath(
+            "../app-feature",
+            repoPath: "/srv/repos/app",
+            homePath: "/home/test"
+        ) == "/srv/repos/app-feature")
+        #expect(GitWorktreeService.expandedRemotePath(
+            "/srv/repos/app-feature",
+            repoPath: "/srv/repos/app",
+            homePath: "/home/test"
+        ) == "/srv/repos/app-feature")
     }
 
     @Test("heals an orphaned worktree referenced through a symlinked parent")
@@ -118,6 +235,29 @@ struct GitWorktreeServiceRemoveTests {
 
         let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
         #expect(!records.contains { GitWorktreeService.canonicalPath($0.path) == GitWorktreeService.canonicalPath(worktreePath) })
+    }
+
+    @Test("local presence checks include dangling symlinks")
+    func localPresenceIncludesDanglingSymlinks() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-presence-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let link = root.appendingPathComponent("dangling")
+        try FileManager.default.createSymbolicLink(
+            at: link,
+            withDestinationURL: root.appendingPathComponent("missing")
+        )
+
+        #expect(await LocalFileOps().exists(at: link.path))
+        #expect(try await LocalFileOps().exists(at: link.path, timeout: 1))
+        #expect(try await !LocalFileOps().exists(at: root.appendingPathComponent("absent").path, timeout: 1))
+
+        let restricted = root.appendingPathComponent("restricted", isDirectory: true)
+        try FileManager.default.createDirectory(at: restricted, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: restricted.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: restricted.path) }
+        #expect(try await LocalFileOps().exists(at: restricted.appendingPathComponent("unknown").path, timeout: 1))
     }
 }
 

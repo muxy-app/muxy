@@ -138,6 +138,42 @@ struct RepositoryAIActionsServiceTests {
         ])
     }
 
+    @Test("commit creates and pushes the initial branch commit through real Git")
+    func commitWorkflowCreatesInitialCommitWithoutHistory() async throws {
+        let repo = try InitialCommitGitRepository()
+        defer { repo.cleanup() }
+        let remotePath = try repo.createBareRemote()
+        try repo.run("remote", "add", "origin", remotePath)
+        try repo.write(file: "README.md", contents: "# Muxy\n")
+
+        let recorder = RepositoryActionPromptRecorder(response: #"{"message":"docs: add project readme"}"#)
+        let service = makeService(recorder: recorder)
+
+        let outcome = try await service.performCommit(
+            context: RepositoryAIActionsService.Context(
+                repositoryID: "repository",
+                path: repo.path,
+                workspaceContext: .local,
+                expectedBranch: "main",
+                hasUpstream: false
+            ),
+            provider: RepositoryActionProvider(id: "claude"),
+            instructions: "",
+            git: GitRepositoryService()
+        )
+
+        let localSHA = try repo.runCapturing("rev-parse", "HEAD")
+        #expect(outcome == .committed(try repo.runCapturing("rev-parse", "--short", "HEAD")))
+        #expect(try repo.runCapturing("log", "-1", "--format=%s") == "docs: add project readme")
+        #expect(try repo.runCapturing("config", "--get", "branch.main.remote") == "origin")
+        #expect(try repo.runCapturing("config", "--get", "branch.main.merge") == "refs/heads/main")
+        #expect(try repo.remoteBranchSHA(remotePath, branch: "main") == localSHA)
+        let prompt = try #require(await recorder.recordedPrompt())
+        #expect(prompt.contains("\"recentCommitSubjects\":[]"))
+        #expect(prompt.contains("diff --git"))
+        #expect(prompt.contains("README.md"))
+    }
+
     @Test("create PR uses AI metadata and native branch, commit, push, and PR operations")
     func pullRequestWorkflow() async throws {
         let git = RepositoryActionGitMock(
@@ -511,4 +547,77 @@ private actor RepositoryActionGitMock: RepositoryAIGitOperating {
         operations
     }
 
+}
+
+private struct InitialCommitGitRepository {
+    let path: String
+    private let parent: String
+
+    init() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-ai-commit-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        parent = base.path
+        path = base.appendingPathComponent("repo", isDirectory: true).path
+        try Self.runGit(at: parent, arguments: ["init", "-q", "-b", "main", path])
+        let hooksPath = base.appendingPathComponent("hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: hooksPath, withIntermediateDirectories: true)
+        try run("config", "core.hooksPath", hooksPath.path)
+        try run("config", "user.email", "test@example.com")
+        try run("config", "user.name", "Test")
+        try run("config", "commit.gpgsign", "false")
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(atPath: parent)
+    }
+
+    func createBareRemote() throws -> String {
+        let remotePath = URL(fileURLWithPath: parent).appendingPathComponent("origin.git").path
+        try Self.runGit(at: parent, arguments: ["init", "-q", "--bare", "-b", "main", remotePath])
+        return remotePath
+    }
+
+    func write(file: String, contents: String) throws {
+        try contents.write(
+            to: URL(fileURLWithPath: path).appendingPathComponent(file),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    func run(_ arguments: String...) throws {
+        _ = try Self.runGit(at: path, arguments: arguments)
+    }
+
+    func runCapturing(_ arguments: String...) throws -> String {
+        try Self.runGit(at: path, arguments: arguments)
+    }
+
+    func remoteBranchSHA(_ remotePath: String, branch: String) throws -> String {
+        let output = try Self.runGit(at: path, arguments: ["ls-remote", remotePath, "refs/heads/\(branch)"])
+        return try #require(output.split(separator: "\t").first.map(String.init))
+    }
+
+    @discardableResult
+    private static func runGit(at workingDirectory: String, arguments: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", workingDirectory] + arguments
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let result = String(data: data, encoding: .utf8) ?? ""
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "InitialCommitGitRepository",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: result]
+            )
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

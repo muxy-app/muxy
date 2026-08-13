@@ -2,17 +2,31 @@ import Darwin
 import Foundation
 
 final class CancellableProcess: @unchecked Sendable {
+    private static let controlQueue = DispatchQueue(
+        label: "app.muxy.cancellable-process-control",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
     private enum State: Equatable {
         case running
+        case exited
         case terminating
         case reaping
         case finished
+    }
+
+    private enum TerminationResult: Equatable {
+        case initiated
+        case reaped
+        case inactive
     }
 
     let processIdentifier: pid_t
     private let lock = NSLock()
     private let onTermination: @Sendable () -> Void
     private let monitoringQueue: DispatchQueue
+    private var deferReaping: Bool
     private var state = State.running
     private var status: Int32 = -1
     private var source: DispatchSourceProcess?
@@ -26,10 +40,12 @@ final class CancellableProcess: @unchecked Sendable {
     private init(
         processIdentifier: pid_t,
         monitoringQueue: DispatchQueue,
+        deferReaping: Bool,
         onTermination: @escaping @Sendable () -> Void
     ) {
         self.processIdentifier = processIdentifier
         self.monitoringQueue = monitoringQueue
+        self.deferReaping = deferReaping
         self.onTermination = onTermination
     }
 
@@ -39,6 +55,7 @@ final class CancellableProcess: @unchecked Sendable {
         stdoutPipe: Pipe,
         stderrPipe: Pipe,
         monitoringQueue: DispatchQueue = .global(qos: .userInitiated),
+        deferReaping: Bool = false,
         onTermination: @escaping @Sendable () -> Void
     ) throws -> CancellableProcess {
         guard let executable = configuredProcess.executableURL?.path else {
@@ -103,6 +120,7 @@ final class CancellableProcess: @unchecked Sendable {
         let process = CancellableProcess(
             processIdentifier: pid,
             monitoringQueue: monitoringQueue,
+            deferReaping: deferReaping,
             onTermination: onTermination
         )
         process.startMonitoring()
@@ -110,10 +128,40 @@ final class CancellableProcess: @unchecked Sendable {
     }
 
     func terminate() -> Bool {
+        switch requestTermination() {
+        case .initiated: true
+        case .reaped,
+             .inactive: false
+        }
+    }
+
+    func terminateProcessGroup() {
+        _ = requestTermination()
+    }
+
+    func releaseReaping() {
         lock.lock()
-        guard state == .running else {
+        deferReaping = false
+        guard state == .exited else {
             lock.unlock()
-            return false
+            return
+        }
+        state = .reaping
+        lock.unlock()
+        reapClaimedProcess()
+    }
+
+    private func requestTermination() -> TerminationResult {
+        lock.lock()
+        guard state == .running || state == .exited else {
+            lock.unlock()
+            return .inactive
+        }
+        if deferReaping {
+            state = .terminating
+            lock.unlock()
+            scheduleTermination()
+            return .initiated
         }
         var waitStatus: Int32 = 0
         var waitResult: pid_t
@@ -127,16 +175,20 @@ final class CancellableProcess: @unchecked Sendable {
             self.source = nil
             lock.unlock()
             source?.cancel()
-            DispatchQueue.global(qos: .userInitiated).async { [self] in
+            Self.controlQueue.async { [self] in
                 onTermination()
             }
-            return false
+            return .reaped
         }
         state = .terminating
         lock.unlock()
+        scheduleTermination()
+        return .initiated
+    }
+
+    private func scheduleTermination() {
         kill(-processIdentifier, SIGTERM)
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(200)) { [self] in
-            kill(-processIdentifier, SIGKILL)
+        Self.controlQueue.asyncAfter(deadline: .now() + .milliseconds(200)) { [self] in
             lock.lock()
             guard state == .terminating else {
                 lock.unlock()
@@ -144,9 +196,9 @@ final class CancellableProcess: @unchecked Sendable {
             }
             state = .reaping
             lock.unlock()
+            kill(-processIdentifier, SIGKILL)
             reapClaimedProcess()
         }
-        return true
     }
 
     private static func addPipeActions(
@@ -223,6 +275,14 @@ final class CancellableProcess: @unchecked Sendable {
             lock.unlock()
             return
         }
+        if deferReaping {
+            state = .exited
+            let source = self.source
+            self.source = nil
+            lock.unlock()
+            source?.cancel()
+            return
+        }
         state = .reaping
         lock.unlock()
         reapClaimedProcess()
@@ -278,14 +338,30 @@ private enum ProcessLaunchError: Error, LocalizedError {
 }
 
 final class OutputReader: @unchecked Sendable {
+    private enum CallbackEvent {
+        case data(Data)
+        case finish
+    }
+
     private let lock = NSLock()
     private let handle: FileHandle
     private let box: OutputBox
+    private let onData: (@Sendable (Data) -> Void)?
+    private let onFinish: (@Sendable () -> Void)?
     private var finished = false
+    private var callbackEvents: [CallbackEvent] = []
+    private var deliveringCallbacks = false
 
-    init(pipe: Pipe, box: OutputBox) {
+    init(
+        pipe: Pipe,
+        box: OutputBox,
+        onData: (@Sendable (Data) -> Void)? = nil,
+        onFinish: (@Sendable () -> Void)? = nil
+    ) {
         handle = pipe.fileHandleForReading
         self.box = box
+        self.onData = onData
+        self.onFinish = onFinish
     }
 
     func start() {
@@ -296,8 +372,10 @@ final class OutputReader: @unchecked Sendable {
 
     func finish() {
         lock.lock()
-        defer { lock.unlock() }
-        guard !finished else { return }
+        guard !finished else {
+            lock.unlock()
+            return
+        }
         finished = true
         handle.readabilityHandler = nil
 
@@ -312,7 +390,7 @@ final class OutputReader: @unchecked Sendable {
                 read(descriptor, bytes.baseAddress, bytes.count)
             }
             if bytesRead > 0 {
-                box.append(Data(buffer.prefix(Int(bytesRead))))
+                callbackEvents.append(.data(Data(buffer.prefix(Int(bytesRead)))))
                 continue
             }
             if bytesRead == -1, errno == EINTR {
@@ -321,20 +399,65 @@ final class OutputReader: @unchecked Sendable {
             break
         }
         try? handle.close()
+        callbackEvents.append(.finish)
+        let shouldDeliver = beginDeliveringCallbacks()
+        lock.unlock()
+        if shouldDeliver {
+            deliverCallbacks()
+        }
     }
 
     private func readAvailableData() {
         lock.lock()
-        defer { lock.unlock() }
-        guard !finished else { return }
+        guard !finished else {
+            lock.unlock()
+            return
+        }
         let data = handle.availableData
-        guard data.isEmpty else {
-            box.append(data)
+        if !data.isEmpty {
+            callbackEvents.append(.data(data))
+            let shouldDeliver = beginDeliveringCallbacks()
+            lock.unlock()
+            if shouldDeliver {
+                deliverCallbacks()
+            }
             return
         }
         finished = true
         handle.readabilityHandler = nil
         try? handle.close()
+        callbackEvents.append(.finish)
+        let shouldDeliver = beginDeliveringCallbacks()
+        lock.unlock()
+        if shouldDeliver {
+            deliverCallbacks()
+        }
+    }
+
+    private func beginDeliveringCallbacks() -> Bool {
+        guard !deliveringCallbacks else { return false }
+        deliveringCallbacks = true
+        return true
+    }
+
+    private func deliverCallbacks() {
+        while true {
+            lock.lock()
+            guard !callbackEvents.isEmpty else {
+                deliveringCallbacks = false
+                lock.unlock()
+                return
+            }
+            let event = callbackEvents.removeFirst()
+            lock.unlock()
+            switch event {
+            case let .data(data):
+                box.append(data)
+                onData?(data)
+            case .finish:
+                onFinish?()
+            }
+        }
     }
 }
 

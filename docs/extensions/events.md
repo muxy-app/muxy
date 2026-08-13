@@ -69,6 +69,7 @@ When an extension is reloaded or disabled, its subscriptions are dropped and re-
 | `project.switched` | `projectID` | `events: ["project.switched"]` |
 | `projects.changed` | _(none)_ | `events: ["projects.changed"]` + `projects:read` |
 | `worktree.switched` | `projectID`, `worktreeID` | `events: ["worktree.switched"]` |
+| `worktree.offline` | `projectID`, `worktreeID`, `worktreePath`, `offline` | `events: ["worktree.offline"]` |
 | `worktree.headChanged` | `projectID`, `worktreeID`, `branch`, `path` | `events: ["worktree.headChanged"]` + `worktrees:read` |
 | `notification.posted` | `paneID`, `projectID`, `worktreeID`, `worktreePath`, `tabID`, `source`, `title`, `body` | `events: ["notification.posted"]` |
 | `agent.status` | `worktreeID`, `projectID`, `paneID`, `providerID`, `status` | `events: ["agent.status"]` + `agents:read` |
@@ -77,6 +78,8 @@ When an extension is reloaded or disabled, its subscriptions are dropped and re-
 | `extension.<name>` | JSON payload from emitter | Auto-allowed same-extension local event |
 
 `panel.closed` / `panel.opened` also fire when Muxy tears down and restores panels on **project switch** (per-project session). Those closes are not user dismissals and cannot be vetoed — see [Panels — Per-project session](panels.md#per-project-session).
+
+`worktree.offline` aggregates terminal sleep state across one worktree, so an extension holding a worktree-scoped resource (a dev server, a container, a watcher) does not need to track panes itself. It fires with `offline: "true"` only when **every** terminal pane in the worktree is offline, and with `offline: "false"` again when any pane wakes, when a new terminal pane is created in that worktree, or when the worktree's last terminal pane closes. Those last two cases matter: a sleeping worktree that gains a live terminal — or loses its terminals entirely — is no longer asleep, so a paired `offline: "false"` always follows an `offline: "true"`. It carries `worktreePath` alongside the identifiers, so a `background.js` listener can act on the worktree directly — background scripts have no `muxy.worktrees.list()`.
 
 `projects.changed` fires whenever the project list changes — a project is added, renamed, recolored, re-iconed, reordered, or removed — whether the change came from Muxy's own UI or from an extension verb. It carries no payload; webviews can call [`muxy.projects.list()`](permissions.md) to refetch the current list, while background scripts should notify a webview through an `extension.*` event.
 

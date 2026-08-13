@@ -24,7 +24,7 @@ struct TerminalBackendTests {
         #expect(capabilities.contains(.clientTheme))
         #expect(capabilities.contains(.offlineLifecycle))
         #expect(capabilities.contains(.search))
-        #expect(capabilities.contains(.imagePaste))
+        #expect(capabilities.contains(.upload))
     }
 
     @MainActor

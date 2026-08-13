@@ -120,6 +120,86 @@ struct GitDiffParserTests {
         #expect(secondAddition.newLineNumber == 21)
     }
 
+    @Test("parseRows skips file headers in a combined staged+unstaged diff")
+    func parseRowsCombinedStagedAndUnstagedSkipsFileHeaders() {
+        let patch = """
+        diff --git a/f.swift b/f.swift
+        index 5fcb7b1..b3f861e 100644
+        --- a/f.swift
+        +++ b/f.swift
+        @@ -1,5 +1,5 @@
+         line1
+        -line2
+        +STAGED
+         line3
+         line4
+         line5
+        diff --git a/f.swift b/f.swift
+        index b3f861e..d0d1742 100644
+        --- a/f.swift
+        +++ b/f.swift
+        @@ -2,5 +2,5 @@ line1
+         STAGED
+         line3
+         line4
+        -line5
+        +UNSTAGED
+         line6
+        """
+        let result = GitDiffParser.parseRows(patch)
+
+        #expect(result.additions == 2)
+        #expect(result.deletions == 2)
+
+        let leakedHeaders = result.rows.filter { row in
+            (row.kind == .deletion && row.text.hasPrefix("--- a/"))
+                || (row.kind == .addition && row.text.hasPrefix("+++ b/"))
+        }
+        #expect(leakedHeaders.isEmpty)
+
+        let addedTexts = result.rows.filter { $0.kind == .addition }.compactMap { $0.newText }
+        #expect(addedTexts == ["STAGED", "UNSTAGED"])
+
+        let deletedTexts = result.rows.filter { $0.kind == .deletion }.compactMap { $0.oldText }
+        #expect(deletedTexts == ["line2", "line5"])
+    }
+
+    @Test("parseRows skips file headers in a multi-file diff")
+    func parseRowsMultiFileDiffSkipsFileHeaders() {
+        let patch = """
+        diff --git a/alpha.swift b/alpha.swift
+        index 111..222 100644
+        --- a/alpha.swift
+        +++ b/alpha.swift
+        @@ -1,1 +1,1 @@
+        -oldAlpha
+        +newAlpha
+        diff --git a/beta.swift b/beta.swift
+        index 333..444 100644
+        --- a/beta.swift
+        +++ b/beta.swift
+        @@ -1,1 +1,1 @@
+        -oldBeta
+        +newBeta
+        """
+        let result = GitDiffParser.parseRows(patch)
+
+        #expect(result.additions == 2)
+        #expect(result.deletions == 2)
+
+        let leakedHeaders = result.rows.filter { row in
+            (row.kind == .deletion && row.text.hasPrefix("--- a/"))
+                || (row.kind == .addition && row.text.hasPrefix("+++ b/"))
+        }
+        #expect(leakedHeaders.isEmpty)
+
+        let addedTexts = result.rows.filter { $0.kind == .addition }.compactMap { $0.newText }
+        #expect(addedTexts == ["newAlpha", "newBeta"])
+
+        let deletedTexts = result.rows.filter { $0.kind == .deletion }.compactMap { $0.oldText }
+        #expect(deletedTexts == ["oldAlpha", "oldBeta"])
+    }
+
     @Test("parseRows captures text content correctly")
     func parseRowsTextContent() {
         let patch = """

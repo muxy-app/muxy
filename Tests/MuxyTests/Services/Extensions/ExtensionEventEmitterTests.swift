@@ -26,6 +26,19 @@ struct ExtensionEventEmitterTests {
         #expect(context?.projectPath == "/tmp/project")
     }
 
+    @Test("pane snapshot keeps the worktree root separate from its launch directory")
+    func paneSnapshotSeparatesWorktreeAndLaunchPaths() throws {
+        let appState = makeAppState()
+        let area = firstArea(in: appState)
+        let tabID = area.createTab(inDirectory: "/tmp/project/packages/app")
+        let paneID = try #require(area.tabs.first(where: { $0.id == tabID })?.content.pane?.id)
+
+        let snapshot = ExtensionEventEmitter.snapshot(from: appState)
+
+        #expect(snapshot.paneContext[paneID]?.projectPath == "/tmp/project/packages/app")
+        #expect(snapshot.worktreePathByPaneID[paneID] == "/tmp/project")
+    }
+
     @Test("changing title or cwd marks the tab context dirty")
     func updatedTabContextDetectsChange() {
         let appState = makeAppState()
@@ -80,6 +93,32 @@ struct ExtensionEventEmitterTests {
         #expect(after.tabContext[tabID] == nil)
         #expect(before.tabs.contains(tabID))
         #expect(!after.tabs.contains(tabID))
+    }
+
+    @Test("worktree offline event carries the worktree location and state")
+    func worktreeOfflineEventCarriesLocationAndState() {
+        let worktreeKey = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+
+        let offlineEvent = ExtensionEventEmitter.worktreeOfflineEvent(
+            worktreeKey: worktreeKey,
+            worktreePath: "/tmp/project",
+            offline: true
+        )
+        let wakeEvent = ExtensionEventEmitter.worktreeOfflineEvent(
+            worktreeKey: worktreeKey,
+            worktreePath: "/tmp/project",
+            offline: false
+        )
+
+        #expect(offlineEvent.name == ExtensionEventName.worktreeOffline)
+        #expect(offlineEvent.payload == [
+            "projectID": projectID.uuidString,
+            "worktreeID": worktreeID.uuidString,
+            "worktreePath": "/tmp/project",
+            "offline": "true",
+        ])
+        #expect(wakeEvent.name == ExtensionEventName.worktreeOffline)
+        #expect(wakeEvent.payload["offline"] == "false")
     }
 
     private func makeAppState() -> AppState {

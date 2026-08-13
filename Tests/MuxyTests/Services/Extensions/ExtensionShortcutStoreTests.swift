@@ -256,6 +256,13 @@ struct KeyComboParsingTests {
         #expect(KeyCombo(parsing: "cmd+return") == KeyCombo(key: KeyCombo.returnKey, command: true))
     }
 
+    @Test("parses the minus key as a literal key instead of a separator")
+    func parsesMinusKey() {
+        #expect(KeyCombo(parsing: "cmd+-") == KeyCombo(key: "-", command: true))
+        #expect(KeyCombo(parsing: "cmd+shift+-") == KeyCombo(key: "-", command: true, shift: true))
+        #expect(KeyCombo(parsing: "ctrl+-") == KeyCombo(key: "-", control: true))
+    }
+
     @Test("rejects combos without a command, control, or option modifier")
     func rejectsModifierlessCombos() {
         #expect(KeyCombo(parsing: "e") == nil)
@@ -272,7 +279,7 @@ struct KeyComboParsingTests {
 
     @Test("tokenString round-trips through parsing")
     func tokenStringRoundTrips() {
-        for combo in ["cmd+b", "cmd+shift+e", "ctrl+opt+k", "cmd+return", "cmd+left"] {
+        for combo in ["cmd+b", "cmd+shift+e", "ctrl+opt+k", "cmd+return", "cmd+left", "cmd+c", "cmd+-"] {
             let parsed = KeyCombo(parsing: combo)
             #expect(parsed != nil)
             #expect(KeyCombo(parsing: parsed?.tokenString ?? "") == parsed)

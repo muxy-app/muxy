@@ -17,7 +17,7 @@ Lightweight terminal that has a rich API for extensions
 
 ## Screenshots
 
-<img width="3004" alt="image" src="https://github.com/user-attachments/assets/f1fa0f64-e483-4277-b22a-7fb29eaf985d" />
+<img width="3004" alt="image" src="https://github.com/user-attachments/assets/a380c2e6-107a-475b-9d99-fbc06d786df4" />
 
 ## Features
 

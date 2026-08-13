@@ -30,6 +30,7 @@ enum ExtensionEventEmitter {
         let activeTabIDPerArea: [UUID: UUID]
         let tabContext: [UUID: TabContext]
         let paneContext: [UUID: TabContext]
+        let worktreePathByPaneID: [UUID: String]
     }
 
     static func snapshot(from appState: AppState) -> WorkspaceSnapshot {
@@ -38,6 +39,7 @@ enum ExtensionEventEmitter {
         var activeTabs: [UUID: UUID] = [:]
         var tabContext: [UUID: TabContext] = [:]
         var paneContext: [UUID: TabContext] = [:]
+        var worktreePathByPaneID: [UUID: String] = [:]
         for (key, root) in appState.workspaceRoots {
             for area in root.allAreas() {
                 if let activeTabID = area.activeTabID {
@@ -50,6 +52,7 @@ enum ExtensionEventEmitter {
                     if let pane = tab.content.pane {
                         panes.insert(pane.id)
                         paneContext[pane.id] = context
+                        worktreePathByPaneID[pane.id] = area.projectPath
                     }
                 }
             }
@@ -62,7 +65,8 @@ enum ExtensionEventEmitter {
             focusedAreaID: appState.focusedAreaID,
             activeTabIDPerArea: activeTabs,
             tabContext: tabContext,
-            paneContext: paneContext
+            paneContext: paneContext,
+            worktreePathByPaneID: worktreePathByPaneID
         )
     }
 
@@ -73,6 +77,30 @@ enum ExtensionEventEmitter {
             name: ExtensionEventName.tabUpdated,
             payload: payload(from: context)
         ))
+    }
+
+    static func emitWorktreeOffline(worktreeKey: WorktreeKey, worktreePath: String, offline: Bool) {
+        NotificationSocketServer.shared.broadcast(event: worktreeOfflineEvent(
+            worktreeKey: worktreeKey,
+            worktreePath: worktreePath,
+            offline: offline
+        ))
+    }
+
+    static func worktreeOfflineEvent(
+        worktreeKey: WorktreeKey,
+        worktreePath: String,
+        offline: Bool
+    ) -> ExtensionEvent {
+        ExtensionEvent(
+            name: ExtensionEventName.worktreeOffline,
+            payload: [
+                "projectID": worktreeKey.projectID.uuidString,
+                "worktreeID": worktreeKey.worktreeID.uuidString,
+                "worktreePath": worktreePath,
+                "offline": offline ? "true" : "false",
+            ]
+        )
     }
 
     private static func context(for tab: TerminalTab, areaID: UUID, key: WorktreeKey) -> TabContext {
@@ -140,12 +168,25 @@ enum ExtensionEventEmitter {
         let server = NotificationSocketServer.shared
 
         for paneID in after.panes.subtracting(before.panes) {
+            let context = after.paneContext[paneID]
+            if let context, let worktreePath = after.worktreePathByPaneID[paneID] {
+                TerminalOfflineStore.shared.addPane(
+                    paneID,
+                    worktreeKey: WorktreeKey(
+                        projectID: context.projectID,
+                        worktreeID: context.worktreeID
+                    ),
+                    worktreePath: worktreePath
+                )
+            }
             server.broadcast(event: ExtensionEvent(
                 name: ExtensionEventName.paneCreated,
-                payload: paneEventPayload(paneID: paneID, context: after.paneContext[paneID])
+                payload: paneEventPayload(paneID: paneID, context: context)
             ))
         }
-        for paneID in before.panes.subtracting(after.panes) {
+        let removedPaneIDs = before.panes.subtracting(after.panes)
+        TerminalOfflineStore.shared.removePanes(removedPaneIDs)
+        for paneID in removedPaneIDs {
             AgentStatusStore.shared.removePane(paneID)
             server.broadcast(event: ExtensionEvent(
                 name: ExtensionEventName.paneClosed,

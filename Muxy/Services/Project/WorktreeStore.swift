@@ -372,37 +372,51 @@ final class WorktreeStore {
         return try await GitWorktreeService.shared.listWorktrees(repoPath: project.path, context: context)
     }
 
+    @discardableResult
     static func cleanupOnDisk(
         worktree: Worktree,
         repoPath: String,
         context: WorkspaceContext = .local,
+        force: Bool = true,
+        timeout: TimeInterval = GitWorktreeService.defaultWorktreeRemovalTimeout,
         teardownEmit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in }
-    ) async throws {
-        guard worktree.canBeRemoved else { return }
+    ) async throws -> Bool? {
+        guard worktree.canBeRemoved else { return await !(context.fileOps.exists(at: worktree.path)) }
+        let deadline = OperationDeadline(timeout: timeout)
         if !context.isRemote {
             try await WorktreeTeardownRunner.run(
                 sourceProjectPath: repoPath,
                 worktree: worktree,
+                timeout: deadline.remaining(),
                 emit: teardownEmit
             )
         }
         try await GitWorktreeService.shared.removeWorktree(
             repoPath: repoPath,
             path: worktree.path,
-            force: true,
-            context: context
+            force: force,
+            context: context,
+            timeout: deadline.remaining()
         )
 
-        try? await context.fileOps.removeItem(at: worktree.path)
-        guard !context.isRemote, !worktree.isExternallyManaged else { return }
-        removeParentDirectoryIfEmpty(for: worktree.path)
+        let directoryRemoved = await (try? context.fileOps.exists(
+            at: worktree.path,
+            timeout: deadline.remaining()
+        )).map { !$0 }
+        guard directoryRemoved == true, !context.isRemote, !worktree.isExternallyManaged else {
+            return directoryRemoved
+        }
+        await removeParentDirectoryIfEmpty(for: worktree.path)
+        return true
     }
 
-    private static func removeParentDirectoryIfEmpty(for path: String) {
-        let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
-        let children = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
-        guard children.isEmpty else { return }
-        try? FileManager.default.removeItem(at: parent)
+    nonisolated private static func removeParentDirectoryIfEmpty(for path: String) async {
+        await GitProcessRunner.offMain {
+            let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
+            let children = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
+            guard children.isEmpty else { return }
+            try? FileManager.default.removeItem(at: parent)
+        }
     }
 
     static func cleanupOnDisk(

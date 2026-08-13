@@ -401,6 +401,14 @@ extension BrowserWebView.Coordinator: WKNavigationDelegate, WKUIDelegate {
         return nil
     }
 
+    func webViewDidClose(_: WKWebView) {
+        guard let state,
+              let appState,
+              let location = appState.locateTab(forBrowserState: state.id)
+        else { return }
+        appState.closeTab(location.tab.id, areaID: location.areaID, key: location.worktreeKey)
+    }
+
     private func isHandoffScheme(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return false }
         return !["file", "javascript", "data"].contains(scheme)

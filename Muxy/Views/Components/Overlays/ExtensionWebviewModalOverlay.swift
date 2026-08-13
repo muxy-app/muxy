@@ -23,8 +23,7 @@ struct ExtensionWebviewModalOverlay: View {
 
             OverlayPanel(
                 width: UIMetrics.scaled(request.width),
-                height: UIMetrics.scaled(request.height),
-                verticalAlignment: .center
+                height: UIMetrics.scaled(request.height)
             ) {
                 content
             }

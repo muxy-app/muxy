@@ -4,7 +4,7 @@ Muxy's terminals are powered by [libghostty](https://github.com/ghostty-org/ghos
 
 ## Backend architecture
 
-Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote control, quick terminal creation, search, rich input, process detection, and offline lifecycle depend on Muxy's backend-neutral terminal surface contract. Optional integrations use dedicated capability protocols, so unsupported search, remote snapshots, client themes, offline lifecycle, raw output, and image paste behavior is never invoked. Image attachments fall back to escaped file paths when a backend does not support clipboard image paste. Ghostty-specific handles and callbacks stay inside the Ghostty implementation boundary. There is no user-facing backend selector until another implementation satisfies the capabilities required by these integrations.
+Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote control, quick terminal creation, search, rich input, process detection, and offline lifecycle depend on Muxy's backend-neutral terminal surface contract. Optional integrations use dedicated capability protocols, so unsupported search, remote snapshots, client themes, offline lifecycle, raw output, and attachment upload behavior is never invoked. Image and file attachments fall back to escaped local file paths when a backend does not support attachment uploads. Ghostty-specific handles and callbacks stay inside the Ghostty implementation boundary. There is no user-facing backend selector until another implementation satisfies the capabilities required by these integrations.
 
 ## Background sessions
 
@@ -12,7 +12,7 @@ Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote contr
 
 libghostty owns the PTY of every surface it creates and offers no way to hand a surface an existing PTY, so a background terminal cannot simply be adopted. Muxy uses the same split tmux does. A `muxy-session` daemon owns the real PTY of every background session and lives in its own session (`setsid`), which is what lets it outlive the app. The surface runs `muxy-session attach`, a small client that proxies bytes, window size, and the final exit status over a unix socket. Quitting Muxy kills the clients and leaves the daemon and its shells running.
 
-Each pane carries a session ID that defaults to its own pane ID and is persisted in workspace snapshots, so reopening Muxy reattaches each restored pane to its own session. Because the two IDs are separate, a pane can also adopt a session that started somewhere else. On reattach the daemon replays a capped 256 KB buffer of recent output and sends `SIGWINCH` to the foreground process group so full-screen programs repaint. The daemon exits on its own once it has been idle with no sessions.
+Each pane carries a session ID that defaults to its own pane ID and is persisted in workspace snapshots, so reopening Muxy reattaches each restored pane to its own session. Because the two IDs are separate, a pane can also adopt a session that started somewhere else. On reattach the daemon replays a capped 256 KB buffer of recent ordinary output and sends `SIGWINCH` to the foreground process group so full-screen programs repaint. Replay is sanitized and best-effort: incomplete UTF-8 and terminal control sequences are dropped instead of sent to the new surface. Alternate-screen programs skip raw replay while they are active and rely on redraw. The daemon exits on its own once it has been idle with no sessions.
 
 The attach client starts a daemon on demand and keeps retrying the whole connect-and-launch cycle until it succeeds or its budget runs out, so a terminal opened while an idle daemon is shutting down does not fail. A connection that drops before the session is handed over is retried on a fresh socket rather than reported as an exit, and a daemon that is idling out accepts anything still waiting in its listen backlog before it closes.
 
@@ -104,22 +104,55 @@ Reload the configuration with `⌘⇧R`, then open a new terminal. Ghostty appli
 
 Enable **Settings -> Terminal -> Auto-copy terminal selection** to copy selected terminal text on mouse release.
 
-When an SSH terminal receives an image through `Ctrl+V`, `Cmd+V`, right-click Paste, or Composer, Muxy converts
-the image to PNG away from the main UI thread and uploads it to a private, session-scoped temporary directory on
-the remote device. The remote file path is then pasted into the running TUI, allowing tools such as Codex and
-Claude Code to attach the image without access to the Mac clipboard. Encoded image input and converted PNG output
-are limited to 25 MB, and decoded images are limited to 64 megapixels. Composer image attachments must be regular
-files and are read with a fixed 25 MB cap before decoding, so device files and unbounded streams are rejected.
+### Attachments in SSH panes
 
-Uploaded directories and images use owner-only permissions. Partial uploads are removed when an upload is
+A Mac file path does not resolve on a remote device, so an SSH pane uploads every attachment it receives and
+inlines the remote path instead.
+
+A pane counts as remote in two ways. A tab opened against a device configured under **Settings -> Remote Devices**
+carries its destination directly. A pane where you typed `ssh` yourself is detected from the foreground process:
+Muxy reads the running `ssh` invocation and reconstructs simple destinations using `user@host`, `-p`, `-l`, one
+`-i`, or an `ssh://` URL. Config aliases are kept verbatim so `ssh_config` still resolves them. Relative identity
+paths are resolved from the running SSH process's working directory. Uploads open their own connection to that
+destination and share one multiplexed control socket, so a password-less key or agent is required. Invocations
+with remote commands, multiple identities, or options Muxy cannot reproduce exactly are left alone and the pane
+keeps local-path behavior. This includes `-J`, `-F`, `-W`, `-P`, `ProxyJump`, `ProxyCommand`, and unrepresented
+`-o` settings. Identity paths containing environment or percent-token expansion are also refused.
+
+Muxy refuses a chained invocation such as `ssh bastion ssh target`. If another SSH session is started later from
+inside an interactive remote shell, macOS still exposes only the first local SSH process. Muxy cannot identify the
+later hop, so attachment upload in nested interactive SSH sessions is unsupported.
+
+Muxy accepts attachments through four routes:
+
+| Route | Accepts |
+| --- | --- |
+| `Ctrl+V`, `Cmd+V`, right-click Paste | Clipboard image data, or files copied in Finder |
+| Drag and drop onto the pane | Files |
+| Composer image attachments | Images |
+| Composer file attachments | Files |
+
+Clipboard image data is converted to PNG away from the main UI thread. Files are streamed as-is with their
+extension preserved, so the receiving TUI still recognizes the type; the remote name is the upload identifier
+rather than the original file name. Each upload lands in a private, session-scoped temporary directory on the
+remote device, and the remote path is pasted into the running TUI, letting tools such as Codex and Claude Code
+read the attachment without access to the Mac.
+
+Encoded image input and converted PNG output are limited to 25 MB, and decoded images are limited to 64
+megapixels. Other files, including empty files, are limited to 100 MB. The upload timeout scales with payload size.
+Every attachment must be a regular file, so directories, device files, and unbounded streams are rejected with a
+toast naming the file.
+
+Uploaded directories and files use owner-only permissions. Partial uploads are removed when an upload is
 interrupted, and the session directory is removed when its terminal ends. A central cleanup coordinator retains
 outstanding cleanup for both open and already-removed panes. On app quit, Muxy waits up to five seconds for those
 tasks before allowing termination to continue. Text paste behavior is unchanged.
 
-The **Settings -> Terminal -> Composer -> Image Submission** strategy applies to local panes only. SSH panes always
-upload the image and inline its remote path, because a Mac file path does not resolve on the remote device. When an
+The **Settings -> Terminal -> Composer -> Image Submission** strategy applies to local panes only. When a Composer
 upload fails, Muxy withholds Return and clears every line it has already submitted, so a partial prompt is never
-left in the TUI.
+left in the TUI. A dropped or pasted batch inlines whichever files uploaded successfully.
+
+Local panes inline the escaped local path for dropped and pasted files, and are unaffected by upload limits.
 
 ## Mouse
 
@@ -166,6 +199,13 @@ open the centered modal instead. Choose **Use Composer Panel** from the floating
 back. The presentation choice, panel position, and both layouts' sizes persist across app restarts, and switching
 an open Composer preserves its draft and attachments.
 
+Use **Settings -> Composer** or the Composer's More menu to control automatic clearing. **Clear After Sending**
+removes the submitted text and attachments only after every target finishes successfully. If the draft changes
+while a submission is finishing, Muxy preserves the newer content. **Clear on Close** removes the draft whenever
+the Composer closes, including floating auto-close, target loss, and panel displacement. When an open Composer panel
+moves to another worktree, it clears the previous worktree's draft while preserving drafts across pane changes in
+the same worktree. Both options are off by default.
+
 `Cmd+Shift+I` opens the legacy voice recorder normally, or starts on-device dictation inside either Composer
 presentation when it is already open. Stop Composer dictation to insert the transcript at the editor cursor, or
 press Return while recording, then edit or send it normally. Composer dictation requires an installed on-device
@@ -181,10 +221,10 @@ shrinks the Composer without losing your size. **Reset Composer Size** in the Co
 the default size. The text editor takes whatever room the box has left, so attachments and the dictation status
 line reduce it while they are visible. `Cmd+=` and `Cmd+-` still change the Composer font size rather than the box.
 
-Each Composer submission is serialized with later keyboard input for its target terminal. Text, image paths, and
-the optional Return are submitted as one transaction, including when a Composer message is broadcast to several
-panes. Broadcast targets are processed one at a time, and each unique image attachment is normalized once into
-validated immutable PNG data that is reused across those targets.
+Each Composer submission is serialized with later keyboard input for its target terminal. Text, attachment paths,
+and the optional Return are submitted as one transaction, including when a Composer message is broadcast to
+several panes. Broadcast targets are processed one at a time, and each unique image attachment is normalized once
+into validated immutable PNG data that is reused across those targets.
 
 Composer submission controls stay unavailable while dictation is starting or recording. A dictation error does
 not block typed text from being sent, and its inline message can be dismissed without closing the composer.
@@ -203,7 +243,7 @@ Splitting creates a child pane inside the current top-level tab. Each pane keeps
 
 Dragging a top-level tab toward an edge docks the whole tab beside another top-level tab. Its child-pane layout moves with it and remains independent from the neighboring tab's child panes.
 
-The Agents Focused layout keeps the normal top-level tab strip in the title bar and limits sidebar tab entries to detected AI agents, including idle sessions. An entry disappears as soon as its agent process exits, even when the tab keeps running a shell. Projects and worktrees remain visible when they have no agent sessions, and their add menu can start a new tab with any available agent provider. Clicking a project or worktree row activates it; clicking the already active row expands or collapses its agent list. A project with no tabs offers the same launchers as icons — a terminal plus one monochrome icon per installed provider — instead of the plain new-tab button. Tabs started from this menu appear immediately. Local launch attribution is confirmed by process detection and removed if the command exits before confirmation. Remote availability is checked through the configured SSH connection before the menu enables a provider.
+The Agents Focused layout keeps the normal top-level tab strip in the title bar and limits sidebar tab entries to detected AI agents, including idle sessions. An entry disappears as soon as its agent process exits, even when the tab keeps running a shell. Projects and worktrees remain visible when they have no agent sessions, and their add menu can start a new tab with any available agent provider. Clicking a project or worktree row activates it; clicking the already active row expands or collapses its agent list. When project sorting is set to Manual, local project headers can be dragged to reorder project blocks while their children remain grouped with the project. Agent rows can be dragged only within their current worktree and docked tab group without changing non-agent tab positions. A project with no tabs offers the same launchers as icons — a terminal plus one monochrome icon per installed provider — instead of the plain new-tab button. Tabs started from this menu appear immediately. Local launch attribution is confirmed by process detection and removed if the command exits before confirmation. Remote availability is checked through the configured SSH connection before the menu enables a provider.
 
 ## Notifications from the terminal
 

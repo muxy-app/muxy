@@ -72,7 +72,8 @@ struct SessionDaemonLifecycleTests {
         let lock = open(harness.socketPath + ".lock", O_CREAT | O_RDWR, 0o600)
         try #require(lock >= 0)
         try #require(flock(lock, LOCK_EX | LOCK_NB) == 0)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) {
+        Thread.detachNewThread {
+            Thread.sleep(forTimeInterval: 1.2)
             flock(lock, LOCK_UN)
             close(lock)
         }

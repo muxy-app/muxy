@@ -154,7 +154,11 @@ await muxy.git.pr.checkout({ number: 42 });                              // chec
 await muxy.git.pr.checkoutWorktree({ number: 42, path: "~/code/pr-42" }); // => { branch }
 
 await muxy.git.worktree.add({ path: "~/code/app-y", branch: "feature/y", createBranch: true, baseBranch: "main" }); // => the resolved worktree path
-await muxy.git.worktree.remove({ path: "~/code/app-y", force: false });
+const removed = await muxy.git.worktree.remove({
+  path: "~/code/app-y",
+  force: false,
+  timeoutMs: 30000,
+}); // => { path, dirRemoved: true | false | null }
 await muxy.git.worktree.switchTo({ identifier: "feature/y" }); // activate a worktree (id, name, branch, or path)
 ```
 
@@ -166,6 +170,7 @@ A rejected promise carries a message string:
 - `user denied consent for git.<op>` — the write consent prompt was denied.
 - `project not found …` — the `project` selector did not resolve.
 - `invalid arguments …` — a required field was missing.
+- `Git timed out after <n>s`, `Process timed out after <n>s`, or `Operation timed out after <n>s` — `timeoutMs` expired during removal.
 - Anything else surfaces the underlying git/`gh` error text.
 
 ```js
@@ -180,5 +185,5 @@ try {
 
 - `muxy.git` is available to extension **tabs**, **panels**, **popovers**, **`runScript` commands**, and **background scripts** — the same API and permissions everywhere. Calls return a `Promise` on webview pages and are synchronous in `runScript` and background scripts.
 - The app continues to own the worktree lifecycle it shows in the sidebar; `git.worktree.*` operates on the same underlying git worktrees, so changes are reflected after a refresh.
-- `worktree.remove` runs the app's full teardown (hooks, branch, directory) and updates the sidebar. With `force: false` it rejects a worktree that has uncommitted changes; pass `force: true` to discard them.
+- `worktree.remove` deregisters the worktree while retaining its branch and updates tracked sidebar state for the selected project. Muxy-managed local worktrees run configured teardown hooks first; remote and externally managed worktrees do not run local teardown hooks. With `force: false`, Git performs the final dirty-worktree check and rejects removal when changes remain; pass `force: true` to discard them. `timeoutMs` defaults to 30 seconds, accepts up to 3,600,000 ms (one hour), covers path resolution, teardown, Git removal, and final verification, and terminates the active process group when exceeded. In the result, `dirRemoved` is `true` when the path is definitely gone, `false` when residual files may remain, and `null` when the final existence check could not be completed within the deadline.
 - There are no AI helpers here — generate commit messages or PR bodies with your own model via `muxy.exec` if you need them.

@@ -48,6 +48,11 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
     }
 
     var body: some View {
+        let visibleItems = filteredItems
+        let highlightedID = highlightedIndex.flatMap { index in
+            visibleItems.indices.contains(index) ? visibleItems[index].id : nil
+        }
+
         VStack(spacing: 0) {
             HStack(spacing: UIMetrics.spacing3) {
                 Image(systemName: "magnifyingglass")
@@ -72,7 +77,7 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
 
             Divider().overlay(MuxyTheme.border)
 
-            if filteredItems.isEmpty {
+            if visibleItems.isEmpty {
                 Text(emptyLabel)
                     .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
@@ -81,22 +86,22 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 0) {
-                            ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
-                                rowContent(item, isHighlighted: index == highlightedIndex)
+                            ForEach(visibleItems) { item in
+                                rowContent(item, isHighlighted: item.id == highlightedID)
                                     .id(item.id)
                             }
                         }
                         .padding(.vertical, UIMetrics.spacing2)
                     }
                     .onChange(of: highlightedIndex) { _, newIndex in
-                        guard let newIndex, newIndex < filteredItems.count else { return }
-                        proxy.scrollTo(filteredItems[newIndex].id, anchor: nil)
+                        guard let newIndex, visibleItems.indices.contains(newIndex) else { return }
+                        proxy.scrollTo(visibleItems[newIndex].id, anchor: nil)
                     }
                 }
             }
         }
         .background(MuxyTheme.bg)
-        .onChange(of: searchText) { highlightedIndex = filteredItems.isEmpty ? nil : 0 }
+        .onChange(of: searchText) { highlightedIndex = visibleItems.isEmpty ? nil : 0 }
     }
 
     @ViewBuilder

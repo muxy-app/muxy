@@ -5,6 +5,13 @@ struct RichInputPresentationTarget: Equatable {
     let paneID: UUID
 }
 
+enum RichInputTargetReconciliation: Equatable {
+    case unchanged
+    case rebound
+    case transferredAcrossWorktrees(previousTarget: RichInputPresentationTarget)
+    case closed(previousTarget: RichInputPresentationTarget?)
+}
+
 @MainActor
 @Observable
 final class RichInputPresentationController {
@@ -72,29 +79,35 @@ final class RichInputPresentationController {
         panelWasVisible = isPanelVisible
     }
 
-    func reconcilePanelHostChange(voice: ComposerVoiceState) {
+    @discardableResult
+    func reconcilePanelHostChange(voice: ComposerVoiceState) -> Bool {
         let panelIsVisible = isPanelVisible
         defer { panelWasVisible = panelIsVisible }
-        guard panelWasVisible, !panelIsVisible, !isFloatingVisible else { return }
+        guard panelWasVisible, !panelIsVisible, !isFloatingVisible else { return false }
         target = nil
         voice.cancel()
+        return true
     }
 
-    @discardableResult
     func reconcileTargetChange(
         _ currentTarget: RichInputPresentationTarget?,
         voice: ComposerVoiceState
-    ) -> Bool {
+    ) -> RichInputTargetReconciliation {
         guard isVisible else {
             target = nil
-            return false
+            return .unchanged
         }
-        guard target != currentTarget else { return false }
+        guard target != currentTarget else { return .unchanged }
+        let previousTarget = target
         voice.cancel()
         guard isPanelVisible, let currentTarget else {
-            return close()
+            close()
+            return .closed(previousTarget: previousTarget)
         }
         target = currentTarget
-        return false
+        guard let previousTarget,
+              previousTarget.worktreeKey != currentTarget.worktreeKey
+        else { return .rebound }
+        return .transferredAcrossWorktrees(previousTarget: previousTarget)
     }
 }
