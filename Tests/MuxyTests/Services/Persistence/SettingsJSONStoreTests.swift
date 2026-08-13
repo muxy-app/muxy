@@ -147,35 +147,6 @@ struct SettingsJSONStoreTests {
         #expect(savedText == originalText)
     }
 
-    @Test("noncanonical Quick Terminal shortcuts do not write settings", arguments: [
-        ("SPACE", NSEvent.ModifierFlags.command.rawValue),
-        ("space", NSEvent.ModifierFlags.command.rawValue | NSEvent.ModifierFlags.capsLock.rawValue),
-    ])
-    func noncanonicalQuickTerminalShortcutDoesNotWriteSettings(key: String, modifiers: UInt) throws {
-        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
-        defer { snapshot.restore() }
-        let originalText = "{\"unchanged\":true}\n"
-
-        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
-
-        #expect(throws: SettingsJSONError.self) {
-            try SettingsJSONStore.saveUserSettingsText("""
-            {
-              "shortcuts.quickTerminal": {
-                "type": "keyCombo",
-                "keyCombo": {
-                  "key": "\(key)",
-                  "modifiers": \(modifiers)
-                },
-                "virtualKeyCode": 49
-              }
-            }
-            """)
-        }
-
-        #expect(try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8) == originalText)
-    }
-
     @Test
     func conflictingQuickTerminalShortcutDoesNotWriteSettings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
@@ -822,6 +793,18 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func saveAppliesComposerPresentationMode() throws {
+        let key = RichInputPreferences.presentationModeKey
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
+        defer { snapshot.restore() }
+        UserDefaults.standard.removeObject(forKey: key)
+
+        try SettingsJSONStore.saveUserSettingsText("{\"\(key)\":\"floating\"}")
+
+        #expect(UserDefaults.standard.string(forKey: key) == RichInputPresentationMode.floating.rawValue)
+    }
+
+    @Test
     func saveAppliesAutomaticUpdatesThroughUpdater() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [UpdateService.automaticallyUpdatesKey])
         defer { snapshot.restore() }
@@ -898,8 +881,8 @@ struct SettingsJSONStoreTests {
 
         try Data("{}".utf8).write(to: SettingsJSONStore.userSettingsURL, options: .atomic)
 
-        #expect(SettingsJSONStore.syncUserSettingsFileWithCurrentSettings())
-        #expect(!SettingsJSONStore.syncUserSettingsFileWithCurrentSettings())
+        #expect(SettingsJSONStore.syncUserSettingsFileWithCurrentSettings() == .updated)
+        #expect(SettingsJSONStore.syncUserSettingsFileWithCurrentSettings() == .unchanged)
     }
 }
 

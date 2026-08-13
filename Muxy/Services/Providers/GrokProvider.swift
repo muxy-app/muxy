@@ -20,7 +20,7 @@ struct GrokProvider: AIProviderIntegration, AIAgentLaunchProvider {
                 "--no-subagents",
                 "--disable-web-search",
                 "--output-format",
-                "text",
+                "plain",
                 "-p",
             ]
         )

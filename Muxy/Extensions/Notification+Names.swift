@@ -15,6 +15,7 @@ extension Notification.Name {
     static let openExtensionsModal = Notification.Name("MuxyOpenExtensionsModal")
     static let openWhatsNewModal = Notification.Name("MuxyOpenWhatsNewModal")
     static let openExtensionInstall = Notification.Name("MuxyOpenExtensionInstall")
+    static let openExtensionBrowse = Notification.Name("MuxyOpenExtensionBrowse")
     static let openExtensionDirectoryAsProject = Notification.Name("MuxyOpenExtensionDirectoryAsProject")
     static let focusProjectPickerDefaultLocation = Notification.Name("MuxyFocusProjectPickerDefaultLocation")
     static let focusRemoteDevicesSettings = Notification.Name("MuxyFocusRemoteDevicesSettings")
@@ -96,4 +97,43 @@ enum OpenRemoteProjectPickerUserInfoKey {
 
 enum ExtensionInstallUserInfoKey {
     static let name = "name"
+}
+
+struct ExtensionsPresentationRequest: Equatable, Identifiable, Sendable {
+    private static let idKey = "id"
+    private static let categoryKey = "category"
+
+    let id: UUID
+    let browseCategory: String?
+    var requiresSettingsHandoff: Bool { browseCategory != nil }
+
+    init(id: UUID = UUID(), browseCategory: String? = nil) {
+        self.id = id
+        self.browseCategory = browseCategory
+    }
+
+    init(_ notification: Notification) {
+        id = notification.userInfo?[Self.idKey] as? UUID ?? UUID()
+        browseCategory = notification.userInfo?[Self.categoryKey] as? String
+    }
+
+    func post(notificationCenter: NotificationCenter = .default) {
+        var userInfo: [String: Any] = [Self.idKey: id]
+        if let browseCategory {
+            userInfo[Self.categoryKey] = browseCategory
+        }
+        notificationCenter.post(name: .openExtensionsModal, object: nil, userInfo: userInfo)
+    }
+
+    func postBrowse(notificationCenter: NotificationCenter = .default) {
+        guard let browseCategory else { return }
+        notificationCenter.post(
+            name: .openExtensionBrowse,
+            object: nil,
+            userInfo: [
+                Self.idKey: id,
+                Self.categoryKey: browseCategory,
+            ]
+        )
+    }
 }

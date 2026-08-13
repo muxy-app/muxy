@@ -3,7 +3,36 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "BackupService")
 
+private actor BackupOperationLock {
+    private var isLocked = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func withLock<T: Sendable>(_ operation: @MainActor @Sendable () async throws -> T) async rethrows -> T {
+        await acquire()
+        defer { release() }
+        return try await operation()
+    }
+
+    private func acquire() async {
+        guard isLocked else {
+            isLocked = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    private func release() {
+        guard !waiters.isEmpty else {
+            isLocked = false
+            return
+        }
+        waiters.removeFirst().resume()
+    }
+}
+
 struct BackupService {
+    private static let operationLock = BackupOperationLock()
+
     let baseDirectory: URL
 
     init(baseDirectory: URL = MuxyFileStorage.appSupportDirectory()) {
@@ -41,6 +70,41 @@ struct BackupService {
     func importBackup(from archiveURL: URL, backupStamp: String) async throws -> URL {
         try await GitProcessRunner.offMainThrowing {
             try performImport(from: archiveURL, backupStamp: backupStamp)
+        }
+    }
+
+    @MainActor
+    func exportCurrent(to archiveURL: URL, createdAt: Date = Date()) async throws {
+        try await BackupService.operationLock.withLock {
+            switch SettingsJSONStore.syncUserSettingsFileWithCurrentSettings() {
+            case .updated,
+                 .unchanged:
+                break
+            case .failed:
+                throw SettingsJSONError.syncFailed
+            }
+            try await export(to: archiveURL, appVersion: currentAppVersion, createdAt: createdAt)
+        }
+    }
+
+    @MainActor
+    func importAndApply(from archiveURL: URL) async throws {
+        try await BackupService.operationLock.withLock {
+            let backupDirectory = try await importBackup(from: archiveURL, backupStamp: backupStamp())
+            do {
+                try SettingsJSONStore.applyUserSettingsFile(
+                    from: baseDirectory.appendingPathComponent(SettingsCatalog.userSettingsFilename)
+                )
+            } catch {
+                try await restoreFromPreImport(backupDirectory: backupDirectory)
+                throw error
+            }
+        }
+    }
+
+    private func restoreFromPreImport(backupDirectory: URL) async throws {
+        try await GitProcessRunner.offMainThrowing {
+            try restoreCurrentData(from: backupDirectory)
         }
     }
 
@@ -159,12 +223,12 @@ struct BackupService {
         let fileManager = FileManager.default
 
         for name in BackupArchive.exportableFiles + BackupArchive.exportableDirectories {
-            let source = backupDirectory.appendingPathComponent(name)
-            guard fileManager.fileExists(atPath: source.path) else { continue }
             let destination = baseDirectory.appendingPathComponent(name)
             if fileManager.fileExists(atPath: destination.path) {
                 try fileManager.removeItem(at: destination)
             }
+            let source = backupDirectory.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
             try fileManager.copyItem(at: source, to: destination)
         }
     }
@@ -213,5 +277,16 @@ struct BackupService {
             .appendingPathComponent("muxy-backup-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private var currentAppVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    private func backupStamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.string(from: Date())
     }
 }

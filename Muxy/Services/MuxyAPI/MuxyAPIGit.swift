@@ -3,6 +3,14 @@ import Foundation
 extension MuxyAPI {
     @MainActor
     enum Git {
+        static let defaultWorktreeRemovalTimeoutMs = 30000
+        static let maxWorktreeRemovalTimeoutMs = 3_600_000
+
+        struct RemoveWorktreeResult: Sendable, Equatable {
+            let path: String
+            let dirRemoved: Bool?
+        }
+
         struct Context {
             let extensionID: String
             let appState: AppState
@@ -563,63 +571,101 @@ extension MuxyAPI {
             projectIdentifier: String?,
             path: String,
             force: Bool,
+            timeoutMs: Int = defaultWorktreeRemovalTimeoutMs,
             context: Context
-        ) async -> Result<Void, APIError> {
+        ) async -> Result<RemoveWorktreeResult, APIError> {
             let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedPath.isEmpty else { return .failure(.invalidArguments("path is required")) }
-            let workspaceContext = workspaceContext(projectIdentifier, context: context)
-            let expandedPath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
-
-            guard let tracked = trackedWorktree(
-                path: expandedPath,
-                context: context,
-                workspaceContext: workspaceContext
+            guard (1 ... maxWorktreeRemovalTimeoutMs).contains(timeoutMs) else {
+                return .failure(.invalidArguments(
+                    "timeoutMs must be between 1 and \(maxWorktreeRemovalTimeoutMs)"
+                ))
+            }
+            guard let project = context.projectGroupStore.resolveProject(
+                identifier: projectIdentifier,
+                localProjects: context.projectStore.projects,
+                activeProjectID: context.appState.activeProjectID
             )
             else {
-                return await write(projectIdentifier, operation: "worktree.remove", context: context) { repoPath, _ in
+                return .failure(.projectNotFound(projectIdentifier ?? ""))
+            }
+            let resolvedProjectIdentifier = project.id.uuidString
+            let workspaceContext = context.projectGroupStore.workspaceContext(for: project)
+            let timeout = TimeInterval(timeoutMs) / 1000
+            return await write(resolvedProjectIdentifier, operation: "worktree.remove", context: context) { _, _ in
+                let deadline = OperationDeadline(timeout: timeout)
+                let resolution = try await GitWorktreeService.resolveWorktreePath(
+                    trimmedPath,
+                    repoPath: project.path,
+                    context: workspaceContext,
+                    timeout: deadline.remaining()
+                )
+                let expandedPath = resolution.path
+                guard let tracked = trackedWorktree(
+                    path: expandedPath,
+                    project: project,
+                    context: context,
+                    workspaceContext: workspaceContext,
+                    remoteHomePath: resolution.remoteHomePath
+                )
+                else {
                     try await GitWorktreeService.shared.removeWorktree(
-                        repoPath: repoPath,
+                        repoPath: project.path,
                         path: expandedPath,
                         force: force,
-                        context: workspaceContext
+                        context: workspaceContext,
+                        timeout: deadline.remaining()
                     )
+                    let dirRemoved = await (try? workspaceContext.fileOps.exists(
+                        at: expandedPath,
+                        timeout: deadline.remaining()
+                    )).map { !$0 }
+                    return RemoveWorktreeResult(path: expandedPath, dirRemoved: dirRemoved)
                 }
-            }
 
-            if !force, await GitWorktreeService.shared.hasUncommittedChanges(
-                worktreePath: tracked.worktree.path,
-                context: workspaceContext
-            ) {
-                return .failure(.invalidArguments("worktree has uncommitted changes; pass force to remove it"))
-            }
-
-            let result = await write(projectIdentifier, operation: "worktree.remove", context: context) { _, _ in
-                try await WorktreeStore.cleanupOnDisk(
-                    worktree: tracked.worktree,
+                var worktree = tracked.worktree
+                worktree.path = expandedPath
+                if !force, try await GitWorktreeService.shared.uncommittedChanges(
+                    worktreePath: worktree.path,
+                    context: workspaceContext,
+                    timeout: deadline.remaining()
+                ) {
+                    throw APIError.invalidArguments("worktree has uncommitted changes; pass force to remove it")
+                }
+                let dirRemoved = try await WorktreeStore.cleanupOnDisk(
+                    worktree: worktree,
                     repoPath: tracked.project.path,
-                    context: workspaceContext
+                    context: workspaceContext,
+                    force: force,
+                    timeout: deadline.remaining()
                 )
-            }
-            if case .success = result {
                 forgetWorktree(project: tracked.project, worktree: tracked.worktree, context: context)
+                return RemoveWorktreeResult(path: expandedPath, dirRemoved: dirRemoved)
             }
-            return result
         }
 
         static func trackedWorktree(
             path: String,
+            project: Project,
             context: Context,
-            workspaceContext: WorkspaceContext = .local
+            workspaceContext: WorkspaceContext = .local,
+            remoteHomePath: String? = nil
         ) -> (project: Project, worktree: Worktree)? {
             let target = GitWorktreeService.canonicalPath(path, context: workspaceContext)
-            for project in context.projectStore.projects {
-                guard let worktree = context.worktreeStore.list(for: project.id).first(where: {
-                    GitWorktreeService.canonicalPath($0.path, context: workspaceContext) == target
-                }), worktree.canBeRemoved
-                else { continue }
-                return (project, worktree)
-            }
-            return nil
+            guard let worktree = context.worktreeStore.list(for: project.id).first(where: {
+                let storedPath: String = if workspaceContext.isRemote, let remoteHomePath {
+                    GitWorktreeService.expandedRemotePath(
+                        $0.path,
+                        repoPath: project.path,
+                        homePath: remoteHomePath
+                    )
+                } else {
+                    $0.path
+                }
+                return GitWorktreeService.canonicalPath(storedPath, context: workspaceContext) == target
+            }), worktree.canBeRemoved
+            else { return nil }
+            return (project, worktree)
         }
 
         static func forgetWorktree(project: Project, worktree: Worktree, context: Context) {
@@ -700,6 +746,8 @@ extension MuxyAPI {
                 let value = try await work(resolved.path, resolved.git)
                 GitMetadataCache.shared.invalidateReads(repoPath: resolved.path)
                 return .success(value)
+            } catch let error as APIError {
+                return .failure(error)
             } catch {
                 return .failure(.underlying(error.localizedDescription))
             }

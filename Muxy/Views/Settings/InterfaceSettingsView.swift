@@ -15,6 +15,8 @@ struct InterfaceSettingsView: View {
     private var appTransparency = AppTransparencyPreferences.defaultTransparency
     @AppStorage(AppTransparencyPreferences.blurIntensityKey)
     private var appBlurIntensity = AppTransparencyPreferences.defaultBlurIntensity
+    @AppStorage(TopbarPreferences.actionsVisibleKey)
+    private var showTopbarActions = TopbarPreferences.defaultActionsVisible
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
     @State private var layoutStore = AppLayoutStore.shared
@@ -32,6 +34,8 @@ struct InterfaceSettingsView: View {
     private var orderWorktreesByMRU = WorktreeListPreferences.defaultOrderByMRU
     @AppStorage(WorktreeListPreferences.groupWorktreesKey)
     private var groupWorktrees = WorktreeListPreferences.defaultGroupWorktrees
+    @AppStorage(ProjectSearchPreferences.visibleKey)
+    private var showProjectSearch = ProjectSearchPreferences.defaultVisible
 
     private var layoutSelection: Binding<AppLayout> {
         Binding(get: { layoutStore.layout }, set: { layoutStore.set($0) })
@@ -95,6 +99,19 @@ struct InterfaceSettingsView: View {
                     .labelsHidden()
                     .settingsControl()
                 }
+                SettingsRow("More Languages") {
+                    Button {
+                        ExtensionsPresentationRequest(
+                            browseCategory: ExtensionMarketplaceCategory.localization
+                        ).post()
+                    } label: {
+                        Text(L10n.resource("Browse Language Extensions…"))
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
+                    .foregroundStyle(SettingsStyle.accent)
+                    .help(L10n.string("Find and install language packs from the Extension Store."))
+                }
             }
 
             SettingsSection("Layout") {
@@ -153,6 +170,8 @@ struct InterfaceSettingsView: View {
 
                 TabHeaderWidthSettingRow()
 
+                SettingsToggleRow(label: L10n.resource("Show Top Bar Actions"), isOn: $showTopbarActions)
+
                 SettingsToggleRow(label: L10n.resource("Show Status Bar"), isOn: $showStatusBar)
 
                 SettingsToggleRow(label: L10n.resource("Show Resource Usage in Status Bar"), isOn: $showResourceUsage)
@@ -203,6 +222,11 @@ struct InterfaceSettingsView: View {
             )
 
             if isProjectFocused {
+                SettingsToggleRow(
+                    label: L10n.resource("Always Show Project Search"),
+                    isOn: $showProjectSearch
+                )
+
                 SettingsRow("Collapsed Style") {
                     Picker("", selection: $sidebarCollapsedStyle) {
                         ForEach(SidebarCollapsedStyle.allCases) { style in

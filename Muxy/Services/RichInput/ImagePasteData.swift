@@ -1,11 +1,9 @@
 import AppKit
-import Darwin
 import ImageIO
 import UniformTypeIdentifiers
 
 enum ImagePasteDataError: LocalizedError {
     case missingImage
-    case unsupportedFileType
     case encodedImageTooLarge
     case pixelCountTooLarge
     case invalidImage
@@ -15,8 +13,6 @@ enum ImagePasteDataError: LocalizedError {
         switch self {
         case .missingImage:
             "Could not read the image."
-        case .unsupportedFileType:
-            "Only regular image files can be attached."
         case .encodedImageTooLarge:
             "The image exceeds the 25 MB limit."
         case .pixelCountTooLarge:
@@ -74,70 +70,7 @@ enum ImagePasteData {
     }
 
     nonisolated static func encodedImageData(contentsOf url: URL) throws -> Data {
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-        try validateFileMetadata(
-            isRegularFile: values.isRegularFile,
-            fileSize: values.fileSize
-        )
-        let (handle, openedFileSize) = try openRegularFile(at: url)
-        defer { try? handle.close() }
-
-        let cappedByteCount = maximumEncodedByteCount + 1
-        var data = Data()
-        data.reserveCapacity(min(openedFileSize, maximumEncodedByteCount))
-        while data.count < cappedByteCount {
-            let readCount = min(64 * 1024, cappedByteCount - data.count)
-            let chunk = try handle.read(upToCount: readCount) ?? Data()
-            guard !chunk.isEmpty else { break }
-            data.append(chunk)
-        }
-        return try validateEncodedSize(data)
-    }
-
-    nonisolated static func validateFileMetadata(
-        isRegularFile: Bool?,
-        fileSize: Int?
-    ) throws {
-        guard isRegularFile == true else {
-            throw ImagePasteDataError.unsupportedFileType
-        }
-        guard let fileSize else { return }
-        guard fileSize >= 0 else {
-            throw ImagePasteDataError.missingImage
-        }
-        guard fileSize <= maximumEncodedByteCount else {
-            throw ImagePasteDataError.encodedImageTooLarge
-        }
-    }
-
-    nonisolated private static func openRegularFile(at url: URL) throws -> (FileHandle, Int) {
-        let descriptor = url.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return Int32(-1) }
-            return Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
-        }
-        guard descriptor >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-
-        var fileStatus = stat()
-        guard fstat(descriptor, &fileStatus) == 0 else {
-            let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-            Darwin.close(descriptor)
-            throw error
-        }
-        guard fileStatus.st_mode & S_IFMT == S_IFREG else {
-            Darwin.close(descriptor)
-            throw ImagePasteDataError.unsupportedFileType
-        }
-        guard let fileSize = Int(exactly: fileStatus.st_size), fileSize >= 0 else {
-            Darwin.close(descriptor)
-            throw ImagePasteDataError.missingImage
-        }
-        guard fileSize <= maximumEncodedByteCount else {
-            Darwin.close(descriptor)
-            throw ImagePasteDataError.encodedImageTooLarge
-        }
-        return (FileHandle(fileDescriptor: descriptor, closeOnDealloc: true), fileSize)
+        try RegularFileReader.data(contentsOf: url, maximumByteCount: maximumEncodedByteCount)
     }
 
     nonisolated static func normalizedPNGData(from data: Data) throws -> Data {

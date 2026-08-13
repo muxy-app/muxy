@@ -10,6 +10,7 @@ struct ProcessArgumentsInspectorTests {
         let invocation = try #require(ProcessArgumentsInspector.invocation(pid: UInt64(getpid())))
         #expect(!invocation.executablePath.isEmpty)
         #expect(!invocation.arguments.isEmpty)
+        #expect(invocation.workingDirectory != nil)
     }
 
     @Test("rejects invalid process identifiers")

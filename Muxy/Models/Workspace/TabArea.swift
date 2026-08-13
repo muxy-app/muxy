@@ -20,11 +20,12 @@ final class TabArea: Identifiable {
     init(projectPath: String, command: String?, parentTabID: UUID? = nil) {
         id = UUID()
         self.projectPath = projectPath
-        let wrappedCommand = command.map { "(\($0)); exec \"$0\" -l" }
+        let hasStartupCommand = command != nil
         let pane = TerminalPaneState(
             projectPath: projectPath,
-            startupCommand: wrappedCommand,
-            startupCommandInteractive: wrappedCommand != nil
+            startupCommand: command,
+            startupCommandInteractive: hasStartupCommand,
+            closesOnStartupCommandExit: !hasStartupCommand
         )
         let tab = TerminalTab(pane: pane, parentTabID: parentTabID)
         tabs.append(tab)

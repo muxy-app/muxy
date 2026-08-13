@@ -10,12 +10,16 @@ struct FocusedComposerView: View {
     let worktreeName: String
     let languageIdentifier: String
     let availableSize: CGSize
+    let presentationMode: RichInputPresentationMode
     @Binding var broadcasts: Bool
-    let onSubmit: (_ appendReturn: Bool, _ selectedText: String?) -> Void
+    let onSubmit: (_ appendReturn: Bool, _ selectedText: String?) -> Task<Bool, Never>?
+    let onChangePresentationMode: (RichInputPresentationMode) -> Void
     let onClose: () -> Void
 
     @State private var editorSettings = EditorSettings.shared
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize = RichInputPreferences.defaultFontSize
+    @AppStorage(RichInputPreferences.clearAfterSendingKey) private var clearAfterSending = RichInputPreferences.defaultClearAfterSending
+    @AppStorage(RichInputPreferences.clearOnCloseKey) private var clearOnClose = RichInputPreferences.defaultClearOnClose
     @AppStorage(ComposerLayoutPreferences.widthKey) private var storedWidth = ComposerLayoutPreferences.defaultWidth
     @AppStorage(ComposerLayoutPreferences.heightKey) private var storedHeight = ComposerLayoutPreferences.defaultHeight
     @AppStorage(ComposerLayoutPreferences.expandedKey) private var isExpanded = ComposerLayoutPreferences.defaultExpanded
@@ -23,11 +27,26 @@ struct FocusedComposerView: View {
     @State private var submission: RichInputTextEditor.Submission?
 
     var body: some View {
+        Group {
+            switch presentationMode {
+            case .panel:
+                panelLayout
+            case .floating:
+                floatingLayout
+            }
+        }
+        .onDrop(of: [UTType.fileURL, UTType.image], isTargeted: nil, perform: handleDrop)
+        .onChange(of: state.text) { persistDraft() }
+        .onChange(of: state.fileAttachments) { persistDraft() }
+        .onChange(of: state.imageAttachments) { persistDraft() }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.string("Composer"))
+    }
+
+    private var floatingLayout: some View {
         VStack(spacing: 0) {
             metadata
-            editor
-            attachments
-            actions
+            inputContent
         }
         .padding(UIMetrics.scaled(14))
         .background {
@@ -41,12 +60,22 @@ struct FocusedComposerView: View {
         .overlay(resizeEdges)
         .frame(width: UIMetrics.scaled(layoutSize.width), height: UIMetrics.scaled(layoutSize.height))
         .shadow(color: .black.opacity(0.45), radius: UIMetrics.scaled(36), y: UIMetrics.scaled(18))
-        .onDrop(of: [UTType.fileURL, UTType.image], isTargeted: nil, perform: handleDrop)
-        .onChange(of: state.text) { persistDraft() }
-        .onChange(of: state.fileAttachments) { persistDraft() }
-        .onChange(of: state.imageAttachments) { persistDraft() }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(L10n.string("Composer"))
+    }
+
+    private var panelLayout: some View {
+        VStack(spacing: 0) {
+            inputContent
+        }
+        .padding(UIMetrics.scaled(14))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MuxyTheme.bg)
+    }
+
+    @ViewBuilder
+    private var inputContent: some View {
+        editor
+        attachments
+        actions
     }
 
     private var metadata: some View {
@@ -253,7 +282,19 @@ struct FocusedComposerView: View {
                 }
                 .disabled(!voice.canSubmit)
                 Divider()
-                Button(L10n.string("Reset Composer Size"), action: resetSize)
+                Toggle(isOn: $clearAfterSending) {
+                    Text(L10n.resource("Clear After Sending"))
+                }
+                Toggle(isOn: $clearOnClose) {
+                    Text(L10n.resource("Clear on Close"))
+                }
+                Divider()
+                Button(presentationModeSwitchLabel) {
+                    onChangePresentationMode(presentationMode == .panel ? .floating : .panel)
+                }
+                if presentationMode == .floating {
+                    Button(L10n.string("Reset Composer Size"), action: resetSize)
+                }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
@@ -291,6 +332,13 @@ struct FocusedComposerView: View {
             .accessibilityLabel(L10n.string("Send"))
         }
         .padding(.top, UIMetrics.spacing4)
+    }
+
+    private var presentationModeSwitchLabel: String {
+        switch presentationMode {
+        case .panel: L10n.string("Use Floating Composer")
+        case .floating: L10n.string("Use Composer Panel")
+        }
     }
 
     private var editorConfiguration: RichInputTextEditor.Configuration {
@@ -388,7 +436,14 @@ struct FocusedComposerView: View {
 
     private func submitIfPossible(appendReturn: Bool, selectedText: String?) {
         guard voice.canSubmit else { return }
-        onSubmit(appendReturn, selectedText)
+        let submittedRevision = state.draftRevision
+        guard let submission = onSubmit(appendReturn, selectedText), clearAfterSending else { return }
+        Task { @MainActor in
+            guard await submission.value,
+                  state.clear(ifUnchangedSince: submittedRevision)
+            else { return }
+            persistDraft()
+        }
     }
 
     private func toggleVoice() {

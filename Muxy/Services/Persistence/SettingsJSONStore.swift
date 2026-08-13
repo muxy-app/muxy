@@ -11,6 +11,12 @@ enum SettingsJSONStore {
     typealias AutomaticUpdatesUpdater = @MainActor (Bool) -> Void
     typealias AutomaticUpdatesResetter = @MainActor () -> Void
 
+    enum SyncResult: Equatable {
+        case updated
+        case unchanged
+        case failed
+    }
+
     private struct AutomaticUpdatesActions {
         let update: AutomaticUpdatesUpdater
         let reset: AutomaticUpdatesResetter
@@ -86,8 +92,8 @@ enum SettingsJSONStore {
         syncUserSettingsFileWithCurrentSettings()
     }
 
-    static func applyUserSettingsFile() throws {
-        let text = try String(contentsOf: userSettingsURL, encoding: .utf8)
+    static func applyUserSettingsFile(from fileURL: URL = userSettingsURL) throws {
+        let text = try String(contentsOf: fileURL, encoding: .utf8)
         try saveUserSettingsText(text)
     }
 
@@ -127,8 +133,8 @@ enum SettingsJSONStore {
     }
 
     @discardableResult
-    static func syncUserSettingsFileWithCurrentSettings() -> Bool {
-        guard !isApplyingSettings, !isSyncingFile else { return false }
+    static func syncUserSettingsFileWithCurrentSettings() -> SyncResult {
+        guard !isApplyingSettings, !isSyncingFile else { return .failed }
         isSyncingFile = true
         defer { isSyncingFile = false }
         var dictionary = existingUserSettingsDictionary()
@@ -137,15 +143,15 @@ enum SettingsJSONStore {
         }
         let data = Data(prettyJSONString(dictionary).utf8)
         if (try? Data(contentsOf: userSettingsURL)) == data {
-            return false
+            return .unchanged
         }
         do {
             try data.write(to: userSettingsURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: FilePermissions.privateFile], ofItemAtPath: userSettingsURL.path)
-            return true
+            return .updated
         } catch {
             settingsJSONLogger.error("Failed to sync user settings file: \(error.localizedDescription)")
-            return false
+            return .failed
         }
     }
 
@@ -357,6 +363,7 @@ enum SettingsJSONStore {
             AppBackgroundStyle.storageKey: Set(AppBackgroundStyle.allCases.map(\.rawValue)),
             SidebarCollapsedStyle.storageKey: Set(SidebarCollapsedStyle.allCases.map(\.rawValue)),
             SidebarExpandedStyle.storageKey: Set(SidebarExpandedStyle.allCases.map(\.rawValue)),
+            RichInputPreferences.presentationModeKey: Set(RichInputPresentationMode.allCases.map(\.rawValue)),
             "editor.richInputImageStrategy": Set(RichInputImageStrategy.allCases.map(\.rawValue)),
             NotificationSettings.Key.sound: Set(NotificationSound.allCases.map(\.rawValue)),
             NotificationSettings.Key.toastPosition: Set(ToastPosition.allCases.map(\.rawValue)),
@@ -648,6 +655,7 @@ enum SettingsJSONError: LocalizedError {
     case topLevelObjectRequired
     case unsupportedValue(String)
     case invalidValue(String)
+    case syncFailed
 
     var errorDescription: String? {
         switch self {
@@ -657,6 +665,8 @@ enum SettingsJSONError: LocalizedError {
             "Unsupported JSON value for \"\(key)\"."
         case let .invalidValue(key):
             "Invalid JSON value for \"\(key)\"."
+        case .syncFailed:
+            "Failed to synchronize user settings file with current settings."
         }
     }
 }

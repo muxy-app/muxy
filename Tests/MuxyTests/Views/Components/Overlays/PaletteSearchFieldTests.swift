@@ -192,6 +192,82 @@ struct PaletteSearchFieldTests {
         #expect(query.value == "검색")
     }
 
+    @Test("emits query change while IME marked text is still composing")
+    func emitsQueryChangeWhileIMEMarkedTextIsComposing() {
+        let text = PaletteSearchFieldTextBox()
+        let query = PaletteSearchFieldTextBox()
+        let field = PaletteSearchField(
+            text: Binding(
+                get: { text.value },
+                set: { text.value = $0 }
+            ),
+            placeholder: "Search",
+            onSubmit: {},
+            onEscape: {},
+            onArrowUp: {},
+            onArrowDown: {},
+            onQueryChange: { query.value = $0 }
+        )
+        let coordinator = field.makeCoordinator()
+        let control = MarkedTextField()
+        control.markedEditor.string = "한글"
+
+        coordinator.controlTextDidChange(Notification(
+            name: NSControl.textDidChangeNotification,
+            object: control
+        ))
+
+        #expect(text.value.isEmpty)
+        #expect(query.value == "한글")
+    }
+
+    @Test("preserves marked text when editor is reconciled during composition")
+    func preservesMarkedTextDuringReconciliation() {
+        let text = PaletteSearchFieldTextBox()
+        let field = PaletteSearchField(
+            text: Binding(
+                get: { text.value },
+                set: { text.value = $0 }
+            ),
+            placeholder: "Search",
+            onSubmit: {},
+            onEscape: {},
+            onArrowUp: {},
+            onArrowDown: {},
+            onQueryChange: { _ in }
+        )
+        let control = MarkedTextField()
+        control.markedEditor.string = "한글"
+
+        field.reconcileEditorText(control, with: "")
+
+        #expect(control.markedEditor.string == "한글")
+    }
+
+    @Test("reconciles editor text when no marked text is active")
+    func reconcilesEditorTextWhenNotComposing() {
+        let text = PaletteSearchFieldTextBox()
+        let field = PaletteSearchField(
+            text: Binding(
+                get: { text.value },
+                set: { text.value = $0 }
+            ),
+            placeholder: "Search",
+            onSubmit: {},
+            onEscape: {},
+            onArrowUp: {},
+            onArrowDown: {},
+            onQueryChange: { _ in }
+        )
+        let control = PlainTextField()
+        control.editor.string = "abc"
+
+        field.reconcileEditorText(control, with: "xyz")
+
+        #expect(control.editor.string == "xyz")
+        #expect(control.editor.selectedRange == NSRange(location: ("xyz" as NSString).length, length: 0))
+    }
+
     @Test("does not submit while IME marked text is active")
     func doesNotSubmitWhileIMEMarkedTextIsActive() {
         let text = PaletteSearchFieldTextBox()
@@ -404,6 +480,22 @@ private final class PaletteSearchFieldTextBox {
 private final class MarkedTextView: NSTextView {
     override func hasMarkedText() -> Bool {
         true
+    }
+}
+
+private final class MarkedTextField: NSTextField {
+    let markedEditor = MarkedTextView()
+
+    override func currentEditor() -> NSText? {
+        markedEditor
+    }
+}
+
+private final class PlainTextField: NSTextField {
+    let editor = NSTextView()
+
+    override func currentEditor() -> NSText? {
+        editor
     }
 }
 

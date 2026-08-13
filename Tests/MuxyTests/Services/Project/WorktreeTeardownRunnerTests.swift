@@ -129,7 +129,7 @@ struct WorktreeTeardownRunnerTests {
             sourceProjectPath: projectPath,
             worktree: worktree,
             emit: { collected.append($0) },
-            executor: { _, _, _, emit in
+            executor: { _, _, _, _, emit in
                 emit(WorktreeTeardownOutputLine(channel: .stdout, text: "hello"))
                 return 0
             }
@@ -158,6 +158,26 @@ struct WorktreeTeardownRunnerTests {
         #expect(status == 0)
         #expect(lines.contains(where: { $0.channel == .stdout && $0.text == "out" }))
         #expect(lines.contains(where: { $0.channel == .stderr && $0.text == "err" }))
+    }
+
+    @Test("process terminates when its timeout expires")
+    func processTimesOut() async {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-teardown-timeout-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let collected = LineCollector()
+
+        await #expect(throws: SubprocessRunnerError.self) {
+            try await WorktreeTeardownProcess.run(
+                command: "printf partial; sleep 10 &",
+                workingDirectory: directory.path,
+                environment: ProcessInfo.processInfo.environment,
+                timeout: 0.5,
+                emit: { collected.append($0) }
+            )
+        }
+        #expect(collected.snapshot().contains { $0.channel == .stdout && $0.text == "partial" })
     }
 
     private func makeWorktreeDirectory() throws -> String {
@@ -190,7 +210,7 @@ private final class ExecutionCapture: @unchecked Sendable {
     var environments: [[String: String]] { queue.sync { _environments } }
 
     func executor(returning status: Int32) -> WorktreeTeardownRunner.Executor {
-        { command, _, environment, _ in
+        { command, _, environment, _, _ in
             self.queue.sync {
                 self._commands.append(command)
                 self._environments.append(environment)

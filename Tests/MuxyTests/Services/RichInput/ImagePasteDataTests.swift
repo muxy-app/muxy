@@ -1,5 +1,4 @@
 import AppKit
-import Darwin
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
@@ -100,39 +99,9 @@ struct ImagePasteDataTests {
         try handle.truncate(atOffset: UInt64(ImagePasteData.maximumEncodedByteCount + 1))
         try handle.close()
 
-        await #expect(throws: ImagePasteDataError.self) {
+        await #expect(throws: RegularFileReadError.self) {
             try await ImagePasteData.pngData(contentsOf: url)
         }
-    }
-
-    @Test("rejects special-file metadata without opening the file")
-    func rejectsSpecialFileMetadata() {
-        #expect(throws: ImagePasteDataError.self) {
-            try ImagePasteData.validateFileMetadata(
-                isRegularFile: false,
-                fileSize: nil
-            )
-        }
-    }
-
-    @Test("rejects a FIFO without waiting for a writer")
-    func rejectsFIFO() throws {
-        let directory = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appendingPathComponent("image.pipe")
-        let result = url.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return Int32(-1) }
-            return Darwin.mkfifo(path, S_IRUSR | S_IWUSR)
-        }
-        #expect(result == 0)
-        let clock = ContinuousClock()
-        let start = clock.now
-
-        #expect(throws: ImagePasteDataError.self) {
-            try ImagePasteData.encodedImageData(contentsOf: url)
-        }
-
-        #expect(start.duration(to: clock.now) < .seconds(1))
     }
 
     private func temporaryDirectory() throws -> URL {

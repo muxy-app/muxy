@@ -80,6 +80,7 @@
 "Allow %@?" = "Allow %@?";
 "Allow & remember" = "Allow & remember";
 "Allow mobile device connections" = "Allow mobile device connections";
+"Always Show Project Search" = "Always Show Project Search";
 "Automatic updates are unavailable for this configuration." = "Automatic updates are unavailable for this configuration.";
 "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data." = "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data.";
 "App" = "App";
@@ -134,7 +135,10 @@
 "Browser" = "Browser";
 "Browser Profile" = "Browser Profile";
 "Browse…" = "Browse…";
+"Browse Language Extensions…" = "Browse Language Extensions…";
 "Browsing" = "Browsing";
+"Broadcast Off — Send to Active Pane" = "Broadcast Off — Send to Active Pane";
+"Broadcast On — Send to All Split Panes" = "Broadcast On — Send to All Split Panes";
 "Built-in" = "Built-in";
 "Built-in (Top Bar Project Target)" = "Built-in (Top Bar Project Target)";
 "Built-in browser is disabled" = "Built-in browser is disabled";
@@ -167,13 +171,19 @@
 "Choose the AI provider for %@" = "Choose the AI provider for %@";
 "Choose where to save the Muxy backup" = "Choose where to save the Muxy backup";
 "Choose…" = "Choose…";
+"Chooses whether the composer opens as a workspace panel or a floating modal." = "Chooses whether the composer opens as a workspace panel or a floating modal.";
 "Clean" = "Clean";
 "Clean working tree" = "Clean working tree";
 "Clear" = "Clear";
+"Clear After Sending" = "Clear After Sending";
 "Clear All" = "Clear All";
 "Clear Data" = "Clear Data";
 "Clear data for “%@”?" = "Clear data for “%@”?";
+"Clear on Close" = "Clear on Close";
+"Clear project search" = "Clear project search";
 "Cleared browsing data for “%@”" = "Cleared browsing data for “%@”";
+"Clears text and attachments after a successful Composer submission." = "Clears text and attachments after a successful Composer submission.";
+"Clears text and attachments whenever the Composer closes." = "Clears text and attachments whenever the Composer closes.";
 "Click again to close now. Otherwise it will close automatically after five seconds." = "Click again to close now. Otherwise it will close automatically after five seconds.";
 "Click again to merge now. Otherwise it will merge automatically after five seconds." = "Click again to merge now. Otherwise it will merge automatically after five seconds.";
 "Click to retry. GitHub pull requests require an installed and authenticated gh CLI." = "Click to retry. GitHub pull requests require an installed and authenticated gh CLI.";
@@ -212,6 +222,7 @@
 "Committed and pushed" = "Committed and pushed";
 "Committing" = "Committing";
 "Composer" = "Composer";
+"Composer Presentation" = "Composer Presentation";
 "Composer Voice" = "Composer Voice";
 "Confirm Delete All (%lld)" = "Confirm Delete All (%lld)";
 "Confirm before closing a tab or pane with a running process" = "Confirm before closing a tab or pane with a running process";
@@ -362,11 +373,13 @@
 "Failed to update branch" = "Failed to update branch";
 "File not found" = "File not found";
 "Find" = "Find";
+"Find and install language packs from the Extension Store." = "Find and install language packs from the Extension Store.";
 "Find a project folder" = "Find a project folder";
 "Find on page" = "Find on page";
 "Finder" = "Finder";
 "Finished" = "Finished";
 "Fix Search Location" = "Fix Search Location";
+"Floating" = "Floating";
 "Focus Pane Down" = "Focus Pane Down";
 "Focus Pane Left" = "Focus Pane Left";
 "Focus Pane Right" = "Focus Pane Right";
@@ -446,6 +459,7 @@
 "Load Errors" = "Load Errors";
 "Load an extension from any folder for development" = "Load an extension from any folder for development";
 "Loading %@…" = "Loading %@…";
+"Loading branches…" = "Loading branches…";
 "Loading Worktrees…" = "Loading Worktrees…";
 "Loading extensions…" = "Loading extensions…";
 "Loading repository status" = "Loading repository status";
@@ -475,6 +489,7 @@
 "Mobile App Repository" = "Mobile App Repository";
 "More Composer Actions" = "More Composer Actions";
 "More matches available — keep typing to narrow the results." = "More matches available — keep typing to narrow the results.";
+"More Languages" = "More Languages";
 "Morse" = "Morse";
 "Most Popular" = "Most Popular";
 "Move Pane Down" = "Move Pane Down";
@@ -589,6 +604,7 @@
 "PRIMARY" = "PRIMARY";
 "Pair Mobile Device" = "Pair Mobile Device";
 "Pairing network" = "Pairing network";
+"Panel" = "Panel";
 "Panes" = "Panes";
 "Paste" = "Paste";
 "Path Is Not a Folder" = "Path Is Not a Folder";
@@ -606,6 +622,7 @@
 "Port %@" = "Port %@";
 "Port must be between 1 and 65535." = "Port must be between 1 and 65535.";
 "Position" = "Position";
+"Presentation" = "Presentation";
 "Press Return after inserting" = "Press Return after inserting";
 "Press a global shortcut, or Escape to cancel." = "Press a global shortcut, or Escape to cancel.";
 "Press key…" = "Press key…";
@@ -731,6 +748,7 @@
 "Revoke 1 device?" = "Revoke 1 device?";
 "Revoke Selected (%lld)" = "Revoke Selected (%lld)";
 "Revoking removes the device's access. It will need to request approval again to reconnect." = "Revoking removes the device's access. It will need to request approval again to reconnect.";
+"Rich Input" = "Rich Input";
 "Right" = "Right";
 "After enabling background sessions and opening a new local terminal, right-click inside its unpinned terminal-only tab and choose Send to Background to close the tab without stopping its processes." = "After enabling background sessions and opening a new local terminal, right-click inside its unpinned terminal-only tab and choose Send to Background to close the tab without stopping its processes.";
 "Run New Terminals in the Background" = "Run New Terminals in the Background";
@@ -799,6 +817,7 @@
 "Show Tips" = "Show Tips";
 "Show Resource Usage in Status Bar" = "Show Resource Usage in Status Bar";
 "Show Status Bar" = "Show Status Bar";
+"Show Top Bar Actions" = "Show Top Bar Actions";
 "Show unread notification indicator on worktrees" = "Show unread notification indicator on worktrees";
 "Sidebar" = "Sidebar";
 "Size" = "Size";
@@ -1032,6 +1051,8 @@
 "Copies the vanilla JS + Tailwind starter kit (a working panel, topbar item, and command)" = "Copies the vanilla JS + Tailwind starter kit (a working panel, topbar item, and command)";
 "Could not check remote agent providers" = "Could not check remote agent providers";
 "Could not paste image on remote device" = "Could not paste image on remote device";
+"Could not upload attachment to remote device" = "Could not upload attachment to remote device";
+"The SSH destination changed during upload." = "The SSH destination changed during upload.";
 "Creates the extension in %@/<name>" = "Creates the extension in %@/<name>";
 "Extension Location" = "Extension Location";
 "Extension Output" = "Extension Output";
@@ -1196,6 +1217,8 @@
 "Updates" = "Updates";
 "Updating…" = "Updating…";
 "Use App Default" = "Use App Default";
+"Use Composer Panel" = "Use Composer Panel";
+"Use Floating Composer" = "Use Floating Composer";
 "Use Global Prompt" = "Use Global Prompt";
 "Use Path" = "Use Path";
 "Use existing branch" = "Use existing branch";
@@ -1408,6 +1431,8 @@
 "Shows a macOS notification when Muxy is not frontmost." = "Shows a macOS notification when Muxy is not frontmost.";
 "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling." = "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling.";
 "Shows or hides the status bar." = "Shows or hides the status bar.";
+"Shows or hides the window-level controls on the right side of the top bar." = "Shows or hides the window-level controls on the right side of the top bar.";
+"Shows the project search field whenever the project-focused sidebar is expanded." = "Shows the project search field whenever the project-focused sidebar is expanded.";
 "Shows the QR code used to pair a mobile device." = "Shows the QR code used to pair a mobile device.";
 "Shows the permanent Home project at the top of the sidebar." = "Shows the permanent Home project at the top of the sidebar.";
 "Shows Muxy tips at the bottom of the built-in sidebar." = "Shows Muxy tips at the bottom of the built-in sidebar.";

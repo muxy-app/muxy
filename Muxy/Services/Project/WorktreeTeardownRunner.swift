@@ -25,16 +25,20 @@ enum WorktreeTeardownError: LocalizedError {
 }
 
 enum WorktreeTeardownRunner {
+    static let defaultTimeout: TimeInterval = 300
+
     typealias Executor = @Sendable (
         _ command: String,
         _ worktree: Worktree,
         _ environment: [String: String],
+        _ timeout: TimeInterval,
         _ emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void
     ) async throws -> Int32
 
     static func run(
         sourceProjectPath: String,
         worktree: Worktree,
+        timeout: TimeInterval = defaultTimeout,
         emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in },
         executor: Executor = execute
     ) async throws {
@@ -50,9 +54,10 @@ enum WorktreeTeardownRunner {
         guard !commands.isEmpty else { return }
 
         let environment = environment(for: worktree)
+        let deadline = OperationDeadline(timeout: timeout)
         for command in commands {
             emit(WorktreeTeardownOutputLine(channel: .command, text: "$ \(command)"))
-            let status = try await executor(command, worktree, environment, emit)
+            let status = try await executor(command, worktree, environment, deadline.remaining(), emit)
             guard status == 0 else {
                 emit(WorktreeTeardownOutputLine(
                     channel: .status,
@@ -67,12 +72,14 @@ enum WorktreeTeardownRunner {
         command: String,
         worktree: Worktree,
         environment: [String: String],
+        timeout: TimeInterval,
         emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void
     ) async throws -> Int32 {
         try await WorktreeTeardownProcess.run(
             command: command,
             workingDirectory: worktree.path,
             environment: environment,
+            timeout: timeout,
             emit: emit
         )
     }
@@ -91,81 +98,31 @@ enum WorktreeTeardownProcess {
         command: String,
         workingDirectory: String,
         environment: [String: String],
+        timeout: TimeInterval = WorktreeTeardownRunner.defaultTimeout,
         emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void
     ) async throws -> Int32 {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    let status = try runProcess(
-                        command: command,
-                        workingDirectory: workingDirectory,
-                        environment: environment,
-                        emit: emit
-                    )
-                    continuation.resume(returning: status)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-    }
-
-    private static func runProcess(
-        command: String,
-        workingDirectory: String,
-        environment: [String: String],
-        emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void
-    ) throws -> Int32 {
-        let process = Process()
         let shell = environment["SHELL"].flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
             ?? "/bin/zsh"
-        process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-c", command]
-        process.environment = environment
-        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
         let stdoutBuffer = LineBuffer { line in
             emit(WorktreeTeardownOutputLine(channel: .stdout, text: line))
         }
         let stderrBuffer = LineBuffer { line in
             emit(WorktreeTeardownOutputLine(channel: .stderr, text: line))
         }
-
-        stdout.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                stdoutBuffer.flush()
-                return
-            }
-            stdoutBuffer.append(data)
+        defer {
+            stdoutBuffer.flush()
+            stderrBuffer.flush()
         }
-        stderr.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                stderrBuffer.flush()
-                return
-            }
-            stderrBuffer.append(data)
-        }
-
-        try process.run()
-        process.waitUntilExit()
-
-        stdout.fileHandleForReading.readabilityHandler = nil
-        stderr.fileHandleForReading.readabilityHandler = nil
-        stdoutBuffer.append(stdout.fileHandleForReading.readDataToEndOfFile())
-        stderrBuffer.append(stderr.fileHandleForReading.readDataToEndOfFile())
-        stdoutBuffer.flush()
-        stderrBuffer.flush()
-
-        return process.terminationStatus
+        let result = try await SubprocessRunner.run(SubprocessRequest(
+            executablePath: shell,
+            arguments: ["-c", command],
+            workingDirectory: workingDirectory,
+            environment: environment,
+            timeout: timeout,
+            onStandardOutput: { stdoutBuffer.append($0) },
+            onStandardError: { stderrBuffer.append($0) }
+        ))
+        return result.status
     }
 }
 

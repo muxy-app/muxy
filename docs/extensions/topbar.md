@@ -58,7 +58,7 @@ Needs `panels:write`. The override is in-memory for the session; disabling or re
 
 ## Placement and order
 
-Items sit in the window title bar's right-hand cluster. In a single-pane Project Focused workspace they precede the built-in **Split / New Tab** group. Among themselves they are ordered by extension directory name, then by their order in the `topbarItems` array.
+Items sit in the window title bar's right-hand cluster. In a single-pane Project Focused workspace they precede the built-in **Split** group. Among themselves they are ordered by extension directory name, then by their order in the `topbarItems` array.
 
 ## Limits
 

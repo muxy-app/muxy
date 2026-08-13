@@ -162,7 +162,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
     init?(parsing description: String) {
         let tokens = description
             .lowercased()
-            .split(whereSeparator: { $0 == "+" || $0 == "-" })
+            .split(whereSeparator: { $0 == "+" })
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         guard let rawKey = tokens.last else { return nil }

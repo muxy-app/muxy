@@ -482,14 +482,7 @@ struct PaletteSearchField: NSViewRepresentable {
             context.coordinator.lastFocusRequest = focusRequest
             claimFocus(for: nsView, attempt: 0)
         }
-        if let editor = nsView.currentEditor() as? NSTextView {
-            if editor.string != text {
-                editor.string = text
-                editor.selectedRange = NSRange(location: (text as NSString).length, length: 0)
-            }
-        } else if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
+        reconcileEditorText(nsView, with: text)
         if nsView.placeholderString != placeholder {
             nsView.placeholderString = placeholder
         }
@@ -501,6 +494,17 @@ struct PaletteSearchField: NSViewRepresentable {
             field.onControlKey = onControlKey
         }
         context.coordinator.notifyWindowChange(nsView.window)
+    }
+
+    func reconcileEditorText(_ nsView: NSTextField, with text: String) {
+        if let editor = nsView.currentEditor() as? NSTextView {
+            if !editor.hasMarkedText(), editor.string != text {
+                editor.string = text
+                editor.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+            }
+        } else if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
     }
 
     @MainActor
@@ -525,16 +529,17 @@ struct PaletteSearchField: NSViewRepresentable {
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
+            let isComposing = (field.currentEditor() as? NSTextView)?.hasMarkedText() == true
             let currentText = syncText(from: field, skipsMarkedText: true)
 
-            if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() {
-                return
-            }
-            if let field = field as? PaletteNSTextField, field.consumeSubmitAfterMarkedTextCommit() {
+            if !isComposing,
+               let field = field as? PaletteNSTextField,
+               field.consumeSubmitAfterMarkedTextCommit()
+            {
                 submit(currentText)
                 return
             }
-            parent.onQueryChange?(field.stringValue)
+            parent.onQueryChange?(currentText)
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {

@@ -38,6 +38,8 @@ The bridge accepts at most 1 MiB from standard input and uses one monotonic 400 
 
 The bridge retries an event when an ack does not arrive within its delivery budget, so a lost or slow ack can deliver the same event twice. The server remembers the 256 most recently applied `id` values (FIFO eviction) and, on a repeat, still acks so the client stops retrying, then skips the event entirely. Duplicate deliveries do not update agent status, hook health, event time, or notifications. An event with a missing or empty `id` is never deduplicated and is always delivered.
 
+When an AI hook and terminal OSC report the same body and navigation context within two seconds, Muxy coalesces only their macOS desktop-notification delivery. Matching titles and the default completion titles are treated as equivalent for this delivery check. A delivery is suppressed only when exactly one complementary pending ingress matches; ambiguous candidates, including different AI providers, are all delivered. Both notification records remain available to the notification list, API, extensions, and in-app delivery. Extension-origin notifications are not eligible for this coalescing.
+
 ## Staging layout
 
 The compiled hook bridge (`muxy-hook`) and the provider shims are staged into `~/Library/Application Support/Muxy/hooks` (`hooks-dev` for debug builds) with private permissions:

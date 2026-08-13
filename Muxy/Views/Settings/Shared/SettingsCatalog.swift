@@ -192,6 +192,15 @@ enum SettingsCatalog {
             aliases: ["hints", "help", "sidebar card", "lightbulb"]
         ),
         SettingsCatalogItem(
+            key: ProjectSearchPreferences.visibleKey,
+            title: "Always Show Project Search",
+            description: "Shows the project search field whenever the project-focused sidebar is expanded.",
+            category: .appearance,
+            section: "Sidebar",
+            defaultValue: ProjectSearchPreferences.defaultVisible,
+            aliases: ["find projects", "search bar", "search box"]
+        ),
+        SettingsCatalogItem(
             key: SidebarSelection.storageKey,
             title: "Active Sidebar",
             description: "Chooses the built-in sidebar or one provided by an extension.",
@@ -383,6 +392,15 @@ enum SettingsCatalog {
             aliases: ["tabs", "tab width", "full-width"]
         ),
         SettingsCatalogItem(
+            key: TopbarPreferences.actionsVisibleKey,
+            title: "Show Top Bar Actions",
+            description: "Shows or hides the window-level controls on the right side of the top bar.",
+            category: .appearance,
+            section: "Interface",
+            defaultValue: TopbarPreferences.defaultActionsVisible,
+            aliases: ["topbar", "title bar", "tab strip controls", "hide top bar icons"]
+        ),
+        SettingsCatalogItem(
             key: "muxy.showStatusBar",
             title: "Show Status Bar",
             description: "Shows or hides the status bar.",
@@ -438,6 +456,33 @@ enum SettingsCatalog {
             category: .appearance,
             section: "Sidebar",
             defaultValue: SidebarExpandedStyle.defaultValue.rawValue
+        ),
+        SettingsCatalogItem(
+            key: RichInputPreferences.presentationModeKey,
+            title: "Composer Presentation",
+            description: "Chooses whether the composer opens as a workspace panel or a floating modal.",
+            category: .richInput,
+            section: "Composer",
+            defaultValue: RichInputPreferences.defaultPresentationMode.rawValue,
+            aliases: ["rich input", "panel", "floating"]
+        ),
+        SettingsCatalogItem(
+            key: RichInputPreferences.clearAfterSendingKey,
+            title: "Clear After Sending",
+            description: "Clears text and attachments after a successful Composer submission.",
+            category: .richInput,
+            section: "Composer",
+            defaultValue: RichInputPreferences.defaultClearAfterSending,
+            aliases: ["rich input", "draft", "send"]
+        ),
+        SettingsCatalogItem(
+            key: RichInputPreferences.clearOnCloseKey,
+            title: "Clear on Close",
+            description: "Clears text and attachments whenever the Composer closes.",
+            category: .richInput,
+            section: "Composer",
+            defaultValue: RichInputPreferences.defaultClearOnClose,
+            aliases: ["rich input", "draft", "dismiss"]
         ),
         SettingsCatalogItem(
             key: "editor.richInputImageStrategy",

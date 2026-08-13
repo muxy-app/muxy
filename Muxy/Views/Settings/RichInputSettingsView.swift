@@ -3,6 +3,12 @@ import SwiftUI
 struct RichInputSettingsView: View {
     @State private var settings = EditorSettings.shared
     @State private var monoFonts: [String] = []
+    @AppStorage(RichInputPreferences.presentationModeKey)
+    private var presentationMode = RichInputPreferences.defaultPresentationMode
+    @AppStorage(RichInputPreferences.clearAfterSendingKey)
+    private var clearAfterSending = RichInputPreferences.defaultClearAfterSending
+    @AppStorage(RichInputPreferences.clearOnCloseKey)
+    private var clearOnClose = RichInputPreferences.defaultClearOnClose
 
     var body: some View {
         VStack(spacing: 0) {
@@ -14,6 +20,8 @@ struct RichInputSettingsView: View {
                 Spacer()
                 Button(L10n.string("Reset to Defaults")) {
                     settings.resetToDefaults()
+                    presentationMode = RichInputPreferences.defaultPresentationMode
+                    RichInputPreferences.resetClearOptions()
                 }
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .buttonStyle(.borderless)
@@ -37,6 +45,17 @@ struct RichInputSettingsView: View {
             """,
             showsDivider: false
         ) {
+            SettingsRow("Presentation") {
+                Picker("", selection: $presentationMode) {
+                    ForEach(RichInputPresentationMode.allCases) { mode in
+                        Text(L10n.resource(key: mode.displayName)).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .settingsControl(.intrinsic)
+            }
+
             SettingsRow("Image Submission") {
                 Picker("", selection: $settings.richInputImageStrategy) {
                     ForEach(RichInputImageStrategy.allCases) { strategy in
@@ -97,6 +116,20 @@ struct RichInputSettingsView: View {
                             >= EditorSettings.maxLineHeightMultiplier - 0.001
                     )
                 }
+            }
+
+            SettingsRow(L10n.resource("Clear After Sending")) {
+                Toggle("", isOn: $clearAfterSending)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .settingsControl()
+            }
+
+            SettingsRow(L10n.resource("Clear on Close")) {
+                Toggle("", isOn: $clearOnClose)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .settingsControl()
             }
         }
     }

@@ -111,6 +111,10 @@ struct ExtensionCatalogQuery: Equatable {
     var perPage: Int = 24
 }
 
+enum ExtensionMarketplaceCategory {
+    static let localization = "localization"
+}
+
 struct ExtensionCatalogPage: Equatable {
     let items: [ExtensionListing]
     let hasNextPage: Bool
