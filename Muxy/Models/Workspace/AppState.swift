@@ -104,19 +104,22 @@ final class AppState {
         let tabID: UUID
         let scope: CloseScope
         let topLevelTabID: UUID
+        let includedTabIDs: Set<UUID>
 
         init(
             key: WorktreeKey,
             areaID: UUID,
             tabID: UUID,
             scope: CloseScope = .tab,
-            topLevelTabID: UUID? = nil
+            topLevelTabID: UUID? = nil,
+            includedTabIDs: Set<UUID>? = nil
         ) {
             self.key = key
             self.areaID = areaID
             self.tabID = tabID
             self.scope = scope
             self.topLevelTabID = topLevelTabID ?? tabID
+            self.includedTabIDs = includedTabIDs ?? [tabID]
         }
     }
 
@@ -654,17 +657,29 @@ final class AppState {
         key: WorktreeKey,
         scope: CloseScope
     ) -> PendingTabClose? {
-        guard let tab = workspaceRoots[key]?
-            .findArea(id: areaID)?
-            .tabs
-            .first(where: { $0.id == tabID })
+        guard let root = workspaceRoots[key],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID })
         else { return nil }
+        let topLevelTabID = tab.parentTabID ?? tab.id
+        let target: (area: TabArea, tab: TerminalTab)? = if scope == .tab {
+            root.locateTab(id: topLevelTabID)
+        } else {
+            (area: area, tab: tab)
+        }
+        guard let target else { return nil }
+        let includedTabIDs = if scope == .tab {
+            Set(root.allTabs().filter { $0.id == topLevelTabID || $0.parentTabID == topLevelTabID }.map(\.id))
+        } else {
+            Set([tabID])
+        }
         return PendingTabClose(
             key: key,
-            areaID: areaID,
-            tabID: tabID,
+            areaID: target.area.id,
+            tabID: target.tab.id,
             scope: scope,
-            topLevelTabID: tab.parentTabID ?? tab.id
+            topLevelTabID: topLevelTabID,
+            includedTabIDs: includedTabIDs
         )
     }
 
@@ -777,16 +792,8 @@ final class AppState {
     }
 
     private func lifecycleSurfaceKeys(for pending: PendingTabClose) -> [LifecycleSurfaceKey] {
-        guard let root = workspaceRoots[pending.key],
-              let area = root.findArea(id: pending.areaID),
-              let tab = area.tabs.first(where: { $0.id == pending.tabID })
-        else { return [] }
-        let tabs = if pending.scope == .tab, tab.parentTabID == nil {
-            root.allTabs().filter { $0.id == tab.id || $0.parentTabID == tab.id }
-        } else {
-            [tab]
-        }
-        return tabs.compactMap { relatedTab in
+        guard let root = workspaceRoots[pending.key] else { return [] }
+        return root.allTabs().filter { pending.includedTabIDs.contains($0.id) }.compactMap { relatedTab in
             guard let state = relatedTab.content.extensionState else { return nil }
             return LifecycleSurfaceKey(kind: .tab, instanceID: state.id.uuidString)
         }
@@ -916,17 +923,12 @@ final class AppState {
     }
 
     private func needsProcessConfirmation(for pending: PendingTabClose) -> Bool {
-        guard TabCloseConfirmationPreferences.confirmRunningProcess else { return false }
-        guard let root = workspaceRoots[pending.key],
-              let area = root.findArea(id: pending.areaID),
-              let tab = area.tabs.first(where: { $0.id == pending.tabID })
+        guard TabCloseConfirmationPreferences.confirmRunningProcess,
+              let root = workspaceRoots[pending.key]
         else { return false }
-        let tabs = if pending.scope == .tab, tab.parentTabID == nil {
-            root.allTabs().filter { $0.id == tab.id || $0.parentTabID == tab.id }
-        } else {
-            [tab]
-        }
-        return tabs.compactMap { $0.content.pane?.id }
+        return root.allTabs()
+            .filter { pending.includedTabIDs.contains($0.id) }
+            .compactMap { $0.content.pane?.id }
             .contains { terminalViews.needsConfirmQuit(for: $0) }
     }
 
@@ -1255,9 +1257,17 @@ final class AppState {
     private func closeTargetMatches(_ pending: PendingTabClose) -> Bool {
         guard let root = workspaceRoots[pending.key],
               let area = root.findArea(id: pending.areaID),
-              let tab = area.tabs.first(where: { $0.id == pending.tabID })
+              let tab = area.tabs.first(where: { $0.id == pending.tabID }),
+              (tab.parentTabID ?? tab.id) == pending.topLevelTabID
         else { return false }
-        return (tab.parentTabID ?? tab.id) == pending.topLevelTabID
+        let currentTabIDs = if pending.scope == .tab {
+            Set(root.allTabs().filter {
+                $0.id == pending.topLevelTabID || $0.parentTabID == pending.topLevelTabID
+            }.map(\.id))
+        } else {
+            Set([tab.id])
+        }
+        return currentTabIDs == pending.includedTabIDs
     }
 
     private func invalidateMaximizedAreas(for action: Action) {

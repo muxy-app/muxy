@@ -82,6 +82,29 @@ struct MuxyAPITabsControlTests {
         #expect(!area.tabs.contains { $0.id == tab.id })
     }
 
+    @Test("tabs.close targets the owner hierarchy when given a child")
+    func closeChildTabClosesOwnerHierarchy() {
+        let (appState, ownerArea) = makeAppState(tabTitles: ["Owner", "Unrelated"])
+        let projectID = appState.activeProjectID!
+        let key = appState.activeWorktreeKey(for: projectID)!
+        let ownerTab = ownerArea.tabs[0]
+        ownerArea.activeTabID = ownerTab.id
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: ownerArea.id,
+            direction: .horizontal,
+            position: .second
+        )))
+        let childAreaID = appState.focusedAreaID[key]!
+        let childTab = appState.workspaceRoots[key]!.findArea(id: childAreaID)!.activeTab!
+
+        let result = MuxyAPI.Tabs.close(identifier: childTab.id.uuidString, appState: appState)
+
+        guard case .success = result else { Issue.record("expected success"); return }
+        #expect(appState.workspaceRoots[key]?.allTabs().map(\.id) == [ownerArea.tabs[0].id])
+        #expect(ownerArea.tabs[0].customTitle == "Unrelated")
+    }
+
     @Test("panes.close promotes a child instead of closing its hierarchy")
     func closeOwnerPanePromotesChild() {
         let (appState, ownerArea) = makeAppState(tabTitles: ["Owner"])

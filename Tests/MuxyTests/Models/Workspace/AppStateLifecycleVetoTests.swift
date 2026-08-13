@@ -271,7 +271,8 @@ struct AppStateLifecycleVetoTests {
         #expect(appState.pendingProcessTabClose == AppState.PendingTabClose(
             key: key,
             areaID: rootArea.id,
-            tabID: rootTabID
+            tabID: rootTabID,
+            includedTabIDs: [rootTabID, childTab.id]
         ))
         #expect(appState.workspaceRoots[key]?.allTabs().count == 2)
         #expect(terminalViews.confirmationChecks.contains(childPane.id))
@@ -427,6 +428,95 @@ struct AppStateLifecycleVetoTests {
         appState.confirmCloseRunningTab()
         #expect(appState.workspaceRoots[key]?.allTabs().map(\.id) == [childTab.id])
         #expect(childTab.parentTabID == nil)
+    }
+
+    @Test("running-process confirmation stops when its hierarchy changes")
+    func runningProcessConfirmationStopsAfterAddingChild() {
+        let originalPreference = UserDefaults.standard.object(
+            forKey: TabCloseConfirmationPreferences.confirmRunningProcessKey
+        )
+        TabCloseConfirmationPreferences.confirmRunningProcess = true
+        defer {
+            if let originalPreference {
+                UserDefaults.standard.set(
+                    originalPreference,
+                    forKey: TabCloseConfirmationPreferences.confirmRunningProcessKey
+                )
+            } else {
+                UserDefaults.standard.removeObject(
+                    forKey: TabCloseConfirmationPreferences.confirmRunningProcessKey
+                )
+            }
+        }
+
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let ownerArea = TabArea(projectPath: "/tmp/test")
+        let ownerTab = ownerArea.activeTab!
+        let ownerPaneID = ownerTab.content.pane!.id
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(paneIDsRequiringConfirmation: [ownerPaneID]),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        appState.activeProjectID = projectID
+        appState.activeWorktreeID[projectID] = worktreeID
+        appState.workspaceRoots[key] = .tabArea(ownerArea)
+        appState.focusedAreaID[key] = ownerArea.id
+
+        appState.closeTab(ownerTab.id, areaID: ownerArea.id, projectID: projectID)
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: ownerArea.id,
+            direction: .horizontal,
+            position: .second
+        )))
+        appState.confirmCloseRunningTab()
+
+        #expect(appState.workspaceRoots[key]?.allTabs().count == 2)
+    }
+
+    @Test("a delayed top-level close stops when its hierarchy changes")
+    func delayedTopLevelCloseStopsAfterAddingChild() async {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let ownerState = ExtensionTabState(
+            extensionID: "ext",
+            tabTypeID: "owner",
+            projectPath: "/tmp/test",
+            defaultTitle: "Owner"
+        )
+        let ownerTab = TerminalTab(extensionState: ownerState)
+        let ownerArea = TabArea(projectPath: "/tmp/test", existingTab: ownerTab)
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        appState.activeProjectID = projectID
+        appState.activeWorktreeID[projectID] = worktreeID
+        appState.workspaceRoots[key] = .tabArea(ownerArea)
+        appState.focusedAreaID[key] = ownerArea.id
+
+        let surfaceKey = LifecycleSurfaceKey(kind: .tab, instanceID: ownerState.id.uuidString)
+        let bridge = DeferredBeforeCloseAsking()
+        ExtensionSurfaceBridgeRegistry.shared.register(bridge, for: surfaceKey)
+        defer { ExtensionSurfaceBridgeRegistry.shared.unregister(surfaceKey) }
+
+        appState.closeTab(ownerTab.id, areaID: ownerArea.id, projectID: projectID)
+        await settle()
+        appState.dispatch(.splitArea(.init(
+            projectID: projectID,
+            areaID: ownerArea.id,
+            direction: .horizontal,
+            position: .second
+        )))
+        bridge.resolve(.allow)
+        await settle()
+
+        #expect(appState.workspaceRoots[key]?.allTabs().count == 2)
     }
 
     @Test("a delayed child close cannot expand after owner promotion")
