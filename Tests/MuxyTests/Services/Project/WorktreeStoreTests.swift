@@ -7,6 +7,62 @@ import Testing
 @Suite("WorktreeStore")
 @MainActor
 struct WorktreeStoreTests {
+    @Test("ensuring a primary worktree notifies observers")
+    func ensurePrimaryNotifiesObservers() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+        var change: (projectID: UUID, worktreeID: UUID?)?
+        store.onWorktreesChanged = { change = ($0, $1) }
+
+        store.ensurePrimary(for: project)
+
+        #expect(change?.projectID == project.id)
+        #expect(change?.worktreeID == store.primary(for: project.id)?.id)
+    }
+
+    @Test("local path ownership wins over an identical remote path")
+    func localPathOwnershipWinsRemoteCollision() {
+        let sharedPath = "/workspace/api"
+        let local = Project(name: "Local", path: sharedPath)
+        let remote = RemoteProject(name: "Remote", path: sharedPath).asProject(
+            workspaceID: UUID(),
+            sortOrder: 0
+        )
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+
+        store.loadAll(projects: [local, remote])
+
+        #expect(store.projectID(forWorktreePath: sharedPath) == local.id)
+    }
+
+    @Test("removing a project notifies worktree observers")
+    func removingProjectNotifiesObservers() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+        store.ensurePrimary(for: project)
+        var change: (projectID: UUID, worktreeID: UUID?)?
+        store.onWorktreesChanged = { change = ($0, $1) }
+
+        store.removeProject(project.id)
+
+        #expect(change?.projectID == project.id)
+        #expect(change?.worktreeID == nil)
+    }
+
+    @Test("restoring worktrees notifies observers")
+    func restoringWorktreesNotifiesObservers() {
+        let projectID = UUID()
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+        let worktree = Worktree(name: "Repo", path: "/tmp/repo", isPrimary: true)
+        var change: (projectID: UUID, worktreeID: UUID?)?
+        store.onWorktreesChanged = { change = ($0, $1) }
+
+        store.restoreProjectWorktrees([worktree], for: projectID)
+
+        #expect(change?.projectID == projectID)
+        #expect(change?.worktreeID == nil)
+    }
+
     @Test("Worktree decodes legacy records without source metadata")
     func worktreeLegacyDecodeDefaultsToMuxy() throws {
         let json = """

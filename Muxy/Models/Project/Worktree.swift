@@ -13,6 +13,7 @@ struct Worktree: Identifiable, Codable, Hashable {
     var source: WorktreeSource
     var isPrimary: Bool
     var createdAt: Date
+    var lastActiveAt: Date?
 
     init(
         id: UUID = UUID(),
@@ -21,7 +22,8 @@ struct Worktree: Identifiable, Codable, Hashable {
         branch: String? = nil,
         source: WorktreeSource = .muxy,
         isPrimary: Bool,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        lastActiveAt: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -30,6 +32,7 @@ struct Worktree: Identifiable, Codable, Hashable {
         self.source = source
         self.isPrimary = isPrimary
         self.createdAt = createdAt
+        self.lastActiveAt = lastActiveAt
     }
 
     var isExternallyManaged: Bool {
@@ -52,6 +55,7 @@ struct Worktree: Identifiable, Codable, Hashable {
         case source
         case isPrimary
         case createdAt
+        case lastActiveAt
     }
 
     init(from decoder: Decoder) throws {
@@ -63,5 +67,6 @@ struct Worktree: Identifiable, Codable, Hashable {
         source = try container.decodeIfPresent(WorktreeSource.self, forKey: .source) ?? .muxy
         isPrimary = try container.decode(Bool.self, forKey: .isPrimary)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
     }
 }

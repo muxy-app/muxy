@@ -26,6 +26,19 @@ struct RemoteDeviceStoreTests {
         #expect(try persistence.loadDevices().count == 1)
     }
 
+    @Test("mutations notify observers")
+    func mutationsNotifyObservers() {
+        let (store, _) = makeStore()
+        var changeCount = 0
+        store.onDevicesChanged = { changeCount += 1 }
+
+        let device = store.add(name: "Prod", ssh: SSHWorkspaceData(host: "example.com"))
+        store.update(id: device.id) { $0.ssh.remoteRoot = "/srv" }
+        store.remove(id: device.id)
+
+        #expect(changeCount == 3)
+    }
+
     @Test("device(id:) resolves a stored device and nil for unknown")
     func deviceLookup() {
         let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com"))

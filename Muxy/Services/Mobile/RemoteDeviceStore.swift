@@ -8,6 +8,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "RemoteDeviceStore"
 final class RemoteDeviceStore {
     private(set) var devices: [RemoteDevice] = []
     private let persistence: any RemoteDevicePersisting
+    var onDevicesChanged: (() -> Void)?
 
     init(persistence: any RemoteDevicePersisting) {
         self.persistence = persistence
@@ -54,6 +55,7 @@ final class RemoteDeviceStore {
         } catch {
             logger.error("Failed to save remote devices: \(error)")
         }
+        onDevicesChanged?()
     }
 
     private func load() {

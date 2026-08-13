@@ -10,12 +10,20 @@ struct RemoteProject: Identifiable, Codable, Hashable {
     var name: String
     var path: String
     var worktreesEnabled: Bool
+    var lastActiveAt: Date?
 
-    init(id: UUID = UUID(), name: String, path: String, worktreesEnabled: Bool = false) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        path: String,
+        worktreesEnabled: Bool = false,
+        lastActiveAt: Date? = nil
+    ) {
         self.id = id
         self.name = name
         self.path = path
         self.worktreesEnabled = worktreesEnabled
+        self.lastActiveAt = lastActiveAt
     }
 
     init(from decoder: Decoder) throws {
@@ -24,11 +32,13 @@ struct RemoteProject: Identifiable, Codable, Hashable {
         name = try container.decode(String.self, forKey: .name)
         path = try container.decode(String.self, forKey: .path)
         worktreesEnabled = try container.decodeIfPresent(Bool.self, forKey: .worktreesEnabled) ?? false
+        lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
     }
 
     func asProject(workspaceID: UUID, sortOrder: Int) -> Project {
         var project = Project(id: id, name: name, path: path, sortOrder: sortOrder, remoteWorkspaceID: workspaceID)
         project.worktreesEnabled = worktreesEnabled
+        project.lastActiveAt = lastActiveAt
         return project
     }
 }

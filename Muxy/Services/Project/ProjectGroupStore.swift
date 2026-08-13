@@ -11,6 +11,7 @@ final class ProjectGroupStore {
     private let persistence: any ProjectGroupPersisting
     private let workspaceContextSink: any WorkspaceContextSink
     private let remoteDeviceStore: RemoteDeviceStore
+    var onProjectsChanged: (() -> Void)?
 
     init(
         persistence: any ProjectGroupPersisting,
@@ -238,6 +239,17 @@ final class ProjectGroupStore {
         save()
     }
 
+    func markRemoteProjectActive(id: UUID) {
+        for groupIndex in groups.indices {
+            guard let projectIndex = groups[groupIndex].remoteProjects.firstIndex(where: { $0.id == id }) else {
+                continue
+            }
+            groups[groupIndex].remoteProjects[projectIndex].lastActiveAt = Date()
+            save()
+            return
+        }
+    }
+
     func updateRemoteProject(id: UUID, _ mutate: (inout RemoteProject) -> Void) {
         for groupIndex in groups.indices {
             guard let projectIndex = groups[groupIndex].remoteProjects.firstIndex(where: { $0.id == id })
@@ -311,6 +323,7 @@ final class ProjectGroupStore {
         } catch {
             logger.error("Failed to save project groups: \(error)")
         }
+        onProjectsChanged?()
     }
 
     private func load() {
