@@ -159,6 +159,8 @@ struct MainWindow: View {
     @State private var layoutStore = AppLayoutStore.shared
     @State private var extensionStore = ExtensionStore.shared
     @AppStorage(SidebarSelection.storageKey) private var activeSidebarRaw = SidebarSelection.builtinValue
+    @AppStorage(TopbarPreferences.actionsVisibleKey)
+    private var showTopbarActions = TopbarPreferences.defaultActionsVisible
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
@@ -689,6 +691,7 @@ struct MainWindow: View {
                 worktreeKey: key,
                 groupID: group.id,
                 isWindowTitleBar: true,
+                showsWindowTopbarActions: showTopbarActions,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
                 openProjectPath: project.isRemote ? nil : activeWorktreePath(for: project)
             )
@@ -701,7 +704,9 @@ struct MainWindow: View {
                                 .allowsHitTesting(false)
                         }
                     }
-                fallbackTopbarActions
+                if showTopbarActions {
+                    fallbackTopbarActions
+                }
             }
             .frame(height: UIMetrics.scaled(32))
         }

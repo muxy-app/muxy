@@ -815,6 +815,7 @@
 "Show Tips" = "Show Tips";
 "Show Resource Usage in Status Bar" = "Show Resource Usage in Status Bar";
 "Show Status Bar" = "Show Status Bar";
+"Show Top Bar Actions" = "Show Top Bar Actions";
 "Show unread notification indicator on worktrees" = "Show unread notification indicator on worktrees";
 "Sidebar" = "Sidebar";
 "Size" = "Size";
@@ -1428,6 +1429,7 @@
 "Shows a macOS notification when Muxy is not frontmost." = "Shows a macOS notification when Muxy is not frontmost.";
 "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling." = "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling.";
 "Shows or hides the status bar." = "Shows or hides the status bar.";
+"Shows or hides the window-level controls on the right side of the top bar." = "Shows or hides the window-level controls on the right side of the top bar.";
 "Shows the project search field whenever the project-focused sidebar is expanded." = "Shows the project search field whenever the project-focused sidebar is expanded.";
 "Shows the QR code used to pair a mobile device." = "Shows the QR code used to pair a mobile device.";
 "Shows the permanent Home project at the top of the sidebar." = "Shows the permanent Home project at the top of the sidebar.";
