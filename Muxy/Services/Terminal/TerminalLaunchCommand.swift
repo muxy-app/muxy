@@ -29,7 +29,7 @@ enum TerminalLaunchCommand {
             )
             let remoteCommand = RemoteCommandBuilder.changeDirectoryPrefix(workingDirectory) + inner
             let bootstrap = RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand
-            command = "exec /bin/sh -c \(ShellEscaper.escape(bootstrap))"
+            command = RemoteLoginShellCommand.bootstrap(bootstrap)
         } else {
             let inner = remoteLoginShell(
                 startupCommand: nil,
@@ -57,26 +57,12 @@ enum TerminalLaunchCommand {
         let assignment = "\(environmentKey)=\(ShellEscaper.escape(startupCommand))"
         return [
             "export \(assignment)",
-            "__muxy_shell=${SHELL:-/bin/sh}",
-            "__muxy_shell_name=${__muxy_shell##*/}",
-            remoteLoginShellCase(
-                interactive: interactive,
-                keepsShellOpen: keepsShellOpen
+            RemoteLoginShellCommand.dispatch(
+                posixScript: posixScript(keepsShellOpen: keepsShellOpen),
+                fishScript: fishScript(keepsShellOpen: keepsShellOpen),
+                interactive: interactive
             ),
         ].joined(separator: "; ")
-    }
-
-    private static func remoteLoginShellCase(
-        interactive: Bool,
-        keepsShellOpen: Bool
-    ) -> String {
-        let posixFlags = interactive ? "-l -i" : "-l"
-        let fishFlags = startupShellFlags(interactive: interactive)
-        let posixScript = ShellEscaper.escape(posixScript(keepsShellOpen: keepsShellOpen))
-        let fishScript = ShellEscaper.escape(fishScript(keepsShellOpen: keepsShellOpen))
-        let fishBranch = "fish) exec \"$__muxy_shell\" \(fishFlags) -c \(fishScript) \"$__muxy_shell\""
-        let posixBranch = "*) exec \"$__muxy_shell\" \(posixFlags) -c \(posixScript) \"$__muxy_shell\""
-        return "case \"$__muxy_shell_name\" in \(fishBranch) ;; \(posixBranch) ;; esac"
     }
 
     private static func script(shell: String, keepsShellOpen: Bool) -> String {

@@ -187,17 +187,32 @@ enum RemoteAgentLaunchAvailability {
     }
 
     static func lookupCommand(providers: [any AIAgentLaunchProvider]) -> String {
-        let checks = providers.map { provider in
-            let executable = ShellEscaper.escape(provider.agentLaunchConfiguration.executable)
-            let providerID = ShellEscaper.escape(provider.id)
-            return "if command -v \(executable) >/dev/null 2>&1; then printf '%s\\n' \(providerID); fi"
+        let providerCommands = providers.map { provider in
+            (
+                executable: ShellEscaper.escape(provider.agentLaunchConfiguration.executable),
+                providerID: ShellEscaper.escape(provider.id)
+            )
         }
-        let script = ([
+        let posixChecks = providerCommands.map {
+            "if command -v \($0.executable) >/dev/null 2>&1; then printf '%s\\n' \($0.providerID); fi"
+        }
+        let fishChecks = providerCommands.map {
+            "if command -q \($0.executable); printf '%s\\n' \($0.providerID); end"
+        }
+        let dispatch = RemoteLoginShellCommand.dispatch(
+            posixScript: lookupScript(checks: posixChecks),
+            fishScript: lookupScript(checks: fishChecks),
+            interactive: true
+        )
+        return RemoteLoginShellCommand.bootstrap(dispatch)
+    }
+
+    private static func lookupScript(checks: [String]) -> String {
+        ([
             "printf '%s\\n' \(ShellEscaper.escape(startMarker))",
         ] + checks + [
             "printf '%s\\n' \(ShellEscaper.escape(endMarker))",
         ]).joined(separator: "; ")
-        return "exec \"${SHELL:-/bin/sh}\" -l -i -c \(ShellEscaper.escape(script))"
     }
 
     static func providerIDs(from output: String) -> Set<String> {

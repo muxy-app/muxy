@@ -95,7 +95,10 @@ struct SocketCommandHandlerTests {
         let result = await SocketCommandHandler.handleRequest("split-right||echo a | wc", appState: appState)
         let paneID = UUID(uuidString: result)
         #expect(paneID != nil)
-        #expect(paneID.flatMap { pane(with: $0, appState: appState)?.startupCommand } == "(echo a | wc); exec \"$0\" -l")
+        let launchedPane = paneID.flatMap { pane(with: $0, appState: appState) }
+        #expect(launchedPane?.startupCommand == "echo a | wc")
+        #expect(launchedPane?.startupCommandInteractive == true)
+        #expect(launchedPane?.closesOnStartupCommandExit == false)
     }
 
     @Test("split with startup command requires exec permission")

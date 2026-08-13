@@ -190,7 +190,11 @@ struct AIAgentLaunchProviderTests {
         }
 
         #expect(providerIDs == ["test"])
-        #expect(capturedCommand.contains(#""${SHELL:-/bin/sh}" -l -i -c"#))
+        #expect(capturedCommand.hasPrefix("exec /bin/sh -c"))
+        #expect(capturedCommand.contains("__muxy_shell_name=${__muxy_shell##*/}"))
+        #expect(capturedCommand.contains("fish) exec \"$__muxy_shell\" -l -i -c"))
+        #expect(capturedCommand.contains("if command -q test-agent"))
+        #expect(capturedCommand.contains("*) exec \"$__muxy_shell\" -l -i -c"))
         #expect(capturedCommand.contains("command -v test-agent"))
     }
 
