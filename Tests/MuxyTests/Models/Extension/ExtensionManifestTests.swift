@@ -1216,6 +1216,7 @@ struct ExtensionManifestTests {
         #expect(minimal.hiddenControls.isEmpty)
         #expect(minimal.headerButtons.isEmpty)
         #expect(!minimal.hideTopbar)
+        #expect(minimal.allowsModeSelection)
         let full = try #require(manifest.panel(id: "full"))
         #expect(full.title == "Sidebar")
         #expect(full.position == .bottom)
@@ -1225,6 +1226,7 @@ struct ExtensionManifestTests {
             ExtensionPanelHeaderButton(id: "prs", icon: .symbol("arrow.triangle.pull"), tooltip: "PRs", command: "show-prs")
         ])
         #expect(full.hideTopbar)
+        #expect(!full.allowsModeSelection)
     }
 
     @Test("loads an extension declaring a valid panel")

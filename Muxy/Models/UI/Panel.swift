@@ -1,5 +1,10 @@
 import Foundation
 
+enum BuiltinPanel {
+    static let richInput = "builtin:richInput"
+    static let extensionConsole = "builtin:extensionConsole"
+}
+
 enum PanelPosition: String, CaseIterable, Identifiable, Codable {
     case right
     case bottom

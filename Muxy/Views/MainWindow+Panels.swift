@@ -1,10 +1,5 @@
 import SwiftUI
 
-enum BuiltinPanel {
-    static let richInput = "builtin:richInput"
-    static let extensionConsole = "builtin:extensionConsole"
-}
-
 enum PanelLayoutMetrics {
     static let richInputWidthRange: ClosedRange<CGFloat> = 280 ... 800
     static let richInputDefaultWidth: Double = 380

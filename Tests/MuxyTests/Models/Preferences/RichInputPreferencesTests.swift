@@ -8,6 +8,8 @@ struct RichInputPreferencesTests {
     @Test("panel presentation is the default")
     func panelPresentationIsDefault() {
         #expect(RichInputPreferences.defaultPresentationMode == .panel)
+        #expect(RichInputPreferences.defaultPanelMode == .floating)
+        #expect(RichInputPreferences.panelFloatingKey == "muxy.richInput.floating")
         #expect(RichInputPreferences.defaultPosition == .right)
     }
 

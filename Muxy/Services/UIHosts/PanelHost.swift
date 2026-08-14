@@ -9,11 +9,19 @@ struct PanelPlacement: Equatable {
 @MainActor
 @Observable
 final class PanelHost {
-    static let shared = PanelHost()
+    static let shared = PanelHost(
+        modePreferences: MuxyFileStorage.isTestProcess ? nil : PanelModePreferences()
+    )
 
     private(set) var placements: [PanelPlacement] = []
 
     var onDisplace: ((String) -> Void)?
+
+    private let modePreferences: PanelModePreferences?
+
+    init(modePreferences: PanelModePreferences? = nil) {
+        self.modePreferences = modePreferences
+    }
 
     func placement(for panelID: String) -> PanelPlacement? {
         placements.first { $0.panelID == panelID }
@@ -35,7 +43,13 @@ final class PanelHost {
         panel(at: position, mode: .floating)?.panelID
     }
 
-    func open(_ panelID: String, at position: PanelPosition, mode: PanelMode) {
+    func open(
+        _ panelID: String,
+        at position: PanelPosition,
+        mode defaultMode: PanelMode,
+        usesPreferredMode: Bool = true
+    ) {
+        let mode = resolvedMode(for: panelID, default: defaultMode, usesPreferredMode: usesPreferredMode)
         placements.removeAll { $0.panelID == panelID }
         let displaced = placements.filter { $0.position == position && $0.mode == mode }
         placements.removeAll { $0.position == position && $0.mode == mode }
@@ -58,6 +72,7 @@ final class PanelHost {
 
     func setMode(_ mode: PanelMode, for panelID: String) {
         guard let current = placement(for: panelID) else { return }
+        modePreferences?.setMode(mode, for: panelID)
         open(panelID, at: current.position, mode: mode)
     }
 
@@ -67,5 +82,14 @@ final class PanelHost {
 
     func closeAll() {
         placements.removeAll()
+    }
+
+    private func resolvedMode(
+        for panelID: String,
+        default defaultMode: PanelMode,
+        usesPreferredMode: Bool
+    ) -> PanelMode {
+        guard usesPreferredMode else { return defaultMode }
+        return modePreferences?.mode(for: panelID, default: defaultMode) ?? defaultMode
     }
 }

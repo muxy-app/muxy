@@ -1658,14 +1658,13 @@ struct MainWindow: View {
                 chrome: PanelChrome(
                     iconSymbol: "keyboard",
                     title: L10n.string("Rich Input"),
-                    hiddenControls: [.pin],
                     trailingButtons: [richInputBroadcastButton, useFloatingComposerButton]
                 ),
                 mode: mode,
                 position: position,
                 focusRestorationID: nil,
                 onClose: closeRichInput,
-                onTogglePin: nil,
+                onTogglePin: toggleRichInputPanelMode,
                 onTogglePosition: toggleRichInputPanelPosition,
                 content: {
                     FocusedComposerView(
@@ -1701,13 +1700,13 @@ struct MainWindow: View {
             chrome: PanelChrome(
                 iconSymbol: "terminal",
                 title: L10n.string("Extension Output"),
-                hiddenControls: [.pin, .position]
+                hiddenControls: [.position]
             ),
             mode: mode,
             position: position,
             focusRestorationID: nil,
             onClose: { panelHost.close(BuiltinPanel.extensionConsole) },
-            onTogglePin: nil,
+            onTogglePin: { togglePanelMode(for: BuiltinPanel.extensionConsole) },
             onTogglePosition: nil,
             content: {
                 ExtensionOutputPanel(
@@ -1870,6 +1869,7 @@ struct MainWindow: View {
         }
         richInputPresentation.present(
             mode: richInputPresentationMode,
+            panelMode: RichInputPreferences.defaultPanelMode,
             position: richInputPanelPosition,
             target: target
         )
@@ -1920,8 +1920,25 @@ struct MainWindow: View {
     }
 
     private func synchronizeRichInputPresentationMode(_ mode: RichInputPresentationMode) {
-        guard richInputPresentation.synchronize(mode: mode, position: richInputPanelPosition) else { return }
+        guard richInputPresentation.synchronize(
+            mode: mode,
+            panelMode: RichInputPreferences.defaultPanelMode,
+            position: richInputPanelPosition
+        )
+        else { return }
         activeRichInputState?.focusVersion += 1
+    }
+
+    private func toggleRichInputPanelMode() {
+        guard let mode = panelHost.placement(for: BuiltinPanel.richInput)?.mode else { return }
+        let nextMode: PanelMode = mode == .pinned ? .floating : .pinned
+        richInputPresentation.setPanelMode(nextMode)
+    }
+
+    private func togglePanelMode(for panelID: String) {
+        guard let mode = panelHost.placement(for: panelID)?.mode else { return }
+        let nextMode: PanelMode = mode == .pinned ? .floating : .pinned
+        panelHost.setMode(nextMode, for: panelID)
     }
 
     private func toggleRichInputPanelPosition() {

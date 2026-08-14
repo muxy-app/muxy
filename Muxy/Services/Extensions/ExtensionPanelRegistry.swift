@@ -134,7 +134,8 @@ final class ExtensionPanelRegistry {
         PanelHost.shared.open(
             hostPanelID,
             at: position ?? panel.position,
-            mode: mode ?? panel.mode
+            mode: mode ?? panel.mode,
+            usesPreferredMode: panel.allowsModeSelection
         )
         ExtensionLifecycleEvents.panelOpened(extensionID: extensionID, panelID: panel.id)
         return state

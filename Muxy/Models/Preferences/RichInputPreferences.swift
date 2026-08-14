@@ -27,6 +27,9 @@ enum RichInputPreferences {
     static let presentationModeKey = "muxy.richInput.presentationMode"
     static let defaultPresentationMode: RichInputPresentationMode = .panel
 
+    static let panelFloatingKey = "muxy.richInput.floating"
+    static let defaultPanelMode: PanelMode = .floating
+
     static let positionKey = "muxy.richInput.position"
     static let defaultPosition: PanelPosition = .right
 

@@ -196,6 +196,10 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
         hideTopbar = try container.decodeIfPresent(Bool.self, forKey: .hideTopbar) ?? false
         defaultData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .defaultData)
     }
+
+    var allowsModeSelection: Bool {
+        !hideTopbar && !hiddenControls.contains(.pin)
+    }
 }
 
 struct ExtensionPopover: Codable, Equatable, Identifiable {

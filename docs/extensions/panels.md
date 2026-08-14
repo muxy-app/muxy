@@ -40,15 +40,15 @@ Every panel, built-in or extension, follows the same placement rules per positio
 | `title` | string | no | Shown in the panel header. Omit to hide the title. |
 | `icon` | string \| object | no | SF Symbol name, or `{ "svg": "assets/icon.svg" }`. Shown in the header. |
 | `position` | string | no | `right` or `bottom`. Defaults to `right`. |
-| `mode` | string | no | `floating` or `pinned`. Defaults to `floating`. |
-| `hiddenControls` | string[] | no | Header elements to hide individually: any of `icon`, `title`, `close`, `pin`, `position`. Defaults to none hidden. |
+| `mode` | string | no | Initial `floating` or `pinned` mode. Defaults to `floating`. When the pin control is visible, the user's later choice persists for this extension panel. |
+| `hiddenControls` | string[] | no | Header elements to hide individually: any of `icon`, `title`, `close`, `pin`, `position`. Hiding `pin` keeps the panel at its declared mode. Defaults to none hidden. |
 | `headerButtons` | object[] | no | Custom action icons in the panel header, left of the built-in controls. See [Header buttons](#header-buttons). |
 | `hideTopbar` | boolean | no | Hide the entire panel header, including icon, title, and all controls. Your webview fills the whole panel. Defaults to `false`. |
 | `defaultData` | object | no | JSON merged into `window.muxy.data` when no explicit data is passed. |
 
 ## Header controls
 
-The host owns the panel header: optional icon and title on the left; on the right, any custom `headerButtons`, then a position toggle (right ⇄ bottom), a pin toggle (float ⇄ dock), and a close button. Hide any element individually via `hiddenControls` (`icon`, `title`, `close`, `pin`, `position`) — or drop the whole header with `hideTopbar`. Your webview fills the rest.
+The host owns the panel header: optional icon and title on the left; on the right, any custom `headerButtons`, then a position toggle (right ⇄ bottom), a float/dock toggle, and a close button. When the float/dock control is visible, the user's choice persists independently for each extension panel. Hide any element individually via `hiddenControls` (`icon`, `title`, `close`, `pin`, `position`) — hiding `pin` keeps the declared mode fixed — or drop the whole header with `hideTopbar`. Your webview fills the rest.
 
 ## Header buttons
 
@@ -103,7 +103,7 @@ window.muxy.panels.close(panelID): Promise<void>;
 
 ## Per-project session
 
-Open extension panels are tracked **per project for the current app session** (not across restarts). Switching projects hides the previous project's panels and restores that project's last open set — position, pin/float mode, and open `data` included. Worktree switches within a project leave panels alone.
+Open extension panels are tracked **per project for the current app session**. Switching projects hides the previous project's panels and restores that project's last open set, including position and open `data`. For panels that expose the pin control, the user's float/dock choice persists separately across panel closes, projects, and app restarts, keyed by extension and panel ID. Panels that hide the control continue using their declared mode. Worktree switches within a project leave panels alone.
 
 On project switch Muxy **destroys and recreates** panel webviews (low memory). In-page JS state is not preserved; persist with [`muxy.storage`](storage.md) or react to [`project.switched`](events.md). The switch force-closes live panels (no `onBeforeClose` veto) and emits `panel.closed` / `panel.opened` before `project.switched`.
 

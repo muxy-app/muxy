@@ -16,7 +16,7 @@ struct RichInputPresentationControllerTests {
         let host = PanelHost()
         let controller = RichInputPresentationController(panelHost: host)
 
-        controller.present(mode: .panel, position: .right, target: firstTarget)
+        controller.present(mode: .panel, panelMode: .pinned, position: .right, target: firstTarget)
 
         #expect(controller.isVisible)
         #expect(controller.isPanelVisible)
@@ -27,19 +27,37 @@ struct RichInputPresentationControllerTests {
         #expect(controller.target == nil)
     }
 
+    @Test("panel presentation floats and docks independently")
+    func changesPanelMode() {
+        let host = PanelHost()
+        let controller = RichInputPresentationController(panelHost: host)
+
+        controller.present(mode: .panel, panelMode: .floating, position: .right, target: firstTarget)
+
+        #expect(controller.isPanelVisible)
+        #expect(!controller.isFloatingVisible)
+        #expect(host.placement(for: BuiltinPanel.richInput)?.mode == .floating)
+
+        controller.setPanelMode(.pinned)
+
+        #expect(controller.isPanelVisible)
+        #expect(host.placement(for: BuiltinPanel.richInput)?.mode == .pinned)
+        #expect(controller.target == firstTarget)
+    }
+
     @Test("switches between panel and floating presentations")
     func switchesPresentations() {
         let host = PanelHost()
         let controller = RichInputPresentationController(panelHost: host)
 
-        controller.present(mode: .panel, position: .right, target: firstTarget)
-        controller.synchronize(mode: .floating, position: .right)
+        controller.present(mode: .panel, panelMode: .pinned, position: .right, target: firstTarget)
+        controller.synchronize(mode: .floating, panelMode: .pinned, position: .right)
 
         #expect(controller.isFloatingVisible)
         #expect(!controller.isPanelVisible)
         #expect(controller.target == firstTarget)
 
-        controller.synchronize(mode: .panel, position: .bottom)
+        controller.synchronize(mode: .panel, panelMode: .pinned, position: .bottom)
 
         #expect(!controller.isFloatingVisible)
         #expect(controller.isPanelVisible)
@@ -50,7 +68,7 @@ struct RichInputPresentationControllerTests {
     func movesPanel() {
         let host = PanelHost()
         let controller = RichInputPresentationController(panelHost: host)
-        controller.present(mode: .panel, position: .right, target: firstTarget)
+        controller.present(mode: .panel, panelMode: .pinned, position: .right, target: firstTarget)
 
         controller.movePanel(to: .bottom)
 
@@ -65,7 +83,7 @@ struct RichInputPresentationControllerTests {
         let recorder = RichInputPresentationVoiceRecorderStub()
         recorder.isRecording = true
         let voice = ComposerVoiceState(recorder: recorder)
-        controller.present(mode: .panel, position: .right, target: firstTarget)
+        controller.present(mode: .panel, panelMode: .pinned, position: .right, target: firstTarget)
 
         host.open("extension:files", at: .right, mode: .pinned)
         let didClose = controller.reconcilePanelHostChange(voice: voice)
@@ -85,9 +103,9 @@ struct RichInputPresentationControllerTests {
         state.fileAttachments = [URL(fileURLWithPath: "/tmp/file.txt")]
         state.imageAttachments = [URL(fileURLWithPath: "/tmp/image.png")]
 
-        controller.present(mode: .panel, position: .right, target: firstTarget)
-        controller.synchronize(mode: .floating, position: .right)
-        controller.synchronize(mode: .panel, position: .bottom)
+        controller.present(mode: .panel, panelMode: .pinned, position: .right, target: firstTarget)
+        controller.synchronize(mode: .floating, panelMode: .pinned, position: .right)
+        controller.synchronize(mode: .panel, panelMode: .pinned, position: .bottom)
 
         #expect(state.text == "draft")
         #expect(state.fileAttachments.map(\.path) == ["/tmp/file.txt"])
@@ -105,7 +123,7 @@ struct RichInputPresentationControllerTests {
             worktreeKey: WorktreeKey(projectID: UUID(), worktreeID: UUID()),
             paneID: UUID()
         )
-        controller.present(mode: .panel, position: .right, target: firstTarget)
+        controller.present(mode: .panel, panelMode: .pinned, position: .right, target: firstTarget)
 
         let reconciliation = controller.reconcileTargetChange(nextTarget, voice: voice)
 
@@ -124,7 +142,7 @@ struct RichInputPresentationControllerTests {
             worktreeKey: firstTarget.worktreeKey,
             paneID: UUID()
         )
-        controller.present(mode: .panel, position: .right, target: firstTarget)
+        controller.present(mode: .panel, panelMode: .pinned, position: .right, target: firstTarget)
 
         let reconciliation = controller.reconcileTargetChange(nextTarget, voice: voice)
 
@@ -140,7 +158,7 @@ struct RichInputPresentationControllerTests {
         let recorder = RichInputPresentationVoiceRecorderStub()
         recorder.isRecording = true
         let voice = ComposerVoiceState(recorder: recorder)
-        controller.present(mode: .panel, position: .right, target: firstTarget)
+        controller.present(mode: .panel, panelMode: .pinned, position: .right, target: firstTarget)
 
         let reconciliation = controller.reconcileTargetChange(nil, voice: voice)
 
@@ -161,7 +179,7 @@ struct RichInputPresentationControllerTests {
             worktreeKey: WorktreeKey(projectID: UUID(), worktreeID: UUID()),
             paneID: UUID()
         )
-        controller.present(mode: .floating, position: .right, target: firstTarget)
+        controller.present(mode: .floating, panelMode: .pinned, position: .right, target: firstTarget)
 
         let reconciliation = controller.reconcileTargetChange(nextTarget, voice: voice)
 

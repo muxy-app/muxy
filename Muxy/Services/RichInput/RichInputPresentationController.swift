@@ -35,6 +35,7 @@ final class RichInputPresentationController {
 
     func present(
         mode: RichInputPresentationMode,
+        panelMode: PanelMode,
         position: PanelPosition,
         target: RichInputPresentationTarget
     ) {
@@ -43,7 +44,7 @@ final class RichInputPresentationController {
         panelHost.close(BuiltinPanel.richInput)
         switch mode {
         case .panel:
-            panelHost.open(BuiltinPanel.richInput, at: position, mode: .pinned)
+            panelHost.open(BuiltinPanel.richInput, at: position, mode: panelMode)
         case .floating:
             isFloatingVisible = true
         }
@@ -61,7 +62,7 @@ final class RichInputPresentationController {
     }
 
     @discardableResult
-    func synchronize(mode: RichInputPresentationMode, position: PanelPosition) -> Bool {
+    func synchronize(mode: RichInputPresentationMode, panelMode: PanelMode, position: PanelPosition) -> Bool {
         guard isVisible, let target else { return false }
         if mode == .panel, isPanelVisible, !isFloatingVisible {
             return false
@@ -69,8 +70,14 @@ final class RichInputPresentationController {
         if mode == .floating, isFloatingVisible, !isPanelVisible {
             return false
         }
-        present(mode: mode, position: position, target: target)
+        present(mode: mode, panelMode: panelMode, position: position, target: target)
         return true
+    }
+
+    func setPanelMode(_ mode: PanelMode) {
+        guard isPanelVisible else { return }
+        panelHost.setMode(mode, for: BuiltinPanel.richInput)
+        panelWasVisible = isPanelVisible
     }
 
     func movePanel(to position: PanelPosition) {

@@ -192,12 +192,14 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 ## Composer
 
 `Cmd+I` opens the composer for multiline prompts, files, images, and broadcast sends. The default **Panel**
-presentation docks it beside the workspace. Resize the panel from its workspace-facing edge or move it between
-the right and bottom positions from its header. Choose **Floating** under **Settings -> Composer -> Presentation**,
-use the panel header's floating button, or choose **Use Floating Composer** from its More menu to
-open the centered modal instead. Choose **Use Composer Panel** from the floating Composer's More menu to switch
-back. The presentation choice, panel position, and both layouts' sizes persist across app restarts, and switching
-an open Composer preserves its draft and attachments.
+presentation opens over the workspace without taking layout space. Use the panel header's pin control to dock it
+beside the workspace or float it again, resize it from its workspace-facing edge, and move it between the right and
+bottom positions. The panel's float/dock choice and position persist across app restarts.
+
+Choose **Floating** under **Settings -> Composer -> Presentation** or **Use Floating Composer** from the panel's
+More menu to open the separate centered modal instead. Choose **Use Composer Panel** from the floating Composer's
+More menu to switch back. The presentation choice and both layouts' sizes also persist across app restarts, and
+switching an open Composer preserves its draft and attachments.
 
 Use **Settings -> Composer** or the Composer's More menu to control automatic clearing. **Clear After Sending**
 removes the submitted text and attachments only after every target finishes successfully. If the draft changes
