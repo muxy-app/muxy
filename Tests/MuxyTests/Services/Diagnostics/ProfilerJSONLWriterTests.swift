@@ -76,11 +76,23 @@ struct ProfilerJSONLWriterTests {
     func rolloverRetainsSessionAndNewestRecord() throws {
         let context = try makeContext()
         defer { try? FileManager.default.removeItem(at: context.directoryURL) }
-        let writer = ProfilerJSONLWriter(fileURL: context.fileURL, maximumFileSize: 700)
+        let maximumFileSize = 700
+        let writer = ProfilerJSONLWriter(fileURL: context.fileURL, maximumFileSize: maximumFileSize)
         let session = makeSession()
         let newestSample = makeSample(footprint: 999)
-        try writer.startSession(session)
-        try Data(repeating: 0x78, count: 700).write(to: context.fileURL)
+        let sessionLine = try ProfilerRecordEncoder.encode(session)
+        let sampleLine = try ProfilerRecordEncoder.encode(newestSample)
+        var existingData = Data()
+        existingData.append(sessionLine)
+        existingData.append(0x0A)
+        while existingData.count + sampleLine.count + 1 <= maximumFileSize {
+            existingData.append(sampleLine)
+            existingData.append(0x0A)
+        }
+        #expect(existingData.count <= maximumFileSize)
+        #expect(existingData.count + sampleLine.count + 1 > maximumFileSize)
+        try FileManager.default.createDirectory(at: context.directoryURL, withIntermediateDirectories: true)
+        try existingData.write(to: context.fileURL)
 
         try writer.append(newestSample, session: session)
 

@@ -23,6 +23,21 @@ protocol ProfilerSessionProviding: Sendable {
     func session(timestamp: Date, samplingInterval: TimeInterval) -> ProfilerSessionRecord
 }
 
+protocol ProfilerScheduledTask: Sendable {
+    func cancel()
+}
+
+protocol ProfilerScheduling: Sendable {
+    func scheduleRepeating(
+        every interval: TimeInterval,
+        action: @escaping @Sendable () -> Void
+    ) -> any ProfilerScheduledTask
+    func scheduleOnce(
+        after delay: TimeInterval,
+        action: @escaping @Sendable () -> Void
+    ) -> any ProfilerScheduledTask
+}
+
 struct SystemProfilerClock: ProfilerClock {
     func now() -> Date {
         Date()
@@ -86,6 +101,57 @@ struct BundleProfilerSessionProvider: ProfilerSessionProviding {
     }
 }
 
+struct DispatchProfilerScheduler: ProfilerScheduling {
+    private let queue: DispatchQueue
+
+    init(queue: DispatchQueue) {
+        self.queue = queue
+    }
+
+    func scheduleRepeating(
+        every interval: TimeInterval,
+        action: @escaping @Sendable () -> Void
+    ) -> any ProfilerScheduledTask {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(
+            deadline: .now() + interval,
+            repeating: interval,
+            leeway: .seconds(1)
+        )
+        return activate(timer, action: action)
+    }
+
+    func scheduleOnce(
+        after delay: TimeInterval,
+        action: @escaping @Sendable () -> Void
+    ) -> any ProfilerScheduledTask {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + delay, leeway: .seconds(1))
+        return activate(timer, action: action)
+    }
+
+    private func activate(
+        _ timer: DispatchSourceTimer,
+        action: @escaping @Sendable () -> Void
+    ) -> any ProfilerScheduledTask {
+        timer.setEventHandler(handler: action)
+        timer.resume()
+        return DispatchProfilerScheduledTask(timer: timer)
+    }
+}
+
+private final class DispatchProfilerScheduledTask: ProfilerScheduledTask, @unchecked Sendable {
+    private let timer: DispatchSourceTimer
+
+    init(timer: DispatchSourceTimer) {
+        self.timer = timer
+    }
+
+    func cancel() {
+        timer.cancel()
+    }
+}
+
 final class DefaultProfilerRecorder: ProfilerRecording, @unchecked Sendable {
     let fileURL: URL
 
@@ -95,8 +161,9 @@ final class DefaultProfilerRecorder: ProfilerRecording, @unchecked Sendable {
     private let sampler: any ProfilerProcessSampling
     private let writer: any ProfilerRecordWriting
     private let sessionProvider: any ProfilerSessionProviding
+    private let scheduler: any ProfilerScheduling
 
-    private var timer: DispatchSourceTimer?
+    private var timer: (any ProfilerScheduledTask)?
     private var session: ProfilerSessionRecord?
     private var sampleBuilder: ProfilerSampleBuilder?
     private var isRunning = false
@@ -107,7 +174,8 @@ final class DefaultProfilerRecorder: ProfilerRecording, @unchecked Sendable {
         clock: any ProfilerClock = SystemProfilerClock(),
         sampler: any ProfilerProcessSampling = CurrentProcessProfilerSampler(),
         writer: any ProfilerRecordWriting,
-        sessionProvider: any ProfilerSessionProviding = BundleProfilerSessionProvider()
+        sessionProvider: any ProfilerSessionProviding = BundleProfilerSessionProvider(),
+        scheduler: (any ProfilerScheduling)? = nil
     ) {
         self.samplingInterval = samplingInterval
         self.queue = queue
@@ -115,6 +183,7 @@ final class DefaultProfilerRecorder: ProfilerRecording, @unchecked Sendable {
         self.sampler = sampler
         self.writer = writer
         self.sessionProvider = sessionProvider
+        self.scheduler = scheduler ?? DispatchProfilerScheduler(queue: queue)
         fileURL = writer.fileURL
     }
 
@@ -158,17 +227,9 @@ final class DefaultProfilerRecorder: ProfilerRecording, @unchecked Sendable {
     }
 
     private func startTimer() {
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(
-            deadline: .now() + samplingInterval,
-            repeating: samplingInterval,
-            leeway: .seconds(1)
-        )
-        timer.setEventHandler { [weak self] in
+        timer = scheduler.scheduleRepeating(every: samplingInterval) { [weak self] in
             self?.recordSampleOnQueue()
         }
-        timer.resume()
-        self.timer = timer
     }
 
     private func recordSampleOnQueue() {
@@ -207,13 +268,9 @@ final class DefaultProfilerRecorder: ProfilerRecording, @unchecked Sendable {
         session = nil
         sampleBuilder = nil
 
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + samplingInterval, leeway: .seconds(1))
-        timer.setEventHandler { [weak self] in
+        timer = scheduler.scheduleOnce(after: samplingInterval) { [weak self] in
             self?.startOnQueue()
         }
-        timer.resume()
-        self.timer = timer
         profilerLogger.error("Profiler will retry after a sampling or write failure: \(error.localizedDescription, privacy: .public)")
     }
 }
