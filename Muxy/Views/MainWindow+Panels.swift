@@ -1,4 +1,11 @@
+import AppKit
 import SwiftUI
+
+enum FloatingPanelOutsideClickDecision {
+    static func shouldDismiss(panelBounds: CGRect, clickLocation: CGPoint) -> Bool {
+        !panelBounds.contains(clickLocation)
+    }
+}
 
 enum PanelLayoutMetrics {
     static let richInputWidthRange: ClosedRange<CGFloat> = 280 ... 800
@@ -57,5 +64,68 @@ struct PanelFrame: ViewModifier {
                 size.wrappedValue = Double(min(range.upperBound, max(range.lowerBound, next)))
             }
         )
+    }
+}
+
+struct FloatingPanelOutsideClickMonitor: NSViewRepresentable {
+    let onOutsideClick: () -> Void
+
+    func makeNSView(context: Context) -> FloatingPanelOutsideClickMonitoringView {
+        let view = FloatingPanelOutsideClickMonitoringView()
+        view.onOutsideClick = onOutsideClick
+        return view
+    }
+
+    func updateNSView(_ nsView: FloatingPanelOutsideClickMonitoringView, context: Context) {
+        nsView.onOutsideClick = onOutsideClick
+    }
+
+    static func dismantleNSView(_ nsView: FloatingPanelOutsideClickMonitoringView, coordinator: ()) {
+        nsView.stopMonitoring()
+    }
+}
+
+final class FloatingPanelOutsideClickMonitoringView: NSView {
+    var onOutsideClick: (() -> Void)?
+    private var mouseMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            stopMonitoring()
+        } else {
+            startMonitoring()
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func stopMonitoring() {
+        guard let mouseMonitor else { return }
+        NSEvent.removeMonitor(mouseMonitor)
+        self.mouseMonitor = nil
+    }
+
+    private func startMonitoring() {
+        guard mouseMonitor == nil else { return }
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            self?.handle(event)
+            return event
+        }
+    }
+
+    private func handle(_ event: NSEvent) {
+        guard let window, event.window === window else { return }
+        let clickLocation = convert(event.locationInWindow, from: nil)
+        guard FloatingPanelOutsideClickDecision.shouldDismiss(
+            panelBounds: bounds,
+            clickLocation: clickLocation
+        )
+        else { return }
+        onOutsideClick?()
     }
 }

@@ -1632,6 +1632,11 @@ struct MainWindow: View {
                 mode: placement.mode
             )
             .background(MuxyTheme.bg)
+            .background {
+                FloatingPanelOutsideClickMonitor {
+                    closeFloatingPanel(placement.panelID)
+                }
+            }
         }
     }
 
@@ -1933,6 +1938,17 @@ struct MainWindow: View {
         guard let mode = panelHost.placement(for: BuiltinPanel.richInput)?.mode else { return }
         let nextMode: PanelMode = mode == .pinned ? .floating : .pinned
         richInputPresentation.setPanelMode(nextMode)
+    }
+
+    private func closeFloatingPanel(_ panelID: String) {
+        switch panelID {
+        case BuiltinPanel.richInput:
+            closeRichInput()
+        case BuiltinPanel.extensionConsole:
+            panelHost.close(panelID)
+        default:
+            ExtensionPanelRegistry.shared.close(hostPanelID: panelID)
+        }
     }
 
     private func togglePanelMode(for panelID: String) {

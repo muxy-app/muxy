@@ -1,5 +1,29 @@
+import CoreGraphics
 import Testing
 @testable import Muxy
+
+@Suite("Floating panel outside click decision")
+struct FloatingPanelOutsideClickDecisionTests {
+    private let panelBounds = CGRect(x: 0, y: 0, width: 320, height: 240)
+
+    @Test func keepsPanelOpenForClickInside() {
+        #expect(!FloatingPanelOutsideClickDecision.shouldDismiss(
+            panelBounds: panelBounds,
+            clickLocation: CGPoint(x: 160, y: 120)
+        ))
+    }
+
+    @Test func closesPanelForClickOutside() {
+        #expect(FloatingPanelOutsideClickDecision.shouldDismiss(
+            panelBounds: panelBounds,
+            clickLocation: CGPoint(x: -1, y: 120)
+        ))
+        #expect(FloatingPanelOutsideClickDecision.shouldDismiss(
+            panelBounds: panelBounds,
+            clickLocation: CGPoint(x: 160, y: 241)
+        ))
+    }
+}
 
 @Suite("OverlayEscapeDecision")
 struct OverlayEscapeDecisionTests {
