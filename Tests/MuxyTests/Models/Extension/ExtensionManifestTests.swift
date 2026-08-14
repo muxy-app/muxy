@@ -107,6 +107,7 @@ struct ExtensionManifestTests {
 
         #expect(home.id == "board")
         #expect(home.title == "Overview")
+        #expect(home.icon == .symbol("rectangle.3.group"))
         #expect(home.entry == "overview/index.html")
         #expect(home.defaultData == .object(["showIdle": .bool(false)]))
     }
@@ -1645,17 +1646,26 @@ struct ExtensionManifestTests {
                 "name": "home-view",
                 "version": "1.0.0",
                 "homeViews": [
-                    { "id": "overview", "title": "Overview", "entry": "overview/index.html" }
+                    {
+                        "id": "overview",
+                        "title": "Overview",
+                        "icon": { "svg": "assets/overview.svg" },
+                        "entry": "overview/index.html"
+                    }
                 ]
             }
             """,
-            files: ["overview/index.html": "<html></html>"]
+            files: [
+                "assets/overview.svg": "<svg></svg>",
+                "overview/index.html": "<html></html>",
+            ]
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let loaded = try ExtensionManifestLoader.load(from: directory)
 
         #expect(loaded.manifest.homeView(id: "overview")?.title == "Overview")
+        #expect(loaded.manifest.homeView(id: "overview")?.icon == .svg("assets/overview.svg"))
     }
 
     @Test("rejects a home view with an empty title")
