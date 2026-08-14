@@ -1668,6 +1668,38 @@ struct ExtensionManifestTests {
         #expect(loaded.manifest.homeView(id: "overview")?.icon == .svg("assets/overview.svg"))
     }
 
+    @Test("rejects malformed home view icons", arguments: [
+        "\"\"",
+        #"{ "symbol": "" }"#,
+        #"{ "svg": "" }"#,
+        #"{ "symbol": "star", "svg": "assets/icon.svg" }"#,
+        #"{ "symbol": "star", "unexpected": "value" }"#,
+    ])
+    func rejectsMalformedHomeViewIcon(icon: String) throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "home-invalid-icon",
+                "version": "1.0.0",
+                "homeViews": [
+                    {
+                        "id": "overview",
+                        "title": "Overview",
+                        "icon": \(icon),
+                        "entry": "index.html"
+                    }
+                ]
+            }
+            """,
+            files: ["index.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
     @Test("rejects a home view with an empty title")
     func rejectsHomeViewEmptyTitle() throws {
         let directory = try makeTemporaryExtension(

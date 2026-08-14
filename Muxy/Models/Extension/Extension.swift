@@ -302,25 +302,36 @@ enum ExtensionIcon: Codable, Equatable {
     }
 
     init(from decoder: Decoder) throws {
-        if let container = try? decoder.singleValueContainer(),
-           let raw = try? container.decode(String.self)
-        {
+        let container = try decoder.singleValueContainer()
+        if let raw = try? container.decode(String.self) {
+            guard !raw.isEmpty else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Icon symbol must not be empty"
+                )
+            }
             self = .symbol(raw)
             return
         }
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        if let symbol = try container.decodeIfPresent(String.self, forKey: .symbol) {
+
+        let values = try container.decode([String: String].self)
+        guard values.count == 1 else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Icon requires exactly one 'symbol' or 'svg' field"
+            )
+        }
+        if let symbol = values[CodingKeys.symbol.rawValue], !symbol.isEmpty {
             self = .symbol(symbol)
             return
         }
-        if let svg = try container.decodeIfPresent(String.self, forKey: .svg) {
+        if let svg = values[CodingKeys.svg.rawValue], !svg.isEmpty {
             self = .svg(svg)
             return
         }
         throw DecodingError.dataCorruptedError(
-            forKey: CodingKeys.symbol,
             in: container,
-            debugDescription: "Icon requires either a 'symbol' or 'svg' field"
+            debugDescription: "Icon requires one non-empty 'symbol' or 'svg' field"
         )
     }
 

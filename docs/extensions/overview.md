@@ -18,6 +18,7 @@ Workspace events originate in the main process (`ExtensionEventEmitter` diffs wo
 | Page | What's in it |
 | --- | --- |
 | [Manifest](manifest.md) | `package.json` `muxy` fields and examples |
+| [Home Views](home-views.md) | Global full-window destination declarations and current availability |
 | [Permissions](permissions.md) | Permission grants and runtime consent |
 | [Events](events.md) | Subscribable events and payloads |
 | [Palette Commands](palette-commands.md) | Commands that appear in the command palette |

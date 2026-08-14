@@ -19,7 +19,8 @@ The goal of everything below: an extension should be indistinguishable from a na
 
 ## Pick the right surface
 
-- **Showing something to the user** → a **UI page** (tab, panel, or popover). Page scripts get the full `window.muxy` API.
+- **A global full-window destination outside project tab restoration** → a **`homeView`**. Use it for an overview or launch surface that spans projects and worktrees; see [Home Views](https://muxy.app/docs/extensions/home-views) for current presentation availability.
+- **Showing something inside a project workspace or transient app chrome** → a **UI page** (tab, panel, or popover). Page scripts get the full `window.muxy` API.
 - **A persistent, full-height navigation or control surface that replaces the built-in left sidebar** → a **`sidebar`** (one per extension; the user selects it in Settings → Sidebar). It fills the entire region — the project list *and* the footer — so own your own navigation. Same `window.muxy` API and theme variables as a panel.
 - **Reacting durably to events, coordinating multiple webviews, or running shell commands headlessly** → a **`background.js`** script. It can also call `muxy.tabs.open` to show a result in the active workspace. Most extensions don't need one.
 - **One-shot logic from the palette** → a **`runScript`** command, not a hidden tab. Its `muxy.*` calls are **synchronous** except for the Promise-based `muxy.execAsync`. It has `tabs`/`panes`/`projects`/`worktrees`/`browser`/`agents`/`files`/`git`/`exec`/`execAsync`/`dialog`/`modal`/`topbar`/`statusbar`/`notifications`, but **not** `http`, `events`, `remote`, `panels`, or `popover`. It can open a modal and act on the choice inline — no page or background listener needed.
