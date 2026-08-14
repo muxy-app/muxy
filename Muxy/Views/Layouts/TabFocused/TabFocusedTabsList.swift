@@ -218,6 +218,14 @@ struct TabFocusedTabsList: View {
         return appState.activeTopLevelTabID(for: worktreeKey)
     }
 
+    private var focusedTab: TerminalTab? {
+        guard appState.activeProjectID == project.id,
+              appState.activeWorktreeID[project.id] == worktree.id,
+              let areaID = appState.focusedAreaID[worktreeKey]
+        else { return nil }
+        return appState.workspaceRoots[worktreeKey]?.findArea(id: areaID)?.activeTab
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             tabRows(areaTabs, numbers: shortcutNumbers)
@@ -238,6 +246,8 @@ struct TabFocusedTabsList: View {
                 relatedTabs: item.relatedTabs,
                 topLevelTabs: areaTabs.map { ($0.area, $0.tab) },
                 active: item.tab.id == activeTabID,
+                focusedTabID: focusedTab?.id,
+                focusedPaneID: focusedTab?.content.pane?.id,
                 worktree: item.worktree,
                 shortcutNumber: numbers[item.tab.id]
             )
@@ -334,6 +344,8 @@ struct TabFocusedTabRow: View {
     let relatedTabs: [TerminalTab]
     let topLevelTabs: [(area: TabArea, tab: TerminalTab)]
     let active: Bool
+    let focusedTabID: UUID?
+    let focusedPaneID: UUID?
     var worktree: Worktree?
     var shortcutNumber: Int?
 
@@ -354,7 +366,7 @@ struct TabFocusedTabRow: View {
     @State private var notificationStore = NotificationStore.shared
 
     private var paneProgress: TerminalProgress? {
-        relatedTabs.compactMap { $0.content.pane?.id }
+        relatedPaneIDs
             .compactMap { progressStore.progress(for: $0) }
             .first
     }
@@ -364,14 +376,35 @@ struct TabFocusedTabRow: View {
     }
 
     private var hasCompletionPending: Bool {
-        relatedTabs.compactMap { $0.content.pane?.id }.contains {
+        !completionPendingPaneIDs.isEmpty
+    }
+
+    private var completionPendingPaneIDs: Set<UUID> {
+        Set(relatedPaneIDs.filter {
             progressStore.isCompletionPending(for: $0)
                 || AgentStatusStore.shared.isCompletionPending(forPane: $0)
-        }
+        })
+    }
+
+    private var relatedPaneIDs: [UUID] {
+        relatedTabs.compactMap { $0.content.pane?.id }
+    }
+
+    private var unreadTabIDs: [UUID] {
+        relatedTabs.filter { notificationStore.hasUnread(tabID: $0.id) }.map(\.id)
     }
 
     private var hasUnread: Bool {
-        relatedTabs.contains { notificationStore.hasUnread(tabID: $0.id) }
+        !unreadTabIDs.isEmpty
+    }
+
+    private var hasUnreadOutsideFocusedTab: Bool {
+        guard let focusedTabID else { return hasUnread }
+        return unreadTabIDs.contains { $0 != focusedTabID }
+    }
+
+    private var hasCompletionOutsideFocusedPane: Bool {
+        completionPendingPaneIDs.contains { $0 != focusedPaneID }
     }
 
     private var isIdle: Bool {
@@ -383,14 +416,18 @@ struct TabFocusedTabRow: View {
         let statuses = relatedTabs.compactMap { tab in
             AgentStatusStore.shared.status(forPane: tab.content.pane?.id)
         }
-        return statuses.contains(.waiting) ? .waiting : statuses.first
+        return TabIndicatorPolicy.agentStatus(from: statuses)
     }
 
     private var statusDotColor: Color? {
         if agentStatus == .waiting {
             return MuxyTheme.warning
         }
-        if !active, hasUnread || hasCompletionPending {
+        if TabIndicatorPolicy.showsAttentionDot(
+            isActive: active,
+            hasAttention: hasUnread || hasCompletionPending,
+            hasUnfocusedAttention: hasUnreadOutsideFocusedTab || hasCompletionOutsideFocusedPane
+        ) {
             return MuxyTheme.accent
         }
         return nil
@@ -513,9 +550,13 @@ struct TabFocusedTabRow: View {
         .contentShape(RoundedRectangle(cornerRadius: TabFocusedSidebarMetrics.rowCornerRadius, style: .continuous))
         .onHover { hovered = $0 }
         .onTapGesture { select() }
-        .onChange(of: hasCompletionPending) { _, pending in
-            guard pending else { return }
-            triggerCompletionFlash()
+        .onChange(of: completionPendingPaneIDs) { previous, current in
+            let newlyPendingPaneIDs = TabIndicatorPolicy.newlyPendingPaneIDs(
+                previous: previous,
+                current: current
+            )
+            guard !newlyPendingPaneIDs.isEmpty else { return }
+            triggerCompletionFlash(newlyPendingPaneIDs: newlyPendingPaneIDs)
         }
         .onDisappear { flashTask?.cancel() }
         .overlay {
@@ -653,8 +694,7 @@ struct TabFocusedTabRow: View {
     private var leadingIcon: some View {
         switch tab.kind {
         case .terminal:
-            let paneIDs = relatedTabs.compactMap { $0.content.pane?.id }
-            let agentIconName = AgentPaneIdentity.iconName(forPanes: paneIDs)
+            let agentIconName = AgentPaneIdentity.iconName(forPanes: relatedPaneIDs)
             if let agentIconName {
                 ProviderIconView(iconName: agentIconName, size: UIMetrics.iconMD)
             } else {
@@ -689,16 +729,18 @@ struct TabFocusedTabRow: View {
         }
     }
 
-    private func triggerCompletionFlash() {
+    private func triggerCompletionFlash(newlyPendingPaneIDs: Set<UUID>) {
         flashTask?.cancel()
         withAnimation(.easeIn(duration: 0.15)) {
             completionFlashOn = true
         }
-        if active {
-            for paneID in relatedTabs.compactMap({ $0.content.pane?.id }) {
-                progressStore.clearCompletion(for: paneID)
-                AgentStatusStore.shared.clearCompletion(for: paneID)
-            }
+        if let paneID = TabIndicatorPolicy.completionPaneIDToClear(
+            isActive: active,
+            focusedPaneID: focusedPaneID,
+            newlyPendingPaneIDs: newlyPendingPaneIDs
+        ) {
+            progressStore.clearCompletion(for: paneID)
+            AgentStatusStore.shared.clearCompletion(for: paneID)
         }
         flashTask = Task { @MainActor in
             try await Task.sleep(for: .milliseconds(450))

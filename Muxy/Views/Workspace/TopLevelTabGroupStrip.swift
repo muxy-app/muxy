@@ -29,6 +29,17 @@ struct TopLevelTabGroupStrip: View {
         appState.visibleLayout(for: worktreeKey, groupID: groupID)
     }
 
+    private var isFocused: Bool {
+        appState.activeTopLevelTabID(for: worktreeKey) == group?.activeTabID
+    }
+
+    private var focusedTab: TerminalTab? {
+        guard isFocused,
+              let focusedAreaID = appState.focusedAreaID[worktreeKey]
+        else { return nil }
+        return root?.findArea(id: focusedAreaID)?.activeTab
+    }
+
     private var targetAreaID: UUID? {
         let panes = visibleLayout?.allPanes() ?? []
         if appState.activeTopLevelTabID(for: worktreeKey) == group?.activeTabID,
@@ -60,7 +71,9 @@ struct TopLevelTabGroupStrip: View {
                     including: root.allTabs()
                 ),
                 activeTabID: group.activeTabID,
-                isFocused: appState.activeTopLevelTabID(for: worktreeKey) == group.activeTabID,
+                isFocused: isFocused,
+                focusedTabID: focusedTab?.id,
+                focusedPaneID: focusedTab?.content.pane?.id,
                 isWindowTitleBar: isWindowTitleBar,
                 showsWindowTopbarActions: showsWindowTopbarActions,
                 showDevelopmentBadge: showDevelopmentBadge,

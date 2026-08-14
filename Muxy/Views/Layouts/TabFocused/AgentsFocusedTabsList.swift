@@ -45,13 +45,16 @@ struct AgentsFocusedTabsList: View {
             ForEach(tabBlocks) { block in
                 VStack(spacing: 0) {
                     ForEach(block.locations) { location in
+                        let active = isActive(location)
                         TabFocusedTabRow(
                             project: project,
                             area: location.area,
                             tab: location.tab,
                             relatedTabs: [location.tab],
                             topLevelTabs: topLevelTabs,
-                            active: isActive(location),
+                            active: active,
+                            focusedTabID: active ? location.tab.id : nil,
+                            focusedPaneID: active ? location.tab.content.pane?.id : nil,
                             worktree: worktree
                         )
                     }

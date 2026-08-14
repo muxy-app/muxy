@@ -7,6 +7,7 @@ struct PaneTabStrip: View {
         let id: UUID
         let paneID: UUID?
         let relatedPaneIDs: [UUID]
+        let unreadTabIDs: [UUID]
         let title: String
         let kind: TerminalTab.Kind
         let isPinned: Bool
@@ -19,10 +20,13 @@ struct PaneTabStrip: View {
         let faviconImage: NSImage?
         let detectedAgentIconName: String?
         let agentStatus: AgentStatus?
-        let hasUnread: Bool
 
         var hasCustomTitle: Bool {
             customTitle != nil
+        }
+
+        var hasUnread: Bool {
+            !unreadTabIDs.isEmpty
         }
     }
 
@@ -30,6 +34,8 @@ struct PaneTabStrip: View {
     let tabs: [TabSnapshot]
     let activeTabID: UUID?
     let isFocused: Bool
+    let focusedTabID: UUID?
+    let focusedPaneID: UUID?
     var isWindowTitleBar: Bool = false
     var showsWindowTopbarActions = true
     var showDevelopmentBadge = false
@@ -68,13 +74,13 @@ struct PaneTabStrip: View {
             let panes = relatedTabs.compactMap(\.content.pane)
             let paneIDs = panes.map(\.id)
             let agentStatuses = paneIDs.compactMap { AgentStatusStore.shared.status(forPane: $0) }
-            let agentStatus = agentStatuses.contains(.waiting)
-                ? AgentStatus.waiting
-                : agentStatuses.first
             return TabSnapshot(
                 id: tab.id,
                 paneID: tab.content.pane?.id,
                 relatedPaneIDs: paneIDs,
+                unreadTabIDs: relatedTabs.filter {
+                    NotificationStore.shared.hasUnread(tabID: $0.id)
+                }.map(\.id),
                 title: tab.localizedTitle,
                 kind: tab.kind,
                 isPinned: tab.isPinned,
@@ -86,8 +92,7 @@ struct PaneTabStrip: View {
                 isOffline: !panes.isEmpty && panes.allSatisfy(\.isOffline),
                 faviconImage: tab.content.browserState?.faviconImage,
                 detectedAgentIconName: AgentPaneIdentity.iconName(forPanes: paneIDs),
-                agentStatus: agentStatus,
-                hasUnread: relatedTabs.contains { NotificationStore.shared.hasUnread(tabID: $0.id) }
+                agentStatus: TabIndicatorPolicy.agentStatus(from: agentStatuses)
             )
         }
     }
@@ -188,6 +193,8 @@ struct PaneTabStrip: View {
                     tab: tab,
                     active: tab.id == activeTabID,
                     paneFocused: isFocused,
+                    focusedTabID: focusedTabID,
+                    focusedPaneID: focusedPaneID,
                     areaID: areaID,
                     hasUnread: tab.hasUnread,
                     isAnyDragging: dragState.draggedID != nil,
@@ -389,6 +396,8 @@ private struct TabCell: View {
     let tab: PaneTabStrip.TabSnapshot
     let active: Bool
     let paneFocused: Bool
+    let focusedTabID: UUID?
+    let focusedPaneID: UUID?
     let areaID: UUID
     var hasUnread: Bool = false
     var isAnyDragging: Bool = false
@@ -465,17 +474,34 @@ private struct TabCell: View {
     }
 
     private var hasCompletionPending: Bool {
-        tab.relatedPaneIDs.contains {
+        !completionPendingPaneIDs.isEmpty
+    }
+
+    private var completionPendingPaneIDs: Set<UUID> {
+        Set(tab.relatedPaneIDs.filter {
             progressStore.isCompletionPending(for: $0)
                 || AgentStatusStore.shared.isCompletionPending(forPane: $0)
-        }
+        })
+    }
+
+    private var hasUnreadOutsideFocusedTab: Bool {
+        guard let focusedTabID else { return hasUnread }
+        return tab.unreadTabIDs.contains { $0 != focusedTabID }
+    }
+
+    private var hasCompletionOutsideFocusedPane: Bool {
+        completionPendingPaneIDs.contains { $0 != focusedPaneID }
     }
 
     private var statusDotColor: Color? {
         if tab.agentStatus == .waiting {
             return MuxyTheme.warning
         }
-        if !active, hasUnread || hasCompletionPending {
+        if TabIndicatorPolicy.showsAttentionDot(
+            isActive: active,
+            hasAttention: hasUnread || hasCompletionPending,
+            hasUnfocusedAttention: hasUnreadOutsideFocusedTab || hasCompletionOutsideFocusedPane
+        ) {
             return MuxyTheme.accent
         }
         return nil
@@ -628,9 +654,13 @@ private struct TabCell: View {
         .onChange(of: externalDragOverCell) { _, hovering in
             handleExternalDragHover(hovering: hovering)
         }
-        .onChange(of: hasCompletionPending) { _, pending in
-            guard pending else { return }
-            triggerCompletionFlash()
+        .onChange(of: completionPendingPaneIDs) { previous, current in
+            let newlyPendingPaneIDs = TabIndicatorPolicy.newlyPendingPaneIDs(
+                previous: previous,
+                current: current
+            )
+            guard !newlyPendingPaneIDs.isEmpty else { return }
+            triggerCompletionFlash(newlyPendingPaneIDs: newlyPendingPaneIDs)
         }
         .onDisappear {
             springLoadTask?.cancel()
@@ -672,16 +702,18 @@ private struct TabCell: View {
         .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
     }
 
-    private func triggerCompletionFlash() {
+    private func triggerCompletionFlash(newlyPendingPaneIDs: Set<UUID>) {
         flashTask?.cancel()
         withAnimation(.easeIn(duration: 0.15)) {
             completionFlashOn = true
         }
-        if active {
-            for paneID in tab.relatedPaneIDs {
-                progressStore.clearCompletion(for: paneID)
-                AgentStatusStore.shared.clearCompletion(for: paneID)
-            }
+        if let paneID = TabIndicatorPolicy.completionPaneIDToClear(
+            isActive: active,
+            focusedPaneID: focusedPaneID,
+            newlyPendingPaneIDs: newlyPendingPaneIDs
+        ) {
+            progressStore.clearCompletion(for: paneID)
+            AgentStatusStore.shared.clearCompletion(for: paneID)
         }
         flashTask = Task { @MainActor in
             try await Task.sleep(for: .milliseconds(450))
