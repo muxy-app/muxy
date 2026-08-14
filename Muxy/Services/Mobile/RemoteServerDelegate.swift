@@ -386,10 +386,6 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
-        // Alt-screen apps (opencode, vim, ...) scroll inside the app, so deltas must reach
-        // the server terminal. Main-buffer shells scroll from the client's replayed
-        // scrollback; forwarding those deltas re-renders the server terminal and mirrors
-        // output back to the client, which re-triggers scroll in a feedback loop.
         guard isAlternateScreen(paneID: paneID) else { return }
         ensureTerminalView(paneID: paneID)?.scrollTerminal(
             deltaX: deltaX,
@@ -454,12 +450,12 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
         guard ensureTerminalView(paneID: paneID) != nil else { return }
-        // Replay buffered history first so the client rebuilds scrollback, then let the
-        // snapshot below settle the visible screen.
         if let replay = RemoteTerminalStreamer.shared.scrollbackData(for: paneID), !replay.isEmpty {
-            let dto = TerminalOutputEventDTO(paneID: paneID, bytes: replay)
-            let event = MuxyEvent(event: .terminalOutput, data: .terminalOutput(dto))
-            server?.send(event, to: clientID)
+            for chunk in replay.chunks(ofByteCount: 262_144) {
+                let dto = TerminalOutputEventDTO(paneID: paneID, bytes: chunk)
+                let event = MuxyEvent(event: .terminalOutput, data: .terminalOutput(dto))
+                server?.send(event, to: clientID)
+            }
         }
         let snapshotBytes = buildTerminalSnapshot(paneID: paneID)
         PaneOwnershipStore.shared.assign(paneID: paneID, to: clientID)
@@ -1134,5 +1130,19 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
               let worktree = worktreeStore.worktree(projectID: projectID, worktreeID: worktreeID)
         else { return nil }
         return worktree
+    }
+}
+
+private extension Data {
+    func chunks(ofByteCount chunkSize: Int) -> [Data] {
+        guard chunkSize > 0 else { return [self] }
+        var chunks: [Data] = []
+        var start = startIndex
+        while start < endIndex {
+            let end = index(start, offsetBy: chunkSize, limitedBy: endIndex) ?? endIndex
+            chunks.append(self[start ..< end])
+            start = end
+        }
+        return chunks
     }
 }

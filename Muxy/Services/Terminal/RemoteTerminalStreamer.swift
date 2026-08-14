@@ -65,6 +65,14 @@ final class RemoteTerminalStreamer {
         scrollbackBuffers[paneID]
     }
 
+    func trimAllScrollback(toByteLimit byteLimit: Int) {
+        let trimTarget = max(byteLimit * 3 / 4, 1)
+        for paneID in scrollbackBuffers.keys {
+            guard let count = scrollbackBuffers[paneID]?.count, count > byteLimit else { continue }
+            scrollbackBuffers[paneID]?.removeFirst(count - trimTarget)
+        }
+    }
+
     func resetPane(_ paneID: UUID) {
         scrollbackBuffers.removeValue(forKey: paneID)
     }

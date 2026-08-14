@@ -28,7 +28,7 @@ struct MobileSettingsView: View {
         Binding(
             get: { service.isEnabled },
             set: { newValue in
-                if newValue, !commitPort() {
+                if newValue, !commitPort() || !commitCap() {
                     return
                 }
                 service.setEnabled(newValue)
