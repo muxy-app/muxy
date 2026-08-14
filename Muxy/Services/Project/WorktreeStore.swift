@@ -532,14 +532,15 @@ final class WorktreeStore {
         projectsBeingRemoved.contains(projectID)
     }
 
-    func restoreProjectWorktrees(_ list: [Worktree], for projectID: UUID) {
+    func restoreProjectWorktrees(_ list: [Worktree], for project: Project) {
+        trackProject(project)
         guard !list.isEmpty else {
-            removeProject(projectID)
+            removeProject(project.id)
             return
         }
-        setWorktrees(list, for: projectID)
-        save(projectID: projectID)
-        onWorktreesChanged?(projectID, nil)
+        setWorktrees(list, for: project.id)
+        save(projectID: project.id)
+        onWorktreesChanged?(project.id, nil)
     }
 
     private func setWorktrees(_ list: [Worktree], for projectID: UUID) {

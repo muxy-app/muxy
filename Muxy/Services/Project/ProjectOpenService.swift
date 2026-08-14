@@ -105,11 +105,11 @@ enum ProjectOpenService {
         let previousWorktrees = worktreeStore.list(for: project.id)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else {
-            worktreeStore.restoreProjectWorktrees(previousWorktrees, for: project.id)
+            worktreeStore.restoreProjectWorktrees(previousWorktrees, for: project)
             throw RestoreError.worktreeUnavailable
         }
         guard let restoredProject = projectStore.restoreRecentlyRemovedProject(id: id) else {
-            worktreeStore.restoreProjectWorktrees(previousWorktrees, for: project.id)
+            worktreeStore.restoreProjectWorktrees(previousWorktrees, for: project)
             throw RestoreError.persistenceFailed
         }
         projectGroupStore.addProjectToActiveGroup(projectID: restoredProject.id)

@@ -51,16 +51,38 @@ struct WorktreeStoreTests {
 
     @Test("restoring worktrees notifies observers")
     func restoringWorktreesNotifiesObservers() {
-        let projectID = UUID()
+        let project = Project(name: "Repo", path: "/tmp/repo")
         let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
         let worktree = Worktree(name: "Repo", path: "/tmp/repo", isPrimary: true)
         var change: (projectID: UUID, worktreeID: UUID?)?
         store.onWorktreesChanged = { change = ($0, $1) }
 
-        store.restoreProjectWorktrees([worktree], for: projectID)
+        store.restoreProjectWorktrees([worktree], for: project)
 
-        #expect(change?.projectID == projectID)
+        #expect(change?.projectID == project.id)
         #expect(change?.worktreeID == nil)
+    }
+
+    @Test("restoring local worktrees owns a path shared with a remote project")
+    func restoringLocalWorktreesOwnsSharedRemotePath() {
+        let sharedPath = "/workspace/api"
+        let local = Project(name: "Local", path: sharedPath)
+        let remote = RemoteProject(name: "Remote", path: sharedPath).asProject(
+            workspaceID: UUID(),
+            sortOrder: 0
+        )
+        let store = WorktreeStore(persistence: WorktreePersistenceStub(initial: [:]))
+
+        store.restoreProjectWorktrees(
+            [Worktree(name: remote.name, path: sharedPath, isPrimary: true)],
+            for: remote
+        )
+        store.restoreProjectWorktrees(
+            [Worktree(name: local.name, path: sharedPath, isPrimary: true)],
+            for: local
+        )
+
+        #expect(store.projectID(forWorktreePath: sharedPath) == local.id)
     }
 
     @Test("Worktree decodes legacy records without source metadata")
