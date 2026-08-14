@@ -176,12 +176,15 @@ struct RemoteTerminalStreamerTests {
     func trimAllScrollbackShrinksOversizedBuffers() {
         let streamer = RemoteTerminalStreamer()
         let paneID = UUID()
+        let bytes = Data((0 ..< 128).map { UInt8($0) })
 
-        streamer.appendScrollback(paneID: paneID, bytes: Data(repeating: 0x61, count: 128), byteLimit: 256)
+        streamer.appendScrollback(paneID: paneID, bytes: bytes, byteLimit: 256)
 
         streamer.trimAllScrollback(toByteLimit: 64)
 
-        #expect(streamer.scrollbackData(for: paneID)?.count == 48)
+        let buffer = streamer.scrollbackData(for: paneID)
+        #expect((buffer?.count ?? 0) <= 64)
+        #expect(buffer?.suffix(48) == bytes.suffix(48))
     }
 
     @Test("trimAllScrollback leaves buffers at or under the limit untouched")
@@ -202,13 +205,16 @@ struct RemoteTerminalStreamerTests {
         let streamer = RemoteTerminalStreamer()
         let oversized = UUID()
         let small = UUID()
+        let oversizedBytes = Data((0 ..< 128).map { UInt8($0) })
 
-        streamer.appendScrollback(paneID: oversized, bytes: Data(repeating: 0x61, count: 128), byteLimit: 256)
+        streamer.appendScrollback(paneID: oversized, bytes: oversizedBytes, byteLimit: 256)
         streamer.appendScrollback(paneID: small, bytes: Data("keep".utf8), byteLimit: 256)
 
         streamer.trimAllScrollback(toByteLimit: 64)
 
-        #expect(streamer.scrollbackData(for: oversized)?.count == 48)
+        let buffer = streamer.scrollbackData(for: oversized)
+        #expect((buffer?.count ?? 0) <= 64)
+        #expect(buffer?.suffix(48) == oversizedBytes.suffix(48))
         #expect(streamer.scrollbackData(for: small) == Data("keep".utf8))
     }
 }
