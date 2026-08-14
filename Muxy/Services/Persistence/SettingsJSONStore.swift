@@ -489,6 +489,14 @@ enum SettingsJSONStore {
             } else if let consent = SentryConsent(rawValue: rawValue) {
                 SentryService.shared.setConsent(consent)
             }
+        case ProfilerService.enabledKey:
+            if value is NSNull {
+                ProfilerService.shared.setEnabled(false)
+            } else if let enabled = value as? Bool {
+                ProfilerService.shared.setEnabled(enabled)
+            } else {
+                return false
+            }
         case "muxy.ui.scale":
             guard let rawValue = value as? String, let preset = UIScale.Preset(rawValue: rawValue) else { return false }
             UIScale.shared.preset = preset

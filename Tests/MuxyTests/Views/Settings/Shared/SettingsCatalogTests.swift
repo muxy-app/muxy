@@ -22,6 +22,17 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func profilerSettingIsSearchableAndJSONEditable() {
+        let item = SettingsCatalog.items.first { $0.key == ProfilerService.enabledKey }
+
+        #expect(item?.category == .general)
+        #expect(item?.section == "Diagnostics")
+        #expect(item?.defaultValue as? Bool == false)
+        #expect(SettingsCatalog.matchingItems(query: "CPU").contains { $0.key == ProfilerService.enabledKey })
+        #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == ProfilerService.enabledKey })
+    }
+
+    @Test
     func searchFindsSettingsByLocalizedVisibleText() throws {
         let fixture = try LocalizationTestSupport.makeService(
             translations: #"""

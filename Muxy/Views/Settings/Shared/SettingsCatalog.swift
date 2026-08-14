@@ -158,6 +158,23 @@ enum SettingsCatalog {
             aliases: ["release", "beta"]
         ),
         SettingsCatalogItem(
+            key: ProfilerService.enabledKey,
+            title: "Record Anonymous Performance Samples",
+            description: "Records local CPU and memory samples for diagnosing long-running performance issues.",
+            category: .general,
+            section: "Diagnostics",
+            defaultValue: false,
+            aliases: ["profile", "profiler", "CPU", "memory", "performance"]
+        ),
+        SettingsCatalogItem(
+            key: "diagnostics.profiler.reveal",
+            title: "Profiler Data",
+            description: "Reveals the local JSONL performance profile in Finder for manual sharing.",
+            category: .general,
+            section: "Diagnostics",
+            aliases: ["JSONL", "file", "share", "Finder"]
+        ),
+        SettingsCatalogItem(
             key: LocalizationSelection.storageKey,
             title: "App Language",
             description: "Chooses built-in English or a language provided by an enabled extension.",

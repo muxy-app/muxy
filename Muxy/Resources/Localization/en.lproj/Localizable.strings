@@ -306,6 +306,7 @@
 "Extensions can add tabs, panels, popovers, top-bar and status-bar items, palette commands, and workspace automation. [Read the extension docs](https://muxy.app/docs/extensions/overview)." = "Extensions can add tabs, panels, popovers, top-bar and status-bar items, palette commands, and workspace automation. [Read the extension docs](https://muxy.app/docs/extensions/overview).";
 "Device" = "Device";
 "Diagnostics" = "Diagnostics";
+"Crash reports are sent only with your permission. Performance samples record CPU, memory, profiler uptime, app and macOS versions, device architecture, and timestamps once per minute. They stay on this Mac unless you share the file. Project paths, file contents, terminal output, and commands are never recorded." = "Crash reports are sent only with your permission. Performance samples record CPU, memory, profiler uptime, app and macOS versions, device architecture, and timestamps once per minute. They stay on this Mac unless you share the file. Project paths, file contents, terminal output, and commands are never recorded.";
 "Disable Periodic Logging" = "Disable Periodic Logging";
 "Disable extension" = "Disable extension";
 "Disabled" = "Disabled";
@@ -637,7 +638,10 @@
 "Previous Tab" = "Previous Tab";
 "Previous Tip" = "Previous Tip";
 "Primary worktree" = "Primary worktree";
+"Performance samples record CPU, memory, profiler uptime, app and macOS versions, device architecture, and timestamps once per minute. They stay on this Mac unless you share the file. Project paths, file contents, terminal output, and commands are never recorded." = "Performance samples record CPU, memory, profiler uptime, app and macOS versions, device architecture, and timestamps once per minute. They stay on this Mac unless you share the file. Project paths, file contents, terminal output, and commands are never recorded.";
 "Profile name" = "Profile name";
+"Profiler Data" = "Profiler Data";
+"Profiler data" = "Profiler data";
 "Profiles" = "Profiles";
 "Project %lld" = "Project %lld";
 "Project 1" = "Project 1";
@@ -678,7 +682,10 @@
 "Recently Added" = "Recently Added";
 "Recently Removed" = "Recently Removed";
 "Recently Removed Projects" = "Recently Removed Projects";
+"Record Anonymous Performance Samples" = "Record Anonymous Performance Samples";
+"Record anonymous performance samples" = "Record anonymous performance samples";
 "Record Custom…" = "Record Custom…";
+"Records local CPU and memory samples for diagnosing long-running performance issues." = "Records local CPU and memory samples for diagnosing long-running performance issues.";
 "Refresh" = "Refresh";
 "Refresh Worktrees" = "Refresh Worktrees";
 "Refresh pull request" = "Refresh pull request";
@@ -744,6 +751,7 @@
 "Reveal Log" = "Reveal Log";
 "Reveal Logs Folder" = "Reveal Logs Folder";
 "Reveal in Finder" = "Reveal in Finder";
+"Reveals the local JSONL performance profile in Finder for manual sharing." = "Reveals the local JSONL performance profile in Finder for manual sharing.";
 "Revoke" = "Revoke";
 "Revoke %@?" = "Revoke %@?";
 "Revoke %lld devices?" = "Revoke %lld devices?";
