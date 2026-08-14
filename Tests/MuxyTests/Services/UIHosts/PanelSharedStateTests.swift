@@ -358,6 +358,48 @@ struct PanelSharedStateTests {
             #expect(registry.openStates.isEmpty)
         }
 
+        @Test("project restore checks console conflicts against the persisted panel mode")
+        func projectRestoreChecksPersistedModeForConsoleConflict() throws {
+            let suiteName = "PanelSharedStateTests-\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suiteName))
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            let host = PanelHost(modePreferences: PanelModePreferences(defaults: defaults))
+            let registry = ExtensionPanelRegistry(panelHost: host)
+            let projectA = UUID()
+            let projectB = UUID()
+            let extensionID = "persisted-console-slot-\(UUID().uuidString)"
+            let definedPanel = panel(id: "bottom", position: .bottom, mode: .floating)
+            let hostPanelID = ExtensionPanelState.hostPanelID(
+                extensionID: extensionID,
+                panelID: definedPanel.id
+            )
+
+            registry.activateProject(projectA, from: nil)
+            registry.open(extensionID: extensionID, panel: definedPanel, data: nil)
+            registry.activateProject(projectB, from: projectA)
+            registry.open(extensionID: extensionID, panel: definedPanel, data: nil)
+            registry.setMode(.pinned, forHostPanelID: hostPanelID)
+            registry.forceClose(hostPanelID: hostPanelID)
+            host.open(
+                BuiltinPanel.extensionConsole,
+                at: .bottom,
+                mode: .pinned,
+                usesPreferredMode: false
+            )
+
+            registry.activateProject(projectA, from: projectB)
+
+            #expect(host.isOpen(BuiltinPanel.extensionConsole))
+            #expect(!host.isOpen(hostPanelID))
+            #expect(registry.openStates.isEmpty)
+
+            registry.activateProject(projectB, from: projectA)
+            host.close(BuiltinPanel.extensionConsole)
+            registry.activateProject(projectA, from: projectB)
+
+            #expect(host.placement(for: hostPanelID)?.mode == .pinned)
+        }
+
         @Test("a snapshot blocked by the console is restored once the console closes")
         func projectRestoreRetainsConsoleBlockedSnapshot() {
             let registry = ExtensionPanelRegistry.shared

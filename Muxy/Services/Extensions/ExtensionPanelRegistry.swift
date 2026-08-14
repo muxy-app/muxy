@@ -74,9 +74,11 @@ final class ExtensionPanelRegistry {
     private(set) var openStates: [ExtensionPanelState] = []
     private(set) var activeProjectID: UUID?
     private var snapshotsByProject: [UUID: [ExtensionPanelSnapshot]] = [:]
+    private let panelHost: PanelHost
 
-    init() {
-        PanelHost.shared.onDisplace = { [weak self] _ in self?.pruneClosed() }
+    init(panelHost: PanelHost = .shared) {
+        self.panelHost = panelHost
+        panelHost.onDisplace = { [weak self] _ in self?.pruneClosed() }
     }
 
     func state(forHostPanelID hostPanelID: String) -> ExtensionPanelState? {
@@ -98,11 +100,10 @@ final class ExtensionPanelRegistry {
         guard let projectID else { return }
         var deferred: [ExtensionPanelSnapshot] = []
         for snapshot in snapshotsByProject.removeValue(forKey: projectID) ?? [] {
-            if wouldDisplaceExtensionConsole(position: snapshot.position, mode: snapshot.mode) {
+            guard restore(snapshot) else {
                 deferred.append(snapshot)
                 continue
             }
-            restore(snapshot)
         }
         guard !deferred.isEmpty else { return }
         snapshotsByProject[projectID] = deferred
@@ -131,7 +132,7 @@ final class ExtensionPanelRegistry {
             initialData: data ?? panel.defaultData
         )
         openStates.append(state)
-        PanelHost.shared.open(
+        panelHost.open(
             hostPanelID,
             at: position ?? panel.position,
             mode: mode ?? panel.mode,
@@ -143,7 +144,7 @@ final class ExtensionPanelRegistry {
 
     func toggle(extensionID: String, panel: ExtensionPanel, data: ExtensionJSON?) {
         let hostPanelID = ExtensionPanelState.hostPanelID(extensionID: extensionID, panelID: panel.id)
-        if PanelHost.shared.isOpen(hostPanelID) {
+        if panelHost.isOpen(hostPanelID) {
             forceClose(hostPanelID: hostPanelID)
             return
         }
@@ -151,17 +152,17 @@ final class ExtensionPanelRegistry {
     }
 
     func setMode(_ mode: PanelMode, forHostPanelID hostPanelID: String) {
-        PanelHost.shared.setMode(mode, for: hostPanelID)
+        panelHost.setMode(mode, for: hostPanelID)
     }
 
     func move(_ position: PanelPosition, forHostPanelID hostPanelID: String) {
-        PanelHost.shared.move(hostPanelID, to: position)
+        panelHost.move(hostPanelID, to: position)
     }
 
     func close(hostPanelID: String) {
         guard let state = state(forHostPanelID: hostPanelID) else {
             PanelFocusRestoration.shared.restoreAfterClosing(panelID: hostPanelID)
-            PanelHost.shared.close(hostPanelID)
+            panelHost.close(hostPanelID)
             return
         }
         let surfaceKey = LifecycleSurfaceKey(kind: .panel, instanceID: state.id.uuidString)
@@ -177,7 +178,7 @@ final class ExtensionPanelRegistry {
     func forceClose(hostPanelID: String) {
         let closed = openStates.filter { $0.hostPanelID == hostPanelID }
         PanelFocusRestoration.shared.restoreAfterClosing(panelID: hostPanelID)
-        PanelHost.shared.close(hostPanelID)
+        panelHost.close(hostPanelID)
         openStates.removeAll { $0.hostPanelID == hostPanelID }
         for state in closed {
             ExtensionLifecycleEvents.panelClosed(extensionID: state.extensionID, panelID: state.panelID)
@@ -193,7 +194,7 @@ final class ExtensionPanelRegistry {
         let closed = openStates.filter { $0.extensionID == extensionID }
         for state in closed {
             PanelFocusRestoration.shared.restoreAfterClosing(panelID: state.hostPanelID)
-            PanelHost.shared.close(state.hostPanelID)
+            panelHost.close(state.hostPanelID)
         }
         openStates.removeAll { $0.extensionID == extensionID }
         for state in closed {
@@ -212,7 +213,7 @@ final class ExtensionPanelRegistry {
 
     func captureLiveSnapshots() -> [ExtensionPanelSnapshot] {
         openStates.compactMap { state in
-            guard let placement = PanelHost.shared.placement(for: state.hostPanelID) else { return nil }
+            guard let placement = panelHost.placement(for: state.hostPanelID) else { return nil }
             let panel = ExtensionStore.shared.loadedExtension(id: state.extensionID)?
                 .manifest.panel(id: state.panelID) ?? state.panel
             return ExtensionPanelSnapshot(
@@ -233,19 +234,28 @@ final class ExtensionPanelRegistry {
         return live + deferred
     }
 
-    private func restore(_ snapshot: ExtensionPanelSnapshot) {
-        guard let panel = panelForRestore(snapshot) else { return }
+    private func restore(_ snapshot: ExtensionPanelSnapshot) -> Bool {
+        guard let panel = panelForRestore(snapshot) else { return true }
+        let usesPreferredMode = panel.allowsModeSelection
+        let defaultMode = usesPreferredMode ? snapshot.mode : panel.mode
+        let mode = panelHost.resolvedMode(
+            for: snapshot.hostPanelID,
+            default: defaultMode,
+            usesPreferredMode: usesPreferredMode
+        )
+        guard !wouldDisplaceExtensionConsole(position: snapshot.position, mode: mode) else { return false }
         open(
             extensionID: snapshot.extensionID,
             panel: panel,
             data: snapshot.initialData,
             position: snapshot.position,
-            mode: snapshot.mode
+            mode: mode
         )
+        return true
     }
 
     private func wouldDisplaceExtensionConsole(position: PanelPosition, mode: PanelMode) -> Bool {
-        PanelHost.shared.panel(at: position, mode: mode)?.panelID == BuiltinPanel.extensionConsole
+        panelHost.panel(at: position, mode: mode)?.panelID == BuiltinPanel.extensionConsole
     }
 
     private func panelForRestore(_ snapshot: ExtensionPanelSnapshot) -> ExtensionPanel? {
@@ -275,7 +285,7 @@ final class ExtensionPanelRegistry {
         let closed = openStates
         for state in closed {
             PanelFocusRestoration.shared.discard(panelID: state.hostPanelID)
-            PanelHost.shared.close(state.hostPanelID)
+            panelHost.close(state.hostPanelID)
         }
         openStates = []
         for state in closed {
@@ -284,11 +294,11 @@ final class ExtensionPanelRegistry {
     }
 
     private func pruneClosed() {
-        let closed = openStates.filter { !PanelHost.shared.isOpen($0.hostPanelID) }
+        let closed = openStates.filter { !panelHost.isOpen($0.hostPanelID) }
         for state in closed {
             PanelFocusRestoration.shared.restoreAfterClosing(panelID: state.hostPanelID)
         }
-        openStates.removeAll { !PanelHost.shared.isOpen($0.hostPanelID) }
+        openStates.removeAll { !panelHost.isOpen($0.hostPanelID) }
         for state in closed {
             ExtensionLifecycleEvents.panelClosed(extensionID: state.extensionID, panelID: state.panelID)
         }

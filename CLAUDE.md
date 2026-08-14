@@ -9,11 +9,14 @@ Requires `swiftlint` and `swiftformat` (`brew install swiftlint swiftformat`).
 ```bash
 scripts/checks.sh             # Format, lint, build, test
 scripts/checks.sh --fix       # Auto-fix formatting and linting issues
+scripts/checks.sh --coverage  # Also run the coverage gate (slower; opt-in)
+swiftformat --lint .          # Check formatting only
+swiftlint lint --strict       # Check linting only
 ```
 
 For code-changing tasks, run `scripts/checks.sh --fix` before handoff. Do not run it for read-only review or analysis unless the user explicitly asks.
 
-Only use checks.sh script for linting, formatting, testing
+Test processes use isolated Application Support storage.
 
 ## Top Level Rules
 

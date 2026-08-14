@@ -84,7 +84,7 @@ final class PanelHost {
         placements.removeAll()
     }
 
-    private func resolvedMode(
+    func resolvedMode(
         for panelID: String,
         default defaultMode: PanelMode,
         usesPreferredMode: Bool
