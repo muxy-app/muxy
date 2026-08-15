@@ -52,6 +52,33 @@ struct GitWorktreeServiceAddTests {
         let mainHead = try repo.runCapturing("rev-parse", "main")
         #expect(head == mainHead)
     }
+
+    @Test("new branch can start from a full remote-tracking reference")
+    func newBranchUsesRemoteTrackingReference() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "remote.txt", contents: "remote", message: "remote base")
+        let remotePath = repo.siblingPath("remote.git")
+        try repo.run("init", "--bare", remotePath)
+        try repo.run("remote", "add", "origin", remotePath)
+        try repo.run("push", "-u", "origin", "main")
+        try repo.commit(file: "local.txt", contents: "local", message: "local head")
+
+        let worktreePath = repo.siblingPath("remote-base-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "feature",
+            createBranch: true,
+            baseBranch: "refs/remotes/origin/main"
+        )
+
+        let head = try repo.runCapturing(at: worktreePath, "rev-parse", "HEAD")
+        let remoteHead = try repo.runCapturing("rev-parse", "refs/remotes/origin/main")
+        #expect(head == remoteHead)
+        #expect(!FileManager.default.fileExists(atPath: "\(worktreePath)/local.txt"))
+    }
 }
 
 private struct TempGitRepo {

@@ -88,6 +88,23 @@ struct GitRepositoryServiceNewAPIsTests {
         #expect(await GitRepositoryService().defaultBranch(repoPath: repo.path) == "main")
     }
 
+    @Test("finds an existing remote-tracking branch reference")
+    func findsRemoteTrackingBranchReference() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let remotePath = try repo.createBareRemote()
+        try repo.run("remote", "add", "origin", remotePath)
+        try repo.commit(file: "main.txt", contents: "main", message: "main")
+        try repo.run("push", "-u", "origin", "main")
+        let service = GitRepositoryService()
+
+        #expect(
+            await service.remoteTrackingBranchReference(repoPath: repo.path, branch: "main")
+                == "refs/remotes/origin/main"
+        )
+        #expect(await service.remoteTrackingBranchReference(repoPath: repo.path, branch: "missing") == nil)
+    }
+
     @Test("repoInfo reports root, gitDir and current branch for a normal repo")
     func repoInfoForNormalRepo() async throws {
         let repo = try TempGitRepo()

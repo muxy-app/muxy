@@ -800,6 +800,19 @@ struct GitRepositoryService {
         return !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    func remoteTrackingBranchReference(
+        repoPath: String,
+        remote: String = "origin",
+        branch: String
+    ) async -> String? {
+        let reference = "refs/remotes/\(remote)/\(branch)"
+        let result = try? await runGit(
+            repoPath: repoPath,
+            arguments: ["show-ref", "--verify", "--quiet", reference]
+        )
+        return result?.status == 0 ? reference : nil
+    }
+
     func listRemoteBranches(repoPath: String) async throws -> [String] {
         let result = try await runGit(
             repoPath: repoPath,
