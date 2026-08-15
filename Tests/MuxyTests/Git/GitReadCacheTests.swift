@@ -142,16 +142,19 @@ struct GitReadCacheTests {
         #expect(cache.cachedDefaultBranch(context: remoteContext, repoPath: repoPath) == "develop")
     }
 
-    @Test("expires stale default branches")
-    func defaultBranchExpiration() {
+    @Test("expires default branches at the TTL boundary")
+    func defaultBranchExpirationAtBoundary() {
         let cache = GitMetadataCache.shared
         let repoPath = "/repo/default-expiration-\(UUID().uuidString)"
         let context = WorkspaceContext.local
+        let storedAt = Date(timeIntervalSinceReferenceDate: 1_000)
         defer { cache.invalidateDefaultBranch(context: context, repoPath: repoPath) }
 
-        cache.storeDefaultBranch("basic-ui", context: context, repoPath: repoPath, storedAt: .distantPast)
+        cache.storeDefaultBranch("basic-ui", context: context, repoPath: repoPath, storedAt: storedAt)
 
-        #expect(cache.cachedDefaultBranch(context: context, repoPath: repoPath) == nil)
+        #expect(
+            cache.cachedDefaultBranch(context: context, repoPath: repoPath, now: storedAt.addingTimeInterval(300)) == nil
+        )
     }
 
     private func key(_ repoPath: String) -> GitMetadataCache.ReadKey {

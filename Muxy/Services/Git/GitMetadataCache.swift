@@ -143,7 +143,7 @@ final class GitMetadataCache: @unchecked Sendable {
         defer { lock.unlock() }
         let key = DefaultBranchKey(context: context, repoPath: repoPath)
         guard let entry = defaultBranch[key] else { return nil }
-        if now.timeIntervalSince(entry.storedAt) > defaultBranchTTL {
+        if now.timeIntervalSince(entry.storedAt) >= defaultBranchTTL {
             defaultBranch.removeValue(forKey: key)
             return nil
         }

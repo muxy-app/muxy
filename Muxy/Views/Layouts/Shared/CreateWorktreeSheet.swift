@@ -40,18 +40,21 @@ struct WorktreeBranchLoadState: Equatable {
         if selectedExistingBranch.isEmpty {
             selectedExistingBranch = branches.first ?? ""
         }
-        if selectedBaseBranch.isEmpty {
-            if let defaultBranch, branches.contains(defaultBranch) {
-                selectedBaseBranch = defaultBranch
-            } else if let remoteDefaultBranchReference {
-                selectedBaseBranch = remoteDefaultBranchReference
-            } else if let currentBranch, branches.contains(currentBranch) {
-                selectedBaseBranch = currentBranch
-            } else if let fallbackBranch = ["develop", "main", "master"].first(where: branches.contains) {
-                selectedBaseBranch = fallbackBranch
-            }
-        }
         isLoading = false
+        guard selectedBaseBranch.isEmpty else { return }
+        if let defaultBranch, branches.contains(defaultBranch) {
+            selectedBaseBranch = defaultBranch
+            return
+        }
+        if let remoteDefaultBranchReference {
+            selectedBaseBranch = remoteDefaultBranchReference
+            return
+        }
+        if let currentBranch, branches.contains(currentBranch) {
+            selectedBaseBranch = currentBranch
+            return
+        }
+        selectedBaseBranch = ["develop", "main", "master"].first(where: branches.contains) ?? ""
     }
 
     mutating func failLoading() {
