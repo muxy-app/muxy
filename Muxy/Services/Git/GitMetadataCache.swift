@@ -15,6 +15,16 @@ final class GitMetadataCache: @unchecked Sendable {
         let storedAt: Date
     }
 
+    private struct DefaultBranchKey: Hashable {
+        let context: WorkspaceContext
+        let repoPath: String
+    }
+
+    private struct DefaultBranchEntry {
+        let branch: String
+        let storedAt: Date
+    }
+
     struct ReadKey: Hashable {
         let repoPath: String
         let endpoint: String
@@ -29,7 +39,7 @@ final class GitMetadataCache: @unchecked Sendable {
 
     private let lock = NSLock()
     private var prInfo: [PRKey: PREntry] = [:]
-    private var defaultBranch: [String: String?] = [:]
+    private var defaultBranch: [DefaultBranchKey: DefaultBranchEntry] = [:]
     private var ghInstalled: Bool?
     private var remoteWebURL: [String: URL?] = [:]
     private var verifiedGitRepo: Set<String> = []
@@ -37,6 +47,7 @@ final class GitMetadataCache: @unchecked Sendable {
     private var readOrder: [ReadKey] = []
 
     private let prTTL: TimeInterval = 300
+    private let defaultBranchTTL: TimeInterval = 300
     private let readTTL: TimeInterval = 5
     private let readCapacity = 128
 
@@ -123,17 +134,39 @@ final class GitMetadataCache: @unchecked Sendable {
         prInfo = prInfo.filter { key, _ in key.context != context || key.repoPath != repoPath }
     }
 
-    func cachedDefaultBranch(repoPath: String) -> String?? {
+    func cachedDefaultBranch(
+        context: WorkspaceContext,
+        repoPath: String,
+        now: Date = Date()
+    ) -> String? {
         lock.lock()
         defer { lock.unlock() }
-        guard let value = defaultBranch[repoPath] else { return nil }
-        return .some(value)
+        let key = DefaultBranchKey(context: context, repoPath: repoPath)
+        guard let entry = defaultBranch[key] else { return nil }
+        if now.timeIntervalSince(entry.storedAt) > defaultBranchTTL {
+            defaultBranch.removeValue(forKey: key)
+            return nil
+        }
+        return entry.branch
     }
 
-    func storeDefaultBranch(_ branch: String?, repoPath: String) {
+    func storeDefaultBranch(
+        _ branch: String,
+        context: WorkspaceContext,
+        repoPath: String,
+        storedAt: Date = Date()
+    ) {
         lock.lock()
         defer { lock.unlock() }
-        defaultBranch[repoPath] = branch
+        let key = DefaultBranchKey(context: context, repoPath: repoPath)
+        defaultBranch[key] = DefaultBranchEntry(branch: branch, storedAt: storedAt)
+    }
+
+    func invalidateDefaultBranch(context: WorkspaceContext, repoPath: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        let key = DefaultBranchKey(context: context, repoPath: repoPath)
+        defaultBranch.removeValue(forKey: key)
     }
 
     func cachedGhInstalled() -> Bool? {

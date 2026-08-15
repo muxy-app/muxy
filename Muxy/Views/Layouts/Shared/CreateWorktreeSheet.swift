@@ -21,7 +21,7 @@ struct WorktreeBranchLoadState: Equatable {
         isLoading = true
     }
 
-    mutating func finishLoading(branches: [String], defaultBranch: String?) {
+    mutating func finishLoading(branches: [String], defaultBranch: String?, currentBranch: String?) {
         branchOptions = branches.map(WorktreeBranchOption.init)
         if selectedExistingBranch.isEmpty {
             selectedExistingBranch = branches.first ?? ""
@@ -29,8 +29,10 @@ struct WorktreeBranchLoadState: Equatable {
         if selectedBaseBranch.isEmpty {
             if let defaultBranch, branches.contains(defaultBranch) {
                 selectedBaseBranch = defaultBranch
-            } else {
-                selectedBaseBranch = branches.first ?? ""
+            } else if let fallbackBranch = ["develop", "main", "master"].first(where: branches.contains) {
+                selectedBaseBranch = fallbackBranch
+            } else if let currentBranch, branches.contains(currentBranch) {
+                selectedBaseBranch = currentBranch
             }
         }
         isLoading = false
@@ -519,9 +521,15 @@ struct CreateWorktreeSheet: View {
         do {
             async let branchesValue = gitRepository.listBranches(repoPath: project.path)
             async let defaultValue = gitRepository.defaultBranch(repoPath: project.path)
+            async let currentValue = try? gitRepository.currentBranch(repoPath: project.path)
             let branches = try await branchesValue
             let resolvedDefault = await defaultValue
-            branchLoadState.finishLoading(branches: branches, defaultBranch: resolvedDefault)
+            let currentBranch = await currentValue
+            branchLoadState.finishLoading(
+                branches: branches,
+                defaultBranch: resolvedDefault,
+                currentBranch: currentBranch
+            )
         } catch {
             branchLoadState.failLoading()
             errorMessage = error.localizedDescription

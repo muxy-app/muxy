@@ -822,12 +822,12 @@ struct GitRepositoryService {
     }
 
     func defaultBranch(repoPath: String) async -> String? {
-        if let cached = GitMetadataCache.shared.cachedDefaultBranch(repoPath: repoPath) {
+        if let cached = GitMetadataCache.shared.cachedDefaultBranch(context: context, repoPath: repoPath) {
             return cached
         }
         let resolved = await resolveDefaultBranch(repoPath: repoPath)
-        if resolved != nil {
-            GitMetadataCache.shared.storeDefaultBranch(resolved, repoPath: repoPath)
+        if let resolved {
+            GitMetadataCache.shared.storeDefaultBranch(resolved, context: context, repoPath: repoPath)
         }
         return resolved
     }

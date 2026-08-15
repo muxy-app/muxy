@@ -124,6 +124,36 @@ struct GitReadCacheTests {
         #expect(retainedRemoteEntry == remoteInfo)
     }
 
+    @Test("isolates default branches by workspace context")
+    func defaultBranchContextIsolation() {
+        let cache = GitMetadataCache.shared
+        let repoPath = "/repo/default-context-\(UUID().uuidString)"
+        let localContext = WorkspaceContext.local
+        let remoteContext = WorkspaceContext.ssh(SSHDestination(host: "example.test"))
+        defer {
+            cache.invalidateDefaultBranch(context: localContext, repoPath: repoPath)
+            cache.invalidateDefaultBranch(context: remoteContext, repoPath: repoPath)
+        }
+
+        cache.storeDefaultBranch("main", context: localContext, repoPath: repoPath)
+        cache.storeDefaultBranch("develop", context: remoteContext, repoPath: repoPath)
+
+        #expect(cache.cachedDefaultBranch(context: localContext, repoPath: repoPath) == "main")
+        #expect(cache.cachedDefaultBranch(context: remoteContext, repoPath: repoPath) == "develop")
+    }
+
+    @Test("expires stale default branches")
+    func defaultBranchExpiration() {
+        let cache = GitMetadataCache.shared
+        let repoPath = "/repo/default-expiration-\(UUID().uuidString)"
+        let context = WorkspaceContext.local
+        defer { cache.invalidateDefaultBranch(context: context, repoPath: repoPath) }
+
+        cache.storeDefaultBranch("basic-ui", context: context, repoPath: repoPath, storedAt: .distantPast)
+
+        #expect(cache.cachedDefaultBranch(context: context, repoPath: repoPath) == nil)
+    }
+
     private func key(_ repoPath: String) -> GitMetadataCache.ReadKey {
         GitMetadataCache.ReadKey(repoPath: repoPath, endpoint: "branches", params: "")
     }

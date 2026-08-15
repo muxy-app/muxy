@@ -18,23 +18,56 @@ struct CreateWorktreeSheetTests {
     func loadedBranchesSelectDefaults() {
         var state = WorktreeBranchLoadState()
 
-        state.finishLoading(branches: ["feature", "main"], defaultBranch: "main")
+        state.finishLoading(
+            branches: ["develop", "feature", "release"],
+            defaultBranch: "release",
+            currentBranch: "feature"
+        )
 
         #expect(!state.isLoading)
-        #expect(state.branchOptions.map(\.name) == ["feature", "main"])
-        #expect(state.branchOptions.map(\.id) == ["feature", "main"])
-        #expect(state.selectedExistingBranch == "feature")
-        #expect(state.selectedBaseBranch == "main")
+        #expect(state.branchOptions.map(\.name) == ["develop", "feature", "release"])
+        #expect(state.branchOptions.map(\.id) == ["develop", "feature", "release"])
+        #expect(state.selectedExistingBranch == "develop")
+        #expect(state.selectedBaseBranch == "release")
     }
 
-    @Test("missing default branch falls back to the first branch")
-    func missingDefaultBranchFallsBack() {
+    @Test("missing local default branch falls back to develop before the current branch")
+    func missingLocalDefaultBranchFallsBackToDevelop() {
         var state = WorktreeBranchLoadState()
 
-        state.finishLoading(branches: ["develop", "feature"], defaultBranch: "main")
+        state.finishLoading(branches: ["basic-ui", "develop"], defaultBranch: "main", currentBranch: "basic-ui")
 
-        #expect(state.selectedExistingBranch == "develop")
+        #expect(state.selectedExistingBranch == "basic-ui")
         #expect(state.selectedBaseBranch == "develop")
+    }
+
+    @Test("conventional branch fallback order is develop, main, then master")
+    func conventionalBranchFallbackOrder() {
+        var developState = WorktreeBranchLoadState()
+        var mainState = WorktreeBranchLoadState()
+        var masterState = WorktreeBranchLoadState()
+
+        developState.finishLoading(
+            branches: ["master", "main", "develop"],
+            defaultBranch: nil,
+            currentBranch: "master"
+        )
+        mainState.finishLoading(branches: ["master", "main"], defaultBranch: nil, currentBranch: "master")
+        masterState.finishLoading(branches: ["feature", "master"], defaultBranch: nil, currentBranch: "feature")
+
+        #expect(developState.selectedBaseBranch == "develop")
+        #expect(mainState.selectedBaseBranch == "main")
+        #expect(masterState.selectedBaseBranch == "master")
+    }
+
+    @Test("missing default and current branches leave the base unselected")
+    func missingDefaultAndCurrentBranchesLeaveBaseUnselected() {
+        var state = WorktreeBranchLoadState()
+
+        state.finishLoading(branches: ["basic-ui", "feature"], defaultBranch: "main", currentBranch: nil)
+
+        #expect(state.selectedExistingBranch == "basic-ui")
+        #expect(state.selectedBaseBranch.isEmpty)
     }
 
     @Test("loaded branches preserve existing selections")
@@ -45,7 +78,8 @@ struct CreateWorktreeSheetTests {
 
         state.finishLoading(
             branches: ["feature", "develop", "main"],
-            defaultBranch: "main"
+            defaultBranch: "main",
+            currentBranch: "main"
         )
 
         #expect(state.selectedExistingBranch == "feature")
