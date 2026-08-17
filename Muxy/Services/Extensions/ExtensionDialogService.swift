@@ -66,7 +66,16 @@ enum ExtensionDialogService {
         defer { release(request.extensionID) }
         let alert = makeAlert(title: request.title, message: request.message, style: request.style)
         alert.addButton(withTitle: L10n.string("OK"))
-        _ = try await runModal(alert, extensionID: request.extensionID)
+        guard !request.message.isEmpty else {
+            _ = try await runModal(alert, extensionID: request.extensionID)
+            return
+        }
+        let copy = alert.addButton(withTitle: L10n.string("Copy"))
+        copy.keyEquivalent = "c"
+        copy.keyEquivalentModifierMask = .command
+        let response = try await runModal(alert, extensionID: request.extensionID)
+        guard response == .alertSecondButtonReturn else { return }
+        PathClipboard.copy(request.message)
     }
 
     static func prompt(_ request: PromptRequest) async throws -> String? {
