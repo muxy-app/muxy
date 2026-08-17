@@ -159,6 +159,39 @@ struct ExtensionDialogServiceTests {
         #expect(request.style == .critical)
     }
 
+    @Test("alert displays bounded text and copies the complete message on request")
+    func alertCopiesCompleteMessage() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let message = String(repeating: "x", count: ExtensionDialogService.maxTextLength + 500)
+        let request = try ExtensionDialogService.makeAlertRequest(extensionID: "ext", args: [
+            "message": message,
+        ])
+
+        #expect(request.message == message)
+        #expect(ExtensionDialogService.displayMessage(for: request).count == ExtensionDialogService.maxTextLength)
+
+        pasteboard.setString("unchanged", forType: .string)
+        ExtensionDialogService.copyAlertMessage(request, response: .alertFirstButtonReturn, to: pasteboard)
+        #expect(pasteboard.string(forType: .string) == "unchanged")
+
+        ExtensionDialogService.copyAlertMessage(request, response: .alertSecondButtonReturn, to: pasteboard)
+        #expect(pasteboard.string(forType: .string) == message)
+    }
+
+    @Test("title-only alerts do not copy")
+    func titleOnlyAlertDoesNotCopy() throws {
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        let request = try ExtensionDialogService.makeAlertRequest(extensionID: "ext", args: [
+            "title": "Failure",
+        ])
+
+        pasteboard.setString("unchanged", forType: .string)
+        ExtensionDialogService.copyAlertMessage(request, response: .alertSecondButtonReturn, to: pasteboard)
+        #expect(pasteboard.string(forType: .string) == "unchanged")
+    }
+
     @Test("alert requires title or message")
     func alertRequiresContent() {
         #expect(throws: APIError.self) {

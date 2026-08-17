@@ -64,18 +64,15 @@ enum ExtensionDialogService {
     static func alert(_ request: AlertRequest) async throws {
         try claim(request.extensionID)
         defer { release(request.extensionID) }
-        let alert = makeAlert(title: request.title, message: request.message, style: request.style)
+        let alert = makeAlert(title: request.title, message: displayMessage(for: request), style: request.style)
         alert.addButton(withTitle: L10n.string("OK"))
-        guard !request.message.isEmpty else {
-            _ = try await runModal(alert, extensionID: request.extensionID)
-            return
+        if !request.message.isEmpty {
+            let copy = alert.addButton(withTitle: L10n.string("Copy"))
+            copy.keyEquivalent = "c"
+            copy.keyEquivalentModifierMask = .command
         }
-        let copy = alert.addButton(withTitle: L10n.string("Copy"))
-        copy.keyEquivalent = "c"
-        copy.keyEquivalentModifierMask = .command
         let response = try await runModal(alert, extensionID: request.extensionID)
-        guard response == .alertSecondButtonReturn else { return }
-        PathClipboard.copy(request.message)
+        copyAlertMessage(request, response: response)
     }
 
     static func prompt(_ request: PromptRequest) async throws -> String? {
@@ -182,7 +179,7 @@ enum ExtensionDialogService {
 
     static func makeAlertRequest(extensionID: String, args: [String: Any]) throws -> AlertRequest {
         let title = clamped(string(args, "title") ?? "")
-        let message = clamped(string(args, "message") ?? "")
+        let message = string(args, "message") ?? ""
         guard !title.isEmpty || !message.isEmpty else {
             throw APIError.invalidArguments("alert requires title or message")
         }
@@ -204,6 +201,19 @@ enum ExtensionDialogService {
             }
             return ""
         }
+    }
+
+    static func copyAlertMessage(
+        _ request: AlertRequest,
+        response: NSApplication.ModalResponse,
+        to pasteboard: NSPasteboard = .general
+    ) {
+        guard !request.message.isEmpty, response == .alertSecondButtonReturn else { return }
+        PathClipboard.copy(request.message, to: pasteboard)
+    }
+
+    static func displayMessage(for request: AlertRequest) -> String {
+        clamped(request.message)
     }
 
     private static func makeAlert(title: String, message: String, style: NSAlert.Style) -> NSAlert {
