@@ -1,6 +1,6 @@
 # Extension Dialogs
 
-Native macOS sheets an extension can present on the main window: a multi-button **confirm** dialog, a single-button **alert**, a single-field **prompt**, and a folder picker (**pickFolder**). Each renders as a real `NSAlert`/`NSOpenPanel` sheet attached to the Muxy window — they look identical to the app's own prompts and block until the user responds.
+Native macOS sheets an extension can present on the main window: a multi-button **confirm** dialog, an **alert**, a single-field **prompt**, and a folder picker (**pickFolder**). Each renders as a real `NSAlert`/`NSOpenPanel` sheet attached to the Muxy window — they look identical to the app's own prompts and block until the user responds.
 
 `dialog` is available on all three surfaces: webview pages (tabs, panels, popovers) via [`window.muxy`](tabs.md#windowmuxy), [`runScript`](scripts.md) palette-command scripts via `muxy`, and the [background script](manifest.md) `muxy` global. It needs **no permission** — the user has to dismiss every dialog themselves, so there is nothing to gate ([what permissions don't gate](permissions.md#what-permissions-dont-gate)).
 
@@ -36,7 +36,7 @@ The resolved value is always the exact label string you passed (or `null`), so c
 
 ## alert
 
-Shows a single **OK** dialog and resolves once the user dismisses it.
+Shows an **OK** dialog and resolves once the user dismisses it. Alerts with a non-empty `message` also include **Copy** with the Command-C shortcut; it copies the complete message even when the displayed text is truncated.
 
 ```js
 await muxy.dialog.alert({
@@ -102,6 +102,6 @@ if (folder !== null) { /* … */ }
 
 - The call blocks the caller until the user responds. From a background script this pauses that script's event loop the same way `exec` does, so don't open a dialog from a hot event path.
 - Only **one dialog per extension** can be open at a time; a second call while one is showing rejects rather than stacking sheets.
-- `title`, `message`, and each button label are capped at 2000 characters, and `buttons` is limited to the first 3.
+- `title`, displayed `message` text, and each button label are capped at 2000 characters, and `buttons` is limited to the first 3. An alert's **Copy** action preserves the complete `message`.
 - Dialogs present as a sheet on the main Muxy window; if no window is available the call rejects rather than presenting a blocking dialog.
 - A [popover](popovers.md) stays open while its dialog is showing, so the resolved result reaches the popover page.

@@ -192,6 +192,32 @@ struct ExtensionDialogServiceTests {
         #expect(pasteboard.string(forType: .string) == "unchanged")
     }
 
+    @Test("alert adds a Command-C Copy button only for messages")
+    func alertCopyButtonConfiguration() throws {
+        let messageRequest = try ExtensionDialogService.makeAlertRequest(extensionID: "ext", args: [
+            "message": "Command output",
+        ])
+        let messageAlert = NSAlert()
+        messageAlert.addButton(withTitle: "OK")
+
+        ExtensionDialogService.addCopyButton(to: messageAlert, for: messageRequest)
+
+        #expect(messageAlert.buttons.count == 2)
+        #expect(messageAlert.buttons[1].title == "Copy")
+        #expect(messageAlert.buttons[1].keyEquivalent == "c")
+        #expect(messageAlert.buttons[1].keyEquivalentModifierMask == .command)
+
+        let titleRequest = try ExtensionDialogService.makeAlertRequest(extensionID: "ext", args: [
+            "title": "Failure",
+        ])
+        let titleAlert = NSAlert()
+        titleAlert.addButton(withTitle: "OK")
+
+        ExtensionDialogService.addCopyButton(to: titleAlert, for: titleRequest)
+
+        #expect(titleAlert.buttons.count == 1)
+    }
+
     @Test("alert requires title or message")
     func alertRequiresContent() {
         #expect(throws: APIError.self) {

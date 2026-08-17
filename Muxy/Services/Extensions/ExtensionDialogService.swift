@@ -66,11 +66,7 @@ enum ExtensionDialogService {
         defer { release(request.extensionID) }
         let alert = makeAlert(title: request.title, message: displayMessage(for: request), style: request.style)
         alert.addButton(withTitle: L10n.string("OK"))
-        if !request.message.isEmpty {
-            let copy = alert.addButton(withTitle: L10n.string("Copy"))
-            copy.keyEquivalent = "c"
-            copy.keyEquivalentModifierMask = .command
-        }
+        addCopyButton(to: alert, for: request)
         let response = try await runModal(alert, extensionID: request.extensionID)
         copyAlertMessage(request, response: response)
     }
@@ -210,6 +206,13 @@ enum ExtensionDialogService {
     ) {
         guard !request.message.isEmpty, response == .alertSecondButtonReturn else { return }
         PathClipboard.copy(request.message, to: pasteboard)
+    }
+
+    static func addCopyButton(to alert: NSAlert, for request: AlertRequest) {
+        guard !request.message.isEmpty else { return }
+        let copy = alert.addButton(withTitle: L10n.string("Copy"))
+        copy.keyEquivalent = "c"
+        copy.keyEquivalentModifierMask = .command
     }
 
     static func displayMessage(for request: AlertRequest) -> String {
