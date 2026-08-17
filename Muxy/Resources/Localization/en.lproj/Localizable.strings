@@ -82,6 +82,7 @@
 "Always Show Project Search" = "Always Show Project Search";
 "Automatic updates are unavailable for this configuration." = "Automatic updates are unavailable for this configuration.";
 "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data." = "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data.";
+"An agent is waiting for your attention." = "An agent is waiting for your attention.";
 "App" = "App";
 "App & subprocess resource usage" = "App & subprocess resource usage";
 "App Default" = "App Default";
@@ -1260,6 +1261,8 @@
 "When enabled, releasing the mouse after selecting text in the terminal copies it to the clipboard." = "When enabled, releasing the mouse after selecting text in the terminal copies it to the clipboard.";
 "Wide" = "Wide";
 "Width" = "Width";
+"Work finished and is ready to review." = "Work finished and is ready to review.";
+"Work is in progress." = "Work is in progress.";
 "Working" = "Working";
 "Working tree clean" = "Working tree clean";
 "Working tree is clean" = "Working tree is clean";

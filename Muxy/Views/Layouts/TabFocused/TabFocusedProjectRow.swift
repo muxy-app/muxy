@@ -388,6 +388,7 @@ struct TabFocusedProjectRow: View {
         HStack(spacing: 0) {
             if hovered || showAgentProviderMenu {
                 actions
+                statusIndicator
             } else if !isFocused {
                 if isWorktreeRow {
                     worktreeIndicator

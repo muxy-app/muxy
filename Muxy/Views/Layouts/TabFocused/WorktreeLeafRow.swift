@@ -62,6 +62,7 @@ struct WorktreeLeafRow: View {
 
             if hovered || showAgentProviderMenu {
                 leafAction
+                statusIndicator
             } else {
                 statusIndicator
             }
