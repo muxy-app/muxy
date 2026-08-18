@@ -20,11 +20,14 @@ public enum AgentHookEventMapper {
         switch event {
         case "user-prompt-submit",
              "pre-tool-use",
+             "post-tool-use",
              "UserPromptSubmit",
              "PreToolUse",
+             "PostToolUse",
              "beforeSubmitPrompt",
              "userPromptSubmitted",
-             "preToolUse":
+             "preToolUse",
+             "postToolUse":
             return MappedAgentHookEvent(phase: .working, title: "", body: "")
         case "permission-request",
              "PermissionRequest":

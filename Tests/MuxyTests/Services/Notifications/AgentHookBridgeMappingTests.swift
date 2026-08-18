@@ -140,11 +140,14 @@ struct AgentHookBridgeMappingTests {
         arguments: [
             "user-prompt-submit",
             "pre-tool-use",
+            "post-tool-use",
             "UserPromptSubmit",
             "PreToolUse",
+            "PostToolUse",
             "beforeSubmitPrompt",
             "userPromptSubmitted",
             "preToolUse",
+            "postToolUse",
         ]
     )
     func mapsWorkingAliases(event: String) {

@@ -24,6 +24,7 @@ struct CommandCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     private static let settingsPath = NSHomeDirectory() + "/.commandcode/settings.json"
     private static let installedEvents: [(settingsKey: String, event: String)] = [
         ("PreToolUse", "pre-tool-use"),
+        ("PostToolUse", "post-tool-use"),
         ("Stop", "stop"),
     ]
 
@@ -52,6 +53,7 @@ struct CommandCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         guard let settings = try? ClaudeCodeProvider.readJSON(at: Self.settingsPath),
               let hooks = settings["hooks"] as? [String: Any]
         else { return .needsRepair }
+        guard !Self.hasStaleMuxyHooks(hooks) else { return .needsRepair }
 
         for event in Self.installedEvents {
             let expected = Self.hookCommand(hookScript: hookScriptPath, event: event.event)
@@ -69,6 +71,20 @@ struct CommandCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         var updatedSettings = settings
         var updatedHooks = hooks
         var changed = false
+
+        let installedKeys = Set(Self.installedEvents.map(\.settingsKey))
+        for (key, value) in hooks where !installedKeys.contains(key) {
+            guard let entries = value as? [[String: Any]],
+                  Self.muxyHookEntryCount(entries) > 0
+            else { continue }
+            let result = Self.removingMuxyHooks(from: entries)
+            if result.entries.isEmpty {
+                updatedHooks.removeValue(forKey: key)
+            } else {
+                updatedHooks[key] = result.entries
+            }
+            changed = true
+        }
 
         for event in Self.installedEvents {
             let command = Self.hookCommand(hookScript: hookScriptPath, event: event.event)
@@ -92,13 +108,13 @@ struct CommandCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
         var settings = try Self.readSettings()
         guard var hooks = settings["hooks"] as? [String: Any] else { return }
 
-        for event in Self.installedEvents {
-            guard let entries = hooks[event.settingsKey] as? [[String: Any]] else { continue }
+        for (key, value) in hooks {
+            guard let entries = value as? [[String: Any]] else { continue }
             let result = Self.removingMuxyHooks(from: entries)
             if result.entries.isEmpty {
-                hooks.removeValue(forKey: event.settingsKey)
-            } else {
-                hooks[event.settingsKey] = result.entries
+                hooks.removeValue(forKey: key)
+            } else if result.entries.count != entries.count {
+                hooks[key] = result.entries
             }
         }
 
@@ -162,6 +178,14 @@ struct CommandCodeProvider: AIProviderIntegration, AIAgentLaunchProvider {
     private static func isMuxyHook(_ hook: [String: Any]) -> Bool {
         guard let command = hook["command"] as? String else { return false }
         return command.contains(muxyMarker)
+    }
+
+    private static func hasStaleMuxyHooks(_ hooks: [String: Any]) -> Bool {
+        let installedKeys = Set(installedEvents.map(\.settingsKey))
+        return hooks.keys.contains { key in
+            !installedKeys.contains(key)
+                && muxyHookEntryCount(hooks[key] as? [[String: Any]]) > 0
+        }
     }
 
     private static func muxyHookEntryCount(_ entries: [[String: Any]]?) -> Int {
