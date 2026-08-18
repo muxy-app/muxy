@@ -67,6 +67,22 @@ struct TerminalSettingsView: View {
             }
 
             SettingsSection(
+                "Split panes",
+                footer: """
+                When enabled, Command-D and Command-Shift-D create independent \
+                terminal tabs instead of grouping the new terminal under the current tab.
+                """
+            ) {
+                SettingsToggleRow(
+                    label: "Create independent terminal tabs",
+                    isOn: Binding(
+                        get: { TerminalSplitPreferences.independentTabs },
+                        set: { TerminalSplitPreferences.independentTabs = $0 }
+                    )
+                )
+            }
+
+            SettingsSection(
                 "Background sessions",
                 footer: """
                 Runs each new terminal in a separate background process, the way tmux does. Quitting Muxy leaves \
