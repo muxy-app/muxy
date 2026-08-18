@@ -87,6 +87,7 @@ final class AIProviderRegistry {
     private let piProvider = PiProvider()
     private let grokProvider = GrokProvider()
     private let kiroProvider = KiroProvider()
+    private let commandCodeProvider = CommandCodeProvider()
     private let injectedProviders: [AIProviderIntegration]?
     private let hydrateLoginShellPath: @Sendable () async -> Void
     private let shouldInstallHooksInDebug: @Sendable () -> Bool
@@ -108,6 +109,7 @@ final class AIProviderRegistry {
         piProvider,
         grokProvider,
         kiroProvider,
+        commandCodeProvider,
     ]
 
     init(

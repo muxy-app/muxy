@@ -20,6 +20,7 @@ enum MuxyNotificationHooks {
         StagedResource(name: "muxy-droid-hook", extension: "sh", executable: true),
         StagedResource(name: "muxy-grok-hook", extension: "sh", executable: true),
         StagedResource(name: "muxy-kiro-hook", extension: "sh", executable: true),
+        StagedResource(name: "muxy-cmd-hook", extension: "sh", executable: true),
         StagedResource(name: "opencode-muxy-plugin", extension: "js", executable: false),
         StagedResource(name: "muxy-pi-extension", extension: "ts", executable: false),
     ]

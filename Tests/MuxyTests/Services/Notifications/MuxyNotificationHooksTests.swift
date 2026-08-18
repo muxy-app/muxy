@@ -189,6 +189,7 @@ struct MuxyNotificationHooksTests {
         "muxy-droid-hook.sh",
         "muxy-grok-hook.sh",
         "muxy-kiro-hook.sh",
+        "muxy-cmd-hook.sh",
     ]
     private struct StagingFixture {
         let rootDirectory: URL
