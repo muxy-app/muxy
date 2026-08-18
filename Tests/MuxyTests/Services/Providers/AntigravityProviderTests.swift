@@ -82,14 +82,24 @@ struct AntigravityProviderTests {
         #expect(AntigravityProvider.hooks(installing: cmds, into: installed) == nil)
     }
 
-    @Test("install preserves foreign top-level hooks")
+    @Test("install preserves foreign top-level hooks and shared event lists")
     func installPreservesForeignHooks() {
         let existing: [String: Any] = [
             "lint-checker": ["PostToolUse": [foreignHookEntry]],
+            "muxy-notify": ["PreToolUse": [foreignHookEntry]],
         ]
         let result = AntigravityProvider.hooks(installing: commands(script: "/tmp/hook.sh"), into: existing)!
-        #expect(result["lint-checker"] != nil)
-        #expect(result["muxy-notify"] != nil)
+        let lintChecker = result["lint-checker"] as? [String: Any]
+        let lintHooks = lintChecker?["PostToolUse"] as? [[String: Any]]
+        #expect(lintHooks?.count == 1)
+        #expect((lintHooks?.first?["hooks"] as? [[String: Any]])?.first?["command"] as? String == "./scripts/lint.sh")
+
+        let muxyNotify = result["muxy-notify"] as? [String: Any]
+        let preToolUse = muxyNotify?["PreToolUse"] as? [[String: Any]]
+        #expect(preToolUse?.count == 2)
+        #expect(preToolUse?.contains { entry in
+            ((entry["hooks"] as? [[String: Any]])?.first?["command"] as? String) == "./scripts/lint.sh"
+        } == true)
     }
 
     @Test("reinstall with a new script path replaces stale entries without duplicating")
@@ -122,11 +132,19 @@ struct AntigravityProviderTests {
     func uninstallPreservesForeignHooks() {
         let existing: [String: Any] = [
             "lint-checker": ["PostToolUse": [foreignHookEntry]],
+            "muxy-notify": ["PreToolUse": [foreignHookEntry]],
         ]
         let installed = AntigravityProvider.hooks(installing: commands(script: "/tmp/hook.sh"), into: existing)!
         let cleaned = AntigravityProvider.hooks(uninstallingFrom: installed)
-        #expect(cleaned["lint-checker"] != nil)
-        #expect(cleaned["muxy-notify"] == nil)
+        let lintChecker = cleaned["lint-checker"] as? [String: Any]
+        let lintHooks = lintChecker?["PostToolUse"] as? [[String: Any]]
+        #expect(lintHooks?.count == 1)
+        #expect((lintHooks?.first?["hooks"] as? [[String: Any]])?.first?["command"] as? String == "./scripts/lint.sh")
+
+        let muxyNotify = cleaned["muxy-notify"] as? [String: Any]
+        let preToolUse = muxyNotify?["PreToolUse"] as? [[String: Any]]
+        #expect(preToolUse?.count == 1)
+        #expect((preToolUse?.first?["hooks"] as? [[String: Any]])?.first?["command"] as? String == "./scripts/lint.sh")
     }
 
     @Test("install writes hooks.json under .gemini/config")
@@ -233,6 +251,27 @@ struct AntigravityProviderTests {
         }
     }
 
+    @Test("executable locator resolves antigravity alias from .local/bin")
+    func executableLocatorResolvesAntigravityAliasFromLocalBin() throws {
+        try withTempHome { home in
+            let executableURL = home.appendingPathComponent(".local/bin/antigravity")
+            try FileManager.default.createDirectory(
+                at: executableURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data().write(to: executableURL)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: executableURL.path
+            )
+
+            let provider = AntigravityProvider(homeDirectory: home.path, pathEnvironment: "")
+            let path = provider.agentCLIExecutablePath()
+
+            #expect(path == executableURL.path)
+        }
+    }
+
     @Test("executable locator resolves agy from .gemini/antigravity-cli/bin")
     func executableLocatorResolvesFromAntigravityBin() throws {
         try withTempHome { home in
@@ -269,7 +308,7 @@ struct AntigravityProviderTests {
             try "#!/bin/sh\n".write(toFile: script, atomically: true, encoding: .utf8)
             let provider = AntigravityProvider(homeDirectory: home.path, pathEnvironment: "")
 
-            #expect(throws: Error.self) {
+            #expect(throws: CocoaError(.fileReadCorruptFile)) {
                 try provider.install(hookScriptPath: script)
             }
 
@@ -278,10 +317,10 @@ struct AntigravityProviderTests {
         }
     }
 
-    @Test("registry resolves Antigravity provider")
+    @Test("production registry resolves Antigravity provider")
     @MainActor
     func registryResolvesAntigravity() {
-        let registry = AIProviderRegistry(providers: [AntigravityProvider()])
+        let registry = AIProviderRegistry.shared
 
         #expect(registry.notificationSource(for: "antigravity_hook") == .aiProvider("antigravity"))
         #expect(registry.iconName(forProviderID: "antigravity") == "antigravity")
