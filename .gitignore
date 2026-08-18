@@ -17,6 +17,7 @@ Muxy/Resources/ghostty/*
 Muxy/Resources/terminfo
 /ghostty
 /build
+Muxy.app.official-backup/
 .agents/
 .claude/
 *.dmg
