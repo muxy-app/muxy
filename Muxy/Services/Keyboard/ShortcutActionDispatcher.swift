@@ -134,10 +134,16 @@ struct ShortcutActionDispatcher {
             return true
         case .splitRight:
             guard let projectID = appState.activeProjectID else { return false }
+            if TerminalSplitPreferences.independentTabs {
+                return appState.splitFocusedAreaAsTopLevelTab(direction: .horizontal, projectID: projectID)
+            }
             appState.splitFocusedArea(direction: .horizontal, projectID: projectID)
             return true
         case .splitDown:
             guard let projectID = appState.activeProjectID else { return false }
+            if TerminalSplitPreferences.independentTabs {
+                return appState.splitFocusedAreaAsTopLevelTab(direction: .vertical, projectID: projectID)
+            }
             appState.splitFocusedArea(direction: .vertical, projectID: projectID)
             return true
         case .closePane:
