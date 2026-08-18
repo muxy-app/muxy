@@ -40,9 +40,7 @@ public enum AgentHookEventMapper {
             return mapNotification(providerTitle: providerTitle, payload: payload)
         case "stop",
              "Stop",
-             "agentStop",
-             "PostInvocation",
-             "post-invocation":
+             "agentStop":
             return MappedAgentHookEvent(
                 phase: .finished,
                 title: sanitize(providerTitle),

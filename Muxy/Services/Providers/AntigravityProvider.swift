@@ -38,7 +38,6 @@ struct AntigravityProvider: AIProviderIntegration, AIAgentLaunchProvider {
         HookEvent(settingsKey: "PreInvocation", event: "PreInvocation", structure: .flat),
         HookEvent(settingsKey: "PreToolUse", event: "PreToolUse", structure: .grouped),
         HookEvent(settingsKey: "PostToolUse", event: "PostToolUse", structure: .grouped),
-        HookEvent(settingsKey: "PostInvocation", event: "PostInvocation", structure: .flat),
         HookEvent(settingsKey: "Stop", event: "Stop", structure: .flat),
     ]
 
