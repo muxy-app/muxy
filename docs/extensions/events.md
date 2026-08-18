@@ -89,6 +89,7 @@ Which states a provider reports depends on the hooks its CLI exposes:
 
 | Provider (`providerID`) | `working` | `waiting` | `idle` |
 | --- | --- | --- | --- |
+| Antigravity CLI (`antigravity`) | ✓ | — | ✓ |
 | Claude Code (`claude`) | ✓ | ✓ | ✓ |
 | Droid (`droid`) | ✓ | ✓ | ✓ |
 | Grok (`grok`) | ✓ | ✓ | ✓ |

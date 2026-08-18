@@ -13,6 +13,7 @@ enum MuxyNotificationHooks {
     #endif
 
     private static let stagedResources = [
+        StagedResource(name: "muxy-antigravity-hook", extension: "sh", executable: true),
         StagedResource(name: "muxy-claude-hook", extension: "sh", executable: true),
         StagedResource(name: "muxy-codex-hook", extension: "sh", executable: true),
         StagedResource(name: "muxy-copilot-hook", extension: "sh", executable: true),

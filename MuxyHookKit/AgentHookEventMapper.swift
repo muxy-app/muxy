@@ -24,7 +24,9 @@ public enum AgentHookEventMapper {
              "PreToolUse",
              "beforeSubmitPrompt",
              "userPromptSubmitted",
-             "preToolUse":
+             "preToolUse",
+             "PreInvocation",
+             "pre-invocation":
             return MappedAgentHookEvent(phase: .working, title: "", body: "")
         case "permission-request",
              "PermissionRequest":
@@ -38,7 +40,9 @@ public enum AgentHookEventMapper {
             return mapNotification(providerTitle: providerTitle, payload: payload)
         case "stop",
              "Stop",
-             "agentStop":
+             "agentStop",
+             "PostInvocation",
+             "post-invocation":
             return MappedAgentHookEvent(
                 phase: .finished,
                 title: sanitize(providerTitle),

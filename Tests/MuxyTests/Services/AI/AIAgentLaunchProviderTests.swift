@@ -53,6 +53,16 @@ struct AIAgentLaunchProviderTests {
                     prompt,
                 ]
             ),
+            (
+                AntigravityProvider(),
+                [
+                    "--print",
+                    "--output-format",
+                    "text",
+                    "--dangerously-skip-permissions",
+                    prompt,
+                ]
+            ),
         ]
 
         for (provider, expectedArguments) in providers {

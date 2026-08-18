@@ -145,6 +145,8 @@ struct AgentHookBridgeMappingTests {
             "beforeSubmitPrompt",
             "userPromptSubmitted",
             "preToolUse",
+            "PreInvocation",
+            "pre-invocation",
         ]
     )
     func mapsWorkingAliases(event: String) {
@@ -240,6 +242,8 @@ struct AgentHookBridgeMappingTests {
         ))
         #expect(map(event: "stop", input: Data("invalid".utf8))?.body == "Session completed")
         #expect(map(event: "agentStop")?.body == "Session completed")
+        #expect(map(event: "PostInvocation")?.body == "Session completed")
+        #expect(map(event: "post-invocation")?.body == "Session completed")
         #expect(map(event: "stop-failure")?.body == "Session failed")
         #expect(map(event: "errorOccurred")?.body == "Session failed")
         #expect(map(event: "StopFailure", input: data(["title": "Failed safely"]))?.body == "Failed safely")

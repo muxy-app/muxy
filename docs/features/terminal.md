@@ -251,7 +251,7 @@ The Agents Focused layout keeps the normal top-level tab strip in the title bar 
 
 OSC 9 and OSC 777 notification escape sequences are routed into Muxy's notification panel and (optionally) macOS notifications.
 
-For AI coding agents (Claude Code, Codex, Cursor, Droid, Grok, Kiro, OpenCode, Pi, Xal), Muxy uses hook-based lifecycle events rather than escape sequences — see [AI notifications](ai-notifications.md).
+For AI coding agents (Antigravity CLI, Claude Code, Codex, Cursor, Droid, Grok, Kiro, OpenCode, Pi, Xal), Muxy uses hook-based lifecycle events rather than escape sequences — see [AI notifications](ai-notifications.md).
 
 ## Quick-select labels
 

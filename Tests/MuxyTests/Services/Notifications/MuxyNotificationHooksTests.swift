@@ -253,6 +253,7 @@ struct MuxyNotificationHooksTests {
     }
 
     private static let shellScriptNames = [
+        "muxy-antigravity-hook.sh",
         "muxy-claude-hook.sh",
         "muxy-codex-hook.sh",
         "muxy-copilot-hook.sh",
