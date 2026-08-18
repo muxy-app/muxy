@@ -261,8 +261,11 @@ struct AntigravityProvider: AIProviderIntegration, AIAgentLaunchProvider {
         guard FileManager.default.fileExists(atPath: path) else { return [:] }
         let data = try Data(contentsOf: URL(fileURLWithPath: path))
         guard !data.isEmpty else { return [:] }
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
-        return json
+        let json = try JSONSerialization.jsonObject(with: data)
+        guard let object = json as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        return object
     }
 
     private static func writeHooksFile(_ settings: [String: Any], at path: String) throws {

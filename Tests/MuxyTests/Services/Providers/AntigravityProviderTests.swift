@@ -254,6 +254,30 @@ struct AntigravityProviderTests {
         }
     }
 
+    @Test("install throws and preserves file when hooks.json root is non-object JSON")
+    func installThrowsOnNonObjectRoot() throws {
+        try withTempHome { home in
+            let configURL = home.appendingPathComponent(".gemini/config/hooks.json")
+            try FileManager.default.createDirectory(
+                at: configURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let arrayJSON = Data("[\"unexpected\", \"array\"]".utf8)
+            try arrayJSON.write(to: configURL)
+
+            let script = home.appendingPathComponent("muxy-antigravity-hook.sh").path
+            try "#!/bin/sh\n".write(toFile: script, atomically: true, encoding: .utf8)
+            let provider = AntigravityProvider(homeDirectory: home.path, pathEnvironment: "")
+
+            #expect(throws: Error.self) {
+                try provider.install(hookScriptPath: script)
+            }
+
+            let contentsAfter = try Data(contentsOf: configURL)
+            #expect(contentsAfter == arrayJSON)
+        }
+    }
+
     @Test("registry resolves Antigravity provider")
     @MainActor
     func registryResolvesAntigravity() {
