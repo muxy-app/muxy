@@ -502,6 +502,30 @@ final class AppState {
         )))
     }
 
+    @discardableResult
+    func splitFocusedAreaAsTopLevelTab(direction: SplitDirection, projectID: UUID) -> Bool {
+        guard let key = activeWorktreeKey(for: projectID),
+              let area = focusedArea(for: projectID),
+              let activeTab = area.activeTab,
+              let layout = topLevelTabLayouts[key],
+              let sourceGroup = layout.group(containingTabID: activeTab.parentTabID ?? activeTab.id)
+        else { return false }
+
+        dispatch(.createTab(projectID: projectID, areaID: area.id))
+
+        guard let newActiveTab = focusedArea(for: projectID)?.activeTab else { return false }
+        dispatch(.moveTopLevelTab(
+            projectID: projectID,
+            request: .toNewSplit(
+                tabID: newActiveTab.id,
+                sourceGroupID: sourceGroup.id,
+                targetGroupID: sourceGroup.id,
+                split: SplitPlacement(direction: direction, position: .second)
+            )
+        ))
+        return true
+    }
+
     func toggleMaximize(
         areaID: UUID,
         topLevelTabID requestedTopLevelTabID: UUID? = nil,
