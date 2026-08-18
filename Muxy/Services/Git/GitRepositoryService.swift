@@ -258,7 +258,7 @@ struct GitRepositoryService {
     func repositorySummary(repoPath: String) async throws -> GitRepositorySummary {
         let result = try await runGit(
             repoPath: repoPath,
-            arguments: ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"]
+            arguments: ["status", "--porcelain=v2", "--branch", "--untracked-files=all"]
         )
         guard result.status == 0 else {
             let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)

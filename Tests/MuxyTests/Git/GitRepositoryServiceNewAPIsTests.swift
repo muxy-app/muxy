@@ -340,6 +340,41 @@ struct GitRepositoryServiceNewAPIsTests {
         #expect(before != after)
     }
 
+    @Test("repository summary counts every file shown in changes")
+    func repositorySummaryMatchesChangedFiles() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "tracked.txt", contents: "original\n", message: "init")
+        try "modified\n".write(
+            to: URL(fileURLWithPath: repo.path).appendingPathComponent("tracked.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "staged\n".write(
+            to: URL(fileURLWithPath: repo.path).appendingPathComponent("staged.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try repo.run("add", "staged.txt")
+        let nestedDirectory = URL(fileURLWithPath: repo.path).appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+        try "one\n".write(to: nestedDirectory.appendingPathComponent("one.txt"), atomically: true, encoding: .utf8)
+        try "two\n".write(to: nestedDirectory.appendingPathComponent("two.txt"), atomically: true, encoding: .utf8)
+
+        let service = GitRepositoryService()
+        let summary = try await service.repositorySummary(repoPath: repo.path)
+        let files = try await service.changedFiles(repoPath: repo.path, includeUntrackedLineCounts: false)
+        let snapshot = RepositoryChangesPresentation.makeSnapshot(files)
+
+        #expect(summary.changedCount == 4)
+        #expect(summary.changedCount == snapshot.fileCount)
+        #expect(summary.stagedCount == 1)
+        #expect(summary.unstagedCount == 1)
+        #expect(summary.untrackedCount == 2)
+        #expect(snapshot.stagedFiles.map(\.path) == ["staged.txt"])
+        #expect(snapshot.unstagedFiles.map(\.path) == ["nested/one.txt", "nested/two.txt", "tracked.txt"])
+    }
+
     @Test("stage and unstage rename include both repository paths")
     func stageAndUnstageRename() async throws {
         let repo = try TempGitRepo()
