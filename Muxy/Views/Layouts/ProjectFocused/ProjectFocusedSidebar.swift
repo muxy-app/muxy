@@ -155,6 +155,10 @@ struct ProjectSearchField: View {
         }
     }
 
+    func exit() {
+        handleExit()
+    }
+
     private func handleExit() {
         if let onExit {
             onExit()
