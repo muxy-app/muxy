@@ -83,6 +83,8 @@ struct ProjectSearchField: View {
     @Binding var text: String
     let isEnabled: Bool
     let isWide: Bool
+    var isFocused: FocusState<Bool>.Binding? = nil
+    var onExit: (() -> Void)? = nil
 
     var body: some View {
         Group {
@@ -104,11 +106,7 @@ struct ProjectSearchField: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .accessibilityHidden(true)
 
-            TextField(L10n.string("Search projects"), text: $text)
-                .textFieldStyle(.plain)
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fg)
-                .accessibilityLabel(L10n.string("Search projects"))
+            inputField
 
             if !text.isEmpty {
                 Button {
@@ -131,6 +129,38 @@ struct ProjectSearchField: View {
             MuxyTheme.surface,
             in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
         )
+    }
+
+    @ViewBuilder
+    private var inputField: some View {
+        if let isFocused {
+            TextField(L10n.string("Search projects"), text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+                .focused(isFocused)
+                .onExitCommand {
+                    handleExit()
+                }
+                .accessibilityLabel(L10n.string("Search projects"))
+        } else {
+            TextField(L10n.string("Search projects"), text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+                .onExitCommand {
+                    handleExit()
+                }
+                .accessibilityLabel(L10n.string("Search projects"))
+        }
+    }
+
+    private func handleExit() {
+        if let onExit {
+            onExit()
+        } else {
+            clear()
+        }
     }
 
     func clear() {
@@ -210,6 +240,8 @@ struct ProjectFocusedSidebar: View {
     @State private var isExternalDropTargeted = false
     @State private var projectPendingRemoval: Project?
     @State private var projectSearchText = ""
+    @State private var isTransientSearchVisible = false
+    @FocusState private var isProjectSearchFocused: Bool
     @State private var worktreeExpansion = ProjectWorktreeExpansionState()
     let expanded: Bool
     let expandedCustomWidth: CGFloat
@@ -218,9 +250,13 @@ struct ProjectFocusedSidebar: View {
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
     @AppStorage(ProjectSearchPreferences.visibleKey)
-    private var isProjectSearchVisible = ProjectSearchPreferences.defaultVisible
+    private var alwaysShowProjectSearch = ProjectSearchPreferences.defaultVisible
     @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
     private var autoExpandWorktrees = false
+
+    private var isProjectSearchVisible: Bool {
+        alwaysShowProjectSearch || isTransientSearchVisible
+    }
 
     private var collapsedStyle: SidebarCollapsedStyle {
         SidebarCollapsedStyle(rawValue: collapsedStyleRaw) ?? .defaultValue
@@ -259,6 +295,9 @@ struct ProjectFocusedSidebar: View {
             .onChange(of: autoExpandWorktrees) { _, isEnabled in
                 guard !isEnabled else { return }
                 worktreeExpansion.cancelAutoExpandRequest()
+            }
+            .onChange(of: alwaysShowProjectSearch) { _, _ in
+                isTransientSearchVisible = false
             }
             .alert(
                 L10n.string("Remove \"\(projectPendingRemoval?.name ?? "")\"?"),
@@ -343,6 +382,36 @@ struct ProjectFocusedSidebar: View {
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .help(L10n.string("Sort Projects: \(L10n.string(key: sortMode.title))"))
+    }
+
+    private var projectSearchToggle: some View {
+        Button(action: toggleProjectSearch) {
+            SidebarHeaderIconButtonLabel(
+                systemName: isTransientSearchVisible ? "xmark" : "magnifyingglass",
+                accessibilityLabel: isTransientSearchVisible
+                    ? L10n.string("Close Project Search")
+                    : L10n.string("Search Projects")
+            )
+        }
+        .buttonStyle(.plain)
+        .help(isTransientSearchVisible ? L10n.string("Close Project Search") : L10n.string("Search Projects"))
+    }
+
+    private func toggleProjectSearch() {
+        guard isTransientSearchVisible else {
+            isTransientSearchVisible = true
+            DispatchQueue.main.async {
+                isProjectSearchFocused = true
+            }
+            return
+        }
+        hideProjectSearch()
+    }
+
+    private func hideProjectSearch() {
+        projectSearchText = ""
+        isProjectSearchFocused = false
+        isTransientSearchVisible = false
     }
 
     private var remoteProjectMenu: some View {
@@ -462,10 +531,17 @@ struct ProjectFocusedSidebar: View {
                 if showSortMenu {
                     sortMenu
                 }
+                if showSearchToggle {
+                    projectSearchToggle
+                }
             }
         } else {
             WorkspaceSwitcher(isWide: isWide)
         }
+    }
+
+    private var showSearchToggle: Bool {
+        isWide && !alwaysShowProjectSearch
     }
 
     private var showSortMenu: Bool {
@@ -481,7 +557,15 @@ struct ProjectFocusedSidebar: View {
             ProjectSearchField(
                 text: $projectSearchText,
                 isEnabled: isProjectSearchVisible,
-                isWide: isWide
+                isWide: isWide,
+                isFocused: $isProjectSearchFocused,
+                onExit: {
+                    if !alwaysShowProjectSearch {
+                        hideProjectSearch()
+                    } else {
+                        projectSearchText = ""
+                    }
+                }
             )
 
             scrollableProjects

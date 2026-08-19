@@ -58,6 +58,23 @@ struct ProjectSearchFieldTests {
         #expect(model.text == "Muxy")
     }
 
+    @Test("supports onExit callback")
+    func supportsOnExitCallback() {
+        var didExit = false
+        let model = ProjectSearchFieldTestModel(text: "Muxy", isEnabled: true, isWide: true)
+        _ = ProjectSearchField(
+            text: Binding(
+                get: { model.text },
+                set: { model.text = $0 }
+            ),
+            isEnabled: true,
+            isWide: true,
+            onExit: { didExit = true }
+        )
+
+        #expect(!didExit)
+    }
+
     private func hostingView(isEnabled: Bool, isWide: Bool) -> NSView {
         let view = ProjectSearchField(text: .constant(""), isEnabled: isEnabled, isWide: isWide)
             .frame(width: 220, height: UIMetrics.controlMedium)
