@@ -44,6 +44,7 @@ struct WorktreeTeardownRunnerTests {
         )
 
         #expect(capture.commands == ["first", "second"])
+        #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_ID"] == worktree.id.uuidString })
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_PATH"] == worktreePath })
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_NAME"] == "Feature" })
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_BRANCH"] == "feature/test" })

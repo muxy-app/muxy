@@ -86,6 +86,7 @@ enum WorktreeTeardownRunner {
 
     private static func environment(for worktree: Worktree) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
+        environment["MUXY_WORKTREE_ID"] = worktree.id.uuidString
         environment["MUXY_WORKTREE_PATH"] = worktree.path
         environment["MUXY_WORKTREE_NAME"] = worktree.name
         environment["MUXY_WORKTREE_BRANCH"] = worktree.branch ?? ""
