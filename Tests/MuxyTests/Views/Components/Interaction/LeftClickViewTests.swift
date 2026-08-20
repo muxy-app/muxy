@@ -17,7 +17,7 @@ struct LeftClickViewTests {
     @Test("fires once the primary press is released inside the control")
     func firesWhenReleasedInsideControl() throws {
         var closes = 0
-        let view = hostedView { closes += 1 }
+        let view = hostedView { _ in closes += 1 }
 
         view.mouseDown(with: try event(.leftMouseDown, at: NSPoint(x: 17, y: 17)))
         view.mouseUp(with: try event(.leftMouseUp, at: NSPoint(x: 17, y: 17)))
@@ -28,7 +28,7 @@ struct LeftClickViewTests {
     @Test("ignores a press released outside the control")
     func ignoresReleaseOutsideControl() throws {
         var closes = 0
-        let view = hostedView { closes += 1 }
+        let view = hostedView { _ in closes += 1 }
 
         view.mouseDown(with: try event(.leftMouseDown, at: NSPoint(x: 17, y: 17)))
         view.mouseUp(with: try event(.leftMouseUp, at: NSPoint(x: 60, y: 60)))
@@ -39,7 +39,7 @@ struct LeftClickViewTests {
     @Test("fires for every press of a rapid click sequence")
     func firesForRapidClickSequence() throws {
         var closes = 0
-        let view = hostedView { closes += 1 }
+        let view = hostedView { _ in closes += 1 }
 
         for clickCount in 1 ... 3 {
             view.mouseDown(with: try event(.leftMouseDown, at: NSPoint(x: 17, y: 17), clickCount: clickCount))
@@ -49,7 +49,19 @@ struct LeftClickViewTests {
         #expect(closes == 3)
     }
 
-    private func hostedView(action: @escaping () -> Void) -> LeftClickNSView {
+    @Test("forwards modifier flags from the completing click")
+    func forwardsModifierFlags() throws {
+        var flags: NSEvent.ModifierFlags = []
+        let view = hostedView { flags = $0.modifierFlags }
+
+        view.mouseDown(with: try event(.leftMouseDown, at: NSPoint(x: 17, y: 17), modifierFlags: [.command]))
+        view.mouseUp(with: try event(.leftMouseUp, at: NSPoint(x: 17, y: 17), modifierFlags: [.command, .shift]))
+
+        #expect(flags.contains(.command))
+        #expect(flags.contains(.shift))
+    }
+
+    private func hostedView(action: @escaping (NSEvent) -> Void) -> LeftClickNSView {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
             styleMask: [.borderless],
@@ -66,12 +78,13 @@ struct LeftClickViewTests {
     private func event(
         _ type: NSEvent.EventType,
         at location: NSPoint,
-        clickCount: Int = 1
+        clickCount: Int = 1,
+        modifierFlags: NSEvent.ModifierFlags = []
     ) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(
             with: type,
             location: location,
-            modifierFlags: [],
+            modifierFlags: modifierFlags,
             timestamp: 0,
             windowNumber: 0,
             context: nil,

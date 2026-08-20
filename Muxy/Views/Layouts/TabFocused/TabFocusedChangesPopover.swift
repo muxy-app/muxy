@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct TabFocusedChangesPopover: View {
@@ -13,10 +14,8 @@ struct TabFocusedChangesPopover: View {
     let worktreeRemovalState: RepositoryToolbarPresentation.WorktreeRemovalState
     let worktreeRemovalHelp: String?
     let onRefresh: () async -> Void
-    let onStage: (GitStatusFile) -> Void
-    let onStageAll: () -> Void
-    let onUnstage: (GitStatusFile) -> Void
-    let onUnstageAll: () -> Void
+    let onStage: ([GitStatusFile]) -> Void
+    let onUnstage: ([GitStatusFile]) -> Void
     let onDiscard: (GitStatusFile) -> Void
     let onLoadLineStats: (GitStatusFile) async -> Void
     let onRemoveWorktree: () -> Void
@@ -24,6 +23,9 @@ struct TabFocusedChangesPopover: View {
     @State private var pendingDiscard: GitStatusFile?
     @State private var isRemoveWorktreeHovered = false
     @State private var refreshGeneration = 0
+    @State private var conflictedSelection = RepositoryChangesFileSelection()
+    @State private var stagedSelection = RepositoryChangesFileSelection()
+    @State private var unstagedSelection = RepositoryChangesFileSelection()
 
     private var isInteractionDisabled: Bool {
         isLoading || isMutating || isRepositoryInteractionDisabled
@@ -57,6 +59,15 @@ struct TabFocusedChangesPopover: View {
                 },
                 secondaryButton: .cancel()
             )
+        }
+        .onChange(of: changes.conflictedFiles.map(\.id)) { _, ids in
+            conflictedSelection.retain(ids: ids)
+        }
+        .onChange(of: changes.stagedFiles.map(\.id)) { _, ids in
+            stagedSelection.retain(ids: ids)
+        }
+        .onChange(of: changes.unstagedFiles.map(\.id)) { _, ids in
+            unstagedSelection.retain(ids: ids)
         }
         .task(id: refreshGeneration) {
             await Task.yield()
@@ -121,7 +132,7 @@ struct TabFocusedChangesPopover: View {
                             files: changes.conflictedFiles,
                             lineStats: changes.conflictedLineStats,
                             side: .conflicted,
-                            batchAction: nil
+                            batchActions: conflictedBatchActions
                         )
                     }
                     if !changes.stagedFiles.isEmpty {
@@ -130,7 +141,7 @@ struct TabFocusedChangesPopover: View {
                             files: changes.stagedFiles,
                             lineStats: changes.stagedLineStats,
                             side: .staged,
-                            batchAction: ("Unstage All", onUnstageAll)
+                            batchActions: stagedBatchActions
                         )
                     }
                     if !changes.unstagedFiles.isEmpty {
@@ -139,7 +150,7 @@ struct TabFocusedChangesPopover: View {
                             files: changes.unstagedFiles,
                             lineStats: changes.unstagedLineStats.merging(untrackedLineStatsSummary),
                             side: .unstaged,
-                            batchAction: ("Stage All", onStageAll)
+                            batchActions: unstagedBatchActions
                         )
                     }
                 }
@@ -153,11 +164,12 @@ struct TabFocusedChangesPopover: View {
         files: [GitStatusFile],
         lineStats sectionLineStats: RepositoryChangesLineStats,
         side: ChangeSide,
-        batchAction: (title: LocalizedStringResource, action: () -> Void)?
+        batchActions: [ChangesPopoverBatchAction]
     ) -> some View {
         Section {
             ForEach(files) { file in
                 fileRow(file, side: side)
+                    .id(rowID(file, side: side))
             }
         } header: {
             HStack(spacing: UIMetrics.spacing3) {
@@ -169,12 +181,16 @@ struct TabFocusedChangesPopover: View {
                     .foregroundStyle(MuxyTheme.fgDim)
                 lineStats(sectionLineStats)
                 Spacer(minLength: UIMetrics.spacing3)
-                if let batchAction {
-                    Button(L10n.string(batchAction.title), action: batchAction.action)
-                        .buttonStyle(.plain)
-                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-                        .foregroundStyle(MuxyTheme.accent)
-                        .disabled(isInteractionDisabled)
+                HStack(spacing: UIMetrics.spacing4) {
+                    ForEach(batchActions.indices, id: \.self) { index in
+                        let action = batchActions[index]
+                        Button(L10n.string(action.title), action: action.action)
+                            .buttonStyle(.plain)
+                            .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                            .foregroundStyle(isInteractionDisabled ? MuxyTheme.fgDim : MuxyTheme.accent)
+                            .disabled(isInteractionDisabled)
+                            .fixedSize()
+                    }
                 }
             }
             .padding(.horizontal, UIMetrics.spacing4)
@@ -185,29 +201,47 @@ struct TabFocusedChangesPopover: View {
     }
 
     private func fileRow(_ file: GitStatusFile, side: ChangeSide) -> some View {
-        ChangesPopoverFileRow {
+        let isSelected = selection(for: side).contains(file.id)
+        return ChangesPopoverFileRow(isSelected: isSelected) {
             HStack(spacing: UIMetrics.spacing3) {
-                Text(file.displayStatusText(isStaged: side == .staged))
-                    .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .monospaced))
-                    .foregroundStyle(statusColor(file, side: side))
-                    .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
-                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                HStack(spacing: UIMetrics.spacing3) {
+                    Text(file.displayStatusText(isStaged: side == .staged))
+                        .font(.system(size: UIMetrics.fontXS, weight: .bold, design: .monospaced))
+                        .foregroundStyle(statusColor(file, side: side))
+                        .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
+                        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
 
-                VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                    Text((file.path as NSString).lastPathComponent)
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                        .foregroundStyle(MuxyTheme.fg)
-                        .lineLimit(1)
-                    Text(fileDetail(file))
-                        .font(.system(size: UIMetrics.fontXS, design: .monospaced))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                        Text((file.path as NSString).lastPathComponent)
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                            .foregroundStyle(MuxyTheme.fg)
+                            .lineLimit(1)
+                        Text(fileDetail(file))
+                            .font(.system(size: UIMetrics.fontXS, design: .monospaced))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer(minLength: UIMetrics.spacing2)
+                    fileLineStats(file, side: side)
+                        .frame(minWidth: UIMetrics.scaled(56), alignment: .trailing)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .overlay {
+                    LeftClickView { event in
+                        handleFileClick(file, side: side, event: event)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityHidden(true)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                .accessibilityAction {
+                    handleFileClick(file, side: side, kind: .exclusive)
                 }
 
-                Spacer(minLength: UIMetrics.spacing2)
-                fileLineStats(file, side: side)
-                    .frame(minWidth: UIMetrics.scaled(56), alignment: .trailing)
                 rowActions(file, side: side)
             }
         }
@@ -228,21 +262,21 @@ struct TabFocusedChangesPopover: View {
                 symbol: "plus",
                 help: L10n.string("Stage resolved file \(file.path)"),
                 isDisabled: isInteractionDisabled,
-                action: { onStage(file) }
+                action: { stage(actionTargets(file, side: side), from: side) }
             )
         case .staged:
             ChangesPopoverActionButton(
                 symbol: "minus",
                 help: L10n.string("Unstage \(file.path)"),
                 isDisabled: isInteractionDisabled,
-                action: { onUnstage(file) }
+                action: { unstage(actionTargets(file, side: side), from: side) }
             )
         case .unstaged:
             ChangesPopoverActionButton(
                 symbol: "plus",
                 help: L10n.string("Stage \(file.path)"),
                 isDisabled: isInteractionDisabled,
-                action: { onStage(file) }
+                action: { stage(actionTargets(file, side: side), from: side) }
             )
             ChangesPopoverActionButton(
                 symbol: "trash",
@@ -402,6 +436,116 @@ struct TabFocusedChangesPopover: View {
         refreshGeneration &+= 1
     }
 
+    private var conflictedBatchActions: [ChangesPopoverBatchAction] {
+        guard !conflictedSelection.isEmpty else { return [] }
+        return [
+            ChangesPopoverBatchAction(
+                title: "Stage Selected",
+                action: { stage(conflictedSelection.files(in: changes.conflictedFiles), from: .conflicted) }
+            ),
+        ]
+    }
+
+    private var stagedBatchActions: [ChangesPopoverBatchAction] {
+        var actions: [ChangesPopoverBatchAction] = []
+        if !stagedSelection.isEmpty {
+            actions.append(ChangesPopoverBatchAction(
+                title: "Unstage Selected",
+                action: { unstage(stagedSelection.files(in: changes.stagedFiles), from: .staged) }
+            ))
+        }
+        actions.append(ChangesPopoverBatchAction(
+            title: "Unstage All",
+            action: { unstage(changes.stagedFiles, from: .staged) }
+        ))
+        return actions
+    }
+
+    private var unstagedBatchActions: [ChangesPopoverBatchAction] {
+        var actions: [ChangesPopoverBatchAction] = []
+        if !unstagedSelection.isEmpty {
+            actions.append(ChangesPopoverBatchAction(
+                title: "Stage Selected",
+                action: { stage(unstagedSelection.files(in: changes.unstagedFiles), from: .unstaged) }
+            ))
+        }
+        actions.append(ChangesPopoverBatchAction(
+            title: "Stage All",
+            action: { stage(changes.unstagedFiles, from: .unstaged) }
+        ))
+        return actions
+    }
+
+    private func selection(for side: ChangeSide) -> RepositoryChangesFileSelection {
+        switch side {
+        case .conflicted: conflictedSelection
+        case .staged: stagedSelection
+        case .unstaged: unstagedSelection
+        }
+    }
+
+    private func files(for side: ChangeSide) -> [GitStatusFile] {
+        switch side {
+        case .conflicted: changes.conflictedFiles
+        case .staged: changes.stagedFiles
+        case .unstaged: changes.unstagedFiles
+        }
+    }
+
+    private func handleFileClick(_ file: GitStatusFile, side: ChangeSide, event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        handleFileClick(
+            file,
+            side: side,
+            kind: .from(command: flags.contains(.command), shift: flags.contains(.shift))
+        )
+    }
+
+    private func handleFileClick(
+        _ file: GitStatusFile,
+        side: ChangeSide,
+        kind: RepositoryChangesFileSelection.Click
+    ) {
+        let ids = files(for: side).map(\.id)
+        switch side {
+        case .conflicted:
+            conflictedSelection.handleClick(id: file.id, ids: ids, kind: kind)
+        case .staged:
+            stagedSelection.handleClick(id: file.id, ids: ids, kind: kind)
+        case .unstaged:
+            unstagedSelection.handleClick(id: file.id, ids: ids, kind: kind)
+        }
+    }
+
+    private func actionTargets(_ file: GitStatusFile, side: ChangeSide) -> [GitStatusFile] {
+        selection(for: side).actionTargets(file, in: files(for: side))
+    }
+
+    private func rowID(_ file: GitStatusFile, side: ChangeSide) -> String {
+        "\(side.rawValue):\(file.path)"
+    }
+
+    private func stage(_ files: [GitStatusFile], from side: ChangeSide) {
+        removeFromSelection(files.map(\.id), side: side)
+        onStage(files)
+    }
+
+    private func unstage(_ files: [GitStatusFile], from side: ChangeSide) {
+        removeFromSelection(files.map(\.id), side: side)
+        onUnstage(files)
+    }
+
+    private func removeFromSelection(_ ids: [String], side: ChangeSide) {
+        switch side {
+        case .conflicted:
+            conflictedSelection.remove(ids: ids)
+        case .staged:
+            stagedSelection.remove(ids: ids)
+        case .unstaged:
+            unstagedSelection.remove(ids: ids)
+        }
+    }
+
     private func statusColor(_ file: GitStatusFile, side: ChangeSide) -> Color {
         if side == .conflicted {
             return MuxyTheme.warning
@@ -415,7 +559,7 @@ struct TabFocusedChangesPopover: View {
         }
     }
 
-    private enum ChangeSide: Equatable {
+    private enum ChangeSide: String, Equatable, Hashable {
         case conflicted
         case staged
         case unstaged
@@ -428,6 +572,11 @@ struct TabFocusedChangesPopover: View {
             }
         }
     }
+}
+
+private struct ChangesPopoverBatchAction {
+    let title: LocalizedStringResource
+    let action: () -> Void
 }
 
 private struct ChangesPopoverActionButton: View {
@@ -466,11 +615,13 @@ private struct ChangesPopoverActionButton: View {
 }
 
 private struct ChangesPopoverFileRow<Content: View>: View {
+    let isSelected: Bool
     let content: Content
 
     @State private var isHovered = false
 
-    init(@ViewBuilder content: () -> Content) {
+    init(isSelected: Bool, @ViewBuilder content: () -> Content) {
+        self.isSelected = isSelected
         self.content = content()
     }
 
@@ -479,11 +630,21 @@ private struct ChangesPopoverFileRow<Content: View>: View {
             .padding(.horizontal, UIMetrics.spacing4)
             .frame(height: UIMetrics.scaled(34))
             .background(
-                isHovered ? MuxyTheme.hover : .clear,
+                rowBackground,
                 in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
             )
             .padding(.horizontal, UIMetrics.spacing2)
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
+    }
+
+    private var rowBackground: Color {
+        if isSelected {
+            return MuxyTheme.accentSoft
+        }
+        if isHovered {
+            return MuxyTheme.hover
+        }
+        return .clear
     }
 }

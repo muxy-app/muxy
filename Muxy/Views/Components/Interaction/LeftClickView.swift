@@ -2,7 +2,15 @@ import AppKit
 import SwiftUI
 
 struct LeftClickView: NSViewRepresentable {
-    let action: () -> Void
+    let action: (NSEvent) -> Void
+
+    init(action: @escaping () -> Void) {
+        self.action = { _ in action() }
+    }
+
+    init(action: @escaping (NSEvent) -> Void) {
+        self.action = action
+    }
 
     func makeNSView(context: Context) -> LeftClickNSView {
         let view = LeftClickNSView()
@@ -16,7 +24,7 @@ struct LeftClickView: NSViewRepresentable {
 }
 
 final class LeftClickNSView: NSView {
-    var action: (() -> Void)?
+    var action: ((NSEvent) -> Void)?
     private var isPressed = false
 
     override func isAccessibilityElement() -> Bool {
@@ -40,6 +48,6 @@ final class LeftClickNSView: NSView {
         guard wasPressed,
               bounds.contains(convert(event.locationInWindow, from: nil))
         else { return }
-        action?()
+        action?(event)
     }
 }

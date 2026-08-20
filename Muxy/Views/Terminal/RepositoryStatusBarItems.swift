@@ -275,18 +275,10 @@ struct RepositoryStatusBarItems: View {
                     onRefresh: {
                         await repositoryState.refreshWorkingTreeDetails()
                     },
-                    onStage: { file in
-                        modifyChanges { await repositoryState.stage(file) }
-                    },
-                    onStageAll: {
-                        let files = repositoryState.changesSnapshot.unstagedFiles
+                    onStage: { files in
                         modifyChanges { await repositoryState.stage(files) }
                     },
-                    onUnstage: { file in
-                        modifyChanges { await repositoryState.unstage(file) }
-                    },
-                    onUnstageAll: {
-                        let files = repositoryState.changesSnapshot.stagedFiles
+                    onUnstage: { files in
                         modifyChanges { await repositoryState.unstage(files) }
                     },
                     onDiscard: { file in

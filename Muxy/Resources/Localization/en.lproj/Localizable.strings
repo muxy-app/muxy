@@ -846,6 +846,7 @@
 "Stable" = "Stable";
 "Stage %@" = "Stage %@";
 "Stage All" = "Stage All";
+"Stage Selected" = "Stage Selected";
 "Stage resolved file %@" = "Stage resolved file %@";
 "Staged" = "Staged";
 "Start Voice Recording" = "Start Voice Recording";
@@ -1213,6 +1214,7 @@
 "Unpin Tab" = "Unpin Tab";
 "Unstage %@" = "Unstage %@";
 "Unstage All" = "Unstage All";
+"Unstage Selected" = "Unstage Selected";
 "Unstaged changes to this file will be permanently discarded." = "Unstaged changes to this file will be permanently discarded.";
 "Up to date" = "Up to date";
 "Update" = "Update";
