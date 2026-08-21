@@ -22,13 +22,7 @@ struct ProjectWorktreeExpansionStateTests {
             isWorktreeAutoExpandPending: false,
             onResolveWorktreeAutoExpand: { _ in },
             onSelect: {},
-            onRemove: {},
-            onRename: { _ in },
-            onSetLogo: { _ in },
-            onSetIcon: { _ in },
-            onSetIconColor: { _ in },
-            onSetWorktreesEnabled: { _ in },
-            onSetPinned: { _ in }
+            onRemove: {}
         )
 
         row.worktreesExpanded = true
@@ -368,13 +362,7 @@ private struct ProjectWorktreeExpansionLifecycleHarness: View {
                         model.expansion.resolveAutoExpand(projectID: project.id, isEligible: isEligible)
                     },
                     onSelect: {},
-                    onRemove: {},
-                    onRename: { _ in },
-                    onSetLogo: { _ in },
-                    onSetIcon: { _ in },
-                    onSetIconColor: { _ in },
-                    onSetWorktreesEnabled: { _ in },
-                    onSetPinned: { _ in }
+                    onRemove: {}
                 )
                 .onDisappear {
                     model.rowDisappearances += 1

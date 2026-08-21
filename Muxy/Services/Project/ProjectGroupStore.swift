@@ -103,9 +103,10 @@ final class ProjectGroupStore {
         guard let group = activeGroup, group.type == .ssh else {
             return sortMode.sorted(filteredProjects(from: localProjects))
         }
-        return group.remoteProjects.enumerated().map { index, remote in
+        let projects = group.remoteProjects.enumerated().map { index, remote in
             remote.asProject(workspaceID: group.id, sortOrder: index)
         }
+        return sortMode.sorted(projects)
     }
 
     var activeGroup: ProjectGroup? {
@@ -206,11 +207,9 @@ final class ProjectGroupStore {
         groups.filter { $0.remoteDeviceID == deviceID }.map(\.name)
     }
 
-    func removeWorkspaces(usingDevice deviceID: UUID) {
-        let affected = groups.filter { $0.remoteDeviceID == deviceID }
-        for group in affected {
-            removeGroup(id: group.id)
-        }
+    @discardableResult
+    func removeWorkspaces(usingDevice deviceID: UUID) -> Bool {
+        removeGroups { $0.remoteDeviceID == deviceID }
     }
 
     @discardableResult
@@ -228,54 +227,52 @@ final class ProjectGroupStore {
             return existing
         }
         let project = RemoteProject(name: name, path: path)
-        groups[index].remoteProjects.append(project)
-        save()
-        return project
+        let didAdd = commitMutation { groups in
+            guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return false }
+            groups[index].remoteProjects.append(project)
+            return true
+        }
+        return didAdd ? project : nil
     }
 
-    func removeRemoteProject(id: UUID, fromGroup groupID: UUID) {
-        guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
-        groups[index].remoteProjects.removeAll { $0.id == id }
-        save()
+    @discardableResult
+    func removeRemoteProject(id: UUID, fromGroup groupID: UUID) -> Bool {
+        let didRemove = commitMutation { groups in
+            guard let groupIndex = groups.firstIndex(where: { $0.id == groupID }),
+                  groups[groupIndex].remoteProjects.contains(where: { $0.id == id })
+            else { return false }
+            groups[groupIndex].remoteProjects.removeAll { $0.id == id }
+            return true
+        }
+        if didRemove {
+            ProjectLogoStorage.remove(forProjectID: id)
+        }
+        return didRemove
     }
 
     func markRemoteProjectActive(id: UUID) {
-        for groupIndex in groups.indices {
-            guard let projectIndex = groups[groupIndex].remoteProjects.firstIndex(where: { $0.id == id }) else {
-                continue
+        updateRemoteProject(id: id) { project in
+            project.lastActiveAt = Date()
+        }
+    }
+
+    @discardableResult
+    func updateRemoteProject(id: UUID, _ mutate: (inout RemoteProject) -> Void) -> Bool {
+        commitMutation { groups in
+            for groupIndex in groups.indices {
+                guard let projectIndex = groups[groupIndex].remoteProjects.firstIndex(where: { $0.id == id })
+                else { continue }
+                mutate(&groups[groupIndex].remoteProjects[projectIndex])
+                return true
             }
-            groups[groupIndex].remoteProjects[projectIndex].lastActiveAt = Date()
-            save()
-            return
+            return false
         }
     }
 
-    func updateRemoteProject(id: UUID, _ mutate: (inout RemoteProject) -> Void) {
-        for groupIndex in groups.indices {
-            guard let projectIndex = groups[groupIndex].remoteProjects.firstIndex(where: { $0.id == id })
-            else { continue }
-            mutate(&groups[groupIndex].remoteProjects[projectIndex])
-            save()
-            return
-        }
-    }
-
-    func renameRemoteProject(id: UUID, to name: String) {
-        updateRemoteProject(id: id) { $0.name = name }
-    }
-
-    func setRemoteProjectWorktreesEnabled(id: UUID, to enabled: Bool) {
-        updateRemoteProject(id: id) { $0.worktreesEnabled = enabled }
-    }
-
-    func removeGroup(id: UUID) {
-        if activeGroupID == id {
-            activeGroupID = nil
-            persistence.saveActiveGroupID(nil)
-            syncActiveWorkspaceContext()
-        }
-        groups.removeAll { $0.id == id }
-        save()
+    @discardableResult
+    func removeGroup(id: UUID) -> Bool {
+        guard groups.contains(where: { $0.id == id }) else { return false }
+        return removeGroups { $0.id == id }
     }
 
     func renameGroup(id: UUID, to newName: String) {
@@ -324,6 +321,39 @@ final class ProjectGroupStore {
             logger.error("Failed to save project groups: \(error)")
         }
         onProjectsChanged?()
+    }
+
+    private func commitMutation(_ mutate: (inout [ProjectGroup]) -> Bool) -> Bool {
+        var updatedGroups = groups
+        guard mutate(&updatedGroups) else { return false }
+        do {
+            try persistence.saveProjectGroups(updatedGroups)
+            groups = updatedGroups
+            return true
+        } catch {
+            logger.error("Failed to save project groups: \(error)")
+            return false
+        }
+    }
+
+    private func removeGroups(where shouldRemove: (ProjectGroup) -> Bool) -> Bool {
+        let removedGroups = groups.filter(shouldRemove)
+        guard !removedGroups.isEmpty else { return true }
+        let removedIDs = Set(removedGroups.map(\.id))
+        guard commitMutation({ groups in
+            groups.removeAll(where: shouldRemove)
+            return true
+        })
+        else { return false }
+        if let activeGroupID, removedIDs.contains(activeGroupID) {
+            self.activeGroupID = nil
+            persistence.saveActiveGroupID(nil)
+            syncActiveWorkspaceContext()
+        }
+        for projectID in removedGroups.flatMap(\.remoteProjects).map(\.id) {
+            ProjectLogoStorage.remove(forProjectID: projectID)
+        }
+        return true
     }
 
     private func load() {

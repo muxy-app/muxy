@@ -52,6 +52,10 @@ struct TabFocusedProjectRow: View {
 
     private var rowID: UUID { worktree?.id ?? project.id }
 
+    private var editor: ProjectEditingService {
+        ProjectEditingService(projectStore: projectStore, projectGroupStore: projectGroupStore)
+    }
+
     private var rowTitle: String {
         worktree?.name ?? project.localizedDisplayName
     }
@@ -232,20 +236,20 @@ struct TabFocusedProjectRow: View {
                 sourceImage: item.image,
                 onConfirm: { cropped in
                     logoCropImage = nil
-                    projectStore.setLogo(id: project.id, croppedImage: cropped)
+                    editor.setLogo(project, croppedImage: cropped)
                 },
                 onCancel: { logoCropImage = nil }
             )
         }
         .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
             ProjectIconColorPicker(selectedID: project.iconColor) { id in
-                projectStore.setIconColor(id: project.id, to: id)
+                editor.setIconColor(project, to: id)
                 showColorPicker = false
             }
         }
         .popover(isPresented: $showSymbolPicker, arrowEdge: .trailing) {
             SFSymbolPicker(selectedName: project.icon) { name in
-                projectStore.setIcon(id: project.id, to: name)
+                editor.setIcon(project, to: name)
                 showSymbolPicker = false
             }
         }
@@ -277,62 +281,22 @@ struct TabFocusedProjectRow: View {
             }
     }
 
-    @ViewBuilder
     private var projectContextMenu: some View {
-        if !project.isRemote {
-            Button(
-                project.isPinned
-                    ? L10n.string("Unpin")
-                    : L10n.string("Pin")
-            ) {
-                projectStore.setPinned(id: project.id, to: !project.isPinned)
-            }
-            Divider()
-        }
-        Button(L10n.string("Set Logo…")) { pickLogoImage() }
-        if project.logo != nil {
-            Button(L10n.string("Remove Logo")) { projectStore.setLogo(id: project.id, to: nil) }
-        }
-        Button(L10n.string("Set Icon…")) { showSymbolPicker = true }
-        if project.icon != nil {
-            Button(L10n.string("Remove Icon")) { projectStore.setIcon(id: project.id, to: nil) }
-        }
-        Button(L10n.string("Set Icon Color…")) { showColorPicker = true }
-        if project.iconColor != nil {
-            Button(L10n.string("Reset Icon Color")) { projectStore.setIconColor(id: project.id, to: nil) }
-        }
-        Divider()
-        Button(L10n.string("Rename Project")) { startRename() }
-        if isGitRepo {
-            Divider()
-            Toggle(L10n.string("Worktrees"), isOn: worktreesEnabledBinding)
-            if project.worktreesEnabled {
-                Button(L10n.string("Refresh Worktrees")) { Task { await refreshWorktrees() } }
-                Button(L10n.string("New Worktree…")) { showCreateWorktreeSheet = true }
-            }
-        } else if isCheckingGitRepo {
-            Divider()
-            Button(L10n.string("Loading Worktrees…")) {}
-                .disabled(true)
-        }
-        if !projectGroupStore.groups.isEmpty {
-            Divider()
-            ProjectGroupMembershipMenu(project: project)
-        }
-        ProjectContextMenuFooter(
-            path: project.path,
-            workspaceContext: projectGroupStore.workspaceContext(for: project)
-        ) {
-            Button(L10n.string("Remove Project"), role: .destructive) { projectPendingRemoval = true }
-        }
-    }
-
-    private var worktreesEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { project.worktreesEnabled },
-            set: { enabled in
-                projectStore.setWorktreesEnabled(id: project.id, to: enabled)
-            }
+        ProjectActionsContextMenu(
+            project: project,
+            editor: editor,
+            isGitRepo: isGitRepo,
+            isCheckingGitRepo: isCheckingGitRepo,
+            worktreeCount: worktreeStore.list(for: project.id).count,
+            onPickLogo: pickLogoImage,
+            onPickIcon: { showSymbolPicker = true },
+            onPickIconColor: { showColorPicker = true },
+            onRename: startRename,
+            onSetWorktreesEnabled: { editor.setWorktreesEnabled(project, to: $0) },
+            onRefreshWorktrees: { Task { await refreshWorktrees() } },
+            onCreateWorktree: { showCreateWorktreeSheet = true },
+            onSwitchWorktree: nil,
+            onRemove: { projectPendingRemoval = true }
         )
     }
 
@@ -561,7 +525,7 @@ struct TabFocusedProjectRow: View {
             if let worktree {
                 worktreeStore.rename(worktreeID: worktree.id, in: project.id, to: trimmed)
             } else {
-                projectStore.rename(id: project.id, to: trimmed)
+                editor.rename(project, to: trimmed)
             }
         }
         isRenaming = false

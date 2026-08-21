@@ -60,7 +60,13 @@ struct WorkspaceSwitcher: View {
             presenting: groupPendingDelete
         ) { group in
             Button(L10n.string("Delete"), role: .destructive) {
-                projectGroupStore.removeGroup(id: group.id)
+                guard projectGroupStore.removeGroup(id: group.id) else {
+                    ToastState.shared.show(
+                        title: L10n.string("Could not delete workspace"),
+                        body: L10n.string("Muxy could not save the workspace deletion.")
+                    )
+                    return
+                }
                 groupPendingDelete = nil
             }
             .keyboardShortcut(.defaultAction)

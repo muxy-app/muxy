@@ -271,6 +271,33 @@ struct MuxyAPIProjectDeleteRoutingTests {
         #expect(try persistence.loadWorktrees(projectID: project.id).isEmpty)
     }
 
+    @Test("ProjectRemovalService preserves an SSH workspace project when group persistence fails")
+    func removalServicePreservesSSHWorkspaceProjectAfterPersistenceFailure() async {
+        let groupPersistence = ProjectGroupPersistenceStub()
+        let env = makeEnvironment(projects: [], groupPersistence: groupPersistence)
+        let group = env.projectGroupStore.addRemoteWorkspace(name: "Remote", deviceID: UUID())
+        let remoteProject = env.projectGroupStore.addRemoteProject(
+            name: "Repo",
+            path: "~/repo",
+            toGroup: group.id
+        )!
+        let project = remoteProject.asProject(workspaceID: group.id, sortOrder: 0)
+        groupPersistence.saveError = ProjectGroupDeleteSaveError()
+
+        await #expect(throws: ProjectRemovalService.RemovalError.self) {
+            try await ProjectRemovalService.remove(
+                project,
+                appState: env.appState,
+                projectStore: env.projectStore,
+                worktreeStore: env.worktreeStore,
+                projectGroupStore: env.projectGroupStore
+            )
+        }
+
+        #expect(env.projectGroupStore.groups.first?.remoteProjects.first?.id == project.id)
+        #expect(!env.worktreeStore.isProjectRemovalInProgress(project.id))
+    }
+
     @Test("ProjectRemovalService waits for active worktree creation before removing a remote-device project")
     func removalServiceWaitsForRemoteDeviceMutation() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -345,7 +372,11 @@ struct MuxyAPIProjectDeleteRoutingTests {
         }
     }
 
-    private func makeEnvironment(projects: [Project], worktreeStore: WorktreeStore? = nil) -> Environment {
+    private func makeEnvironment(
+        projects: [Project],
+        worktreeStore: WorktreeStore? = nil,
+        groupPersistence: ProjectGroupPersistenceStub = ProjectGroupPersistenceStub()
+    ) -> Environment {
         let projectPersistence = ProjectDeletePersistenceStub(initial: projects)
         let projectStore = ProjectStore(persistence: projectPersistence)
         let worktreeStore = worktreeStore ?? WorktreeStore(
@@ -357,7 +388,7 @@ struct MuxyAPIProjectDeleteRoutingTests {
             workspacePersistence: ProjectDeleteWorkspacePersistenceStub()
         )
         let projectGroupStore = ProjectGroupStore(
-            persistence: ProjectGroupPersistenceStub(),
+            persistence: groupPersistence,
             remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
             workspaceContextSink: InMemoryWorkspaceContextSink()
         )
@@ -370,6 +401,8 @@ struct MuxyAPIProjectDeleteRoutingTests {
         )
     }
 }
+
+private struct ProjectGroupDeleteSaveError: Error {}
 
 private final class ProjectDeletePersistenceStub: ProjectPersisting {
     struct SaveError: Error {}

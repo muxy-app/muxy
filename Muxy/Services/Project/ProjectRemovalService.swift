@@ -58,7 +58,10 @@ enum ProjectRemovalService {
         )
 
         if let workspaceID = project.remoteWorkspaceID {
-            projectGroupStore.removeRemoteProject(id: project.id, fromGroup: workspaceID)
+            guard projectGroupStore.removeRemoteProject(id: project.id, fromGroup: workspaceID) else {
+                worktreeStore.cancelProjectRemoval(project.id)
+                throw RemovalError.persistenceFailed
+            }
         } else {
             guard await projectStore.prepareRemovalWhenAvailable(id: project.id) else {
                 worktreeStore.cancelProjectRemoval(project.id)

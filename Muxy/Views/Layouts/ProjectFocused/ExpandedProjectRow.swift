@@ -11,12 +11,6 @@ struct ExpandedProjectRow: View {
     let onResolveWorktreeAutoExpand: (Bool) -> Void
     let onSelect: () -> Void
     let onRemove: () -> Void
-    let onRename: (String) -> Void
-    let onSetLogo: (String?) -> Void
-    let onSetIcon: (String?) -> Void
-    let onSetIconColor: (String?) -> Void
-    let onSetWorktreesEnabled: (Bool) -> Void
-    let onSetPinned: (Bool) -> Void
 
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -79,20 +73,12 @@ struct ExpandedProjectRow: View {
         String(project.localizedDisplayName.prefix(1)).uppercased()
     }
 
-    private func hideHome() {
-        HomeProjectPreferences.isVisible = false
+    private var editor: ProjectEditingService {
+        ProjectEditingService(projectStore: projectStore, projectGroupStore: projectGroupStore)
     }
 
-    private var worktreesEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { project.worktreesEnabled },
-            set: { enabled in
-                onSetWorktreesEnabled(enabled)
-                if !enabled {
-                    worktreesExpanded = false
-                }
-            }
-        )
+    private func hideHome() {
+        HomeProjectPreferences.isVisible = false
     }
 
     var body: some View {
@@ -167,7 +153,7 @@ struct ExpandedProjectRow: View {
                 sourceImage: item.image,
                 onConfirm: { cropped in
                     logoCropImage = nil
-                    projectStore.setLogo(id: project.id, croppedImage: cropped)
+                    editor.setLogo(project, croppedImage: cropped)
                 },
                 onCancel: { logoCropImage = nil }
             )
@@ -181,13 +167,13 @@ struct ExpandedProjectRow: View {
         }
         .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
             ProjectIconColorPicker(selectedID: project.iconColor) { id in
-                onSetIconColor(id)
+                editor.setIconColor(project, to: id)
                 showColorPicker = false
             }
         }
         .popover(isPresented: $showSymbolPicker, arrowEdge: .trailing) {
             SFSymbolPicker(selectedName: project.icon) { name in
-                onSetIcon(name)
+                editor.setIcon(project, to: name)
                 showSymbolPicker = false
             }
         }
@@ -420,54 +406,28 @@ struct ExpandedProjectRow: View {
         return label
     }
 
-    @ViewBuilder
     private var projectContextMenu: some View {
-        if !project.isRemote, !project.isHome {
-            Button(
-                project.isPinned
-                    ? L10n.string("Unpin")
-                    : L10n.string("Pin")
-            ) {
-                onSetPinned(!project.isPinned)
-            }
-            Divider()
-        }
-        Button(L10n.string("Set Logo...")) { pickLogoImage() }
-        if project.logo != nil {
-            Button(L10n.string("Remove Logo")) { onSetLogo(nil) }
-        }
-        Button(L10n.string("Set Icon...")) { showSymbolPicker = true }
-        if project.icon != nil {
-            Button(L10n.string("Remove Icon")) { onSetIcon(nil) }
-        }
-        Button(L10n.string("Set Icon Color...")) { showColorPicker = true }
-        if project.iconColor != nil {
-            Button(L10n.string("Reset Icon Color")) { onSetIconColor(nil) }
-        }
-        Divider()
-        Button(L10n.string("Rename Project")) { startRename() }
-        if isGitRepo {
-            Divider()
-            Toggle(L10n.string("Worktrees"), isOn: worktreesEnabledBinding)
-            if project.worktreesEnabled {
-                Button(L10n.string("Refresh Worktrees")) { Task { await refreshWorktrees() } }
-                Button(L10n.string("New Worktree…")) { showCreateWorktreeSheet = true }
-            }
-        } else if isCheckingGitRepo {
-            Divider()
-            Button(L10n.string("Loading Worktrees…")) {}
-                .disabled(true)
-        }
-        if !projectGroupStore.groups.isEmpty {
-            Divider()
-            ProjectGroupMembershipMenu(project: project)
-        }
-        ProjectContextMenuFooter(
-            path: project.path,
-            workspaceContext: projectGroupStore.workspaceContext(for: project)
-        ) {
-            Button(L10n.string("Remove Project"), role: .destructive, action: onRemove)
-        }
+        ProjectActionsContextMenu(
+            project: project,
+            editor: editor,
+            isGitRepo: isGitRepo,
+            isCheckingGitRepo: isCheckingGitRepo,
+            worktreeCount: worktrees.count,
+            onPickLogo: pickLogoImage,
+            onPickIcon: { showSymbolPicker = true },
+            onPickIconColor: { showColorPicker = true },
+            onRename: startRename,
+            onSetWorktreesEnabled: { enabled in
+                editor.setWorktreesEnabled(project, to: enabled)
+                if !enabled {
+                    worktreesExpanded = false
+                }
+            },
+            onRefreshWorktrees: { Task { await refreshWorktrees() } },
+            onCreateWorktree: { showCreateWorktreeSheet = true },
+            onSwitchWorktree: nil,
+            onRemove: onRemove
+        )
     }
 
     private var resolvedLogo: NSImage? {
@@ -605,7 +565,7 @@ struct ExpandedProjectRow: View {
     private func commitRename() {
         let trimmed = renameText.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
-            onRename(trimmed)
+            editor.rename(project, to: trimmed)
         }
         isRenaming = false
     }

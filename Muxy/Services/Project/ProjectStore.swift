@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import MuxyShared
 import os
@@ -91,7 +90,7 @@ final class ProjectStore {
                 project: project,
                 previousRecentlyRemovedProjects: previous,
                 finalRecentlyRemovedProjects: previous,
-                logoIDsToRemove: []
+                logoIDsToRemove: [project.id]
             )
             return true
         }
@@ -173,57 +172,54 @@ final class ProjectStore {
         return project
     }
 
-    func rename(id: UUID, to newName: String) {
-        guard pendingRemoval?.project.id != id else { return }
-        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
-        storedProjects[index].name = newName
-        save()
+    @discardableResult
+    func rename(id: UUID, to newName: String) -> Bool {
+        updateProject(id: id) { $0.name = newName }
     }
 
-    func setLogo(id: UUID, to logo: String?) {
-        guard pendingRemoval?.project.id != id else { return }
-        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
-        if logo == nil {
+    @discardableResult
+    func setLogo(id: UUID, to logo: String?) -> Bool {
+        let didUpdate = updateProject(id: id) { $0.logo = logo }
+        if didUpdate, logo == nil {
             ProjectLogoStorage.remove(forProjectID: id)
         }
-        storedProjects[index].logo = logo
-        save()
+        return didUpdate
     }
 
-    func setLogo(id: UUID, croppedImage: NSImage) {
-        guard pendingRemoval?.project.id != id else { return }
-        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
-        let logo = ProjectLogoStorage.save(croppedImage: croppedImage, forProjectID: id)
-        storedProjects[index].logo = logo
-        save()
+    @discardableResult
+    func setIcon(id: UUID, to icon: String?) -> Bool {
+        updateProject(id: id) { $0.icon = icon }
     }
 
-    func setIcon(id: UUID, to icon: String?) {
-        guard pendingRemoval?.project.id != id else { return }
-        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
-        storedProjects[index].icon = icon
-        save()
+    @discardableResult
+    func setIconColor(id: UUID, to color: String?) -> Bool {
+        updateProject(id: id) { $0.iconColor = color }
     }
 
-    func setIconColor(id: UUID, to color: String?) {
-        guard pendingRemoval?.project.id != id else { return }
-        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
-        storedProjects[index].iconColor = color
-        save()
+    @discardableResult
+    func setPinned(id: UUID, to pinned: Bool) -> Bool {
+        updateProject(id: id) { $0.isPinned = pinned }
     }
 
-    func setPinned(id: UUID, to pinned: Bool) {
-        guard pendingRemoval?.project.id != id else { return }
-        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
-        storedProjects[index].isPinned = pinned
-        save()
+    @discardableResult
+    func setWorktreesEnabled(id: UUID, to enabled: Bool) -> Bool {
+        updateProject(id: id) { $0.worktreesEnabled = enabled }
     }
 
-    func setWorktreesEnabled(id: UUID, to enabled: Bool) {
-        guard pendingRemoval?.project.id != id else { return }
-        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
-        storedProjects[index].worktreesEnabled = enabled
-        save()
+    private func updateProject(id: UUID, mutate: (inout Project) -> Void) -> Bool {
+        guard pendingRemoval?.project.id != id else { return false }
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return false }
+        var updatedProjects = storedProjects
+        mutate(&updatedProjects[index])
+        do {
+            try persistence.saveProjects(updatedProjects)
+            storedProjects = updatedProjects
+            onProjectsChanged?()
+            return true
+        } catch {
+            logger.error("Failed to save project update: \(error)")
+            return false
+        }
     }
 
     func setPreferredWorktreeLocation(id: UUID, pathTemplate: String?, parentPath: String?) throws {

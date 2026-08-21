@@ -123,7 +123,13 @@ struct RemoteDevicesSettingsView: View {
     }
 
     private func deleteDevice(_ device: RemoteDevice) {
-        projectGroupStore.removeWorkspaces(usingDevice: device.id)
+        guard projectGroupStore.removeWorkspaces(usingDevice: device.id) else {
+            ToastState.shared.show(
+                title: L10n.string("Could not delete device"),
+                body: L10n.string("Muxy could not save the workspace deletion.")
+            )
+            return
+        }
         deviceStore.remove(id: device.id)
     }
 }

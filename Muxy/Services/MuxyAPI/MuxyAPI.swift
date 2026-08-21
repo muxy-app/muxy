@@ -1406,7 +1406,9 @@ enum MuxyAPI {
             guard group.projectIDs.isEmpty, group.remoteProjects.isEmpty else {
                 return .failure(.invalidArguments("workspace '\(group.name)' still contains projects"))
             }
-            projectGroupStore.removeGroup(id: group.id)
+            guard projectGroupStore.removeGroup(id: group.id) else {
+                return .failure(.underlying("could not save workspace deletion"))
+            }
             return .success(())
         }
     }

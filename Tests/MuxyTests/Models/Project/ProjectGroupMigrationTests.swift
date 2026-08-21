@@ -34,7 +34,15 @@ struct ProjectGroupMigrationTests {
             sortOrder: 1,
             type: .ssh,
             remoteDeviceID: UUID(),
-            remoteProjects: [RemoteProject(name: "api", path: "~/code/api")]
+            remoteProjects: [RemoteProject(
+                name: "api",
+                path: "~/code/api",
+                icon: "server.rack",
+                logo: "logo.png",
+                iconColor: "blue",
+                worktreesEnabled: true,
+                isPinned: true
+            )]
         )
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(ProjectGroup.self, from: data)
@@ -42,6 +50,36 @@ struct ProjectGroupMigrationTests {
         #expect(decoded.remoteDeviceID == original.remoteDeviceID)
         #expect(decoded.legacySSHData == nil)
         #expect(decoded.remoteProjects.first?.path == "~/code/api")
+        #expect(decoded.remoteProjects.first?.icon == "server.rack")
+        #expect(decoded.remoteProjects.first?.logo == "logo.png")
+        #expect(decoded.remoteProjects.first?.iconColor == "blue")
+        #expect(decoded.remoteProjects.first?.worktreesEnabled == true)
+        #expect(decoded.remoteProjects.first?.isPinned == true)
+    }
+
+    @Test("legacy remote projects default editable metadata")
+    func legacyRemoteProjectMetadata() throws {
+        let json = """
+        {
+          "id": "00000000-0000-0000-0000-000000000003",
+          "name": "prod",
+          "sortOrder": 0,
+          "type": "ssh",
+          "remoteProjects": [{
+            "id": "00000000-0000-0000-0000-000000000004",
+            "name": "api",
+            "path": "~/code/api"
+          }]
+        }
+        """
+
+        let project = try #require(decode(json).remoteProjects.first)
+
+        #expect(project.icon == nil)
+        #expect(project.logo == nil)
+        #expect(project.iconColor == nil)
+        #expect(project.worktreesEnabled == false)
+        #expect(project.isPinned == false)
     }
 
     @Test("legacy ssh rows decode their inline sshData for migration")

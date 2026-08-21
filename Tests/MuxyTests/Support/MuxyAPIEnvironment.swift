@@ -6,6 +6,7 @@ final class ProjectGroupPersistenceStub: ProjectGroupPersisting {
     var groups: [ProjectGroup]
     var savedGroups: [ProjectGroup]?
     var storedActiveGroupID: UUID?
+    var saveError: Error?
 
     init(initial: [ProjectGroup] = [], storedActiveGroupID: UUID? = nil) {
         groups = initial
@@ -17,6 +18,7 @@ final class ProjectGroupPersistenceStub: ProjectGroupPersisting {
     }
 
     func saveProjectGroups(_ groups: [ProjectGroup]) throws {
+        if let saveError { throw saveError }
         savedGroups = groups
         self.groups = groups
     }

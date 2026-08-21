@@ -9,21 +9,33 @@ struct RemoteProject: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var path: String
+    var icon: String?
+    var logo: String?
+    var iconColor: String?
     var worktreesEnabled: Bool
     var lastActiveAt: Date?
+    var isPinned: Bool
 
     init(
         id: UUID = UUID(),
         name: String,
         path: String,
+        icon: String? = nil,
+        logo: String? = nil,
+        iconColor: String? = nil,
         worktreesEnabled: Bool = false,
-        lastActiveAt: Date? = nil
+        lastActiveAt: Date? = nil,
+        isPinned: Bool = false
     ) {
         self.id = id
         self.name = name
         self.path = path
+        self.icon = icon
+        self.logo = logo
+        self.iconColor = iconColor
         self.worktreesEnabled = worktreesEnabled
         self.lastActiveAt = lastActiveAt
+        self.isPinned = isPinned
     }
 
     init(from decoder: Decoder) throws {
@@ -31,14 +43,22 @@ struct RemoteProject: Identifiable, Codable, Hashable {
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         path = try container.decode(String.self, forKey: .path)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        logo = try container.decodeIfPresent(String.self, forKey: .logo)
+        iconColor = try container.decodeIfPresent(String.self, forKey: .iconColor)
         worktreesEnabled = try container.decodeIfPresent(Bool.self, forKey: .worktreesEnabled) ?? false
         lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
     }
 
     func asProject(workspaceID: UUID, sortOrder: Int) -> Project {
         var project = Project(id: id, name: name, path: path, sortOrder: sortOrder, remoteWorkspaceID: workspaceID)
+        project.icon = icon
+        project.logo = logo
+        project.iconColor = iconColor
         project.worktreesEnabled = worktreesEnabled
         project.lastActiveAt = lastActiveAt
+        project.isPinned = isPinned
         return project
     }
 }

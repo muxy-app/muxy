@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -175,6 +176,135 @@ struct ProjectStoreTests {
 
         #expect(store.storedProjects.first { $0.id == project.id }?.isPinned == true)
         #expect(persistence.projects.first?.isPinned == true)
+    }
+
+    @Test("project editing routes local and device-backed changes to ProjectStore")
+    func editingStoredProjects() {
+        let local = Project(name: "Local", path: "/tmp/local")
+        let remote = Project(name: "Remote", path: "~/remote", remoteDeviceID: UUID())
+        let persistence = ProjectPersistenceStub(initial: [local, remote])
+        let projectStore = ProjectStore(persistence: persistence)
+        let projectGroupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let editor = ProjectEditingService(projectStore: projectStore, projectGroupStore: projectGroupStore)
+
+        for project in [local, remote] {
+            editor.rename(project, to: "Edited")
+            editor.setIcon(project, to: "folder.fill")
+            editor.setIconColor(project, to: "blue")
+            editor.setWorktreesEnabled(project, to: true)
+            editor.setPinned(project, to: true)
+        }
+
+        #expect(projectStore.storedProjects.allSatisfy { $0.name == "Edited" })
+        #expect(projectStore.storedProjects.allSatisfy { $0.icon == "folder.fill" })
+        #expect(projectStore.storedProjects.allSatisfy { $0.iconColor == "blue" })
+        #expect(projectStore.storedProjects.allSatisfy { $0.worktreesEnabled })
+        #expect(projectStore.storedProjects.allSatisfy { $0.isPinned })
+        #expect(projectGroupStore.groups.isEmpty)
+    }
+
+    @Test("failed project editing rolls back in-memory metadata")
+    func failedProjectEditing() throws {
+        let projectID = UUID()
+        let filename = "\(projectID.uuidString).png"
+        try Data([0]).write(to: URL(fileURLWithPath: ProjectLogoStorage.logoPath(for: filename)))
+        defer { ProjectLogoStorage.remove(forProjectID: projectID) }
+        var project = Project(id: projectID, name: "Repo", path: "/tmp/repo")
+        project.logo = filename
+        let persistence = ProjectPersistenceStub(initial: [project])
+        let projectStore = ProjectStore(persistence: persistence)
+        let projectGroupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let editor = ProjectEditingService(projectStore: projectStore, projectGroupStore: projectGroupStore)
+        persistence.projectSaveError = ProjectPersistenceTestError.saveFailed
+
+        let didUpdate = editor.setPinned(project, to: true)
+        let didRemoveLogo = editor.setLogo(project, to: nil)
+
+        #expect(!didUpdate)
+        #expect(!didRemoveLogo)
+        #expect(projectStore.storedProjects.first?.isPinned == false)
+        #expect(projectStore.storedProjects.first?.logo == filename)
+        #expect(persistence.projects.first?.isPinned == false)
+        #expect(FileManager.default.fileExists(atPath: ProjectLogoStorage.logoPath(for: filename)))
+    }
+
+    @Test("failed cropped logo persistence removes an unreferenced file")
+    func failedCroppedLogoPersistence() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let persistence = ProjectPersistenceStub(initial: [project])
+        let projectStore = ProjectStore(persistence: persistence)
+        let projectGroupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let editor = ProjectEditingService(projectStore: projectStore, projectGroupStore: projectGroupStore)
+        let image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { rect in
+            NSColor.red.setFill()
+            rect.fill()
+            return true
+        }
+        let filename = "\(project.id.uuidString).png"
+        defer { ProjectLogoStorage.remove(forProjectID: project.id) }
+        persistence.projectSaveError = ProjectPersistenceTestError.saveFailed
+
+        let didUpdate = editor.setLogo(project, croppedImage: image)
+
+        #expect(!didUpdate)
+        #expect(projectStore.storedProjects.first?.logo == nil)
+        #expect(!FileManager.default.fileExists(atPath: ProjectLogoStorage.logoPath(for: filename)))
+    }
+
+    @Test("replacing an existing cropped logo does not require a metadata write")
+    func replaceExistingCroppedLogo() throws {
+        let projectID = UUID()
+        let filename = "\(projectID.uuidString).png"
+        let logoURL = URL(fileURLWithPath: ProjectLogoStorage.logoPath(for: filename))
+        try Data([0]).write(to: logoURL)
+        defer { ProjectLogoStorage.remove(forProjectID: projectID) }
+        var project = Project(id: projectID, name: "Repo", path: "/tmp/repo")
+        project.logo = filename
+        let persistence = ProjectPersistenceStub(initial: [project])
+        let projectStore = ProjectStore(persistence: persistence)
+        let projectGroupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let editor = ProjectEditingService(projectStore: projectStore, projectGroupStore: projectGroupStore)
+        let image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { rect in
+            NSColor.blue.setFill()
+            rect.fill()
+            return true
+        }
+        persistence.projectSaveError = ProjectPersistenceTestError.saveFailed
+
+        let didUpdate = editor.setLogo(project, croppedImage: image)
+
+        #expect(didUpdate)
+        #expect(projectStore.storedProjects.first?.logo == filename)
+        #expect(try Data(contentsOf: logoURL) != Data([0]))
+    }
+
+    @Test("removing a device-backed project cleans its logo")
+    func removeDeviceBackedProjectLogo() throws {
+        let projectID = UUID()
+        let filename = "\(projectID.uuidString).png"
+        try Data([0]).write(to: URL(fileURLWithPath: ProjectLogoStorage.logoPath(for: filename)))
+        var project = Project(id: projectID, name: "Remote", path: "~/remote", remoteDeviceID: UUID())
+        project.logo = filename
+        let store = ProjectStore(persistence: ProjectPersistenceStub(initial: [project]))
+
+        #expect(store.remove(id: project.id))
+        #expect(!FileManager.default.fileExists(atPath: ProjectLogoStorage.logoPath(for: filename)))
     }
 
     @Test("setPinned ignores the Home project")

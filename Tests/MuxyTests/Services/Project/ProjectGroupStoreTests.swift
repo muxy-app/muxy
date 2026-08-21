@@ -465,32 +465,142 @@ struct ProjectGroupStoreTests {
         #expect(persistence.savedGroups?.first?.remoteProjects.isEmpty == true)
     }
 
-    @Test("renameRemoteProject updates the name and persists")
-    func renameRemoteProject() {
+    @Test("project editing updates remote metadata and persists")
+    func editRemoteProject() {
         let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
         let group = ProjectGroup(name: "Remote", type: .ssh, remoteDeviceID: device.id)
         let persistence = ProjectGroupPersistenceStub(initial: [group])
         let store = makeStore(persistence: persistence, devices: [device])
-        let project = store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+        let remote = store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)!
+        let project = remote.asProject(workspaceID: group.id, sortOrder: 0)
+        let projectStore = ProjectStore(persistence: ProjectManagementPersistenceStub(initial: []))
+        let editor = ProjectEditingService(projectStore: projectStore, projectGroupStore: store)
 
-        store.renameRemoteProject(id: project!.id, to: "service")
+        editor.rename(project, to: "service")
+        editor.setLogo(project, to: "logo.png")
+        editor.setIcon(project, to: "server.rack")
+        editor.setIconColor(project, to: "blue")
+        editor.setWorktreesEnabled(project, to: true)
+        editor.setPinned(project, to: true)
 
-        #expect(store.groups.first?.remoteProjects.first?.name == "service")
-        #expect(persistence.savedGroups?.first?.remoteProjects.first?.name == "service")
+        let edited = store.groups.first?.remoteProjects.first
+        #expect(edited?.name == "service")
+        #expect(edited?.logo == "logo.png")
+        #expect(edited?.icon == "server.rack")
+        #expect(edited?.iconColor == "blue")
+        #expect(edited?.worktreesEnabled == true)
+        #expect(edited?.isPinned == true)
+        #expect(persistence.savedGroups?.first?.remoteProjects.first == edited)
+        #expect(projectStore.storedProjects.isEmpty)
     }
 
-    @Test("setRemoteProjectWorktreesEnabled toggles the flag and persists")
-    func setRemoteProjectWorktreesEnabled() {
-        let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
-        let group = ProjectGroup(name: "Remote", type: .ssh, remoteDeviceID: device.id)
+    @Test("failed remote editing preserves in-memory and persisted metadata")
+    func failedRemoteProjectEdit() throws {
+        let projectID = UUID()
+        let logo = try createStoredLogo(projectID: projectID)
+        defer { ProjectLogoStorage.remove(forProjectID: projectID) }
+        let remote = RemoteProject(id: projectID, name: "api", path: "~/code/api", logo: logo)
+        let group = ProjectGroup(name: "Remote", type: .ssh, remoteProjects: [remote])
         let persistence = ProjectGroupPersistenceStub(initial: [group])
-        let store = makeStore(persistence: persistence, devices: [device])
-        let project = store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+        let store = makeStore(persistence: persistence)
+        let projectStore = ProjectStore(persistence: ProjectManagementPersistenceStub(initial: []))
+        let editor = ProjectEditingService(projectStore: projectStore, projectGroupStore: store)
+        persistence.saveError = ProjectGroupSaveError()
 
-        store.setRemoteProjectWorktreesEnabled(id: project!.id, to: true)
+        let project = remote.asProject(workspaceID: group.id, sortOrder: 0)
+        let didUpdate = editor.setPinned(project, to: true)
+        let didRemoveLogo = editor.setLogo(project, to: nil)
 
-        #expect(store.groups.first?.remoteProjects.first?.worktreesEnabled == true)
-        #expect(persistence.savedGroups?.first?.remoteProjects.first?.worktreesEnabled == true)
+        #expect(!didUpdate)
+        #expect(!didRemoveLogo)
+        #expect(store.groups.first?.remoteProjects.first?.isPinned == false)
+        #expect(store.groups.first?.remoteProjects.first?.logo == logo)
+        #expect(persistence.groups.first?.remoteProjects.first?.isPinned == false)
+        #expect(FileManager.default.fileExists(atPath: ProjectLogoStorage.logoPath(for: logo)))
+    }
+
+    @Test("remote project removal deletes its logo only after persistence succeeds")
+    func remoteProjectRemovalLogoTransaction() throws {
+        let projectID = UUID()
+        let logo = try createStoredLogo(projectID: projectID)
+        defer { ProjectLogoStorage.remove(forProjectID: projectID) }
+        let remote = RemoteProject(id: projectID, name: "api", path: "~/code/api", logo: logo)
+        let group = ProjectGroup(name: "Remote", type: .ssh, remoteProjects: [remote])
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = makeStore(persistence: persistence)
+        persistence.saveError = ProjectGroupSaveError()
+
+        #expect(!store.removeRemoteProject(id: projectID, fromGroup: group.id))
+        #expect(store.groups.first?.remoteProjects.first?.id == projectID)
+        #expect(FileManager.default.fileExists(atPath: ProjectLogoStorage.logoPath(for: logo)))
+
+        persistence.saveError = nil
+
+        #expect(store.removeRemoteProject(id: projectID, fromGroup: group.id))
+        #expect(store.groups.first?.remoteProjects.isEmpty == true)
+        #expect(!FileManager.default.fileExists(atPath: ProjectLogoStorage.logoPath(for: logo)))
+    }
+
+    @Test("remote workspace removal cleans project logos after persistence")
+    func remoteWorkspaceRemovalCleansLogos() throws {
+        let projectID = UUID()
+        let logo = try createStoredLogo(projectID: projectID)
+        let remote = RemoteProject(id: projectID, name: "api", path: "~/code/api", logo: logo)
+        let group = ProjectGroup(name: "Remote", type: .ssh, remoteProjects: [remote])
+        let store = makeStore(persistence: ProjectGroupPersistenceStub(initial: [group]))
+
+        #expect(store.removeGroup(id: group.id))
+        #expect(store.groups.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: ProjectLogoStorage.logoPath(for: logo)))
+    }
+
+    @Test("failed device workspace removal preserves groups and logos")
+    func failedDeviceWorkspaceRemoval() throws {
+        let deviceID = UUID()
+        let projectID = UUID()
+        let logo = try createStoredLogo(projectID: projectID)
+        defer { ProjectLogoStorage.remove(forProjectID: projectID) }
+        let remote = RemoteProject(id: projectID, name: "api", path: "~/code/api", logo: logo)
+        let group = ProjectGroup(
+            name: "Remote",
+            type: .ssh,
+            remoteDeviceID: deviceID,
+            remoteProjects: [remote]
+        )
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = makeStore(persistence: persistence)
+        persistence.saveError = ProjectGroupSaveError()
+
+        #expect(!store.removeWorkspaces(usingDevice: deviceID))
+        #expect(store.groups.first?.id == group.id)
+        #expect(FileManager.default.fileExists(atPath: ProjectLogoStorage.logoPath(for: logo)))
+    }
+
+    @Test("pinned remote projects are listed first")
+    func pinnedRemoteProjectsFirst() {
+        let first = RemoteProject(name: "first", path: "~/code/first")
+        let pinned = RemoteProject(name: "pinned", path: "~/code/pinned", isPinned: true)
+        let group = ProjectGroup(name: "Remote", type: .ssh, remoteProjects: [first, pinned])
+        let store = makeStore(persistence: ProjectGroupPersistenceStub(initial: [group]))
+        store.selectGroup(id: group.id)
+
+        let projects = store.displayProjects(localProjects: [], sortMode: .manual)
+
+        #expect(projects.map(\.name) == ["pinned", "first"])
+    }
+
+    @Test("remote projects honor the selected sort mode after pinned partitioning")
+    func remoteProjectSortMode() {
+        let zebra = RemoteProject(name: "Zebra", path: "~/code/zebra")
+        let alpha = RemoteProject(name: "Alpha", path: "~/code/alpha")
+        let pinned = RemoteProject(name: "Pinned", path: "~/code/pinned", isPinned: true)
+        let group = ProjectGroup(name: "Remote", type: .ssh, remoteProjects: [zebra, pinned, alpha])
+        let store = makeStore(persistence: ProjectGroupPersistenceStub(initial: [group]))
+        store.selectGroup(id: group.id)
+
+        let projects = store.displayProjects(localProjects: [], sortMode: .nameAscending)
+
+        #expect(projects.map(\.name) == ["Pinned", "Alpha", "Zebra"])
     }
 
     @Test("loading a legacy ssh group migrates its inline data into a device")
@@ -626,16 +736,36 @@ struct ProjectGroupStoreTests {
         #expect(persistence.storedActiveGroupID == target.id)
     }
 
-    @Test("RemoteProject.asProject preserves the worktrees flag and workspace id")
+    @Test("RemoteProject.asProject preserves editable metadata and workspace id")
     func remoteProjectAsProjectRoundTrip() {
         let workspaceID = UUID()
-        let remote = RemoteProject(name: "api", path: "~/code/api", worktreesEnabled: true)
+        let remote = RemoteProject(
+            name: "api",
+            path: "~/code/api",
+            icon: "server.rack",
+            logo: "logo.png",
+            iconColor: "blue",
+            worktreesEnabled: true,
+            isPinned: true
+        )
 
         let project = remote.asProject(workspaceID: workspaceID, sortOrder: 3)
 
         #expect(project.id == remote.id)
+        #expect(project.icon == "server.rack")
+        #expect(project.logo == "logo.png")
+        #expect(project.iconColor == "blue")
         #expect(project.worktreesEnabled == true)
+        #expect(project.isPinned == true)
         #expect(project.remoteWorkspaceID == workspaceID)
         #expect(project.sortOrder == 3)
     }
+
+    private func createStoredLogo(projectID: UUID) throws -> String {
+        let filename = "\(projectID.uuidString).png"
+        try Data([0]).write(to: URL(fileURLWithPath: ProjectLogoStorage.logoPath(for: filename)))
+        return filename
+    }
 }
+
+private struct ProjectGroupSaveError: Error {}

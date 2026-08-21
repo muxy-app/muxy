@@ -568,13 +568,7 @@ struct ProjectFocusedSidebar: View {
                     worktreeExpansion.resolveAutoExpand(projectID: project.id, isEligible: isEligible)
                 },
                 onSelect: { select(project) },
-                onRemove: { remove(project) },
-                onRename: { renameProject(project, to: $0) },
-                onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
-                onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
-                onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) },
-                onSetWorktreesEnabled: { setWorktreesEnabled(project, to: $0) },
-                onSetPinned: { projectStore.setPinned(id: project.id, to: $0) }
+                onRemove: { remove(project) }
             )
         } else {
             ProjectRow(
@@ -582,13 +576,7 @@ struct ProjectFocusedSidebar: View {
                 shortcutIndex: shortcutIndex,
                 isAnyDragging: dragState.draggedID != nil,
                 onSelect: { select(project) },
-                onRemove: { remove(project) },
-                onRename: { renameProject(project, to: $0) },
-                onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
-                onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
-                onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) },
-                onSetWorktreesEnabled: { setWorktreesEnabled(project, to: $0) },
-                onSetPinned: { projectStore.setPinned(id: project.id, to: $0) }
+                onRemove: { remove(project) }
             )
         }
     }
@@ -608,25 +596,6 @@ struct ProjectFocusedSidebar: View {
               projectCandidates.first(where: { $0.id == projectID })?.worktreesEnabled == true
         else { return }
         worktreeExpansion.requestAutoExpand(projectID: projectID)
-    }
-
-    private func renameProject(_ project: Project, to name: String) {
-        guard project.remoteWorkspaceID == nil else {
-            projectGroupStore.renameRemoteProject(id: project.id, to: name)
-            return
-        }
-        projectStore.rename(id: project.id, to: name)
-    }
-
-    private func setWorktreesEnabled(_ project: Project, to enabled: Bool) {
-        if !enabled {
-            worktreeExpansion[project.id] = false
-        }
-        guard project.remoteWorkspaceID == nil else {
-            projectGroupStore.setRemoteProjectWorktreesEnabled(id: project.id, to: enabled)
-            return
-        }
-        projectStore.setWorktreesEnabled(id: project.id, to: enabled)
     }
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
