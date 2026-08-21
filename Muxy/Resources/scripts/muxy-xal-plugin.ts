@@ -16,6 +16,11 @@ interface XalPluginContext {
 
 type Phase = "working" | "finished";
 
+interface HookDeliveryResult {
+  delivered: boolean;
+  reason: string;
+}
+
 const HOOK_TIMEOUT_MS = 2000;
 const MAX_BODY_LENGTH = 200;
 
@@ -38,14 +43,19 @@ const normalizedHookInput = (phase: Phase, body: string) => {
   ] as const;
 };
 
-const invokeHookBinary = async (phase: Phase, body: string) => {
+const invokeHookBinary = async (
+  phase: Phase,
+  body: string,
+): Promise<HookDeliveryResult> => {
   const hookBinary = stagedHookBinaryPath();
-  if (!hookBinary) return false;
+  if (!hookBinary) {
+    return { delivered: false, reason: "muxy-hook binary is not staged" };
+  }
   try {
     const { access, constants } = await import("node:fs/promises");
     await access(hookBinary, constants.X_OK);
   } catch {
-    return false;
+    return { delivered: false, reason: "muxy-hook binary is not staged" };
   }
 
   const [event, input] = normalizedHookInput(phase, body);
@@ -64,34 +74,50 @@ const invokeHookBinary = async (phase: Phase, body: string) => {
       ],
       { env: process.env, stdio: ["pipe", "ignore", "ignore"] },
     );
-    await new Promise<void>((resolve) => {
+    return await new Promise<HookDeliveryResult>((resolve) => {
       let settled = false;
-      const finish = () => {
+      const finish = (result: HookDeliveryResult) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve();
+        resolve(result);
       };
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
-        finish();
+        finish({ delivered: false, reason: "muxy-hook timed out" });
       }, HOOK_TIMEOUT_MS);
-      child.on("error", finish);
-      child.on("close", finish);
-      child.stdin.on("error", () => {
+      child.on("error", (error) => {
+        finish({ delivered: false, reason: error.message });
+      });
+      child.on("close", (code, signal) => {
+        finish(
+          code === 0
+            ? { delivered: true, reason: "" }
+            : {
+                delivered: false,
+                reason: `muxy-hook exited with ${code ?? signal ?? "unknown status"}`,
+              },
+        );
+      });
+      child.stdin.on("error", (error) => {
         child.kill("SIGKILL");
-        finish();
+        finish({ delivered: false, reason: error.message });
       });
       child.stdin.end(JSON.stringify(input));
     });
-  } catch {}
-  return true;
+  } catch (error) {
+    return {
+      delivered: false,
+      reason: error instanceof Error ? error.message : "muxy-hook launch failed",
+    };
+  }
 };
 
 const sendEvent = async (phase: Phase, body = "") => {
-  if (await invokeHookBinary(phase, body)) return;
+  const result = await invokeHookBinary(phase, body);
+  if (result.delivered) return;
   process.stderr.write(
-    `[muxy-xal] muxy-hook binary is not staged; skipping ${phase} event\n`,
+    `[muxy-xal] failed to deliver ${phase} event: ${result.reason}\n`,
   );
 };
 

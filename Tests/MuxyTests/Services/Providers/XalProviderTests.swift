@@ -173,6 +173,57 @@ struct XalProviderTests {
             try fixture.provider().install(hookScriptPath: fixture.sourceURL.path)
         }
         #expect(try Data(contentsOf: fixture.configurationURL) == Data("not json".utf8))
+        #expect(!FileManager.default.fileExists(atPath: fixture.pluginDirectoryURL.path))
+    }
+
+    @Test("install rejects a non-array plugins value without changing configuration")
+    func installRejectsInvalidPluginsConfiguration() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.writeConfiguration(["plugins": "/opt/other-plugin"])
+        let originalConfiguration = try Data(contentsOf: fixture.configurationURL)
+
+        #expect(throws: XalProviderError.invalidPluginsConfiguration(fixture.configurationURL.path)) {
+            try fixture.provider().install(hookScriptPath: fixture.sourceURL.path)
+        }
+        #expect(try Data(contentsOf: fixture.configurationURL) == originalConfiguration)
+        #expect(!FileManager.default.fileExists(atPath: fixture.pluginDirectoryURL.path))
+    }
+
+    @Test("install removes a new plugin directory when configuration writing fails")
+    func installRollsBackNewPluginOnConfigurationWriteFailure() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let provider = fixture.provider(configurationWriter: { _, _ in
+            throw ConfigurationWriteError.failed
+        })
+
+        #expect(throws: ConfigurationWriteError.failed) {
+            try provider.install(hookScriptPath: fixture.sourceURL.path)
+        }
+        #expect(!FileManager.default.fileExists(atPath: fixture.pluginDirectoryURL.path))
+    }
+
+    @Test("install restores an existing plugin when configuration writing fails")
+    func installRestoresPluginOnConfigurationWriteFailure() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try FileManager.default.createDirectory(at: fixture.pluginDirectoryURL, withIntermediateDirectories: true)
+        let originalData = Data("existing plugin".utf8)
+        try originalData.write(to: fixture.pluginURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.executable],
+            ofItemAtPath: fixture.pluginURL.path
+        )
+        let provider = fixture.provider(configurationWriter: { _, _ in
+            throw ConfigurationWriteError.failed
+        })
+
+        #expect(throws: ConfigurationWriteError.failed) {
+            try provider.install(hookScriptPath: fixture.sourceURL.path)
+        }
+        #expect(try Data(contentsOf: fixture.pluginURL) == originalData)
+        #expect(try fixture.permissions(of: fixture.pluginURL) == FilePermissions.executable)
     }
 
     @Test("isToolInstalled finds the CLI in the default install location")
@@ -192,6 +243,10 @@ struct XalProviderTests {
         try fixture.writeExecutable(at: binURL.appendingPathComponent("xal"))
 
         #expect(fixture.provider(pathEnvironment: binURL.path).isToolInstalled())
+    }
+
+    private enum ConfigurationWriteError: Error, Equatable {
+        case failed
     }
 
     private struct Fixture {
@@ -215,8 +270,17 @@ struct XalProviderTests {
             try Data("plugin source".utf8).write(to: sourceURL)
         }
 
-        func provider(pathEnvironment: String = "") -> XalProvider {
-            XalProvider(homeDirectory: homeURL.path, pathEnvironment: pathEnvironment)
+        func provider(
+            pathEnvironment: String = "",
+            configurationWriter: @escaping ([String: Any], String) throws -> Void = {
+                try HookConfigWriter.write($0, to: $1)
+            }
+        ) -> XalProvider {
+            XalProvider(
+                homeDirectory: homeURL.path,
+                pathEnvironment: pathEnvironment,
+                configurationWriter: configurationWriter
+            )
         }
 
         func writeConfiguration(_ configuration: [String: Any]) throws {

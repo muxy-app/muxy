@@ -157,8 +157,8 @@ struct MuxyNotificationHooksTests {
         #expect(!contents.contains("MUXY_AGENT_EVENT_PROTOCOL"))
     }
 
-    @Test("Xal invokes the bridge and logs when the binary is missing")
-    func xalUsesBridgeOnly() throws {
+    @Test("Xal invokes the bridge and reports delivery failures")
+    func xalReportsBridgeDeliveryFailures() throws {
         let contents = try String(
             contentsOf: Self.repositoryRoot.appendingPathComponent("Muxy/Resources/scripts/muxy-xal-plugin.ts"),
             encoding: .utf8
@@ -168,11 +168,64 @@ struct MuxyNotificationHooksTests {
         #expect(contents.contains("node:child_process"))
         #expect(contents.contains("agent-event"))
         #expect(contents.contains("muxy-hook binary is not staged"))
+        #expect(contents.contains("failed to deliver ${phase} event"))
+        #expect(contents.contains("muxy-hook exited with"))
+        #expect(contents.contains("muxy-hook timed out"))
         #expect(contents.contains("hookCtx.session.kind !== \"primary\""))
         #expect(!contents.contains("agent_status|"))
         #expect(!contents.contains("agent_event|"))
         #expect(!contents.contains("createConnection"))
         #expect(!contents.contains("MUXY_AGENT_EVENT_PROTOCOL"))
+    }
+
+    @Test("Xal reports a nonzero bridge exit at runtime")
+    func xalReportsNonzeroBridgeExitAtRuntime() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuxyXalPluginRuntimeTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bridgeURL = directory.appendingPathComponent("muxy-hook")
+        try Data("#!/bin/sh\ncat >/dev/null\nexit 17\n".utf8).write(to: bridgeURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateExecutable],
+            ofItemAtPath: bridgeURL.path
+        )
+        let pluginURL = Self.repositoryRoot
+            .appendingPathComponent("Muxy/Resources/scripts/muxy-xal-plugin.ts")
+        let encodedPluginURL = try #require(String(
+            data: JSONSerialization.data(withJSONObject: pluginURL.absoluteString, options: [.fragmentsAllowed]),
+            encoding: .utf8
+        ))
+        let runnerURL = directory.appendingPathComponent("runner.mjs")
+        let runner = """
+        import plugin from \(encodedPluginURL);
+        let registeredHook;
+        plugin.register({ registerHook(hook) { registeredHook = hook; } });
+        if (!registeredHook) throw new Error("Xal hook was not registered");
+        await registeredHook.prompt({}, { session: { kind: "primary" } });
+        """
+        try Data(runner.utf8).write(to: runnerURL)
+
+        let process = Process()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["node", "--experimental-strip-types", runnerURL.path]
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            ["MUXY_HOOK_BIN": bridgeURL.path],
+            uniquingKeysWith: { _, override in override }
+        )
+        process.standardError = standardError
+        process.standardOutput = Pipe()
+        try process.run()
+        process.waitUntilExit()
+
+        let errorOutput = try #require(String(
+            data: standardError.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        #expect(process.terminationStatus == 0)
+        #expect(errorOutput.contains("failed to deliver working event"))
+        #expect(errorOutput.contains("muxy-hook exited with 17"))
     }
 
     private func temporaryBundle() throws -> URL {
