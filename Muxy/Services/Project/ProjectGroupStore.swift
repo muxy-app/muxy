@@ -329,6 +329,7 @@ final class ProjectGroupStore {
         do {
             try persistence.saveProjectGroups(updatedGroups)
             groups = updatedGroups
+            onProjectsChanged?()
             return true
         } catch {
             logger.error("Failed to save project groups: \(error)")
