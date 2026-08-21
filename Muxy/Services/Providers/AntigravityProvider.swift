@@ -15,7 +15,7 @@ struct AntigravityProvider: AIProviderIntegration, AIAgentLaunchProvider {
                 "--print",
                 "--output-format",
                 "text",
-                "--dangerously-skip-permissions",
+                "--mode=plan",
             ]
         )
     }

@@ -116,6 +116,52 @@ struct MuxyNotificationHooksTests {
             .appendingPathComponent("Muxy/Resources/scripts/muxy-agent-hook.sh").path))
     }
 
+    @Test("Antigravity shim returns required hook responses")
+    func antigravityShimReturnsHookResponses() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuxyAntigravityHookTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let scriptURL = directory.appendingPathComponent("muxy-antigravity-hook.sh")
+        try FileManager.default.copyItem(
+            at: Self.repositoryRoot.appendingPathComponent("Muxy/Resources/scripts/muxy-antigravity-hook.sh"),
+            to: scriptURL
+        )
+        let bridgeURL = directory.appendingPathComponent("muxy-hook")
+        try Data("#!/bin/sh\ncat >/dev/null\n".utf8).write(to: bridgeURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateExecutable],
+            ofItemAtPath: bridgeURL.path
+        )
+
+        let expectedResponses = [
+            "PreToolUse": "{\"decision\":\"allow\"}\n",
+            "PostToolUse": "{}\n",
+            "PreInvocation": "{}\n",
+            "Stop": "{\"decision\":\"stop\"}\n",
+        ]
+        for (event, expectedResponse) in expectedResponses {
+            let process = Process()
+            let standardInput = Pipe()
+            let standardOutput = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [scriptURL.path, event]
+            process.standardInput = standardInput
+            process.standardOutput = standardOutput
+            try process.run()
+            try standardInput.fileHandleForWriting.close()
+            process.waitUntilExit()
+
+            let output = try #require(String(
+                data: standardOutput.fileHandleForReading.readToEnd() ?? Data(),
+                encoding: .utf8
+            ))
+            #expect(process.terminationStatus == 0)
+            #expect(output == expectedResponse)
+        }
+    }
+
     @Test("OpenCode invokes the bridge and reports delivery failures")
     func openCodeReportsBridgeDeliveryFailures() throws {
         let contents = try String(

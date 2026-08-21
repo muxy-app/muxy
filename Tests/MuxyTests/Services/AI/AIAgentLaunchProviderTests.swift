@@ -59,7 +59,7 @@ struct AIAgentLaunchProviderTests {
                     "--print",
                     "--output-format",
                     "text",
-                    "--dangerously-skip-permissions",
+                    "--mode=plan",
                     prompt,
                 ]
             ),
