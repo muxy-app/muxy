@@ -390,7 +390,9 @@ final class OutputReader: @unchecked Sendable {
                 read(descriptor, bytes.baseAddress, bytes.count)
             }
             if bytesRead > 0 {
-                callbackEvents.append(.data(Data(buffer.prefix(Int(bytesRead)))))
+                let data = Data(buffer.prefix(Int(bytesRead)))
+                box.append(data)
+                callbackEvents.append(.data(data))
                 continue
             }
             if bytesRead == -1, errno == EINTR {
@@ -415,6 +417,7 @@ final class OutputReader: @unchecked Sendable {
         }
         let data = handle.availableData
         if !data.isEmpty {
+            box.append(data)
             callbackEvents.append(.data(data))
             let shouldDeliver = beginDeliveringCallbacks()
             lock.unlock()
@@ -452,7 +455,6 @@ final class OutputReader: @unchecked Sendable {
             lock.unlock()
             switch event {
             case let .data(data):
-                box.append(data)
                 onData?(data)
             case .finish:
                 onFinish?()
