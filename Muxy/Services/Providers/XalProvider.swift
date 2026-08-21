@@ -21,17 +21,22 @@ struct XalProvider: AIProviderIntegration, AIAgentLaunchProvider {
     private let homeDirectory: String
     private let pathEnvironment: @Sendable () -> String
     private let configurationWriter: ([String: Any], String) throws -> Void
+    private let pluginDirectoryRemover: (String) throws -> Void
 
     init(
         homeDirectory: String = NSHomeDirectory(),
         pathEnvironment: @escaping @Sendable () -> String = { LoginShellPath.current },
         configurationWriter: @escaping ([String: Any], String) throws -> Void = {
             try HookConfigWriter.write($0, to: $1)
+        },
+        pluginDirectoryRemover: @escaping (String) throws -> Void = {
+            try FileManager.default.removeItem(atPath: $0)
         }
     ) {
         self.homeDirectory = homeDirectory
         self.pathEnvironment = pathEnvironment
         self.configurationWriter = configurationWriter
+        self.pluginDirectoryRemover = pluginDirectoryRemover
     }
 
     init(
@@ -39,12 +44,16 @@ struct XalProvider: AIProviderIntegration, AIAgentLaunchProvider {
         pathEnvironment: String,
         configurationWriter: @escaping ([String: Any], String) throws -> Void = {
             try HookConfigWriter.write($0, to: $1)
+        },
+        pluginDirectoryRemover: @escaping (String) throws -> Void = {
+            try FileManager.default.removeItem(atPath: $0)
         }
     ) {
         self.init(
             homeDirectory: homeDirectory,
             pathEnvironment: { pathEnvironment },
-            configurationWriter: configurationWriter
+            configurationWriter: configurationWriter,
+            pluginDirectoryRemover: pluginDirectoryRemover
         )
     }
 
@@ -57,6 +66,11 @@ struct XalProvider: AIProviderIntegration, AIAgentLaunchProvider {
         let directoryExisted: Bool
         let data: Data?
         let permissions: Int?
+    }
+
+    private struct ConfigurationChange {
+        let original: [String: Any]
+        let updated: [String: Any]
     }
 
     var configPaths: [String] { [pluginPath, configurationPath] }
@@ -114,10 +128,26 @@ struct XalProvider: AIProviderIntegration, AIAgentLaunchProvider {
     }
 
     func uninstall() throws {
-        if FileManager.default.fileExists(atPath: pluginDirectory) {
-            try FileManager.default.removeItem(atPath: pluginDirectory)
+        let configurationChange = try configurationUnregisteringPlugin()
+        if let configurationChange {
+            do {
+                try configurationWriter(configurationChange.updated, configurationPath)
+            } catch {
+                try configurationWriter(configurationChange.original, configurationPath)
+                throw error
+            }
         }
-        try unregisterPluginFromConfiguration()
+
+        do {
+            if FileManager.default.fileExists(atPath: pluginDirectory) {
+                try pluginDirectoryRemover(pluginDirectory)
+            }
+        } catch {
+            if let configurationChange {
+                try configurationWriter(configurationChange.original, configurationPath)
+            }
+            throw error
+        }
     }
 
     private func configurationRegisteringPlugin() throws -> [String: Any]? {
@@ -187,19 +217,22 @@ struct XalProvider: AIProviderIntegration, AIAgentLaunchProvider {
         HookConfigWriteLedger.shared.recordWrite(path: pluginPath, contents: data)
     }
 
-    private func unregisterPluginFromConfiguration() throws {
-        guard FileManager.default.fileExists(atPath: configurationPath) else { return }
-        var configuration = try readConfiguration()
-        guard var plugins = configuration["plugins"] as? [String],
-              plugins.contains(pluginDirectory)
-        else { return }
-        plugins.removeAll { $0 == pluginDirectory }
-        if plugins.isEmpty {
-            configuration.removeValue(forKey: "plugins")
-        } else {
-            configuration["plugins"] = plugins
+    private func configurationUnregisteringPlugin() throws -> ConfigurationChange? {
+        guard FileManager.default.fileExists(atPath: configurationPath) else { return nil }
+        let original = try readConfiguration()
+        guard let configuredPlugins = original["plugins"] else { return nil }
+        guard var plugins = configuredPlugins as? [String] else {
+            throw XalProviderError.invalidPluginsConfiguration(configurationPath)
         }
-        try configurationWriter(configuration, configurationPath)
+        guard plugins.contains(pluginDirectory) else { return nil }
+        plugins.removeAll { $0 == pluginDirectory }
+        var updated = original
+        if plugins.isEmpty {
+            updated.removeValue(forKey: "plugins")
+        } else {
+            updated["plugins"] = plugins
+        }
+        return ConfigurationChange(original: original, updated: updated)
     }
 
     private func isRegisteredInConfiguration() -> Bool {

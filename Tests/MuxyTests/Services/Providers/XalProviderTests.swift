@@ -151,6 +151,43 @@ struct XalProviderTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.configurationURL.path))
     }
 
+    @Test("uninstall preserves the plugin when configuration writing fails")
+    func uninstallPreservesPluginOnConfigurationWriteFailure() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.provider().install(hookScriptPath: fixture.sourceURL.path)
+        let originalConfiguration = try Data(contentsOf: fixture.configurationURL)
+        let originalPlugin = try Data(contentsOf: fixture.pluginURL)
+        let failingWriter = FailingConfigurationWriter()
+        let provider = fixture.provider(configurationWriter: failingWriter.write)
+
+        #expect(throws: ConfigurationWriteError.failed) {
+            try provider.uninstall()
+        }
+        #expect(try Data(contentsOf: fixture.configurationURL) == originalConfiguration)
+        #expect(try Data(contentsOf: fixture.pluginURL) == originalPlugin)
+        #expect(provider.hasManagedState())
+    }
+
+    @Test("uninstall restores configuration when plugin deletion fails")
+    func uninstallRestoresConfigurationOnPluginDeletionFailure() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try fixture.provider().install(hookScriptPath: fixture.sourceURL.path)
+        let originalConfiguration = try Data(contentsOf: fixture.configurationURL)
+        let originalPlugin = try Data(contentsOf: fixture.pluginURL)
+        let provider = fixture.provider(pluginDirectoryRemover: { _ in
+            throw PluginRemovalError.failed
+        })
+
+        #expect(throws: PluginRemovalError.failed) {
+            try provider.uninstall()
+        }
+        #expect(try Data(contentsOf: fixture.configurationURL) == originalConfiguration)
+        #expect(try Data(contentsOf: fixture.pluginURL) == originalPlugin)
+        #expect(provider.hasManagedState())
+    }
+
     @Test("install throws when the staged resource is missing")
     func installThrowsWhenResourceMissing() throws {
         let fixture = try Fixture()
@@ -249,6 +286,21 @@ struct XalProviderTests {
         case failed
     }
 
+    private enum PluginRemovalError: Error, Equatable {
+        case failed
+    }
+
+    private final class FailingConfigurationWriter {
+        private var shouldFail = true
+
+        func write(_ configuration: [String: Any], _ path: String) throws {
+            try HookConfigWriter.write(configuration, to: path)
+            guard shouldFail else { return }
+            shouldFail = false
+            throw ConfigurationWriteError.failed
+        }
+    }
+
     private struct Fixture {
         let rootURL: URL
         let homeURL: URL
@@ -274,12 +326,16 @@ struct XalProviderTests {
             pathEnvironment: String = "",
             configurationWriter: @escaping ([String: Any], String) throws -> Void = {
                 try HookConfigWriter.write($0, to: $1)
+            },
+            pluginDirectoryRemover: @escaping (String) throws -> Void = {
+                try FileManager.default.removeItem(atPath: $0)
             }
         ) -> XalProvider {
             XalProvider(
                 homeDirectory: homeURL.path,
                 pathEnvironment: pathEnvironment,
-                configurationWriter: configurationWriter
+                configurationWriter: configurationWriter,
+                pluginDirectoryRemover: pluginDirectoryRemover
             )
         }
 
