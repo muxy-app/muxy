@@ -466,12 +466,12 @@ struct ProjectGroupStoreTests {
     }
 
     @Test("project editing updates remote metadata and persists")
-    func editRemoteProject() {
+    func editRemoteProject() throws {
         let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
         let group = ProjectGroup(name: "Remote", type: .ssh, remoteDeviceID: device.id)
         let persistence = ProjectGroupPersistenceStub(initial: [group])
         let store = makeStore(persistence: persistence, devices: [device])
-        let remote = store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)!
+        let remote = try #require(store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id))
         let project = remote.asProject(workspaceID: group.id, sortOrder: 0)
         let projectStore = ProjectStore(persistence: ProjectManagementPersistenceStub(initial: []))
         let editor = ProjectEditingService(projectStore: projectStore, projectGroupStore: store)
@@ -545,6 +545,7 @@ struct ProjectGroupStoreTests {
     func remoteWorkspaceRemovalCleansLogos() throws {
         let projectID = UUID()
         let logo = try createStoredLogo(projectID: projectID)
+        defer { ProjectLogoStorage.remove(forProjectID: projectID) }
         let remote = RemoteProject(id: projectID, name: "api", path: "~/code/api", logo: logo)
         let group = ProjectGroup(name: "Remote", type: .ssh, remoteProjects: [remote])
         let store = makeStore(persistence: ProjectGroupPersistenceStub(initial: [group]))

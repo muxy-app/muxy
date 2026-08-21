@@ -34,13 +34,17 @@ final class ProjectGroupPersistenceStub: ProjectGroupPersisting {
 
 final class ProjectManagementPersistenceStub: ProjectPersisting {
     var projects: [Project]
+    var saveError: Error?
 
     init(initial: [Project]) {
         projects = initial
     }
 
     func loadProjects() throws -> [Project] { projects }
-    func saveProjects(_ projects: [Project]) throws { self.projects = projects }
+    func saveProjects(_ projects: [Project]) throws {
+        if let saveError { throw saveError }
+        self.projects = projects
+    }
 }
 
 final class ProjectManagementWorktreePersistenceStub: WorktreePersisting {
@@ -73,12 +77,14 @@ final class ProjectManagementTerminalViewRemovingStub: TerminalViewRemoving {
 @MainActor
 struct ProjectManagementEnvironment {
     let appState: AppState
+    let projectPersistence: ProjectManagementPersistenceStub
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
     let projectGroupStore: ProjectGroupStore
 
     init(projects: [Project] = []) {
-        projectStore = ProjectStore(persistence: ProjectManagementPersistenceStub(initial: projects))
+        projectPersistence = ProjectManagementPersistenceStub(initial: projects)
+        projectStore = ProjectStore(persistence: projectPersistence)
         worktreeStore = WorktreeStore(
             persistence: ProjectManagementWorktreePersistenceStub(),
             projects: projects

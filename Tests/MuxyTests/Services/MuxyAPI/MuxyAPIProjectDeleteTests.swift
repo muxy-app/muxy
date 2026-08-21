@@ -272,15 +272,15 @@ struct MuxyAPIProjectDeleteRoutingTests {
     }
 
     @Test("ProjectRemovalService preserves an SSH workspace project when group persistence fails")
-    func removalServicePreservesSSHWorkspaceProjectAfterPersistenceFailure() async {
+    func removalServicePreservesSSHWorkspaceProjectAfterPersistenceFailure() async throws {
         let groupPersistence = ProjectGroupPersistenceStub()
         let env = makeEnvironment(projects: [], groupPersistence: groupPersistence)
         let group = env.projectGroupStore.addRemoteWorkspace(name: "Remote", deviceID: UUID())
-        let remoteProject = env.projectGroupStore.addRemoteProject(
+        let remoteProject = try #require(env.projectGroupStore.addRemoteProject(
             name: "Repo",
             path: "~/repo",
             toGroup: group.id
-        )!
+        ))
         let project = remoteProject.asProject(workspaceID: group.id, sortOrder: 0)
         groupPersistence.saveError = ProjectGroupDeleteSaveError()
 

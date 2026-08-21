@@ -58,6 +58,30 @@ struct MuxyAPIProjectManagementRoutingTests {
         #expect(stored?.logo == "\(project.id.uuidString).png")
     }
 
+    @Test("metadata mutations report persistence failures")
+    func metadataPersistenceFailures() {
+        let project = Project(name: "Repo", path: "/tmp/muxy-meta-failure-\(UUID().uuidString)")
+        let env = ProjectManagementEnvironment(projects: [project])
+        let id = project.id.uuidString
+        env.projectPersistence.saveError = ProjectManagementSaveError()
+
+        let results = [
+            MuxyAPI.Projects.rename(identifier: id, name: "Renamed", context: env.context),
+            MuxyAPI.Projects.setColor(identifier: id, color: "#E5484D", context: env.context),
+            MuxyAPI.Projects.setIcon(identifier: id, icon: "star.fill", context: env.context),
+            MuxyAPI.Projects.setLogo(identifier: id, logo: "\(project.id.uuidString).png", context: env.context),
+        ]
+
+        for result in results {
+            guard case let .failure(error) = result else {
+                Issue.record("expected project metadata persistence failure")
+                continue
+            }
+            #expect(error == .underlying("could not save project changes"))
+        }
+        #expect(env.projectStore.storedProjects.first == project)
+    }
+
     @Test("setLogo rejects path traversal")
     func setLogoRejectsPathTraversal() {
         var project = Project(name: "Repo", path: "/tmp/muxy-logo-\(UUID().uuidString)")
@@ -315,3 +339,5 @@ struct MuxyAPIProjectManagementRoutingTests {
         return false
     }
 }
+
+private struct ProjectManagementSaveError: Error {}

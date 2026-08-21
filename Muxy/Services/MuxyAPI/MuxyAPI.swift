@@ -969,20 +969,20 @@ enum MuxyAPI {
             guard !trimmed.isEmpty else {
                 return .failure(.invalidArguments("name cannot be empty"))
             }
-            return resolveMutableProject(identifier, context: context).map {
-                context.projectStore.rename(id: $0.id, to: trimmed)
+            return resolveMutableProject(identifier, context: context).flatMap {
+                projectUpdateResult(context.projectStore.rename(id: $0.id, to: trimmed))
             }
         }
 
         static func setColor(identifier: String, color: String?, context: Context) -> Result<Void, APIError> {
-            resolveMutableProject(identifier, context: context).map {
-                context.projectStore.setIconColor(id: $0.id, to: color)
+            resolveMutableProject(identifier, context: context).flatMap {
+                projectUpdateResult(context.projectStore.setIconColor(id: $0.id, to: color))
             }
         }
 
         static func setIcon(identifier: String, icon: String?, context: Context) -> Result<Void, APIError> {
-            resolveMutableProject(identifier, context: context).map {
-                context.projectStore.setIcon(id: $0.id, to: icon)
+            resolveMutableProject(identifier, context: context).flatMap {
+                projectUpdateResult(context.projectStore.setIcon(id: $0.id, to: icon))
             }
         }
 
@@ -992,8 +992,7 @@ enum MuxyAPI {
                 if let logo, !ProjectLogoStorage.isStoredLogoFilename(logo, forProjectID: project.id) {
                     return .failure(.invalidArguments("invalid project logo"))
                 }
-                context.projectStore.setLogo(id: project.id, to: logo)
-                return .success(())
+                return projectUpdateResult(context.projectStore.setLogo(id: project.id, to: logo))
             case let .failure(error):
                 return .failure(error)
             }
@@ -1166,6 +1165,12 @@ enum MuxyAPI {
                 return .failure(.invalidArguments("remote projects cannot be modified"))
             }
             return .success(project)
+        }
+
+        private static func projectUpdateResult(_ didUpdate: Bool) -> Result<Void, APIError> {
+            didUpdate
+                ? .success(())
+                : .failure(.underlying("could not save project changes"))
         }
     }
 
