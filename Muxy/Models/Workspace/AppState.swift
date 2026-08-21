@@ -83,7 +83,7 @@ final class AppState {
     private let terminalViews: any TerminalViewRemoving
     private let workspacePersistence: any WorkspacePersisting
     var onProjectsEmptied: (([UUID]) -> Void)?
-    var onProjectSelected: ((UUID) -> Void)?
+    var onWorkspaceSelected: ((WorktreeKey) -> Void)?
 
     var activeProjectID: UUID?
 
@@ -174,6 +174,9 @@ final class AppState {
         activeProjectID = id
         recordCurrentNavigationEntry()
         recordActiveWorktreeUsage()
+        if let key = activeWorktreeKey(for: id) {
+            onWorkspaceSelected?(key)
+        }
     }
 
     func saveWorkspaces() {
@@ -219,14 +222,11 @@ final class AppState {
     }
 
     func selectProject(_ project: Project, worktree: Worktree) {
-        let wasActive = activeProjectID == project.id
         dispatch(.selectProject(
             projectID: project.id,
             worktreeID: worktree.id,
             worktreePath: worktree.path
         ))
-        guard !wasActive else { return }
-        onProjectSelected?(project.id)
     }
 
     func selectWorktree(projectID: UUID, worktree: Worktree) {
@@ -902,6 +902,7 @@ final class AppState {
             let after = ExtensionEventEmitter.snapshot(from: self)
             ExtensionEventEmitter.emit(before: extensionSnapshot, after: after)
         }
+        let previousActiveWorktreeKey = activeProjectID.flatMap { activeWorktreeKey(for: $0) }
 
         switch action {
         case let .focusPaneLeft(projectID),
@@ -960,6 +961,10 @@ final class AppState {
         }
         if activeWorktreeID != workspace.activeWorktreeID {
             activeWorktreeID = workspace.activeWorktreeID
+        }
+        let currentActiveWorktreeKey = activeProjectID.flatMap { activeWorktreeKey(for: $0) }
+        if currentActiveWorktreeKey != previousActiveWorktreeKey, let currentActiveWorktreeKey {
+            onWorkspaceSelected?(currentActiveWorktreeKey)
         }
         if currentWorkspaceRootSignature != workspaceRootSignature(workspace.workspaceRoots) {
             workspaceRoots = workspace.workspaceRoots

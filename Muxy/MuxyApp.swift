@@ -48,6 +48,14 @@ struct MuxyApp: App {
             persistence: environment.projectGroupPersistence,
             remoteDeviceStore: remoteDeviceStore
         )
+        appState.onWorkspaceSelected = { key in
+            if projectStore.storedProjects.contains(where: { $0.id == key.projectID }) {
+                projectStore.markActive(id: key.projectID)
+            } else {
+                projectGroupStore.markRemoteProjectActive(id: key.projectID)
+            }
+            worktreeStore.markActive(projectID: key.projectID, worktreeID: key.worktreeID)
+        }
         appState.restoreSelection(
             projects: projectStore.projects,
             worktrees: worktreeStore.worktrees,
@@ -174,9 +182,6 @@ struct MuxyApp: App {
                                 name: ExtensionEventName.projectsChanged,
                                 payload: [:]
                             ))
-                        }
-                        appState.onProjectSelected = { [projectStore] projectID in
-                            projectStore.markActive(id: projectID)
                         }
                         Task { @MainActor in
                             await Task.yield()

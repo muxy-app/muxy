@@ -6,31 +6,71 @@ import Testing
 @Suite("AppState.selectProject")
 @MainActor
 struct AppStateSelectProjectTests {
-    @Test("selecting a new project notifies onProjectSelected")
+    @Test("selecting a new project notifies onWorkspaceSelected")
     func notifiesOnNewSelection() {
         let project = Project(name: "api", path: "/tmp/api")
         let worktree = Worktree(name: project.name, path: project.path, isPrimary: true)
         let appState = makeAppState()
-        var selected: [UUID] = []
-        appState.onProjectSelected = { selected.append($0) }
+        var selected: [WorktreeKey] = []
+        appState.onWorkspaceSelected = { selected.append($0) }
 
         appState.selectProject(project, worktree: worktree)
 
-        #expect(selected == [project.id])
+        #expect(selected == [WorktreeKey(projectID: project.id, worktreeID: worktree.id)])
     }
 
-    @Test("reselecting the active project does not notify again")
+    @Test("reselecting the active workspace does not notify again")
     func skipsNotificationWhenAlreadyActive() {
         let project = Project(name: "api", path: "/tmp/api")
         let worktree = Worktree(name: project.name, path: project.path, isPrimary: true)
         let appState = makeAppState()
-        var selected: [UUID] = []
-        appState.onProjectSelected = { selected.append($0) }
+        var selected: [WorktreeKey] = []
+        appState.onWorkspaceSelected = { selected.append($0) }
 
         appState.selectProject(project, worktree: worktree)
         appState.selectProject(project, worktree: worktree)
 
-        #expect(selected == [project.id])
+        #expect(selected == [WorktreeKey(projectID: project.id, worktreeID: worktree.id)])
+    }
+
+    @Test("selecting another worktree notifies onWorkspaceSelected")
+    func notifiesOnWorktreeSelection() {
+        let project = Project(name: "api", path: "/tmp/api")
+        let primary = Worktree(name: project.name, path: project.path, isPrimary: true)
+        let feature = Worktree(name: "feature", path: "/tmp/api-feature", isPrimary: false)
+        let appState = makeAppState()
+        var selected: [WorktreeKey] = []
+        appState.onWorkspaceSelected = { selected.append($0) }
+
+        appState.selectProject(project, worktree: primary)
+        appState.selectWorktree(projectID: project.id, worktree: feature)
+
+        #expect(selected == [
+            WorktreeKey(projectID: project.id, worktreeID: primary.id),
+            WorktreeKey(projectID: project.id, worktreeID: feature.id),
+        ])
+    }
+
+    @Test("cycling projects notifies onWorkspaceSelected")
+    func notifiesWhenCyclingProjects() {
+        let projectA = Project(name: "api", path: "/tmp/api")
+        let projectB = Project(name: "web", path: "/tmp/web")
+        let worktreeA = Worktree(name: projectA.name, path: projectA.path, isPrimary: true)
+        let worktreeB = Worktree(name: projectB.name, path: projectB.path, isPrimary: true)
+        let appState = makeAppState()
+        var selected: [WorktreeKey] = []
+        appState.onWorkspaceSelected = { selected.append($0) }
+
+        appState.selectProject(projectA, worktree: worktreeA)
+        appState.selectNextProject(
+            projects: [projectA, projectB],
+            worktrees: [projectA.id: [worktreeA], projectB.id: [worktreeB]]
+        )
+
+        #expect(selected == [
+            WorktreeKey(projectID: projectA.id, worktreeID: worktreeA.id),
+            WorktreeKey(projectID: projectB.id, worktreeID: worktreeB.id),
+        ])
     }
 
     @Test("selecting projects swaps extension panels via the registry")

@@ -41,6 +41,20 @@ struct ProjectGroupStoreTests {
         #expect(changeCount == 2)
     }
 
+    @Test("remote project activity persists")
+    func remoteProjectActivityPersists() throws {
+        let remoteProject = RemoteProject(name: "API", path: "/srv/api")
+        let group = ProjectGroup(name: "Remote", type: .ssh, remoteProjects: [remoteProject])
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = makeStore(persistence: persistence)
+
+        store.markRemoteProjectActive(id: remoteProject.id)
+
+        let lastActiveAt = try #require(store.groups.first?.remoteProjects.first?.lastActiveAt)
+        let reloaded = makeStore(persistence: persistence)
+        #expect(reloaded.groups.first?.remoteProjects.first?.lastActiveAt == lastActiveAt)
+    }
+
     @Test("removeGroup deletes the group and persists")
     func removeGroup() {
         let group = ProjectGroup(name: "Work")

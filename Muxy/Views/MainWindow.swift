@@ -1420,7 +1420,7 @@ struct MainWindow: View {
                   isInspecting: worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
                   isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id)
               ),
-              worktreeStore.beginRemovalPreparation(worktree: worktree)
+              worktreeStore.beginRemovalPreparation(worktree: worktree, projectID: project.id)
         else { return }
         let request = WorktreeKey(projectID: project.id, worktreeID: worktree.id)
         Task { await requestRemoveWorktree(worktree, in: project, request: request) }

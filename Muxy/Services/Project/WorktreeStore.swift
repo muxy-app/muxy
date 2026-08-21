@@ -230,10 +230,8 @@ final class WorktreeStore {
         isPreparingRemoval(worktreeID: worktreeID) || isRemoving(worktreeID: worktreeID)
     }
 
-    func beginRemovalPreparation(worktree: Worktree) -> Bool {
-        if projectIDsByPath[worktree.path]?.contains(where: { projectsBeingRemoved.contains($0) }) == true {
-            return false
-        }
+    func beginRemovalPreparation(worktree: Worktree, projectID: UUID) -> Bool {
+        guard !projectsBeingRemoved.contains(projectID) else { return false }
         guard worktree.canBeRemoved, !isRemoving(worktreeID: worktree.id) else { return false }
         return preparingRemovalWorktreeIDs.insert(worktree.id).inserted
     }
