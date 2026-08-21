@@ -22,6 +22,7 @@ enum MuxyNotificationHooks {
         StagedResource(name: "muxy-kiro-hook", extension: "sh", executable: true),
         StagedResource(name: "opencode-muxy-plugin", extension: "js", executable: false),
         StagedResource(name: "muxy-pi-extension", extension: "ts", executable: false),
+        StagedResource(name: "muxy-xal-plugin", extension: "ts", executable: false),
     ]
 
     static var stagingDirectoryURL: URL {

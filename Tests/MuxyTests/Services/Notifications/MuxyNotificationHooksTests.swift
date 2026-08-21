@@ -62,7 +62,7 @@ struct MuxyNotificationHooksTests {
             let scriptURL = fixture.destinationDirectory.appendingPathComponent(scriptName)
             #expect(try permissions(of: scriptURL) == FilePermissions.privateExecutable)
         }
-        for sourceName in ["opencode-muxy-plugin.js", "muxy-pi-extension.ts"] {
+        for sourceName in ["opencode-muxy-plugin.js", "muxy-pi-extension.ts", "muxy-xal-plugin.ts"] {
             let sourceURL = fixture.destinationDirectory.appendingPathComponent(sourceName)
             #expect(try permissions(of: sourceURL) == FilePermissions.privateFile)
         }
@@ -157,6 +157,24 @@ struct MuxyNotificationHooksTests {
         #expect(!contents.contains("MUXY_AGENT_EVENT_PROTOCOL"))
     }
 
+    @Test("Xal invokes the bridge and logs when the binary is missing")
+    func xalUsesBridgeOnly() throws {
+        let contents = try String(
+            contentsOf: Self.repositoryRoot.appendingPathComponent("Muxy/Resources/scripts/muxy-xal-plugin.ts"),
+            encoding: .utf8
+        )
+
+        #expect(contents.contains("process.env.MUXY_HOOK_BIN"))
+        #expect(contents.contains("node:child_process"))
+        #expect(contents.contains("agent-event"))
+        #expect(contents.contains("muxy-hook binary is not staged"))
+        #expect(contents.contains("hookCtx.session.kind !== \"primary\""))
+        #expect(!contents.contains("agent_status|"))
+        #expect(!contents.contains("agent_event|"))
+        #expect(!contents.contains("createConnection"))
+        #expect(!contents.contains("MUXY_AGENT_EVENT_PROTOCOL"))
+    }
+
     private func temporaryBundle() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-test-bundle-\(UUID().uuidString)")
@@ -221,6 +239,7 @@ struct MuxyNotificationHooksTests {
             for scriptName in MuxyNotificationHooksTests.shellScriptNames + [
                 "opencode-muxy-plugin.js",
                 "muxy-pi-extension.ts",
+                "muxy-xal-plugin.ts",
             ] {
                 try Data("source \(scriptName)".utf8).write(to: scriptsDirectory.appendingPathComponent(scriptName))
             }

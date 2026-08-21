@@ -97,6 +97,7 @@ Which states a provider reports depends on the hooks its CLI exposes:
 | Cursor (`cursor`) | ✓ | — | ✓ |
 | Kiro CLI (`kiro`) | ✓ | — | ✓ |
 | Codex (`codex`) | ✓ | ✓ | ✓ |
+| Xal (`xal`) | ✓ | — | ✓ |
 
 A `—` means the CLI's hooks have no event for that transition, so the provider never emits that state.
 
