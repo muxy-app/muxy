@@ -110,6 +110,7 @@ struct AntigravityProvider: AIProviderIntegration, AIAgentLaunchProvider {
 
     func install(hookScriptPath: String) throws {
         let existing = try Self.readHooksFile(at: hooksPath)
+        try Self.validateManagedHooks(in: existing)
         let commands = Self.hookEvents.map {
             HookInstallationCommand(
                 settingsKey: $0.settingsKey,
@@ -120,6 +121,19 @@ struct AntigravityProvider: AIProviderIntegration, AIAgentLaunchProvider {
 
         guard let updated = Self.hooks(installing: commands, into: existing) else { return }
         try Self.writeHooksFile(updated, at: hooksPath)
+    }
+
+    private static func validateManagedHooks(in hooks: [String: Any]) throws {
+        guard let managedValue = hooks[hookName] else { return }
+        guard let managedHooks = managedValue as? [String: Any] else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        for event in hookEvents {
+            guard let eventValue = managedHooks[event.settingsKey] else { continue }
+            guard eventValue is [[String: Any]] else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+        }
     }
 
     func uninstall() throws {
