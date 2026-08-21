@@ -740,6 +740,7 @@ struct ProjectGroupStoreTests {
     @Test("RemoteProject.asProject preserves editable metadata and workspace id")
     func remoteProjectAsProjectRoundTrip() {
         let workspaceID = UUID()
+        let lastActiveAt = Date(timeIntervalSinceReferenceDate: 123_456)
         let remote = RemoteProject(
             name: "api",
             path: "~/code/api",
@@ -747,6 +748,7 @@ struct ProjectGroupStoreTests {
             logo: "logo.png",
             iconColor: "blue",
             worktreesEnabled: true,
+            lastActiveAt: lastActiveAt,
             isPinned: true
         )
 
@@ -757,6 +759,7 @@ struct ProjectGroupStoreTests {
         #expect(project.logo == "logo.png")
         #expect(project.iconColor == "blue")
         #expect(project.worktreesEnabled == true)
+        #expect(project.lastActiveAt == lastActiveAt)
         #expect(project.isPinned == true)
         #expect(project.remoteWorkspaceID == workspaceID)
         #expect(project.sortOrder == 3)
