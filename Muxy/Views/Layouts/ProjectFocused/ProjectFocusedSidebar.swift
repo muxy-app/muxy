@@ -83,8 +83,8 @@ struct ProjectSearchField: View {
     @Binding var text: String
     let isEnabled: Bool
     let isWide: Bool
-    var isFocused: FocusState<Bool>.Binding? = nil
-    var onExit: (() -> Void)? = nil
+    var isFocused: FocusState<Bool>.Binding?
+    var onExit: (() -> Void)?
 
     var body: some View {
         Group {
