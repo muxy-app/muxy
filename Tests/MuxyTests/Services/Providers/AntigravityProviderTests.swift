@@ -337,6 +337,26 @@ struct AntigravityProviderTests {
         }
     }
 
+    @Test("install preserves file when muxy-notify is not an object")
+    func installThrowsOnInvalidManagedContainer() throws {
+        try withTempHome { home in
+            let configURL = home.appendingPathComponent(".gemini/config/hooks.json")
+            try FileManager.default.createDirectory(
+                at: configURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let invalidJSON = Data("{\"muxy-notify\":\"invalid\"}".utf8)
+            try invalidJSON.write(to: configURL)
+
+            let provider = AntigravityProvider(homeDirectory: home.path, pathEnvironment: "")
+            #expect(throws: CocoaError(.fileReadCorruptFile)) {
+                try provider.install(hookScriptPath: "/tmp/muxy-antigravity-hook.sh")
+            }
+
+            #expect(try Data(contentsOf: configURL) == invalidJSON)
+        }
+    }
+
     @Test("production registry resolves Antigravity provider")
     @MainActor
     func registryResolvesAntigravity() {
