@@ -80,6 +80,7 @@ struct MuxyAPIProjectManagementRoutingTests {
             #expect(error == .underlying("could not save project changes"))
         }
         #expect(env.projectStore.storedProjects.first == project)
+        #expect(env.projectPersistence.projects == [project])
     }
 
     @Test("setLogo rejects path traversal")
