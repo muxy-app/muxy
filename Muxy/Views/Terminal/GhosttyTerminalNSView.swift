@@ -145,6 +145,18 @@ final class GhosttyTerminalNSView: NSView,
         fatalError("init(coder:) is not supported")
     }
 
+    override func isAccessibilityElement() -> Bool {
+        true
+    }
+
+    override func accessibilityValue() -> Any? {
+        readScreenText()
+    }
+
+    override func accessibilityNumberOfCharacters() -> Int {
+        readScreenText().utf16.count
+    }
+
     override func accessibilitySelectedText() -> String? {
         readSelectionText()
     }
