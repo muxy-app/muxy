@@ -128,9 +128,9 @@ struct ProjectRow: View {
                         showWorktreePopover = false
                         showCreateWorktreeSheet = true
                     },
-                    onRequestRemove: { worktree in
+                    onRequestRemove: { confirmation in
                         showWorktreePopover = false
-                        beginRemove(worktree: worktree)
+                        beginRemove(confirmation: confirmation)
                     }
                 )
                 .environment(appState)
@@ -346,17 +346,21 @@ struct ProjectRow: View {
         )
     }
 
-    private func beginRemove(worktree: Worktree) {
+    private func beginRemove(confirmation: WorktreeRemovalConfirmation) {
+        let worktree = confirmation.worktree
         let activeWorktreeID = appState.activeWorktreeID[project.id]
         let remaining = worktrees.filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.id == activeWorktreeID })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
         worktreeStore.beginRemoval(
-            worktree: worktree,
-            projectID: project.id,
-            repoPath: project.path,
-            context: projectGroupStore.workspaceContext(for: project),
+            WorktreeRemovalRequest(
+                worktree: worktree,
+                projectID: project.id,
+                repoPath: project.path,
+                context: projectGroupStore.workspaceContext(for: project),
+                projectHookApproval: confirmation.projectHookApproval
+            ),
             onSuccess: {
                 appState.removeWorktree(
                     projectID: project.id,

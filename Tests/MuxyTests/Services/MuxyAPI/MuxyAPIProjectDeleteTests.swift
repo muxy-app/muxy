@@ -239,7 +239,8 @@ struct MuxyAPIProjectDeleteRoutingTests {
             path: root.appendingPathComponent("feature").path,
             branch: "feature",
             createBranch: true,
-            baseBranch: nil
+            baseBranch: nil,
+            runSetup: false
         )
 
         let creation = Task { @MainActor in
@@ -321,7 +322,8 @@ struct MuxyAPIProjectDeleteRoutingTests {
             path: root.appendingPathComponent("feature").path,
             branch: "feature",
             createBranch: true,
-            baseBranch: nil
+            baseBranch: nil,
+            runSetup: false
         )
 
         let creation = Task { @MainActor in

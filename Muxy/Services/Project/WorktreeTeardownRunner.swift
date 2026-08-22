@@ -38,6 +38,7 @@ enum WorktreeTeardownRunner {
     static func run(
         sourceProjectPath: String,
         worktree: Worktree,
+        projectHookApproval: WorktreeConfig.ProjectHookApproval? = nil,
         timeout: TimeInterval = defaultTimeout,
         emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in },
         globalConfigURL: URL = WorktreeConfig.globalConfigURL(),
@@ -47,13 +48,14 @@ enum WorktreeTeardownRunner {
               FileManager.default.fileExists(atPath: worktree.path)
         else { return }
 
-        let commands = try WorktreeConfig.teardownCommands(
-            sourceProjectPath: sourceProjectPath,
-            globalConfigURL: globalConfigURL
+        let commands = try WorktreeConfig.commandsForExecution(
+            WorktreeConfig.resolvedTeardownCommands(
+                sourceProjectPath: sourceProjectPath,
+                globalConfigURL: globalConfigURL,
+                includeProjectCommands: projectHookApproval != nil
+            ),
+            projectHookApproval: projectHookApproval
         )
-        .map(\.command)
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
         guard !commands.isEmpty else { return }
 
         let environment = WorktreeHookEnvironment.values(

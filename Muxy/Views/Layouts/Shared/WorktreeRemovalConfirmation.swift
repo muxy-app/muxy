@@ -3,20 +3,80 @@ import Foundation
 struct WorktreeRemovalConfirmation: Identifiable, Equatable {
     let worktree: Worktree
     let title: LocalizedStringResource
-    let message: LocalizedStringResource
+    let message: String
+    let teardownCommands: [WorktreeConfig.ResolvedCommand]
+    let projectHookApproval: WorktreeConfig.ProjectHookApproval?
 
     var id: UUID {
         worktree.id
     }
 
-    init(worktree: Worktree, hasUncommittedChanges: Bool) {
+    @MainActor
+    init(
+        worktree: Worktree,
+        hasUncommittedChanges: Bool,
+        teardownCommands: [WorktreeConfig.ResolvedCommand] = [],
+        approvesProjectHooks: Bool = false
+    ) {
         self.worktree = worktree
         title = "Remove worktree \"\(worktree.name)\"?"
-        if hasUncommittedChanges {
-            message = "This worktree has uncommitted changes. Removing it will permanently discard them."
-            return
+        let normalizedCommands = WorktreeConfig.normalizedCommands(teardownCommands)
+        self.teardownCommands = normalizedCommands
+        projectHookApproval = approvesProjectHooks
+            ? WorktreeConfig.ProjectHookApproval(resolvedCommands: normalizedCommands)
+            : nil
+        message = Self.message(
+            hasUncommittedChanges: hasUncommittedChanges,
+            teardownCommands: normalizedCommands
+        )
+    }
+
+    @MainActor
+    static func prepare(
+        worktree: Worktree,
+        projectPath: String,
+        context: WorkspaceContext
+    ) async throws -> WorktreeRemovalConfirmation {
+        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
+            worktreePath: worktree.path,
+            context: context
+        )
+        guard !context.isRemote, !worktree.isExternallyManaged else {
+            return WorktreeRemovalConfirmation(
+                worktree: worktree,
+                hasUncommittedChanges: hasChanges
+            )
         }
-        message = "This will remove the worktree from Muxy and delete its files on disk."
+        let commands = try WorktreeConfig.resolvedTeardownCommands(
+            sourceProjectPath: projectPath,
+            globalConfigURL: WorktreeConfig.globalConfigURL()
+        )
+        return WorktreeRemovalConfirmation(
+            worktree: worktree,
+            hasUncommittedChanges: hasChanges,
+            teardownCommands: commands,
+            approvesProjectHooks: true
+        )
+    }
+
+    @MainActor
+    private static func message(
+        hasUncommittedChanges: Bool,
+        teardownCommands: [WorktreeConfig.ResolvedCommand]
+    ) -> String {
+        let removalMessage = hasUncommittedChanges
+            ? L10n.string("This worktree has uncommitted changes. Removing it will permanently discard them.")
+            : L10n.string("This will remove the worktree from Muxy and delete its files on disk.")
+        guard !teardownCommands.isEmpty else { return removalMessage }
+        let heading = L10n.string("The following teardown commands will run before removal:")
+        let commands = teardownCommands.map { command in
+            let source = switch command.source {
+            case .global: L10n.string("Per-machine")
+            case .project: L10n.string("Project")
+            }
+            return "\(source): \(command.command.command)"
+        }
+        return ([removalMessage, heading] + commands).joined(separator: "\n\n")
     }
 }
 

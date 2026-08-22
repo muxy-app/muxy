@@ -19,6 +19,7 @@ struct WorktreeLeafRow: View {
     @State private var isRenaming = false
     @State private var renameText = ""
     @State private var showAgentProviderMenu = false
+    @State private var pendingRemoval: WorktreeRemovalConfirmation?
     @FocusState private var renameFieldFocused: Bool
 
     private var rowTitle: String {
@@ -122,6 +123,24 @@ struct WorktreeLeafRow: View {
             withAnimation(.easeInOut(duration: 0.15)) {
                 expansionStore.set(worktree.id, expanded: true)
             }
+        }
+        .alert(
+            pendingRemoval.map { L10n.string($0.title) } ?? "",
+            isPresented: removalAlertBinding,
+            presenting: pendingRemoval
+        ) { confirmation in
+            Button(L10n.string("Remove"), role: .destructive) {
+                worktreeStore.endRemovalPreparation(worktreeID: confirmation.worktree.id)
+                performRemove(confirmation)
+                pendingRemoval = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button(L10n.string("Cancel"), role: .cancel) {
+                clearPendingRemoval()
+            }
+            .keyboardShortcut(.cancelAction)
+        } message: { confirmation in
+            Text(verbatim: confirmation.message)
         }
     }
 
@@ -260,12 +279,36 @@ struct WorktreeLeafRow: View {
 
     private func requestRemoveWorktree() async {
         let context = projectGroupStore.workspaceContext(for: project)
-        worktreeStore.beginRemoval(
+        guard WorktreeRemovalRequestPolicy.canStartInspection(
+            hasPendingConfirmation: pendingRemoval != nil,
+            isInspecting: worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
+            isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id)
+        ), worktreeStore.beginRemovalPreparation(worktree: worktree, projectID: project.id)
+        else { return }
+        do {
+            pendingRemoval = try await WorktreeRemovalConfirmation.prepare(
+                worktree: worktree,
+                projectPath: project.path,
+                context: context
+            )
+        } catch {
+            worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
+            ToastState.shared.show(
+                title: L10n.string("Could not prepare worktree removal"),
+                body: error.localizedDescription
+            )
+        }
+    }
+
+    private func performRemove(_ confirmation: WorktreeRemovalConfirmation) {
+        let context = projectGroupStore.workspaceContext(for: project)
+        worktreeStore.beginRemoval(WorktreeRemovalRequest(
             worktree: worktree,
             projectID: project.id,
             repoPath: project.path,
-            context: context
-        ) {
+            context: context,
+            projectHookApproval: confirmation.projectHookApproval
+        )) {
             appState.removeWorktree(
                 projectID: project.id,
                 worktree: worktree,
@@ -275,5 +318,22 @@ struct WorktreeLeafRow: View {
                 )
             )
         }
+    }
+
+    private var removalAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingRemoval != nil },
+            set: { isPresented in
+                if !isPresented {
+                    clearPendingRemoval()
+                }
+            }
+        )
+    }
+
+    private func clearPendingRemoval() {
+        guard let pendingRemoval else { return }
+        worktreeStore.endRemovalPreparation(worktreeID: pendingRemoval.worktree.id)
+        self.pendingRemoval = nil
     }
 }

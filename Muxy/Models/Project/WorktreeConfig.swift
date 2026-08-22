@@ -3,6 +3,7 @@ import Foundation
 enum WorktreeConfigError: LocalizedError {
     case unreadable(path: String)
     case invalid(path: String)
+    case projectHooksChanged
 
     var errorDescription: String? {
         switch self {
@@ -10,6 +11,8 @@ enum WorktreeConfigError: LocalizedError {
             "Could not read worktree hook config at \(path)."
         case let .invalid(path):
             "Invalid worktree hook config at \(path)."
+        case .projectHooksChanged:
+            "Project worktree hooks changed after approval. Review them and try again."
         }
     }
 }
@@ -33,6 +36,16 @@ struct WorktreeConfig: Codable {
     struct ResolvedCommand: Hashable {
         let command: SetupCommand
         let source: CommandSource
+    }
+
+    struct ProjectHookApproval: Hashable {
+        let commands: [SetupCommand]
+
+        init(resolvedCommands: [ResolvedCommand]) {
+            commands = WorktreeConfig.normalizedCommands(resolvedCommands)
+                .filter { $0.source == .project }
+                .map(\.command)
+        }
     }
 
     let setup: [SetupCommand]
@@ -105,18 +118,63 @@ struct WorktreeConfig: Codable {
 
     static func resolvedSetupCommands(
         sourceProjectPath: String,
-        globalConfigURL: URL
+        globalConfigURL: URL,
+        includeProjectCommands: Bool = true
     ) throws -> [ResolvedCommand] {
         let global = try load(from: globalConfigURL)?.setup ?? []
+        guard includeProjectCommands else {
+            return global.map { ResolvedCommand(command: $0, source: .global) }
+        }
         let project = try load(fromProjectPath: sourceProjectPath)?.setup ?? []
         return global.map { ResolvedCommand(command: $0, source: .global) }
             + project.map { ResolvedCommand(command: $0, source: .project) }
     }
 
     static func teardownCommands(sourceProjectPath: String, globalConfigURL: URL) throws -> [SetupCommand] {
-        let project = try load(fromProjectPath: sourceProjectPath)?.teardown ?? []
+        try resolvedTeardownCommands(
+            sourceProjectPath: sourceProjectPath,
+            globalConfigURL: globalConfigURL
+        ).map(\.command)
+    }
+
+    static func resolvedTeardownCommands(
+        sourceProjectPath: String,
+        globalConfigURL: URL,
+        includeProjectCommands: Bool = true
+    ) throws -> [ResolvedCommand] {
         let global = try load(from: globalConfigURL)?.teardown ?? []
-        return project + global
+        guard includeProjectCommands else {
+            return global.map { ResolvedCommand(command: $0, source: .global) }
+        }
+        let project = try load(fromProjectPath: sourceProjectPath)?.teardown ?? []
+        return project.map { ResolvedCommand(command: $0, source: .project) }
+            + global.map { ResolvedCommand(command: $0, source: .global) }
+    }
+
+    static func commandsForExecution(
+        _ commands: [ResolvedCommand],
+        projectHookApproval: ProjectHookApproval?
+    ) throws -> [String] {
+        let normalized = normalizedCommands(commands)
+        guard let projectHookApproval else {
+            return normalized.filter { $0.source == .global }.map(\.command.command)
+        }
+        let projectCommands = normalized.filter { $0.source == .project }.map(\.command)
+        guard projectCommands == projectHookApproval.commands else {
+            throw WorktreeConfigError.projectHooksChanged
+        }
+        return normalized.map(\.command.command)
+    }
+
+    static func normalizedCommands(_ commands: [ResolvedCommand]) -> [ResolvedCommand] {
+        commands.compactMap { resolved in
+            let command = resolved.command.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !command.isEmpty else { return nil }
+            return ResolvedCommand(
+                command: SetupCommand(command: command, name: resolved.command.name),
+                source: resolved.source
+            )
+        }
     }
 
     private static func load(from url: URL) throws -> WorktreeConfig? {

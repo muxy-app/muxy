@@ -16,6 +16,7 @@ enum WorktreeSetupRunner {
     static func run(
         sourceProjectPath: String,
         worktree: Worktree,
+        projectHookApproval: WorktreeConfig.ProjectHookApproval? = nil,
         timeout: TimeInterval = defaultTimeout,
         globalConfigURL: URL = WorktreeConfig.globalConfigURL(),
         executor: Executor = execute
@@ -23,13 +24,14 @@ enum WorktreeSetupRunner {
         guard FileManager.default.fileExists(atPath: worktree.path) else { return }
         let commands: [String]
         do {
-            commands = try WorktreeConfig.setupCommands(
-                sourceProjectPath: sourceProjectPath,
-                globalConfigURL: globalConfigURL
+            commands = try WorktreeConfig.commandsForExecution(
+                WorktreeConfig.resolvedSetupCommands(
+                    sourceProjectPath: sourceProjectPath,
+                    globalConfigURL: globalConfigURL,
+                    includeProjectCommands: projectHookApproval != nil
+                ),
+                projectHookApproval: projectHookApproval
             )
-            .map(\.command)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
         } catch {
             logger.error("Could not load setup hooks: \(error.localizedDescription)")
             return

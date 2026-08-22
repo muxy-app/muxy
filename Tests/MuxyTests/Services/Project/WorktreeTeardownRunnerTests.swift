@@ -55,16 +55,51 @@ struct WorktreeTeardownRunnerTests {
             sourceProjectPath: projectPath,
             globalConfigURL: globalConfigURL
         )
+        let resolvedTeardown = try WorktreeConfig.resolvedTeardownCommands(
+            sourceProjectPath: projectPath,
+            globalConfigURL: globalConfigURL
+        )
 
         #expect(setup.map(\.command) == ["global up", "project up"])
         #expect(resolvedSetup.map(\.source) == [.global, .project])
         #expect(teardown.map(\.command) == ["project down", "global down"])
+        #expect(resolvedTeardown.map(\.source) == [.project, .global])
     }
 
     @Test("setup runner executes global then project commands with worktree environment")
     func setupRunnerExecutesLayeredCommands() async throws {
-        let projectPath = try makeProjectConfig(setup: ["global follows"], teardown: [])
+        let projectPath = try makeProjectConfig(setup: ["project follows"], teardown: [])
         let globalConfigURL = try makeGlobalConfig(setup: ["global first"], teardown: [])
+        let approval = WorktreeConfig.ProjectHookApproval(resolvedCommands: try WorktreeConfig.resolvedSetupCommands(
+            sourceProjectPath: projectPath,
+            globalConfigURL: globalConfigURL
+        ))
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: "feature/test",
+            source: .muxy,
+            isPrimary: false
+        )
+        let capture = SetupExecutionCapture()
+
+        await WorktreeSetupRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            projectHookApproval: approval,
+            globalConfigURL: globalConfigURL,
+            executor: capture.executor(returning: 0)
+        )
+
+        #expect(capture.commands == ["global first", "project follows"])
+        #expect(capture.environments.allSatisfy { $0["MUXY_PROJECT_PATH"] == projectPath })
+        #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_PATH"] == worktree.path })
+    }
+
+    @Test("setup runner skips project commands without approval")
+    func setupRunnerSkipsUnapprovedProjectCommands() async throws {
+        let projectPath = try makeProjectConfig(setup: ["project setup"], teardown: [])
+        let globalConfigURL = try makeGlobalConfig(setup: ["global setup"], teardown: [])
         let worktree = Worktree(
             name: "Feature",
             path: try makeWorktreeDirectory(),
@@ -81,9 +116,7 @@ struct WorktreeTeardownRunnerTests {
             executor: capture.executor(returning: 0)
         )
 
-        #expect(capture.commands == ["global first", "global follows"])
-        #expect(capture.environments.allSatisfy { $0["MUXY_PROJECT_PATH"] == projectPath })
-        #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_PATH"] == worktree.path })
+        #expect(capture.commands == ["global setup"])
     }
 
     @Test("run executes global teardown without a project config")
@@ -146,9 +179,33 @@ struct WorktreeTeardownRunnerTests {
         }
     }
 
+    @Test("unapproved invalid project teardown does not block per-machine commands")
+    func unapprovedInvalidProjectTeardownDoesNotBlockGlobalCommands() async throws {
+        let projectPath = try makeInvalidProjectConfig(contents: #"{"teardown":true}"#)
+        let globalConfigURL = try makeGlobalConfig(teardown: ["global cleanup"])
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
+        let capture = ExecutionCapture()
+
+        try await WorktreeTeardownRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            globalConfigURL: globalConfigURL,
+            executor: capture.executor(returning: 0)
+        )
+
+        #expect(capture.commands == ["global cleanup"])
+    }
+
     @Test("run executes teardown commands with worktree environment")
     func runExecutesTeardownCommandsWithEnvironment() async throws {
         let projectPath = try makeProjectConfig(teardown: [" first ", "", "second"])
+        let approval = try projectTeardownApproval(projectPath: projectPath)
         let worktreePath = try makeWorktreeDirectory()
         let worktree = Worktree(
             name: "Feature",
@@ -162,6 +219,7 @@ struct WorktreeTeardownRunnerTests {
         try await WorktreeTeardownRunner.run(
             sourceProjectPath: projectPath,
             worktree: worktree,
+            projectHookApproval: approval,
             globalConfigURL: missingGlobalConfigURL,
             executor: capture.executor(returning: 0)
         )
@@ -171,6 +229,55 @@ struct WorktreeTeardownRunnerTests {
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_PATH"] == worktreePath })
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_NAME"] == "Feature" })
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_BRANCH"] == "feature/test" })
+    }
+
+    @Test("run skips project teardown without approval")
+    func runSkipsUnapprovedProjectTeardown() async throws {
+        let projectPath = try makeProjectConfig(teardown: ["project cleanup"])
+        let globalConfigURL = try makeGlobalConfig(teardown: ["global cleanup"])
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
+        let capture = ExecutionCapture()
+
+        try await WorktreeTeardownRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            globalConfigURL: globalConfigURL,
+            executor: capture.executor(returning: 0)
+        )
+
+        #expect(capture.commands == ["global cleanup"])
+    }
+
+    @Test("run rejects project teardown changed after approval")
+    func runRejectsChangedProjectTeardown() async throws {
+        let approvedProjectPath = try makeProjectConfig(teardown: ["approved cleanup"])
+        let approval = try projectTeardownApproval(projectPath: approvedProjectPath)
+        let changedProjectPath = try makeProjectConfig(teardown: ["changed cleanup"])
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
+        let capture = ExecutionCapture()
+
+        await #expect(throws: WorktreeConfigError.self) {
+            try await WorktreeTeardownRunner.run(
+                sourceProjectPath: changedProjectPath,
+                worktree: worktree,
+                projectHookApproval: approval,
+                globalConfigURL: missingGlobalConfigURL,
+                executor: capture.executor(returning: 0)
+            )
+        }
+        #expect(capture.commands.isEmpty)
     }
 
     @Test("run skips teardown when the worktree folder is gone")
@@ -220,6 +327,7 @@ struct WorktreeTeardownRunnerTests {
     @Test("run stops and throws on teardown failure")
     func runStopsOnFailure() async throws {
         let projectPath = try makeProjectConfig(teardown: ["fail", "after"])
+        let approval = try projectTeardownApproval(projectPath: projectPath)
         let worktree = Worktree(
             name: "Feature",
             path: try makeWorktreeDirectory(),
@@ -233,6 +341,7 @@ struct WorktreeTeardownRunnerTests {
             try await WorktreeTeardownRunner.run(
                 sourceProjectPath: projectPath,
                 worktree: worktree,
+                projectHookApproval: approval,
                 globalConfigURL: missingGlobalConfigURL,
                 executor: capture.executor(returning: 1)
             )
@@ -243,6 +352,7 @@ struct WorktreeTeardownRunnerTests {
     @Test("run streams command and output lines to the emit closure")
     func runStreamsOutputLines() async throws {
         let projectPath = try makeProjectConfig(teardown: ["echo hello"])
+        let approval = try projectTeardownApproval(projectPath: projectPath)
         let worktree = Worktree(
             name: "Feature",
             path: try makeWorktreeDirectory(),
@@ -255,6 +365,7 @@ struct WorktreeTeardownRunnerTests {
         try await WorktreeTeardownRunner.run(
             sourceProjectPath: projectPath,
             worktree: worktree,
+            projectHookApproval: approval,
             emit: { collected.append($0) },
             globalConfigURL: missingGlobalConfigURL,
             executor: { _, _, _, _, emit in
@@ -310,6 +421,13 @@ struct WorktreeTeardownRunnerTests {
 
     private func makeWorktreeDirectory() throws -> String {
         try makeDirectory(prefix: "muxy-teardown-worktree")
+    }
+
+    private func projectTeardownApproval(projectPath: String) throws -> WorktreeConfig.ProjectHookApproval {
+        WorktreeConfig.ProjectHookApproval(resolvedCommands: try WorktreeConfig.resolvedTeardownCommands(
+            sourceProjectPath: projectPath,
+            globalConfigURL: missingGlobalConfigURL
+        ))
     }
 
     private func makeProjectConfig(setup: [String] = [], teardown: [String]) throws -> String {

@@ -1473,10 +1473,20 @@ struct MainWindow: View {
                 worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
             }
         }
-        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
-            worktreePath: worktree.path,
-            context: projectGroupStore.workspaceContext(for: project)
-        )
+        let confirmation: WorktreeRemovalConfirmation
+        do {
+            confirmation = try await WorktreeRemovalConfirmation.prepare(
+                worktree: worktree,
+                projectPath: project.path,
+                context: projectGroupStore.workspaceContext(for: project)
+            )
+        } catch {
+            ToastState.shared.show(
+                title: L10n.string("Could not prepare worktree removal"),
+                body: error.localizedDescription
+            )
+            return
+        }
         let currentProject = activeProject
         let currentWorktree = WorktreeActionEligibility.removableCurrentWorktree(
             project: currentProject,
@@ -1503,7 +1513,7 @@ struct MainWindow: View {
         else { return }
         pendingWorktreeRemoval = PendingWorktreeRemoval(
             project: project,
-            confirmation: WorktreeRemovalConfirmation(worktree: worktree, hasUncommittedChanges: hasChanges)
+            confirmation: confirmation
         )
         keepsRemovalPreparation = true
     }
@@ -1529,10 +1539,13 @@ struct MainWindow: View {
             ?? remaining.first
         worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
         worktreeStore.beginRemoval(
-            worktree: worktree,
-            projectID: project.id,
-            repoPath: project.path,
-            context: projectGroupStore.workspaceContext(for: project),
+            WorktreeRemovalRequest(
+                worktree: worktree,
+                projectID: project.id,
+                repoPath: project.path,
+                context: projectGroupStore.workspaceContext(for: project),
+                projectHookApproval: pending.confirmation.projectHookApproval
+            ),
             onSuccess: {
                 appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
                 worktreeStore.remove(worktreeID: worktree.id, from: project.id)
@@ -2747,7 +2760,7 @@ private struct WorktreeActionsModifier: ViewModifier {
                 }
                 .keyboardShortcut(.cancelAction)
             } message: { pending in
-                Text(L10n.resource(pending.confirmation.message))
+                Text(verbatim: pending.confirmation.message)
             }
     }
 

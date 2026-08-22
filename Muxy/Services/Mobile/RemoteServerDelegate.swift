@@ -769,7 +769,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             path: worktreeDirectory,
             branch: trimmedBranch,
             createBranch: createBranch,
-            baseBranch: resolvedBase
+            baseBranch: resolvedBase,
+            runSetup: false
         )
         let worktree = try await worktreeStore.createWorktree(
             project: project,

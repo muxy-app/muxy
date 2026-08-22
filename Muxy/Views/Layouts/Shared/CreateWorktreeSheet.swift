@@ -401,7 +401,7 @@ struct CreateWorktreeSheet: View {
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(L10n.resource("\(project.path)/.muxy/worktree.json"))
+            Text(verbatim: "\(project.path)/.muxy/worktree.json")
                 .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fg)
                 .textSelection(.enabled)
@@ -630,7 +630,10 @@ struct CreateWorktreeSheet: View {
             branch: branch,
             createBranch: createNewBranch,
             baseBranch: baseBranch,
-            runSetup: runSetup
+            runSetup: runSetup,
+            projectHookApproval: runSetup
+                ? WorktreeConfig.ProjectHookApproval(resolvedCommands: setupCommands)
+                : nil
         )
 
         do {

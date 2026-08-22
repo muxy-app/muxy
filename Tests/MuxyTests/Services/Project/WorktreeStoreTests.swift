@@ -307,7 +307,8 @@ struct WorktreeStoreTests {
             path: root.appendingPathComponent("feature").path,
             branch: "feature",
             createBranch: true,
-            baseBranch: nil
+            baseBranch: nil,
+            runSetup: false
         )
 
         let creation = Task { @MainActor in
@@ -348,28 +349,32 @@ struct WorktreeStoreTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let project = Project(name: "Repo", path: root.appendingPathComponent("repo").path)
         let setupCapture = WorktreeSetupCapture()
+        let approval = WorktreeConfig.ProjectHookApproval(resolvedCommands: [])
         let store = WorktreeStore(
             persistence: WorktreePersistenceStub(initial: [:]),
             addGitWorktree: { _, _, _, _, _ in },
-            runWorktreeSetup: { setupCapture.record(projectPath: $0, worktree: $1) }
+            runWorktreeSetup: { setupCapture.record(projectPath: $0, worktree: $1, approval: $2) }
         )
         let request = WorktreeCreationRequest(
             name: "Feature",
             path: root.appendingPathComponent("feature").path,
             branch: "feature",
             createBranch: true,
-            baseBranch: nil
+            baseBranch: nil,
+            runSetup: true,
+            projectHookApproval: approval
         )
 
         let worktree = try await store.createWorktree(project: project, request: request)
 
         #expect(setupCapture.projectPaths == [project.path])
         #expect(setupCapture.worktreeIDs == [worktree.id])
+        #expect(setupCapture.approvals == [approval])
         #expect(store.list(for: project.id).contains(worktree))
     }
 
-    @Test("local worktree creation respects setup opt-out")
-    func localCreationRespectsSetupOptOut() async throws {
+    @Test("local worktree creation defaults setup to off")
+    func localCreationDefaultsSetupOff() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-worktree-setup-opt-out-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -378,15 +383,14 @@ struct WorktreeStoreTests {
         let store = WorktreeStore(
             persistence: WorktreePersistenceStub(initial: [:]),
             addGitWorktree: { _, _, _, _, _ in },
-            runWorktreeSetup: { setupCapture.record(projectPath: $0, worktree: $1) }
+            runWorktreeSetup: { setupCapture.record(projectPath: $0, worktree: $1, approval: $2) }
         )
         let request = WorktreeCreationRequest(
             name: "Feature",
             path: root.appendingPathComponent("feature").path,
             branch: "feature",
             createBranch: true,
-            baseBranch: nil,
-            runSetup: false
+            baseBranch: nil
         )
 
         _ = try await store.createWorktree(project: project, request: request)
@@ -1006,9 +1010,15 @@ private actor WorktreeMutationTestGate {
 private final class WorktreeSetupCapture {
     private(set) var projectPaths: [String] = []
     private(set) var worktreeIDs: [UUID] = []
+    private(set) var approvals: [WorktreeConfig.ProjectHookApproval?] = []
 
-    func record(projectPath: String, worktree: Worktree) {
+    func record(
+        projectPath: String,
+        worktree: Worktree,
+        approval: WorktreeConfig.ProjectHookApproval?
+    ) {
         projectPaths.append(projectPath)
         worktreeIDs.append(worktree.id)
+        approvals.append(approval)
     }
 }

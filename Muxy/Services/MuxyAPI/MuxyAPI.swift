@@ -1305,7 +1305,8 @@ enum MuxyAPI {
                         path: path,
                         branch: trimmedBranch,
                         createBranch: request.createBranch,
-                        baseBranch: request.createBranch && !trimmedBase.isEmpty ? trimmedBase : nil
+                        baseBranch: request.createBranch && !trimmedBase.isEmpty ? trimmedBase : nil,
+                        runSetup: false
                     ),
                     context: workspaceContext
                 )

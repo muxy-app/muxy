@@ -5,7 +5,7 @@ struct WorktreePopover: View {
     let isGitRepo: Bool
     let onDismiss: () -> Void
     let onRequestCreate: () -> Void
-    let onRequestRemove: (Worktree) -> Void
+    let onRequestRemove: (WorktreeRemovalConfirmation) -> Void
     var fixedSize: Bool = true
 
     @Environment(AppState.self) private var appState
@@ -66,16 +66,17 @@ struct WorktreePopover: View {
             presenting: pendingRemoval
         ) { confirmation in
             Button(L10n.string("Remove"), role: .destructive) {
-                onRequestRemove(confirmation.worktree)
+                worktreeStore.endRemovalPreparation(worktreeID: confirmation.worktree.id)
+                onRequestRemove(confirmation)
                 pendingRemoval = nil
             }
             .keyboardShortcut(.defaultAction)
             Button(L10n.string("Cancel"), role: .cancel) {
-                pendingRemoval = nil
+                clearPendingRemoval()
             }
             .keyboardShortcut(.cancelAction)
         } message: { confirmation in
-            Text(L10n.resource(confirmation.message))
+            Text(verbatim: confirmation.message)
         }
     }
 
@@ -92,14 +93,25 @@ struct WorktreePopover: View {
 
     @MainActor
     private func requestRemove(worktree: Worktree) async {
-        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
-            worktreePath: worktree.path,
-            context: projectGroupStore.workspaceContext(for: project)
-        )
-        pendingRemoval = WorktreeRemovalConfirmation(
-            worktree: worktree,
-            hasUncommittedChanges: hasChanges
-        )
+        guard WorktreeRemovalRequestPolicy.canStartInspection(
+            hasPendingConfirmation: pendingRemoval != nil,
+            isInspecting: worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
+            isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id)
+        ), worktreeStore.beginRemovalPreparation(worktree: worktree, projectID: project.id)
+        else { return }
+        do {
+            pendingRemoval = try await WorktreeRemovalConfirmation.prepare(
+                worktree: worktree,
+                projectPath: project.path,
+                context: projectGroupStore.workspaceContext(for: project)
+            )
+        } catch {
+            worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
+            ToastState.shared.show(
+                title: L10n.string("Could not prepare worktree removal"),
+                body: error.localizedDescription
+            )
+        }
     }
 
     private var removalAlertBinding: Binding<Bool> {
@@ -107,10 +119,16 @@ struct WorktreePopover: View {
             get: { pendingRemoval != nil },
             set: { newValue in
                 if !newValue {
-                    pendingRemoval = nil
+                    clearPendingRemoval()
                 }
             }
         )
+    }
+
+    private func clearPendingRemoval() {
+        guard let pendingRemoval else { return }
+        worktreeStore.endRemovalPreparation(worktreeID: pendingRemoval.worktree.id)
+        self.pendingRemoval = nil
     }
 }
 

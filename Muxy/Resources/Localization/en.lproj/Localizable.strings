@@ -248,6 +248,7 @@
 "Could not remove %@: %@" = "Could not remove %@: %@";
 "Could not remove project" = "Could not remove project";
 "Could not remove project \"%@\"" = "Could not remove project \"%@\"";
+"Could not prepare worktree removal" = "Could not prepare worktree removal";
 "Could not remove worktree \"%@\"" = "Could not remove worktree \"%@\"";
 "Could not restore project" = "Could not restore project";
 "Could not start %@" = "Could not start %@";
@@ -1160,6 +1161,7 @@
 "The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved." = "The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved.";
 "The built-in browser is off. Browser tabs, the toolbar globe, and terminal-link opening are disabled, and terminal links open in your system browser." = "The built-in browser is off. Browser tabs, the toolbar globe, and terminal-link opening are disabled, and terminal links open in your system browser.";
 "The device will be disconnected immediately and must request approval again to reconnect." = "The device will be disconnected immediately and must request approval again to reconnect.";
+"The following teardown commands will run before removal:" = "The following teardown commands will run before removal:";
 "The folder index reached its safety limit. Refine the search location or enter a path." = "The folder index reached its safety limit. Refine the search location or enter a path.";
 "The installed Muxy CLI is an older standalone copy that cannot follow app updates.\n\nUpdate it to a wrapper that always runs the CLI bundled with your current Muxy version. macOS will ask for your administrator password." = "The installed Muxy CLI is an older standalone copy that cannot follow app updates.\n\nUpdate it to a wrapper that always runs the CLI bundled with your current Muxy version. macOS will ask for your administrator password.";
 "The selected devices will be disconnected immediately and must request approval again to reconnect." = "The selected devices will be disconnected immediately and must request approval again to reconnect.";

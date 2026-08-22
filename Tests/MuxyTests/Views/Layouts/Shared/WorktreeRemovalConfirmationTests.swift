@@ -14,10 +14,7 @@ struct WorktreeRemovalConfirmationTests {
         )
 
         #expect(String(localized: confirmation.title) == "Remove worktree \"feature\"?")
-        #expect(
-            String(localized: confirmation.message)
-                == "This will remove the worktree from Muxy and delete its files on disk."
-        )
+        #expect(confirmation.message == "This will remove the worktree from Muxy and delete its files on disk.")
     }
 
     @Test
@@ -30,10 +27,34 @@ struct WorktreeRemovalConfirmationTests {
         )
 
         #expect(String(localized: confirmation.title) == "Remove worktree \"feature\"?")
-        #expect(
-            String(localized: confirmation.message)
-                == "This worktree has uncommitted changes. Removing it will permanently discard them."
+        #expect(confirmation.message == "This worktree has uncommitted changes. Removing it will permanently discard them.")
+    }
+
+    @Test
+    func confirmationDisclosesTeardownCommandsAndApprovesExactProjectHooks() throws {
+        let worktree = Worktree(name: "feature", path: "/tmp/muxy-feature", branch: "feature", isPrimary: false)
+        let commands = [
+            WorktreeConfig.ResolvedCommand(
+                command: .init(command: " project cleanup "),
+                source: .project
+            ),
+            WorktreeConfig.ResolvedCommand(
+                command: .init(command: "global cleanup"),
+                source: .global
+            ),
+        ]
+
+        let confirmation = WorktreeRemovalConfirmation(
+            worktree: worktree,
+            hasUncommittedChanges: false,
+            teardownCommands: commands,
+            approvesProjectHooks: true
         )
+
+        #expect(confirmation.message.contains("Project: project cleanup"))
+        #expect(confirmation.message.contains("Per-machine: global cleanup"))
+        let approval = try #require(confirmation.projectHookApproval)
+        #expect(approval.commands.map(\.command) == ["project cleanup"])
     }
 
     @Test
