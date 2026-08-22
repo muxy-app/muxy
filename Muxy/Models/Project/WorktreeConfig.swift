@@ -22,9 +22,26 @@ struct WorktreeConfig: Codable {
         let command: String
         let name: String?
 
+        private enum CodingKeys: String, CodingKey {
+            case command
+            case name
+        }
+
         init(command: String, name: String? = nil) {
             self.command = command
             self.name = name
+        }
+
+        init(from decoder: Decoder) throws {
+            if let command = try? decoder.singleValueContainer().decode(String.self) {
+                self.init(command: command)
+                return
+            }
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            try self.init(
+                command: container.decode(String.self, forKey: .command),
+                name: container.decodeIfPresent(String.self, forKey: .name)
+            )
         }
     }
 
@@ -72,23 +89,8 @@ struct WorktreeConfig: Codable {
         forKey key: CodingKeys
     ) throws -> [SetupCommand] {
         guard container.contains(key) else { return [] }
-        var array = try container.nestedUnkeyedContainer(forKey: key)
-        var commands: [SetupCommand] = []
-        while !array.isAtEnd {
-            if let command = try? array.decode(SetupCommand.self) {
-                commands.append(command)
-                continue
-            }
-            if let string = try? array.decode(String.self) {
-                commands.append(SetupCommand(command: string))
-                continue
-            }
-            _ = try? array.decode(EmptyEntry.self)
-        }
-        return commands
+        return try container.decode([SetupCommand].self, forKey: key)
     }
-
-    private struct EmptyEntry: Decodable {}
 
     static func load(fromProjectPath projectPath: String) throws -> WorktreeConfig? {
         let url = URL(fileURLWithPath: projectPath)

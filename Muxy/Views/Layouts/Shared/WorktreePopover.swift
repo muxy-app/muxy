@@ -78,6 +78,7 @@ struct WorktreePopover: View {
         } message: { confirmation in
             Text(verbatim: confirmation.message)
         }
+        .onDisappear { clearPendingRemoval() }
     }
 
     private var footerActions: [PopoverFooterAction] {

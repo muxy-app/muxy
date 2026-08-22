@@ -142,6 +142,7 @@ struct WorktreeLeafRow: View {
         } message: { confirmation in
             Text(verbatim: confirmation.message)
         }
+        .onDisappear { clearPendingRemoval() }
     }
 
     private func applyDefaultExpansion() {
@@ -301,6 +302,7 @@ struct WorktreeLeafRow: View {
     }
 
     private func performRemove(_ confirmation: WorktreeRemovalConfirmation) {
+        let worktree = confirmation.worktree
         let context = projectGroupStore.workspaceContext(for: project)
         worktreeStore.beginRemoval(WorktreeRemovalRequest(
             worktree: worktree,

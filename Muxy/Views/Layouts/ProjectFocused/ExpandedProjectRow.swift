@@ -195,6 +195,7 @@ struct ExpandedProjectRow: View {
         } message: { confirmation in
             Text(verbatim: confirmation.message)
         }
+        .onDisappear { clearPendingWorktreeRemoval() }
     }
 
     private var projectHeader: some View {

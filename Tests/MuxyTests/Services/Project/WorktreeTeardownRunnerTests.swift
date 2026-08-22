@@ -24,6 +24,18 @@ struct WorktreeTeardownRunnerTests {
         #expect(config.teardown[1].name == "cleanup")
     }
 
+    @Test("WorktreeConfig rejects unsupported hook entries")
+    func configRejectsUnsupportedHookEntries() {
+        for field in ["setup", "teardown"] {
+            for entry in ["{}", "true", "null"] {
+                let json = "{\"\(field)\":[\(entry)]}"
+                #expect(throws: DecodingError.self) {
+                    try JSONDecoder().decode(WorktreeConfig.self, from: Data(json.utf8))
+                }
+            }
+        }
+    }
+
     @Test("global config path uses XDG_CONFIG_HOME when available")
     func globalConfigPathUsesXDGConfigHome() {
         let home = URL(fileURLWithPath: "/Users/example", isDirectory: true)

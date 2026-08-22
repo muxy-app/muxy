@@ -283,6 +283,7 @@ struct TabFocusedProjectRow: View {
         } message: {
             Text(L10n.resource("This will remove the project from Muxy. Project files on disk will not be deleted."))
         }
+        .onDisappear { clearPendingWorktreeRemoval() }
     }
 
     private var renameField: some View {
