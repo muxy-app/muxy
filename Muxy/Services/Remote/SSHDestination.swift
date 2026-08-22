@@ -1,13 +1,13 @@
 import Foundation
 
-struct SSHConnectionKey: Hashable {
+struct SSHConnectionKey: Hashable, Sendable {
     let host: String
     let port: Int?
     let user: String?
     let identityFile: String?
 }
 
-struct SSHDestination: Hashable, Codable {
+struct SSHDestination: Hashable, Codable, Sendable {
     var host: String
     var remoteRoot: String
     var port: Int?

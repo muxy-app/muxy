@@ -81,7 +81,7 @@ struct MuxyAPIGitWorktreeTests {
             project: homeProject,
             context: homeContext,
             workspaceContext: remote,
-            remoteHomePath: "/home/test"
+            resolvedPathsByWorktreeID: [homeWorktree.id: "/home/test/repo-feature"]
         )
 
         let relativeProject = Project(name: "Relative Repo", path: "/srv/repos/repo")
@@ -92,7 +92,7 @@ struct MuxyAPIGitWorktreeTests {
             project: relativeProject,
             context: relativeContext,
             workspaceContext: remote,
-            remoteHomePath: "/home/test"
+            resolvedPathsByWorktreeID: [relativeWorktree.id: "/srv/repos/repo-feature"]
         )
 
         #expect(homeTracked?.worktree.id == homeWorktree.id)

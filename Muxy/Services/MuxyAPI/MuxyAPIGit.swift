@@ -594,19 +594,26 @@ extension MuxyAPI {
             let timeout = TimeInterval(timeoutMs) / 1000
             return await write(resolvedProjectIdentifier, operation: "worktree.remove", context: context) { _, _ in
                 let deadline = OperationDeadline(timeout: timeout)
-                let resolution = try await GitWorktreeService.resolveWorktreePath(
-                    trimmedPath,
-                    repoPath: project.path,
+                let trackedWorktrees = context.worktreeStore.list(for: project.id)
+                let resolutions = try await WorkspacePathResolver.live.resolve(
+                    paths: [trimmedPath] + trackedWorktrees.map(\.path),
+                    relativeTo: project.path,
                     context: workspaceContext,
                     timeout: deadline.remaining()
                 )
-                let expandedPath = resolution.path
+                guard let expandedPath = resolutions.first?.path else {
+                    throw GitWorktreeService.GitWorktreeError.commandFailed("Failed to resolve the worktree path.")
+                }
+                var resolvedPathsByWorktreeID: [UUID: String] = [:]
+                for (worktree, resolution) in zip(trackedWorktrees, resolutions.dropFirst()) {
+                    resolvedPathsByWorktreeID[worktree.id] = resolution.path
+                }
                 guard let tracked = trackedWorktree(
                     path: expandedPath,
                     project: project,
                     context: context,
                     workspaceContext: workspaceContext,
-                    remoteHomePath: resolution.remoteHomePath
+                    resolvedPathsByWorktreeID: resolvedPathsByWorktreeID
                 )
                 else {
                     try await GitWorktreeService.shared.removeWorktree(
@@ -652,19 +659,11 @@ extension MuxyAPI {
             project: Project,
             context: Context,
             workspaceContext: WorkspaceContext = .local,
-            remoteHomePath: String? = nil
+            resolvedPathsByWorktreeID: [UUID: String] = [:]
         ) -> (project: Project, worktree: Worktree)? {
             let target = GitWorktreeService.canonicalPath(path, context: workspaceContext)
             guard let worktree = context.worktreeStore.list(for: project.id).first(where: {
-                let storedPath: String = if workspaceContext.isRemote, let remoteHomePath {
-                    GitWorktreeService.expandedRemotePath(
-                        $0.path,
-                        repoPath: project.path,
-                        homePath: remoteHomePath
-                    )
-                } else {
-                    $0.path
-                }
+                let storedPath = resolvedPathsByWorktreeID[$0.id] ?? $0.path
                 return GitWorktreeService.canonicalPath(storedPath, context: workspaceContext) == target
             }), worktree.canBeRemoved
             else { return nil }

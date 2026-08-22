@@ -30,11 +30,6 @@ protocol GitWorktreeListing {
 }
 
 actor GitWorktreeService: GitWorktreeListing {
-    struct WorktreePathResolution {
-        let path: String
-        let remoteHomePath: String?
-    }
-
     typealias RemovalRunner = @Sendable (
         _ repoPath: String,
         _ arguments: [String],
@@ -185,6 +180,7 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
+    @discardableResult
     func removeWorktree(
         repoPath: String,
         path: String,
@@ -192,16 +188,27 @@ actor GitWorktreeService: GitWorktreeListing {
         context: WorkspaceContext = .local,
         timeout: TimeInterval = defaultWorktreeRemovalTimeout,
         removalRunner: RemovalRunner = runRemoval
-    ) async throws {
+    ) async throws -> String {
         let deadline = OperationDeadline(timeout: timeout)
-        let target = Self.canonicalPath(path, context: context)
-        let wasRegistered = try await listWorktrees(
+        let records = try await listWorktrees(
             repoPath: repoPath,
             context: context,
             timeout: deadline.remaining()
         )
-        .contains { Self.canonicalPath($0.path, context: context) == target }
-        if !wasRegistered, try await context.fileOps.exists(at: path, timeout: deadline.remaining()) {
+        let resolutions = try await WorkspacePathResolver.live.resolve(
+            paths: [path] + records.map(\.path),
+            relativeTo: repoPath,
+            context: context,
+            timeout: deadline.remaining()
+        )
+        guard let removalPath = resolutions.first?.path else {
+            throw GitWorktreeError.commandFailed("Failed to resolve the worktree path.")
+        }
+        let target = Self.canonicalPath(removalPath, context: context)
+        let wasRegistered = resolutions.dropFirst().contains {
+            Self.canonicalPath($0.path, context: context) == target
+        }
+        if !wasRegistered, try await context.fileOps.exists(at: removalPath, timeout: deadline.remaining()) {
             throw GitWorktreeError.commandFailed("Worktree is not registered with this repository.")
         }
 
@@ -209,7 +216,7 @@ actor GitWorktreeService: GitWorktreeListing {
         if force {
             args.append("--force")
         }
-        args += ["--", path]
+        args += ["--", removalPath]
         let result: GitProcessResult
         do {
             result = try await removalRunner(repoPath, args, context, deadline.remaining())
@@ -221,10 +228,10 @@ actor GitWorktreeService: GitWorktreeListing {
                 timeout: Self.removalReconciliationTimeout
             )
             else { throw error }
-            return
+            return removalPath
         }
-        guard result.status != 0 else { return }
-        if try await context.fileOps.exists(at: path, timeout: deadline.remaining()) {
+        guard result.status != 0 else { return removalPath }
+        if try await context.fileOps.exists(at: removalPath, timeout: deadline.remaining()) {
             throw GitWorktreeError.commandFailed(
                 result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
             )
@@ -241,7 +248,7 @@ actor GitWorktreeService: GitWorktreeListing {
             context: context,
             timeout: verificationTimeout
         )
-        guard stillRegistered else { return }
+        guard stillRegistered else { return removalPath }
 
         throw GitWorktreeError.commandFailed(
             result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
@@ -268,8 +275,19 @@ actor GitWorktreeService: GitWorktreeListing {
         context: WorkspaceContext,
         timeout: TimeInterval
     ) async throws -> Bool {
-        try await listWorktrees(repoPath: repoPath, context: context, timeout: timeout)
-            .contains { Self.canonicalPath($0.path, context: context) == target }
+        let deadline = OperationDeadline(timeout: timeout)
+        let records = try await listWorktrees(
+            repoPath: repoPath,
+            context: context,
+            timeout: deadline.remaining()
+        )
+        let resolutions = try await WorkspacePathResolver.live.resolve(
+            paths: records.map(\.path),
+            relativeTo: repoPath,
+            context: context,
+            timeout: deadline.remaining()
+        )
+        return resolutions.contains { Self.canonicalPath($0.path, context: context) == target }
     }
 
     private static func runRemoval(
@@ -323,83 +341,6 @@ actor GitWorktreeService: GitWorktreeListing {
 
         let parent = standardized.deletingLastPathComponent().resolvingSymlinksInPath()
         return parent.appendingPathComponent(standardized.lastPathComponent).path
-    }
-
-    static func resolveWorktreePath(
-        _ path: String,
-        repoPath: String,
-        context: WorkspaceContext,
-        timeout: TimeInterval
-    ) async throws -> WorktreePathResolution {
-        guard case let .ssh(destination) = context else {
-            return WorktreePathResolution(
-                path: canonicalPath(NSString(string: path).expandingTildeInPath),
-                remoteHomePath: nil
-            )
-        }
-        let deadline = OperationDeadline(timeout: timeout)
-        let homeResult = try await SSHCommandRunner.run(
-            destination: destination,
-            remoteCommand: "printf '%s' \"$HOME\"",
-            timeout: deadline.remaining()
-        )
-        guard homeResult.status == 0 else {
-            throw GitWorktreeError.commandFailed(
-                homeResult.stderr.isEmpty ? "Failed to resolve the remote home directory." : homeResult.stderr
-            )
-        }
-        let homePath = homeResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        let absolutePath = expandedRemotePath(path, repoPath: repoPath, homePath: homePath)
-        let quotedPath = RemoteCommandBuilder.quoteRemotePath(absolutePath)
-        let resolved = try await SSHCommandRunner.run(
-            destination: destination,
-            remoteCommand: "if [ -d \(quotedPath) ]; then cd \(quotedPath) && pwd -P; else printf '%s' \(quotedPath); fi",
-            timeout: deadline.remaining()
-        )
-        guard resolved.status == 0 else {
-            throw GitWorktreeError.commandFailed(
-                resolved.stderr.isEmpty ? "Failed to resolve the remote worktree path." : resolved.stderr
-            )
-        }
-        return WorktreePathResolution(
-            path: canonicalPath(
-                resolved.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
-                context: context
-            ),
-            remoteHomePath: homePath
-        )
-    }
-
-    static func expandedRemotePath(_ path: String, repoPath: String, homePath: String) -> String {
-        func expandHome(_ value: String) -> String {
-            if value == "~" {
-                return homePath
-            }
-            if value.hasPrefix("~/") {
-                return homePath + value.dropFirst()
-            }
-            return value
-        }
-
-        let expandedPath = expandHome(path)
-        guard !expandedPath.hasPrefix("/") else {
-            return ProjectPickerPathService.standardizedRemotePath(expandedPath)
-        }
-        let expandedRepoPath = expandHome(repoPath)
-        return ProjectPickerPathService.standardizedRemotePath(expandedRepoPath + "/" + expandedPath)
-    }
-
-    func resolvedRepositoryRoot(repoPath: String, context: WorkspaceContext) async -> String? {
-        guard let result = try? await GitProcessRunner.runGit(
-            repoPath: repoPath,
-            arguments: ["rev-parse", "--show-toplevel"],
-            context: context
-        ), result.status == 0
-        else {
-            return nil
-        }
-        let toplevel = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        return toplevel.isEmpty ? nil : toplevel
     }
 
     private func parsePorcelain(_ raw: String) -> [GitWorktreeRecord] {

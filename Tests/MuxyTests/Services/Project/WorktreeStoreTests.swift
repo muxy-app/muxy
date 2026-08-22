@@ -34,6 +34,28 @@ struct WorktreeStoreTests {
         #expect(reloaded.worktree(projectID: project.id, worktreeID: worktree.id)?.lastActiveAt == lastActiveAt)
     }
 
+    @Test("loading repairs duplicate worktree identifiers without dropping records")
+    func loadingRepairsDuplicateWorktreeIDs() throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let duplicateID = UUID()
+        let persistence = WorktreePersistenceStub(initial: [
+            project.id: [
+                Worktree(name: project.name, path: project.path, isPrimary: true),
+                Worktree(id: duplicateID, name: "Feature A", path: "/tmp/repo-a", isPrimary: false),
+                Worktree(id: duplicateID, name: "Feature B", path: "/tmp/repo-b", isPrimary: false),
+            ],
+        ])
+
+        let store = WorktreeStore(persistence: persistence, projects: [project])
+        let loaded = store.list(for: project.id)
+
+        #expect(loaded.count == 3)
+        #expect(Set(loaded.map(\.id)).count == 3)
+        #expect(loaded.contains { $0.id == duplicateID && $0.path == "/tmp/repo-a" })
+        #expect(loaded.contains { $0.id != duplicateID && $0.path == "/tmp/repo-b" })
+        #expect(Set(try persistence.loadWorktrees(projectID: project.id).map(\.id)).count == 3)
+    }
+
     @Test("local path ownership wins over an identical remote path")
     func localPathOwnershipWinsRemoteCollision() {
         let sharedPath = "/workspace/api"
@@ -342,6 +364,61 @@ struct WorktreeStoreTests {
         store.cancelProjectRemoval(project.id)
     }
 
+    @Test("refreshFromGit preserves activity changes during path resolution")
+    func refreshFromGitPreservesConcurrentActivity() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let feature = Worktree(
+            name: "feature",
+            path: "/tmp/repo-feature",
+            branch: "feature",
+            isPrimary: false
+        )
+        let persistence = WorktreePersistenceStub(initial: [
+            project.id: [
+                Worktree(name: project.name, path: project.path, branch: "main", isPrimary: true),
+                feature,
+            ],
+        ])
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: feature.path,
+                    branch: feature.branch,
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ],
+        ])
+        let gate = FirstPathResolutionGate()
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            pathResolver: GatedWorkspacePathResolver(gate: gate),
+            projects: [project]
+        )
+
+        let refresh = Task { @MainActor in
+            try await store.refreshFromGit(project: project)
+        }
+        await gate.waitUntilEntered()
+        store.markActive(projectID: project.id, worktreeID: feature.id)
+        await gate.release()
+        let refreshed = try await refresh.value
+
+        let refreshedFeature = try #require(refreshed.first(where: { $0.id == feature.id }))
+        #expect(refreshedFeature.lastActiveAt != nil)
+        #expect(store.worktree(projectID: project.id, worktreeID: feature.id)?.lastActiveAt == refreshedFeature.lastActiveAt)
+        #expect(await gate.callCount() == 1)
+    }
+
     @Test("local worktree creation runs setup after storing the worktree")
     func localCreationRunsSetup() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -371,6 +448,71 @@ struct WorktreeStoreTests {
         #expect(setupCapture.worktreeIDs == [worktree.id])
         #expect(setupCapture.approvals == [approval])
         #expect(store.list(for: project.id).contains(worktree))
+    }
+
+    @Test("worktree creation schedules reconciliation after path resolution fails")
+    func creationReconcilesAfterPathResolutionFailure() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let requestedPath = "../repo-feature"
+        let resolvedPath = "/tmp/repo-feature"
+        let external = Worktree(
+            name: "feature",
+            path: resolvedPath,
+            branch: "feature",
+            source: .external,
+            isPrimary: false
+        )
+        let persistence = WorktreePersistenceStub(initial: [
+            project.id: [
+                Worktree(name: project.name, path: project.path, branch: "main", isPrimary: true),
+                external,
+            ],
+        ])
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: resolvedPath,
+                    branch: "feature",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ],
+        ])
+        let resolver = RecoveringWorkspacePathResolver(resolvedPaths: [requestedPath: resolvedPath])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            addGitWorktree: { _, _, _, _, _ in },
+            pathResolver: resolver,
+            projects: [project]
+        )
+        let request = WorktreeCreationRequest(
+            name: "feature",
+            path: requestedPath,
+            branch: "feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+
+        let created = try await store.createWorktree(project: project, request: request)
+        await resolver.waitUntilRecovered()
+        for _ in 0 ..< 100 where store.list(for: project.id).filter({ !$0.isPrimary }).count != 1 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let secondary = store.list(for: project.id).filter { !$0.isPrimary }
+        #expect(secondary.count == 1)
+        #expect(secondary.first?.id == created.id)
+        #expect(secondary.first?.source == .muxy)
+        #expect(secondary.first?.path == requestedPath)
     }
 
     @Test("local worktree creation defaults setup to off")
@@ -775,6 +917,106 @@ struct WorktreeStoreTests {
         #expect(atSharedPath.first?.id == muxyID)
     }
 
+    @Test("refreshFromGit reconciles alternate representations of the same path")
+    func refreshFromGitReconcilesResolvedPath() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let storedPath = "~/repo-feature"
+        let resolvedPath = "/home/test/repo-feature"
+        let muxyID = UUID()
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(name: project.name, path: project.path, isPrimary: true),
+                    Worktree(
+                        name: "feature",
+                        path: resolvedPath,
+                        branch: "feature",
+                        source: .external,
+                        isPrimary: false
+                    ),
+                    Worktree(
+                        id: muxyID,
+                        name: "stale",
+                        path: storedPath,
+                        branch: "stale",
+                        source: .muxy,
+                        isPrimary: false
+                    ),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: resolvedPath,
+                    branch: "feature",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            pathResolver: WorkspacePathResolverStub(resolvedPaths: [storedPath: resolvedPath]),
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        let featureWorktrees = worktrees.filter { !$0.isPrimary }
+        #expect(featureWorktrees.count == 1)
+        #expect(featureWorktrees.first?.id == muxyID)
+        #expect(featureWorktrees.first?.source == .muxy)
+        #expect(featureWorktrees.first?.path == storedPath)
+        #expect(featureWorktrees.first?.branch == "feature")
+        #expect(featureWorktrees.first?.name == "feature")
+    }
+
+    @Test("refreshFromGit removes a secondary alias of the primary worktree")
+    func refreshFromGitRemovesPrimaryAlias() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let aliasPath = "~/repo-alias"
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(name: project.name, path: project.path, isPrimary: true),
+                    Worktree(name: "alias", path: aliasPath, branch: "main", isPrimary: false),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            pathResolver: WorkspacePathResolverStub(resolvedPaths: [aliasPath: project.path]),
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        #expect(worktrees.count == 1)
+        #expect(worktrees.first?.isPrimary == true)
+    }
+
     @Test("add reconciles an externally imported worktree at the same path instead of duplicating")
     func addReconcilesExistingExternalAtSamePath() {
         let project = Project(name: "Repo", path: "/tmp/repo")
@@ -974,6 +1216,107 @@ private struct GitWorktreeListingStub: GitWorktreeListing {
 
     func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord] {
         recordsByRepoPath[repoPath] ?? []
+    }
+}
+
+private struct WorkspacePathResolverStub: WorkspacePathResolving {
+    let resolvedPaths: [String: String]
+
+    func resolve(
+        paths: [String],
+        relativeTo _: String,
+        context _: WorkspaceContext,
+        timeout _: TimeInterval
+    ) async throws -> [WorkspacePathResolution] {
+        paths.map {
+            WorkspacePathResolution(path: resolvedPaths[$0] ?? $0)
+        }
+    }
+}
+
+private struct GatedWorkspacePathResolver: WorkspacePathResolving {
+    let gate: FirstPathResolutionGate
+
+    func resolve(
+        paths: [String],
+        relativeTo _: String,
+        context _: WorkspaceContext,
+        timeout _: TimeInterval
+    ) async throws -> [WorkspacePathResolution] {
+        await gate.pauseOnce()
+        return paths.map { WorkspacePathResolution(path: $0) }
+    }
+}
+
+private actor RecoveringWorkspacePathResolver: WorkspacePathResolving {
+    let resolvedPaths: [String: String]
+    private var calls = 0
+    private var recoveryWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(resolvedPaths: [String: String]) {
+        self.resolvedPaths = resolvedPaths
+    }
+
+    func resolve(
+        paths: [String],
+        relativeTo _: String,
+        context _: WorkspaceContext,
+        timeout _: TimeInterval
+    ) throws -> [WorkspacePathResolution] {
+        calls += 1
+        guard calls > 1 else {
+            throw WorkspacePathResolverError.commandFailed("transient failure")
+        }
+        for waiter in recoveryWaiters {
+            waiter.resume()
+        }
+        recoveryWaiters.removeAll()
+        return paths.map { WorkspacePathResolution(path: resolvedPaths[$0] ?? $0) }
+    }
+
+    func waitUntilRecovered() async {
+        guard calls < 2 else { return }
+        await withCheckedContinuation { continuation in
+            recoveryWaiters.append(continuation)
+        }
+    }
+}
+
+private actor FirstPathResolutionGate {
+    private var entered = false
+    private var shouldPause = true
+    private var calls = 0
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+
+    func pauseOnce() async {
+        calls += 1
+        guard shouldPause else { return }
+        shouldPause = false
+        entered = true
+        for waiter in entryWaiters {
+            waiter.resume()
+        }
+        entryWaiters.removeAll()
+        await withCheckedContinuation { continuation in
+            releaseWaiter = continuation
+        }
+    }
+
+    func waitUntilEntered() async {
+        guard !entered else { return }
+        await withCheckedContinuation { continuation in
+            entryWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        releaseWaiter?.resume()
+        releaseWaiter = nil
+    }
+
+    func callCount() -> Int {
+        calls
     }
 }
 

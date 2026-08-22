@@ -26,6 +26,32 @@ struct GitWorktreeServiceRemoveTests {
         #expect(!records.contains { $0.path == worktreePath })
     }
 
+    @Test("resolves repository-relative paths before removal")
+    func removesRepositoryRelativeWorktree() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("relative-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "relative-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+
+        let removedPath = try await GitWorktreeService.shared.removeWorktree(
+            repoPath: repo.path,
+            path: "../relative-wt",
+            force: true
+        )
+
+        #expect(removedPath == worktreePath)
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        #expect(!records.contains { $0.path == worktreePath })
+    }
+
     @Test("succeeds when the worktree folder is gone and git admin metadata is orphaned")
     func succeedsForOrphanedWorktree() async throws {
         let repo = try TempGitRepo()
@@ -192,25 +218,6 @@ struct GitWorktreeServiceRemoveTests {
         let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
         let target = GitWorktreeService.canonicalPath(worktreePath)
         #expect(!records.contains { GitWorktreeService.canonicalPath($0.path) == target })
-    }
-
-    @Test("remote worktree paths expand home and resolve relative to the repository")
-    func expandsRemoteWorktreePaths() {
-        #expect(GitWorktreeService.expandedRemotePath(
-            "~/app-feature",
-            repoPath: "~/app",
-            homePath: "/home/test"
-        ) == "/home/test/app-feature")
-        #expect(GitWorktreeService.expandedRemotePath(
-            "../app-feature",
-            repoPath: "/srv/repos/app",
-            homePath: "/home/test"
-        ) == "/srv/repos/app-feature")
-        #expect(GitWorktreeService.expandedRemotePath(
-            "/srv/repos/app-feature",
-            repoPath: "/srv/repos/app",
-            homePath: "/home/test"
-        ) == "/srv/repos/app-feature")
     }
 
     @Test("cleanupOnDisk preserves an orphaned worktree when its main repo is missing")

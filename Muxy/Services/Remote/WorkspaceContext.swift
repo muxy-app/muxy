@@ -1,6 +1,6 @@
 import Foundation
 
-enum WorkspaceContext: Hashable {
+enum WorkspaceContext: Hashable, Sendable {
     case local
     case ssh(SSHDestination)
 
