@@ -177,7 +177,7 @@ Muxy tracks the cwd via Ghostty's shell integration (OSC 7). The directory is pe
 
 Remote terminals use the selected SSH device's environment before starting the remote login shell. New SSH devices default to `TERM=xterm-256color`; edit the device in Settings -> Remote Devices to change or remove it.
 
-When an SSH session that has been connected for at least 10 seconds exits with status `255`, Muxy retries up to five times with capped exponential backoff. A connection that lasts at least 60 seconds resets the retry budget. Immediate connection failures skip automatic retries, and exhausted recovery offers Retry and a shortcut to Remote Device settings. Reconnects open a fresh login shell in the pane's working directory without replaying its original startup command; normal logout, command completion, and cancellation are not retried.
+When an SSH process runs for at least 10 seconds before exiting with status `255`, Muxy retries up to five times with capped exponential backoff. An SSH process that runs for at least 60 seconds resets the retry budget. Failures before the initial 10-second threshold skip automatic retries, and exhausted recovery offers Retry and a shortcut to Remote Device settings. Reconnects open a fresh login shell in the pane's working directory without replaying its original startup command; normal logout, command completion, and cancellation are not retried.
 
 ## Muxy CLI
 

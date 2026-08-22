@@ -682,6 +682,14 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     func retryRemoteSession() {
+        retryRemoteSession {
+            createSurface()
+            applyOcclusionState()
+            return surface != nil || pendingSurfaceCreation
+        }
+    }
+
+    func retryRemoteSession(recreateSurface: () -> Bool) {
         guard isRemoteSessionRecoveryFailed else { return }
         if surface != nil {
             processExitHandled = true
@@ -690,9 +698,7 @@ final class GhosttyTerminalNSView: NSView,
         remoteRecoveryToken = UUID()
         setRemoteSessionRecoveryFailed(false)
         processExitHandled = false
-        createSurface()
-        applyOcclusionState()
-        if surface == nil, !pendingSurfaceCreation {
+        if !recreateSurface() {
             setRemoteSessionRecoveryFailed(true)
         }
     }
