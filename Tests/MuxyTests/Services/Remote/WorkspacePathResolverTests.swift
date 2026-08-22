@@ -23,8 +23,9 @@ struct WorkspacePathResolverTests {
             context: .local,
             timeout: 1
         )
+        let physicalWorktreePath = worktree.resolvingSymlinksInPath().path
 
-        #expect(resolutions.map(\.path) == [worktree.path, worktree.path])
+        #expect(resolutions.map(\.path) == [physicalWorktreePath, physicalWorktreePath])
     }
 
     @Test("SSH paths resolve home, repository-relative paths, symlinks, and missing descendants")

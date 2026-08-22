@@ -47,7 +47,7 @@ struct GitWorktreeServiceRemoveTests {
             force: true
         )
 
-        #expect(removedPath == worktreePath)
+        #expect(removedPath == URL(fileURLWithPath: worktreePath).resolvingSymlinksInPath().path)
         let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
         #expect(!records.contains { $0.path == worktreePath })
     }

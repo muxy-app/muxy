@@ -27,6 +27,7 @@ enum APIError: Error, Equatable {
     case splitFailed
     case renameFailed
     case consentDenied(verb: String)
+    case retryable(String)
     case underlying(String)
 
     var message: String {
@@ -56,6 +57,7 @@ enum APIError: Error, Equatable {
         case .splitFailed: "split succeeded but could not determine new pane ID"
         case .renameFailed: "could not rename pane"
         case let .consentDenied(verb): "user denied consent for \(verb)"
+        case let .retryable(message): "\(message); retry the operation"
         case let .underlying(message): message
         }
     }
@@ -1347,6 +1349,8 @@ enum MuxyAPI {
             do {
                 let worktrees = try await worktreeStore.refreshFromGit(project: project, context: context)
                 return .success(RefreshWorktreesResult(count: worktrees.count))
+            } catch WorktreeMutationError.concurrentModification {
+                return .failure(.retryable("worktrees changed while they were being refreshed"))
             } catch {
                 return .failure(.underlying(error.localizedDescription))
             }
