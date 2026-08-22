@@ -242,31 +242,39 @@ final class WorktreeStore {
             branch: request.branch,
             isPrimary: false
         )
-        let existing = worktrees[project.id] ?? []
-        let identityPaths: [WorkspacePathResolution]?
-        do {
-            identityPaths = try await pathResolver.resolve(
-                paths: [request.path] + existing.map(\.path),
-                relativeTo: project.path,
-                context: context,
-                timeout: SSHCommandRunner.defaultTimeout
-            )
-        } catch {
-            identityPaths = nil
+        var stored = false
+        for _ in 0 ..< Self.maxRefreshAttempts {
+            let snapshot = worktrees[project.id] ?? []
+            do {
+                let identityPaths = try await pathResolver.resolve(
+                    paths: [request.path] + snapshot.map(\.path),
+                    relativeTo: project.path,
+                    context: context,
+                    timeout: SSHCommandRunner.defaultTimeout
+                )
+                guard Self.hasSameRefreshState(snapshot, worktrees[project.id] ?? []) else { continue }
+                var identityPathsByWorktreeID: [UUID: String] = [:]
+                for (existingWorktree, resolution) in zip(snapshot, identityPaths.dropFirst()) {
+                    identityPathsByWorktreeID[existingWorktree.id] = resolution.path
+                }
+                store(
+                    worktree,
+                    for: project.id,
+                    context: context,
+                    identityPath: identityPaths.first?.path,
+                    identityPathsByWorktreeID: identityPathsByWorktreeID
+                )
+                stored = true
+                break
+            } catch {
+                logger.error("Failed to resolve paths after creating worktree for project \(project.id): \(error)")
+                break
+            }
+        }
+        if !stored {
             requiresRefresh = true
-            logger.error("Failed to resolve paths after creating worktree for project \(project.id): \(error)")
+            store(worktree, for: project.id, context: context)
         }
-        var identityPathsByWorktreeID: [UUID: String] = [:]
-        for (existingWorktree, resolution) in zip(existing, identityPaths?.dropFirst() ?? []) {
-            identityPathsByWorktreeID[existingWorktree.id] = resolution.path
-        }
-        store(
-            worktree,
-            for: project.id,
-            context: context,
-            identityPath: identityPaths?.first?.path,
-            identityPathsByWorktreeID: identityPathsByWorktreeID
-        )
         if request.runSetup, !context.isRemote {
             await runWorktreeSetup(project.path, worktree, request.projectHookApproval)
         }

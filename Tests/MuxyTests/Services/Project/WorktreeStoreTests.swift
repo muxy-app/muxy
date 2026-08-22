@@ -364,6 +364,49 @@ struct WorktreeStoreTests {
         store.cancelProjectRemoval(project.id)
     }
 
+    @Test("worktree creation retries identity resolution after concurrent changes")
+    func creationRetriesIdentityResolutionAfterConcurrentChanges() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let requestedPath = "../repo-feature"
+        let resolvedPath = "/tmp/repo-feature"
+        let gate = FirstPathResolutionGate()
+        let store = WorktreeStore(
+            persistence: WorktreePersistenceStub(initial: [:]),
+            addGitWorktree: { _, _, _, _, _ in },
+            pathResolver: GatedWorkspacePathResolver(
+                gate: gate,
+                resolvedPaths: [requestedPath: resolvedPath]
+            ),
+            projects: [project]
+        )
+        let request = WorktreeCreationRequest(
+            name: "feature",
+            path: requestedPath,
+            branch: "feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+
+        let creation = Task { @MainActor in
+            try await store.createWorktree(project: project, request: request)
+        }
+        await gate.waitUntilEntered()
+        store.add(Worktree(
+            name: "feature",
+            path: resolvedPath,
+            branch: "feature",
+            source: .external,
+            isPrimary: false
+        ), to: project.id)
+        await gate.release()
+        let created = try await creation.value
+
+        let secondary = store.list(for: project.id).filter { !$0.isPrimary }
+        #expect(secondary.count == 1)
+        #expect(secondary.first?.id == created.id)
+        #expect(await gate.callCount() == 2)
+    }
+
     @Test("refreshFromGit preserves activity changes during path resolution")
     func refreshFromGitPreservesConcurrentActivity() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
@@ -1236,6 +1279,7 @@ private struct WorkspacePathResolverStub: WorkspacePathResolving {
 
 private struct GatedWorkspacePathResolver: WorkspacePathResolving {
     let gate: FirstPathResolutionGate
+    var resolvedPaths: [String: String] = [:]
 
     func resolve(
         paths: [String],
@@ -1244,7 +1288,7 @@ private struct GatedWorkspacePathResolver: WorkspacePathResolving {
         timeout _: TimeInterval
     ) async throws -> [WorkspacePathResolution] {
         await gate.pauseOnce()
-        return paths.map { WorkspacePathResolution(path: $0) }
+        return paths.map { WorkspacePathResolution(path: resolvedPaths[$0] ?? $0) }
     }
 }
 
