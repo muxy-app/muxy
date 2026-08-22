@@ -199,26 +199,41 @@ final class WorktreeStore {
         store(worktree, for: projectID, context: context)
     }
 
+    @discardableResult
     private func store(
         _ worktree: Worktree,
         for projectID: UUID,
         context: WorkspaceContext,
         identityPath: String? = nil,
         identityPathsByWorktreeID: [UUID: String] = [:]
-    ) {
+    ) -> Worktree {
         var list = worktrees[projectID] ?? []
         let key = GitWorktreeService.canonicalPath(identityPath ?? worktree.path, context: context)
+        let storedWorktree: Worktree
         if let index = list.firstIndex(where: {
             let existingPath = identityPathsByWorktreeID[$0.id] ?? $0.path
             return !$0.isPrimary && GitWorktreeService.canonicalPath(existingPath, context: context) == key
         }) {
-            list[index] = worktree
+            let existing = list[index]
+            storedWorktree = Worktree(
+                id: existing.id,
+                name: worktree.name,
+                path: worktree.path,
+                branch: worktree.branch,
+                source: worktree.source,
+                isPrimary: worktree.isPrimary,
+                createdAt: existing.createdAt,
+                lastActiveAt: existing.lastActiveAt
+            )
+            list[index] = storedWorktree
         } else {
-            list.append(worktree)
+            storedWorktree = worktree
+            list.append(storedWorktree)
         }
         setWorktrees(sortPrimaryFirst(list), for: projectID)
         save(projectID: projectID)
-        onWorktreesChanged?(projectID, worktree.id)
+        onWorktreesChanged?(projectID, storedWorktree.id)
+        return storedWorktree
     }
 
     func createWorktree(
@@ -246,7 +261,7 @@ final class WorktreeStore {
             branch: request.branch,
             isPrimary: false
         )
-        var stored = false
+        var storedWorktree: Worktree?
         for _ in 0 ..< Self.maxRefreshAttempts {
             let snapshot = worktrees[project.id] ?? []
             do {
@@ -256,33 +271,36 @@ final class WorktreeStore {
                     context: context,
                     timeout: SSHCommandRunner.defaultTimeout
                 )
+                guard identityPaths.count == snapshot.count + 1 else {
+                    throw WorkspacePathResolverError.invalidOutput
+                }
                 guard Self.hasSameRefreshState(snapshot, worktrees[project.id] ?? []) else { continue }
                 var identityPathsByWorktreeID: [UUID: String] = [:]
                 for (existingWorktree, resolution) in zip(snapshot, identityPaths.dropFirst()) {
                     identityPathsByWorktreeID[existingWorktree.id] = resolution.path
                 }
-                store(
+                storedWorktree = store(
                     worktree,
                     for: project.id,
                     context: context,
                     identityPath: identityPaths.first?.path,
                     identityPathsByWorktreeID: identityPathsByWorktreeID
                 )
-                stored = true
                 break
             } catch {
                 logger.error("Failed to resolve paths after creating worktree for project \(project.id): \(error)")
                 break
             }
         }
-        if !stored {
+        if storedWorktree == nil {
             requiresRefresh = true
-            store(worktree, for: project.id, context: context)
+            storedWorktree = store(worktree, for: project.id, context: context)
         }
+        let createdWorktree = storedWorktree ?? worktree
         if request.runSetup, !context.isRemote {
-            await runWorktreeSetup(project.path, worktree, request.projectHookApproval)
+            await runWorktreeSetup(project.path, createdWorktree, request.projectHookApproval)
         }
-        return worktree
+        return createdWorktree
     }
 
     private func addWorktreeForContext(
@@ -454,13 +472,13 @@ final class WorktreeStore {
             for worktree in list {
                 let key = pathKeysByID[worktree.id]
                     ?? GitWorktreeService.canonicalPath(worktree.path, context: context)
-                if let existing = existingByKey[key] {
-                    if worktree.isPrimary && !existing.isPrimary
-                        || existing.isExternallyManaged && !worktree.isExternallyManaged
-                    {
-                        existingByKey[key] = worktree
-                    }
-                } else {
+                guard let existing = existingByKey[key] else {
+                    existingByKey[key] = worktree
+                    continue
+                }
+                if worktree.isPrimary && !existing.isPrimary
+                    || existing.isExternallyManaged && !worktree.isExternallyManaged
+                {
                     existingByKey[key] = worktree
                 }
             }
@@ -510,6 +528,7 @@ final class WorktreeStore {
                 context: context,
                 pathKeysByID: pathKeysByID
             ))
+            try Task.checkCancellation()
             setWorktrees(sorted, for: project.id)
             save(projectID: project.id)
             onWorktreesChanged?(project.id, nil)

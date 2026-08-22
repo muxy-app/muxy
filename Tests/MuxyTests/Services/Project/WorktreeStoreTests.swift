@@ -369,6 +369,17 @@ struct WorktreeStoreTests {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let requestedPath = "../repo-feature"
         let resolvedPath = "/tmp/repo-feature"
+        let aliasCreatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let aliasLastActiveAt = Date(timeIntervalSince1970: 1_700_000_100)
+        let existingAlias = Worktree(
+            name: "feature",
+            path: resolvedPath,
+            branch: "feature",
+            source: .external,
+            isPrimary: false,
+            createdAt: aliasCreatedAt,
+            lastActiveAt: aliasLastActiveAt
+        )
         let gate = FirstPathResolutionGate()
         let store = WorktreeStore(
             persistence: WorktreePersistenceStub(initial: [:]),
@@ -391,18 +402,16 @@ struct WorktreeStoreTests {
             try await store.createWorktree(project: project, request: request)
         }
         await gate.waitUntilEntered()
-        store.add(Worktree(
-            name: "feature",
-            path: resolvedPath,
-            branch: "feature",
-            source: .external,
-            isPrimary: false
-        ), to: project.id)
+        store.add(existingAlias, to: project.id)
         await gate.release()
         let created = try await creation.value
 
         let secondary = store.list(for: project.id).filter { !$0.isPrimary }
         #expect(secondary.count == 1)
+        #expect(created.id == existingAlias.id)
+        #expect(created.createdAt == aliasCreatedAt)
+        #expect(created.lastActiveAt == aliasLastActiveAt)
+        #expect(created.source == .muxy)
         #expect(secondary.first?.id == created.id)
         #expect(await gate.callCount() == 2)
     }
