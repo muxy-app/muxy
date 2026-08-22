@@ -121,7 +121,7 @@ struct WorkspacePathResolverTests {
         }
         let counter = WorkspacePathRunnerCounter()
         let resolver = WorkspacePathResolver { _, command, timeout in
-            await counter.increment()
+            await counter.record(command)
             let result = try await SubprocessRunner.run(SubprocessRequest(
                 executablePath: "/bin/sh",
                 arguments: ["-c", command],
@@ -154,6 +154,7 @@ struct WorkspacePathResolverTests {
         #expect(resolutions.count == expectedPaths.count)
         #expect(mismatch == nil)
         #expect(await counter.value > 1)
+        #expect(await counter.maximumCommandBytes <= 32 * 1024)
     }
 
     @Test("SSH command failures use resolver errors")
@@ -175,8 +176,10 @@ struct WorkspacePathResolverTests {
 
 private actor WorkspacePathRunnerCounter {
     private(set) var value = 0
+    private(set) var maximumCommandBytes = 0
 
-    func increment() {
+    func record(_ command: String) {
         value += 1
+        maximumCommandBytes = max(maximumCommandBytes, command.utf8.count)
     }
 }

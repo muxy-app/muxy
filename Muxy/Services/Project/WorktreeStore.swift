@@ -626,7 +626,7 @@ final class WorktreeStore {
         guard directoryRemoved == true, !context.isRemote, !worktree.isExternallyManaged else {
             return cleanupResult(directoryRemoved: directoryRemoved)
         }
-        await removeParentDirectoryIfEmpty(for: worktree.path)
+        await removeParentDirectoryIfEmpty(for: removedPath)
         return .removed
     }
 
