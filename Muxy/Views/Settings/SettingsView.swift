@@ -65,6 +65,10 @@ struct SettingsView: View {
                 searchText = ""
                 selectedRoute = .builtin(.quickTerminal)
             }
+            if SettingsFocusCoordinator.shared.consume(.remoteDevices) {
+                searchText = ""
+                selectedRoute = .builtin(.remoteDevices)
+            }
         }
         .onChange(of: searchText) { _, _ in
             guard !isRouteVisible(selectedRoute) else { return }
@@ -78,6 +82,7 @@ struct SettingsView: View {
             selectedRoute = .builtin(.projects)
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusRemoteDevicesSettings)) { _ in
+            _ = SettingsFocusCoordinator.shared.consume(.remoteDevices)
             searchText = ""
             selectedRoute = .builtin(.remoteDevices)
         }

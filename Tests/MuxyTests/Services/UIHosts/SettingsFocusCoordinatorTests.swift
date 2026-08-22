@@ -79,6 +79,38 @@ struct SettingsFocusCoordinatorTests {
         #expect(coordinator.consume(.terminal))
         #expect(!coordinator.consume(.terminal))
     }
+
+    @Test("opening remote device settings retains focus and emits both notifications")
+    func remoteDeviceSettingsOpenRoutesToRemoteDevices() {
+        let notificationCenter = NotificationCenter()
+        let coordinator = SettingsFocusCoordinator(notificationCenter: notificationCenter)
+        let flag = SettingsOpenNotificationFlag()
+        let focusObserver = notificationCenter.addObserver(
+            forName: .focusRemoteDevicesSettings,
+            object: nil,
+            queue: nil
+        ) { _ in
+            flag.didPostFocus = true
+        }
+        let openObserver = notificationCenter.addObserver(
+            forName: .openSettingsModal,
+            object: nil,
+            queue: nil
+        ) { _ in
+            flag.didPostOpen = true
+        }
+        defer {
+            notificationCenter.removeObserver(focusObserver)
+            notificationCenter.removeObserver(openObserver)
+        }
+
+        coordinator.openSettings(focusedOn: .remoteDevices)
+
+        #expect(flag.didPostFocus)
+        #expect(flag.didPostOpen)
+        #expect(coordinator.consume(.remoteDevices))
+        #expect(!coordinator.consume(.remoteDevices))
+    }
 }
 
 private final class SettingsFocusNotificationFlag: @unchecked Sendable {

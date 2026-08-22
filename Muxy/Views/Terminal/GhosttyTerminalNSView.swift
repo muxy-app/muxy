@@ -12,7 +12,8 @@ final class GhosttyTerminalNSView: NSView,
     TerminalSearchSurface,
     TerminalUploadSurface,
     TerminalBackgroundingSurface,
-    TerminalSessionRecoverySurface
+    TerminalSessionRecoverySurface,
+    TerminalRemoteSessionRecoverySurface
 {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     var terminalView: NSView { self }
@@ -23,6 +24,7 @@ final class GhosttyTerminalNSView: NSView,
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
     private let workspaceContext: WorkspaceContext
+    private var remoteRecoveryToken: UUID
     let persistentSessionID: UUID?
     var envVars: [(key: String, value: String)] = []
     var sessionMetadata: [(key: String, value: String)] = []
@@ -36,6 +38,8 @@ final class GhosttyTerminalNSView: NSView,
     var onSendToBackground: (() -> Void)?
     var onSessionRecoveryFailed: ((Bool) -> Void)?
     private(set) var isSessionRecoveryFailed = false
+    var onRemoteSessionRecoveryFailed: ((Bool) -> Void)?
+    private(set) var isRemoteSessionRecoveryFailed = false
     var onSearchStart: ((String?) -> Void)?
     var onSearchEnd: (() -> Void)?
     var onSearchTotal: ((Int?) -> Void)?
@@ -118,7 +122,8 @@ final class GhosttyTerminalNSView: NSView,
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
         workspaceContext: WorkspaceContext = .local,
-        persistentSessionID: UUID? = nil
+        persistentSessionID: UUID? = nil,
+        remoteRecoveryToken: UUID = UUID()
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
@@ -126,6 +131,7 @@ final class GhosttyTerminalNSView: NSView,
         commandClosesOnExit = closesOnCommandExit
         self.workspaceContext = workspaceContext
         self.persistentSessionID = persistentSessionID
+        self.remoteRecoveryToken = remoteRecoveryToken
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -211,8 +217,11 @@ final class GhosttyTerminalNSView: NSView,
                 destination: destination,
                 workingDirectory: workingDirectory,
                 startupCommand: launchCommand,
-                interactive: commandInteractive,
-                keepsShellOpen: !commandClosesOnExit
+                configuration: TerminalLaunchCommand.RemoteShellConfiguration(
+                    interactive: commandInteractive,
+                    keepsShellOpen: !commandClosesOnExit,
+                    recoveryToken: remoteRecoveryToken
+                )
             )) {
                 surfaceCStringPointers.append(remoteWrapped)
                 config.command = UnsafePointer(remoteWrapped)
@@ -385,6 +394,7 @@ final class GhosttyTerminalNSView: NSView,
         canSendToBackground = nil
         onSendToBackground = nil
         onSessionRecoveryFailed = nil
+        onRemoteSessionRecoveryFailed = nil
         onSearchStart = nil
         onSearchEnd = nil
         onSearchTotal = nil
@@ -659,6 +669,38 @@ final class GhosttyTerminalNSView: NSView,
         destroySurface()
         isSessionRecoveryFailed = true
         onSessionRecoveryFailed?(true)
+    }
+
+    func handleRemoteSessionRecoveryTitle(_ title: String) -> Bool {
+        let expected = TerminalLaunchCommand.remoteReconnectRequiredTitle(recoveryToken: remoteRecoveryToken)
+        guard workspaceContext.isRemote, title == expected else { return false }
+        processExitHandled = true
+        onSearchEnd?()
+        destroySurface()
+        setRemoteSessionRecoveryFailed(true)
+        return true
+    }
+
+    func retryRemoteSession() {
+        guard isRemoteSessionRecoveryFailed else { return }
+        if surface != nil {
+            processExitHandled = true
+            destroySurface()
+        }
+        remoteRecoveryToken = UUID()
+        setRemoteSessionRecoveryFailed(false)
+        processExitHandled = false
+        createSurface()
+        applyOcclusionState()
+        if surface == nil, !pendingSurfaceCreation {
+            setRemoteSessionRecoveryFailed(true)
+        }
+    }
+
+    private func setRemoteSessionRecoveryFailed(_ failed: Bool) {
+        guard isRemoteSessionRecoveryFailed != failed else { return }
+        isRemoteSessionRecoveryFailed = failed
+        onRemoteSessionRecoveryFailed?(failed)
     }
 
     func applyColorScheme(isDark: Bool) {

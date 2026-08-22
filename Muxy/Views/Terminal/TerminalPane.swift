@@ -38,6 +38,10 @@ struct TerminalPane: View {
         )
     }
 
+    private var showsRemoteSessionRecoveryPlaceholder: Bool {
+        state.remoteSessionRecoveryFailed && remoteOwnerName == nil
+    }
+
     private func wakePane() {
         let surface = TerminalViewRegistry.shared.existingView(for: state.id)
         (surface as? any TerminalOfflineSurface)?.wake()
@@ -48,6 +52,16 @@ struct TerminalPane: View {
         let surface = TerminalViewRegistry.shared.existingView(for: state.id)
         (surface as? any TerminalSessionRecoverySurface)?.reattachPersistentSession()
         onFocus()
+    }
+
+    private func retryRemoteSession() {
+        let surface = TerminalViewRegistry.shared.existingView(for: state.id)
+        (surface as? any TerminalRemoteSessionRecoverySurface)?.retryRemoteSession()
+        onFocus()
+    }
+
+    private func openRemoteDeviceSettings() {
+        SettingsFocusCoordinator.shared.openSettings(focusedOn: .remoteDevices)
     }
 
     var body: some View {
@@ -110,7 +124,14 @@ struct TerminalPane: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            if showsUnreachableSessionPlaceholder {
+            if showsRemoteSessionRecoveryPlaceholder {
+                RemoteSessionDisconnectedPlaceholder(
+                    isFocused: focused,
+                    onRetry: retryRemoteSession,
+                    onOpenSettings: openRemoteDeviceSettings
+                )
+                .transition(.opacity)
+            } else if showsUnreachableSessionPlaceholder {
                 UnreachableSessionPlaceholder(isFocused: focused, onReconnect: reconnectPane)
                     .transition(.opacity)
             } else if showsSleepingPlaceholder {
@@ -118,6 +139,52 @@ struct TerminalPane: View {
                     .transition(.opacity)
             }
         }
+    }
+}
+
+struct RemoteSessionDisconnectedPlaceholder: View {
+    let isFocused: Bool
+    let onRetry: () -> Void
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        VStack(spacing: UIMetrics.spacing7) {
+            Spacer()
+            Image(systemName: "network.slash")
+                .font(.system(size: UIMetrics.fontMega))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .accessibilityHidden(true)
+            Text(L10n.resource("SSH connection unavailable"))
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            Text(L10n.resource("Muxy could not restore this remote terminal automatically."))
+                .font(.system(size: UIMetrics.fontBody))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: UIMetrics.scaled(360))
+            HStack(spacing: UIMetrics.spacing4) {
+                Button(action: onRetry) {
+                    HStack(spacing: UIMetrics.spacing4) {
+                        Text(L10n.resource("Retry"))
+                        if isFocused {
+                            Text(L10n.resource("⏎"))
+                                .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
+                                .opacity(0.72)
+                                .accessibilityHidden(true)
+                        }
+                    }
+                }
+                .keyboardShortcut(isFocused ? KeyboardShortcut(.return, modifiers: []) : nil)
+                .buttonStyle(.borderedProminent)
+                .accessibilityHint(L10n.string("Retry the remote terminal connection"))
+
+                Button(L10n.resource("Remote Device Settings…"), action: onOpenSettings)
+                    .buttonStyle(.bordered)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MuxyTheme.bg)
     }
 }
 
@@ -467,6 +534,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
         configureOfflineCallback(surface)
         configureSessionRecoveryCallback(surface)
+        configureRemoteSessionRecoveryCallback(surface)
         configureAgentDetectionCallback(surface)
         if let searchSurface = surface as? any TerminalSearchSurface {
             configureSearchCallbacks(searchSurface)
@@ -495,6 +563,17 @@ struct TerminalBridge: NSViewRepresentable {
         }
         recoverySurface?.onSessionRecoveryFailed = { [weak state] failed in
             state?.sessionRecoveryFailed = failed
+        }
+    }
+
+    private func configureRemoteSessionRecoveryCallback(_ surface: any TerminalSurface) {
+        let recoverySurface = surface as? any TerminalRemoteSessionRecoverySurface
+        let hasFailed = recoverySurface?.isRemoteSessionRecoveryFailed ?? false
+        if state.remoteSessionRecoveryFailed != hasFailed {
+            state.remoteSessionRecoveryFailed = hasFailed
+        }
+        recoverySurface?.onRemoteSessionRecoveryFailed = { [weak state] failed in
+            state?.remoteSessionRecoveryFailed = failed
         }
     }
 
