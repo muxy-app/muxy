@@ -2,6 +2,9 @@ import AppKit
 import Darwin
 import GhosttyKit
 import MuxyShared
+import os
+
+private let logger = Logger(subsystem: "app.muxy", category: "GhosttyTerminal")
 
 final class GhosttyTerminalNSView: NSView,
     TerminalSurface,
@@ -674,6 +677,7 @@ final class GhosttyTerminalNSView: NSView,
     func handleRemoteSessionRecoveryTitle(_ title: String) -> Bool {
         let expected = TerminalLaunchCommand.remoteReconnectRequiredTitle(recoveryToken: remoteRecoveryToken)
         guard workspaceContext.isRemote, title == expected else { return false }
+        logger.info("Remote terminal requires manual recovery")
         processExitHandled = true
         onSearchEnd?()
         destroySurface()
@@ -691,6 +695,7 @@ final class GhosttyTerminalNSView: NSView,
 
     func retryRemoteSession(recreateSurface: () -> Bool) {
         guard isRemoteSessionRecoveryFailed else { return }
+        logger.info("Retrying remote terminal recovery")
         if surface != nil {
             processExitHandled = true
             destroySurface()
@@ -699,6 +704,7 @@ final class GhosttyTerminalNSView: NSView,
         setRemoteSessionRecoveryFailed(false)
         processExitHandled = false
         if !recreateSurface() {
+            logger.error("Remote terminal surface recreation failed")
             setRemoteSessionRecoveryFailed(true)
         }
     }

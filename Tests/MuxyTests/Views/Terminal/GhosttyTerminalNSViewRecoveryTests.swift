@@ -40,4 +40,24 @@ struct GhosttyTerminalNSViewRecoveryTests {
         #expect(!view.processExitHandled)
         #expect(!view.handleRemoteSessionRecoveryTitle(validTitle))
     }
+
+    @Test("Failed surface recreation restores recovery state")
+    func failedSurfaceRecreationRestoresRecoveryState() {
+        let recoveryToken = UUID()
+        let view = GhosttyTerminalNSView(
+            workingDirectory: "~",
+            workspaceContext: .ssh(SSHDestination(host: "prod")),
+            remoteRecoveryToken: recoveryToken
+        )
+        var recoveryStates: [Bool] = []
+        view.onRemoteSessionRecoveryFailed = { recoveryStates.append($0) }
+        let validTitle = TerminalLaunchCommand.remoteReconnectRequiredTitle(recoveryToken: recoveryToken)
+
+        #expect(view.handleRemoteSessionRecoveryTitle(validTitle))
+
+        view.retryRemoteSession { false }
+
+        #expect(view.isRemoteSessionRecoveryFailed)
+        #expect(recoveryStates == [true, false, true])
+    }
 }
