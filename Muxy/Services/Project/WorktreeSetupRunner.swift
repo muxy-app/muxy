@@ -74,6 +74,7 @@ enum WorktreeHookEnvironment {
     static func values(sourceProjectPath: String, worktree: Worktree) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_PROJECT_PATH"] = sourceProjectPath
+        environment["MUXY_WORKTREE_ID"] = worktree.id.uuidString
         environment["MUXY_WORKTREE_PATH"] = worktree.path
         environment["MUXY_WORKTREE_NAME"] = worktree.name
         environment["MUXY_WORKTREE_BRANCH"] = worktree.branch ?? ""

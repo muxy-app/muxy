@@ -83,8 +83,8 @@ setup commands and is logged, but does not undo the successfully created worktre
 Teardown commands run before Git removes the worktree, in the reverse layer order: project teardown first, then
 per-machine teardown. A teardown command failure or invalid present configuration stops the removal and leaves the
 worktree registered. Every hook command uses the worktree as its working directory and receives `MUXY_PROJECT_PATH`,
-`MUXY_WORKTREE_PATH`, `MUXY_WORKTREE_NAME`, and `MUXY_WORKTREE_BRANCH`. Hooks do not run for remote or externally
-managed worktrees.
+`MUXY_WORKTREE_ID`, `MUXY_WORKTREE_PATH`, `MUXY_WORKTREE_NAME`, and `MUXY_WORKTREE_BRANCH`. Hooks do not run for remote
+or externally managed worktrees.
 
 ## Focused-layout worktree grouping
 
