@@ -178,8 +178,10 @@ struct RemoteSessionDisconnectedPlaceholder: View {
                 .buttonStyle(.borderedProminent)
                 .accessibilityHint(L10n.string("Retry the remote terminal connection"))
 
-                Button(L10n.resource("Remote Device Settings…"), action: onOpenSettings)
-                    .buttonStyle(.bordered)
+                Button(action: onOpenSettings) {
+                    Text(L10n.resource("Remote Device Settings…"))
+                }
+                .buttonStyle(.bordered)
             }
             Spacer()
         }
