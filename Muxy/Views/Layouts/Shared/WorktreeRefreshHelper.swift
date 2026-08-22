@@ -33,7 +33,7 @@ enum WorktreeRefreshHelper {
                 appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
             }
         } catch WorktreeMutationError.concurrentModification {
-            logger.info("Worktree refresh superseded for \(project.path, privacy: .public)")
+            logger.info("Worktree refresh superseded for project \(project.id)")
         } catch {
             guard presentErrors else {
                 logger
