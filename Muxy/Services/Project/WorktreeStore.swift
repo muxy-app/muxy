@@ -132,7 +132,11 @@ final class WorktreeStore {
                     loaded.insert(makePrimary(for: project), at: 0)
                 }
                 if loaded.map(\.id) != originalIDs {
-                    try? persistence.saveWorktrees(loaded, projectID: project.id)
+                    do {
+                        try persistence.saveWorktrees(loaded, projectID: project.id)
+                    } catch {
+                        logger.error("Failed to persist repaired worktree identifiers for project \(project.id): \(error)")
+                    }
                 }
                 setWorktrees(sortPrimaryFirst(loaded), for: project.id)
             } catch {
