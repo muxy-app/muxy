@@ -130,6 +130,17 @@ struct MobileScrollbackBufferTests {
         #expect(buffer.bytes == Array("before".utf8) + enterAlt + Array("after-reenabled".utf8))
     }
 
+    @Test("split enter prefix from a disabled window is not retained")
+    func splitEnterFromDisabledWindowIsSuppressed() {
+        var buffer = MobileScrollbackBuffer(capacity: 256)
+        buffer.append(Array("before ".utf8), byteLimit: 256)
+        buffer.append(Array("\u{1B}[?10".utf8), byteLimit: 0)
+        buffer.append(Array("49h".utf8) + leaveAlt + Array("after".utf8), byteLimit: 256)
+
+        #expect(!buffer.isAlternateScreenActive)
+        #expect(buffer.bytes == Array("before ".utf8) + leaveAlt + Array("after".utf8))
+    }
+
     @Test("replay trims incomplete trailing escape and UTF-8 sequences")
     func replayTrimsIncompleteTail() {
         var buffer = MobileScrollbackBuffer(capacity: 1024)

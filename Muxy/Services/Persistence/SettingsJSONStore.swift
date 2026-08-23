@@ -271,6 +271,14 @@ enum SettingsJSONStore {
             if applyEditorSetting(key: key, value: value) {
                 continue
             }
+            if key == MobileServerService.scrollbackCapKey {
+                if let cap = value as? Int {
+                    MobileServerService.shared.scrollbackCapMB = cap
+                } else if value is NSNull {
+                    UserDefaults.standard.removeObject(forKey: key)
+                }
+                continue
+            }
             if value is NSNull {
                 UserDefaults.standard.removeObject(forKey: key)
             } else {

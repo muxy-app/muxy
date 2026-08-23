@@ -9,6 +9,7 @@ struct MobileScrollbackBuffer: Sendable {
     private var hasDiscardedBytes = false
     private var alternateScreenActive = false
     private var screenControlTail: [UInt8] = []
+    private var previousAppendStoredBytes = false
 
     init(capacity: Int) {
         self.capacity = max(capacity, 0)
@@ -24,7 +25,7 @@ struct MobileScrollbackBuffer: Sendable {
         if storesBytes {
             ensureCapacity(for: byteLimit)
         }
-        appendForReplay(bytes, storesBytes: storesBytes)
+        previousAppendStoredBytes = appendForReplay(bytes, storesBytes: storesBytes)
     }
 
     mutating func trim(toByteLimit byteLimit: Int) {
@@ -87,6 +88,7 @@ struct MobileScrollbackBuffer: Sendable {
         hasDiscardedBytes = false
         alternateScreenActive = false
         screenControlTail = []
+        previousAppendStoredBytes = false
     }
 
     private static let replayPrefix: [UInt8] = [
@@ -115,7 +117,8 @@ struct MobileScrollbackBuffer: Sendable {
         screenControlTail = tail
     }
 
-    private mutating func appendForReplay(_ bytes: [UInt8], storesBytes: Bool) {
+    private mutating func appendForReplay(_ bytes: [UInt8], storesBytes: Bool) -> Bool {
+        var didStore = false
         let previousTail = screenControlTail
         let combined = previousTail + bytes
         let newByteOffset = previousTail.count
@@ -130,10 +133,11 @@ struct MobileScrollbackBuffer: Sendable {
                 )
                 else {
                     updateScreenControlTail(from: combined)
-                    return
+                    return didStore
                 }
                 if storesBytes {
                     appendStorage(Array(combined[leave]))
+                    didStore = true
                 }
                 alternateScreenActive = false
                 unhandledNewByteIndex = max(unhandledNewByteIndex, max(0, leave.upperBound - newByteOffset))
@@ -149,17 +153,21 @@ struct MobileScrollbackBuffer: Sendable {
             else {
                 if storesBytes, unhandledNewByteIndex < bytes.count {
                     appendStorage(Array(bytes[unhandledNewByteIndex...]))
+                    didStore = true
                 }
                 updateScreenControlTail(from: combined)
-                return
+                return didStore
             }
             let prefixEnd = min(max(next.lowerBound - newByteOffset, unhandledNewByteIndex), bytes.count)
             if storesBytes, unhandledNewByteIndex < prefixEnd {
                 appendStorage(Array(bytes[unhandledNewByteIndex ..< prefixEnd]))
+                didStore = true
             }
+            let prefixRetained = next.lowerBound >= newByteOffset || previousAppendStoredBytes
             let retainedStart = max(next.lowerBound, newByteOffset)
-            if storesBytes, retainedStart < next.upperBound {
+            if storesBytes, prefixRetained, retainedStart < next.upperBound {
                 appendStorage(Array(combined[retainedStart ..< next.upperBound]))
+                didStore = true
             }
             alternateScreenActive = true
             unhandledNewByteIndex = max(unhandledNewByteIndex, max(0, next.upperBound - newByteOffset))
@@ -167,8 +175,10 @@ struct MobileScrollbackBuffer: Sendable {
         }
         if storesBytes, !alternateScreenActive, unhandledNewByteIndex < bytes.count {
             appendStorage(Array(bytes[unhandledNewByteIndex...]))
+            didStore = true
         }
         updateScreenControlTail(from: combined)
+        return didStore
     }
 
     private mutating func appendStorage(_ bytes: [UInt8]) {

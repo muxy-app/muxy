@@ -93,14 +93,20 @@ struct SettingsJSONStoreTests {
     @Test
     func validScrollbackCapIsApplied() throws {
         let key = MobileServerService.scrollbackCapKey
+        let service = MobileServerService.shared
+        let originalServiceValue = service.scrollbackCapMB
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
-        defer { snapshot.restore() }
+        defer {
+            service.scrollbackCapMB = originalServiceValue
+            snapshot.restore()
+        }
 
         UserDefaults.standard.set(8, forKey: key)
         try Data("{\"\(key)\":12}".utf8).write(to: SettingsJSONStore.userSettingsURL, options: .atomic)
 
         try SettingsJSONStore.applyUserSettingsFile()
 
+        #expect(service.scrollbackCapMB == 12)
         #expect(UserDefaults.standard.integer(forKey: key) == 12)
     }
 
