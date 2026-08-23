@@ -60,6 +60,51 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func invalidScrollbackCapDoesNotWriteOrApplySettings() throws {
+        let key = MobileServerService.scrollbackCapKey
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+        UserDefaults.standard.set(8, forKey: key)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(key)": 0
+            }
+            """)
+        }
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(key)": 999
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+        #expect(UserDefaults.standard.integer(forKey: key) == 8)
+    }
+
+    @Test
+    func validScrollbackCapIsApplied() throws {
+        let key = MobileServerService.scrollbackCapKey
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
+        defer { snapshot.restore() }
+
+        UserDefaults.standard.set(8, forKey: key)
+        try Data("{\"\(key)\":12}".utf8).write(to: SettingsJSONStore.userSettingsURL, options: .atomic)
+
+        try SettingsJSONStore.applyUserSettingsFile()
+
+        #expect(UserDefaults.standard.integer(forKey: key) == 12)
+    }
+
+    @Test
     func staticWorktreeTemplateDoesNotWriteOrApplySettings() throws {
         let key = GeneralSettingsKeys.defaultWorktreePathTemplate
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])

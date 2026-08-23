@@ -378,6 +378,11 @@ enum SettingsJSONStore {
             guard let port = UInt16(exactly: value), MobileServerService.isValid(port: port) else {
                 throw SettingsJSONError.invalidValue(key)
             }
+        case MobileServerService.scrollbackCapKey:
+            guard (MobileServerService.minScrollbackCapMB ... MobileServerService.maxScrollbackCapMB).contains(value)
+            else {
+                throw SettingsJSONError.invalidValue(key)
+            }
         case QuickTerminalSizePreferences.widthKey:
             guard QuickTerminalSizePreferences.widthRange.contains(value) else {
                 throw SettingsJSONError.invalidValue(key)

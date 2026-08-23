@@ -58,6 +58,10 @@ final class MobileServerService {
     var scrollbackCapMB: Int {
         didSet {
             guard scrollbackCapMB != oldValue else { return }
+            guard Self.isValidScrollbackCap(scrollbackCapMB) else {
+                scrollbackCapMB = oldValue
+                return
+            }
             UserDefaults.standard.set(scrollbackCapMB, forKey: Self.scrollbackCapKey)
             RemoteTerminalStreamer.shared.trimAllScrollback(
                 toByteLimit: scrollbackCapMB * 1_048_576
