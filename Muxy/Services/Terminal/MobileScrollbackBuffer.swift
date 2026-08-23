@@ -1,8 +1,8 @@
+import Foundation
 import MuxyShared
 
-public struct SessionReplayBuffer: Sendable {
-    public let capacity: Int
-
+struct MobileScrollbackBuffer: Sendable {
+    private(set) var capacity: Int
     private var storage: [UInt8]
     private var start = 0
     private var count = 0
@@ -10,33 +10,63 @@ public struct SessionReplayBuffer: Sendable {
     private var alternateScreenActive = false
     private var screenControlTail: [UInt8] = []
 
-    public init(capacity: Int) {
+    init(capacity: Int) {
         self.capacity = max(capacity, 0)
         storage = [UInt8](repeating: 0, count: self.capacity)
     }
 
-    public var isEmpty: Bool { byteCount == 0 }
-    public var byteCount: Int { count }
+    var isEmpty: Bool { byteCount == 0 }
+    var byteCount: Int { count }
 
-    public mutating func append(_ bytes: [UInt8]) {
-        bytes.withUnsafeBufferPointer { append($0) }
+    mutating func append(_ bytes: [UInt8], byteLimit: Int) {
+        guard !bytes.isEmpty else { return }
+        ensureCapacity(for: byteLimit)
+        guard capacity > 0 else { return }
+        appendForReplay(bytes)
     }
 
-    public mutating func append(_ bytes: UnsafeBufferPointer<UInt8>) {
-        guard capacity > 0, !bytes.isEmpty else { return }
-        appendForReplay(Array(bytes))
+    mutating func trim(toByteLimit byteLimit: Int) {
+        let target = max(byteLimit, 0)
+        if capacity > 0, count > target {
+            let drop = count - target
+            start = (start + drop) % capacity
+            count = target
+            hasDiscardedBytes = true
+        }
+        let newCapacity = max(target, 1)
+        guard newCapacity < capacity else { return }
+        let current = bytes
+        capacity = newCapacity
+        storage = [UInt8](repeating: 0, count: capacity)
+        start = 0
+        count = current.count
+        for (index, byte) in current.enumerated() {
+            storage[index] = byte
+        }
     }
 
-    public var isAlternateScreenActive: Bool { alternateScreenActive }
+    var isAlternateScreenActive: Bool { alternateScreenActive }
 
-    public var replayBytes: [UInt8] {
-        guard !alternateScreenActive else { return [] }
+    var bytes: [UInt8] {
+        guard !isEmpty else { return [] }
+        var result = [UInt8]()
+        result.reserveCapacity(count)
+        for offset in 0 ..< count {
+            result.append(storage[(start + offset) % capacity])
+        }
+        return result
+    }
+
+    var replayBytes: [UInt8] {
         var output = bytes
+        guard !output.isEmpty else { return [] }
         var needsLeadingFragmentCleanup = false
         if hasDiscardedBytes {
-            let start = TerminalStreamSequence.safeReplayStart(in: output)
-            needsLeadingFragmentCleanup = start == output.startIndex
-            output = Array(output[start...])
+            let replayStart = TerminalStreamSequence.safeReplayStart(in: output)
+            needsLeadingFragmentCleanup = replayStart == output.startIndex
+            if replayStart > 0 {
+                output = Array(output[replayStart...])
+            }
         }
         if needsLeadingFragmentCleanup {
             let leading = TerminalStreamSequence.leadingSafeIndex(in: output)
@@ -45,7 +75,42 @@ public struct SessionReplayBuffer: Sendable {
         }
         let trailing = TerminalStreamSequence.trailingSafeEnd(in: output)
         guard trailing > 0 else { return [] }
-        return Array(output[..<trailing])
+        output = Array(output[..<trailing])
+        return MobileScrollbackBuffer.replayPrefix + output
+    }
+
+    mutating func removeAll() {
+        start = 0
+        count = 0
+        hasDiscardedBytes = false
+        alternateScreenActive = false
+        screenControlTail = []
+    }
+
+    private static let replayPrefix: [UInt8] = [
+        0x1B, 0x5B, 0x30, 0x6D,
+        0x1B, 0x28, 0x42,
+        0x1B, 0x5B, 0x32, 0x4A,
+        0x1B, 0x5B, 0x48,
+    ]
+
+    private mutating func ensureCapacity(for byteLimit: Int) {
+        let target = max(byteLimit, 1)
+        guard target > capacity else { return }
+        let current = bytes
+        let wasDiscarded = hasDiscardedBytes
+        let wasAlt = alternateScreenActive
+        let tail = screenControlTail
+        capacity = target
+        storage = [UInt8](repeating: 0, count: capacity)
+        start = 0
+        count = current.count
+        for (index, byte) in current.enumerated() {
+            storage[index] = byte
+        }
+        hasDiscardedBytes = wasDiscarded
+        alternateScreenActive = wasAlt
+        screenControlTail = tail
     }
 
     private mutating func appendForReplay(_ bytes: [UInt8]) {
@@ -65,7 +130,7 @@ public struct SessionReplayBuffer: Sendable {
                     updateScreenControlTail(from: combined)
                     return
                 }
-                removeAll()
+                appendStorage(Array(combined[leave]))
                 alternateScreenActive = false
                 unhandledNewByteIndex = max(unhandledNewByteIndex, max(0, leave.upperBound - newByteOffset))
                 index = leave.upperBound
@@ -84,7 +149,11 @@ public struct SessionReplayBuffer: Sendable {
                 updateScreenControlTail(from: combined)
                 return
             }
-            removeAll()
+            let prefixEnd = min(max(next.lowerBound - newByteOffset, unhandledNewByteIndex), bytes.count)
+            if unhandledNewByteIndex < prefixEnd {
+                appendStorage(Array(bytes[unhandledNewByteIndex ..< prefixEnd]))
+            }
+            appendStorage(Array(combined[next]))
             alternateScreenActive = true
             unhandledNewByteIndex = max(unhandledNewByteIndex, max(0, next.upperBound - newByteOffset))
             index = next.upperBound
@@ -128,24 +197,6 @@ public struct SessionReplayBuffer: Sendable {
                 hasDiscardedBytes = true
             }
         }
-    }
-
-    public var bytes: [UInt8] {
-        guard !isEmpty else { return [] }
-        var result = [UInt8]()
-        result.reserveCapacity(count)
-        for offset in 0 ..< count {
-            result.append(storage[(start + offset) % capacity])
-        }
-        return result
-    }
-
-    public mutating func removeAll() {
-        start = 0
-        count = 0
-        hasDiscardedBytes = false
-        alternateScreenActive = false
-        screenControlTail = []
     }
 
     private mutating func updateScreenControlTail(from bytes: [UInt8]) {

@@ -2,6 +2,13 @@ import Foundation
 import Testing
 @testable import Muxy
 
+private let replayPrefix: [UInt8] = [
+    0x1B, 0x5B, 0x30, 0x6D,
+    0x1B, 0x28, 0x42,
+    0x1B, 0x5B, 0x32, 0x4A,
+    0x1B, 0x5B, 0x48,
+]
+
 @Suite("Remote terminal streamer")
 @MainActor
 struct RemoteTerminalStreamerTests {
@@ -69,7 +76,7 @@ struct RemoteTerminalStreamerTests {
         streamer.appendScrollback(paneID: paneID, bytes: Data("hello".utf8), byteLimit: 1024)
         streamer.appendScrollback(paneID: paneID, bytes: Data(" world".utf8), byteLimit: 1024)
 
-        #expect(streamer.scrollbackData(for: paneID) == Data("hello world".utf8))
+        #expect(streamer.scrollbackData(for: paneID) == Data(replayPrefix + Array("hello world".utf8)))
     }
 
     @Test("appendScrollback trims oldest bytes when over the limit")
@@ -79,7 +86,7 @@ struct RemoteTerminalStreamerTests {
 
         streamer.appendScrollback(paneID: paneID, bytes: Data("abcdef".utf8), byteLimit: 5)
 
-        #expect(streamer.scrollbackData(for: paneID) == Data("def".utf8))
+        #expect(streamer.scrollbackData(for: paneID) == Data(replayPrefix + Array("bcdef".utf8)))
     }
 
     @Test("appendScrollback keeps the buffer within the limit across repeated appends")
@@ -92,7 +99,7 @@ struct RemoteTerminalStreamerTests {
             streamer.appendScrollback(paneID: paneID, bytes: Data("abcdefghij".utf8), byteLimit: byteLimit)
         }
 
-        #expect((streamer.scrollbackData(for: paneID)?.count ?? 0) <= byteLimit)
+        #expect((streamer.scrollbackData(for: paneID)?.count ?? 0) <= replayPrefix.count + byteLimit)
     }
 
     @Test("scrollbackData does not consume the buffer")
@@ -103,8 +110,9 @@ struct RemoteTerminalStreamerTests {
 
         streamer.appendScrollback(paneID: paneID, bytes: bytes, byteLimit: 1024)
 
-        #expect(streamer.scrollbackData(for: paneID) == bytes)
-        #expect(streamer.scrollbackData(for: paneID) == bytes)
+        let expected = Data(replayPrefix + Array("hello".utf8))
+        #expect(streamer.scrollbackData(for: paneID) == expected)
+        #expect(streamer.scrollbackData(for: paneID) == expected)
     }
 
     @Test("forward buffers output from the surface handler")
@@ -117,7 +125,10 @@ struct RemoteTerminalStreamerTests {
         surface.fire(Data("hello".utf8))
         surface.fire(Data(" world".utf8))
 
-        #expect(streamer.scrollbackData(for: paneID) == Data("hello world".utf8))
+        #expect(
+            streamer.scrollbackData(for: paneID)
+                == Data(replayPrefix + Array("hello world".utf8))
+        )
         streamer.detach(paneID: paneID, surface: surface)
     }
 
@@ -142,7 +153,7 @@ struct RemoteTerminalStreamerTests {
         streamer.appendScrollback(paneID: kept, bytes: Data("stays".utf8), byteLimit: 1024)
         streamer.resetPane(removed)
 
-        #expect(streamer.scrollbackData(for: kept) == Data("stays".utf8))
+        #expect(streamer.scrollbackData(for: kept) == Data(replayPrefix + Array("stays".utf8)))
     }
 
     @Test("detach preserves the buffer so a later takeover can replay it")
@@ -155,7 +166,7 @@ struct RemoteTerminalStreamerTests {
         surface.fire(Data("history".utf8))
         streamer.detach(paneID: paneID, surface: surface)
 
-        #expect(streamer.scrollbackData(for: paneID) == Data("history".utf8))
+        #expect(streamer.scrollbackData(for: paneID) == Data(replayPrefix + Array("history".utf8)))
     }
 
     @Test("appendScrollback keeps the newest bytes after trimming")
@@ -168,7 +179,7 @@ struct RemoteTerminalStreamerTests {
         streamer.appendScrollback(paneID: paneID, bytes: Data("ij".utf8), byteLimit: byteLimit)
 
         let buffer = streamer.scrollbackData(for: paneID)
-        #expect(buffer?.count ?? 0 <= byteLimit)
+        #expect((buffer?.count ?? 0) <= replayPrefix.count + byteLimit)
         #expect(buffer?.suffix(2) == Data("ij".utf8))
     }
 
@@ -183,7 +194,7 @@ struct RemoteTerminalStreamerTests {
         streamer.trimAllScrollback(toByteLimit: 64)
 
         let buffer = streamer.scrollbackData(for: paneID)
-        #expect((buffer?.count ?? 0) <= 64)
+        #expect((buffer?.count ?? 0) <= replayPrefix.count + 64)
         #expect(buffer?.suffix(48) == bytes.suffix(48))
     }
 
@@ -197,7 +208,7 @@ struct RemoteTerminalStreamerTests {
 
         streamer.trimAllScrollback(toByteLimit: 64)
 
-        #expect(streamer.scrollbackData(for: paneID) == bytes)
+        #expect(streamer.scrollbackData(for: paneID) == Data(replayPrefix + Array("small".utf8)))
     }
 
     @Test("trimAllScrollback trims every pane independently")
@@ -213,9 +224,9 @@ struct RemoteTerminalStreamerTests {
         streamer.trimAllScrollback(toByteLimit: 64)
 
         let buffer = streamer.scrollbackData(for: oversized)
-        #expect((buffer?.count ?? 0) <= 64)
+        #expect((buffer?.count ?? 0) <= replayPrefix.count + 64)
         #expect(buffer?.suffix(48) == oversizedBytes.suffix(48))
-        #expect(streamer.scrollbackData(for: small) == Data("keep".utf8))
+        #expect(streamer.scrollbackData(for: small) == Data(replayPrefix + Array("keep".utf8)))
     }
 }
 

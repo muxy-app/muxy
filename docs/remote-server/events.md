@@ -31,9 +31,17 @@ Pushed only to the client that currently owns the pane.
 
 The bytes are the exact sequence Ghostty read from the PTY on the Mac, before any terminal emulation. Feed them into your own VT emulator to render. A chunk is not guaranteed to end on a UTF-8 or escape-sequence boundary; the emulator must buffer partial sequences across chunks.
 
+**Takeover replay.** Immediately after `takeOverPane`, the server replays the pane's buffered history as `terminalOutput` events **before** the `terminalSnapshot`. The replay is pre-sanitized by the server:
+
+- It starts with a state-reset prefix (`ESC[0m ESC(B ESC[2J ESC[H`), so a fresh terminal begins from a known state even when the buffered head was not a natural stream boundary (the history buffer trims its oldest bytes once it exceeds the configured cap).
+- Alternate-screen body frames are stripped from history; only the alternate-screen enter/leave sequences are kept. Main-screen history before/after an app (vim, less, …) is preserved.
+- Incomplete trailing escape or UTF-8 sequences are dropped from the tail.
+
+The client must reset its terminal (clear the screen **and** its own scrollback) before feeding the replay, because the replay always represents the full history from a reset state; otherwise re-entering a pane would duplicate already-rendered history.
+
 ## `terminalSnapshot`
 
-Pushed once to the client immediately after a successful `takeOverPane`, so it can paint the current screen before live output arrives.
+Pushed once to the client after the takeover replay, so it settles the visible screen before live output arrives.
 
 ```json
 {

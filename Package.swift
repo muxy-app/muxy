@@ -55,6 +55,9 @@ let package = Package(
         ),
         .target(
             name: "MuxySessionProtocol",
+            dependencies: [
+                "MuxyShared",
+            ],
             path: "MuxySessionProtocol"
         ),
         .executableTarget(

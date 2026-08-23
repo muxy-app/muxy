@@ -17,7 +17,7 @@ final class RemoteTerminalStreamer {
     }
 
     private var attachments: [UUID: Attachment] = [:]
-    private var scrollbackBuffers: [UUID: Data] = [:]
+    private var scrollbackBuffers: [UUID: MobileScrollbackBuffer] = [:]
 
     private var scrollbackByteLimit: Int {
         MobileServerService.shared.scrollbackCapMB * 1_048_576
@@ -55,21 +55,18 @@ final class RemoteTerminalStreamer {
     }
 
     func appendScrollback(paneID: UUID, bytes: Data, byteLimit: Int) {
-        scrollbackBuffers[paneID, default: Data()].append(bytes)
-        guard let count = scrollbackBuffers[paneID]?.count, count > byteLimit else { return }
-        let trimTarget = max(byteLimit * 3 / 4, 1)
-        scrollbackBuffers[paneID]?.removeFirst(count - trimTarget)
+        scrollbackBuffers[paneID, default: MobileScrollbackBuffer(capacity: 0)]
+            .append(Array(bytes), byteLimit: byteLimit)
     }
 
     func scrollbackData(for paneID: UUID) -> Data? {
-        scrollbackBuffers[paneID]
+        guard let replay = scrollbackBuffers[paneID]?.replayBytes, !replay.isEmpty else { return nil }
+        return Data(replay)
     }
 
     func trimAllScrollback(toByteLimit byteLimit: Int) {
-        let trimTarget = max(byteLimit * 3 / 4, 1)
         for paneID in scrollbackBuffers.keys {
-            guard let count = scrollbackBuffers[paneID]?.count, count > byteLimit else { continue }
-            scrollbackBuffers[paneID]?.removeFirst(count - trimTarget)
+            scrollbackBuffers[paneID]?.trim(toByteLimit: byteLimit)
         }
     }
 
