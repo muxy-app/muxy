@@ -1,5 +1,8 @@
 import Darwin
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "app.muxy", category: "WorktreeProcessQuiescer")
 
 enum WorktreeProcessQuiescerError: LocalizedError {
     case processesStillRunning
@@ -98,6 +101,10 @@ enum WorktreeProcessQuiescer {
 
     private static func signal(_ value: Int32, processIDs: [pid_t], path: String) {
         let currentMatches = Set(matchingProcessIDs(using: path, candidates: processIDs))
+        let identifiers = String(describing: currentMatches.sorted())
+        logger.info(
+            "Signal \(value), pids \(identifiers, privacy: .public), worktree \(path, privacy: .private(mask: .hash))"
+        )
         for processID in processIDs where currentMatches.contains(processID) {
             kill(processID, value)
         }
