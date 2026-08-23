@@ -1,11 +1,13 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "app.muxy", category: "PersistentSession")
+private let remoteTmuxLogger = Logger(subsystem: "app.muxy", category: "RemoteTmuxSession")
 
 @MainActor
-final class PersistentSessionExitHandler {
-    static let shared = PersistentSessionExitHandler()
+final class RemoteTmuxSessionExitHandler {
+    static let shared = RemoteTmuxSessionExitHandler()
+    static let attemptLimit = 3
+    static let attemptResetInterval: TimeInterval = 60
 
     enum Decision: Equatable {
         case closePane
@@ -13,43 +15,38 @@ final class PersistentSessionExitHandler {
         case reportFailure
     }
 
-    static let attemptLimit = 3
-    static let attemptResetInterval: TimeInterval = 60
-
     private struct Recovery {
         var attempt: Int
         var updatedAt: Date
     }
 
     private var recoveries: [UUID: Recovery] = [:]
-    private var handlingPaneIDs: Set<UUID> = []
+    private var tasks: [UUID: Task<Void, Never>] = [:]
 
     private init() {}
 
-    func handleExit(paneID: UUID, sessionID: UUID, closePane: @escaping () -> Void) {
-        guard !handlingPaneIDs.contains(paneID) else { return }
-        handlingPaneIDs.insert(paneID)
+    func handleExit(paneID: UUID, session: RemoteTmuxSession, closePane: @escaping () -> Void) {
+        guard tasks[paneID] == nil else { return }
+        let backing = TerminalSessionBacking.remoteTmux(session)
         let attempt = nextAttempt(paneID: paneID)
-
-        Task { @MainActor [weak self] in
-            let lookup = await PersistentSessionService.shared.lookup(sessionID: sessionID)
+        tasks[paneID] = Task { @MainActor [weak self] in
+            let lookup = await RemoteTmuxSessionService.lookup(session)
             guard let self else { return }
-            defer { handlingPaneIDs.remove(paneID) }
-
-            let decision = Self.decision(lookup: lookup, attempt: attempt, limit: Self.attemptLimit)
-            guard TerminalViewRegistry.shared.hasPersistentSession(for: paneID, sessionID: sessionID) else { return }
-
-            switch decision {
+            defer { tasks.removeValue(forKey: paneID) }
+            guard TerminalViewRegistry.shared.hasSessionBacking(for: paneID, backing: backing) else { return }
+            switch Self.decision(lookup: lookup, attempt: attempt, limit: Self.attemptLimit) {
             case .closePane:
                 recoveries.removeValue(forKey: paneID)
                 closePane()
             case .reattach:
-                logger.info("reattaching background session after attempt \(attempt)")
+                remoteTmuxLogger.info("reattaching remote tmux session after attempt \(attempt)")
                 try? await Task.sleep(for: Self.backoff(attempt: attempt))
-                guard TerminalViewRegistry.shared.hasPersistentSession(for: paneID, sessionID: sessionID) else { return }
+                guard !Task.isCancelled,
+                      TerminalViewRegistry.shared.hasSessionBacking(for: paneID, backing: backing)
+                else { return }
                 recoverySurface(paneID: paneID)?.reattachSession()
             case .reportFailure:
-                logger.error("giving up on reattaching a background session after \(attempt - 1) attempt(s)")
+                remoteTmuxLogger.error("giving up on reattaching remote tmux session after \(attempt - 1) attempt(s)")
                 recoveries.removeValue(forKey: paneID)
                 recoverySurface(paneID: paneID)?.reportSessionRecoveryFailure()
             }
@@ -57,8 +54,8 @@ final class PersistentSessionExitHandler {
     }
 
     func resetPane(_ paneID: UUID) {
+        tasks.removeValue(forKey: paneID)?.cancel()
         recoveries.removeValue(forKey: paneID)
-        handlingPaneIDs.remove(paneID)
     }
 
     private func recoverySurface(paneID: UUID) -> (any TerminalSessionRecoverySurface)? {
@@ -81,7 +78,7 @@ final class PersistentSessionExitHandler {
         return previous + 1
     }
 
-    nonisolated static func decision(lookup: PersistentSessionLookup, attempt: Int, limit: Int) -> Decision {
+    nonisolated static func decision(lookup: RemoteTmuxLookup, attempt: Int, limit: Int) -> Decision {
         guard lookup != .absent else { return .closePane }
         return attempt <= limit ? .reattach : .reportFailure
     }

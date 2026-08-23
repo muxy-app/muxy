@@ -44,7 +44,19 @@ Because the surface's own foreground process is the attach client, Muxy resolves
 
 The control socket lives in Muxy's Application Support directory with `0700` on the directory and `0600` on the socket, falling back to a user-scoped `/tmp/muxy-<uid>` only when the primary path exceeds the 104-byte `sun_path` limit. The daemon verifies the peer's uid with `LOCAL_PEERCRED` and refuses connections from other users. A development build uses its own `sessions-dev` directory and `/tmp/muxy-dev-<uid>` fallback, so running a dev build alongside the release app keeps two fully separate daemons — neither build can list, adopt, or stop the other's sessions.
 
-Remote SSH panes and the quick terminal are never backed by a background session.
+Remote SSH panes and the quick terminal are never backed by a local `muxy-session` background session.
+
+## Remote tmux sessions
+
+For an individual device in **Settings → Remote Devices**, turn on **Keep terminal sessions running with tmux** to run new terminals for that device in tmux. The option is off by default, requires tmux on the remote device, and **Test Connection** checks that both SSH and tmux are available. Existing terminals are unchanged.
+
+Muxy creates one app-managed tmux session for each pane. Its deterministic name is `muxy-<pane-id>`, where `<pane-id>` is the pane UUID in lowercase without hyphens; it uses the remote host's normal tmux server. Muxy attaches with tmux's detach-existing-client behavior, so reconnecting removes a stale attached client before attaching the new one. Quitting Muxy or losing the SSH connection leaves the tmux session and its processes running. Muxy automatically retries and reattaches when it can; after repeated failures, the tab remains open with **Reconnect** rather than being discarded.
+
+Closing a remote tmux tab asks the remote host to kill that pane's tmux session. This is best-effort: if the host is unreachable, the session can be orphaned. A remote reboot or loss of the tmux server also ends its sessions and cannot preserve their processes.
+
+Turning the option off restores direct SSH for new terminals; it does not alter existing tmux-backed panes. Direct SSH terminals remain unchanged when the option is off. Noninteractive remote Git, file operations, and uploads continue to use SSH directly and are not wrapped in tmux.
+
+Because the terminal is attached to normal tmux, tmux configuration, key bindings, behavior, and scrollback apply. This MVP does not include a browser for detached remote sessions or **Send to Background** for remote terminals.
 
 `muxy list-sessions` and `muxy kill-session --session <id>` manage sessions from a shell. See [Muxy CLI](muxy-cli.md).
 

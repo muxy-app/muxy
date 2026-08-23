@@ -141,13 +141,21 @@ Open **Settings → Terminal → Background sessions** to keep terminals running
 - Closing a tab ends its session. Right-click an eligible local terminal and choose **Send to Background** to close its tab without stopping its processes; the session then stays available from the status bar.
 - If Muxy loses its connection to a still-running session, it reconnects on its own. A tab only closes when the session itself has ended; when reconnecting keeps failing the tab waits with a **Reconnect** button instead, and the session keeps running.
 - Turning the setting off asks for confirmation and then stops every terminal still running in the background.
-- Remote SSH terminals and the quick terminal are never run this way.
+- This is a local-only feature backed by `muxy-session`; remote SSH terminals and the quick terminal are never run this way.
 
 The status bar shows how many background terminals in the current project and worktree are **not** open in a tab. Its popover lists those and can point the focused tab at one, open a new tab attached to one, or stop one. It disappears when nothing is waiting, so it only appears when you have something to recover.
 
 Background terminals keep working-directory tracking, tab titles, and AI progress in zsh, bash, fish, elvish, and nushell. Other shells run normally but lose those integrations, the same limitation tmux has.
 
 The setting is stored as `muxy.terminalPersistentSession.enabled` in `settings.json`. Use `muxy list-sessions` and `muxy kill-session --session <id>` to inspect and stop sessions from a shell.
+
+## Remote device tmux sessions
+
+In a device editor under **Settings → Remote Devices**, enable **Keep terminal sessions running with tmux** to keep new terminal sessions on that device running through SSH disconnects and Muxy quits. It is off by default, affects new terminals only, and requires tmux on the remote device. **Test Connection** validates both the SSH connection and tmux when the option is enabled.
+
+Muxy manages one tmux session per pane, named `muxy-<pane-id>` (`<pane-id>` is the lowercase pane UUID without hyphens), on the remote host's normal tmux server. It retries and reattaches after a connection drop, detaching a stale tmux client when it reconnects. If recovery repeatedly fails, the tab is preserved and shows **Reconnect**.
+
+Closing a tmux-backed tab best-effort kills its session. If the host cannot be reached, that session may remain running; a remote reboot or tmux server loss ends the session and its processes. To roll back, turn the option off: later terminals use direct SSH, while existing tmux-backed terminals keep their current behavior until closed. Remote Git, file operations, and uploads still run through direct SSH, not tmux. tmux configuration, key bindings, and scrollback apply to these terminals. This MVP has no detached-remote-session browser and does not offer **Send to Background** for remote terminals.
 
 ## Quick terminal
 

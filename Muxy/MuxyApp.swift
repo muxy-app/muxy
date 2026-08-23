@@ -48,6 +48,12 @@ struct MuxyApp: App {
             persistence: environment.projectGroupPersistence,
             remoteDeviceStore: remoteDeviceStore
         )
+        appState.setWorkspaceContextResolver { projectID in
+            let project = projectStore.projects.first(where: { $0.id == projectID })
+                ?? projectGroupStore.remoteProjects.first(where: { $0.id == projectID })
+            guard let project else { return nil }
+            return projectGroupStore.resolvedWorkspaceContext(for: project)
+        }
         appState.onWorkspaceSelected = { key in
             if projectStore.storedProjects.contains(where: { $0.id == key.projectID }) {
                 projectStore.markActive(id: key.projectID)

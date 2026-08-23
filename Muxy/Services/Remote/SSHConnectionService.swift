@@ -44,12 +44,28 @@ final class SSHConnectionService {
         let key = destination.connectionKey
         states[key] = busyState
         do {
+            let remoteCommand = destination.remoteSessionMode == .tmux
+                ? RemoteTmuxCommandBuilder.availabilityCommand()
+                : "echo \(Self.marker)"
             let result = try await SSHCommandRunner.run(
                 destination: destination,
-                remoteCommand: "echo \(Self.marker)",
-                batch: batch
+                remoteCommand: remoteCommand,
+                batch: batch,
+                outputByteLimit: destination.remoteSessionMode == .tmux
+                    ? RemoteTmuxSessionService.controlOutputByteLimit
+                    : nil
             )
-            guard result.status == 0, result.stdout.contains(Self.marker) else {
+            if destination.remoteSessionMode == .tmux,
+               RemoteTmuxSessionService.availability(for: result) == .unavailable
+            {
+                states[key] = .failed("tmux is not installed or unavailable on the remote host.")
+                return false
+            }
+            guard result.status == 0,
+                  destination.remoteSessionMode == .tmux
+                  ? RemoteTmuxSessionService.availability(for: result) == .available
+                  : result.stdout.contains(Self.marker)
+            else {
                 states[key] = .failed(Self.failureMessage(result))
                 return false
             }

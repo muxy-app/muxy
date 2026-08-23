@@ -82,6 +82,7 @@ final class AppState {
     private let selectionStore: any ActiveProjectSelectionStoring
     private let terminalViews: any TerminalViewRemoving
     private let workspacePersistence: any WorkspacePersisting
+    private var workspaceContextResolver: ((UUID) -> WorkspaceContext?)?
     var onProjectsEmptied: (([UUID]) -> Void)?
     var onWorkspaceSelected: ((WorktreeKey) -> Void)?
 
@@ -127,6 +128,15 @@ final class AppState {
         self.selectionStore = selectionStore
         self.terminalViews = terminalViews
         self.workspacePersistence = workspacePersistence
+    }
+
+    func setWorkspaceContextResolver(_ resolver: @escaping (UUID) -> WorkspaceContext?) {
+        workspaceContextResolver = resolver
+    }
+
+    func resolvedWorkspaceContext(for key: WorktreeKey) -> WorkspaceContext? {
+        guard let workspaceContextResolver else { return .local }
+        return workspaceContextResolver(key.projectID)
     }
 
     func restoreSelection(
@@ -941,6 +951,11 @@ final class AppState {
         let currentWorkspaceRootSignature = workspaceRootSignature(workspaceRoots)
         let currentTopLevelTabLayoutSignature = topLevelTabLayoutSignature(topLevelTabLayouts)
         let previousActiveProjectID = activeProjectID
+        var remoteTmuxSessions: [UUID: Set<RemoteTmuxSession>] = [:]
+        for pane in allTerminalPanes {
+            guard let session = pane.remoteTmuxSession else { continue }
+            remoteTmuxSessions[pane.id, default: []].insert(session)
+        }
         var workspace = WorkspaceState(
             activeProjectID: activeProjectID,
             activeWorktreeID: activeWorktreeID,
@@ -985,18 +1000,25 @@ final class AppState {
         reconcilePendingClosures()
 
         for paneID in effects.paneIDsToRemove {
+            PersistentSessionExitHandler.shared.resetPane(paneID)
+            RemoteTmuxSessionExitHandler.shared.resetPane(paneID)
             terminalViews.removeView(for: paneID)
+            for session in remoteTmuxSessions[paneID] ?? [] {
+                TerminalCleanupCoordinator.shared.schedule {
+                    await RemoteTmuxSessionService.kill(session)
+                }
+            }
             TerminalProgressStore.shared.resetPane(paneID)
             DetectedAgentStore.shared.resetPane(paneID)
-            PersistentSessionExitHandler.shared.resetPane(paneID)
             RemoteTerminalStreamer.shared.resetPane(paneID)
         }
 
         for paneID in effects.paneIDsToRelease {
+            PersistentSessionExitHandler.shared.resetPane(paneID)
+            RemoteTmuxSessionExitHandler.shared.resetPane(paneID)
             terminalViews.releaseViewPreservingSession(for: paneID)
             TerminalProgressStore.shared.resetPane(paneID)
             DetectedAgentStore.shared.resetPane(paneID)
-            PersistentSessionExitHandler.shared.resetPane(paneID)
         }
 
         if case let .removeProject(projectID) = action {

@@ -41,6 +41,26 @@ struct BackupServiceTests {
             ssh: SSHWorkspaceData(host: "example.com", environment: ["SECRET_TOKEN": "abc", "TERM": "xterm-256color"])
         )
         try write(try JSONEncoder().encode([device]), named: "remote-devices.json", in: source)
+        let workspace: [String: Any] = [
+            "root": [
+                "type": "tabArea",
+                "tabArea": [
+                    "tabs": [
+                        [
+                            "paneRemoteTmuxDestination": [
+                                "environment": ["SECRET_TOKEN": "workspace-secret", "TERM": "xterm-256color"],
+                            ],
+                            "extensionTabData": [
+                                "paneRemoteTmuxDestination": [
+                                    "environment": ["EXTENSION_VALUE": "preserved"],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        try write(try JSONSerialization.data(withJSONObject: [workspace]), named: "workspaces.json", in: source)
 
         try write(Data("font-family = Menlo".utf8), named: "ghostty.conf", in: source)
 
@@ -82,6 +102,29 @@ struct BackupServiceTests {
         let data = try Data(contentsOf: target.appendingPathComponent("remote-devices.json"))
         let devices = try JSONDecoder().decode([RemoteDevice].self, from: data)
         #expect(devices.first?.ssh.environment == SSHEnvironmentVariables.default)
+    }
+
+    @Test("export strips persisted tmux environment secrets")
+    func stripsPersistedTmuxEnvironment() async throws {
+        let source = try seedSource()
+        let archive = tempDirectory().appendingPathComponent("backup.muxy")
+        try await BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
+
+        let target = tempDirectory()
+        try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
+
+        let data = try Data(contentsOf: target.appendingPathComponent("workspaces.json"))
+        let workspaces = try JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        let root = workspaces?.first?["root"] as? [String: Any]
+        let tabArea = root?["tabArea"] as? [String: Any]
+        let tabs = tabArea?["tabs"] as? [[String: Any]]
+        let destination = tabs?.first?["paneRemoteTmuxDestination"] as? [String: Any]
+        let environment = destination?["environment"] as? [String: String]
+        #expect(environment == SSHEnvironmentVariables.default)
+        let extensionData = tabs?.first?["extensionTabData"] as? [String: Any]
+        let extensionDestination = extensionData?["paneRemoteTmuxDestination"] as? [String: Any]
+        let extensionEnvironment = extensionDestination?["environment"] as? [String: String]
+        #expect(extensionEnvironment == ["EXTENSION_VALUE": "preserved"])
     }
 
     @Test("export empties approved devices from settings")

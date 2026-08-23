@@ -14,6 +14,7 @@ struct SSHDestination: Hashable, Codable {
     var user: String?
     var identityFile: String?
     var environment: [String: String]
+    var remoteSessionMode: SSHRemoteSessionMode
 
     var connectionKey: SSHConnectionKey {
         SSHConnectionKey(host: host, port: port, user: user, identityFile: identityFile)
@@ -25,7 +26,8 @@ struct SSHDestination: Hashable, Codable {
         port: Int? = nil,
         user: String? = nil,
         identityFile: String? = nil,
-        environment: [String: String] = SSHEnvironmentVariables.default
+        environment: [String: String] = SSHEnvironmentVariables.default,
+        remoteSessionMode: SSHRemoteSessionMode = .direct
     ) {
         self.host = SSHFieldSanitizer.host(host)
         self.remoteRoot = SSHFieldSanitizer.root(remoteRoot)
@@ -33,6 +35,7 @@ struct SSHDestination: Hashable, Codable {
         self.user = SSHFieldSanitizer.optionalArgument(user)
         self.identityFile = SSHFieldSanitizer.identityFile(identityFile)
         self.environment = SSHEnvironmentVariables.sanitize(environment)
+        self.remoteSessionMode = remoteSessionMode
     }
 
     init(from decoder: Decoder) throws {
@@ -43,6 +46,7 @@ struct SSHDestination: Hashable, Codable {
         user = try SSHFieldSanitizer.optionalArgument(container.decodeIfPresent(String.self, forKey: .user))
         identityFile = try SSHFieldSanitizer.identityFile(container.decodeIfPresent(String.self, forKey: .identityFile))
         environment = try SSHEnvironmentVariables.defaulting(container.decodeIfPresent([String: String].self, forKey: .environment))
+        remoteSessionMode = try container.decodeIfPresent(SSHRemoteSessionMode.self, forKey: .remoteSessionMode) ?? .direct
     }
 
     static func isValidHost(_ host: String) -> Bool {

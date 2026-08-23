@@ -170,6 +170,9 @@ struct TerminalTabSnapshot: Codable {
     let paneUsesDefaultTitle: Bool
     let paneID: UUID?
     let paneSessionID: UUID?
+    let paneRemoteSessionMode: SSHRemoteSessionMode
+    let paneRemoteSessionModeResolved: Bool
+    let paneRemoteTmuxDestination: SSHDestination?
     let filePath: String?
     let currentWorkingDirectory: String?
     let extensionID: String?
@@ -191,6 +194,9 @@ struct TerminalTabSnapshot: Codable {
         paneUsesDefaultTitle: Bool? = nil,
         paneID: UUID? = nil,
         paneSessionID: UUID? = nil,
+        paneRemoteSessionMode: SSHRemoteSessionMode = .direct,
+        paneRemoteSessionModeResolved: Bool = true,
+        paneRemoteTmuxDestination: SSHDestination? = nil,
         filePath: String? = nil,
         currentWorkingDirectory: String? = nil,
         extensionID: String? = nil,
@@ -211,6 +217,9 @@ struct TerminalTabSnapshot: Codable {
         self.paneUsesDefaultTitle = paneUsesDefaultTitle ?? (paneTitle == nil)
         self.paneID = paneID
         self.paneSessionID = paneSessionID
+        self.paneRemoteSessionMode = paneRemoteSessionMode
+        self.paneRemoteSessionModeResolved = paneRemoteSessionModeResolved
+        self.paneRemoteTmuxDestination = paneRemoteTmuxDestination
         self.filePath = filePath
         self.currentWorkingDirectory = currentWorkingDirectory
         self.extensionID = extensionID
@@ -233,6 +242,9 @@ struct TerminalTabSnapshot: Codable {
         case paneUsesDefaultTitle
         case paneID
         case paneSessionID
+        case paneRemoteSessionMode
+        case paneRemoteSessionModeResolved
+        case paneRemoteTmuxDestination
         case filePath
         case currentWorkingDirectory
         case extensionID
@@ -257,6 +269,9 @@ struct TerminalTabSnapshot: Codable {
         paneUsesDefaultTitle = try container.decodeIfPresent(Bool.self, forKey: .paneUsesDefaultTitle) ?? false
         paneID = try container.decodeIfPresent(UUID.self, forKey: .paneID)
         paneSessionID = try container.decodeIfPresent(UUID.self, forKey: .paneSessionID)
+        paneRemoteSessionMode = try container.decodeIfPresent(SSHRemoteSessionMode.self, forKey: .paneRemoteSessionMode) ?? .direct
+        paneRemoteSessionModeResolved = try container.decodeIfPresent(Bool.self, forKey: .paneRemoteSessionModeResolved) ?? true
+        paneRemoteTmuxDestination = try container.decodeIfPresent(SSHDestination.self, forKey: .paneRemoteTmuxDestination)
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         currentWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .currentWorkingDirectory)
         extensionID = try container.decodeIfPresent(String.self, forKey: .extensionID)
@@ -284,10 +299,15 @@ enum WorkspaceRestorer {
     ) -> [RestoredWorkspace] {
         let projectByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
         var results: [RestoredWorkspace] = []
+        var restoredPaneIDs = Set<UUID>()
         for snapshot in snapshots {
             guard projectByID[snapshot.projectID] != nil else { continue }
             let worktreeList = worktrees[snapshot.projectID] ?? []
             guard let targetWorktree = resolveWorktree(for: snapshot, in: worktreeList) else { continue }
+            let paneIDs = persistedPaneIDs(in: snapshot.root)
+            guard Set(paneIDs).count == paneIDs.count,
+                  restoredPaneIDs.isDisjoint(with: paneIDs)
+            else { continue }
             let root = restoreSplitNode(from: snapshot.root)
             let areas = root.allAreas()
             guard !areas.isEmpty else { continue }
@@ -342,8 +362,18 @@ enum WorkspaceRestorer {
                 topLevelTabOrder: ordered,
                 topLevelTabLayout: restoredTopLevelLayout
             ))
+            restoredPaneIDs.formUnion(paneIDs)
         }
         return results
+    }
+
+    private static func persistedPaneIDs(in snapshot: SplitNodeSnapshot) -> [UUID] {
+        switch snapshot {
+        case let .tabArea(area):
+            area.tabs.compactMap(\.paneID)
+        case let .split(branch):
+            persistedPaneIDs(in: branch.first) + persistedPaneIDs(in: branch.second)
+        }
     }
 
     private static func resolveWorktree(for snapshot: WorkspaceSnapshot, in worktrees: [Worktree]) -> Worktree? {

@@ -2,6 +2,9 @@ import AppKit
 import SwiftUI
 
 struct RemoteDeviceEditorSheet: View {
+    private static let tmuxHelp = "New terminals on this device keep running through SSH disconnects and when Muxy quits, "
+        + "then reconnect when available. Requires tmux on the remote device. Existing terminals are not affected."
+
     let mode: RemoteDeviceEditorMode
     let onSave: (_ name: String, _ ssh: SSHWorkspaceData) -> Void
     let onCancel: () -> Void
@@ -15,6 +18,7 @@ struct RemoteDeviceEditorSheet: View {
     @State private var user: String = ""
     @State private var identityFile: String = ""
     @State private var environmentText: String = ""
+    @State private var keepsSessionsRunningWithTmux = false
     @State private var showAdvanced = false
     @State private var probeState: ProbeState = .idle
     @FocusState private var hostFocused: Bool
@@ -81,6 +85,8 @@ struct RemoteDeviceEditorSheet: View {
             field(label: L10n.string("Remote Root"), placeholder: L10n.string("~"), text: $root)
                 .onChange(of: root) { probeState = .idle }
 
+            tmuxSessionToggle
+
             advancedSection
 
             statusRow
@@ -107,11 +113,24 @@ struct RemoteDeviceEditorSheet: View {
             user = ssh.user ?? ""
             identityFile = ssh.identityFile ?? ""
             environmentText = SSHEnvironmentText.format(ssh.environment)
+            keepsSessionsRunningWithTmux = ssh.remoteSessionMode == .tmux
             showAdvanced = ssh.port != nil
                 || ssh.user != nil
                 || ssh.identityFile != nil
                 || ssh.environment != SSHEnvironmentVariables.default
             hostFocused = true
+        }
+    }
+
+    private var tmuxSessionToggle: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+            Toggle(L10n.resource("Keep terminal sessions running with tmux"), isOn: $keepsSessionsRunningWithTmux)
+                .onChange(of: keepsSessionsRunningWithTmux) { probeState = .idle }
+                .accessibilityHint(L10n.string("Requires tmux on the remote device and affects new terminals only."))
+            Text(L10n.resource(key: Self.tmuxHelp))
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -185,14 +204,14 @@ struct RemoteDeviceEditorSheet: View {
         case .testing:
             HStack(spacing: UIMetrics.spacing2) {
                 ProgressView().controlSize(.small)
-                Text(L10n.resource("Testing connection…"))
+                Text(L10n.resource(key: keepsSessionsRunningWithTmux ? "Testing connection and tmux…" : "Testing connection…"))
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
         case .succeeded:
             HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text(L10n.resource("Connection succeeded"))
+                Text(L10n.resource(key: keepsSessionsRunningWithTmux ? "Connection and tmux are ready" : "Connection succeeded"))
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fg)
             }
@@ -248,7 +267,8 @@ struct RemoteDeviceEditorSheet: View {
             port: parsedPort,
             user: user,
             identityFile: identityFile,
-            environment: (try? environmentResult.get()) ?? [:]
+            environment: (try? environmentResult.get()) ?? [:],
+            remoteSessionMode: keepsSessionsRunningWithTmux ? .tmux : .direct
         )
     }
 

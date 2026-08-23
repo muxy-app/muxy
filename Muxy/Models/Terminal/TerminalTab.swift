@@ -146,7 +146,10 @@ final class TerminalTab: Identifiable {
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
                 usesDefaultTitle: snapshot.paneUsesDefaultTitle,
-                initialWorkingDirectory: restoredWorkingDirectory
+                initialWorkingDirectory: restoredWorkingDirectory,
+                remoteSessionMode: snapshot.paneRemoteSessionModeResolved ? snapshot.paneRemoteSessionMode : nil,
+                remoteTmuxDestination: snapshot.paneRemoteTmuxDestination,
+                createsRemoteTmuxSessionIfMissing: !snapshot.paneRemoteSessionModeResolved
             ))
         case .extensionWebView:
             if let extensionID = snapshot.extensionID,
@@ -191,6 +194,9 @@ final class TerminalTab: Identifiable {
             paneUsesDefaultTitle: content.pane?.usesDefaultTitle,
             paneID: content.pane?.id,
             paneSessionID: content.pane?.sessionID,
+            paneRemoteSessionMode: content.pane?.remoteSessionMode ?? .direct,
+            paneRemoteSessionModeResolved: content.pane?.remoteSessionMode != nil,
+            paneRemoteTmuxDestination: content.pane?.remoteTmuxDestination,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory,
             extensionID: content.extensionState?.extensionID,
             extensionTabTypeID: content.extensionState?.tabTypeID,

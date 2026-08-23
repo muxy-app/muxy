@@ -46,7 +46,7 @@ struct TerminalPane: View {
 
     private func reconnectPane() {
         let surface = TerminalViewRegistry.shared.existingView(for: state.id)
-        (surface as? any TerminalSessionRecoverySurface)?.reattachPersistentSession()
+        (surface as? any TerminalSessionRecoverySurface)?.reattachSession()
         onFocus()
     }
 
@@ -131,10 +131,10 @@ struct UnreachableSessionPlaceholder: View {
             Image(systemName: "bolt.horizontal.circle")
                 .font(.system(size: UIMetrics.fontMega))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Text(L10n.resource("Background session unreachable"))
+            Text(L10n.resource("Session unreachable"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
-            Text(L10n.resource("Muxy could not reconnect to this terminal. The session was left running."))
+            Text(L10n.resource("Muxy could not reconnect to this terminal. The session may still be running."))
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
@@ -159,8 +159,8 @@ struct UnreachableSessionPlaceholder: View {
         .onTapGesture(perform: onReconnect)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(L10n.string("Background session unreachable"))
-        .accessibilityHint(L10n.string("Reconnect to the background terminal session"))
+        .accessibilityLabel(L10n.string("Session unreachable"))
+        .accessibilityHint(L10n.string("Reconnect to the terminal session"))
     }
 }
 
@@ -499,15 +499,27 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     private func makeProcessExitHandler(_ surface: any TerminalSurface) -> () -> Void {
-        guard let sessionID = surface.persistentSessionID else { return onProcessExit }
         let paneID = state.id
         let closePane = onProcessExit
-        return {
-            PersistentSessionExitHandler.shared.handleExit(
-                paneID: paneID,
-                sessionID: sessionID,
-                closePane: closePane
-            )
+        switch surface.sessionBacking {
+        case .direct:
+            return closePane
+        case let .local(sessionID):
+            return {
+                PersistentSessionExitHandler.shared.handleExit(
+                    paneID: paneID,
+                    sessionID: sessionID,
+                    closePane: closePane
+                )
+            }
+        case let .remoteTmux(session):
+            return {
+                RemoteTmuxSessionExitHandler.shared.handleExit(
+                    paneID: paneID,
+                    session: session,
+                    closePane: closePane
+                )
+            }
         }
     }
 
@@ -525,6 +537,7 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     private func terminalSurface() -> any TerminalSurface {
+        state.resolveRemoteSessionMode(in: workspaceContext)
         let launch = state.consumeRestoredLaunch()
         return TerminalViewRegistry.shared.view(
             for: state.id,
@@ -533,7 +546,10 @@ struct TerminalBridge: NSViewRepresentable {
             command: launch.command,
             commandInteractive: launch.interactive,
             closesOnCommandExit: launch.closesOnCommandExit,
-            workspaceContext: workspaceContext
+            workspaceContext: workspaceContext,
+            remoteSessionMode: state.remoteSessionMode,
+            remoteTmuxDestination: state.remoteTmuxDestination,
+            createsRemoteTmuxSessionIfMissing: state.createsRemoteTmuxSessionIfMissing
         )
     }
 
