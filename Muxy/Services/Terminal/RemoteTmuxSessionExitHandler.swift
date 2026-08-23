@@ -20,46 +20,83 @@ final class RemoteTmuxSessionExitHandler {
         var updatedAt: Date
     }
 
+    private struct RecoveryTask {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
     private var recoveries: [UUID: Recovery] = [:]
-    private var tasks: [UUID: Task<Void, Never>] = [:]
+    private var tasks: [UUID: RecoveryTask] = [:]
+    private let lookup: @MainActor (RemoteTmuxSession) async -> RemoteTmuxLookup
+    private let hasSessionBacking: @MainActor (UUID, TerminalSessionBacking) -> Bool
+    private let recoverySurface: @MainActor (UUID) -> (any TerminalSessionRecoverySurface)?
 
-    private init() {}
+    init(
+        lookup: @escaping @MainActor (RemoteTmuxSession) async -> RemoteTmuxLookup = {
+            await RemoteTmuxSessionService.lookup($0)
+        },
+        hasSessionBacking: @escaping @MainActor (UUID, TerminalSessionBacking) -> Bool = {
+            TerminalViewRegistry.shared.hasSessionBacking(for: $0, backing: $1)
+        },
+        recoverySurface: @escaping @MainActor (UUID) -> (any TerminalSessionRecoverySurface)? = {
+            TerminalViewRegistry.shared.existingView(for: $0) as? any TerminalSessionRecoverySurface
+        }
+    ) {
+        self.lookup = lookup
+        self.hasSessionBacking = hasSessionBacking
+        self.recoverySurface = recoverySurface
+    }
 
-    func handleExit(paneID: UUID, session: RemoteTmuxSession, closePane: @escaping () -> Void) {
-        guard tasks[paneID] == nil else { return }
+    @discardableResult
+    func handleExit(paneID: UUID, session: RemoteTmuxSession, closePane: @escaping () -> Void) -> Task<Void, Never>? {
+        guard tasks[paneID] == nil else { return nil }
         let backing = TerminalSessionBacking.remoteTmux(session)
         let attempt = nextAttempt(paneID: paneID)
-        tasks[paneID] = Task { @MainActor [weak self] in
-            let lookup = await RemoteTmuxSessionService.lookup(session)
+        let taskID = UUID()
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { tasks.removeValue(forKey: paneID) }
-            guard TerminalViewRegistry.shared.hasSessionBacking(for: paneID, backing: backing) else { return }
-            switch Self.decision(lookup: lookup, attempt: attempt, limit: Self.attemptLimit) {
+            let lookupResult = await lookup(session)
+            defer { clearTask(paneID: paneID, taskID: taskID) }
+            guard isCurrentTask(paneID: paneID, taskID: taskID),
+                  hasSessionBacking(paneID, backing)
+            else { return }
+            switch Self.decision(lookup: lookupResult, attempt: attempt, limit: Self.attemptLimit) {
             case .closePane:
                 recoveries.removeValue(forKey: paneID)
                 closePane()
             case .reattach:
                 remoteTmuxLogger.info("reattaching remote tmux session after attempt \(attempt)")
                 try? await Task.sleep(for: Self.backoff(attempt: attempt))
-                guard !Task.isCancelled,
-                      TerminalViewRegistry.shared.hasSessionBacking(for: paneID, backing: backing)
+                guard isCurrentTask(paneID: paneID, taskID: taskID),
+                      hasSessionBacking(paneID, backing)
                 else { return }
-                recoverySurface(paneID: paneID)?.reattachSession()
+                recoverySurface(paneID)?.reattachSession()
             case .reportFailure:
                 remoteTmuxLogger.error("giving up on reattaching remote tmux session after \(attempt - 1) attempt(s)")
                 recoveries.removeValue(forKey: paneID)
-                recoverySurface(paneID: paneID)?.reportSessionRecoveryFailure()
+                recoverySurface(paneID)?.reportSessionRecoveryFailure()
             }
         }
+        tasks[paneID] = RecoveryTask(id: taskID, task: task)
+        return task
     }
 
     func resetPane(_ paneID: UUID) {
-        tasks.removeValue(forKey: paneID)?.cancel()
+        tasks.removeValue(forKey: paneID)?.task.cancel()
         recoveries.removeValue(forKey: paneID)
     }
 
-    private func recoverySurface(paneID: UUID) -> (any TerminalSessionRecoverySurface)? {
-        TerminalViewRegistry.shared.existingView(for: paneID) as? any TerminalSessionRecoverySurface
+    func hasRecoveryTask(for paneID: UUID) -> Bool {
+        tasks[paneID] != nil
+    }
+
+    private func isCurrentTask(paneID: UUID, taskID: UUID) -> Bool {
+        !Task.isCancelled && tasks[paneID]?.id == taskID
+    }
+
+    private func clearTask(paneID: UUID, taskID: UUID) {
+        guard tasks[paneID]?.id == taskID else { return }
+        tasks.removeValue(forKey: paneID)
     }
 
     private func nextAttempt(paneID: UUID, now: Date = Date()) -> Int {

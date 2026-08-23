@@ -4,6 +4,8 @@ import Testing
 
 @Suite("Remote tmux session exit handling")
 struct RemoteTmuxSessionExitHandlerTests {
+    private let destination = SSHDestination(host: "example.com", remoteSessionMode: .tmux)
+
     @Test("closes only when the remote tmux session is absent")
     func closesAbsentSession() {
         #expect(RemoteTmuxSessionExitHandler.decision(lookup: .absent, attempt: 1, limit: 3) == .closePane)
@@ -35,5 +37,41 @@ struct RemoteTmuxSessionExitHandlerTests {
     func calculatesBackoff() {
         #expect(RemoteTmuxSessionExitHandler.backoff(attempt: 0) == .milliseconds(300))
         #expect(RemoteTmuxSessionExitHandler.backoff(attempt: 3) == .milliseconds(900))
+    }
+
+    @MainActor
+    @Test("reset recovery cannot clear a replacement task")
+    func resetPreservesReplacementTask() async {
+        let paneID = UUID()
+        let session = RemoteTmuxSession(destination: destination)
+        var lookups: [CheckedContinuation<RemoteTmuxLookup, Never>] = []
+        let handler = RemoteTmuxSessionExitHandler(
+            lookup: { _ in
+                await withCheckedContinuation { lookups.append($0) }
+            },
+            hasSessionBacking: { _, _ in true },
+            recoverySurface: { _ in nil }
+        )
+
+        let firstTask = handler.handleExit(paneID: paneID, session: session) {}
+        await waitForLookupCount(1) { lookups.count }
+        handler.resetPane(paneID)
+        let replacementTask = handler.handleExit(paneID: paneID, session: session) {}
+        await waitForLookupCount(2) { lookups.count }
+
+        lookups[0].resume(returning: .unknown)
+        await firstTask?.value
+        #expect(handler.hasRecoveryTask(for: paneID))
+
+        lookups[1].resume(returning: .absent)
+        await replacementTask?.value
+        #expect(!handler.hasRecoveryTask(for: paneID))
+    }
+
+    @MainActor
+    private func waitForLookupCount(_ count: Int, lookupCount: () -> Int) async {
+        while lookupCount() < count {
+            await Task.yield()
+        }
     }
 }

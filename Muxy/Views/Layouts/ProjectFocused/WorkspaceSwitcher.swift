@@ -279,13 +279,15 @@ struct WorkspaceSwitcher: View {
         }
         isShowingPopover = false
         Task {
-            let connected = await sshConnections.connect(destination: destination)
-            guard connected else {
+            switch await sshConnections.connect(destination: destination) {
+            case .succeeded:
+                projectGroupStore.selectGroup(id: group.id)
+                selectFirstProject()
+            case .failed:
                 ToastState.shared.show(L10n.string("Could not connect to \(group.name): \(failureMessage(for: destination))"))
-                return
+            case .superseded:
+                break
             }
-            projectGroupStore.selectGroup(id: group.id)
-            selectFirstProject()
         }
     }
 
