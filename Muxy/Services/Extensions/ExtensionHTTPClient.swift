@@ -212,10 +212,7 @@ enum HostSecurityPolicy {
                 0,
                 NI_NUMERICHOST
             ) == 0 {
-                let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
-                if let address = String(bytes: bytes, encoding: .utf8) {
-                    addresses.append(address)
-                }
+                addresses.append(String(cString: buffer))
             }
             node = current.pointee.ai_next
         }

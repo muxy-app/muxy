@@ -1,12 +1,8 @@
 import Foundation
 import UniformTypeIdentifiers
-@preconcurrency import WebKit
+import WebKit
 
 final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
-    private struct SchemeTask: @unchecked Sendable {
-        let value: any WKURLSchemeTask
-    }
-
     nonisolated static let scheme = "muxy-ext"
     nonisolated static let maxAssetBytes: Int = 64 * 1024 * 1024
 
@@ -45,17 +41,16 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
-        let task = SchemeTask(value: urlSchemeTask)
-        ioQueue.async { [weak self, task] in
+        ioQueue.async { [weak self] in
             guard let self else { return }
             let attributes = try? FileManager.default.attributesOfItem(atPath: resolved.path)
             let size = (attributes?[.size] as? Int) ?? 0
             if size > Self.maxAssetBytes {
-                self.failIfActive(task.value, taskID: taskID, error: URLError(.dataLengthExceedsMaximum))
+                self.failIfActive(urlSchemeTask, taskID: taskID, error: URLError(.dataLengthExceedsMaximum))
                 return
             }
             guard let data = try? Data(contentsOf: resolved) else {
-                self.failIfActive(task.value, taskID: taskID, error: URLError(.fileDoesNotExist))
+                self.failIfActive(urlSchemeTask, taskID: taskID, error: URLError(.fileDoesNotExist))
                 return
             }
             let response = HTTPURLResponse(
@@ -69,7 +64,7 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
                 ]
             )
             guard let response else { return }
-            self.finishIfActive(task.value, taskID: taskID, response: response, data: data)
+            self.finishIfActive(urlSchemeTask, taskID: taskID, response: response, data: data)
         }
     }
 

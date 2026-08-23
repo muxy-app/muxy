@@ -145,7 +145,7 @@ if [ "$failed" -eq 0 ] && [ "$HAS_SWIFTLINT" -eq 1 ]; then
 fi
 
 if [ "$failed" -eq 0 ]; then
-  run_step "Build tests" "$SCRIPT_DIR/run-without-warnings.sh" swift build --build-tests --quiet || failed=1
+  run_step "Build tests" swift build --build-tests --quiet || failed=1
 fi
 
 if [ "$failed" -eq 0 ]; then

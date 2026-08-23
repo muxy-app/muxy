@@ -29,7 +29,6 @@ let package = Package(
                 "MuxyShared",
             ],
             path: "MuxyExtensionHost",
-            exclude: ["MuxyExtensionHost.entitlements"],
             linkerSettings: [
                 .linkedFramework("Foundation"),
                 .linkedFramework("JavaScriptCore"),

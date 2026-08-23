@@ -7,7 +7,7 @@ final class ExtensionTopbarRailOrderStore {
 
     private let defaults: UserDefaults
     private let key: String
-    @ObservationIgnored nonisolated(unsafe) private var observer: (any NSObjectProtocol)?
+    nonisolated(unsafe) private var observer: (any NSObjectProtocol)?
 
     var ids: [String] {
         didSet {

@@ -40,6 +40,12 @@ jobs:
           chmod +x /usr/local/bin/swiftlint
           swiftlint version
 
+      - name: Formatting
+        run: swiftformat --lint .
+
+      - name: Linting
+        run: swiftlint lint --strict --quiet
+
       - name: Resolve GhosttyKit version
         run: echo "GHOSTTY_TAG=$(gh release list --repo muxy-app/ghostty --limit 1 --json tagName -q '.[0].tagName')" >> "$GITHUB_ENV"
         env:
@@ -69,8 +75,11 @@ jobs:
           restore-keys: |
             spm-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Checks
-        run: scripts/checks.sh
+      - name: Build tests
+        run: swift build --build-tests --quiet
+
+      - name: Test
+        run: swift test --quiet
 
       - name: Save SPM cache
         if: always() && steps.spm-cache.outputs.cache-hit != 'true'

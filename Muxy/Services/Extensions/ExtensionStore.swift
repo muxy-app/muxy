@@ -1011,7 +1011,7 @@ final class ExtensionStore {
             FileManager.default.createFile(atPath: url.path, contents: nil)
         }
         guard let handle = try? FileHandle(forWritingTo: url) else { return nil }
-        _ = try? handle.seekToEnd()
+        try? handle.seekToEnd()
         return handle
     }
 

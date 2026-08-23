@@ -426,7 +426,7 @@ private struct ExtensionRow: View {
     private var ext: MuxyExtension { status.muxyExtension }
 
     private var enabledBinding: Binding<Bool> {
-        Binding(get: { status.isEnabled }, set: { onSetEnabled($0) })
+        Binding(get: { status.isEnabled }, set: onSetEnabled)
     }
 
     var body: some View {

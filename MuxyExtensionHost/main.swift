@@ -66,28 +66,30 @@ client.onModalQuery { [weak bridge] line in
 
 client.startReading()
 
-func identify() {
+func identify() -> Never? {
     let maxAttempts = HostSocketClient.maxIdentifyAttempts
     var lastReply = ""
     for attempt in 1 ... maxAttempts {
         do {
             let reply = try client.sendAndWaitReply("identify|\(extensionID)|\(token)")
             if reply == "ok" {
-                return
+                return nil
             }
             lastReply = reply
-            if !HostSocketClient.isTransientIdentifyRejection(reply) || attempt == maxAttempts {
-                fail("identify rejected: \(reply)")
+            guard HostSocketClient.isTransientIdentifyRejection(reply), attempt < maxAttempts else {
+                return fail("identify rejected: \(reply)")
             }
             Thread.sleep(forTimeInterval: HostSocketClient.identifyRetryDelay)
         } catch {
-            fail("identify failed: \(error)")
+            return fail("identify failed: \(error)")
         }
     }
-    fail("identify rejected: \(lastReply)")
+    return fail("identify rejected: \(lastReply)")
 }
 
-identify()
+if let failure = identify() {
+    failure
+}
 
 context.exceptionHandler = { _, exception in
     let message = exception?.toString() ?? "unknown error"
