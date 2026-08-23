@@ -19,10 +19,12 @@ struct MobileScrollbackBuffer: Sendable {
     var byteCount: Int { count }
 
     mutating func append(_ bytes: [UInt8], byteLimit: Int) {
-        guard !bytes.isEmpty, byteLimit > 0 else { return }
-        ensureCapacity(for: byteLimit)
-        guard capacity > 0 else { return }
-        appendForReplay(bytes)
+        guard !bytes.isEmpty else { return }
+        let storesBytes = byteLimit > 0
+        if storesBytes {
+            ensureCapacity(for: byteLimit)
+        }
+        appendForReplay(bytes, storesBytes: storesBytes)
     }
 
     mutating func trim(toByteLimit byteLimit: Int) {
@@ -113,7 +115,7 @@ struct MobileScrollbackBuffer: Sendable {
         screenControlTail = tail
     }
 
-    private mutating func appendForReplay(_ bytes: [UInt8]) {
+    private mutating func appendForReplay(_ bytes: [UInt8], storesBytes: Bool) {
         let previousTail = screenControlTail
         let combined = previousTail + bytes
         let newByteOffset = previousTail.count
@@ -130,7 +132,9 @@ struct MobileScrollbackBuffer: Sendable {
                     updateScreenControlTail(from: combined)
                     return
                 }
-                appendStorage(Array(combined[leave]))
+                if storesBytes {
+                    appendStorage(Array(combined[leave]))
+                }
                 alternateScreenActive = false
                 unhandledNewByteIndex = max(unhandledNewByteIndex, max(0, leave.upperBound - newByteOffset))
                 index = leave.upperBound
@@ -143,25 +147,25 @@ struct MobileScrollbackBuffer: Sendable {
                 entering: true
             )
             else {
-                if unhandledNewByteIndex < bytes.count {
+                if storesBytes, unhandledNewByteIndex < bytes.count {
                     appendStorage(Array(bytes[unhandledNewByteIndex...]))
                 }
                 updateScreenControlTail(from: combined)
                 return
             }
             let prefixEnd = min(max(next.lowerBound - newByteOffset, unhandledNewByteIndex), bytes.count)
-            if unhandledNewByteIndex < prefixEnd {
+            if storesBytes, unhandledNewByteIndex < prefixEnd {
                 appendStorage(Array(bytes[unhandledNewByteIndex ..< prefixEnd]))
             }
             let retainedStart = max(next.lowerBound, newByteOffset)
-            if retainedStart < next.upperBound {
+            if storesBytes, retainedStart < next.upperBound {
                 appendStorage(Array(combined[retainedStart ..< next.upperBound]))
             }
             alternateScreenActive = true
             unhandledNewByteIndex = max(unhandledNewByteIndex, max(0, next.upperBound - newByteOffset))
             index = next.upperBound
         }
-        if !alternateScreenActive, unhandledNewByteIndex < bytes.count {
+        if storesBytes, !alternateScreenActive, unhandledNewByteIndex < bytes.count {
             appendStorage(Array(bytes[unhandledNewByteIndex...]))
         }
         updateScreenControlTail(from: combined)

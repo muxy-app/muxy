@@ -114,6 +114,22 @@ struct MobileScrollbackBufferTests {
         #expect(buffer.replayBytes.isEmpty)
     }
 
+    @Test("alternate-screen state stays current while recording is disabled")
+    func alternationParsingContinuesWhileDisabled() {
+        var buffer = MobileScrollbackBuffer(capacity: 256)
+        buffer.append(Array("before".utf8) + enterAlt + Array("frames".utf8), byteLimit: 256)
+        #expect(buffer.isAlternateScreenActive)
+
+        buffer.append(leaveAlt + Array("after-disabled".utf8), byteLimit: 0)
+        #expect(!buffer.isAlternateScreenActive)
+        #expect(buffer.bytes == Array("before".utf8) + enterAlt)
+
+        buffer.append(Array("after-reenabled".utf8), byteLimit: 256)
+
+        #expect(!buffer.isAlternateScreenActive)
+        #expect(buffer.bytes == Array("before".utf8) + enterAlt + Array("after-reenabled".utf8))
+    }
+
     @Test("replay trims incomplete trailing escape and UTF-8 sequences")
     func replayTrimsIncompleteTail() {
         var buffer = MobileScrollbackBuffer(capacity: 1024)
