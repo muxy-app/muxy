@@ -19,7 +19,7 @@ struct MobileScrollbackBuffer: Sendable {
     var byteCount: Int { count }
 
     mutating func append(_ bytes: [UInt8], byteLimit: Int) {
-        guard !bytes.isEmpty else { return }
+        guard !bytes.isEmpty, byteLimit > 0 else { return }
         ensureCapacity(for: byteLimit)
         guard capacity > 0 else { return }
         appendForReplay(bytes)
@@ -153,7 +153,10 @@ struct MobileScrollbackBuffer: Sendable {
             if unhandledNewByteIndex < prefixEnd {
                 appendStorage(Array(bytes[unhandledNewByteIndex ..< prefixEnd]))
             }
-            appendStorage(Array(combined[next]))
+            let retainedStart = max(next.lowerBound, newByteOffset)
+            if retainedStart < next.upperBound {
+                appendStorage(Array(combined[retainedStart ..< next.upperBound]))
+            }
             alternateScreenActive = true
             unhandledNewByteIndex = max(unhandledNewByteIndex, max(0, next.upperBound - newByteOffset))
             index = next.upperBound

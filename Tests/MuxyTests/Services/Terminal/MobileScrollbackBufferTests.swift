@@ -88,7 +88,7 @@ struct MobileScrollbackBufferTests {
         #expect(buffer.replayBytes == replayPrefix + Array("before".utf8) + enterAlt + leaveAlt + Array("after".utf8))
     }
 
-    @Test("alt-screen enter split across chunks is still detected once")
+    @Test("alt-screen enter split across chunks is stored exactly once")
     func altEnterAcrossChunks() {
         var buffer = MobileScrollbackBuffer(capacity: 1024)
         let enterHead = Array("\u{1B}[?10".utf8)
@@ -100,11 +100,18 @@ struct MobileScrollbackBufferTests {
         buffer.append(enterTail + Array("f1f2".utf8) + leaveAlt + Array("after".utf8), byteLimit: 1024)
 
         #expect(!buffer.isAlternateScreenActive)
-        let stored = buffer.bytes
-        #expect(String(decoding: stored, as: UTF8.self).contains("before"))
-        #expect(String(decoding: stored, as: UTF8.self).contains("after"))
-        #expect(!String(decoding: stored, as: UTF8.self).contains("f1f2"))
-        #expect(String(decoding: stored, as: UTF8.self).contains("\u{1B}[?1049h"))
+        #expect(buffer.bytes == Array("before ".utf8) + enterAlt + leaveAlt + Array("after".utf8))
+    }
+
+    @Test("zero byte limit never allocates capacity or captures bytes")
+    func zeroByteLimitCapturesNothing() {
+        var buffer = MobileScrollbackBuffer(capacity: 0)
+
+        buffer.append(Array("payload".utf8), byteLimit: 0)
+
+        #expect(buffer.capacity == 0)
+        #expect(buffer.isEmpty)
+        #expect(buffer.replayBytes.isEmpty)
     }
 
     @Test("replay trims incomplete trailing escape and UTF-8 sequences")
