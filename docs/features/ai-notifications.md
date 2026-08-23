@@ -1,6 +1,6 @@
 # AI notifications
 
-Muxy tracks the AI coding agents running inside its terminals — Antigravity CLI, Claude Code, Codex, Cursor, GitHub Copilot, Droid, Grok, Kiro CLI, OpenCode, Pi, and Xal — and surfaces their lifecycle as pane and worktree status, completion badges, and notifications when a turn finishes, or — for providers that expose a waiting hook — when an agent needs attention.
+Muxy tracks the AI coding agents running inside its terminals — Antigravity CLI, Claude Code, Codex, Cursor, GitHub Copilot, Droid, Grok, Kiro CLI, Oh My Pi, OpenCode, Pi, and Xal — and surfaces their lifecycle as pane and worktree status, completion badges, and notifications when a turn finishes, or — for providers that expose a waiting hook — when an agent needs attention.
 
 There are two independent sources of truth, and hooks are authoritative.
 
@@ -46,9 +46,11 @@ The compiled hook bridge (`muxy-hook`) and the provider shims are staged into `~
 
 - `muxy-hook` — the compiled bridge every hook invokes.
 - `muxy-antigravity-hook.sh`, `muxy-claude-hook.sh`, `muxy-codex-hook.sh`, `muxy-copilot-hook.sh`, `muxy-cursor-hook.sh`, `muxy-droid-hook.sh`, `muxy-grok-hook.sh`, `muxy-kiro-hook.sh` — thin shell shims that exec the colocated `muxy-hook`.
-- `opencode-muxy-plugin.js`, `muxy-pi-extension.ts`, `muxy-xal-plugin.ts` — plugin/extension entry points that spawn the staged `muxy-hook`. When the binary is missing they log a clear error to their own stderr and skip the event. That stderr never reaches Muxy, so nothing restages automatically — use **Refresh** in Settings to restage.
+- `opencode-muxy-plugin.js`, `muxy-omp-extension.ts`, `muxy-pi-extension.ts`, `muxy-xal-plugin.ts` — plugin/extension entry points that spawn the staged `muxy-hook`. When the binary is missing they log a clear error to their own stderr and skip the event. That stderr never reaches Muxy, so nothing restages automatically — use **Refresh** in Settings to restage.
 
 The OpenCode entry point is installed globally at `~/.config/opencode/plugins/muxy-notify.js`. OpenCode loads local plugins at startup, so restart any running OpenCode session after Muxy first installs or repairs this file.
+
+The Oh My Pi entry point is installed at `<agent-dir>/extensions/muxy-notify.ts`. Muxy uses `PI_CONFIG_DIR` as the config root when set, otherwise `~/.omp`. A non-default `OMP_PROFILE` (or legacy `PI_PROFILE` when `OMP_PROFILE` is unset) selects `<config-root>/profiles/<name>/agent`; otherwise `PI_CODING_AGENT_DIR` selects the agent directory, or Muxy uses `<config-root>/agent`. Muxy also installs the entry point into each existing named profile under `<config-root>/profiles/<name>/agent`. OMP loads extensions at session start, so restart running OMP sessions after Muxy first installs or repairs the file.
 
 The Xal entry point is installed at `~/.xal/plugins/muxy-notify/plugin.ts` and its directory is added to the `plugins` array in `~/.xal/config.json`, because Xal loads only the plugins that array names. Xal loads plugins at startup, so restart any running Xal session after Muxy installs or repairs them.
 

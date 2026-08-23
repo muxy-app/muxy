@@ -84,6 +84,7 @@ final class AIProviderRegistry {
     private let cursorProvider = CursorProvider()
     private let copilotProvider = CopilotProvider()
     private let droidProvider = DroidProvider()
+    private let ompProvider = OMPProvider()
     private let piProvider = PiProvider()
     private let grokProvider = GrokProvider()
     private let kiroProvider = KiroProvider()
@@ -107,6 +108,7 @@ final class AIProviderRegistry {
         cursorProvider,
         copilotProvider,
         droidProvider,
+        ompProvider,
         piProvider,
         grokProvider,
         kiroProvider,

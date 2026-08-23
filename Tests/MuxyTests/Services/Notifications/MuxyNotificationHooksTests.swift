@@ -62,7 +62,7 @@ struct MuxyNotificationHooksTests {
             let scriptURL = fixture.destinationDirectory.appendingPathComponent(scriptName)
             #expect(try permissions(of: scriptURL) == FilePermissions.privateExecutable)
         }
-        for sourceName in ["opencode-muxy-plugin.js", "muxy-pi-extension.ts", "muxy-xal-plugin.ts"] {
+        for sourceName in ["opencode-muxy-plugin.js", "muxy-omp-extension.ts", "muxy-pi-extension.ts", "muxy-xal-plugin.ts"] {
             let sourceURL = fixture.destinationDirectory.appendingPathComponent(sourceName)
             #expect(try permissions(of: sourceURL) == FilePermissions.privateFile)
         }
@@ -203,6 +203,113 @@ struct MuxyNotificationHooksTests {
         #expect(!contents.contains("MUXY_AGENT_EVENT_PROTOCOL"))
     }
 
+
+    @Test("Oh My Pi lifecycle events reach the bridge once in order")
+    func ompLifecycleEventsReachBridge() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuxyOMPExtensionRuntimeTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let logURL = directory.appendingPathComponent("events.log")
+        let bridgeURL = directory.appendingPathComponent("muxy-hook")
+        let bridge = """
+        #!/bin/sh
+        event=""
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "--event" ]; then
+            event="$2"
+            break
+          fi
+          shift
+        done
+        input=$(cat)
+        printf '%s|%s\\n' "$event" "$input" >> "$MUXY_TEST_LOG"
+        """
+        try Data(bridge.utf8).write(to: bridgeURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateExecutable],
+            ofItemAtPath: bridgeURL.path
+        )
+
+        let extensionURL = Self.repositoryRoot
+            .appendingPathComponent("Muxy/Resources/scripts/muxy-omp-extension.ts")
+        let encodedExtensionURL = try #require(String(
+            data: JSONSerialization.data(withJSONObject: extensionURL.absoluteString, options: [.fragmentsAllowed]),
+            encoding: .utf8
+        ))
+        let runnerURL = directory.appendingPathComponent("runner.mjs")
+        let runner = """
+        import register from \(encodedExtensionURL);
+        const handlers = new Map();
+        register({ on(event, handler) { handlers.set(event, handler); } });
+        const primary = { hasUI: true };
+        const child = { hasUI: false };
+        async function emit(name, event, context = primary) {
+          const handler = handlers.get(name);
+          if (!handler) throw new Error(`Missing handler: ${name}`);
+          await handler(event, context);
+        }
+        await emit("before_agent_start", { prompt: "child", images: [], systemPrompt: [] }, child);
+        await emit("tool_approval_requested", { toolName: "bash", reason: "child" }, child);
+        await emit("tool_approval_resolved", { toolName: "bash", approved: true }, child);
+        await emit("tool_execution_start", { toolName: "ask", args: {} }, child);
+        await emit("tool_execution_end", { toolName: "ask", result: {}, isError: false }, child);
+        await emit("agent_end", { messages: [] }, child);
+        await emit("session_shutdown", {}, child);
+        await emit("before_agent_start", { prompt: "hello", images: [], systemPrompt: [] });
+        await emit("tool_execution_start", { toolName: "bash", args: {} });
+        await emit("tool_execution_end", { toolName: "bash", result: {}, isError: false });
+        await emit("tool_approval_requested", { toolName: "bash", reason: "run tests" });
+        await emit("tool_approval_resolved", { toolName: "bash", approved: true });
+        await emit("tool_execution_start", {
+          toolName: "ask",
+          args: { questions: [{ header: "Choice", question: "Pick one" }] }
+        });
+        await emit("tool_execution_end", { toolName: "ask", result: {}, isError: false });
+        await emit("agent_end", {
+          messages: [{ role: "assistant", content: [{ type: "text", text: "Continuing" }] }],
+          willContinue: true
+        });
+        await emit("agent_end", {
+          messages: [{ role: "assistant", content: [], errorMessage: "Provider failed" }]
+        });
+        await emit("session_shutdown", {});
+        await emit("before_agent_start", { prompt: "interrupted", images: [], systemPrompt: [] });
+        await emit("session_shutdown", {});
+        """
+        try Data(runner.utf8).write(to: runnerURL)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["node", "--experimental-strip-types", runnerURL.path]
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            [
+                "MUXY_HOOK_BIN": bridgeURL.path,
+                "MUXY_TEST_LOG": logURL.path,
+            ],
+            uniquingKeysWith: { _, override in override }
+        )
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        let lines = try String(contentsOf: logURL, encoding: .utf8)
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+        #expect(lines == [
+            #"user-prompt-submit|{}"#,
+            #"notification|{"notification_type":"permission_prompt","message":"Approval needed: bash - run tests"}"#,
+            #"user-prompt-submit|{}"#,
+            #"notification|{"notification_type":"elicitation_dialog","message":"Question: Choice - Pick one"}"#,
+            #"user-prompt-submit|{}"#,
+            #"stop|{"last_assistant_message":"Provider failed"}"#,
+            #"user-prompt-submit|{}"#,
+            #"session-end|{}"#,
+        ])
+    }
     @Test("Xal invokes the bridge and reports delivery failures")
     func xalReportsBridgeDeliveryFailures() throws {
         let contents = try String(
@@ -338,6 +445,7 @@ struct MuxyNotificationHooksTests {
             try plistData.write(to: bundleDirectory.appendingPathComponent("Info.plist"))
             for scriptName in MuxyNotificationHooksTests.shellScriptNames + [
                 "opencode-muxy-plugin.js",
+                "muxy-omp-extension.ts",
                 "muxy-pi-extension.ts",
                 "muxy-xal-plugin.ts",
             ] {
