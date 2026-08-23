@@ -142,6 +142,21 @@ struct MobileScrollbackBufferTests {
         #expect(buffer.bytes == Array("before ".utf8) + leaveAlt + Array("after".utf8))
     }
 
+    @Test("disabled leave balances a retained enter under capacity pressure")
+    func disabledLeaveBalancesUnderPressure() {
+        var buffer = MobileScrollbackBuffer(capacity: 12)
+        buffer.append(Array("ABCDEFGH".utf8), byteLimit: 12)
+        buffer.append(enterAlt, byteLimit: 12)
+        #expect(buffer.isAlternateScreenActive)
+        #expect(buffer.bytes == Array("EFGH".utf8) + enterAlt)
+
+        buffer.append(leaveAlt + Array("after".utf8), byteLimit: 0)
+
+        #expect(!buffer.isAlternateScreenActive)
+        #expect(buffer.bytes == Array("EFGH".utf8))
+        #expect(buffer.replayBytes == replayPrefix + Array("EFGH".utf8))
+    }
+
     @Test("replay trims incomplete trailing escape and UTF-8 sequences")
     func replayTrimsIncompleteTail() {
         var buffer = MobileScrollbackBuffer(capacity: 1024)
