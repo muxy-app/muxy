@@ -122,12 +122,13 @@ struct MobileScrollbackBufferTests {
 
         buffer.append(leaveAlt + Array("after-disabled".utf8), byteLimit: 0)
         #expect(!buffer.isAlternateScreenActive)
-        #expect(buffer.bytes == Array("before".utf8) + enterAlt)
+        #expect(buffer.bytes == Array("before".utf8))
 
         buffer.append(Array("after-reenabled".utf8), byteLimit: 256)
 
         #expect(!buffer.isAlternateScreenActive)
-        #expect(buffer.bytes == Array("before".utf8) + enterAlt + Array("after-reenabled".utf8))
+        #expect(buffer.bytes == Array("before".utf8) + Array("after-reenabled".utf8))
+        #expect(buffer.replayBytes == replayPrefix + Array("before".utf8) + Array("after-reenabled".utf8))
     }
 
     @Test("split enter prefix from a disabled window is not retained")

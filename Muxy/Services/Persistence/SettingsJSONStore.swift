@@ -275,7 +275,7 @@ enum SettingsJSONStore {
                 if let cap = value as? Int {
                     MobileServerService.shared.scrollbackCapMB = cap
                 } else if value is NSNull {
-                    UserDefaults.standard.removeObject(forKey: key)
+                    MobileServerService.shared.scrollbackCapMB = MobileServerService.defaultScrollbackCapMB
                 }
                 continue
             }

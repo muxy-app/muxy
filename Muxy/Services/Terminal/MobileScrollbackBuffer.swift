@@ -10,6 +10,7 @@ struct MobileScrollbackBuffer: Sendable {
     private var alternateScreenActive = false
     private var screenControlTail: [UInt8] = []
     private var previousAppendStoredBytes = false
+    private var retainedAltEnterPositions: [Int] = []
 
     init(capacity: Int) {
         self.capacity = max(capacity, 0)
@@ -35,6 +36,7 @@ struct MobileScrollbackBuffer: Sendable {
             start = (start + drop) % capacity
             count = target
             hasDiscardedBytes = true
+            retainedAltEnterPositions = retainedAltEnterPositions.compactMap { $0 >= drop ? $0 - drop : nil }
         }
         let newCapacity = max(target, 1)
         guard newCapacity < capacity else { return }
@@ -89,6 +91,7 @@ struct MobileScrollbackBuffer: Sendable {
         alternateScreenActive = false
         screenControlTail = []
         previousAppendStoredBytes = false
+        retainedAltEnterPositions = []
     }
 
     private static let replayPrefix: [UInt8] = [
@@ -138,6 +141,11 @@ struct MobileScrollbackBuffer: Sendable {
                 if storesBytes {
                     appendStorage(Array(combined[leave]))
                     didStore = true
+                    if !retainedAltEnterPositions.isEmpty {
+                        retainedAltEnterPositions.removeLast()
+                    }
+                } else {
+                    balanceRetainedAltEnter()
                 }
                 alternateScreenActive = false
                 unhandledNewByteIndex = max(unhandledNewByteIndex, max(0, leave.upperBound - newByteOffset))
@@ -166,6 +174,7 @@ struct MobileScrollbackBuffer: Sendable {
             let prefixRetained = next.lowerBound >= newByteOffset || previousAppendStoredBytes
             let retainedStart = max(next.lowerBound, newByteOffset)
             if storesBytes, prefixRetained, retainedStart < next.upperBound {
+                retainedAltEnterPositions.append(count)
                 appendStorage(Array(combined[retainedStart ..< next.upperBound]))
                 didStore = true
             }
@@ -191,6 +200,7 @@ struct MobileScrollbackBuffer: Sendable {
             start = 0
             count = capacity
             hasDiscardedBytes = true
+            retainedAltEnterPositions = []
             return
         }
         if bytes.count == capacity {
@@ -200,6 +210,7 @@ struct MobileScrollbackBuffer: Sendable {
             }
             start = 0
             count = capacity
+            retainedAltEnterPositions = []
             if discardedExistingBytes {
                 hasDiscardedBytes = true
             }
@@ -218,5 +229,13 @@ struct MobileScrollbackBuffer: Sendable {
 
     private mutating func updateScreenControlTail(from bytes: [UInt8]) {
         screenControlTail = Array(bytes.suffix(TerminalStreamSequence.screenControlTailLength))
+    }
+
+    private mutating func balanceRetainedAltEnter() {
+        guard let position = retainedAltEnterPositions.popLast(), position < count else { return }
+        count = position
+        if isEmpty {
+            start = 0
+        }
     }
 }

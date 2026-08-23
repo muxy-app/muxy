@@ -111,6 +111,27 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func nullScrollbackCapResetsServiceToDefault() throws {
+        let key = MobileServerService.scrollbackCapKey
+        let service = MobileServerService.shared
+        let originalServiceValue = service.scrollbackCapMB
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
+        defer {
+            service.scrollbackCapMB = originalServiceValue
+            snapshot.restore()
+        }
+
+        service.scrollbackCapMB = 16
+        UserDefaults.standard.set(16, forKey: key)
+        try Data("{\"\(key)\":null}".utf8).write(to: SettingsJSONStore.userSettingsURL, options: .atomic)
+
+        try SettingsJSONStore.applyUserSettingsFile()
+
+        #expect(service.scrollbackCapMB == MobileServerService.defaultScrollbackCapMB)
+        #expect(UserDefaults.standard.integer(forKey: key) == MobileServerService.defaultScrollbackCapMB)
+    }
+
+    @Test
     func staticWorktreeTemplateDoesNotWriteOrApplySettings() throws {
         let key = GeneralSettingsKeys.defaultWorktreePathTemplate
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [key])
