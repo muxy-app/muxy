@@ -138,8 +138,8 @@ struct TerminalLaunchCommandTests {
     }
 
     @Test("Remote tmux initial launch wraps the remote login command with its exact target")
-    func remoteTmuxInitialLaunchWrapsRemoteLoginCommand() throws {
-        let identifier = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+    func remoteTmuxInitialLaunchWrapsRemoteLoginCommand() {
+        let identifier = UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF")!
         let destination = SSHDestination(host: "prod", remoteSessionMode: .tmux)
         let session = RemoteTmuxSession(id: identifier, destination: destination)
         let command = TerminalLaunchCommand.remoteShellCommand(
@@ -157,8 +157,8 @@ struct TerminalLaunchCommandTests {
     }
 
     @Test("Remote tmux recovery attaches without creating or restarting the startup command")
-    func remoteTmuxRecoveryOnlyAttaches() throws {
-        let identifier = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+    func remoteTmuxRecoveryOnlyAttaches() {
+        let identifier = UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF")!
         let destination = SSHDestination(host: "prod", remoteSessionMode: .tmux)
         let command = TerminalLaunchCommand.remoteShellCommand(
             destination: destination,
@@ -177,8 +177,8 @@ struct TerminalLaunchCommandTests {
     }
 
     @Test("Remote tmux paths bypass tmux format expansion")
-    func remoteTmuxPathBypassesTmuxFormats() throws {
-        let identifier = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+    func remoteTmuxPathBypassesTmuxFormats() {
+        let identifier = UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF")!
         let destination = SSHDestination(host: "prod", remoteSessionMode: .tmux)
         let command = TerminalLaunchCommand.remoteShellCommand(
             destination: destination,
@@ -194,8 +194,8 @@ struct TerminalLaunchCommandTests {
     }
 
     @Test("Remote tmux preserves outer TERM without overriding its child TERM")
-    func remoteTmuxOwnsChildTerm() throws {
-        let identifier = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+    func remoteTmuxOwnsChildTerm() {
+        let identifier = UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF")!
         let destination = SSHDestination(
             host: "prod",
             environment: ["TERM": "xterm-256color", "TMUX_TMPDIR": "/tmp/custom"],

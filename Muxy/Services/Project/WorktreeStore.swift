@@ -343,7 +343,7 @@ final class WorktreeStore {
         let records = try await listWorktreesForContext(project: project, context: context)
             .filter { !$0.isBare && !$0.isPrunable }
         var list = worktrees[project.id] ?? []
-        let projectKey = try await resolvedProjectKey(project: project, context: context)
+        let projectKey = await resolvedProjectKey(project: project, context: context)
         let recordKeys = Set(records.map { GitWorktreeService.canonicalPath($0.path, context: context) })
 
         if let primaryIndex = list.firstIndex(where: \.isPrimary) {

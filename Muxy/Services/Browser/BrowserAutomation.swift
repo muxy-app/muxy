@@ -533,8 +533,8 @@ extension MuxyAPI.Browser {
 
     private static func allCookiesAttempt(in store: WKHTTPCookieStore) async -> [HTTPCookie]? {
         let box = CookieResultBox()
-        store.getAllCookies { cookies in
-            Task { @MainActor in box.deliver(cookies) }
+        Task { @MainActor in
+            await box.deliver(store.allCookies())
         }
         let deadline = ContinuousClock.now + .milliseconds(cookieAttemptTimeoutMs)
         while ContinuousClock.now < deadline {
