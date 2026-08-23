@@ -36,6 +36,7 @@ struct AIAgentLaunchProviderTests {
                 ]
             ),
             (DroidProvider(), ["exec", "--output-format", "text", prompt]),
+            (OMPProvider(), ["-p", "--no-session", "--no-tools", "--no-title", "--mode", "text", prompt]),
             (PiProvider(), ["--print", "--no-session", "--no-tools", prompt]),
             (
                 GrokProvider(),
