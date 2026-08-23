@@ -7,7 +7,8 @@ import Testing
 struct GhosttyArchiveNormalizerTests {
     @Test("renames duplicate object members and preserves payloads")
     func normalizesDuplicateMembers() throws {
-        let archive = try temporaryArchive(containing: makeArchive(payloads: [Data("first".utf8), Data("second".utf8)]))
+        let members = makeArchive(payloads: [Data("first".utf8), Data("second".utf8)])
+        let archive = try temporaryArchive(containing: makeFatArchive(containing: members))
         defer { try? FileManager.default.removeItem(at: archive.deletingLastPathComponent()) }
 
         let result = try runNormalizer(for: archive)
@@ -49,6 +50,40 @@ struct GhosttyArchiveNormalizerTests {
         #expect(try Data(contentsOf: archive) == malformed)
     }
 
+    @Test("rejects invalid member padding without modifying the archive")
+    func preservesArchiveWithInvalidPadding() throws {
+        var malformed = makeArchive(payloads: [Data("first".utf8)])
+        malformed[malformed.count - 1] = 0
+        let archive = try temporaryArchive(containing: malformed)
+        defer { try? FileManager.default.removeItem(at: archive.deletingLastPathComponent()) }
+
+        let result = try runNormalizer(for: archive)
+
+        #expect(result.status != 0)
+        #expect(try Data(contentsOf: archive) == malformed)
+    }
+
+    @Test("rejects malformed fat archive ranges without modifying them")
+    func preservesMalformedFatArchives() throws {
+        let members = makeArchive(payloads: [Data("first".utf8)])
+        let malformedArchives = [
+            makeFatArchive(containing: members, offset: .max),
+            makeFatArchive(containing: members, size: .max),
+            makeFatArchive(containing: members, size: UInt64(members.count + 1)),
+            makeFatArchive(containing: Data()),
+        ]
+
+        for malformed in malformedArchives {
+            let archive = try temporaryArchive(containing: malformed)
+            defer { try? FileManager.default.removeItem(at: archive.deletingLastPathComponent()) }
+
+            let result = try runNormalizer(for: archive)
+
+            #expect(result.status != 0)
+            #expect(try Data(contentsOf: archive) == malformed)
+        }
+    }
+
     private func makeArchive(payloads: [Data]) -> Data {
         var archive = Data("!<arch>\n".utf8)
         for payload in payloads {
@@ -69,6 +104,29 @@ struct GhosttyArchiveNormalizerTests {
 
     private func field(_ value: String, width: Int) -> String {
         value + String(repeating: " ", count: width - value.count)
+    }
+
+    private func makeFatArchive(
+        containing archive: Data,
+        offset: UInt64 = 40,
+        size: UInt64? = nil
+    ) -> Data {
+        var result = Data()
+        append(UInt32(0xCAFEBABF), to: &result)
+        append(UInt32(1), to: &result)
+        append(UInt32(0x0100000C), to: &result)
+        append(UInt32(0), to: &result)
+        append(offset, to: &result)
+        append(size ?? UInt64(archive.count), to: &result)
+        append(UInt32(0), to: &result)
+        append(UInt32(0), to: &result)
+        result.append(archive)
+        return result
+    }
+
+    private func append<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+        var bigEndian = value.bigEndian
+        withUnsafeBytes(of: &bigEndian) { data.append(contentsOf: $0) }
     }
 
     private func temporaryArchive(containing data: Data) throws -> URL {

@@ -523,33 +523,19 @@ extension MuxyAPI.Browser {
     }
 
     private static func allCookies(in store: WKHTTPCookieStore) async -> [HTTPCookie] {
-        for _ in 0 ..< cookieFetchAttempts {
-            if let cookies = await allCookiesAttempt(in: store) {
-                return cookies
-            }
-        }
-        return await allCookiesAttempt(in: store) ?? []
+        await allCookiesAttempt(in: store) ?? []
     }
 
     private static func allCookiesAttempt(in store: WKHTTPCookieStore) async -> [HTTPCookie]? {
-        let box = CookieResultBox()
-        Task { @MainActor in
-            await box.deliver(store.allCookies())
+        await cookieFetchCoordinator.value(for: store, timeout: .milliseconds(cookieAttemptTimeoutMs)) {
+            await store.allCookies()
         }
-        let deadline = ContinuousClock.now + .milliseconds(cookieAttemptTimeoutMs)
-        while ContinuousClock.now < deadline {
-            if let cookies = box.take() {
-                return cookies
-            }
-            do { try await Task.sleep(for: .milliseconds(20)) } catch { break }
-        }
-        return nil
     }
 
     private static let maxStringLength = 5_000_000
     private static let maxWaitMilliseconds = 60000
-    private static let cookieFetchAttempts = 3
     private static let cookieAttemptTimeoutMs = 800
+    private static let cookieFetchCoordinator = CookieFetchCoordinator<[HTTPCookie]>()
 
     private struct ResolvedWebView {
         let state: BrowserTabState
@@ -779,18 +765,97 @@ func jsString(_ value: String) -> String {
 }
 
 @MainActor
-private final class CookieResultBox {
-    private var cookies: [HTTPCookie]?
-    private var delivered = false
+final class CookieFetchCoordinator<Value: Sendable> {
+    private var requests: [ObjectIdentifier: Request] = [:]
 
-    func deliver(_ value: [HTTPCookie]) {
-        guard !delivered else { return }
-        delivered = true
-        cookies = value
+    func value(
+        for owner: AnyObject,
+        timeout: Duration,
+        operation: @escaping @MainActor () async -> Value
+    ) async -> Value? {
+        removeReleasedOwners()
+        let identifier = ObjectIdentifier(owner)
+        let request: Request
+        if let existing = requests[identifier] {
+            request = existing
+        } else {
+            request = Request(owner: owner)
+            requests[identifier] = request
+            start(operation, for: identifier, request: request)
+        }
+        return await request.value(timeout: timeout)
     }
 
-    func take() -> [HTTPCookie]? {
-        cookies
+    var requestCount: Int {
+        requests.count
+    }
+
+    var waiterCount: Int {
+        requests.values.reduce(0) { $0 + $1.waiterCount }
+    }
+
+    private func start(
+        _ operation: @escaping @MainActor () async -> Value,
+        for identifier: ObjectIdentifier,
+        request: Request
+    ) {
+        Task { [weak self, weak request] in
+            let value = await operation()
+            self?.complete(value, for: identifier, request: request)
+        }
+    }
+
+    private func complete(_ value: Value, for identifier: ObjectIdentifier, request: Request?) {
+        guard let request, requests[identifier] === request else { return }
+        request.complete(with: value)
+        requests[identifier] = nil
+    }
+
+    private func removeReleasedOwners() {
+        requests = requests.filter { $0.value.owner != nil }
+    }
+
+    @MainActor
+    private final class Request {
+        weak var owner: AnyObject?
+        private var result: Value?
+        private var isComplete = false
+        private var continuations: [UUID: CheckedContinuation<Value?, Never>] = [:]
+
+        init(owner: AnyObject) {
+            self.owner = owner
+        }
+
+        var waiterCount: Int {
+            continuations.count
+        }
+
+        func value(timeout: Duration) async -> Value? {
+            guard !isComplete else { return result }
+            let identifier = UUID()
+            return await withCheckedContinuation { continuation in
+                continuations[identifier] = continuation
+                Task { [weak self] in
+                    try? await Task.sleep(for: timeout)
+                    self?.timeout(identifier)
+                }
+            }
+        }
+
+        func complete(with result: Value?) {
+            guard !isComplete else { return }
+            isComplete = true
+            self.result = result
+            let pending = continuations.values
+            continuations.removeAll()
+            for continuation in pending {
+                continuation.resume(returning: result)
+            }
+        }
+
+        private func timeout(_ identifier: UUID) {
+            continuations.removeValue(forKey: identifier)?.resume(returning: nil)
+        }
     }
 }
 

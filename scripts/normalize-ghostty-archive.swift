@@ -14,6 +14,32 @@ func unsignedInteger(in data: Data, at offset: Int, byteCount: Int) throws -> UI
     return data[offset ..< offset + byteCount].reduce(0) { ($0 << 8) | UInt64($1) }
 }
 
+func archiveRange(offset: UInt64, size: UInt64, dataCount: Int) throws -> (offset: Int, size: Int) {
+    guard let offset = Int(exactly: offset),
+          let size = Int(exactly: size),
+          offset <= dataCount,
+          size <= dataCount - offset
+    else {
+        throw ArchiveNormalizationError.invalidArchive
+    }
+    return (offset, size)
+}
+
+func fatArchiveRanges(in data: Data, count: Int, entrySize: Int, uses64BitRanges: Bool) throws -> [(offset: Int, size: Int)] {
+    guard data.count >= 8, count <= (data.count - 8) / entrySize else {
+        throw ArchiveNormalizationError.invalidArchive
+    }
+    return try (0 ..< count).map { index in
+        let entry = 8 + index * entrySize
+        let byteCount = uses64BitRanges ? 8 : 4
+        return try archiveRange(
+            offset: unsignedInteger(in: data, at: entry + 8, byteCount: byteCount),
+            size: unsignedInteger(in: data, at: entry + 8 + byteCount, byteCount: byteCount),
+            dataCount: data.count
+        )
+    }
+}
+
 func archiveRanges(in data: Data) throws -> [(offset: Int, size: Int)] {
     let archiveMagic = Data("!<arch>\n".utf8)
     if data.starts(with: archiveMagic) {
@@ -21,24 +47,14 @@ func archiveRanges(in data: Data) throws -> [(offset: Int, size: Int)] {
     }
 
     let magic = try unsignedInteger(in: data, at: 0, byteCount: 4)
-    let count = Int(try unsignedInteger(in: data, at: 4, byteCount: 4))
+    guard let count = Int(exactly: try unsignedInteger(in: data, at: 4, byteCount: 4)) else {
+        throw ArchiveNormalizationError.invalidArchive
+    }
     switch magic {
     case 0xCAFEBABE:
-        return try (0 ..< count).map { index in
-            let entry = 8 + index * 20
-            return (
-                Int(try unsignedInteger(in: data, at: entry + 8, byteCount: 4)),
-                Int(try unsignedInteger(in: data, at: entry + 12, byteCount: 4))
-            )
-        }
+        return try fatArchiveRanges(in: data, count: count, entrySize: 20, uses64BitRanges: false)
     case 0xCAFEBABF:
-        return try (0 ..< count).map { index in
-            let entry = 8 + index * 32
-            return (
-                Int(try unsignedInteger(in: data, at: entry + 8, byteCount: 8)),
-                Int(try unsignedInteger(in: data, at: entry + 16, byteCount: 8))
-            )
-        }
+        return try fatArchiveRanges(in: data, count: count, entrySize: 32, uses64BitRanges: true)
     default:
         throw ArchiveNormalizationError.unsupportedFormat
     }
@@ -101,6 +117,9 @@ func members(in data: Data, offset: Int, size: Int) throws -> [ArchiveMember] {
         }
         position += 60 + memberSize
         if position.isMultiple(of: 2) == false {
+            guard position < end, data[position] == 0x0A else {
+                throw ArchiveNormalizationError.invalidMember
+            }
             position += 1
         }
     }

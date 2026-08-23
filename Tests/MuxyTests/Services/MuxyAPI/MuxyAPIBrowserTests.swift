@@ -208,6 +208,56 @@ struct MuxyAPIBrowserTests {
         #expect(!jsString("a\u{2029}b").unicodeScalars.contains("\u{2029}"))
     }
 
+    @Test("cookie fetches coalesce while a timed-out request is still pending")
+    func cookieFetchesCoalesceAfterTimeout() async throws {
+        let coordinator = CookieFetchCoordinator<Int>()
+        let owner = CookieFetchOwner()
+        let gate = CookieFetchGate()
+        let counter = CookieFetchCounter()
+
+        let first = Task { @MainActor in
+            await coordinator.value(for: owner, timeout: .milliseconds(20)) {
+                counter.increment()
+                return await gate.value()
+            }
+        }
+        let second = Task { @MainActor in
+            await coordinator.value(for: owner, timeout: .milliseconds(20)) {
+                counter.increment()
+                return await gate.value()
+            }
+        }
+
+        let results = await [first.value, second.value]
+        #expect(results == [nil, nil])
+        #expect(counter.value == 1)
+
+        let recovered = Task { @MainActor in
+            await coordinator.value(for: owner, timeout: .milliseconds(200)) {
+                counter.increment()
+                return 2
+            }
+        }
+        for _ in 0 ..< 100 where coordinator.waiterCount == 0 {
+            await Task.yield()
+        }
+        try #require(coordinator.waiterCount == 1)
+        #expect(counter.value == 1)
+        gate.resume(with: 1)
+        #expect(await recovered.value == 1)
+        for _ in 0 ..< 10 where coordinator.requestCount > 0 {
+            await Task.yield()
+        }
+        #expect(coordinator.requestCount == 0)
+
+        let next = await coordinator.value(for: owner, timeout: .milliseconds(20)) {
+            counter.increment()
+            return 2
+        }
+        #expect(next == 2)
+        #expect(counter.value == 2)
+    }
+
     @Test("BrowserAutomation never uses main-thread blocking primitives")
     func automationHasNoBlockingPrimitives() throws {
         let url = RepositoryRoot.find()
@@ -311,4 +361,32 @@ private final class TerminalViewRemovingStub: TerminalViewRemoving {
 private final class WorkspacePersistenceStub: WorkspacePersisting {
     func loadWorkspaces() throws -> [WorkspaceSnapshot] { [] }
     func saveWorkspaces(_: [WorkspaceSnapshot]) throws {}
+}
+
+@MainActor
+private final class CookieFetchGate {
+    private var continuation: CheckedContinuation<Int, Never>?
+
+    func value() async -> Int {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func resume(with value: Int) {
+        continuation?.resume(returning: value)
+        continuation = nil
+    }
+}
+
+@MainActor
+private final class CookieFetchOwner: NSObject {}
+
+@MainActor
+private final class CookieFetchCounter {
+    private(set) var value = 0
+
+    func increment() {
+        value += 1
+    }
 }
