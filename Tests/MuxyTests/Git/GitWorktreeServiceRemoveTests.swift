@@ -52,6 +52,151 @@ struct GitWorktreeServiceRemoveTests {
         #expect(!records.contains { $0.path == worktreePath })
     }
 
+    @Test("rejects the primary worktree without stopping its processes")
+    func rejectsPrimaryWorktreeWithoutStoppingProcesses() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        process.currentDirectoryURL = URL(fileURLWithPath: repo.path)
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+
+        await #expect(throws: Error.self) {
+            try await GitWorktreeService.shared.removeWorktree(
+                repoPath: repo.path,
+                path: repo.path,
+                force: true
+            )
+        }
+
+        #expect(process.isRunning)
+        #expect(FileManager.default.fileExists(atPath: repo.path))
+    }
+
+    @Test("stops a process writing inside the worktree before removal")
+    func stopsActiveWriterBeforeRemoval() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("active-writer-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "active-writer-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        let writer = Process()
+        writer.executableURL = URL(fileURLWithPath: "/bin/sh")
+        writer.arguments = ["-c", "while :; do mkdir -p generated; touch generated/$RANDOM; done"]
+        writer.currentDirectoryURL = URL(fileURLWithPath: worktreePath)
+        try writer.run()
+        defer {
+            if writer.isRunning {
+                writer.terminate()
+            }
+        }
+
+        try await GitWorktreeService.shared.removeWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            force: true
+        )
+
+        #expect(!writer.isRunning)
+        #expect(!FileManager.default.fileExists(atPath: worktreePath))
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        #expect(!records.contains { $0.path == worktreePath })
+    }
+
+    @Test("removes a residual directory after Git partially deregisters a worktree")
+    func removesResidualDirectoryAfterPartialRemoval() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("partial-removal-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "partial-removal-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+
+        try await GitWorktreeService.shared.removeWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            force: true,
+            removalRunner: { repoPath, arguments, context, timeout in
+                _ = (repoPath, arguments, context, timeout)
+                try repo.removeWorktreeAdmin(named: "partial-removal-wt")
+                return GitProcessResult(
+                    status: 255,
+                    stdout: "",
+                    stdoutData: Data(),
+                    stderr: "Directory not empty",
+                    truncated: false
+                )
+            }
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: worktreePath))
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        #expect(!records.contains { $0.path == worktreePath })
+    }
+
+    @Test("preserves a replacement directory after Git deregisters the old worktree")
+    func preservesReplacementDirectoryAfterDeregistration() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("replaced-removal-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "replaced-removal-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        let marker = URL(fileURLWithPath: worktreePath).appendingPathComponent("replacement.txt")
+
+        await #expect(throws: Error.self) {
+            try await GitWorktreeService.shared.removeWorktree(
+                repoPath: repo.path,
+                path: worktreePath,
+                force: true,
+                removalRunner: { repoPath, arguments, context, timeout in
+                    _ = try await GitProcessRunner.runGit(
+                        repoPath: repoPath,
+                        arguments: arguments,
+                        context: context,
+                        timeout: timeout
+                    )
+                    try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+                    try "replacement".write(to: marker, atomically: true, encoding: .utf8)
+                    return GitProcessResult(
+                        status: 255,
+                        stdout: "",
+                        stdoutData: Data(),
+                        stderr: "Directory not empty",
+                        truncated: false
+                    )
+                }
+            )
+        }
+
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "replacement")
+    }
+
     @Test("succeeds when the worktree folder is gone and git admin metadata is orphaned")
     func succeedsForOrphanedWorktree() async throws {
         let repo = try TempGitRepo()
@@ -640,6 +785,26 @@ struct GitWorktreeServiceRemoveTests {
         #expect(FileManager.default.fileExists(atPath: unknownPath.path))
     }
 
+    @Test("project cleanup preserves quarantined replacement directories")
+    func projectCleanupPreservesQuarantinedReplacementDirectories() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let project = Project(name: "Repo", path: repo.path)
+        let worktreeRoot = MuxyFileStorage.worktreeRoot(forProjectID: project.id)
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
+        let quarantine = worktreeRoot.appendingPathComponent(
+            "\(WorktreeProcessQuiescer.quarantinePrefix)replacement",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: quarantine, withIntermediateDirectories: true)
+        let marker = quarantine.appendingPathComponent("preserved.txt")
+        try "preserved".write(to: marker, atomically: true, encoding: .utf8)
+
+        try await WorktreeStore.cleanupOnDisk(for: project, knownWorktrees: [])
+
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "preserved")
+    }
+
     @Test("heals an orphaned worktree referenced through a symlinked parent")
     func healsOrphanThroughSymlinkedParent() async throws {
         let repo = try TempGitRepo()
@@ -745,6 +910,12 @@ private struct TempGitRepo {
         let gitdir = URL(fileURLWithPath: path)
             .appendingPathComponent(".git/worktrees/\(name)/gitdir")
         try "/nonexistent/\(name)/.git\n".write(to: gitdir, atomically: true, encoding: .utf8)
+    }
+
+    func removeWorktreeAdmin(named name: String) throws {
+        try FileManager.default.removeItem(
+            at: URL(fileURLWithPath: path).appendingPathComponent(".git/worktrees/\(name)")
+        )
     }
 
     func run(_ args: String...) throws {

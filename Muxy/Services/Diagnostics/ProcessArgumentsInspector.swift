@@ -57,7 +57,7 @@ enum ProcessArgumentsInspector {
         )
     }
 
-    private static func workingDirectory(pid: Int32) -> String? {
+    static func workingDirectory(pid: Int32) -> String? {
         var info = proc_vnodepathinfo()
         let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
         let result = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size)

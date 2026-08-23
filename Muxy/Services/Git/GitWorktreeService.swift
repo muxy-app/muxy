@@ -36,6 +36,16 @@ actor GitWorktreeService: GitWorktreeListing {
         _ context: WorkspaceContext,
         _ timeout: TimeInterval
     ) async throws -> GitProcessResult
+    typealias ProcessQuiescer = @Sendable (_ path: String, _ timeout: TimeInterval) async throws -> Void
+
+    private struct RemovalTarget {
+        let canonicalPath: String
+        let residualPath: String
+        let repoPath: String
+        let context: WorkspaceContext
+        let wasRegistered: Bool
+        let originalDirectoryIdentity: WorktreeProcessQuiescer.DirectoryIdentity?
+    }
 
     static let shared = GitWorktreeService()
     static let defaultWorktreeRemovalTimeout: TimeInterval = 300
@@ -190,7 +200,8 @@ actor GitWorktreeService: GitWorktreeListing {
         force: Bool = false,
         context: WorkspaceContext = .local,
         timeout: TimeInterval = defaultWorktreeRemovalTimeout,
-        removalRunner: RemovalRunner = runRemoval
+        removalRunner: RemovalRunner = runRemoval,
+        processQuiescer: ProcessQuiescer = WorktreeProcessQuiescer.quiesce
     ) async throws -> String {
         let deadline = OperationDeadline(timeout: timeout)
         let records = try await listWorktrees(
@@ -211,8 +222,29 @@ actor GitWorktreeService: GitWorktreeListing {
         let wasRegistered = resolutions.dropFirst().contains {
             Self.canonicalPath($0.path, context: context) == target
         }
+        let primaryTarget = resolutions.dropFirst().first.map {
+            Self.canonicalPath($0.path, context: context)
+        }
+        if target == primaryTarget {
+            throw GitWorktreeError.commandFailed("The primary worktree cannot be removed.")
+        }
         if !wasRegistered, try await context.fileOps.exists(at: removalPath, timeout: deadline.remaining()) {
             throw GitWorktreeError.notRegistered
+        }
+        let residualPath = removalPath
+        let originalDirectoryIdentity = context.isRemote
+            ? nil
+            : WorktreeProcessQuiescer.directoryIdentity(at: residualPath)
+        let removalTarget = RemovalTarget(
+            canonicalPath: target,
+            residualPath: residualPath,
+            repoPath: repoPath,
+            context: context,
+            wasRegistered: wasRegistered,
+            originalDirectoryIdentity: originalDirectoryIdentity
+        )
+        if wasRegistered, !context.isRemote {
+            try await processQuiescer(residualPath, deadline.remaining())
         }
 
         var args: [String] = ["worktree", "remove"]
@@ -224,38 +256,76 @@ actor GitWorktreeService: GitWorktreeListing {
         do {
             result = try await removalRunner(repoPath, args, context, deadline.remaining())
         } catch {
-            guard Self.isTimeout(error), try await !isRegistered(
-                target: target,
-                repoPath: repoPath,
-                context: context,
-                timeout: Self.removalReconciliationTimeout
+            guard Self.isTimeout(error) else { throw error }
+            try await reconcileRemoval(
+                removalTarget,
+                processQuiescer: processQuiescer,
+                timeout: Self.removalReconciliationTimeout,
+                failureMessage: error.localizedDescription
             )
-            else { throw error }
             return removalPath
         }
-        guard result.status != 0 else { return removalPath }
-        if try await context.fileOps.exists(at: removalPath, timeout: deadline.remaining()) {
-            throw GitWorktreeError.commandFailed(
-                result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
-            )
-        }
-
-        if let remaining = try? deadline.remaining() {
+        if result.status != 0, let remaining = try? deadline.remaining() {
             try? await pruneWorktrees(repoPath: repoPath, context: context, timeout: remaining)
         }
         try Task.checkCancellation()
         let verificationTimeout = (try? deadline.remaining()) ?? Self.removalReconciliationTimeout
-        let stillRegistered = try await isRegistered(
-            target: target,
-            repoPath: repoPath,
-            context: context,
-            timeout: verificationTimeout
+        try await reconcileRemoval(
+            removalTarget,
+            processQuiescer: processQuiescer,
+            timeout: verificationTimeout,
+            failureMessage: result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
         )
-        guard stillRegistered else { return removalPath }
+        return removalPath
+    }
 
-        throw GitWorktreeError.commandFailed(
-            result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
+    private func reconcileRemoval(
+        _ target: RemovalTarget,
+        processQuiescer: ProcessQuiescer,
+        timeout: TimeInterval,
+        failureMessage: String
+    ) async throws {
+        let deadline = OperationDeadline(timeout: timeout)
+        let stillRegistered = try await isRegistered(
+            target: target.canonicalPath,
+            repoPath: target.repoPath,
+            context: target.context,
+            timeout: deadline.remaining()
         )
+        guard !stillRegistered else {
+            throw GitWorktreeError.commandFailed(failureMessage)
+        }
+
+        guard try await target.context.fileOps.exists(
+            at: target.residualPath,
+            timeout: deadline.remaining()
+        )
+        else { return }
+        guard target.wasRegistered else {
+            throw GitWorktreeError.commandFailed(failureMessage)
+        }
+        guard !target.context.isRemote, let originalDirectoryIdentity = target.originalDirectoryIdentity else {
+            throw GitWorktreeError.commandFailed("\(failureMessage) The remaining directory could not be verified.")
+        }
+
+        do {
+            try await processQuiescer(target.residualPath, deadline.remaining())
+            try await GitProcessRunner.offMainThrowing {
+                try WorktreeProcessQuiescer.removeDirectory(
+                    at: target.residualPath,
+                    matching: originalDirectoryIdentity
+                )
+            }
+        } catch {
+            throw GitWorktreeError.commandFailed("\(failureMessage) Residual cleanup failed: \(error.localizedDescription)")
+        }
+        guard try await !target.context.fileOps.exists(
+            at: target.residualPath,
+            timeout: deadline.remaining()
+        )
+        else {
+            throw GitWorktreeError.commandFailed("\(failureMessage) The worktree directory still exists.")
+        }
     }
 
     func isWorktreeRegistered(
