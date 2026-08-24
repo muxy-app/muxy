@@ -32,3 +32,11 @@ appcast*.xml
 .dolt/
 *.db
 .beads-credential-key
+
+/target
+**/*.rs.bk
+.DS_Store
+/vendor/GhosttyKit.xcframework/
+/resources/ghostty/
+/resources/terminfo/
+*.tar.gz

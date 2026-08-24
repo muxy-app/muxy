@@ -1,0 +1,153 @@
+# Architecture
+
+Muxy is a Cargo workspace of 7 crates, layered so that domain logic and services are platform-agnostic and testable, while GPUI and macOS-specific code live at the edges.
+
+## Crate graph
+
+```mermaid
+flowchart TD
+    muxy["muxy (binary)\nGPUI app, views, wiring"]
+    api["muxy-api\nheadless services"]
+    core["muxy-core\ndomain model + persistence"]
+    term["muxy-terminal\nterminal abstraction"]
+    ui["muxy-ui\nreusable GPUI kit"]
+    host["ghostty-host\nsafe libghostty wrapper"]
+    sys["ghostty-sys\nbindgen FFI"]
+
+    muxy --> api
+    muxy --> term
+    muxy --> ui
+    muxy --> core
+    api --> core
+    term --> core
+    term -. macOS only .-> host
+    muxy -. macOS only .-> host
+    host --> sys
+    sys --> lib["libghostty (C)"]
+```
+
+## Responsibilities
+
+| Crate | What lives there | Depends on GPUI? | macOS-only code? |
+|---|---|---|---|
+| `muxy` | app entry, `AppState`, all views, commands, keymap, terminal glue | yes | terminal backend |
+| `muxy-api` | git, worktrees, project "truth", IDE detection, layouts, yaml, fs watcher, picker logic | no | no |
+| `muxy-core` | prefs, settings catalog, shortcuts, stores, workspace/tab tree model | no | user-defaults access |
+| `muxy-terminal` | backend trait, surface signals, search, scrollbar, confirmation | no | ghostty impl |
+| `muxy-ui` | theme, icons, components, controls, text input, scrollbar | yes | SF Symbols |
+| `ghostty-host` | runtime, surface, config, input, mouse — safe API over FFI | no | yes |
+| `ghostty-sys` | raw bindgen bindings | no | yes |
+
+## Terminal stack
+
+```mermaid
+flowchart LR
+    subgraph muxy
+        WV["window views"] --> TS["terminal::surfaces\nTerminalSurfaces"]
+        TS --> BE["terminal::Backend\n(GhosttyBackend / Unsupported)"]
+    end
+    subgraph muxy-terminal
+        HT["backend::TerminalSurfaceHandle\ntrait + signals"]
+        GH["ghostty::host_view\nNSView embedding, scrollbar, IME"]
+    end
+    subgraph ghostty-host
+        RT["runtime::GhosttyApp\nRuntimeEvent channel"]
+        SF["surface::GhosttySurface"]
+    end
+    BE --> HT
+    HT --> GH
+    GH --> SF
+    SF --> RT
+    RT --> FFI["ghostty-sys → libghostty"]
+    RT -- "RuntimeEvent (async-channel)" --> BE
+```
+
+Events flow back asynchronously: libghostty callbacks → `ghostty-host` `RuntimeEvent` channel → `muxy::terminal::TerminalEvents` → GPUI views.
+
+## Workspace / tab model (muxy-core)
+
+```mermaid
+classDiagram
+    class Workspace {
+        projects: Vec~Project~
+        groups: Groups
+        active_group_id
+    }
+    class Project {
+        id, name, path
+    }
+    class WorkspaceStore {
+        states: Vec~WorkspaceState~
+        raw snapshots (lossless JSON)
+    }
+    class WorkspaceState {
+        per project / worktree
+    }
+    class TopLevelTabNode
+    class Tab {
+        kind: TabKind
+    }
+    class TabArea
+    class SplitNode {
+        Leaf | Split(Axis)
+    }
+    Workspace o-- Project
+    Project o-- Worktree
+    WorkspaceStore o-- WorkspaceState
+    WorkspaceState o-- TopLevelTabNode
+    TopLevelTabNode o-- Tab
+    Tab o-- TabArea
+    TabArea o-- SplitNode
+```
+
+## Persistence & external state
+
+```mermaid
+flowchart LR
+    subgraph disk["~/Library/Application Support/Muxy"]
+        S["settings.json / ui-scale.json"]
+        K["keybindings.json / command-shortcuts.json"]
+        W["workspaces.json / project-groups.json"]
+        G["ghostty.conf / logos/"]
+    end
+    UD["NSUserDefaults\n(muxy.* keys, projects)"]
+    PY[".muxy/layouts/*.yml\n(per project)"]
+    GIT["git CLI\n(worktrees, status)"]
+
+    core["muxy-core\nprefs + stores\n(atomic writes)"] <--> disk
+    core <--> UD
+    api["muxy-api"] --> PY
+    api --> GIT
+    api -- "watcher (notify)" --> disk
+    api -- "truth::refresh_truth" --> GIT
+```
+
+- All file writes go through `store::persistence` (atomic temp-file rename, `0600` for private data).
+- `muxy-api::truth` recomputes per-project git facts (repo? worktrees? labels) off the UI thread; `watcher` re-triggers on file changes.
+
+## App wiring (muxy binary)
+
+```mermaid
+flowchart TD
+    main["main.rs\nGPUI app boot"] --> state["AppState\nprefs, theme, workspace,\nshortcuts, worktrees"]
+    main --> win["views::window\nlifecycle, render, menu bar,\noverlays, commands"]
+    win --> wsv["workspace_view + sidebar\n+ titlebar + status bar"]
+    win --> term2["window::terminal\nsurface hosting"]
+    win --> ov["overlays: omnibox, project picker,\nsettings, shortcut editor, switcher"]
+    cmd["command.rs + keymap.rs"] --> win
+    ov -- "picker logic" --> papi["muxy-api::picker\n(navigator, search, session)"]
+    wsv -- reads/mutates --> state
+    state -- persists via --> mcore["muxy-core stores"]
+```
+
+Views own no business logic: pickers, search, git truth, and layout parsing are called out to `muxy-api`; tab-tree mutations go through `muxy-core::workspace`; rendering primitives come from `muxy-ui`.
+
+## Platform strategy
+
+```mermaid
+flowchart LR
+    common["muxy-core + muxy-api + muxy-ui\n+ muxy-terminal traits"] --> mac["macOS: ghostty backend\n(ghostty-host/sys)"]
+    common --> other["Linux / Windows:\nUnsupportedBackend (stub today)"]
+```
+
+Everything above the `muxy-terminal::backend` trait is platform-neutral; porting means implementing a new backend plus the small `cfg(target_os)` islands in `muxy` and `muxy-core`.

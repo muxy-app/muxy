@@ -1,0 +1,88 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ghostty-sys",
+    "crates/ghostty-host",
+    "crates/muxy",
+    "crates/muxy-core",
+    "crates/muxy-terminal",
+    "crates/muxy-ui",
+    "crates/muxy-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+
+[workspace.dependencies]
+ghostty-host = { path = "crates/ghostty-host" }
+ghostty-sys = { path = "crates/ghostty-sys" }
+muxy-api = { path = "crates/muxy-api" }
+muxy-core = { path = "crates/muxy-core" }
+muxy-terminal = { path = "crates/muxy-terminal" }
+muxy-ui = { path = "crates/muxy-ui" }
+gpui = "=0.2.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+plist = "1"
+anyhow = "1"
+rust-embed = "8"
+image = "0.25"
+unicode-segmentation = "1"
+notify = "8"
+rfd = "0.15"
+resvg = "0.45"
+async-channel = "2"
+bindgen = "0.71"
+block2 = "0.6"
+log = "0.4"
+raw-window-handle = "0.6"
+tempfile = "3"
+thiserror = "2"
+objc2 = "0.6"
+objc2-core-foundation = "0.3"
+objc2-core-text = "0.3"
+objc2-foundation = { version = "0.3", features = [
+    "NSArray",
+    "NSGeometry",
+    "NSString",
+    "NSValue",
+    "NSUserDefaults",
+    "NSDictionary",
+] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSImage",
+    "NSImageRep",
+    "NSBitmapImageRep",
+    "NSGraphics",
+    "NSGraphicsContext",
+    "NSColor",
+    "NSColorSpace",
+    "NSCell",
+    "NSClipView",
+    "NSControl",
+    "NSResponder",
+    "NSScrollView",
+    "NSScroller",
+    "NSView",
+    "NSWindow",
+    "NSPasteboard",
+    "NSScreen",
+] }
+
+[workspace.lints.rust]
+missing_unsafe_on_extern = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+missing_safety_doc = "allow"
+todo = "deny"
+unimplemented = "deny"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2

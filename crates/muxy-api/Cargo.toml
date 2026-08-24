@@ -1,0 +1,20 @@
+[package]
+name = "muxy-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+muxy-core.workspace = true
+serde_json.workspace = true
+plist.workspace = true
+notify.workspace = true
+thiserror.workspace = true
+async-channel.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "muxy-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gpui.workspace = true
+image.workspace = true
+unicode-segmentation.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-app-kit.workspace = true
+
+[lints]
+workspace = true

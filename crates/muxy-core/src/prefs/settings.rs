@@ -1,0 +1,1180 @@
+use super::defaults;
+use serde_json::{Map, Number, Value};
+use std::cell::Cell;
+use std::path::{Path, PathBuf};
+
+const COMMIT_PROMPT: &str = "Write a concise commit message that explains the intent of all staged changes. Follow the repository's existing commit-message style.";
+const PULL_REQUEST_PROMPT: &str = "Write an accurate pull request title and a concise summary of the changes. Choose a short descriptive branch name and the appropriate target branch.";
+
+#[derive(Clone, Copy)]
+pub enum Kind {
+    Bool(bool),
+    Int(i64),
+    Double(f64),
+    Str(&'static str),
+}
+
+#[derive(Clone, Copy)]
+pub enum Source {
+    Defaults(Kind),
+    UiScale,
+    ThemeDark,
+    ThemeLight,
+    EditorSetting(&'static str, Kind),
+    ShortcutsApp,
+    QuickTerminalShortcut,
+    CustomCommands,
+    AiProviders,
+    ApprovedDevices,
+}
+
+pub struct Entry {
+    pub key: &'static str,
+    pub source: Source,
+}
+
+const fn flag(key: &'static str, value: bool) -> Entry {
+    Entry {
+        key,
+        source: Source::Defaults(Kind::Bool(value)),
+    }
+}
+
+const fn text(key: &'static str, value: &'static str) -> Entry {
+    Entry {
+        key,
+        source: Source::Defaults(Kind::Str(value)),
+    }
+}
+
+const fn integer(key: &'static str, value: i64) -> Entry {
+    Entry {
+        key,
+        source: Source::Defaults(Kind::Int(value)),
+    }
+}
+
+const fn double(key: &'static str, value: f64) -> Entry {
+    Entry {
+        key,
+        source: Source::Defaults(Kind::Double(value)),
+    }
+}
+
+const fn special(key: &'static str, source: Source) -> Entry {
+    Entry { key, source }
+}
+
+pub const MIRROR: [Entry; 68] = [
+    flag("diagnostics.profiler.enabled", false),
+    flag("muxy.general.autoExpandWorktreesOnProjectSwitch", false),
+    flag("muxy.showHomeProject", true),
+    flag("muxy.tips.visible", true),
+    flag("muxy.showProjectSearch", false),
+    flag("muxy.worktrees.groupWorktrees", false),
+    flag("muxy.worktrees.showUnreadIndicator", true),
+    flag("muxy.worktrees.orderByMRU", true),
+    flag("muxy.projects.keepOpenWhenNoTabs", false),
+    flag("muxy.general.autoCopyTerminalSelection", false),
+    flag("muxy.tabs.confirmCloseRunningProcess", true),
+    flag("muxy.app.confirmQuit", true),
+    flag("SUAutomaticallyUpdate", true),
+    flag("muxy.showTopBarActions", true),
+    flag("muxy.showStatusBar", true),
+    flag("muxy.showResourceUsageInStatusBar", true),
+    flag("muxy.richInput.clearAfterSending", false),
+    flag("muxy.richInput.clearOnClose", false),
+    flag("muxy.terminalOffline.enabled", false),
+    flag("muxy.terminalPersistentSession.enabled", false),
+    flag("muxy.quickTerminal.enabled", true),
+    flag("muxy.recording.autoSend", false),
+    flag("muxy.notifications.toastEnabled", true),
+    flag("muxy.notifications.desktopEnabled", false),
+    flag("app.muxy.mobile.serverEnabled", false),
+    text("muxy.update.channel", "stable"),
+    text("muxy.localization", ""),
+    text("muxy.activeSidebar", ""),
+    text("muxy.projectPicker.mode", "custom"),
+    text("muxy.projectPicker.defaultDirectory", ""),
+    text("muxy.defaultFileOpener", ""),
+    text("muxy.general.defaultWorktreePathTemplate", ""),
+    text("muxy.general.defaultWorktreeParentPath", ""),
+    text("muxy.sentry.consent", ""),
+    text("muxy.browser.searchEngine", "google"),
+    text("muxy.browser.homePageURL", "about:blank"),
+    text("muxy.appBackgroundStyle", "vibrant"),
+    text("muxy.sidebarCollapsedStyle", "icons"),
+    text("muxy.sidebarExpandedStyle", "wide"),
+    text("muxy.richInput.presentationMode", "panel"),
+    text("muxy.ai.repositoryActions.commit.provider", ""),
+    text("muxy.ai.repositoryActions.commit.prompt", COMMIT_PROMPT),
+    text("muxy.ai.repositoryActions.createPullRequest.provider", ""),
+    text(
+        "muxy.ai.repositoryActions.createPullRequest.prompt",
+        PULL_REQUEST_PROMPT,
+    ),
+    text("muxy.recording.language", ""),
+    text("muxy.notifications.sound", "Funk"),
+    text("muxy.notifications.toastPosition", "Top Center"),
+    integer("muxy.app.transparency", 0),
+    integer("muxy.app.blur", 70),
+    integer("muxy.quickTerminal.width", 720),
+    integer("muxy.quickTerminal.height", 430),
+    integer("muxy.quickTerminal.transparency", 18),
+    integer("muxy.quickTerminal.blur", 70),
+    integer("app.muxy.mobile.serverPort", 4865),
+    integer("app.muxy.mobile.scrollbackCap", 8),
+    double("muxy.tabs.maxWidth", 200.0),
+    double("muxy.terminalOffline.idleThresholdSeconds", 300.0),
+    special("muxy.ui.scale", Source::UiScale),
+    special("muxy.theme.dark", Source::ThemeDark),
+    special("muxy.theme.light", Source::ThemeLight),
+    special(
+        "editor.richInputImageStrategy",
+        Source::EditorSetting("richInputImageStrategy", Kind::Str("clipboard")),
+    ),
+    special(
+        "editor.richInputFontFamily",
+        Source::EditorSetting("richInputFontFamily", Kind::Str("SF Mono")),
+    ),
+    special(
+        "editor.richInputLineHeightMultiplier",
+        Source::EditorSetting("richInputLineHeightMultiplier", Kind::Double(1.2)),
+    ),
+    special("shortcuts.app", Source::ShortcutsApp),
+    special("shortcuts.quickTerminal", Source::QuickTerminalShortcut),
+    special("shortcuts.customCommands", Source::CustomCommands),
+    special("ai.providers", Source::AiProviders),
+    special("mobile.approvedDevices", Source::ApprovedDevices),
+];
+
+pub const NOTIFICATION_SOUNDS: [&str; 15] = [
+    "None",
+    "Basso",
+    "Blow",
+    "Bottle",
+    "Frog",
+    "Funk",
+    "Glass",
+    "Hero",
+    "Morse",
+    "Ping",
+    "Pop",
+    "Purr",
+    "Sosumi",
+    "Submarine",
+    "Tink",
+];
+
+pub const TOAST_POSITIONS: [&str; 4] = ["Top Center", "Top Right", "Bottom Center", "Bottom Right"];
+
+pub const AI_PROVIDERS: [(&str, &str); 10] = [
+    ("claude", "Claude Code"),
+    ("opencode", "OpenCode"),
+    ("codex", "Codex"),
+    ("cursor", "Cursor CLI"),
+    ("copilot", "GitHub Copilot"),
+    ("droid", "Droid"),
+    ("pi", "Pi"),
+    ("grok", "Grok"),
+    ("kiro", "Kiro CLI"),
+    ("xal", "Xal"),
+];
+
+pub fn provider_key(id: &str) -> String {
+    format!("muxy.notifications.provider.{id}.enabled")
+}
+
+const ALLOWED_STRINGS: [(&str, &[&str]); 11] = [
+    ("muxy.update.channel", &["stable", "beta"]),
+    ("muxy.projectPicker.mode", &["custom", "finder"]),
+    ("muxy.sentry.consent", &["", "allowed", "denied"]),
+    ("muxy.ui.scale", &["regular", "large", "extraLarge", "huge"]),
+    ("muxy.appBackgroundStyle", &["vibrant", "solid"]),
+    ("muxy.sidebarCollapsedStyle", &["hidden", "icons"]),
+    ("muxy.sidebarExpandedStyle", &["icons", "wide"]),
+    ("muxy.richInput.presentationMode", &["panel", "floating"]),
+    (
+        "editor.richInputImageStrategy",
+        &["clipboard", "inlinePath"],
+    ),
+    ("muxy.notifications.sound", &NOTIFICATION_SOUNDS),
+    ("muxy.notifications.toastPosition", &TOAST_POSITIONS),
+];
+
+const INT_RANGES: [(&str, i64, i64); 7] = [
+    ("app.muxy.mobile.serverPort", 1024, 65535),
+    ("muxy.quickTerminal.width", 480, 1200),
+    ("muxy.quickTerminal.height", 280, 800),
+    ("muxy.quickTerminal.transparency", 0, 55),
+    ("muxy.quickTerminal.blur", 0, 100),
+    ("muxy.app.transparency", 0, 55),
+    ("muxy.app.blur", 0, 100),
+];
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SettingsError {
+    TopLevelObjectRequired,
+    InvalidValue(String),
+}
+
+impl std::fmt::Display for SettingsError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TopLevelObjectRequired => write!(formatter, "Settings JSON must be an object."),
+            Self::InvalidValue(key) => write!(formatter, "Invalid JSON value for \"{key}\"."),
+        }
+    }
+}
+
+thread_local! {
+    static SUPPRESS_SYNC: Cell<bool> = const { Cell::new(false) };
+}
+
+fn path() -> PathBuf {
+    super::app_support_dir().join("settings.json")
+}
+
+fn ui_scale_path() -> PathBuf {
+    super::app_support_dir().join("ui-scale.json")
+}
+
+fn read_defaults(key: &str, kind: Kind) -> Value {
+    match kind {
+        Kind::Bool(fallback) => Value::Bool(defaults::read_bool(key).unwrap_or(fallback)),
+        Kind::Int(fallback) => {
+            Value::Number(Number::from(defaults::read_i64(key).unwrap_or(fallback)))
+        }
+        Kind::Double(fallback) => Number::from_f64(defaults::read_f64(key).unwrap_or(fallback))
+            .map_or(Value::Null, Value::Number),
+        Kind::Str(fallback) => {
+            Value::String(defaults::read_string(key).unwrap_or_else(|| fallback.to_owned()))
+        }
+    }
+}
+
+fn read_entry(entry: &Entry, existing: Option<&Value>) -> Option<Value> {
+    match entry.source {
+        Source::Defaults(kind) => Some(read_defaults(entry.key, kind)),
+        Source::UiScale => Some(Value::String(read_ui_scale())),
+        Source::ThemeDark => Some(Value::String(
+            crate::store::ghostty_conf::theme_selection()
+                .0
+                .unwrap_or_else(|| "Muxy".to_owned()),
+        )),
+        Source::ThemeLight => Some(Value::String(
+            crate::store::ghostty_conf::theme_selection()
+                .1
+                .unwrap_or_else(|| "Muxy".to_owned()),
+        )),
+        Source::EditorSetting(name, kind) => read_editor_setting(name, kind),
+        Source::ShortcutsApp => Some(read_shortcuts_app(existing)),
+        Source::CustomCommands => Some(read_custom_commands()),
+        Source::QuickTerminalShortcut => Some(read_quick_terminal_shortcut()),
+        Source::AiProviders => Some(read_ai_providers(existing)),
+        Source::ApprovedDevices => super::read_json(&approved_devices_path()),
+    }
+}
+
+pub fn quick_terminal_shortcut_path() -> PathBuf {
+    super::app_support_dir().join("quick-terminal-shortcut.json")
+}
+
+fn approved_devices_path() -> PathBuf {
+    super::app_support_dir().join("approved-devices.json")
+}
+
+pub fn quick_terminal_kind() -> String {
+    read_quick_terminal_shortcut()
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("unassigned")
+        .to_owned()
+}
+
+fn read_quick_terminal_shortcut() -> Value {
+    super::read_json(&quick_terminal_shortcut_path())
+        .unwrap_or_else(|| serde_json::json!({ "type": "unassigned" }))
+}
+
+pub fn set_quick_terminal_shortcut(kind: &str) {
+    let mut root = Map::new();
+    root.insert("type".to_owned(), Value::String(kind.to_owned()));
+    let contents = to_foundation_json(&Value::Object(root), true, false);
+    let path = quick_terminal_shortcut_path();
+    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
+        log::warn!("failed to write {}: {error}", path.display());
+        return;
+    }
+    sync();
+}
+
+fn read_ai_providers(existing: Option<&Value>) -> Value {
+    let object: Map<String, Value> = AI_PROVIDERS
+        .iter()
+        .map(|(id, _)| {
+            (
+                (*id).to_owned(),
+                Value::Bool(bool_value(&provider_key(id), true)),
+            )
+        })
+        .collect();
+    Value::Object(carry_through(object, existing))
+}
+
+fn read_shortcuts_app(existing: Option<&Value>) -> Value {
+    Value::Object(carry_through(
+        crate::shortcuts::ShortcutMap::load().mirror_object(),
+        existing,
+    ))
+}
+
+fn carry_through(mut object: Map<String, Value>, existing: Option<&Value>) -> Map<String, Value> {
+    if let Some(Value::Object(previous)) = existing {
+        for (key, value) in previous {
+            object.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    object
+}
+
+fn read_custom_commands() -> Value {
+    crate::store::CommandShortcuts::load().mirror_value()
+}
+
+fn editor_settings_path() -> PathBuf {
+    super::app_support_dir().join("editor-settings.json")
+}
+
+fn read_editor_setting(name: &str, kind: Kind) -> Option<Value> {
+    let root = super::read_json(&editor_settings_path())?;
+    let map = root.as_object()?;
+    match map.get(name) {
+        Some(value) => Some(value.clone()),
+        None => Some(match kind {
+            Kind::Bool(value) => Value::Bool(value),
+            Kind::Int(value) => Value::Number(Number::from(value)),
+            Kind::Double(value) => Number::from_f64(value).map_or(Value::Null, Value::Number),
+            Kind::Str(value) => Value::String(value.to_owned()),
+        }),
+    }
+}
+
+pub fn editor_setting(name: &str, default: Value) -> Value {
+    super::read_json(&editor_settings_path())
+        .as_ref()
+        .and_then(|root| root.get(name))
+        .cloned()
+        .unwrap_or(default)
+}
+
+pub fn set_editor_setting(name: &str, value: Value) {
+    let path = editor_settings_path();
+    let mut root = match super::read_json(&path) {
+        Some(Value::Object(map)) => map,
+        _ => Map::new(),
+    };
+    root.insert(name.to_owned(), value);
+    let contents = to_foundation_json(&Value::Object(root), true, false);
+    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
+        log::warn!("failed to write {}: {error}", path.display());
+        return;
+    }
+    sync();
+}
+
+fn read_ui_scale() -> String {
+    super::read_json(&ui_scale_path())
+        .as_ref()
+        .and_then(|root| root.get("preset"))
+        .and_then(Value::as_str)
+        .unwrap_or("regular")
+        .to_owned()
+}
+
+pub fn string_value(key: &str, default: &str) -> String {
+    special_string(key)
+        .or_else(|| defaults::read_string(key))
+        .unwrap_or_else(|| default.to_owned())
+}
+
+fn special_string(key: &str) -> Option<String> {
+    let entry = MIRROR.iter().find(|entry| entry.key == key)?;
+    if matches!(entry.source, Source::Defaults(_)) {
+        return None;
+    }
+    match read_entry(entry, None)? {
+        Value::String(value) => Some(value),
+        _ => None,
+    }
+}
+
+pub fn bool_value(key: &str, default: bool) -> bool {
+    defaults::read_bool(key).unwrap_or(default)
+}
+
+pub fn i64_value(key: &str, default: i64) -> i64 {
+    defaults::read_i64(key).unwrap_or(default)
+}
+
+pub fn f64_value(key: &str, default: f64) -> f64 {
+    defaults::read_f64(key).unwrap_or(default)
+}
+
+pub fn set_ui_scale(preset: crate::prefs::ScalePreset) {
+    let mut root = Map::new();
+    root.insert("preset".to_owned(), Value::String(preset.raw().to_owned()));
+    let contents = to_foundation_json(&Value::Object(root), true, false);
+    let path = ui_scale_path();
+    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
+        log::warn!("failed to write {}: {error}", path.display());
+        return;
+    }
+    sync();
+}
+
+pub fn set(key: &str, value: Value) {
+    match &value {
+        Value::Bool(value) => defaults::store_bool(key, *value),
+        Value::String(value) => defaults::store_string(key, Some(value)),
+        Value::Number(number) => match number.as_i64() {
+            Some(value) => defaults::store_i64(key, value),
+            None => {
+                if let Some(value) = number.as_f64() {
+                    defaults::store_f64(key, value);
+                }
+            }
+        },
+        Value::Null => defaults::remove(key),
+        _ => return,
+    }
+    sync();
+}
+
+pub fn sync() {
+    if SUPPRESS_SYNC.get() {
+        return;
+    }
+    sync_at(&path());
+}
+
+fn sync_at(path: &Path) -> bool {
+    let existing = std::fs::read_to_string(path).ok();
+    let mut root = match &existing {
+        Some(contents) => match serde_json::from_str::<Value>(contents) {
+            Ok(Value::Object(map)) => map,
+            _ => {
+                log::warn!(
+                    "settings.json does not parse as an object; leaving it untouched: {}",
+                    path.display()
+                );
+                return false;
+            }
+        },
+        None => Map::new(),
+    };
+
+    let mut changed = false;
+    for entry in &MIRROR {
+        let Some(value) = read_entry(entry, root.get(entry.key)) else {
+            continue;
+        };
+        if !root.get(entry.key).is_some_and(|held| equal(held, &value)) {
+            changed = true;
+        }
+        root.insert(entry.key.to_owned(), value);
+    }
+
+    if !changed {
+        return false;
+    }
+
+    let contents = to_foundation_json(&Value::Object(root), false, true);
+    if let Err(error) = crate::store::write_private(path, contents.as_bytes()) {
+        log::warn!("failed to write {}: {error}", path.display());
+        return false;
+    }
+    true
+}
+
+fn equal(left: &Value, right: &Value) -> bool {
+    match (left, right) {
+        (Value::Number(left), Value::Number(right)) => match (left.as_f64(), right.as_f64()) {
+            (Some(left), Some(right)) => left == right,
+            _ => left == right,
+        },
+        (Value::Array(left), Value::Array(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| equal(left, right))
+        }
+        (Value::Object(left), Value::Object(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .all(|(key, value)| right.get(key).is_some_and(|held| equal(value, held)))
+        }
+        _ => left == right,
+    }
+}
+
+pub fn user_path() -> PathBuf {
+    path()
+}
+
+pub fn system_defaults_text() -> String {
+    let mut root = Map::new();
+    for entry in &MIRROR {
+        let value = match entry.source {
+            Source::Defaults(kind) => default_value(kind),
+            Source::UiScale => Value::String("regular".to_owned()),
+            Source::ThemeDark => Value::String("Muxy".to_owned()),
+            Source::ThemeLight => Value::String("Muxy".to_owned()),
+            Source::EditorSetting(_, kind) => default_value(kind),
+            Source::ShortcutsApp => Value::Object(default_shortcuts_app()),
+            Source::QuickTerminalShortcut => {
+                serde_json::json!({ "type": "unassigned" })
+            }
+            Source::CustomCommands => crate::store::CommandShortcuts::default().mirror_value(),
+            Source::AiProviders => Value::Object(
+                AI_PROVIDERS
+                    .iter()
+                    .map(|(id, _)| ((*id).to_owned(), Value::Bool(true)))
+                    .collect(),
+            ),
+            Source::ApprovedDevices => Value::Array(Vec::new()),
+        };
+        root.insert(entry.key.to_owned(), value);
+    }
+    to_foundation_json(&Value::Object(root), false, true)
+}
+
+fn default_value(kind: Kind) -> Value {
+    match kind {
+        Kind::Bool(value) => Value::Bool(value),
+        Kind::Int(value) => Value::Number(Number::from(value)),
+        Kind::Double(value) => Number::from_f64(value).map_or(Value::Null, Value::Number),
+        Kind::Str(value) => Value::String(value.to_owned()),
+    }
+}
+
+fn default_shortcuts_app() -> Map<String, Value> {
+    let mut object = Map::new();
+    for (action, combo) in crate::shortcuts::default_bindings() {
+        let Ok(Value::String(name)) = serde_json::to_value(action) else {
+            continue;
+        };
+        let Ok(combo) = serde_json::to_value(&combo) else {
+            continue;
+        };
+        object.insert(name, combo);
+    }
+    for (name, key, modifiers) in crate::shortcuts::UNMODELLED_DEFAULTS {
+        object.insert(
+            name.to_owned(),
+            serde_json::json!({ "key": key, "modifiers": modifiers }),
+        );
+    }
+    object
+}
+
+pub fn load_user_text() -> String {
+    let path = path();
+    if !path.exists() {
+        reset_user_file();
+    }
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_owned());
+    prettify(&text).unwrap_or(text)
+}
+
+pub fn prettify(text: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(text).ok()?;
+    value
+        .is_object()
+        .then(|| to_foundation_json(&value, false, true))
+}
+
+pub fn reset_user_file() {
+    let mut root = Map::new();
+    for entry in &MIRROR {
+        let Some(value) = read_entry(entry, None) else {
+            continue;
+        };
+        root.insert(entry.key.to_owned(), value);
+    }
+    let contents = to_foundation_json(&Value::Object(root), false, true);
+    let path = path();
+    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
+        log::warn!("failed to write {}: {error}", path.display());
+    }
+}
+
+pub fn save_user_text(text: &str) -> Result<(), SettingsError> {
+    let root: Value =
+        serde_json::from_str(text).map_err(|_| SettingsError::TopLevelObjectRequired)?;
+    let Value::Object(document) = root else {
+        return Err(SettingsError::TopLevelObjectRequired);
+    };
+    let settings = validate(&document)?;
+
+    let path = path();
+    let contents = to_foundation_json(&Value::Object(document), false, true);
+    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
+        log::warn!("failed to write {}: {error}", path.display());
+        return Err(SettingsError::InvalidValue("settings.json".to_owned()));
+    }
+
+    SUPPRESS_SYNC.set(true);
+    for (key, value) in &settings {
+        apply_value(key, value);
+    }
+    SUPPRESS_SYNC.set(false);
+    sync();
+    Ok(())
+}
+
+fn validate(document: &Map<String, Value>) -> Result<Vec<(String, Value)>, SettingsError> {
+    let mut settings = Vec::new();
+    for entry in &MIRROR {
+        let Some(value) = document.get(entry.key) else {
+            continue;
+        };
+        validate_value(entry, value)?;
+        settings.push((entry.key.to_owned(), value.clone()));
+    }
+    Ok(settings)
+}
+
+fn validate_value(entry: &Entry, value: &Value) -> Result<(), SettingsError> {
+    let invalid = || SettingsError::InvalidValue(entry.key.to_owned());
+    if value.is_null() {
+        return Ok(());
+    }
+    match entry.source {
+        Source::Defaults(kind) | Source::EditorSetting(_, kind) => match kind {
+            Kind::Bool(_) => value.as_bool().map(|_| ()).ok_or_else(invalid),
+            Kind::Int(_) => {
+                let number = value
+                    .as_i64()
+                    .filter(|_| !value.is_boolean())
+                    .ok_or_else(invalid)?;
+                validate_range(entry.key, number as f64).ok_or_else(invalid)
+            }
+            Kind::Double(_) => {
+                let number = value
+                    .as_f64()
+                    .filter(|_| !value.is_boolean())
+                    .ok_or_else(invalid)?;
+                validate_range(entry.key, number).ok_or_else(invalid)
+            }
+            Kind::Str(_) => {
+                let text = value.as_str().ok_or_else(invalid)?;
+                validate_string(entry.key, text).ok_or_else(invalid)
+            }
+        },
+        Source::UiScale | Source::ThemeDark | Source::ThemeLight => {
+            let text = value.as_str().ok_or_else(invalid)?;
+            validate_string(entry.key, text).ok_or_else(invalid)
+        }
+        Source::ShortcutsApp => value
+            .as_object()
+            .filter(|object| !object.is_empty())
+            .map(|_| ())
+            .ok_or_else(invalid),
+        Source::CustomCommands => {
+            let object = value.as_object().ok_or_else(invalid)?;
+            let assigned = |combo: Option<&Value>| {
+                combo
+                    .and_then(|combo| combo.get("key"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|key| !key.is_empty())
+            };
+            if !assigned(object.get("prefixCombo")) {
+                return Err(invalid());
+            }
+            let rows = object
+                .get("shortcuts")
+                .and_then(Value::as_array)
+                .ok_or_else(invalid)?;
+            if rows.iter().any(|row| !assigned(row.get("combo"))) {
+                return Err(invalid());
+            }
+            Ok(())
+        }
+        Source::AiProviders => {
+            let object = value.as_object().ok_or_else(invalid)?;
+            if object.values().any(|value| !value.is_boolean()) {
+                return Err(invalid());
+            }
+            Ok(())
+        }
+        Source::QuickTerminalShortcut => value.as_object().map(|_| ()).ok_or_else(invalid),
+        Source::ApprovedDevices => value.as_array().map(|_| ()).ok_or_else(invalid),
+    }
+}
+
+fn validate_string(key: &str, value: &str) -> Option<()> {
+    if key == "muxy.general.defaultWorktreePathTemplate"
+        && !value.trim().is_empty()
+        && !value.contains("{branch}")
+    {
+        return None;
+    }
+    let Some((_, allowed)) = ALLOWED_STRINGS.iter().find(|(name, _)| *name == key) else {
+        return Some(());
+    };
+    allowed.contains(&value).then_some(())
+}
+
+fn validate_range(key: &str, value: f64) -> Option<()> {
+    if key == "muxy.tabs.maxWidth" {
+        return (value >= 0.0 && value.is_finite()).then_some(());
+    }
+    if key == "editor.richInputLineHeightMultiplier" {
+        return (1.1..=2.0).contains(&value).then_some(());
+    }
+    let Some((_, low, high)) = INT_RANGES.iter().find(|(name, _, _)| *name == key) else {
+        return Some(());
+    };
+    (value >= *low as f64 && value <= *high as f64).then_some(())
+}
+
+fn apply_value(key: &str, value: &Value) {
+    match key {
+        "muxy.ui.scale" => {
+            let Some(raw) = value.as_str() else { return };
+            set_ui_scale(crate::prefs::ScalePreset::parse(raw));
+        }
+        "muxy.theme.dark" | "muxy.theme.light" => {
+            let Some(name) = value.as_str() else { return };
+            let (dark, light) = crate::store::ghostty_conf::theme_selection();
+            if key == "muxy.theme.dark" {
+                crate::store::ghostty_conf::set_theme(
+                    name,
+                    &light.unwrap_or_else(|| name.to_owned()),
+                );
+            } else {
+                crate::store::ghostty_conf::set_theme(
+                    &dark.unwrap_or_else(|| name.to_owned()),
+                    name,
+                );
+            }
+        }
+        _ => set(key, value.clone()),
+    }
+}
+
+pub fn to_foundation_json(value: &Value, escape_slashes: bool, trailing_newline: bool) -> String {
+    let mut out = String::new();
+    write_value(&mut out, value, 0, escape_slashes);
+    if trailing_newline {
+        out.push('\n');
+    }
+    out
+}
+
+fn write_value(out: &mut String, value: &Value, depth: usize, escape_slashes: bool) {
+    match value {
+        Value::Null => out.push_str("null"),
+        Value::Bool(true) => out.push_str("true"),
+        Value::Bool(false) => out.push_str("false"),
+        Value::Number(number) => out.push_str(&number_text(number)),
+        Value::String(text) => write_string(out, text, escape_slashes),
+        Value::Array(items) => {
+            out.push_str("[\n");
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(",\n");
+                }
+                indent(out, depth + 1);
+                write_value(out, item, depth + 1, escape_slashes);
+            }
+            out.push('\n');
+            indent(out, depth);
+            out.push(']');
+        }
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort_by(|left, right| compare_keys(left, right));
+            out.push_str("{\n");
+            for (index, key) in keys.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(",\n");
+                }
+                indent(out, depth + 1);
+                write_string(out, key, escape_slashes);
+                out.push_str(" : ");
+                write_value(out, &map[*key], depth + 1, escape_slashes);
+            }
+            out.push('\n');
+            indent(out, depth);
+            out.push('}');
+        }
+    }
+}
+
+fn compare_keys(left: &str, right: &str) -> std::cmp::Ordering {
+    left.to_lowercase()
+        .cmp(&right.to_lowercase())
+        .then_with(|| left.cmp(right))
+}
+
+fn indent(out: &mut String, depth: usize) {
+    for _ in 0..depth {
+        out.push_str("  ");
+    }
+}
+
+fn number_text(number: &Number) -> String {
+    if let Some(value) = number.as_u64() {
+        return value.to_string();
+    }
+    if let Some(value) = number.as_i64() {
+        return value.to_string();
+    }
+    let Some(value) = number.as_f64() else {
+        return number.to_string();
+    };
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        return format!("{}", value as i64);
+    }
+    format!("{value}")
+}
+
+fn write_string(out: &mut String, value: &str, escape_slashes: bool) {
+    out.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '/' if escape_slashes => out.push_str("\\/"),
+            character if (character as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            character => out.push(character),
+        }
+    }
+    out.push('"');
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    #[test]
+    fn keys_with_their_own_source_do_not_read_from_user_defaults() {
+        assert!(super::special_string("muxy.ui.scale").is_some());
+        assert!(super::special_string("muxy.theme.dark").is_some());
+        assert!(super::special_string("muxy.theme.light").is_some());
+        assert!(super::special_string("editor.richInputFontFamily").is_some());
+        assert!(super::special_string("muxy.tabs.maxWidth").is_none());
+        assert!(super::special_string("ai.providers").is_none());
+        assert!(super::special_string("not.a.settings.key").is_none());
+    }
+
+    #[test]
+    fn the_mirror_has_no_duplicate_keys() {
+        let mut keys: Vec<&str> = super::MIRROR.iter().map(|entry| entry.key).collect();
+        keys.sort_unstable();
+        let count = keys.len();
+        keys.dedup();
+        assert_eq!(keys.len(), count);
+    }
+
+    #[test]
+    fn serializes_settings_json_the_way_foundation_does() {
+        let value = json!({
+            "SUAutomaticallyUpdate": true,
+            "shortcuts.quickTerminal": { "type": "doubleShift" },
+            "ai.providers": { "claude": true, "cursor": false },
+            "muxy.app.blur": 0,
+            "muxy.appBackgroundStyle": "solid",
+            "muxy.tabs.maxWidth": 200.0,
+            "muxy.extensionIconRailOrder": ["git:scm", "files:files"],
+            "muxy.browser.homePageURL": "https://example.com/a",
+            "muxy.emptyObject": {},
+            "muxy.emptyArray": [],
+            "muxy.approvedAt": 803589878.938123_f64,
+        });
+        let expected = concat!(
+            "{\n",
+            "  \"ai.providers\" : {\n",
+            "    \"claude\" : true,\n",
+            "    \"cursor\" : false\n",
+            "  },\n",
+            "  \"muxy.app.blur\" : 0,\n",
+            "  \"muxy.appBackgroundStyle\" : \"solid\",\n",
+            "  \"muxy.approvedAt\" : 803589878.938123,\n",
+            "  \"muxy.browser.homePageURL\" : \"https://example.com/a\",\n",
+            "  \"muxy.emptyArray\" : [\n",
+            "\n",
+            "  ],\n",
+            "  \"muxy.emptyObject\" : {\n",
+            "\n",
+            "  },\n",
+            "  \"muxy.extensionIconRailOrder\" : [\n",
+            "    \"git:scm\",\n",
+            "    \"files:files\"\n",
+            "  ],\n",
+            "  \"muxy.tabs.maxWidth\" : 200,\n",
+            "  \"shortcuts.quickTerminal\" : {\n",
+            "    \"type\" : \"doubleShift\"\n",
+            "  },\n",
+            "  \"SUAutomaticallyUpdate\" : true\n",
+            "}\n",
+        );
+        assert_eq!(super::to_foundation_json(&value, false, true), expected);
+    }
+
+    #[test]
+    fn serializes_ui_scale_json_without_a_trailing_newline() {
+        let value = json!({ "preset": "large" });
+        let text = super::to_foundation_json(&value, true, false);
+        assert_eq!(text, "{\n  \"preset\" : \"large\"\n}");
+        assert_eq!(text.len(), 24);
+    }
+
+    #[test]
+    fn escapes_slashes_only_when_asked() {
+        let value = json!({ "command": "scripts/setup.sh" });
+        assert_eq!(
+            super::to_foundation_json(&value, true, false),
+            "{\n  \"command\" : \"scripts\\/setup.sh\"\n}"
+        );
+        assert_eq!(
+            super::to_foundation_json(&value, false, false),
+            "{\n  \"command\" : \"scripts/setup.sh\"\n}"
+        );
+    }
+
+    #[test]
+    fn escapes_control_characters_the_way_foundation_does() {
+        let value = json!({ "s": "a\u{8}\u{c}\u{b}\u{1}\t\n\"\\" });
+        assert_eq!(
+            super::to_foundation_json(&value, false, false),
+            "{\n  \"s\" : \"a\\b\\f\\u000b\\u0001\\t\\n\\\"\\\\\"\n}"
+        );
+    }
+
+    fn sync_fixture(contents: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, contents).expect("write");
+        (dir, path)
+    }
+
+    #[test]
+    fn sync_preserves_unknown_keys_and_overwrites_mirrored_ones() {
+        let (_dir, path) =
+            sync_fixture("{\"zzz.unknown\":{\"kept\":1},\"muxy.showStatusBar\":\"not a bool\"}");
+        assert!(super::sync_at(&path));
+        let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(root.get("zzz.unknown"), Some(&json!({ "kept": 1 })));
+        assert!(root.get("muxy.showStatusBar").unwrap().is_boolean());
+        assert!(root.get("muxy.theme.dark").unwrap().is_string());
+    }
+
+    #[test]
+    fn sync_emits_every_special_key_whose_source_it_can_read() {
+        let (_dir, path) = sync_fixture("{}");
+        super::sync_at(&path);
+        let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(root["shortcuts.quickTerminal"].get("type").is_some());
+        assert!(!root["shortcuts.app"].as_object().unwrap().is_empty());
+        assert!(
+            root["shortcuts.customCommands"]
+                .get("prefixCombo")
+                .is_some()
+        );
+        assert_eq!(
+            root["ai.providers"].as_object().map(serde_json::Map::len),
+            Some(super::AI_PROVIDERS.len())
+        );
+    }
+
+    #[test]
+    fn the_shortcuts_app_arm_never_drops_a_key_it_does_not_model() {
+        let mut object = serde_json::Map::new();
+        object.insert("newTab".to_owned(), json!({ "key": "t", "modifiers": 1 }));
+        let existing = json!({
+            "newTab": { "key": "x", "modifiers": 9 },
+            "inspectElement": { "key": "i", "modifiers": 1572864 },
+        });
+        let merged = super::carry_through(object, Some(&existing));
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged["newTab"], json!({ "key": "t", "modifiers": 1 }));
+        assert_eq!(
+            merged["inspectElement"],
+            json!({ "key": "i", "modifiers": 1572864 })
+        );
+    }
+
+    #[test]
+    fn sync_skips_the_write_when_every_mirrored_value_already_agrees() {
+        let (_dir, path) = sync_fixture("{}");
+        assert!(super::sync_at(&path));
+        let canonical: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+        let compact = serde_json::to_string(&canonical).unwrap();
+        std::fs::write(&path, &compact).expect("write");
+        assert!(!super::sync_at(&path));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), compact);
+    }
+
+    #[test]
+    fn sync_leaves_a_corrupt_file_untouched() {
+        let (_dir, path) = sync_fixture("this is not json");
+        assert!(!super::sync_at(&path));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "this is not json");
+    }
+
+    #[test]
+    fn both_error_messages_match_swift() {
+        assert_eq!(
+            super::SettingsError::TopLevelObjectRequired.to_string(),
+            "Settings JSON must be an object."
+        );
+        assert_eq!(
+            super::SettingsError::InvalidValue("muxy.tabs.maxWidth".to_owned()).to_string(),
+            "Invalid JSON value for \"muxy.tabs.maxWidth\"."
+        );
+    }
+
+    #[test]
+    fn the_system_defaults_pane_lists_every_mirrored_key_and_all_67_bindings() {
+        let text = super::system_defaults_text();
+        let root: Value = serde_json::from_str(&text).expect("json");
+        let object = root.as_object().expect("object");
+        assert_eq!(object.len(), super::MIRROR.len());
+
+        let bindings = object["shortcuts.app"].as_object().expect("bindings");
+        assert_eq!(bindings.len(), 67);
+        for (name, key, modifiers) in crate::shortcuts::UNMODELLED_DEFAULTS {
+            assert_eq!(
+                bindings[name],
+                json!({ "key": key, "modifiers": modifiers }),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            object["shortcuts.quickTerminal"],
+            json!({ "type": "unassigned" })
+        );
+        assert_eq!(object["mobile.approvedDevices"], json!([]));
+        assert_eq!(
+            object["ai.providers"].as_object().map(serde_json::Map::len),
+            Some(10)
+        );
+    }
+
+    #[test]
+    fn validation_accepts_swifts_values_and_rejects_everything_else() {
+        let entry = super::MIRROR
+            .iter()
+            .find(|entry| entry.key == "muxy.tabs.maxWidth")
+            .expect("entry");
+        assert!(super::validate_value(entry, &json!(180.0)).is_ok());
+        assert!(super::validate_value(entry, &json!(-1.0)).is_err());
+        assert_eq!(
+            super::validate_value(entry, &json!("wide")),
+            Err(super::SettingsError::InvalidValue(
+                "muxy.tabs.maxWidth".to_owned()
+            ))
+        );
+        assert!(super::validate_value(entry, &Value::Null).is_ok());
+
+        let entry = super::MIRROR
+            .iter()
+            .find(|entry| entry.key == "muxy.ui.scale")
+            .expect("entry");
+        assert!(super::validate_value(entry, &json!("huge")).is_ok());
+        assert!(super::validate_value(entry, &json!("enormous")).is_err());
+
+        let entry = super::MIRROR
+            .iter()
+            .find(|entry| entry.key == "app.muxy.mobile.serverPort")
+            .expect("entry");
+        assert!(super::validate_value(entry, &json!(4865)).is_ok());
+        assert!(super::validate_value(entry, &json!(80)).is_err());
+        assert!(super::validate_value(entry, &json!(true)).is_err());
+
+        let entry = super::MIRROR
+            .iter()
+            .find(|entry| entry.key == "muxy.showStatusBar")
+            .expect("entry");
+        assert!(super::validate_value(entry, &json!(false)).is_ok());
+        assert!(super::validate_value(entry, &json!(0)).is_err());
+
+        let entry = super::MIRROR
+            .iter()
+            .find(|entry| entry.key == "shortcuts.app")
+            .expect("entry");
+        assert!(super::validate_value(entry, &json!({ "newTab": {} })).is_ok());
+        assert!(super::validate_value(entry, &json!({})).is_err());
+
+        let entry = super::MIRROR
+            .iter()
+            .find(|entry| entry.key == "shortcuts.customCommands")
+            .expect("entry");
+        assert!(
+            super::validate_value(
+                entry,
+                &json!({ "prefixCombo": { "key": "g" }, "shortcuts": [] })
+            )
+            .is_ok()
+        );
+        assert!(
+            super::validate_value(
+                entry,
+                &json!({ "prefixCombo": { "key": "" }, "shortcuts": [] })
+            )
+            .is_err()
+        );
+
+        let entry = super::MIRROR
+            .iter()
+            .find(|entry| entry.key == "ai.providers")
+            .expect("entry");
+        assert!(super::validate_value(entry, &json!({ "claude": true })).is_ok());
+        assert!(super::validate_value(entry, &json!({ "claude": 1 })).is_err());
+    }
+
+    #[test]
+    fn an_unknown_key_is_skipped_rather_than_rejected() {
+        let mut document = serde_json::Map::new();
+        document.insert("zzz.unknown".to_owned(), json!(1));
+        document.insert("muxy.showStatusBar".to_owned(), json!(false));
+        let settings = super::validate(&document).expect("valid");
+        assert_eq!(settings.len(), 1);
+        assert_eq!(settings[0].0, "muxy.showStatusBar");
+    }
+
+    #[test]
+    fn prettify_rejects_a_non_object_and_reformats_an_object() {
+        assert_eq!(super::prettify("[1,2]"), None);
+        assert_eq!(super::prettify("not json"), None);
+        assert_eq!(
+            super::prettify("{\"a\":1}").as_deref(),
+            Some("{\n  \"a\" : 1\n}\n")
+        );
+    }
+
+    #[test]
+    fn sync_writes_a_private_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+        assert!(super::sync_at(&path));
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+}

@@ -1,0 +1,7 @@
+pub mod fold;
+pub mod prefs;
+pub mod settings_catalog;
+pub mod shortcuts;
+pub mod store;
+pub mod workspace;
+pub mod workspace_store;

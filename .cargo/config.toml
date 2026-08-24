@@ -1,0 +1,2 @@
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "14.0", force = true }

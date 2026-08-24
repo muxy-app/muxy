@@ -1,0 +1,13 @@
+[package]
+name = "ghostty-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-channel.workspace = true
+ghostty-sys.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

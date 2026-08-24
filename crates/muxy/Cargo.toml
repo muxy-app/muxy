@@ -1,0 +1,34 @@
+[package]
+name = "muxy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gpui.workspace = true
+muxy-api.workspace = true
+muxy-core.workspace = true
+muxy-terminal.workspace = true
+muxy-ui.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+rust-embed.workspace = true
+image.workspace = true
+async-channel.workspace = true
+rfd.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ghostty-host.workspace = true
+async-channel.workspace = true
+raw-window-handle.workspace = true
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-app-kit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
