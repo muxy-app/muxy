@@ -2,7 +2,7 @@
 
 ## Context
 
-Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emulator (libghostty) + project/worktree manager + JS extension platform + embedded browser + mobile WebSocket server + AI-agent hook system + tmux-like persistent sessions. The rewrite in Rust + GPUI lives in `~/Projects/muxy-native`, where the architecture refactor into a 7-crate workspace is **fully complete** and mechanically enforced by `scripts/check.sh`. The old phase plans are consumed or superseded; this document is the new single roadmap for finishing the rewrite. It has passed one adversarial review pass; corrections from that review are folded in.
+Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emulator (libghostty) + project/worktree manager + JS extension platform + embedded browser + mobile WebSocket server + AI-agent hook system + tmux-like persistent sessions. The Rust + GPUI rewrite is now in this repository on the `2.x` branch, with the 7-crate workspace at the branch root and the Swift implementation retained alongside it as the parity reference. The architecture refactor is **fully complete** and mechanically enforced by `scripts/check.sh`. The old phase plans are consumed or superseded; this document is the single roadmap for finishing the rewrite. It has passed one adversarial review pass; corrections from that review are folded in.
 
 **Goal:** Muxy 2.0 for macOS — a drop-in replacement for the Swift app. Users download 2.x, replace the app, and everything just works: same config files, same storage, same sockets, same CLI, zero migration. Linux comes after (this roadmap only keeps it compiling and launching).
 
@@ -22,7 +22,7 @@ Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emu
 | 10 | **Linux (this roadmap):** app must compile, open, and show working chrome with the terminal pane as placeholder. Nothing more. |
 | 11 | **Parity first, polish opportunistic** — no dedicated redesign phases. |
 | 12 | **Dogfood-first ordering** — enablers → daily-driver parity → platform → outer ring → release machinery. |
-| 13 | **Repo workflow:** fresh full clone of the muxy repo at `~/Projects/muxy-2x` pinned to branch `2.x` (Rust workspace at branch root; Swift stays on `main` in `~/Projects/muxy`). Feature branches PR into `2.x`. muxy-native is imported (its `.git` removed) and retired. |
+| 13 | **Repo workflow:** the active rewrite repository is `~/Projects/muxy-2.x` on branch `2.x`. The Rust workspace lives at the branch root alongside the retained Swift parity reference. Feature branches PR into `2.x`; `~/Projects/muxy` remains the 1.x working copy. |
 | 14 | **Release gate:** beta-channel soak + full parity checklist (details in Verification). |
 
 ## Open decisions (surfaced by adversarial review — resolve at owning phase's planning)
@@ -35,6 +35,8 @@ Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emu
 | P15 | 1.x sunset specifics: contents of the final 1.x release / frozen appcast, beta-channel (rolling `beta-channel` tag) cutover, and whether the Homebrew tap continues. |
 
 ## Current State — Already Done
+
+**P0 repo migration is complete:** the active rewrite now lives on the `2.x` branch in `~/Projects/muxy-2.x`; the Rust workspace is at the repository root, the Swift implementation remains available in the same branch for parity work, and local quality gates remain in `scripts/check.sh`. CI is intentionally deferred to P15 before release.
 
 The refactored workspace (all enforced by `scripts/check.sh` — comment ban, crate-boundary gates, fmt/clippy/tests/bundle):
 
@@ -109,7 +111,7 @@ Note: 1.x has **no** menu-bar extra/NSStatusItem and **no** onboarding flow — 
 ```mermaid
 flowchart LR
     subgraph A["Stage A — Foundations"]
-        P0["P0 Repo move → muxy-2x\n+ 2.x branch + CI + gates"]
+        P0["P0 Repo migration ✓\n2.x branch + local gates"]
         P1["P1 Dev/prod isolation"]
         P2["P2 muxy.sock server +\ndispatcher core + CLI compat"]
         P25["P2.5 Compat hardening\n(fixtures, passthrough, serializer)"]
@@ -133,7 +135,7 @@ flowchart LR
         P14["P14 Backup/restore"]
     end
     subgraph E["Stage E — Release"]
-        P15["P15 Release machinery\n(updater, 1.x sunset, notarization)"]
+        P15["P15 CI + release machinery\n(updater, 1.x sunset, notarization)"]
         P16["P16 Beta soak +\nparity audit → 2.0"]
     end
     P0 --> P1 --> P2 --> P25 --> B
@@ -150,9 +152,9 @@ Each phase gets its own detailed plan (grill-me per task) before implementation.
 
 ### Stage A — Foundations
 
-**P0 — Repo migration, workflow & quality gates.**
-Fresh full clone of the muxy repo at `~/Projects/muxy-2x`; create branch `2.x` from `main`; one commit replaces the tree root with the Rust workspace imported from muxy-native; remove muxy-native's `.git` and retire the folder (its history is deliberately discarded). Re-run `scripts/setup.sh`. Decide the fate of the Swift repo's `.github/workflows` on branch `2.x` (release-beta triggers, BETA_VERSION auto-bump must not fire from 2.x). Stand up CI (macOS + Linux runners) running `check.sh` and the Linux guardrail. Linux guardrail, corrected: per-package `cargo check --target x86_64-unknown-linux-gnu` for the headless crates + app **excluding `ghostty-sys`/`ghostty-host`** (ghostty-sys build.rs panics on non-mac); launch check on the Linux CI runner; known Linux-launch gaps to burn down opportunistically (SF Symbols render blank in `muxy-ui`, `/usr/bin/open` shell-outs). Extend `check.sh`/`build-app.sh`/`verify-bundle.sh` conventions now for the coming multi-binary bundle (1.x ships 4 executables in `Contents/MacOS`, separately signed/stripped) and new-crate boundary gates.
-*Acceptance:* CI green on both platforms; `~/Projects/muxy` main untouched; first PR merged into `2.x`.
+**P0 — Repo migration, workflow & local quality gates. COMPLETE.**
+The active rewrite repository is `~/Projects/muxy-2.x` on branch `2.x`. The 7-crate Rust workspace is at the repository root alongside the retained Swift implementation, which remains the parity reference while the rewrite proceeds. Feature branches target `2.x`; `~/Projects/muxy` remains the 1.x working copy. Local enforcement is provided by `scripts/check.sh`, `scripts/build-app.sh`, and `scripts/verify-bundle.sh`. New phases extend crate-boundary and bundle gates when they add crates or executables. The existing 1.x workflows remain in the repository, while Rust macOS/Linux CI is deliberately deferred to P15 so it lands before release.
+*Acceptance: complete.* The active repository and `2.x` workflow are established, the Rust workspace builds from the branch root, and local quality gates are available.
 
 **P1 — Dev/prod isolation.**
 Replicate 1.x `AppEnvironment.isDevelopment` semantics exactly — enumerate all switch sites: `muxy-dev.sock`, `sessions-dev/`, `hooks-dev/`, `/tmp/muxy-dev-<uid>` fallback, mobile port 4866 + dev forcing server on, the three `.dev` defaults keys (incl. `scrollbackCap.dev`), and the hook binary's independent dev-socket-name logic. **Include the `FF_AI_HOOKS` gate**: dev builds must not install/repair provider hooks unless explicitly opted in — this is what makes dogfooding safe. State explicitly (as 1.x does): App Support JSON stores and `UserDefaults.standard` are **shared** between dev and prod by design.
@@ -197,7 +199,9 @@ Host: 1.x uses the Obj-C **`JSContext`** API; the Rust host on the JSC **C API**
 
 ### Stage E — Release
 
-**P15 — Release machinery + 1.x sunset.**
+**P15 — CI, release machinery + 1.x sunset.**
+Before any 2.x release, stand up Rust CI on macOS and Linux. The macOS runner executes `scripts/check.sh`; the Linux guardrail runs per-package `cargo check --target x86_64-unknown-linux-gnu` for the headless crates and app while **excluding `ghostty-sys`/`ghostty-host`** because `ghostty-sys` build.rs panics off macOS, then performs a launch check. Burn down known Linux-launch gaps such as blank SF Symbols in `muxy-ui` and `/usr/bin/open` shell-outs. Scope the retained 1.x workflows so beta/release triggers and `BETA_VERSION` automation cannot affect `2.x`. CI must be green on both platforms before release work can pass its gate.
+
 Unified Rust updater (feed on GitHub Releases, stable+beta channels honoring `muxy.update.channel` + `SUAutomaticallyUpdate`/`SUEnableAutomaticChecks` keys, signature verification, atomic install/relaunch, Gatekeeper/translocation-safe). **1.x sunset design (critical):** 1.x auto-updates silently from `releases/latest/download/appcast-{arch}.xml` and a rolling `beta-channel` tag — publishing 2.0 releases naively either silently auto-installs 2.0 onto all 1.x users (contradicting decision 6) or 404s their update checks forever. Ship a final 1.x release with a frozen appcast/announcement path, cut the beta channel over deliberately, and decide the Homebrew tap. Developer ID signing + hardened runtime + per-binary entitlements (JIT trio for JSC host; audio/network/apple-events; the 13 terminal-child TCC usage strings) + notarized DMG, **multi-binary bundle** (`muxy-session`, `muxy-hook`, extension host in `Contents/MacOS`, each signed/stripped) + full resource inventory (terminfo, shell-integration ×5 shells, ghostty-overrides, ProviderIcons, skills, starter-kits, muxy-cli at the legacy bundle path); remove `SentryDSN` injection from release scripts (`muxy.sentry.consent` remains a preserved-unknown key, no consent prompt); `muxy://` URL scheme + `.muxy` doc type + `LSMultipleInstancesProhibited` + launch-arg guard (first positional `/`/`~` arg opens a project); What's New modal; tips card; Diagnostics menu + logs — no Sentry; CLI install/migration flow; **all ≥13 documented 1.x migrations** reproduced: ghostty seed (✅ done), paired-theme, composer-voice keybinding, quick-terminal blur, `terminal-sessions.json` cleanup, extension `enabled` migration, CLI wrapper version, decode-with-defaults everywhere, legacy SSH workspaces (P12), `command-shortcuts.json` bare-array shape, `legacyExtraTabs` layouts, OpenCode legacy plugin removal (P11), legacy voice shortcut retention (P13).
 **P16 — Beta soak + parity audit → 2.0.** See Verification.
 
@@ -251,7 +255,7 @@ Placement rules per phase:
 
 | Risk | Mitigation |
 |---|---|
-| `settings.json` ↔ defaults sync drift (the #1 compat risk) | P2.5 golden fixtures + cross-run harness (Swift↔Rust write/read cycles) run in CI from Stage A onward. |
+| `settings.json` ↔ defaults sync drift (the #1 compat risk) | P2.5 golden fixtures + cross-run harness (Swift↔Rust write/read cycles) run locally through P14 and in CI from P15 onward. |
 | Socket protocol fidelity (CLI + extensions + hooks all depend on it) | Real protocol pinned in P2 (pipe/NUL, hook envelope); the untouched bash CLI as continuous acceptance test; replay captured 1.x traffic. |
 | Installed CLI shim path coupling | Bundle ships `muxy-cli` at the legacy `Muxy_Muxy.bundle` path; verified in `verify-bundle.sh`. |
 | 1.x Sparkle auto-update collides with 2.0 publishing | P15 sunset design (frozen final 1.x appcast, beta-tag cutover, Homebrew decision) BEFORE any 2.0 artifacts are published to the repo's release channels. |
@@ -267,10 +271,10 @@ Placement rules per phase:
 
 ## Verification strategy
 
-1. **Per-phase:** unit tests in headless crates (pattern established, 303 tests); manual checklist per phase derived from exercising the Swift app; `scripts/check.sh` green in CI.
+1. **Per-phase:** unit tests in headless crates (pattern established, 303 tests); manual checklist per phase derived from exercising the Swift app; `scripts/check.sh` green locally through P14 and in CI from P15 onward.
 2. **Continuous compat harness (from P2.5):** golden-fixture round-trip tests for every persisted file against a captured 1.x profile — failing, not skipping, when fixtures are absent; "Swift 1.x still launches and behaves" cross-check after Rust writes.
 3. **CLI acceptance:** installed 1.x `muxy` wrapper exercised against the dev socket from P2 onward, via the legacy bundle shim path.
-4. **Linux guardrail:** per-package Linux `cargo check` (excluding ghostty-sys/host) + launch check on a Linux CI runner, from P0 onward.
+4. **Linux guardrail:** per-package Linux `cargo check` (excluding ghostty-sys/host) + launch check on a Linux CI runner, introduced in P15 and required before release.
 5. **Release gate (P16):** full parity checklist verified subsystem-by-subsystem against a real Swift-era profile; byte round-trips green; CLI untouched and working; marketplace extensions load and run; signed + notarized multi-binary DMG; 1.x sunset executed per P15 design; beta-channel soak with you + beta users living on it; then promote to stable as 2.0.
 
 ## Out of scope for this roadmap
