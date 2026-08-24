@@ -1,7 +1,10 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import OSLog
 import WebKit
+
+private let browserAutomationLogger = Logger(subsystem: "app.muxy", category: "BrowserAutomation")
 
 struct BrowserCookieInfo: Equatable {
     let name: String
@@ -766,7 +769,8 @@ func jsString(_ value: String) -> String {
 
 @MainActor
 final class CookieFetchCoordinator<Value: Sendable> {
-    private var requests: [ObjectIdentifier: Request] = [:]
+    private var states: [ObjectIdentifier: State] = [:]
+    private let maximumActiveRequests = 2
 
     func value(
         for owner: AnyObject,
@@ -775,23 +779,31 @@ final class CookieFetchCoordinator<Value: Sendable> {
     ) async -> Value? {
         removeReleasedOwners()
         let identifier = ObjectIdentifier(owner)
-        let request: Request
-        if let existing = requests[identifier] {
-            request = existing
-        } else {
-            request = Request(owner: owner)
-            requests[identifier] = request
-            start(operation, for: identifier, request: request)
+        let state = states[identifier] ?? State(owner: owner)
+        states[identifier] = state
+        if let request = state.current {
+            return await request.value()
         }
-        return await request.value(timeout: timeout)
+        guard state.active.count < maximumActiveRequests else {
+            browserAutomationLogger.warning("Cookie request retry limit reached before WebKit returned data")
+            return nil
+        }
+        let request = Request()
+        state.current = request
+        state.active[request.id] = request
+        start(operation, for: identifier, request: request)
+        startExpiry(for: identifier, request: request, after: timeout)
+        return await request.value()
     }
 
     var requestCount: Int {
-        requests.count
+        states.values.reduce(0) { $0 + $1.active.count }
     }
 
     var waiterCount: Int {
-        requests.values.reduce(0) { $0 + $1.waiterCount }
+        states.values.reduce(0) { total, state in
+            total + state.active.values.reduce(0) { $0 + $1.waiterCount }
+        }
     }
 
     private func start(
@@ -805,40 +817,67 @@ final class CookieFetchCoordinator<Value: Sendable> {
         }
     }
 
+    private func startExpiry(for identifier: ObjectIdentifier, request: Request, after timeout: Duration) {
+        Task { [weak self, weak request] in
+            try? await Task.sleep(for: timeout)
+            self?.expire(for: identifier, request: request)
+        }
+    }
+
     private func complete(_ value: Value, for identifier: ObjectIdentifier, request: Request?) {
-        guard let request, requests[identifier] === request else { return }
-        request.complete(with: value)
-        requests[identifier] = nil
+        guard let request, let state = states[identifier], state.active.removeValue(forKey: request.id) != nil else {
+            return
+        }
+        if state.current === request {
+            state.current = nil
+            request.complete(with: value)
+        }
+        removeStateIfIdle(state, for: identifier)
+    }
+
+    private func expire(for identifier: ObjectIdentifier, request: Request?) {
+        guard let request, let state = states[identifier], state.current === request else { return }
+        state.current = nil
+        request.complete(with: nil)
+        browserAutomationLogger.warning("Cookie request expired before WebKit returned data")
+    }
+
+    private func removeStateIfIdle(_ state: State, for identifier: ObjectIdentifier) {
+        guard state.active.isEmpty else { return }
+        states[identifier] = nil
     }
 
     private func removeReleasedOwners() {
-        requests = requests.filter { $0.value.owner != nil }
+        states = states.filter { $0.value.owner != nil || $0.value.active.isEmpty == false }
     }
 
     @MainActor
-    private final class Request {
+    private final class State {
         weak var owner: AnyObject?
-        private var result: Value?
-        private var isComplete = false
-        private var continuations: [UUID: CheckedContinuation<Value?, Never>] = [:]
+        var current: Request?
+        var active: [UUID: Request] = [:]
 
         init(owner: AnyObject) {
             self.owner = owner
         }
+    }
+
+    @MainActor
+    private final class Request {
+        let id = UUID()
+        private var result: Value?
+        private var isComplete = false
+        private var continuations: [UUID: CheckedContinuation<Value?, Never>] = [:]
 
         var waiterCount: Int {
             continuations.count
         }
 
-        func value(timeout: Duration) async -> Value? {
+        func value() async -> Value? {
             guard !isComplete else { return result }
             let identifier = UUID()
             return await withCheckedContinuation { continuation in
                 continuations[identifier] = continuation
-                Task { [weak self] in
-                    try? await Task.sleep(for: timeout)
-                    self?.timeout(identifier)
-                }
             }
         }
 
@@ -851,10 +890,6 @@ final class CookieFetchCoordinator<Value: Sendable> {
             for continuation in pending {
                 continuation.resume(returning: result)
             }
-        }
-
-        private func timeout(_ identifier: UUID) {
-            continuations.removeValue(forKey: identifier)?.resume(returning: nil)
         }
     }
 }

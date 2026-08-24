@@ -208,54 +208,99 @@ struct MuxyAPIBrowserTests {
         #expect(!jsString("a\u{2029}b").unicodeScalars.contains("\u{2029}"))
     }
 
-    @Test("cookie fetches coalesce while a timed-out request is still pending")
-    func cookieFetchesCoalesceAfterTimeout() async throws {
+    @Test("cookie fetches retire stalled requests and bound replacements")
+    @MainActor
+    func cookieFetchesRetireStalledRequests() async throws {
         let coordinator = CookieFetchCoordinator<Int>()
         let owner = CookieFetchOwner()
         let gate = CookieFetchGate()
+        let replacementGate = CookieFetchGate()
         let counter = CookieFetchCounter()
 
         let first = Task { @MainActor in
-            await coordinator.value(for: owner, timeout: .milliseconds(20)) {
+            await coordinator.value(for: owner, timeout: .milliseconds(200)) {
                 counter.increment()
                 return await gate.value()
             }
         }
         let second = Task { @MainActor in
-            await coordinator.value(for: owner, timeout: .milliseconds(20)) {
+            await coordinator.value(for: owner, timeout: .milliseconds(200)) {
                 counter.increment()
                 return await gate.value()
             }
         }
 
+        try #require(await eventually { coordinator.waiterCount == 2 && counter.value == 1 })
         let results = await [first.value, second.value]
         #expect(results == [nil, nil])
         #expect(counter.value == 1)
+        #expect(coordinator.requestCount == 1)
 
         let recovered = Task { @MainActor in
-            await coordinator.value(for: owner, timeout: .milliseconds(200)) {
+            await coordinator.value(for: owner, timeout: .seconds(1)) {
                 counter.increment()
-                return 2
+                return await replacementGate.value()
             }
         }
-        for _ in 0 ..< 100 where coordinator.waiterCount == 0 {
-            await Task.yield()
-        }
-        try #require(coordinator.waiterCount == 1)
-        #expect(counter.value == 1)
+        try #require(await eventually { coordinator.waiterCount == 1 && counter.value == 2 })
+        #expect(coordinator.requestCount == 2)
+
         gate.resume(with: 1)
-        #expect(await recovered.value == 1)
-        for _ in 0 ..< 10 where coordinator.requestCount > 0 {
-            await Task.yield()
-        }
-        #expect(coordinator.requestCount == 0)
+        try #require(await eventually { coordinator.requestCount == 1 })
+        #expect(coordinator.waiterCount == 1)
+        replacementGate.resume(with: 2)
+        #expect(await recovered.value == 2)
+        try #require(await eventually { coordinator.requestCount == 0 })
 
         let next = await coordinator.value(for: owner, timeout: .milliseconds(20)) {
             counter.increment()
-            return 2
+            return 3
         }
-        #expect(next == 2)
+        #expect(next == 3)
+        #expect(counter.value == 3)
+    }
+
+    @Test("cookie fetches cap uncancellable stalled operations")
+    @MainActor
+    func cookieFetchesCapStalledOperations() async throws {
+        let coordinator = CookieFetchCoordinator<Int>()
+        let owner = CookieFetchOwner()
+        let firstGate = CookieFetchGate()
+        let secondGate = CookieFetchGate()
+        let counter = CookieFetchCounter()
+
+        let first = await coordinator.value(for: owner, timeout: .milliseconds(20)) {
+            counter.increment()
+            return await firstGate.value()
+        }
+        let second = await coordinator.value(for: owner, timeout: .milliseconds(20)) {
+            counter.increment()
+            return await secondGate.value()
+        }
+        let blocked = await coordinator.value(for: owner, timeout: .milliseconds(20)) {
+            counter.increment()
+            return 3
+        }
+
+        #expect(first == nil)
+        #expect(second == nil)
+        #expect(blocked == nil)
         #expect(counter.value == 2)
+        #expect(coordinator.requestCount == 2)
+
+        firstGate.resume(with: 1)
+        secondGate.resume(with: 2)
+        try #require(await eventually { coordinator.requestCount == 0 })
+    }
+
+    @MainActor
+    private func eventually(_ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return condition()
     }
 
     @Test("BrowserAutomation never uses main-thread blocking primitives")
