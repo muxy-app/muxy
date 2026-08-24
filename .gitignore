@@ -40,3 +40,4 @@ appcast*.xml
 /resources/ghostty/
 /resources/terminfo/
 *.tar.gz
+/.plans
