@@ -35,6 +35,8 @@ enum WorktreeTeardownRunner {
         _ emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void
     ) async throws -> Int32
 
+    typealias EnvironmentProvider = WorktreeHookEnvironment.Provider
+
     static func run(
         sourceProjectPath: String,
         worktree: Worktree,
@@ -42,6 +44,13 @@ enum WorktreeTeardownRunner {
         timeout: TimeInterval = defaultTimeout,
         emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in },
         globalConfigURL: URL = WorktreeConfig.globalConfigURL(),
+        environmentProvider: EnvironmentProvider = { sourceProjectPath, worktree, timeout in
+            try await WorktreeHookEnvironment.hydratedValues(
+                sourceProjectPath: sourceProjectPath,
+                worktree: worktree,
+                timeout: timeout
+            )
+        },
         executor: Executor = execute
     ) async throws {
         guard !worktree.isExternallyManaged,
@@ -58,11 +67,8 @@ enum WorktreeTeardownRunner {
         )
         guard !commands.isEmpty else { return }
 
-        let environment = WorktreeHookEnvironment.values(
-            sourceProjectPath: sourceProjectPath,
-            worktree: worktree
-        )
         let deadline = OperationDeadline(timeout: timeout)
+        let environment = try await environmentProvider(sourceProjectPath, worktree, deadline.remaining())
         for command in commands {
             emit(WorktreeTeardownOutputLine(channel: .command, text: "$ \(command)"))
             let status = try await executor(command, worktree, environment, deadline.remaining(), emit)

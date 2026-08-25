@@ -100,12 +100,135 @@ struct WorktreeTeardownRunnerTests {
             worktree: worktree,
             projectHookApproval: approval,
             globalConfigURL: globalConfigURL,
+            environmentProvider: testEnvironmentProvider,
             executor: capture.executor(returning: 0)
         )
 
         #expect(capture.commands == ["global first", "project follows"])
         #expect(capture.environments.allSatisfy { $0["MUXY_PROJECT_PATH"] == projectPath })
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_PATH"] == worktree.path })
+    }
+
+    @Test("worktree hook environment hydrates the login shell PATH before reading it")
+    func hookEnvironmentUsesLoginShellPath() async {
+        let loginShellPath = LoginShellPath()
+        let worktree = Worktree(
+            name: "Feature",
+            path: "/tmp/worktree",
+            branch: "feature/test",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        let environment = await WorktreeHookEnvironment.hydratedValues(
+            sourceProjectPath: "/tmp/project",
+            worktree: worktree,
+            hydrate: {
+                await loginShellPath.hydrate {
+                    "/Users/example/.local/bin:/usr/local/bin:/usr/bin"
+                }
+            },
+            baseEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "MUXY_EXISTING_VALUE": "preserved",
+            ],
+            pathEnvironment: { loginShellPath.value }
+        )
+
+        #expect(environment["PATH"] == "/Users/example/.local/bin:/usr/local/bin:/usr/bin")
+        #expect(environment["MUXY_EXISTING_VALUE"] == "preserved")
+        #expect(environment["MUXY_PROJECT_PATH"] == "/tmp/project")
+        #expect(environment["MUXY_WORKTREE_ID"] == worktree.id.uuidString)
+        #expect(environment["MUXY_WORKTREE_PATH"] == "/tmp/worktree")
+        #expect(environment["MUXY_WORKTREE_NAME"] == "Feature")
+        #expect(environment["MUXY_WORKTREE_BRANCH"] == "feature/test")
+    }
+
+    @Test("setup and teardown await hook environment hydration")
+    func lifecycleRunnersAwaitHookEnvironmentHydration() async throws {
+        let projectPath = try makeDirectory(prefix: "muxy-project")
+        let setupConfigURL = try makeGlobalConfig(setup: ["setup"], teardown: [])
+        let teardownConfigURL = try makeGlobalConfig(teardown: ["teardown"])
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
+        let provider = DelayedHookEnvironmentProvider()
+        let environmentProvider: WorktreeHookEnvironment.Provider = { sourceProjectPath, worktree, _ in
+            await provider.values(sourceProjectPath: sourceProjectPath, worktree: worktree)
+        }
+        let setupCapture = SetupExecutionCapture()
+        let teardownCapture = ExecutionCapture()
+
+        await WorktreeSetupRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            globalConfigURL: setupConfigURL,
+            environmentProvider: environmentProvider,
+            executor: setupCapture.executor(returning: 0)
+        )
+        try await WorktreeTeardownRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            globalConfigURL: teardownConfigURL,
+            environmentProvider: environmentProvider,
+            executor: teardownCapture.executor(returning: 0)
+        )
+
+        #expect(setupCapture.commands == ["setup"])
+        #expect(setupCapture.environments.first?["PATH"] == DelayedHookEnvironmentProvider.path)
+        #expect(teardownCapture.commands == ["teardown"])
+        #expect(teardownCapture.environments.first?["PATH"] == DelayedHookEnvironmentProvider.path)
+    }
+
+    @Test("setup and teardown include environment hydration in their deadlines")
+    func lifecycleRunnerDeadlinesIncludeEnvironmentHydration() async throws {
+        let projectPath = try makeDirectory(prefix: "muxy-project")
+        let setupConfigURL = try makeGlobalConfig(setup: ["setup"], teardown: [])
+        let teardownConfigURL = try makeGlobalConfig(teardown: ["teardown"])
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
+        let environmentProvider: WorktreeHookEnvironment.Provider = { sourceProjectPath, worktree, _ in
+            try? await Task.sleep(for: .milliseconds(20))
+            return WorktreeHookEnvironment.values(
+                sourceProjectPath: sourceProjectPath,
+                worktree: worktree,
+                baseEnvironment: [:],
+                pathEnvironment: { "/usr/bin" }
+            )
+        }
+        let setupCapture = SetupExecutionCapture()
+        let teardownCapture = ExecutionCapture()
+
+        await WorktreeSetupRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            timeout: 0.001,
+            globalConfigURL: setupConfigURL,
+            environmentProvider: environmentProvider,
+            executor: setupCapture.executor(returning: 0)
+        )
+        await #expect(throws: AsyncTimeoutError.self) {
+            try await WorktreeTeardownRunner.run(
+                sourceProjectPath: projectPath,
+                worktree: worktree,
+                timeout: 0.001,
+                globalConfigURL: teardownConfigURL,
+                environmentProvider: environmentProvider,
+                executor: teardownCapture.executor(returning: 0)
+            )
+        }
+
+        #expect(setupCapture.commands.isEmpty)
+        #expect(teardownCapture.commands.isEmpty)
     }
 
     @Test("setup runner skips project commands without approval")
@@ -125,6 +248,7 @@ struct WorktreeTeardownRunnerTests {
             sourceProjectPath: projectPath,
             worktree: worktree,
             globalConfigURL: globalConfigURL,
+            environmentProvider: testEnvironmentProvider,
             executor: capture.executor(returning: 0)
         )
 
@@ -148,6 +272,7 @@ struct WorktreeTeardownRunnerTests {
             sourceProjectPath: projectPath,
             worktree: worktree,
             globalConfigURL: globalConfigURL,
+            environmentProvider: testEnvironmentProvider,
             executor: capture.executor(returning: 0)
         )
 
@@ -208,6 +333,7 @@ struct WorktreeTeardownRunnerTests {
             sourceProjectPath: projectPath,
             worktree: worktree,
             globalConfigURL: globalConfigURL,
+            environmentProvider: testEnvironmentProvider,
             executor: capture.executor(returning: 0)
         )
 
@@ -233,6 +359,7 @@ struct WorktreeTeardownRunnerTests {
             worktree: worktree,
             projectHookApproval: approval,
             globalConfigURL: missingGlobalConfigURL,
+            environmentProvider: testEnvironmentProvider,
             executor: capture.executor(returning: 0)
         )
 
@@ -260,6 +387,7 @@ struct WorktreeTeardownRunnerTests {
             sourceProjectPath: projectPath,
             worktree: worktree,
             globalConfigURL: globalConfigURL,
+            environmentProvider: testEnvironmentProvider,
             executor: capture.executor(returning: 0)
         )
 
@@ -355,6 +483,7 @@ struct WorktreeTeardownRunnerTests {
                 worktree: worktree,
                 projectHookApproval: approval,
                 globalConfigURL: missingGlobalConfigURL,
+                environmentProvider: testEnvironmentProvider,
                 executor: capture.executor(returning: 1)
             )
         }
@@ -380,6 +509,7 @@ struct WorktreeTeardownRunnerTests {
             projectHookApproval: approval,
             emit: { collected.append($0) },
             globalConfigURL: missingGlobalConfigURL,
+            environmentProvider: testEnvironmentProvider,
             executor: { _, _, _, _, emit in
                 emit(WorktreeTeardownOutputLine(channel: .stdout, text: "hello"))
                 return 0
@@ -506,6 +636,17 @@ struct WorktreeTeardownRunnerTests {
         URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxy-missing-global-config-\(UUID().uuidString)")
     }
+
+    private var testEnvironmentProvider: WorktreeHookEnvironment.Provider {
+        { sourceProjectPath, worktree, _ in
+            WorktreeHookEnvironment.values(
+                sourceProjectPath: sourceProjectPath,
+                worktree: worktree,
+                baseEnvironment: [:],
+                pathEnvironment: { "/usr/bin" }
+            )
+        }
+    }
 }
 
 private final class ExecutionCapture: @unchecked Sendable {
@@ -543,6 +684,20 @@ private final class SetupExecutionCapture: @unchecked Sendable {
             }
             return status
         }
+    }
+}
+
+private actor DelayedHookEnvironmentProvider {
+    static let path = "/Users/example/.local/bin:/usr/bin"
+
+    func values(sourceProjectPath: String, worktree: Worktree) async -> [String: String] {
+        await Task.yield()
+        return WorktreeHookEnvironment.values(
+            sourceProjectPath: sourceProjectPath,
+            worktree: worktree,
+            baseEnvironment: [:],
+            pathEnvironment: { Self.path }
+        )
     }
 }
 
