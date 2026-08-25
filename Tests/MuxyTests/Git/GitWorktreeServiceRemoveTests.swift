@@ -123,6 +123,11 @@ struct GitWorktreeServiceRemoveTests {
         defer { repo.cleanup() }
         let projectID = UUID()
         let worktreeRoot = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        defer {
+            try? FileManager.default.removeItem(
+                at: MuxyFileStorage.worktreeRoot(forProjectID: projectID, create: false)
+            )
+        }
         let worktreePath = worktreeRoot.appendingPathComponent("stale-worktree", isDirectory: true).path
         try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
         try "stale".write(
@@ -160,6 +165,11 @@ struct GitWorktreeServiceRemoveTests {
         defer { repo.cleanup() }
         let projectID = UUID()
         let worktreeRoot = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        defer {
+            try? FileManager.default.removeItem(
+                at: MuxyFileStorage.worktreeRoot(forProjectID: projectID, create: false)
+            )
+        }
         let worktreePath = worktreeRoot.appendingPathComponent("stale-worktree", isDirectory: true).path
         try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
         try "gitdir: \(repo.path)/.git/worktrees/missing\n".write(
@@ -253,7 +263,13 @@ struct GitWorktreeServiceRemoveTests {
         let repo = try TempGitRepo()
         defer { repo.cleanup() }
         let projectID = UUID()
-        let worktreePath = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        let worktreeRoot = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        defer {
+            try? FileManager.default.removeItem(
+                at: MuxyFileStorage.worktreeRoot(forProjectID: projectID, create: false)
+            )
+        }
+        let worktreePath = worktreeRoot
             .appendingPathComponent("reused", isDirectory: true)
             .path
         try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
@@ -285,7 +301,13 @@ struct GitWorktreeServiceRemoveTests {
             foreignRepo.cleanup()
         }
         let projectID = UUID()
-        let worktreePath = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        let worktreeRoot = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        defer {
+            try? FileManager.default.removeItem(
+                at: MuxyFileStorage.worktreeRoot(forProjectID: projectID, create: false)
+            )
+        }
+        let worktreePath = worktreeRoot
             .appendingPathComponent("foreign", isDirectory: true)
             .path
         try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
@@ -360,7 +382,11 @@ struct GitWorktreeServiceRemoveTests {
         try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: outsideRoot) }
         try FileManager.default.createSymbolicLink(at: expectedRoot, withDestinationURL: outsideRoot)
-        defer { try? FileManager.default.removeItem(at: expectedRoot) }
+        defer {
+            try? FileManager.default.removeItem(
+                at: MuxyFileStorage.worktreeRoot(forProjectID: projectID, create: false)
+            )
+        }
         let worktreePath = expectedRoot.appendingPathComponent("unrelated", isDirectory: true).path
         try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
         let worktree = Worktree(
@@ -575,7 +601,11 @@ struct GitWorktreeServiceRemoveTests {
         let project = Project(name: "Repo", path: repo.path)
         let worktreeRoot = MuxyFileStorage.worktreeRoot(forProjectID: project.id)
         let worktreePath = worktreeRoot.appendingPathComponent("project-orphan-wt").path
-        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
+        defer {
+            try? FileManager.default.removeItem(
+                at: MuxyFileStorage.worktreeRoot(forProjectID: project.id, create: false)
+            )
+        }
         try await GitWorktreeService.shared.addWorktree(
             repoPath: repo.path,
             path: worktreePath,
@@ -599,7 +629,11 @@ struct GitWorktreeServiceRemoveTests {
         let root = MuxyFileStorage.worktreeRoot(forProjectID: project.id)
         let unknownPath = root.appendingPathComponent("unknown", isDirectory: true)
         try FileManager.default.createDirectory(at: unknownPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer {
+            try? FileManager.default.removeItem(
+                at: MuxyFileStorage.worktreeRoot(forProjectID: project.id, create: false)
+            )
+        }
 
         try await WorktreeStore.cleanupOnDisk(for: project, knownWorktrees: [])
 

@@ -85,6 +85,26 @@ final class WorktreeStore {
         let inode: UInt64
     }
 
+    private enum CleanupPlan {
+        case registered
+        case staleManaged(projectID: UUID, identity: FileIdentity)
+        case finished(WorktreeCleanupResult)
+    }
+
+    private enum StaleRemovalResult {
+        case removedPath(String)
+        case finished(WorktreeCleanupResult)
+    }
+
+    private struct CleanupOperation {
+        let worktree: Worktree
+        let projectID: UUID?
+        let repoPath: String
+        let context: WorkspaceContext
+        let force: Bool
+        let deadline: OperationDeadline
+    }
+
     private(set) var worktrees: [UUID: [Worktree]] = [:]
     private(set) var preparingRemovalWorktreeIDs: Set<UUID> = []
     private(set) var removingWorktreeIDs: Set<UUID> = []
@@ -650,41 +670,17 @@ final class WorktreeStore {
             return .preservedMissingRepository
         }
         let deadline = OperationDeadline(timeout: timeout)
-        if !context.isRemote, !isUnambiguousLocalPath(worktree.path) {
-            throw GitWorktreeService.GitWorktreeError.notRegistered
-        }
-        let isRegistered = try await GitWorktreeService.shared.isWorktreeRegistered(
+        let operation = CleanupOperation(
+            worktree: worktree,
+            projectID: projectID,
             repoPath: repoPath,
-            path: worktree.path,
             context: context,
-            timeout: deadline.remaining()
+            force: force,
+            deadline: deadline
         )
-        let removesStaleManagedCheckout: Bool
-        let staleIdentity: FileIdentity?
-        if isRegistered {
-            removesStaleManagedCheckout = false
-            staleIdentity = nil
-        } else {
-            guard !context.isRemote else {
-                throw GitWorktreeService.GitWorktreeError.notRegistered
-            }
-            guard try await context.fileOps.exists(at: worktree.path, timeout: deadline.remaining()) else {
-                return .removed
-            }
-            guard force,
-                  let projectID,
-                  isMuxyManagedCheckout(worktree, projectID: projectID)
-            else {
-                throw GitWorktreeService.GitWorktreeError.notRegistered
-            }
-            guard checkoutReferencesRepository(worktreePath: worktree.path, repoPath: repoPath) else {
-                return .preservedUnverifiedDirectory
-            }
-            guard let identity = fileIdentity(at: worktree.path) else {
-                return .preservedUnverifiedDirectory
-            }
-            removesStaleManagedCheckout = true
-            staleIdentity = identity
+        let plan = try await cleanupPlan(for: operation)
+        if case let .finished(result) = plan {
+            return result
         }
         if !context.isRemote {
             try await WorktreeTeardownRunner.run(
@@ -697,41 +693,8 @@ final class WorktreeStore {
             )
         }
         let removedPath: String
-        if removesStaleManagedCheckout {
-            let isNowRegistered = try await GitWorktreeService.shared.isWorktreeRegistered(
-                repoPath: repoPath,
-                path: worktree.path,
-                context: context,
-                timeout: deadline.remaining()
-            )
-            guard !isNowRegistered else {
-                throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
-            }
-            guard try await context.fileOps.exists(at: worktree.path, timeout: deadline.remaining()) else {
-                await removeParentDirectoryIfEmpty(for: worktree.path)
-                return .removed
-            }
-            guard let projectID,
-                  let staleIdentity,
-                  isMuxyManagedCheckout(worktree, projectID: projectID),
-                  checkoutReferencesRepository(worktreePath: worktree.path, repoPath: repoPath),
-                  fileIdentity(at: worktree.path) == staleIdentity
-            else { return .preservedUnverifiedDirectory }
-            let quarantine = try await quarantineManagedCheckout(worktree.path, projectID: projectID)
-            guard fileIdentity(at: quarantine.path) == staleIdentity else {
-                try await restoreQuarantinedCheckout(quarantine, to: worktree.path)
-                return .preservedUnverifiedDirectory
-            }
-            do {
-                try await context.fileOps.removeItem(at: quarantine.path, timeout: deadline.remaining())
-            } catch {
-                if await context.fileOps.exists(at: quarantine.path) {
-                    try await restoreQuarantinedCheckout(quarantine, to: worktree.path)
-                    throw error
-                }
-            }
-            removedPath = worktree.path
-        } else {
+        switch plan {
+        case .registered:
             removedPath = try await GitWorktreeService.shared.removeWorktree(
                 repoPath: repoPath,
                 path: worktree.path,
@@ -739,6 +702,19 @@ final class WorktreeStore {
                 context: context,
                 timeout: deadline.remaining()
             )
+        case let .staleManaged(projectID, identity):
+            switch try await removeStaleManagedCheckout(
+                operation: operation,
+                projectID: projectID,
+                identity: identity
+            ) {
+            case let .removedPath(path):
+                removedPath = path
+            case let .finished(result):
+                return result
+            }
+        case let .finished(result):
+            return result
         }
 
         let directoryRemoved = await (try? context.fileOps.exists(
@@ -750,6 +726,90 @@ final class WorktreeStore {
         }
         await removeParentDirectoryIfEmpty(for: removedPath)
         return .removed
+    }
+
+    private static func cleanupPlan(for operation: CleanupOperation) async throws -> CleanupPlan {
+        let worktree = operation.worktree
+        if !operation.context.isRemote, !isUnambiguousLocalPath(worktree.path) {
+            throw GitWorktreeService.GitWorktreeError.notRegistered
+        }
+        let isRegistered = try await GitWorktreeService.shared.isWorktreeRegistered(
+            repoPath: operation.repoPath,
+            path: worktree.path,
+            context: operation.context,
+            timeout: operation.deadline.remaining()
+        )
+        guard !isRegistered else { return .registered }
+        guard !operation.context.isRemote else {
+            throw GitWorktreeService.GitWorktreeError.notRegistered
+        }
+        guard try await operation.context.fileOps.exists(
+            at: worktree.path,
+            timeout: operation.deadline.remaining()
+        )
+        else {
+            return .finished(.removed)
+        }
+        guard operation.force,
+              let projectID = operation.projectID,
+              isMuxyManagedCheckout(worktree, projectID: projectID)
+        else {
+            throw GitWorktreeService.GitWorktreeError.notRegistered
+        }
+        guard checkoutReferencesRepository(worktreePath: worktree.path, repoPath: operation.repoPath),
+              let identity = fileIdentity(at: worktree.path)
+        else {
+            return .finished(.preservedUnverifiedDirectory)
+        }
+        return .staleManaged(projectID: projectID, identity: identity)
+    }
+
+    private static func removeStaleManagedCheckout(
+        operation: CleanupOperation,
+        projectID: UUID,
+        identity: FileIdentity
+    ) async throws -> StaleRemovalResult {
+        let worktree = operation.worktree
+        let isNowRegistered = try await GitWorktreeService.shared.isWorktreeRegistered(
+            repoPath: operation.repoPath,
+            path: worktree.path,
+            context: operation.context,
+            timeout: operation.deadline.remaining()
+        )
+        guard !isNowRegistered else {
+            throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
+        }
+        guard try await operation.context.fileOps.exists(
+            at: worktree.path,
+            timeout: operation.deadline.remaining()
+        )
+        else {
+            await removeParentDirectoryIfEmpty(for: worktree.path)
+            return .finished(.removed)
+        }
+        guard isMuxyManagedCheckout(worktree, projectID: projectID),
+              checkoutReferencesRepository(worktreePath: worktree.path, repoPath: operation.repoPath),
+              fileIdentity(at: worktree.path) == identity
+        else {
+            return .finished(.preservedUnverifiedDirectory)
+        }
+        let quarantine = try await quarantineManagedCheckout(worktree.path, projectID: projectID)
+        guard fileIdentity(at: quarantine.path) == identity else {
+            try await restoreOrReport(quarantine, to: worktree.path)
+            return .finished(.preservedUnverifiedDirectory)
+        }
+        do {
+            try await operation.context.fileOps.removeItem(
+                at: quarantine.path,
+                timeout: operation.deadline.remaining()
+            )
+        } catch {
+            if await operation.context.fileOps.exists(at: quarantine.path) {
+                try await restoreOrReport(quarantine, to: worktree.path)
+                throw error
+            }
+        }
+        return .removedPath(worktree.path)
     }
 
     private static func cleanupResult(directoryRemoved: Bool?) -> WorktreeCleanupResult {
@@ -809,6 +869,19 @@ final class WorktreeStore {
                 throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
             }
             try FileManager.default.moveItem(atPath: quarantine.path, toPath: path)
+        }
+    }
+
+    private static func restoreOrReport(_ quarantine: URL, to path: String) async throws {
+        do {
+            try await restoreQuarantinedCheckout(quarantine, to: path)
+        } catch {
+            logger.error(
+                "Could not restore worktree to \(path, privacy: .public); files remain at \(quarantine.path, privacy: .public)"
+            )
+            throw GitWorktreeService.GitWorktreeError.commandFailed(
+                "Worktree changed during removal. Files remain at \"\(quarantine.path)\"."
+            )
         }
     }
 
