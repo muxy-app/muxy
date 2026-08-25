@@ -148,6 +148,7 @@ Each binary invokes `build_mode!` locally. No runtime environment variable selec
 | Ghostty configuration | Shared |
 | Socket, session, and hook names | Isolated by policy |
 | Mobile keys | Isolated by policy |
+| Acceptance tests | Reuse `com.muxy.tests` and `target/test-verification` |
 
 `settings.json` keeps both mobile namespaces. The active profile updates its three keys and preserves the inactive three exactly. P1 defines and verifies these contracts but does not start sockets, daemons, hooks, provider installers, or the mobile server.
 

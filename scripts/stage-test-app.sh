@@ -6,9 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 readonly PROJECT_ROOT
-readonly TEST_BUNDLE_IDENTIFIER="com.muxy.p1-tests"
+readonly TEST_BUNDLE_IDENTIFIER="com.muxy.tests"
 readonly TEST_EXECUTABLE="MuxyTests"
-readonly VERIFICATION_ROOT="$PROJECT_ROOT/target/p1-verification"
+readonly VERIFICATION_ROOT="$PROJECT_ROOT/target/test-verification"
 
 fail() {
     printf 'error: %s\n' "$*" >&2

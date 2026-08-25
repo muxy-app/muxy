@@ -9,8 +9,8 @@ flowchart LR
     B -->|No| D[scripts/run-test-app.sh debug]
     C --> E[com.muxy.app]
     C --> F[~/Library/Application Support/Muxy]
-    D --> G[com.muxy.p1-tests]
-    D --> H[target/p1-verification/state]
+    D --> G[com.muxy.tests]
+    D --> H[target/test-verification/state]
 ```
 
 | Goal | Command |
@@ -20,6 +20,8 @@ flowchart LR
 | Test the release build safely | `scripts/run-test-app.sh release` |
 
 > `scripts/run.sh` uses your real Muxy settings. The test runner creates a staged `MuxyTests` app.
+
+`com.muxy.tests` and `target/test-verification` are permanent test infrastructure. Every phase reuses them instead of creating phase-numbered identities.
 
 ## Why the test app looks fresh
 
@@ -34,7 +36,7 @@ Your preferences                Clean test preferences
 The test app uses a separate defaults domain and project-local files. Remove its state at any time:
 
 ```bash
-rm -rf target/p1-verification
+rm -rf target/test-verification
 ```
 
 ## Build-mode contracts

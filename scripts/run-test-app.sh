@@ -16,7 +16,7 @@ fi
 "$SCRIPT_DIR/build-app.sh" "$PROFILE"
 staged_app="$("$SCRIPT_DIR/stage-test-app.sh" \
     "$PROJECT_ROOT/target/$PROFILE/Muxy.app" "rust-$PROFILE")"
-state_directory="$PROJECT_ROOT/target/p1-verification/state"
+state_directory="$PROJECT_ROOT/target/test-verification/state"
 mkdir -p "$state_directory"
 
 printf '==> Launching isolated %s test app\n' "$PROFILE"
