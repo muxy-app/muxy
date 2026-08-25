@@ -631,7 +631,9 @@ extension MuxyAPI {
                 }
 
                 var worktree = tracked.worktree
-                worktree.path = expandedPath
+                if workspaceContext.isRemote {
+                    worktree.path = expandedPath
+                }
                 let canInspectChanges = workspaceContext.isRemote || FileManager.default.fileExists(
                     atPath: tracked.project.path
                 )
@@ -644,6 +646,7 @@ extension MuxyAPI {
                 }
                 let cleanupResult = try await WorktreeStore.cleanupOnDisk(
                     worktree: worktree,
+                    projectID: tracked.project.id,
                     repoPath: tracked.project.path,
                     context: workspaceContext,
                     force: force,

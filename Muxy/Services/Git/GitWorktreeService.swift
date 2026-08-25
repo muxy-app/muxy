@@ -47,12 +47,15 @@ actor GitWorktreeService: GitWorktreeListing {
 
     enum GitWorktreeError: LocalizedError {
         case notGitRepository
+        case notRegistered
         case commandFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .notGitRepository:
                 "This folder is not a Git repository."
+            case .notRegistered:
+                "Worktree is not registered with this repository."
             case let .commandFailed(message):
                 message
             }
@@ -209,7 +212,7 @@ actor GitWorktreeService: GitWorktreeListing {
             Self.canonicalPath($0.path, context: context) == target
         }
         if !wasRegistered, try await context.fileOps.exists(at: removalPath, timeout: deadline.remaining()) {
-            throw GitWorktreeError.commandFailed("Worktree is not registered with this repository.")
+            throw GitWorktreeError.notRegistered
         }
 
         var args: [String] = ["worktree", "remove"]
@@ -253,6 +256,31 @@ actor GitWorktreeService: GitWorktreeListing {
         throw GitWorktreeError.commandFailed(
             result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
         )
+    }
+
+    func isWorktreeRegistered(
+        repoPath: String,
+        path: String,
+        context: WorkspaceContext = .local,
+        timeout: TimeInterval = defaultWorktreeRemovalTimeout
+    ) async throws -> Bool {
+        let deadline = OperationDeadline(timeout: timeout)
+        let records = try await listWorktrees(
+            repoPath: repoPath,
+            context: context,
+            timeout: deadline.remaining()
+        )
+        let resolutions = try await WorkspacePathResolver.live.resolve(
+            paths: [path] + records.map(\.path),
+            relativeTo: repoPath,
+            context: context,
+            timeout: deadline.remaining()
+        )
+        guard let resolvedPath = resolutions.first?.path else { return false }
+        let target = Self.canonicalPath(resolvedPath, context: context)
+        return resolutions.dropFirst().contains {
+            Self.canonicalPath($0.path, context: context) == target
+        }
     }
 
     private func pruneWorktrees(repoPath: String, context: WorkspaceContext, timeout: TimeInterval) async throws {

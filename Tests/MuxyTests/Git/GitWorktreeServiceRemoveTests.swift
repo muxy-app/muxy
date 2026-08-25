@@ -117,6 +117,272 @@ struct GitWorktreeServiceRemoveTests {
         #expect(FileManager.default.fileExists(atPath: directory))
     }
 
+    @Test("force cleanup removes an unregistered Muxy-managed checkout")
+    func forceCleanupRemovesUnregisteredMuxyCheckout() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let projectID = UUID()
+        let worktreeRoot = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        let worktreePath = worktreeRoot.appendingPathComponent("stale-worktree", isDirectory: true).path
+        try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+        try "stale".write(
+            toFile: URL(fileURLWithPath: worktreePath).appendingPathComponent("artifact.txt").path,
+            atomically: true,
+            encoding: .utf8
+        )
+        try "gitdir: \(repo.path)/.git/worktrees/missing\n".write(
+            toFile: URL(fileURLWithPath: worktreePath).appendingPathComponent(".git").path,
+            atomically: true,
+            encoding: .utf8
+        )
+        let worktree = Worktree(
+            name: "stale-worktree",
+            path: worktreePath,
+            branch: "stale-worktree",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        let cleanupResult = try await WorktreeStore.cleanupOnDisk(
+            worktree: worktree,
+            projectID: projectID,
+            repoPath: repo.path,
+            force: true
+        )
+
+        #expect(cleanupResult == .removed)
+        #expect(!FileManager.default.fileExists(atPath: worktreePath))
+    }
+
+    @Test("force cleanup succeeds when teardown removes an unregistered Muxy-managed checkout")
+    func forceCleanupSucceedsWhenTeardownRemovesUnregisteredMuxyCheckout() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let projectID = UUID()
+        let worktreeRoot = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        let worktreePath = worktreeRoot.appendingPathComponent("stale-worktree", isDirectory: true).path
+        try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+        try "gitdir: \(repo.path)/.git/worktrees/missing\n".write(
+            toFile: URL(fileURLWithPath: worktreePath).appendingPathComponent(".git").path,
+            atomically: true,
+            encoding: .utf8
+        )
+        let configURL = URL(fileURLWithPath: repo.path, isDirectory: true)
+            .appendingPathComponent(".muxy/worktree.json")
+        try FileManager.default.createDirectory(
+            at: configURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let command = WorktreeConfig.SetupCommand(command: "rm -rf \"$MUXY_WORKTREE_PATH\"")
+        let config = WorktreeConfig(setup: [], teardown: [command])
+        try JSONEncoder().encode(config).write(to: configURL)
+        let resolvedCommand = WorktreeConfig.ResolvedCommand(command: command, source: .project)
+        let approval = WorktreeConfig.ProjectHookApproval(resolvedCommands: [resolvedCommand])
+        let missingGlobalConfigURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-missing-global-config-\(UUID().uuidString)")
+        let worktree = Worktree(
+            name: "stale-worktree",
+            path: worktreePath,
+            branch: "stale-worktree",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        let cleanupResult = try await WorktreeStore.cleanupOnDisk(
+            worktree: worktree,
+            projectID: projectID,
+            repoPath: repo.path,
+            projectHookApproval: approval,
+            teardownGlobalConfigURL: missingGlobalConfigURL,
+            force: true
+        )
+
+        #expect(cleanupResult == .removed)
+        #expect(!FileManager.default.fileExists(atPath: worktreePath))
+    }
+
+    @Test("force cleanup preserves an unregistered custom checkout")
+    func forceCleanupPreservesUnregisteredCustomCheckout() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let worktreePath = repo.siblingPath("unregistered-custom-worktree")
+        try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+        let worktree = Worktree(
+            name: "unregistered-custom-worktree",
+            path: worktreePath,
+            branch: "unregistered-custom-worktree",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        await #expect(throws: GitWorktreeService.GitWorktreeError.self) {
+            try await WorktreeStore.cleanupOnDisk(
+                worktree: worktree,
+                repoPath: repo.path,
+                force: true
+            )
+        }
+
+        #expect(FileManager.default.fileExists(atPath: worktreePath))
+    }
+
+    @Test("cleanup succeeds when an unregistered custom checkout is already absent")
+    func cleanupSucceedsForAbsentCustomCheckout() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let worktreePath = repo.siblingPath("absent-custom-worktree")
+        let worktree = Worktree(
+            name: "absent-custom-worktree",
+            path: worktreePath,
+            branch: "absent-custom-worktree",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        let result = try await WorktreeStore.cleanupOnDisk(
+            worktree: worktree,
+            repoPath: repo.path,
+            force: false
+        )
+
+        #expect(result == .removed)
+    }
+
+    @Test("force cleanup retains a reused managed checkout without Git ownership")
+    func forceCleanupRetainsReusedManagedCheckout() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let projectID = UUID()
+        let worktreePath = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+            .appendingPathComponent("reused", isDirectory: true)
+            .path
+        try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+        let worktree = Worktree(
+            name: "reused",
+            path: worktreePath,
+            branch: "reused",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        let result = try await WorktreeStore.cleanupOnDisk(
+            worktree: worktree,
+            projectID: projectID,
+            repoPath: repo.path,
+            force: true
+        )
+
+        #expect(result == .preservedUnverifiedDirectory)
+        #expect(FileManager.default.fileExists(atPath: worktreePath))
+    }
+
+    @Test("force cleanup retains a managed checkout linked to another repository")
+    func forceCleanupRetainsForeignManagedCheckout() async throws {
+        let repo = try TempGitRepo()
+        let foreignRepo = try TempGitRepo()
+        defer {
+            repo.cleanup()
+            foreignRepo.cleanup()
+        }
+        let projectID = UUID()
+        let worktreePath = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+            .appendingPathComponent("foreign", isDirectory: true)
+            .path
+        try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+        try "gitdir: \(foreignRepo.path)/.git/worktrees/foreign\n".write(
+            toFile: URL(fileURLWithPath: worktreePath).appendingPathComponent(".git").path,
+            atomically: true,
+            encoding: .utf8
+        )
+        let worktree = Worktree(
+            name: "foreign",
+            path: worktreePath,
+            branch: "foreign",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        let result = try await WorktreeStore.cleanupOnDisk(
+            worktree: worktree,
+            projectID: projectID,
+            repoPath: repo.path,
+            force: true
+        )
+
+        #expect(result == .preservedUnverifiedDirectory)
+        #expect(FileManager.default.fileExists(atPath: worktreePath))
+    }
+
+    @Test("force cleanup preserves another project's managed checkout")
+    func forceCleanupPreservesAnotherProjectsCheckout() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let owningProjectID = UUID()
+        let otherProjectID = UUID()
+        let worktreePath = MuxyFileStorage.worktreeRoot(forProjectID: otherProjectID)
+            .appendingPathComponent("other-project-worktree", isDirectory: true)
+            .path
+        defer {
+            try? FileManager.default.removeItem(
+                at: MuxyFileStorage.worktreeRoot(forProjectID: otherProjectID, create: false)
+            )
+        }
+        try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+        let worktree = Worktree(
+            name: "other-project-worktree",
+            path: worktreePath,
+            branch: "other-project-worktree",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        await #expect(throws: GitWorktreeService.GitWorktreeError.self) {
+            try await WorktreeStore.cleanupOnDisk(
+                worktree: worktree,
+                projectID: owningProjectID,
+                repoPath: repo.path,
+                force: true
+            )
+        }
+
+        #expect(FileManager.default.fileExists(atPath: worktreePath))
+    }
+
+    @Test("force cleanup preserves a checkout beneath a symlinked project root")
+    func forceCleanupPreservesCheckoutUnderSymlinkedProjectRoot() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let projectID = UUID()
+        let expectedRoot = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        try FileManager.default.removeItem(at: expectedRoot)
+        let outsideRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-unrelated-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outsideRoot) }
+        try FileManager.default.createSymbolicLink(at: expectedRoot, withDestinationURL: outsideRoot)
+        defer { try? FileManager.default.removeItem(at: expectedRoot) }
+        let worktreePath = expectedRoot.appendingPathComponent("unrelated", isDirectory: true).path
+        try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+        let worktree = Worktree(
+            name: "unrelated",
+            path: worktreePath,
+            branch: "unrelated",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        await #expect(throws: GitWorktreeService.GitWorktreeError.self) {
+            try await WorktreeStore.cleanupOnDisk(
+                worktree: worktree,
+                projectID: projectID,
+                repoPath: repo.path,
+                force: true
+            )
+        }
+
+        #expect(FileManager.default.fileExists(atPath: worktreePath))
+    }
+
     @Test("cleanupOnDisk removes the worktree but keeps its branch")
     func cleanupKeepsBranch() async throws {
         let repo = try TempGitRepo()
@@ -323,6 +589,21 @@ struct GitWorktreeServiceRemoveTests {
         try await WorktreeStore.cleanupOnDisk(for: project, knownWorktrees: [worktree])
 
         #expect(FileManager.default.fileExists(atPath: worktreePath))
+    }
+
+    @Test("project cleanup preserves unknown directories in its managed root")
+    func projectCleanupPreservesUnknownManagedDirectories() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let project = Project(name: "Repo", path: repo.path)
+        let root = MuxyFileStorage.worktreeRoot(forProjectID: project.id)
+        let unknownPath = root.appendingPathComponent("unknown", isDirectory: true)
+        try FileManager.default.createDirectory(at: unknownPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try await WorktreeStore.cleanupOnDisk(for: project, knownWorktrees: [])
+
+        #expect(FileManager.default.fileExists(atPath: unknownPath.path))
     }
 
     @Test("heals an orphaned worktree referenced through a symlinked parent")

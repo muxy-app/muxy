@@ -3,6 +3,7 @@ import Foundation
 protocol RemoteFileOps: Sendable {
     func makeDirectory(at path: String) async throws
     func removeItem(at path: String) async throws
+    func removeItem(at path: String, timeout: TimeInterval) async throws
     func exists(at path: String) async -> Bool
     func exists(at path: String, timeout: TimeInterval) async throws -> Bool
 }
@@ -21,6 +22,17 @@ struct LocalFileOps: RemoteFileOps {
     func removeItem(at path: String) async throws {
         try await GitProcessRunner.offMainThrowing {
             try FileManager.default.removeItem(atPath: path)
+        }
+    }
+
+    func removeItem(at path: String, timeout: TimeInterval) async throws {
+        let result = try await SubprocessRunner.run(SubprocessRequest(
+            executablePath: "/bin/rm",
+            arguments: ["-rf", "--", path],
+            timeout: timeout
+        ))
+        guard result.status == 0 else {
+            throw RemoteFileOpsError.commandFailed(result.stderr.isEmpty ? path : result.stderr)
         }
     }
 
@@ -66,6 +78,10 @@ struct SSHFileOps: RemoteFileOps {
         try await run("rm -rf \(RemoteCommandBuilder.quoteRemotePath(path))")
     }
 
+    func removeItem(at path: String, timeout: TimeInterval) async throws {
+        try await run("rm -rf \(RemoteCommandBuilder.quoteRemotePath(path))", timeout: timeout)
+    }
+
     func exists(at path: String) async -> Bool {
         let quoted = RemoteCommandBuilder.quoteRemotePath(path)
         let quotedParent = RemoteCommandBuilder.quoteRemotePath(parentPath(of: path))
@@ -96,8 +112,12 @@ struct SSHFileOps: RemoteFileOps {
         "if [ -e \(path) ] || [ -L \(path) ]; then exit 0; fi; [ ! -e \(parent) ] && exit 1; [ -x \(parent) ] && exit 1; exit 2"
     }
 
-    private func run(_ remoteCommand: String) async throws {
-        let result = try await SSHCommandRunner.run(destination: destination, remoteCommand: remoteCommand)
+    private func run(_ remoteCommand: String, timeout: TimeInterval = SSHCommandRunner.defaultTimeout) async throws {
+        let result = try await SSHCommandRunner.run(
+            destination: destination,
+            remoteCommand: remoteCommand,
+            timeout: timeout
+        )
         guard result.status == 0 else {
             throw RemoteFileOpsError.commandFailed(result.stderr.isEmpty ? remoteCommand : result.stderr)
         }
