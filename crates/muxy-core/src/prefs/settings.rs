@@ -1,4 +1,5 @@
 use super::defaults;
+use crate::environment::{MobileSettingsKeys, MobileSettingsPolicy};
 use serde_json::{Map, Number, Value};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -6,7 +7,10 @@ use std::path::{Path, PathBuf};
 const COMMIT_PROMPT: &str = "Write a concise commit message that explains the intent of all staged changes. Follow the repository's existing commit-message style.";
 const PULL_REQUEST_PROMPT: &str = "Write an accurate pull request title and a concise summary of the changes. Choose a short descriptive branch name and the appropriate target branch.";
 
-#[derive(Clone, Copy)]
+pub const MOBILE_POLICY: MobileSettingsPolicy = MobileSettingsPolicy::new(crate::build_mode!());
+pub const MOBILE_KEYS: MobileSettingsKeys = MOBILE_POLICY.keys();
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
     Bool(bool),
     Int(i64),
@@ -14,7 +18,7 @@ pub enum Kind {
     Str(&'static str),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Source {
     Defaults(Kind),
     UiScale,
@@ -28,6 +32,7 @@ pub enum Source {
     ApprovedDevices,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Entry {
     pub key: &'static str,
     pub source: Source,
@@ -65,88 +70,100 @@ const fn special(key: &'static str, source: Source) -> Entry {
     Entry { key, source }
 }
 
-pub const MIRROR: [Entry; 68] = [
-    flag("diagnostics.profiler.enabled", false),
-    flag("muxy.general.autoExpandWorktreesOnProjectSwitch", false),
-    flag("muxy.showHomeProject", true),
-    flag("muxy.tips.visible", true),
-    flag("muxy.showProjectSearch", false),
-    flag("muxy.worktrees.groupWorktrees", false),
-    flag("muxy.worktrees.showUnreadIndicator", true),
-    flag("muxy.worktrees.orderByMRU", true),
-    flag("muxy.projects.keepOpenWhenNoTabs", false),
-    flag("muxy.general.autoCopyTerminalSelection", false),
-    flag("muxy.tabs.confirmCloseRunningProcess", true),
-    flag("muxy.app.confirmQuit", true),
-    flag("SUAutomaticallyUpdate", true),
-    flag("muxy.showTopBarActions", true),
-    flag("muxy.showStatusBar", true),
-    flag("muxy.showResourceUsageInStatusBar", true),
-    flag("muxy.richInput.clearAfterSending", false),
-    flag("muxy.richInput.clearOnClose", false),
-    flag("muxy.terminalOffline.enabled", false),
-    flag("muxy.terminalPersistentSession.enabled", false),
-    flag("muxy.quickTerminal.enabled", true),
-    flag("muxy.recording.autoSend", false),
-    flag("muxy.notifications.toastEnabled", true),
-    flag("muxy.notifications.desktopEnabled", false),
-    flag("app.muxy.mobile.serverEnabled", false),
-    text("muxy.update.channel", "stable"),
-    text("muxy.localization", ""),
-    text("muxy.activeSidebar", ""),
-    text("muxy.projectPicker.mode", "custom"),
-    text("muxy.projectPicker.defaultDirectory", ""),
-    text("muxy.defaultFileOpener", ""),
-    text("muxy.general.defaultWorktreePathTemplate", ""),
-    text("muxy.general.defaultWorktreeParentPath", ""),
-    text("muxy.sentry.consent", ""),
-    text("muxy.browser.searchEngine", "google"),
-    text("muxy.browser.homePageURL", "about:blank"),
-    text("muxy.appBackgroundStyle", "vibrant"),
-    text("muxy.sidebarCollapsedStyle", "icons"),
-    text("muxy.sidebarExpandedStyle", "wide"),
-    text("muxy.richInput.presentationMode", "panel"),
-    text("muxy.ai.repositoryActions.commit.provider", ""),
-    text("muxy.ai.repositoryActions.commit.prompt", COMMIT_PROMPT),
-    text("muxy.ai.repositoryActions.createPullRequest.provider", ""),
-    text(
-        "muxy.ai.repositoryActions.createPullRequest.prompt",
-        PULL_REQUEST_PROMPT,
-    ),
-    text("muxy.recording.language", ""),
-    text("muxy.notifications.sound", "Funk"),
-    text("muxy.notifications.toastPosition", "Top Center"),
-    integer("muxy.app.transparency", 0),
-    integer("muxy.app.blur", 70),
-    integer("muxy.quickTerminal.width", 720),
-    integer("muxy.quickTerminal.height", 430),
-    integer("muxy.quickTerminal.transparency", 18),
-    integer("muxy.quickTerminal.blur", 70),
-    integer("app.muxy.mobile.serverPort", 4865),
-    integer("app.muxy.mobile.scrollbackCap", 8),
-    double("muxy.tabs.maxWidth", 200.0),
-    double("muxy.terminalOffline.idleThresholdSeconds", 300.0),
-    special("muxy.ui.scale", Source::UiScale),
-    special("muxy.theme.dark", Source::ThemeDark),
-    special("muxy.theme.light", Source::ThemeLight),
-    special(
-        "editor.richInputImageStrategy",
-        Source::EditorSetting("richInputImageStrategy", Kind::Str("clipboard")),
-    ),
-    special(
-        "editor.richInputFontFamily",
-        Source::EditorSetting("richInputFontFamily", Kind::Str("SF Mono")),
-    ),
-    special(
-        "editor.richInputLineHeightMultiplier",
-        Source::EditorSetting("richInputLineHeightMultiplier", Kind::Double(1.2)),
-    ),
-    special("shortcuts.app", Source::ShortcutsApp),
-    special("shortcuts.quickTerminal", Source::QuickTerminalShortcut),
-    special("shortcuts.customCommands", Source::CustomCommands),
-    special("ai.providers", Source::AiProviders),
-    special("mobile.approvedDevices", Source::ApprovedDevices),
-];
+pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 68] {
+    let mobile_policy = MobileSettingsPolicy::new(mode);
+    let mobile_keys = mobile_policy.keys();
+    [
+        flag("diagnostics.profiler.enabled", false),
+        flag("muxy.general.autoExpandWorktreesOnProjectSwitch", false),
+        flag("muxy.showHomeProject", true),
+        flag("muxy.tips.visible", true),
+        flag("muxy.showProjectSearch", false),
+        flag("muxy.worktrees.groupWorktrees", false),
+        flag("muxy.worktrees.showUnreadIndicator", true),
+        flag("muxy.worktrees.orderByMRU", true),
+        flag("muxy.projects.keepOpenWhenNoTabs", false),
+        flag("muxy.general.autoCopyTerminalSelection", false),
+        flag("muxy.tabs.confirmCloseRunningProcess", true),
+        flag("muxy.app.confirmQuit", true),
+        flag("SUAutomaticallyUpdate", true),
+        flag("muxy.showTopBarActions", true),
+        flag("muxy.showStatusBar", true),
+        flag("muxy.showResourceUsageInStatusBar", true),
+        flag("muxy.richInput.clearAfterSending", false),
+        flag("muxy.richInput.clearOnClose", false),
+        flag("muxy.terminalOffline.enabled", false),
+        flag("muxy.terminalPersistentSession.enabled", false),
+        flag("muxy.quickTerminal.enabled", true),
+        flag("muxy.recording.autoSend", false),
+        flag("muxy.notifications.toastEnabled", true),
+        flag("muxy.notifications.desktopEnabled", false),
+        flag(
+            mobile_keys.enabled,
+            mobile_policy.settings_enabled_default(),
+        ),
+        text("muxy.update.channel", "stable"),
+        text("muxy.localization", ""),
+        text("muxy.activeSidebar", ""),
+        text("muxy.projectPicker.mode", "custom"),
+        text("muxy.projectPicker.defaultDirectory", ""),
+        text("muxy.defaultFileOpener", ""),
+        text("muxy.general.defaultWorktreePathTemplate", ""),
+        text("muxy.general.defaultWorktreeParentPath", ""),
+        text("muxy.sentry.consent", ""),
+        text("muxy.browser.searchEngine", "google"),
+        text("muxy.browser.homePageURL", "about:blank"),
+        text("muxy.appBackgroundStyle", "vibrant"),
+        text("muxy.sidebarCollapsedStyle", "icons"),
+        text("muxy.sidebarExpandedStyle", "wide"),
+        text("muxy.richInput.presentationMode", "panel"),
+        text("muxy.ai.repositoryActions.commit.provider", ""),
+        text("muxy.ai.repositoryActions.commit.prompt", COMMIT_PROMPT),
+        text("muxy.ai.repositoryActions.createPullRequest.provider", ""),
+        text(
+            "muxy.ai.repositoryActions.createPullRequest.prompt",
+            PULL_REQUEST_PROMPT,
+        ),
+        text("muxy.recording.language", ""),
+        text("muxy.notifications.sound", "Funk"),
+        text("muxy.notifications.toastPosition", "Top Center"),
+        integer("muxy.app.transparency", 0),
+        integer("muxy.app.blur", 70),
+        integer("muxy.quickTerminal.width", 720),
+        integer("muxy.quickTerminal.height", 430),
+        integer("muxy.quickTerminal.transparency", 18),
+        integer("muxy.quickTerminal.blur", 70),
+        integer(mobile_keys.port, mobile_policy.default_port() as i64),
+        integer(
+            mobile_keys.scrollback_cap,
+            mobile_policy.default_scrollback_cap(),
+        ),
+        double("muxy.tabs.maxWidth", 200.0),
+        double("muxy.terminalOffline.idleThresholdSeconds", 300.0),
+        special("muxy.ui.scale", Source::UiScale),
+        special("muxy.theme.dark", Source::ThemeDark),
+        special("muxy.theme.light", Source::ThemeLight),
+        special(
+            "editor.richInputImageStrategy",
+            Source::EditorSetting("richInputImageStrategy", Kind::Str("clipboard")),
+        ),
+        special(
+            "editor.richInputFontFamily",
+            Source::EditorSetting("richInputFontFamily", Kind::Str("SF Mono")),
+        ),
+        special(
+            "editor.richInputLineHeightMultiplier",
+            Source::EditorSetting("richInputLineHeightMultiplier", Kind::Double(1.2)),
+        ),
+        special("shortcuts.app", Source::ShortcutsApp),
+        special("shortcuts.quickTerminal", Source::QuickTerminalShortcut),
+        special("shortcuts.customCommands", Source::CustomCommands),
+        special("ai.providers", Source::AiProviders),
+        special("mobile.approvedDevices", Source::ApprovedDevices),
+    ]
+}
+
+pub const MIRROR: [Entry; 68] = mirror(crate::build_mode!());
 
 pub const NOTIFICATION_SOUNDS: [&str; 15] = [
     "None",
@@ -202,15 +219,28 @@ const ALLOWED_STRINGS: [(&str, &[&str]); 11] = [
     ("muxy.notifications.toastPosition", &TOAST_POSITIONS),
 ];
 
-const INT_RANGES: [(&str, i64, i64); 7] = [
-    ("app.muxy.mobile.serverPort", 1024, 65535),
-    ("muxy.quickTerminal.width", 480, 1200),
-    ("muxy.quickTerminal.height", 280, 800),
-    ("muxy.quickTerminal.transparency", 0, 55),
-    ("muxy.quickTerminal.blur", 0, 100),
-    ("muxy.app.transparency", 0, 55),
-    ("muxy.app.blur", 0, 100),
-];
+const fn int_ranges(mode: crate::environment::BuildMode) -> [(&'static str, i64, i64); 8] {
+    let policy = MobileSettingsPolicy::new(mode);
+    let keys = policy.keys();
+    [
+        (
+            keys.port,
+            policy.minimum_port() as i64,
+            policy.maximum_port() as i64,
+        ),
+        (
+            keys.scrollback_cap,
+            policy.minimum_scrollback_cap(),
+            policy.maximum_scrollback_cap(),
+        ),
+        ("muxy.quickTerminal.width", 480, 1200),
+        ("muxy.quickTerminal.height", 280, 800),
+        ("muxy.quickTerminal.transparency", 0, 55),
+        ("muxy.quickTerminal.blur", 0, 100),
+        ("muxy.app.transparency", 0, 55),
+        ("muxy.app.blur", 0, 100),
+    ]
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SettingsError {
@@ -347,17 +377,14 @@ fn editor_settings_path() -> PathBuf {
 }
 
 fn read_editor_setting(name: &str, kind: Kind) -> Option<Value> {
-    let root = super::read_json(&editor_settings_path())?;
-    let map = root.as_object()?;
-    match map.get(name) {
-        Some(value) => Some(value.clone()),
-        None => Some(match kind {
-            Kind::Bool(value) => Value::Bool(value),
-            Kind::Int(value) => Value::Number(Number::from(value)),
-            Kind::Double(value) => Number::from_f64(value).map_or(Value::Null, Value::Number),
-            Kind::Str(value) => Value::String(value.to_owned()),
-        }),
-    }
+    let stored = super::read_json(&editor_settings_path())
+        .and_then(|root| root.as_object().and_then(|map| map.get(name)).cloned());
+    Some(stored.unwrap_or_else(|| match kind {
+        Kind::Bool(value) => Value::Bool(value),
+        Kind::Int(value) => Value::Number(Number::from(value)),
+        Kind::Double(value) => Number::from_f64(value).map_or(Value::Null, Value::Number),
+        Kind::Str(value) => Value::String(value.to_owned()),
+    }))
 }
 
 pub fn editor_setting(name: &str, default: Value) -> Value {
@@ -455,10 +482,18 @@ pub fn sync() {
     if SUPPRESS_SYNC.get() {
         return;
     }
-    sync_at(&path());
+    sync_at(&path(), crate::build_mode!());
 }
 
-fn sync_at(path: &Path) -> bool {
+fn sync_at(path: &Path, mode: crate::environment::BuildMode) -> bool {
+    sync_at_with(path, mode, read_entry)
+}
+
+fn sync_at_with(
+    path: &Path,
+    mode: crate::environment::BuildMode,
+    mut resolve: impl FnMut(&Entry, Option<&Value>) -> Option<Value>,
+) -> bool {
     let existing = std::fs::read_to_string(path).ok();
     let mut root = match &existing {
         Some(contents) => match serde_json::from_str::<Value>(contents) {
@@ -475,8 +510,8 @@ fn sync_at(path: &Path) -> bool {
     };
 
     let mut changed = false;
-    for entry in &MIRROR {
-        let Some(value) = read_entry(entry, root.get(entry.key)) else {
+    for entry in &mirror(mode) {
+        let Some(value) = resolve(entry, root.get(entry.key)) else {
             continue;
         };
         if !root.get(entry.key).is_some_and(|held| equal(held, &value)) {
@@ -525,30 +560,35 @@ pub fn user_path() -> PathBuf {
 }
 
 pub fn system_defaults_text() -> String {
-    let mut root = Map::new();
-    for entry in &MIRROR {
-        let value = match entry.source {
-            Source::Defaults(kind) => default_value(kind),
-            Source::UiScale => Value::String("regular".to_owned()),
-            Source::ThemeDark => Value::String("Muxy".to_owned()),
-            Source::ThemeLight => Value::String("Muxy".to_owned()),
-            Source::EditorSetting(_, kind) => default_value(kind),
-            Source::ShortcutsApp => Value::Object(default_shortcuts_app()),
-            Source::QuickTerminalShortcut => {
-                serde_json::json!({ "type": "unassigned" })
-            }
-            Source::CustomCommands => crate::store::CommandShortcuts::default().mirror_value(),
-            Source::AiProviders => Value::Object(
-                AI_PROVIDERS
-                    .iter()
-                    .map(|(id, _)| ((*id).to_owned(), Value::Bool(true)))
-                    .collect(),
-            ),
-            Source::ApprovedDevices => Value::Array(Vec::new()),
-        };
-        root.insert(entry.key.to_owned(), value);
-    }
+    system_defaults_text_for(crate::build_mode!())
+}
+
+fn system_defaults_text_for(mode: crate::environment::BuildMode) -> String {
+    let root: Map<String, Value> = mirror(mode)
+        .iter()
+        .map(|entry| (entry.key.to_owned(), default_entry_value(entry)))
+        .collect();
     to_foundation_json(&Value::Object(root), false, true)
+}
+
+fn default_entry_value(entry: &Entry) -> Value {
+    match entry.source {
+        Source::Defaults(kind) => default_value(kind),
+        Source::UiScale => Value::String("regular".to_owned()),
+        Source::ThemeDark => Value::String("Muxy".to_owned()),
+        Source::ThemeLight => Value::String("Muxy".to_owned()),
+        Source::EditorSetting(_, kind) => default_value(kind),
+        Source::ShortcutsApp => Value::Object(default_shortcuts_app()),
+        Source::QuickTerminalShortcut => serde_json::json!({ "type": "unassigned" }),
+        Source::CustomCommands => crate::store::CommandShortcuts::default().mirror_value(),
+        Source::AiProviders => Value::Object(
+            AI_PROVIDERS
+                .iter()
+                .map(|(id, _)| ((*id).to_owned(), Value::Bool(true)))
+                .collect(),
+        ),
+        Source::ApprovedDevices => Value::Array(Vec::new()),
+    }
 }
 
 fn default_value(kind: Kind) -> Value {
@@ -597,57 +637,114 @@ pub fn prettify(text: &str) -> Option<String> {
 }
 
 pub fn reset_user_file() {
+    let path = path();
+    if let Err(error) =
+        reset_user_file_at(&path, crate::build_mode!(), |entry| read_entry(entry, None))
+    {
+        log::warn!("failed to write {}: {error}", path.display());
+    }
+}
+
+fn reset_user_file_at(
+    path: &Path,
+    mode: crate::environment::BuildMode,
+    mut resolve: impl FnMut(&Entry) -> Option<Value>,
+) -> std::io::Result<()> {
+    let existing = read_object(path);
     let mut root = Map::new();
-    for entry in &MIRROR {
-        let Some(value) = read_entry(entry, None) else {
+    for entry in &mirror(mode) {
+        let Some(value) = resolve(entry) else {
             continue;
         };
         root.insert(entry.key.to_owned(), value);
     }
-    let contents = to_foundation_json(&Value::Object(root), false, true);
-    let path = path();
-    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
-        log::warn!("failed to write {}: {error}", path.display());
-    }
+    preserve_inactive_mobile_values(mode, existing.as_ref(), &mut root);
+    write_settings_document(path, root)
 }
 
 pub fn save_user_text(text: &str) -> Result<(), SettingsError> {
+    SUPPRESS_SYNC.set(true);
+    let result = save_user_text_at(&path(), crate::build_mode!(), text, apply_value);
+    SUPPRESS_SYNC.set(false);
+    if result.is_ok() {
+        sync();
+    }
+    result
+}
+
+fn save_user_text_at(
+    path: &Path,
+    mode: crate::environment::BuildMode,
+    text: &str,
+    mut apply: impl FnMut(&str, &Value),
+) -> Result<(), SettingsError> {
     let root: Value =
         serde_json::from_str(text).map_err(|_| SettingsError::TopLevelObjectRequired)?;
-    let Value::Object(document) = root else {
+    let Value::Object(mut document) = root else {
         return Err(SettingsError::TopLevelObjectRequired);
     };
-    let settings = validate(&document)?;
-
-    let path = path();
-    let contents = to_foundation_json(&Value::Object(document), false, true);
-    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
-        log::warn!("failed to write {}: {error}", path.display());
-        return Err(SettingsError::InvalidValue("settings.json".to_owned()));
-    }
-
-    SUPPRESS_SYNC.set(true);
+    let existing = read_object(path);
+    preserve_inactive_mobile_values(mode, existing.as_ref(), &mut document);
+    let settings = validate(mode, &document)?;
+    write_settings_document(path, document)
+        .map_err(|_| SettingsError::InvalidValue("settings.json".to_owned()))?;
     for (key, value) in &settings {
-        apply_value(key, value);
+        apply(key, value);
     }
-    SUPPRESS_SYNC.set(false);
-    sync();
     Ok(())
 }
 
-fn validate(document: &Map<String, Value>) -> Result<Vec<(String, Value)>, SettingsError> {
+fn read_object(path: &Path) -> Option<Map<String, Value>> {
+    let Value::Object(root) = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?
+    else {
+        return None;
+    };
+    Some(root)
+}
+
+fn preserve_inactive_mobile_values(
+    mode: crate::environment::BuildMode,
+    existing: Option<&Map<String, Value>>,
+    document: &mut Map<String, Value>,
+) {
+    let inactive = MobileSettingsPolicy::new(mode.other()).keys();
+    for key in [inactive.enabled, inactive.port, inactive.scrollback_cap] {
+        match existing.and_then(|root| root.get(key)) {
+            Some(value) => {
+                document.insert(key.to_owned(), value.clone());
+            }
+            None => {
+                document.remove(key);
+            }
+        }
+    }
+}
+
+fn write_settings_document(path: &Path, root: Map<String, Value>) -> std::io::Result<()> {
+    let contents = to_foundation_json(&Value::Object(root), false, true);
+    crate::store::write_private(path, contents.as_bytes())
+}
+
+fn validate(
+    mode: crate::environment::BuildMode,
+    document: &Map<String, Value>,
+) -> Result<Vec<(String, Value)>, SettingsError> {
     let mut settings = Vec::new();
-    for entry in &MIRROR {
+    for entry in &mirror(mode) {
         let Some(value) = document.get(entry.key) else {
             continue;
         };
-        validate_value(entry, value)?;
+        validate_value_for(mode, entry, value)?;
         settings.push((entry.key.to_owned(), value.clone()));
     }
     Ok(settings)
 }
 
-fn validate_value(entry: &Entry, value: &Value) -> Result<(), SettingsError> {
+fn validate_value_for(
+    mode: crate::environment::BuildMode,
+    entry: &Entry,
+    value: &Value,
+) -> Result<(), SettingsError> {
     let invalid = || SettingsError::InvalidValue(entry.key.to_owned());
     if value.is_null() {
         return Ok(());
@@ -660,14 +757,14 @@ fn validate_value(entry: &Entry, value: &Value) -> Result<(), SettingsError> {
                     .as_i64()
                     .filter(|_| !value.is_boolean())
                     .ok_or_else(invalid)?;
-                validate_range(entry.key, number as f64).ok_or_else(invalid)
+                validate_range(mode, entry.key, number as f64).ok_or_else(invalid)
             }
             Kind::Double(_) => {
                 let number = value
                     .as_f64()
                     .filter(|_| !value.is_boolean())
                     .ok_or_else(invalid)?;
-                validate_range(entry.key, number).ok_or_else(invalid)
+                validate_range(mode, entry.key, number).ok_or_else(invalid)
             }
             Kind::Str(_) => {
                 let text = value.as_str().ok_or_else(invalid)?;
@@ -728,14 +825,15 @@ fn validate_string(key: &str, value: &str) -> Option<()> {
     allowed.contains(&value).then_some(())
 }
 
-fn validate_range(key: &str, value: f64) -> Option<()> {
+fn validate_range(mode: crate::environment::BuildMode, key: &str, value: f64) -> Option<()> {
     if key == "muxy.tabs.maxWidth" {
         return (value >= 0.0 && value.is_finite()).then_some(());
     }
     if key == "editor.richInputLineHeightMultiplier" {
         return (1.1..=2.0).contains(&value).then_some(());
     }
-    let Some((_, low, high)) = INT_RANGES.iter().find(|(name, _, _)| *name == key) else {
+    let ranges = int_ranges(mode);
+    let Some((_, low, high)) = ranges.iter().find(|(name, _, _)| *name == key) else {
         return Some(());
     };
     (value >= *low as f64 && value <= *high as f64).then_some(())
@@ -889,6 +987,245 @@ mod tests {
     }
 
     #[test]
+    fn explicit_mirrors_differ_only_at_the_three_mobile_entries() {
+        let development = super::mirror(crate::environment::BuildMode::Development);
+        let production = super::mirror(crate::environment::BuildMode::Production);
+        let differences: Vec<usize> = development
+            .iter()
+            .zip(production.iter())
+            .enumerate()
+            .filter_map(|(index, (left, right))| (left != right).then_some(index))
+            .collect();
+        assert_eq!(development.len(), 68);
+        assert_eq!(production.len(), 68);
+        for entries in [&development, &production] {
+            let mut keys: Vec<&str> = entries.iter().map(|entry| entry.key).collect();
+            keys.sort_unstable();
+            keys.dedup();
+            assert_eq!(keys.len(), 68);
+        }
+        assert_eq!(differences.len(), 3);
+        for index in differences {
+            assert!(development[index].key.ends_with(".dev"));
+            assert_eq!(
+                development[index].key.strip_suffix(".dev"),
+                Some(production[index].key)
+            );
+        }
+        assert_eq!(super::MIRROR, super::mirror(crate::build_mode!()));
+    }
+
+    #[test]
+    fn active_mobile_entries_match_the_current_artifact() {
+        let keys: Vec<&str> = super::MIRROR.iter().map(|entry| entry.key).collect();
+        for key in [
+            super::MOBILE_KEYS.enabled,
+            super::MOBILE_KEYS.port,
+            super::MOBILE_KEYS.scrollback_cap,
+        ] {
+            assert!(keys.contains(&key));
+            assert_eq!(key.ends_with(".dev"), crate::build_mode!().is_development());
+        }
+
+        let defaults: Value = serde_json::from_str(&super::system_defaults_text()).unwrap();
+        assert_eq!(
+            defaults[super::MOBILE_KEYS.enabled],
+            json!(super::MOBILE_POLICY.settings_enabled_default())
+        );
+        assert_eq!(
+            defaults[super::MOBILE_KEYS.port],
+            json!(super::MOBILE_POLICY.default_port())
+        );
+        assert_eq!(
+            defaults[super::MOBILE_KEYS.scrollback_cap],
+            json!(super::MOBILE_POLICY.default_scrollback_cap())
+        );
+    }
+
+    #[test]
+    fn system_defaults_lists_only_the_selected_mobile_namespace() {
+        for mode in [
+            crate::environment::BuildMode::Development,
+            crate::environment::BuildMode::Production,
+        ] {
+            let active = crate::environment::MobileSettingsPolicy::new(mode).keys();
+            let inactive = crate::environment::MobileSettingsPolicy::new(mode.other()).keys();
+            let root: Value = serde_json::from_str(&super::system_defaults_text_for(mode)).unwrap();
+            let root = root.as_object().unwrap();
+            assert_eq!(root.len(), 68);
+            for key in [active.enabled, active.port, active.scrollback_cap] {
+                assert!(root.contains_key(key));
+            }
+            for key in [inactive.enabled, inactive.port, inactive.scrollback_cap] {
+                assert!(!root.contains_key(key));
+            }
+        }
+    }
+
+    #[test]
+    fn both_modes_sync_without_changing_the_inactive_mobile_keys() {
+        for mode in [
+            crate::environment::BuildMode::Development,
+            crate::environment::BuildMode::Production,
+        ] {
+            let inactive = crate::environment::MobileSettingsPolicy::new(mode.other()).keys();
+            let fixture = json!({
+                (inactive.enabled): false,
+                (inactive.port): 6123,
+                (inactive.scrollback_cap): 21,
+            });
+            let (_dir, path) = sync_fixture(&serde_json::to_string(&fixture).unwrap());
+            assert!(super::sync_at_with(&path, mode, |entry, _| Some(
+                super::default_entry_value(entry)
+            )));
+            let root: Value =
+                serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            assert_eq!(root[inactive.enabled], json!(false));
+            assert_eq!(root[inactive.port], json!(6123));
+            assert_eq!(root[inactive.scrollback_cap], json!(21));
+        }
+    }
+
+    #[test]
+    fn apply_restores_inactive_mobile_values_and_applies_only_active_keys() {
+        for mode in [
+            crate::environment::BuildMode::Development,
+            crate::environment::BuildMode::Production,
+        ] {
+            let active_policy = crate::environment::MobileSettingsPolicy::new(mode);
+            let active = active_policy.keys();
+            let inactive = crate::environment::MobileSettingsPolicy::new(mode.other()).keys();
+            let held = mobile_values(
+                inactive,
+                json!({ "held": false }),
+                json!([6123]),
+                Value::Null,
+            );
+            for replacement in [
+                None,
+                Some(mobile_values(inactive, json!(true), json!(7000), json!(32))),
+                Some(mobile_values(
+                    inactive,
+                    Value::Null,
+                    Value::Null,
+                    Value::Null,
+                )),
+                Some(mobile_values(
+                    inactive,
+                    json!("invalid"),
+                    json!({ "invalid": true }),
+                    json!(false),
+                )),
+            ] {
+                let (_dir, path) =
+                    sync_fixture(&serde_json::to_string(&Value::Object(held.clone())).unwrap());
+                let mut submitted = mobile_values(
+                    active,
+                    json!(false),
+                    json!(active_policy.minimum_port()),
+                    json!(active_policy.maximum_scrollback_cap()),
+                );
+                if let Some(replacement) = replacement {
+                    submitted.extend(replacement);
+                }
+                let mut applied = Vec::new();
+                super::save_user_text_at(
+                    &path,
+                    mode,
+                    &serde_json::to_string(&Value::Object(submitted)).unwrap(),
+                    |key, value| applied.push((key.to_owned(), value.clone())),
+                )
+                .unwrap();
+                let saved = super::read_object(&path).unwrap();
+                for key in [inactive.enabled, inactive.port, inactive.scrollback_cap] {
+                    assert_eq!(saved.get(key), held.get(key));
+                    assert!(!applied.iter().any(|(applied, _)| applied == key));
+                }
+                assert_eq!(applied.len(), 3);
+            }
+        }
+    }
+
+    #[test]
+    fn apply_cannot_add_missing_inactive_mobile_values() {
+        for mode in [
+            crate::environment::BuildMode::Development,
+            crate::environment::BuildMode::Production,
+        ] {
+            let active_policy = crate::environment::MobileSettingsPolicy::new(mode);
+            let active = active_policy.keys();
+            let inactive = crate::environment::MobileSettingsPolicy::new(mode.other()).keys();
+            let (_dir, path) = sync_fixture("{}");
+            let mut submitted = mobile_values(
+                active,
+                json!(true),
+                json!(active_policy.default_port()),
+                json!(active_policy.default_scrollback_cap()),
+            );
+            submitted.extend(mobile_values(inactive, json!(true), json!(7000), json!(32)));
+            let mut applied = Vec::new();
+            super::save_user_text_at(
+                &path,
+                mode,
+                &serde_json::to_string(&Value::Object(submitted)).unwrap(),
+                |key, value| applied.push((key.to_owned(), value.clone())),
+            )
+            .unwrap();
+            let saved = super::read_object(&path).unwrap();
+            for key in [inactive.enabled, inactive.port, inactive.scrollback_cap] {
+                assert!(!saved.contains_key(key));
+                assert!(!applied.iter().any(|(applied, _)| applied == key));
+            }
+            assert_eq!(applied.len(), 3);
+        }
+    }
+
+    #[test]
+    fn apply_validates_active_mobile_boundaries_for_both_modes() {
+        for mode in [
+            crate::environment::BuildMode::Development,
+            crate::environment::BuildMode::Production,
+        ] {
+            let policy = crate::environment::MobileSettingsPolicy::new(mode);
+            let keys = policy.keys();
+            let valid = mobile_values(
+                keys,
+                json!(true),
+                json!(policy.maximum_port()),
+                json!(policy.minimum_scrollback_cap()),
+            );
+            assert!(super::validate(mode, &valid).is_ok());
+
+            let mut invalid_port = valid.clone();
+            invalid_port.insert(keys.port.to_owned(), json!(80));
+            assert!(super::validate(mode, &invalid_port).is_err());
+
+            let mut invalid_cap = valid;
+            invalid_cap.insert(keys.scrollback_cap.to_owned(), json!(129));
+            assert!(super::validate(mode, &invalid_cap).is_err());
+        }
+    }
+
+    #[test]
+    fn reset_preserves_inactive_mobile_values_for_both_modes() {
+        for mode in [
+            crate::environment::BuildMode::Development,
+            crate::environment::BuildMode::Production,
+        ] {
+            let inactive = crate::environment::MobileSettingsPolicy::new(mode.other()).keys();
+            let held = mobile_values(inactive, json!(false), json!(7001), json!({ "mb": 16 }));
+            let (_dir, path) =
+                sync_fixture(&serde_json::to_string(&Value::Object(held.clone())).unwrap());
+            super::reset_user_file_at(&path, mode, |entry| Some(super::default_entry_value(entry)))
+                .unwrap();
+            let saved = super::read_object(&path).unwrap();
+            for key in [inactive.enabled, inactive.port, inactive.scrollback_cap] {
+                assert_eq!(saved.get(key), held.get(key));
+            }
+        }
+    }
+
+    #[test]
     fn serializes_settings_json_the_way_foundation_does() {
         let value = json!({
             "SUAutomaticallyUpdate": true,
@@ -970,11 +1307,24 @@ mod tests {
         (dir, path)
     }
 
+    fn mobile_values(
+        keys: crate::environment::MobileSettingsKeys,
+        enabled: Value,
+        port: Value,
+        cap: Value,
+    ) -> serde_json::Map<String, Value> {
+        let mut root = serde_json::Map::new();
+        root.insert(keys.enabled.to_owned(), enabled);
+        root.insert(keys.port.to_owned(), port);
+        root.insert(keys.scrollback_cap.to_owned(), cap);
+        root
+    }
+
     #[test]
     fn sync_preserves_unknown_keys_and_overwrites_mirrored_ones() {
         let (_dir, path) =
             sync_fixture("{\"zzz.unknown\":{\"kept\":1},\"muxy.showStatusBar\":\"not a bool\"}");
-        assert!(super::sync_at(&path));
+        assert!(super::sync_at(&path, crate::build_mode!()));
         let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(root.get("zzz.unknown"), Some(&json!({ "kept": 1 })));
         assert!(root.get("muxy.showStatusBar").unwrap().is_boolean());
@@ -984,7 +1334,7 @@ mod tests {
     #[test]
     fn sync_emits_every_special_key_whose_source_it_can_read() {
         let (_dir, path) = sync_fixture("{}");
-        super::sync_at(&path);
+        super::sync_at(&path, crate::build_mode!());
         let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(root["shortcuts.quickTerminal"].get("type").is_some());
         assert!(!root["shortcuts.app"].as_object().unwrap().is_empty());
@@ -1019,20 +1369,20 @@ mod tests {
     #[test]
     fn sync_skips_the_write_when_every_mirrored_value_already_agrees() {
         let (_dir, path) = sync_fixture("{}");
-        assert!(super::sync_at(&path));
+        assert!(super::sync_at(&path, crate::build_mode!()));
         let canonical: Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
 
         let compact = serde_json::to_string(&canonical).unwrap();
         std::fs::write(&path, &compact).expect("write");
-        assert!(!super::sync_at(&path));
+        assert!(!super::sync_at(&path, crate::build_mode!()));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), compact);
     }
 
     #[test]
     fn sync_leaves_a_corrupt_file_untouched() {
         let (_dir, path) = sync_fixture("this is not json");
-        assert!(!super::sync_at(&path));
+        assert!(!super::sync_at(&path, crate::build_mode!()));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "this is not json");
     }
 
@@ -1081,58 +1431,81 @@ mod tests {
             .iter()
             .find(|entry| entry.key == "muxy.tabs.maxWidth")
             .expect("entry");
-        assert!(super::validate_value(entry, &json!(180.0)).is_ok());
-        assert!(super::validate_value(entry, &json!(-1.0)).is_err());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(180.0)).is_ok());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(-1.0)).is_err());
         assert_eq!(
-            super::validate_value(entry, &json!("wide")),
+            super::validate_value_for(crate::build_mode!(), entry, &json!("wide")),
             Err(super::SettingsError::InvalidValue(
                 "muxy.tabs.maxWidth".to_owned()
             ))
         );
-        assert!(super::validate_value(entry, &Value::Null).is_ok());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &Value::Null).is_ok());
 
         let entry = super::MIRROR
             .iter()
             .find(|entry| entry.key == "muxy.ui.scale")
             .expect("entry");
-        assert!(super::validate_value(entry, &json!("huge")).is_ok());
-        assert!(super::validate_value(entry, &json!("enormous")).is_err());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!("huge")).is_ok());
+        assert!(
+            super::validate_value_for(crate::build_mode!(), entry, &json!("enormous")).is_err()
+        );
 
         let entry = super::MIRROR
             .iter()
-            .find(|entry| entry.key == "app.muxy.mobile.serverPort")
+            .find(|entry| entry.key == super::MOBILE_KEYS.port)
             .expect("entry");
-        assert!(super::validate_value(entry, &json!(4865)).is_ok());
-        assert!(super::validate_value(entry, &json!(80)).is_err());
-        assert!(super::validate_value(entry, &json!(true)).is_err());
+        assert!(
+            super::validate_value_for(
+                crate::build_mode!(),
+                entry,
+                &json!(super::MOBILE_POLICY.default_port())
+            )
+            .is_ok()
+        );
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(80)).is_err());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(true)).is_err());
+
+        let entry = super::MIRROR
+            .iter()
+            .find(|entry| entry.key == super::MOBILE_KEYS.scrollback_cap)
+            .expect("entry");
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(1)).is_ok());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(128)).is_ok());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(0)).is_err());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(129)).is_err());
 
         let entry = super::MIRROR
             .iter()
             .find(|entry| entry.key == "muxy.showStatusBar")
             .expect("entry");
-        assert!(super::validate_value(entry, &json!(false)).is_ok());
-        assert!(super::validate_value(entry, &json!(0)).is_err());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(false)).is_ok());
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!(0)).is_err());
 
         let entry = super::MIRROR
             .iter()
             .find(|entry| entry.key == "shortcuts.app")
             .expect("entry");
-        assert!(super::validate_value(entry, &json!({ "newTab": {} })).is_ok());
-        assert!(super::validate_value(entry, &json!({})).is_err());
+        assert!(
+            super::validate_value_for(crate::build_mode!(), entry, &json!({ "newTab": {} }))
+                .is_ok()
+        );
+        assert!(super::validate_value_for(crate::build_mode!(), entry, &json!({})).is_err());
 
         let entry = super::MIRROR
             .iter()
             .find(|entry| entry.key == "shortcuts.customCommands")
             .expect("entry");
         assert!(
-            super::validate_value(
+            super::validate_value_for(
+                crate::build_mode!(),
                 entry,
                 &json!({ "prefixCombo": { "key": "g" }, "shortcuts": [] })
             )
             .is_ok()
         );
         assert!(
-            super::validate_value(
+            super::validate_value_for(
+                crate::build_mode!(),
                 entry,
                 &json!({ "prefixCombo": { "key": "" }, "shortcuts": [] })
             )
@@ -1143,8 +1516,14 @@ mod tests {
             .iter()
             .find(|entry| entry.key == "ai.providers")
             .expect("entry");
-        assert!(super::validate_value(entry, &json!({ "claude": true })).is_ok());
-        assert!(super::validate_value(entry, &json!({ "claude": 1 })).is_err());
+        assert!(
+            super::validate_value_for(crate::build_mode!(), entry, &json!({ "claude": true }))
+                .is_ok()
+        );
+        assert!(
+            super::validate_value_for(crate::build_mode!(), entry, &json!({ "claude": 1 }))
+                .is_err()
+        );
     }
 
     #[test]
@@ -1152,7 +1531,7 @@ mod tests {
         let mut document = serde_json::Map::new();
         document.insert("zzz.unknown".to_owned(), json!(1));
         document.insert("muxy.showStatusBar".to_owned(), json!(false));
-        let settings = super::validate(&document).expect("valid");
+        let settings = super::validate(crate::build_mode!(), &document).expect("valid");
         assert_eq!(settings.len(), 1);
         assert_eq!(settings[0].0, "muxy.showStatusBar");
     }
@@ -1173,7 +1552,7 @@ mod tests {
 
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("settings.json");
-        assert!(super::sync_at(&path));
+        assert!(super::sync_at(&path, crate::build_mode!()));
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }

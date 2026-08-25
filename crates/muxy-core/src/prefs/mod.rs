@@ -2,7 +2,8 @@ mod defaults;
 pub mod settings;
 
 use serde_json::Value;
-use std::path::PathBuf;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScalePreset {
@@ -201,7 +202,10 @@ impl Prefs {
     }
 
     fn apply_user_defaults(&mut self) {
-        let path = home_dir().join("Library/Preferences/com.muxy.app.plist");
+        let Some(domain_name) = defaults::domain_name() else {
+            return;
+        };
+        let path = home_dir().join(format!("Library/Preferences/{domain_name}.plist"));
         let Ok(plist::Value::Dictionary(defaults)) = plist::Value::from_file(&path) else {
             return;
         };
@@ -291,6 +295,8 @@ fn as_bool(value: &plist::Value) -> Option<bool> {
         .or_else(|| value.as_signed_integer().map(|number| number != 0))
 }
 
+const TEST_APP_SUPPORT_DIRECTORY: &str = "MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY";
+
 pub fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -298,7 +304,53 @@ pub fn home_dir() -> PathBuf {
 }
 
 pub fn app_support_dir() -> PathBuf {
-    home_dir().join("Library/Application Support/Muxy")
+    let executable_is_test = std::env::current_exe()
+        .ok()
+        .as_deref()
+        .is_some_and(executable_is_test_process);
+    let is_test = cfg!(test) || executable_is_test;
+    let override_directory = is_test
+        .then(|| std::env::var_os(TEST_APP_SUPPORT_DIRECTORY))
+        .flatten();
+    resolve_app_support_dir(
+        &home_dir(),
+        is_test,
+        override_directory.as_deref(),
+        &std::env::temp_dir(),
+        std::process::id(),
+    )
+}
+
+fn executable_is_test_process(path: &Path) -> bool {
+    let Some(name) = path.file_stem().and_then(OsStr::to_str) else {
+        return false;
+    };
+    if name.ends_with("Tests") {
+        return true;
+    }
+    let Some((target, hash)) = name.rsplit_once('-') else {
+        return false;
+    };
+    !target.is_empty()
+        && hash.len() == 16
+        && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+        && path.parent().and_then(Path::file_name) == Some(OsStr::new("deps"))
+}
+
+fn resolve_app_support_dir(
+    home: &Path,
+    is_test: bool,
+    override_directory: Option<&OsStr>,
+    temporary_directory: &Path,
+    process_id: u32,
+) -> PathBuf {
+    if is_test {
+        if let Some(override_directory) = override_directory.filter(|path| !path.is_empty()) {
+            return PathBuf::from(override_directory);
+        }
+        return temporary_directory.join(format!("MuxyTests-{process_id}"));
+    }
+    home.join("Library/Application Support/Muxy")
 }
 
 pub fn read_json(path: &PathBuf) -> Option<Value> {
@@ -308,7 +360,10 @@ pub fn read_json(path: &PathBuf) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::ScalePreset;
+    use std::ffi::OsStr;
+    use std::path::Path;
+
+    use super::{ScalePreset, executable_is_test_process, resolve_app_support_dir};
 
     #[test]
     fn parsing_a_raw_preset_is_the_identity() {
@@ -319,6 +374,74 @@ mod tests {
             ScalePreset::Huge,
         ] {
             assert_eq!(ScalePreset::parse(preset.raw()), preset);
+        }
+    }
+
+    #[test]
+    fn normal_app_support_uses_the_user_home_and_ignores_test_override() {
+        assert_eq!(
+            resolve_app_support_dir(
+                Path::new("/Users/example"),
+                false,
+                Some(OsStr::new("/project/test-state")),
+                Path::new("/tmp"),
+                42,
+            ),
+            Path::new("/Users/example/Library/Application Support/Muxy")
+        );
+    }
+
+    #[test]
+    fn test_app_support_uses_a_nonempty_override() {
+        assert_eq!(
+            resolve_app_support_dir(
+                Path::new("/Users/example"),
+                true,
+                Some(OsStr::new("/project/test-state")),
+                Path::new("/tmp"),
+                42,
+            ),
+            Path::new("/project/test-state")
+        );
+    }
+
+    #[test]
+    fn test_app_support_falls_back_to_a_process_specific_temporary_directory() {
+        for override_directory in [None, Some(OsStr::new(""))] {
+            assert_eq!(
+                resolve_app_support_dir(
+                    Path::new("/Users/example"),
+                    true,
+                    override_directory,
+                    Path::new("/tmp"),
+                    42,
+                ),
+                Path::new("/tmp/MuxyTests-42")
+            );
+        }
+    }
+
+    #[test]
+    fn only_staged_and_cargo_test_executables_are_recognized() {
+        assert!(executable_is_test_process(Path::new(
+            "/project/target/p1/MuxyTests.app/Contents/MacOS/MuxyTests"
+        )));
+        assert!(executable_is_test_process(Path::new(
+            "/project/target/debug/deps/muxy-0123456789abcdef"
+        )));
+        assert!(executable_is_test_process(Path::new(
+            "/project/target/release/deps/integration_test-fedcba9876543210.exe"
+        )));
+        for path in [
+            "/project/target/debug/muxy",
+            "/project/target/release/Muxy",
+            "/project/target/debug/MuxyTest",
+            "/project/target/debug/TestsMuxy",
+            "/project/target/debug/muxy-0123456789abcdef",
+            "/project/target/debug/deps/muxy-not-a-hash",
+            "/project/target/debug/deps/muxy-0123456789abcde",
+        ] {
+            assert!(!executable_is_test_process(Path::new(path)), "{path}");
         }
     }
 }

@@ -9,8 +9,8 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
     let mut items = vec![toggle_row(
         style,
         "Allow mobile device connections",
-        "app.muxy.mobile.serverEnabled",
-        false,
+        MOBILE_ENABLED,
+        settings::MOBILE_POLICY.settings_enabled_default(),
         cx,
     )];
     for (key, label) in [

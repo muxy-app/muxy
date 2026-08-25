@@ -1,3 +1,4 @@
+pub mod environment;
 pub mod fold;
 pub mod prefs;
 pub mod settings_catalog;

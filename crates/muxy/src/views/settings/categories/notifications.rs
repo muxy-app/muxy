@@ -115,7 +115,7 @@ fn provider_row(
                 cx.listener(move |modal: &mut SettingsModal, _, _, cx| {
                     let key = settings::provider_key(id);
                     let next = !settings::bool_value(&key, true);
-                    modal.write(&key, Value::Bool(next), cx);
+                    modal.write_ai_notification_provider(id, next, cx);
                 }),
             ))
             .into_any_element(),

@@ -254,7 +254,7 @@ impl SettingsModal {
     }
 
     fn prepare_fields(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let specs = categories::fields(self, self.route);
+        let mut specs = categories::fields(self, self.route);
         for spec in &specs {
             if self.fields.contains_key(&spec.id) {
                 continue;
@@ -287,6 +287,9 @@ impl SettingsModal {
                         }
                         InputEvent::Changed => {
                             let text = input.read(cx).text().to_owned();
+                            if categories::commits_on_change(&id) {
+                                categories::commit_field(modal, &id, &text, cx);
+                            }
                             modal.field_changed(&id, text, cx);
                         }
                         InputEvent::Cancelled => cx.notify(),
@@ -307,6 +310,7 @@ impl SettingsModal {
         {
             let text = input.read(cx).text().to_owned();
             categories::commit_field(self, &previous, &text, cx);
+            specs = categories::fields(self, self.route);
         }
         self.field_focus = focused;
 
@@ -710,6 +714,16 @@ impl SettingsModal {
             Some(key.to_owned())
         };
         cx.notify();
+    }
+
+    pub fn write_ai_notification_provider(
+        &mut self,
+        provider: &str,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let key = settings::provider_key(provider);
+        self.write(&key, Value::Bool(enabled), cx);
     }
 
     pub fn write(&mut self, key: &str, value: Value, cx: &mut Context<Self>) {

@@ -36,6 +36,61 @@ if rg -n '^\s*#' scripts/ | rg -v '^[^:]+:1:#!/'; then
     exit 1
 fi
 
+printf '==> Checking production defaults isolation\n'
+production_defaults_domain='com.muxy.'
+production_defaults_domain+='app'
+if rg -n -F "$production_defaults_domain" crates/ \
+    scripts/stage-test-app.sh scripts/run-test-app.sh; then
+    printf 'error: Rust and verification scripts must not select the production defaults domain\n' >&2
+    exit 1
+fi
+
+printf '==> Checking environment policy ownership\n'
+environment_owner='crates/muxy-core/src/environment.rs'
+policy_literals=(
+    'muxy-dev.sock'
+    'muxy.sock'
+    'sessions-dev'
+    'hooks-dev'
+    'app.muxy.mobile.serverEnabled.dev'
+    'app.muxy.mobile.serverPort.dev'
+    'app.muxy.mobile.scrollbackCap.dev'
+    'app.muxy.mobile.serverEnabled'
+    'app.muxy.mobile.serverPort'
+    'app.muxy.mobile.scrollbackCap'
+)
+for literal in "${policy_literals[@]}"; do
+    matches="$(rg -n -F --glob '*.rs' "$literal" crates/ \
+        | rg -v "^${environment_owner}:" || true)"
+    if [[ -n "$matches" ]]; then
+        printf '%s\n' "$matches"
+        printf 'error: environment policy literal is owned by %s: %s\n' \
+            "$environment_owner" "$literal" >&2
+        exit 1
+    fi
+done
+fallback_pattern='"muxy-dev-(\{[^}]*\}|[0-9]+)|"muxy-(\{[^}]*\}|[0-9]+)'
+fallback_matches="$(rg -n --glob '*.rs' "$fallback_pattern" crates/ \
+    | rg -v "^${environment_owner}:" || true)"
+if [[ -n "$fallback_matches" ]]; then
+    printf '%s\n' "$fallback_matches"
+    printf 'error: fallback directory format is owned by %s\n' "$environment_owner" >&2
+    exit 1
+fi
+debug_selector_matches="$(rg -n --glob '*.rs' 'debug_assertions' crates/ \
+    | rg -v "^${environment_owner}:" || true)"
+if [[ -n "$debug_selector_matches" ]]; then
+    printf '%s\n' "$debug_selector_matches"
+    printf 'error: debug_assertions is owned by %s\n' "$environment_owner" >&2
+    exit 1
+fi
+removed_hook_flag='FF_AI_'
+removed_hook_flag+='HOOKS'
+if rg -n -F "$removed_hook_flag" crates/ scripts/ PLAN.md ARCHITECTURE.md; then
+    printf 'error: removed AI hook flag remains in the Rust design\n' >&2
+    exit 1
+fi
+
 printf '==> Checking superseded paths\n'
 for superseded in chrome ui store prefs workspace workspace_store.rs shortcuts.rs; do
     if [[ -e "crates/muxy/src/$superseded" ]]; then
