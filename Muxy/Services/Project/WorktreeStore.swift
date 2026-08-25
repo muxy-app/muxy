@@ -665,11 +665,13 @@ final class WorktreeStore {
             removesStaleManagedCheckout = false
             staleIdentity = nil
         } else {
+            guard !context.isRemote else {
+                throw GitWorktreeService.GitWorktreeError.notRegistered
+            }
             guard try await context.fileOps.exists(at: worktree.path, timeout: deadline.remaining()) else {
                 return .removed
             }
             guard force,
-                  !context.isRemote,
                   let projectID,
                   isMuxyManagedCheckout(worktree, projectID: projectID)
             else {
