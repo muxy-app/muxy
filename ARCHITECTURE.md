@@ -125,6 +125,32 @@ flowchart LR
 - All file writes go through `store::persistence` (atomic temp-file rename, `0600` for private data).
 - `muxy-api::truth` recomputes per-project git facts (repo? worktrees? labels) off the UI thread; `watcher` re-triggers on file changes.
 
+## Development and production policy
+
+`muxy-core::environment` owns build-mode names and authorization facts.
+
+```mermaid
+flowchart LR
+    C[Each consuming crate] --> M[build_mode!]
+    M --> E[muxy-core::environment]
+    E --> S[Socket names · P2]
+    E --> D[Session paths · P8]
+    E --> H[Hook paths and permits · P11]
+    E --> P[Mobile keys and port · P12]
+```
+
+Each binary invokes `build_mode!` locally. No runtime environment variable selects development mode.
+
+| State | Debug and release |
+|---|---|
+| App Support and `settings.json` | Shared |
+| Defaults domain and non-mobile preferences | Shared |
+| Ghostty configuration | Shared |
+| Socket, session, and hook names | Isolated by policy |
+| Mobile keys | Isolated by policy |
+
+`settings.json` keeps both mobile namespaces. The active profile updates its three keys and preserves the inactive three exactly. P1 defines and verifies these contracts but does not start sockets, daemons, hooks, provider installers, or the mobile server.
+
 ## App wiring (muxy binary)
 
 ```mermaid

@@ -130,6 +130,10 @@ pub fn fields(modal: &SettingsModal, category: Category) -> Vec<Field> {
     }
 }
 
+pub fn commits_on_change(id: &str) -> bool {
+    matches!(id, MOBILE_PORT | MOBILE_CAP)
+}
+
 pub fn commit_field(
     modal: &mut SettingsModal,
     id: &str,
@@ -277,8 +281,9 @@ const COMMIT_PROVIDER: &str = "muxy.ai.repositoryActions.commit.provider";
 const COMMIT_PROMPT_KEY: &str = "muxy.ai.repositoryActions.commit.prompt";
 const PR_PROVIDER: &str = "muxy.ai.repositoryActions.createPullRequest.provider";
 const PR_PROMPT_KEY: &str = "muxy.ai.repositoryActions.createPullRequest.prompt";
-const MOBILE_PORT: &str = "app.muxy.mobile.serverPort";
-const MOBILE_CAP: &str = "app.muxy.mobile.scrollbackCap";
+const MOBILE_ENABLED: &str = settings::MOBILE_KEYS.enabled;
+const MOBILE_PORT: &str = settings::MOBILE_KEYS.port;
+const MOBILE_CAP: &str = settings::MOBILE_KEYS.scrollback_cap;
 const QUICK_WIDTH: &str = "muxy.quickTerminal.width";
 const QUICK_HEIGHT: &str = "muxy.quickTerminal.height";
 const QUICK_TRANSPARENCY: &str = "muxy.quickTerminal.transparency";
@@ -311,6 +316,7 @@ pub fn extra_fields(category: Category) -> Vec<Field> {
         monospaced: rows,
         multiline: rows,
     };
+    let mobile_port_default = settings::MOBILE_POLICY.default_port().to_string();
     match category {
         Category::Browser => vec![field(
             HOME_PAGE,
@@ -341,13 +347,15 @@ pub fn extra_fields(category: Category) -> Vec<Field> {
         Category::Mobile => vec![
             field(
                 MOBILE_PORT,
-                settings::i64_value(MOBILE_PORT, 4865).to_string(),
-                "4865",
+                settings::i64_value(MOBILE_PORT, settings::MOBILE_POLICY.default_port() as i64)
+                    .to_string(),
+                &mobile_port_default,
                 false,
             ),
             field(
                 MOBILE_CAP,
-                settings::i64_value(MOBILE_CAP, 8).to_string(),
+                settings::i64_value(MOBILE_CAP, settings::MOBILE_POLICY.default_scrollback_cap())
+                    .to_string(),
                 "8",
                 false,
             ),
@@ -399,11 +407,9 @@ pub fn commit_extra_field(
             modal.write(key, Value::String(text.to_owned()), cx);
         }
         MOBILE_PORT => {
-            let valid = text
-                .trim()
-                .parse::<i64>()
-                .ok()
-                .filter(|port| (1024..=65535).contains(port));
+            let valid = text.trim().parse::<i64>().ok().filter(|port| {
+                u16::try_from(*port).is_ok_and(|port| settings::MOBILE_POLICY.is_valid_port(port))
+            });
             match valid {
                 Some(port) => {
                     modal.set_error(id, None, cx);
@@ -417,7 +423,7 @@ pub fn commit_extra_field(
                 .trim()
                 .parse::<i64>()
                 .ok()
-                .filter(|cap| (1..=128).contains(cap));
+                .filter(|cap| settings::MOBILE_POLICY.is_valid_scrollback_cap(*cap));
             match valid {
                 Some(cap) => {
                     modal.set_error(id, None, cx);

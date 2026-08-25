@@ -511,6 +511,7 @@ pub fn text_field(
             Some(width) => element.flex_none().w(metrics.scaled(width)),
             None => element.flex_grow().min_w(px(0.0)),
         })
+        .on_mouse_down_out(|_, window, _| window.blur())
         .child(crate::text_input::growing_input(input))
         .into_any_element()
 }

@@ -417,6 +417,12 @@ mod tests {
         items.iter().map(|item| item.title.as_str()).collect()
     }
 
+    #[test]
+    fn cargo_app_tests_cannot_resolve_production_app_support() {
+        let production = muxy_core::prefs::home_dir().join("Library/Application Support/Muxy");
+        assert_ne!(muxy_core::prefs::app_support_dir(), production);
+    }
+
     fn worktree(id: &str, name: &str, path: &str, is_primary: bool) -> muxy_core::store::Worktree {
         muxy_core::store::Worktree {
             id: id.to_owned(),
