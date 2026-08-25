@@ -748,6 +748,7 @@ final class WorktreeStore {
             timeout: operation.deadline.remaining()
         )
         else {
+            await removeParentDirectoryIfEmpty(for: worktree.path)
             return .finished(.removed)
         }
         guard operation.force,
