@@ -15,6 +15,8 @@ pub use surfaces::TerminalSurfaces;
 
 #[cfg(target_os = "macos")]
 pub use ghostty::GhosttyBackend as Backend;
+#[cfg(target_os = "macos")]
+pub(crate) use ghostty::install_development_cli_environment;
 #[cfg(not(target_os = "macos"))]
 pub use unsupported::UnsupportedBackend as Backend;
 

@@ -31,7 +31,7 @@ impl MainWindow {
         self.project_runtime.watchers.sync(&projects);
     }
 
-    pub(super) fn refresh_project_truth(
+    pub(crate) fn refresh_project_truth(
         &mut self,
         only: Option<&HashSet<String>>,
         cx: &mut Context<Self>,

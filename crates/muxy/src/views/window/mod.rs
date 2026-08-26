@@ -9,6 +9,7 @@ mod view_state;
 mod workspace;
 
 use crate::command::Command;
+use crate::socket::runtime::{SocketBootstrap, SocketRuntime};
 use crate::state::AppState;
 use crate::terminal::{
     ConfirmationKind, PointerInput, SurfaceAction, SurfaceSignal, TerminalEvent, TerminalSurfaces,
@@ -58,18 +59,29 @@ use view_state::{ScrollbarDrag, ViewState, WorkspaceGesture};
 pub struct MainWindow {
     pub state: AppState,
     view: ViewState,
-    terminal_runtime: TerminalRuntime,
+    pub(crate) terminal_runtime: TerminalRuntime,
     project_runtime: ProjectRuntime,
+    _socket_runtime: SocketRuntime,
     picker_search: muxy_api::picker::search::SearchService,
 }
 
 impl MainWindow {
-    pub fn new(state: AppState, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        state: AppState,
+        socket: SocketBootstrap,
+        mode: muxy_core::environment::BuildMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let menu_focus = cx.focus_handle();
         let workspace_focus = cx.focus_handle();
-        let mut terminals = TerminalSurfaces::new();
+        let mut terminals = TerminalSurfaces::with_socket_path(socket.socket_path());
         let combos = terminal_shortcut_combos(&state);
-        if let Err(error) = terminals.backend_mut().attach(combos, window) {
+        if let Err(error) =
+            terminals
+                .backend_mut()
+                .attach(combos, mode, socket.socket_path(), window)
+        {
             log::warn!("terminal backend unavailable: {error}");
         }
         let terminal_tasks = lifecycle::spawn_terminal_pumps(&mut terminals, cx);
@@ -92,11 +104,13 @@ impl MainWindow {
             }
         });
         let view = ViewState::new(menu_focus, workspace_focus, state.prefs.sidebar_expanded);
+        let socket_runtime = SocketRuntime::attach(socket, cx);
         let mut main_window = Self {
             state,
             view,
             terminal_runtime: TerminalRuntime::new(terminals, terminal_tasks),
             project_runtime: ProjectRuntime::new(watchers, watcher_task),
+            _socket_runtime: socket_runtime,
             picker_search: muxy_api::picker::search::SearchService::new(),
         };
         main_window.refresh_project_truth(None, cx);

@@ -1,4 +1,4 @@
-use crate::terminal::surfaces::AppSurfaceHandle;
+use crate::terminal::surfaces::{AppSurfaceHandle, PaneLaunchContext};
 use gpui::{App, Window};
 use muxy_core::shortcuts::KeyCombo;
 use muxy_core::workspace::TabId;
@@ -14,7 +14,13 @@ impl UnsupportedBackend {
         Self
     }
 
-    pub fn attach(&mut self, _combos: Vec<KeyCombo>, _window: &mut Window) -> Result<(), String> {
+    pub fn attach(
+        &mut self,
+        _combos: Vec<KeyCombo>,
+        _mode: muxy_core::environment::BuildMode,
+        _socket_path: &std::path::Path,
+        _window: &mut Window,
+    ) -> Result<(), String> {
         Err("terminal surfaces are only available on macOS".to_owned())
     }
 
@@ -23,6 +29,7 @@ impl UnsupportedBackend {
         _tab_id: &TabId,
         _directory: PathBuf,
         _command: Option<LaunchCommand>,
+        _context: &PaneLaunchContext,
         _window: &mut Window,
         _cx: &mut App,
     ) -> Option<Box<dyn AppSurfaceHandle>> {

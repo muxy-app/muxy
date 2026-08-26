@@ -1,7 +1,7 @@
 use super::*;
 
-pub(super) struct TerminalRuntime {
-    pub(super) surfaces: TerminalSurfaces,
+pub(crate) struct TerminalRuntime {
+    pub(crate) surfaces: TerminalSurfaces,
     pub(super) _tasks: Vec<Task<()>>,
 }
 

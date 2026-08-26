@@ -11,7 +11,7 @@ pub enum Source {
     External,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Worktree {
     pub id: String,
@@ -36,11 +36,62 @@ pub fn file_path(dir: &Path, project_id: &str) -> PathBuf {
     dir.join(format!("{project_id}.json"))
 }
 
-pub fn load_from(dir: &Path, project_id: &str) -> Vec<Worktree> {
-    let Ok(contents) = std::fs::read_to_string(file_path(dir, project_id)) else {
-        return Vec::new();
+#[derive(Debug, Clone, PartialEq)]
+pub enum WorktreeFile {
+    Missing,
+    Loaded(Vec<Worktree>),
+    Invalid,
+}
+
+pub fn load_file_from(dir: &Path, project_id: &str) -> std::io::Result<WorktreeFile> {
+    let contents = match std::fs::read_to_string(file_path(dir, project_id)) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(WorktreeFile::Missing);
+        }
+        Err(error) => return Err(error),
     };
-    serde_json::from_str(&contents).unwrap_or_default()
+    Ok(match serde_json::from_str(&contents) {
+        Ok(worktrees) => WorktreeFile::Loaded(worktrees),
+        Err(_) => WorktreeFile::Invalid,
+    })
+}
+
+pub fn load_from(dir: &Path, project_id: &str) -> Vec<Worktree> {
+    match load_file_from(dir, project_id) {
+        Ok(WorktreeFile::Loaded(worktrees)) => worktrees,
+        Ok(WorktreeFile::Missing | WorktreeFile::Invalid) | Err(_) => Vec::new(),
+    }
+}
+
+pub fn primary(project_name: &str, project_path: &str) -> Worktree {
+    Worktree {
+        id: crate::store::new_uuid(),
+        name: project_name.to_owned(),
+        path: project_path.to_owned(),
+        branch: None,
+        source: Source::Muxy,
+        is_primary: true,
+        created_at: crate::store::reference_now(),
+        last_active_at: None,
+    }
+}
+
+pub fn load_or_create_primary_from(
+    dir: &Path,
+    project_id: &str,
+    project_name: &str,
+    project_path: &str,
+) -> std::io::Result<Option<Vec<Worktree>>> {
+    match load_file_from(dir, project_id)? {
+        WorktreeFile::Missing => {
+            let worktrees = vec![primary(project_name, project_path)];
+            save_to(dir, project_id, &worktrees)?;
+            Ok(Some(worktrees))
+        }
+        WorktreeFile::Loaded(worktrees) => Ok(Some(worktrees)),
+        WorktreeFile::Invalid => Ok(None),
+    }
 }
 
 pub fn save_to(dir: &Path, project_id: &str, worktrees: &[Worktree]) -> std::io::Result<()> {
@@ -104,5 +155,55 @@ mod tests {
         let original: Value = serde_json::to_value(&list).expect("encodes");
         let reloaded: Value = serde_json::to_value(&loaded).expect("re-encodes");
         assert_eq!(original, reloaded);
+    }
+
+    #[test]
+    fn creates_primary_only_when_the_file_is_missing() {
+        let temp = tempfile::tempdir().expect("temp dir");
+
+        let loaded = load_or_create_primary_from(temp.path(), "PROJECT-ID", "Project", "/project")
+            .expect("loads")
+            .expect("valid file");
+
+        assert_eq!(loaded.len(), 1);
+        assert!(loaded[0].is_primary);
+        assert_eq!(loaded[0].name, "Project");
+        assert_eq!(loaded[0].path, "/project");
+        assert_eq!(
+            load_file_from(temp.path(), "PROJECT-ID").expect("reloads"),
+            WorktreeFile::Loaded(loaded)
+        );
+    }
+
+    #[test]
+    fn preserves_valid_files_without_a_primary() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let list = vec![worktree(
+            "OTHER-ID",
+            "feature",
+            "/project-wt",
+            Source::External,
+            false,
+        )];
+        save_to(temp.path(), "PROJECT-ID", &list).expect("saves");
+
+        let loaded = load_or_create_primary_from(temp.path(), "PROJECT-ID", "Project", "/project")
+            .expect("loads")
+            .expect("valid file");
+
+        assert_eq!(loaded, list);
+    }
+
+    #[test]
+    fn leaves_malformed_files_untouched() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = file_path(temp.path(), "PROJECT-ID");
+        std::fs::write(&path, b"not json").expect("writes malformed file");
+
+        let loaded = load_or_create_primary_from(temp.path(), "PROJECT-ID", "Project", "/project")
+            .expect("loads");
+
+        assert_eq!(loaded, None);
+        assert_eq!(std::fs::read(path).expect("reads"), b"not json");
     }
 }

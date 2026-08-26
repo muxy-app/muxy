@@ -17,9 +17,11 @@ cd "$PROJECT_ROOT"
 export CARGO_NET_OFFLINE=true
 
 printf '==> Checking shell syntax\n'
-bash -n scripts/*.sh
+bash -n scripts/*.sh resources/muxy-dev-bin/muxy \
+    resources/muxy-shell-integration/bash resources/muxy-shell-integration/zsh
 if command -v shellcheck >/dev/null 2>&1; then
-    shellcheck scripts/*.sh
+    shellcheck scripts/*.sh resources/muxy-dev-bin/muxy
+    shellcheck -s bash resources/muxy-shell-integration/bash resources/muxy-shell-integration/zsh
 fi
 
 printf '==> Checking for comments\n'
@@ -109,6 +111,7 @@ check_boundary() {
 }
 check_boundary muxy-api 'gpui|objc2|ghostty|muxy[-_]terminal|muxy[-_]ui'
 check_boundary muxy-core 'gpui|muxy[-_]api|muxy[-_]terminal|muxy[-_]ui|notify'
+check_boundary muxy-proto 'gpui|objc2|objective-c|ghostty|muxy[-_](core|api|terminal|ui)|muxy::|package\s*=\s*"muxy"|^\s*muxy(\.workspace)?\s*='
 check_boundary muxy-terminal 'gpui|muxy[-_]api|muxy[-_]ui'
 check_boundary muxy-ui 'muxy[-_]core|muxy[-_]api|muxy[-_]terminal|ghostty'
 

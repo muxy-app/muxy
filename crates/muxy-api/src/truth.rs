@@ -1,6 +1,7 @@
 use crate::git::GitOptions;
 use crate::{git, worktrees};
 use muxy_core::store::Worktree;
+use muxy_core::store::worktrees::WorktreeFile;
 use std::path::Path;
 
 pub type ProjectProbe = (String, String, String, Option<String>);
@@ -10,7 +11,7 @@ pub struct ProjectTruth {
     pub project_id: String,
     pub is_git_repo: bool,
     pub worktree_label: Option<String>,
-    pub worktrees: Vec<Worktree>,
+    pub worktrees: Option<Vec<Worktree>>,
 }
 
 pub fn refresh_truth(options: &GitOptions, projects: &[ProjectProbe]) -> Vec<ProjectTruth> {
@@ -19,12 +20,24 @@ pub fn refresh_truth(options: &GitOptions, projects: &[ProjectProbe]) -> Vec<Pro
         .map(|(id, name, path, preferred_worktree_id)| {
             let is_git_repo = git::is_git_repo(options, Path::new(path));
             let list = if is_git_repo {
-                worktrees::refresh(options, id, name, path)
+                match worktrees::refresh(options, id, name, path) {
+                    worktrees::RefreshOutcome::Updated(worktrees)
+                    | worktrees::RefreshOutcome::Preserved(worktrees, _) => Some(worktrees),
+                    worktrees::RefreshOutcome::Unavailable(_) => None,
+                }
             } else {
-                Vec::new()
+                match muxy_core::store::worktrees::load_file_from(
+                    &muxy_core::store::worktrees::worktrees_dir(),
+                    id,
+                ) {
+                    Ok(WorktreeFile::Loaded(worktrees)) => Some(worktrees),
+                    Ok(WorktreeFile::Missing | WorktreeFile::Invalid) | Err(_) => None,
+                }
             };
-            let worktree_label =
-                is_git_repo.then(|| worktrees::label(&list, preferred_worktree_id.as_deref()));
+            let worktree_label = is_git_repo.then(|| {
+                list.as_deref()
+                    .and_then(|list| worktrees::label(list, preferred_worktree_id.as_deref()))
+            });
             ProjectTruth {
                 project_id: id.clone(),
                 is_git_repo,

@@ -673,6 +673,36 @@ impl GhosttyHostView {
             })
     }
 
+    pub fn send_text(&self, text: &str) -> bool {
+        let surface = self.ivars().surface.borrow();
+        let Some(surface) = surface.as_ref() else {
+            return false;
+        };
+        surface.send_text(text);
+        true
+    }
+
+    pub fn send_bytes(&self, bytes: &[u8]) -> bool {
+        let surface = self.ivars().surface.borrow();
+        let Some(surface) = surface.as_ref() else {
+            return false;
+        };
+        surface.send_input_raw(bytes);
+        true
+    }
+
+    pub fn read_screen_text(&self, last_lines: usize) -> Option<String> {
+        self.ivars()
+            .surface
+            .borrow()
+            .as_ref()?
+            .read_screen_text(last_lines)
+    }
+
+    pub fn foreground_pid(&self) -> Option<u64> {
+        self.ivars().surface.borrow().as_ref()?.foreground_pid()
+    }
+
     pub fn resolve_clipboard_request(
         &self,
         token: ClipboardRequestToken,

@@ -112,6 +112,18 @@ pub trait TerminalSurfaceHandle {
         false
     }
     fn has_selection(&self) -> bool;
+    fn send_text(&self, _text: &str) -> bool {
+        false
+    }
+    fn send_bytes(&self, _bytes: &[u8]) -> bool {
+        false
+    }
+    fn read_screen_text(&self, _last_lines: usize) -> Option<String> {
+        None
+    }
+    fn foreground_pid(&self) -> Option<u64> {
+        None
+    }
     fn metadata(&self) -> &SurfaceMetadata;
     fn perform(&self, action: SurfaceAction) -> bool;
     fn forward_pointer(&self, input: PointerInput) -> bool;

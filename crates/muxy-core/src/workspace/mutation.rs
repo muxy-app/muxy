@@ -79,20 +79,25 @@ impl WorkspaceState {
         Some(tab_id)
     }
 
-    pub fn split_focused_area(&mut self, edge: Edge, mut tab: Tab) -> Option<AreaId> {
+    pub fn split_focused_area(&mut self, edge: Edge, tab: Tab) -> Option<AreaId> {
+        let area_id = self.focused_area_id.clone()?;
+        self.split_area(&area_id, edge, tab)
+    }
+
+    pub fn split_area(&mut self, area_id: &str, edge: Edge, mut tab: Tab) -> Option<AreaId> {
         if self.tab(&tab.id).is_some() {
             return None;
         }
-        let focused_area_id = self.focused_area_id.clone()?;
-        let root_tab_id = self.focused_root_tab_id()?.to_owned();
+        let root_tab_id = self
+            .area(area_id)?
+            .active_tab_id
+            .as_deref()
+            .and_then(|tab_id| self.root_id_for_tab(tab_id))?
+            .to_owned();
         tab.parent_id = Some(root_tab_id);
         let new_area = TabArea::from_tab(tab);
         let new_area_id = new_area.id.clone();
-        if !self
-            .root
-            .as_mut()?
-            .split_area(&focused_area_id, edge, new_area)
-        {
+        if !self.root.as_mut()?.split_area(area_id, edge, new_area) {
             return None;
         }
         self.maximized_area_id = None;
@@ -573,7 +578,18 @@ mod tests {
             state.tab("child-b").unwrap().parent_id.as_deref(),
             Some("b")
         );
-        assert_eq!(state.focused_area_id.as_deref(), Some(child_area.as_str()));
+        let targeted_area = state
+            .split_area(&first_area, Edge::Bottom, tab("targeted-b"))
+            .unwrap();
+        assert_eq!(
+            state.tab("targeted-b").unwrap().parent_id.as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            state.focused_area_id.as_deref(),
+            Some(targeted_area.as_str())
+        );
+        assert!(state.area(&child_area).is_some());
         assert!(matches!(state.root, Some(SplitNode::Split { .. })));
     }
 

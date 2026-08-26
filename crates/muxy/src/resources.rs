@@ -138,7 +138,11 @@ fn require_file(path: &Path, kind: &'static str) -> Result<(), ResourceError> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
+    #[cfg(unix)]
+    use std::process::Command;
 
     use tempfile::TempDir;
 
@@ -219,6 +223,98 @@ mod tests {
 
         assert!(
             matches!(error, ResourceError::InvalidBundleExecutable(path) if path == executable)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn development_cli_version_forms_report_the_injected_target() {
+        let temp = TempDir::new().unwrap();
+        let resources = temp.path().join("MuxyTests.app/Contents/Resources");
+        let bin = resources.join("muxy-dev-bin");
+        let scripts = resources.join("Muxy_Muxy.bundle/scripts");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&scripts).unwrap();
+        let source =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/muxy-dev-bin/muxy");
+        let launcher = bin.join("muxy");
+        fs::copy(source, &launcher).unwrap();
+        fs::write(scripts.join("muxy-cli"), b"#!/bin/bash\nexit 0\n").unwrap();
+        let app = temp.path().join("Injected.app");
+        let socket = temp.path().join(
+            muxy_core::environment::RuntimePathPolicy::new(
+                muxy_core::environment::BuildMode::Development,
+            )
+            .main_socket_filename(),
+        );
+        for form in ["version", "--version", "-V"] {
+            let output = Command::new("bash")
+                .arg(&launcher)
+                .arg(form)
+                .env("MUXY_DEVELOPMENT_VERSION", "2.3.4")
+                .env("MUXY_DEVELOPMENT_APP_PATH", &app)
+                .env("MUXY_DEVELOPMENT_SOCKET_PATH", &socket)
+                .env("MUXY_VERSION", "wrong")
+                .env("MUXY_APP_PATH", "/wrong.app")
+                .env("MUXY_SOCKET_PATH", "/wrong.sock")
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            assert!(stdout.contains("Muxy 2.3.4\n"));
+            assert!(stdout.contains("mode: development\n"));
+            assert!(stdout.contains(&format!("app: {}\n", app.display())));
+            assert!(stdout.contains(&format!(
+                "cli: {}/muxy-cli\n",
+                fs::canonicalize(&scripts).unwrap().display()
+            )));
+            assert!(stdout.contains(&format!("socket: {}\n", socket.display())));
+            assert!(stdout.contains("socket-status: missing\n"));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn development_cli_forwards_other_commands_unchanged() {
+        let temp = TempDir::new().unwrap();
+        let resources = temp.path().join("MuxyTests.app/Contents/Resources");
+        let bin = resources.join("muxy-dev-bin");
+        let scripts = resources.join("Muxy_Muxy.bundle/scripts");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&scripts).unwrap();
+        let source =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/muxy-dev-bin/muxy");
+        let launcher = bin.join("muxy");
+        fs::copy(source, &launcher).unwrap();
+        let cli = scripts.join("muxy-cli");
+        fs::write(
+            &cli,
+            b"#!/bin/bash\nprintf 'socket=%s\\n' \"$MUXY_SOCKET_PATH\"\nprintf '%s\\n' \"$@\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+        let output = Command::new("bash")
+            .arg(launcher)
+            .args(["send", "--pane", "ABC", "hello world"])
+            .env("MUXY_DEVELOPMENT_SOCKET_PATH", "/development.sock")
+            .env("MUXY_SOCKET_PATH", "/production.sock")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "socket=/development.sock\nsend\n--pane\nABC\nhello world\n"
+        );
+        let extra_version_argument = Command::new("bash")
+            .arg(bin.join("muxy"))
+            .args(["--version", "extra"])
+            .env("MUXY_DEVELOPMENT_SOCKET_PATH", "/development.sock")
+            .output()
+            .unwrap();
+        assert!(extra_version_argument.status.success());
+        assert_eq!(
+            String::from_utf8(extra_version_argument.stdout).unwrap(),
+            "socket=/development.sock\n--version\nextra\n"
         );
     }
 

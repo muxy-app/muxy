@@ -15,6 +15,17 @@ pub struct Group {
     raw: Map<String, Value>,
 }
 
+impl Group {
+    pub fn project_count(&self) -> usize {
+        self.project_ids.len()
+            + self
+                .raw
+                .get("remoteProjects")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Groups {
     path: PathBuf,
@@ -97,6 +108,12 @@ impl Groups {
 
     pub fn is_local(&self, id: &str) -> bool {
         self.find(id).is_some_and(|group| group.is_local)
+    }
+
+    pub fn resolve(&self, identifier: &str) -> Option<&Group> {
+        self.groups.iter().find(|group| {
+            group.id.eq_ignore_ascii_case(identifier) || group.name.eq_ignore_ascii_case(identifier)
+        })
     }
 
     fn find(&self, id: &str) -> Option<&Group> {
@@ -188,9 +205,102 @@ impl Groups {
         self.save();
     }
 
-    fn save(&self) {
+    pub fn try_add(&mut self, name: String) -> std::io::Result<String> {
+        let previous = self.groups.clone();
+        let id = crate::store::new_uuid();
+        self.groups.push(Group {
+            id: id.clone(),
+            name,
+            sort_order: self.groups.len() as i64,
+            project_ids: Vec::new(),
+            is_local: true,
+            raw: Map::new(),
+        });
+        if let Err(error) = self.save_checked() {
+            self.groups = previous;
+            return Err(error);
+        }
+        Ok(id)
+    }
+
+    pub fn try_rename(&mut self, id: &str, name: String) -> std::io::Result<bool> {
+        let Some(index) = self.index_of(id) else {
+            return Ok(false);
+        };
+        let previous = self.groups[index].name.clone();
+        self.groups[index].name = name;
+        if let Err(error) = self.save_checked() {
+            self.groups[index].name = previous;
+            return Err(error);
+        }
+        Ok(true)
+    }
+
+    pub fn try_remove(&mut self, id: &str) -> std::io::Result<bool> {
+        let Some(index) = self.index_of(id) else {
+            return Ok(false);
+        };
+        let removed = self.groups.remove(index);
+        if let Err(error) = self.save_checked() {
+            self.groups.insert(index, removed);
+            return Err(error);
+        }
+        Ok(true)
+    }
+
+    pub fn try_add_project(&mut self, project_id: &str, group_id: &str) -> std::io::Result<bool> {
+        if project_id.eq_ignore_ascii_case(HOME_PROJECT_ID) {
+            return Ok(false);
+        }
+        let Some(index) = self.index_of(group_id) else {
+            return Ok(false);
+        };
+        if !self.groups[index].is_local {
+            return Ok(false);
+        }
+        let previous = self.groups.clone();
+        for (position, group) in self.groups.iter_mut().enumerate() {
+            if position != index {
+                group
+                    .project_ids
+                    .retain(|candidate| !candidate.eq_ignore_ascii_case(project_id));
+            }
+        }
+        if !self.groups[index]
+            .project_ids
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(project_id))
+        {
+            self.groups[index].project_ids.push(project_id.to_owned());
+        }
+        if let Err(error) = self.save_checked() {
+            self.groups = previous;
+            return Err(error);
+        }
+        Ok(true)
+    }
+
+    pub fn try_remove_project_everywhere(&mut self, project_id: &str) -> std::io::Result<()> {
+        let previous = self.groups.clone();
+        for group in &mut self.groups {
+            group
+                .project_ids
+                .retain(|candidate| !candidate.eq_ignore_ascii_case(project_id));
+        }
+        if let Err(error) = self.save_checked() {
+            self.groups = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn save_checked(&self) -> std::io::Result<()> {
         let encoded: Vec<Value> = self.groups.iter().map(encode).collect();
-        let _ = persistence::write_json(&self.path, &encoded);
+        persistence::write_json(&self.path, &encoded)
+    }
+
+    fn save(&self) {
+        let _ = self.save_checked();
     }
 }
 
@@ -334,6 +444,28 @@ mod tests {
         assert!(!groups.add_project(HOME_PROJECT_ID, "GROUP-A"));
         assert!(!groups.add_project("PROJECT-1", "GROUP-SSH"));
         assert!(groups.add_project("PROJECT-1", "GROUP-A"));
+    }
+
+    #[test]
+    fn checked_mutations_roll_back_when_persistence_fails() {
+        let path = temp_path("rollback");
+        write(
+            &path,
+            &json!([
+                {"id": "GROUP-A", "name": "A", "sortOrder": 0, "projectIDs": []}
+            ]),
+        );
+        let mut groups = Groups::load_from(&path);
+        groups.path = PathBuf::from("/dev/null/project-groups.json");
+
+        assert!(groups.try_add("B".to_owned()).is_err());
+        assert_eq!(groups.all().len(), 1);
+        assert!(groups.try_rename("GROUP-A", "Changed".to_owned()).is_err());
+        assert_eq!(groups.all()[0].name, "A");
+        assert!(groups.try_add_project("PROJECT-1", "GROUP-A").is_err());
+        assert!(groups.all()[0].project_ids.is_empty());
+        assert!(groups.try_remove("GROUP-A").is_err());
+        assert_eq!(groups.all().len(), 1);
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use crate::socket::ingress::IngressQueues;
 use gpui::{App, WindowAppearance};
 use muxy_core::prefs::Prefs;
 use muxy_core::shortcuts::ShortcutMap;
@@ -16,6 +17,7 @@ pub struct AppState {
     pub shortcuts: ShortcutMap,
     pub command_shortcuts: CommandShortcuts,
     pub worktrees: HashMap<String, Vec<Worktree>>,
+    pub socket_ingress: IngressQueues,
     pub active_project_id: Option<String>,
     pub ide_name: Option<String>,
     pub appearance: Appearance,
@@ -23,7 +25,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn load(cx: &App) -> Self {
-        let prefs = Prefs::load();
+        let mut prefs = Prefs::load();
         let appearance = match cx.window_appearance() {
             WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
             _ => Appearance::Dark,
@@ -33,9 +35,58 @@ impl AppState {
             Appearance::Dark => crate::themes::load(&prefs.dark_theme, "Muxy"),
         };
         let workspace = Workspace::load(&prefs);
+        let previous_active_worktree_ids = prefs.active_worktree_ids.clone();
         let mut tab_workspaces = WorkspaceStore::load();
+        let previous_tab_workspaces = tab_workspaces.clone();
+        let mut worktrees = HashMap::new();
+        let mut active_worktrees_changed = false;
         for project in &workspace.projects {
-            tab_workspaces.ensure_project(project.id.clone(), project.path.clone());
+            let loaded = (!project.is_remote())
+                .then(|| {
+                    muxy_api::worktrees::load_or_create_primary(
+                        &project.id,
+                        &project.name,
+                        &project.path,
+                    )
+                })
+                .flatten();
+            let Some(loaded) = loaded else {
+                tab_workspaces.ensure_project(project.id.clone(), project.path.clone());
+                continue;
+            };
+            let selected = prefs
+                .active_worktree_ids
+                .get(&project.id)
+                .and_then(|id| {
+                    loaded
+                        .iter()
+                        .find(|worktree| worktree.id.eq_ignore_ascii_case(id))
+                })
+                .or_else(|| loaded.iter().find(|worktree| worktree.is_primary))
+                .or_else(|| loaded.first());
+            if let Some(selected) = selected {
+                tab_workspaces.ensure_worktree(&project.id, &selected.id, &selected.path);
+                if prefs.active_worktree_ids.get(&project.id) != Some(&selected.id) {
+                    prefs
+                        .active_worktree_ids
+                        .insert(project.id.clone(), selected.id.clone());
+                    active_worktrees_changed = true;
+                }
+            } else {
+                tab_workspaces.ensure_project(project.id.clone(), project.path.clone());
+            }
+            worktrees.insert(project.id.clone(), loaded);
+        }
+        match tab_workspaces.save() {
+            Ok(()) if active_worktrees_changed => {
+                Prefs::store_active_worktree_ids(&prefs.active_worktree_ids);
+            }
+            Ok(()) => {}
+            Err(error) => {
+                log::warn!("failed to save startup worktree workspaces: {error}");
+                prefs.active_worktree_ids = previous_active_worktree_ids;
+                tab_workspaces = previous_tab_workspaces;
+            }
         }
         let shortcuts = ShortcutMap::load();
         let command_shortcuts = CommandShortcuts::load();
@@ -53,7 +104,8 @@ impl AppState {
             tab_workspaces,
             shortcuts,
             command_shortcuts,
-            worktrees: HashMap::new(),
+            worktrees,
+            socket_ingress: IngressQueues::default(),
             active_project_id,
             ide_name,
             appearance,
@@ -62,6 +114,9 @@ impl AppState {
 
     pub fn apply_truth(&mut self, truth: Vec<muxy_api::truth::ProjectTruth>) {
         let mut active_worktrees_changed = false;
+        let mut tab_workspaces_changed = false;
+        let previous_tab_workspaces = self.tab_workspaces.clone();
+        let previous_active_worktree_ids = self.prefs.active_worktree_ids.clone();
         for entry in truth {
             let Some(project) = self
                 .workspace
@@ -73,22 +128,53 @@ impl AppState {
             };
             project.is_git_repo = entry.is_git_repo;
             project.worktree_label = entry.worktree_label;
-            if !entry.worktrees.is_empty()
-                && self
-                    .prefs
-                    .active_worktree_ids
-                    .get(&entry.project_id)
-                    .is_some_and(|selected| {
-                        !entry
-                            .worktrees
-                            .iter()
-                            .any(|worktree| worktree.id.eq_ignore_ascii_case(selected))
-                    })
-            {
-                self.prefs.active_worktree_ids.remove(&entry.project_id);
-                active_worktrees_changed = true;
+            let Some(worktrees) = entry.worktrees else {
+                continue;
+            };
+            let selected = self
+                .prefs
+                .active_worktree_ids
+                .get(&entry.project_id)
+                .and_then(|id| {
+                    worktrees
+                        .iter()
+                        .find(|worktree| worktree.id.eq_ignore_ascii_case(id))
+                })
+                .or_else(|| worktrees.iter().find(|worktree| worktree.is_primary))
+                .or_else(|| worktrees.first());
+            match selected {
+                Some(selected) => {
+                    self.tab_workspaces.ensure_worktree(
+                        &entry.project_id,
+                        &selected.id,
+                        &selected.path,
+                    );
+                    tab_workspaces_changed = true;
+                    if self.prefs.active_worktree_ids.get(&entry.project_id) != Some(&selected.id) {
+                        self.prefs
+                            .active_worktree_ids
+                            .insert(entry.project_id.clone(), selected.id.clone());
+                        active_worktrees_changed = true;
+                    }
+                }
+                None => {
+                    if self
+                        .prefs
+                        .active_worktree_ids
+                        .remove(&entry.project_id)
+                        .is_some()
+                    {
+                        active_worktrees_changed = true;
+                    }
+                }
             }
-            self.worktrees.insert(entry.project_id, entry.worktrees);
+            self.worktrees.insert(entry.project_id, worktrees);
+        }
+        if tab_workspaces_changed && let Err(error) = self.tab_workspaces.save() {
+            log::warn!("failed to save refreshed worktree workspace: {error}");
+            self.tab_workspaces = previous_tab_workspaces;
+            self.prefs.active_worktree_ids = previous_active_worktree_ids;
+            active_worktrees_changed = false;
         }
         if active_worktrees_changed {
             Prefs::store_active_worktree_ids(&self.prefs.active_worktree_ids);
@@ -150,7 +236,7 @@ impl AppState {
             .unwrap_or_default()
     }
 
-    pub fn select_worktree(&mut self, project_id: &str, worktree_id: &str) {
+    pub fn try_select_worktree(&mut self, project_id: &str, worktree_id: &str) -> bool {
         let Some(worktree) = self
             .worktrees
             .get(project_id)
@@ -160,13 +246,15 @@ impl AppState {
             })
             .cloned()
         else {
-            return;
+            return false;
         };
+        let previous = self.tab_workspaces.clone();
         self.tab_workspaces
             .ensure_worktree(project_id, &worktree.id, &worktree.path);
         if let Err(error) = self.tab_workspaces.save() {
             log::warn!("failed to save selected worktree workspace: {error}");
-            return;
+            self.tab_workspaces = previous;
+            return false;
         }
         self.prefs
             .active_worktree_ids
@@ -185,6 +273,11 @@ impl AppState {
             });
         }
         self.select_project(project_id);
+        true
+    }
+
+    pub fn select_worktree(&mut self, project_id: &str, worktree_id: &str) {
+        self.try_select_worktree(project_id, worktree_id);
     }
 
     pub fn save_tab_workspaces(&self) {
@@ -231,6 +324,8 @@ impl AppState {
             self.tab_workspaces
                 .ensure_project(project_id.clone(), project.path.clone());
             self.active_project_id = Some(project_id.clone());
+            self.prefs.active_project_id = Some(project_id.clone());
+            Prefs::store_default("muxy.activeProjectID", Some(project_id.as_str()));
             self.workspace.activate_group_for_project(&project_id);
         }
     }
