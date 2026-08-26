@@ -324,18 +324,12 @@ enum SettingsJSONStore {
         } else if dictionary[UpdateService.automaticallyUpdatesKey] is NSNull {
             automaticUpdatesActions.reset()
         }
-        let globalWorkspaceKeys = Set([
-            GlobalWorkspacePreferences.enabledKey,
-            GlobalWorkspacePreferences.triggerKey,
-            GlobalWorkspacePreferences.doubleTapIntervalMillisecondsKey,
-            GlobalWorkspacePreferences.toggleToHideKey,
-        ])
         let hasGlobalWorkspaceShortcut = dictionary[GlobalWorkspacePreferences.jsonShortcutKey] != nil
         for (key, value) in dictionary where key != "shortcuts.quickTerminal"
             && key != GlobalWorkspacePreferences.jsonShortcutKey
             && key != QuickTerminalPreferences.enabledKey
             && key != UpdateService.automaticallyUpdatesKey
-            && (!hasGlobalWorkspaceShortcut || !globalWorkspaceKeys.contains(key))
+            && (!hasGlobalWorkspaceShortcut || key != GlobalWorkspacePreferences.triggerKey)
         {
             if try applySpecialSetting(
                 key: key,

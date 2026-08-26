@@ -77,6 +77,12 @@ enum MainWindowFullScreenNotificationPolicy {
 }
 
 struct MainWindow: View {
+    private enum StorageKey {
+        static let globalWorkspaceSidebarExpanded = "muxy.globalWorkspace.sidebarExpanded"
+        static let globalWorkspaceActiveSidebar = "muxy.globalWorkspace.activeSidebar"
+        static let globalWorkspaceLayout = "muxy.globalWorkspace.layout"
+    }
+
     let windowIdentifier: NSUserInterfaceItemIdentifier
 
     @Environment(AppState.self) private var appState
@@ -200,6 +206,10 @@ struct MainWindow: View {
 
     init(windowIdentifier: NSUserInterfaceItemIdentifier = ShortcutContext.mainWindowIdentifier) {
         self.windowIdentifier = windowIdentifier
+        guard windowIdentifier == ShortcutContext.globalWorkspaceWindowIdentifier else { return }
+        _sidebarExpanded = AppStorage(wrappedValue: false, StorageKey.globalWorkspaceSidebarExpanded)
+        _layoutStore = State(initialValue: AppLayoutStore(storageKey: StorageKey.globalWorkspaceLayout))
+        _activeSidebarRaw = AppStorage(wrappedValue: SidebarSelection.builtinValue, StorageKey.globalWorkspaceActiveSidebar)
     }
 
     var body: some View {

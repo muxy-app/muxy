@@ -63,6 +63,34 @@ struct GlobalWorkspaceSettingsJSONTests {
     }
 
     @Test
+    func shortcutAndIndependentPreferencesPersistThroughJSON() throws {
+        let keys = [
+            GlobalWorkspacePreferences.enabledKey,
+            GlobalWorkspacePreferences.triggerKey,
+            GlobalWorkspacePreferences.doubleTapIntervalMillisecondsKey,
+            GlobalWorkspacePreferences.toggleToHideKey,
+        ]
+        let snapshot = GlobalWorkspaceSettingsJSONSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText(#"""
+        {
+          "shortcuts.globalWorkspace": {
+            "trigger": "doubleCommand"
+          },
+          "muxy.globalHotkey.enabled": true,
+          "muxy.globalHotkey.doubleTapIntervalMilliseconds": 450,
+          "muxy.globalHotkey.toggleToHide": false
+        }
+        """#)
+
+        #expect(GlobalWorkspacePreferences.trigger() == .doubleCommand)
+        #expect(GlobalWorkspacePreferences.isEnabled())
+        #expect(GlobalWorkspacePreferences.doubleTapIntervalMilliseconds() == 450)
+        #expect(!GlobalWorkspacePreferences.toggleToHide())
+    }
+
+    @Test
     func rejectsCustomShortcutWithoutKeyCombo() throws {
         #expect(throws: SettingsJSONError.self) {
             try SettingsJSONStore.saveUserSettingsText(#"""

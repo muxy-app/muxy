@@ -1423,6 +1423,7 @@
 "Default Worktree Parent Folder" = "Default Worktree Parent Folder";
 "Default Worktree Path Template" = "Default Worktree Path Template";
 "Desktop Notifications" = "Desktop Notifications";
+"Double-tap the selected modifier to show a full Muxy workspace from any app." = "Double-tap the selected modifier to show a full Muxy workspace from any app.";
 "Double Tap Interval" = "Double Tap Interval";
 "Double Command" = "Double Command";
 "Double Control" = "Double Control";
@@ -1461,6 +1462,8 @@
 "Sets the height of the quick terminal in points." = "Sets the height of the quick terminal in points.";
 "Sets the maximum interval between modifier taps in milliseconds." = "Sets the maximum interval between modifier taps in milliseconds.";
 "Shortcut Error" = "Shortcut Error";
+"Status" = "Status";
+"System-wide Access" = "System-wide Access";
 "Sets the maximum tab header width in pixels; the widest setting lets tabs fill the titlebar." = "Sets the maximum tab header width in pixels; the widest setting lets tabs fill the titlebar.";
 "Sets the page new browser tabs open to. Blank by default, or a website you choose." = "Sets the page new browser tabs open to. Blank by default, or a website you choose.";
 "Sets the width of the quick terminal in points." = "Sets the width of the quick terminal in points.";
@@ -1483,6 +1486,7 @@
 "Sorts the worktree switcher with the active worktree first, then by most-recently-used." = "Sorts the worktree switcher with the active worktree first, then by most-recently-used.";
 "Toast Notifications" = "Toast Notifications";
 "Toast Position" = "Toast Position";
+"Trigger" = "Trigger";
 "Update Channel" = "Update Channel";
 "Uses the separately selected top-bar project target or an extension opener for terminal file links." = "Uses the separately selected top-bar project target or an extension opener for terminal file links.";
 "Uses tinted native macOS vibrancy for the sidebar and its left title strip. Turn off for a solid background." = "Uses tinted native macOS vibrancy for the sidebar and its left title strip. Turn off for a solid background.";
