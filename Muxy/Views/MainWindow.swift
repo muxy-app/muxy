@@ -81,6 +81,7 @@ struct MainWindow: View {
         static let globalWorkspaceSidebarExpanded = "muxy.globalWorkspace.sidebarExpanded"
         static let globalWorkspaceActiveSidebar = "muxy.globalWorkspace.activeSidebar"
         static let globalWorkspaceLayout = "muxy.globalWorkspace.layout"
+        static let globalWorkspaceSidebarExpandedCustomWidth = "muxy.globalWorkspace.sidebarExpandedCustomWidth"
     }
 
     let windowIdentifier: NSUserInterfaceItemIdentifier
@@ -210,6 +211,10 @@ struct MainWindow: View {
         _sidebarExpanded = AppStorage(wrappedValue: false, StorageKey.globalWorkspaceSidebarExpanded)
         _layoutStore = State(initialValue: AppLayoutStore(storageKey: StorageKey.globalWorkspaceLayout))
         _activeSidebarRaw = AppStorage(wrappedValue: SidebarSelection.builtinValue, StorageKey.globalWorkspaceActiveSidebar)
+        _sidebarExpandedCustomWidth = AppStorage(
+            wrappedValue: .init(SidebarLayout.expandedWidth),
+            StorageKey.globalWorkspaceSidebarExpandedCustomWidth
+        )
     }
 
     var body: some View {

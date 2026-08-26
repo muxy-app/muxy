@@ -14,6 +14,7 @@ struct GlobalWorkspaceSettingsJSONTests {
             GlobalWorkspacePreferences.triggerKey,
             GlobalWorkspacePreferences.doubleTapIntervalMillisecondsKey,
             GlobalWorkspacePreferences.toggleToHideKey,
+            GlobalWorkspacePreferences.customShortcutKey,
         ]
         let snapshot = GlobalWorkspaceSettingsJSONSnapshot.capture(keys: keys)
         defer { snapshot.restore() }
@@ -69,6 +70,7 @@ struct GlobalWorkspaceSettingsJSONTests {
             GlobalWorkspacePreferences.triggerKey,
             GlobalWorkspacePreferences.doubleTapIntervalMillisecondsKey,
             GlobalWorkspacePreferences.toggleToHideKey,
+            GlobalWorkspacePreferences.customShortcutKey,
         ]
         let snapshot = GlobalWorkspaceSettingsJSONSnapshot.capture(keys: keys)
         defer { snapshot.restore() }
@@ -88,6 +90,82 @@ struct GlobalWorkspaceSettingsJSONTests {
         #expect(GlobalWorkspacePreferences.isEnabled())
         #expect(GlobalWorkspacePreferences.doubleTapIntervalMilliseconds() == 450)
         #expect(!GlobalWorkspacePreferences.toggleToHide())
+    }
+
+    @Test
+    func nonCustomTriggerClearsStoredCustomShortcut() throws {
+        let keys = [
+            GlobalWorkspacePreferences.triggerKey,
+            GlobalWorkspacePreferences.customShortcutKey,
+        ]
+        let snapshot = GlobalWorkspaceSettingsJSONSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        try GlobalWorkspacePreferences.setCustomShortcut(
+            .keyCombo(KeyCombo(key: "space", command: true), virtualKeyCode: 49)
+        )
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(GlobalWorkspacePreferences.triggerKey)": "doubleOption"
+        }
+        """)
+
+        #expect(GlobalWorkspacePreferences.trigger() == .doubleOption)
+        #expect(GlobalWorkspacePreferences.customShortcut() == nil)
+    }
+
+    @Test
+    func rejectsTriggerOnlyCustomImport() throws {
+        let keys = [
+            GlobalWorkspacePreferences.triggerKey,
+            GlobalWorkspacePreferences.customShortcutKey,
+        ]
+        let snapshot = GlobalWorkspaceSettingsJSONSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        UserDefaults.standard.set(GlobalWorkspaceTrigger.doubleCommand.rawValue, forKey: GlobalWorkspacePreferences.triggerKey)
+        UserDefaults.standard.removeObject(forKey: GlobalWorkspacePreferences.customShortcutKey)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(GlobalWorkspacePreferences.triggerKey)": "custom"
+            }
+            """)
+        }
+    }
+
+    @Test
+    func syncedSettingsOmitStaleCustomShortcutForNonCustomTrigger() throws {
+        let keys = [
+            GlobalWorkspacePreferences.triggerKey,
+            GlobalWorkspacePreferences.customShortcutKey,
+        ]
+        let snapshot = GlobalWorkspaceSettingsJSONSnapshot.capture(keys: keys)
+        defer { snapshot.restore() }
+
+        try GlobalWorkspacePreferences.setCustomShortcut(
+            .keyCombo(KeyCombo(key: "space", command: true), virtualKeyCode: 49)
+        )
+        UserDefaults.standard.set(
+            GlobalWorkspaceTrigger.doubleOption.rawValue,
+            forKey: GlobalWorkspacePreferences.triggerKey
+        )
+
+        #expect(SettingsJSONStore.syncUserSettingsFileWithCurrentSettings() != .failed)
+
+        let data = try Data(contentsOf: SettingsJSONStore.userSettingsURL)
+        let object = try JSONSerialization.jsonObject(with: data)
+        guard let dictionary = object as? [String: Any],
+              let shortcut = dictionary[GlobalWorkspacePreferences.jsonShortcutKey] as? [String: Any]
+        else {
+            #expect(Bool(false))
+            return
+        }
+
+        #expect(shortcut["trigger"] as? String == GlobalWorkspaceTrigger.doubleOption.rawValue)
+        #expect(shortcut["customShortcut"] == nil)
     }
 
     @Test

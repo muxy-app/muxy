@@ -197,7 +197,7 @@ enum SettingsJSONStore {
         })
         dictionary["shortcuts.app"] = keyBindingsJSONObject(KeyBindingStore.shared.bindings)
         dictionary["shortcuts.quickTerminal"] = codableJSONObject(QuickTerminalShortcutService.shared.shortcut) ?? [:]
-        dictionary[GlobalWorkspacePreferences.jsonShortcutKey] = codableJSONObject(
+        dictionary[GlobalWorkspacePreferences.jsonShortcutKey] = canonicalGlobalWorkspaceShortcutConfiguration(
             GlobalWorkspacePreferences.shortcutConfiguration()
         ) ?? [:]
         dictionary["shortcuts.customCommands"] = commandShortcutsJSONObject(CommandShortcutConfiguration(
@@ -226,6 +226,21 @@ enum SettingsJSONStore {
     }
 
     private static func validateGlobalWorkspaceShortcutConflicts(in settings: [String: Any]) throws {
+        if settings[GlobalWorkspacePreferences.jsonShortcutKey] == nil,
+           let triggerValue = settings[GlobalWorkspacePreferences.triggerKey]
+        {
+            if triggerValue is NSNull {
+                return
+            }
+            guard let rawValue = triggerValue as? String,
+                  let trigger = GlobalWorkspaceTrigger(rawValue: rawValue),
+                  trigger != .custom
+            else {
+                throw SettingsJSONError.invalidValue(GlobalWorkspacePreferences.triggerKey)
+            }
+            return
+        }
+
         let configuration: GlobalWorkspaceShortcutConfiguration = settings[GlobalWorkspacePreferences.jsonShortcutKey]
             .flatMap { codableValue(from: $0) }
             ?? GlobalWorkspacePreferences.shortcutConfiguration()
@@ -313,6 +328,20 @@ enum SettingsJSONStore {
                 quickTerminalShortcutUpdater: shortcutActions.quickTerminalUpdate,
                 globalWorkspaceShortcutUpdater: shortcutActions.globalWorkspaceUpdate
             )
+        } else if let triggerValue = dictionary[GlobalWorkspacePreferences.triggerKey] {
+            let trigger: GlobalWorkspaceTrigger
+            if triggerValue is NSNull {
+                trigger = GlobalWorkspacePreferences.defaultTrigger
+            } else {
+                guard let rawValue = triggerValue as? String,
+                      let parsedTrigger = GlobalWorkspaceTrigger(rawValue: rawValue),
+                      parsedTrigger != .custom
+                else {
+                    throw SettingsJSONError.invalidValue(GlobalWorkspacePreferences.triggerKey)
+                }
+                trigger = parsedTrigger
+            }
+            try shortcutActions.globalWorkspaceUpdate(GlobalWorkspaceShortcutConfiguration(trigger: trigger))
         }
         if let enabled = dictionary[QuickTerminalPreferences.enabledKey] as? Bool {
             quickTerminalEnabledUpdater(enabled)
@@ -324,12 +353,11 @@ enum SettingsJSONStore {
         } else if dictionary[UpdateService.automaticallyUpdatesKey] is NSNull {
             automaticUpdatesActions.reset()
         }
-        let hasGlobalWorkspaceShortcut = dictionary[GlobalWorkspacePreferences.jsonShortcutKey] != nil
         for (key, value) in dictionary where key != "shortcuts.quickTerminal"
             && key != GlobalWorkspacePreferences.jsonShortcutKey
+            && key != GlobalWorkspacePreferences.triggerKey
             && key != QuickTerminalPreferences.enabledKey
             && key != UpdateService.automaticallyUpdatesKey
-            && (!hasGlobalWorkspaceShortcut || key != GlobalWorkspacePreferences.triggerKey)
         {
             if try applySpecialSetting(
                 key: key,
@@ -706,16 +734,16 @@ enum SettingsJSONStore {
     private static func canonicalGlobalWorkspaceShortcutConfiguration(
         _ configuration: GlobalWorkspaceShortcutConfiguration
     ) -> Any? {
-        if configuration.trigger == .custom {
-            guard let customShortcut = configuration.customShortcut,
-                  let canonicalShortcut = customShortcut.canonicalizedForCurrentKeyboardLayout()
-            else { return nil }
-            return codableJSONObject(GlobalWorkspaceShortcutConfiguration(
-                trigger: .custom,
-                customShortcut: canonicalShortcut
-            ))
+        guard configuration.trigger == .custom else {
+            return codableJSONObject(GlobalWorkspaceShortcutConfiguration(trigger: configuration.trigger))
         }
-        return codableJSONObject(GlobalWorkspaceShortcutConfiguration(trigger: configuration.trigger))
+        guard let customShortcut = configuration.customShortcut,
+              let canonicalShortcut = customShortcut.canonicalizedForCurrentKeyboardLayout()
+        else { return nil }
+        return codableJSONObject(GlobalWorkspaceShortcutConfiguration(
+            trigger: .custom,
+            customShortcut: canonicalShortcut
+        ))
     }
 
     private static func isValidAppKeyCombo(_ combo: KeyCombo) -> Bool {
