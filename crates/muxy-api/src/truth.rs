@@ -10,6 +10,7 @@ pub struct ProjectProbe {
     pub project_name: String,
     pub project_path: String,
     pub preferred_worktree_id: Option<String>,
+    pub current_worktrees: Vec<Worktree>,
     pub generation: u64,
     pub request_id: u64,
 }
@@ -43,12 +44,13 @@ pub fn refresh_truth_from(
         .map(|project| {
             let is_git_repo = git::is_git_repo(options, Path::new(&project.project_path));
             let (list, candidate) = if is_git_repo {
-                let candidate = worktrees::probe_from(
+                let candidate = worktrees::probe_from_current(
                     options,
                     worktrees_dir,
                     &project.project_id,
                     &project.project_name,
                     &project.project_path,
+                    &project.current_worktrees,
                 );
                 (
                     candidate.worktrees().map(<[Worktree]>::to_vec),
@@ -111,6 +113,7 @@ mod tests {
             project_name: "Repo".to_owned(),
             project_path: repo.to_string_lossy().into_owned(),
             preferred_worktree_id: None,
+            current_worktrees: Vec::new(),
             generation: 7,
             request_id: 11,
         }];

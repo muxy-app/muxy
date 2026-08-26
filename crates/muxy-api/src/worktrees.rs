@@ -188,6 +188,24 @@ fn reconcile(
     sort_primary_first(collapse_duplicate_paths(list))
 }
 
+pub(crate) fn reconcile_git_records(
+    persisted: Vec<Worktree>,
+    records: &[git::GitWorktreeRecord],
+    project_name: &str,
+    project_path: &str,
+) -> Vec<Worktree> {
+    let records = records
+        .iter()
+        .map(|record| Record {
+            path: record.path.to_string_lossy().into_owned(),
+            branch: record.branch.clone(),
+            is_bare: false,
+            is_prunable: false,
+        })
+        .collect::<Vec<_>>();
+    reconcile(persisted, &records, project_name, project_path)
+}
+
 fn collapse_duplicate_paths(list: Vec<Worktree>) -> Vec<Worktree> {
     let mut index_by_key: HashMap<PathBuf, usize> = HashMap::new();
     let mut result: Vec<Worktree> = Vec::new();
@@ -241,7 +259,36 @@ pub fn probe_from(
     project_name: &str,
     project_path: &str,
 ) -> RefreshCandidate {
-    let persisted = match load_file_from(dir, project_id) {
+    probe_from_seed(options, dir, project_id, project_name, project_path, None)
+}
+
+pub fn probe_from_current(
+    options: &GitOptions,
+    dir: &Path,
+    project_id: &str,
+    project_name: &str,
+    project_path: &str,
+    current_worktrees: &[Worktree],
+) -> RefreshCandidate {
+    probe_from_seed(
+        options,
+        dir,
+        project_id,
+        project_name,
+        project_path,
+        Some(current_worktrees),
+    )
+}
+
+fn probe_from_seed(
+    options: &GitOptions,
+    dir: &Path,
+    project_id: &str,
+    project_name: &str,
+    project_path: &str,
+    current_worktrees: Option<&[Worktree]>,
+) -> RefreshCandidate {
+    let stored = match load_file_from(dir, project_id) {
         Ok(WorktreeFile::Missing) => vec![primary(project_name, project_path)],
         Ok(WorktreeFile::Loaded(worktrees))
             if worktrees.iter().any(|worktree| worktree.is_primary) =>
@@ -254,6 +301,9 @@ pub fn probe_from(
         }
         Err(error) => return RefreshCandidate::Unavailable(error.to_string()),
     };
+    let persisted = current_worktrees
+        .filter(|worktrees| !worktrees.is_empty())
+        .map_or(stored, <[Worktree]>::to_vec);
     let raw = match git::run_git(
         options,
         Path::new(project_path),
@@ -618,5 +668,116 @@ mod tests {
         save_candidate(temp.path(), "PROJECT", &candidate).unwrap();
 
         assert!(muxy_core::store::worktrees::file_path(temp.path(), "PROJECT").is_file());
+    }
+
+    #[test]
+    fn probe_uses_current_managed_identity_when_tracking_disk_is_stale() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let checkout = temp.path().join("feature");
+        std::fs::create_dir(&repo).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .arg(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args([
+                    "-C",
+                    &repo.to_string_lossy(),
+                    "config",
+                    "user.name",
+                    "Muxy Test"
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args([
+                    "-C",
+                    &repo.to_string_lossy(),
+                    "config",
+                    "user.email",
+                    "test@muxy.invalid"
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        std::fs::write(repo.join("README"), b"initial").unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["-C", &repo.to_string_lossy(), "add", "README"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args(["-C", &repo.to_string_lossy(), "commit", "-qm", "initial"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args([
+                    "-C",
+                    &repo.to_string_lossy(),
+                    "worktree",
+                    "add",
+                    "-qb",
+                    "feature",
+                    &checkout.to_string_lossy(),
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let options = GitOptions {
+            executable: PathBuf::from("git"),
+            environment: HashMap::new(),
+        };
+        let stale = vec![worktree(
+            "PRIMARY-ID",
+            "Repo",
+            &repo.to_string_lossy(),
+            Source::Muxy,
+            true,
+        )];
+        let directory = temp.path().join("tracking");
+        save_to(&directory, "PROJECT", &stale).unwrap();
+        let mut current = stale;
+        current.push(worktree(
+            "MANAGED-ID",
+            "Feature",
+            &checkout.to_string_lossy(),
+            Source::Muxy,
+            false,
+        ));
+
+        let candidate = probe_from_current(
+            &options,
+            &directory,
+            "PROJECT",
+            "Repo",
+            &repo.to_string_lossy(),
+            &current,
+        );
+
+        let managed = candidate
+            .worktrees()
+            .unwrap()
+            .iter()
+            .find(|worktree| worktree.id == "MANAGED-ID")
+            .unwrap();
+        assert_eq!(managed.source, Source::Muxy);
+        assert_eq!(managed.name, "Feature");
     }
 }

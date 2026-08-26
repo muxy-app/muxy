@@ -155,6 +155,9 @@ impl MainWindow {
                         ProjectCommand::Refresh(project) => {
                             self.request_worktree_refresh(project.id, Some(request.responder), cx);
                         }
+                        ProjectCommand::Create(create) => {
+                            self.request_worktree_creation(*create, request.responder, cx);
+                        }
                     }
                     return;
                 }

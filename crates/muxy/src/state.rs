@@ -16,6 +16,11 @@ pub enum NavigationApplyError {
     PreferencePersistence(io::Error),
 }
 
+pub struct CreationEffects {
+    pub warnings: Vec<muxy_api::worktree_lifecycle::LifecycleWarning>,
+    pub navigation_recorded: bool,
+}
+
 impl std::fmt::Display for NavigationApplyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -214,6 +219,70 @@ impl AppState {
             Prefs::store_active_worktree_ids(&self.prefs.active_worktree_ids);
         }
         Ok(())
+    }
+
+    pub fn apply_created_worktree(
+        &mut self,
+        project_id: &str,
+        outcome: muxy_api::worktree_lifecycle::CreateWorktreeOutcome,
+    ) -> CreationEffects {
+        self.apply_created_worktree_with(project_id, outcome, |active_worktrees| {
+            Prefs::try_store_active_worktree_ids(active_worktrees)
+        })
+    }
+
+    fn apply_created_worktree_with<F>(
+        &mut self,
+        project_id: &str,
+        outcome: muxy_api::worktree_lifecycle::CreateWorktreeOutcome,
+        store_active_worktrees: F,
+    ) -> CreationEffects
+    where
+        F: FnOnce(&HashMap<String, String>) -> io::Result<()>,
+    {
+        let mut warnings = outcome.warnings;
+        let created = outcome.worktree;
+        self.worktrees
+            .insert(project_id.to_owned(), outcome.worktrees);
+        self.tab_workspaces
+            .ensure_worktree(project_id, &created.id, &created.path);
+        self.prefs
+            .active_worktree_ids
+            .insert(project_id.to_owned(), created.id.clone());
+        self.active_project_id = Some(project_id.to_owned());
+        self.prefs.active_project_id = Some(project_id.to_owned());
+        if let Some(project) = self
+            .workspace
+            .projects
+            .iter_mut()
+            .find(|project| project.id.eq_ignore_ascii_case(project_id))
+        {
+            project.worktree_label = Some(created.name.clone());
+        }
+        self.workspace.activate_group_for_project(project_id);
+        let navigation_recorded = match self.persist_tab_workspaces() {
+            Ok(()) => true,
+            Err(error) => {
+                warnings.push(
+                    muxy_api::worktree_lifecycle::LifecycleWarning::WorkspacePersistence(
+                        error.to_string(),
+                    ),
+                );
+                false
+            }
+        };
+        if let Err(error) = store_active_worktrees(&self.prefs.active_worktree_ids) {
+            warnings.push(
+                muxy_api::worktree_lifecycle::LifecycleWarning::ActivePreferencePersistence(
+                    error.to_string(),
+                ),
+            );
+        }
+        Prefs::store_default("muxy.activeProjectID", Some(project_id));
+        CreationEffects {
+            warnings,
+            navigation_recorded,
+        }
     }
 
     pub fn active_project(&self) -> Option<&Project> {
@@ -759,6 +828,70 @@ mod tests {
         assert!(state.navigate(Direction::Back).is_err());
         assert_eq!(state.navigation.current(), Some(&two));
         assert_eq!(state.active_project_id.as_deref(), Some("project-two"));
+    }
+
+    #[test]
+    fn create_worktree_application_keeps_authoritative_state_after_persistence_failures() {
+        let directory = tempfile::tempdir().unwrap();
+        let blocker = directory.path().join("blocker");
+        std::fs::write(&blocker, b"blocked").unwrap();
+        let mut state = state_at(&blocker.join("workspaces.json"));
+        let created = Worktree {
+            id: "CREATED-ID".into(),
+            name: "Feature".into(),
+            path: "/feature".into(),
+            branch: Some("feature".into()),
+            source: muxy_core::store::worktrees::Source::Muxy,
+            is_primary: false,
+            created_at: 1.0,
+            last_active_at: None,
+        };
+        let outcome = muxy_api::worktree_lifecycle::CreateWorktreeOutcome {
+            worktree: created.clone(),
+            worktrees: vec![state.worktrees["project-one"][0].clone(), created.clone()],
+            warnings: Vec::new(),
+        };
+
+        let effects = state.apply_created_worktree_with("project-one", outcome, |_| Ok(()));
+
+        assert_eq!(
+            state.prefs.active_worktree_ids.get("project-one"),
+            Some(&created.id)
+        );
+        assert!(
+            state
+                .tab_workspaces
+                .worktree("project-one", &created.id)
+                .is_some()
+        );
+        assert!(effects.warnings.iter().any(|warning| matches!(
+            warning,
+            muxy_api::worktree_lifecycle::LifecycleWarning::WorkspacePersistence(_)
+        )));
+        assert!(!effects.navigation_recorded);
+
+        let mut state = state_at(&directory.path().join("workspaces-ok.json"));
+        let outcome = muxy_api::worktree_lifecycle::CreateWorktreeOutcome {
+            worktree: created.clone(),
+            worktrees: vec![state.worktrees["project-one"][0].clone(), created],
+            warnings: Vec::new(),
+        };
+        let effects = state.apply_created_worktree_with("project-one", outcome, |_| {
+            Err(std::io::Error::other("preference failure"))
+        });
+        assert!(effects.navigation_recorded);
+        assert!(effects.warnings.iter().any(|warning| matches!(
+            warning,
+            muxy_api::worktree_lifecycle::LifecycleWarning::ActivePreferencePersistence(_)
+        )));
+        assert_eq!(
+            state
+                .prefs
+                .active_worktree_ids
+                .get("project-one")
+                .map(String::as_str),
+            Some("CREATED-ID")
+        );
     }
 
     #[test]

@@ -55,19 +55,35 @@ impl MainWindow {
                         .active_worktree_ids
                         .get(&project.id)
                         .cloned(),
+                    self.state
+                        .worktrees
+                        .get(&project.id)
+                        .cloned()
+                        .unwrap_or_default(),
                 )
             })
             .collect();
         let requests: Vec<_> = projects
             .into_iter()
             .filter_map(
-                |(project_id, project_name, project_path, preferred_worktree_id)| {
+                |(
+                    project_id,
+                    project_name,
+                    project_path,
+                    preferred_worktree_id,
+                    current_worktrees,
+                )| {
                     let token = self
                         .state
                         .project_operations
                         .begin_background_probe(&project_id)?;
-                    let probe =
-                        project_probe(&token, project_name, project_path, preferred_worktree_id);
+                    let probe = project_probe(
+                        &token,
+                        project_name,
+                        project_path,
+                        preferred_worktree_id,
+                        current_worktrees,
+                    );
                     Some((token, probe))
                 },
             )
@@ -147,6 +163,11 @@ impl MainWindow {
                 .active_worktree_ids
                 .get(&project_id)
                 .cloned(),
+            self.state
+                .worktrees
+                .get(&project_id)
+                .cloned()
+                .unwrap_or_default(),
         );
         let git_options = self.project_runtime.git_options.clone();
         cx.spawn(async move |window, cx| {
@@ -193,6 +214,99 @@ impl MainWindow {
         .detach();
     }
 
+    pub(crate) fn request_worktree_creation(
+        &mut self,
+        request: muxy_api::worktree_lifecycle::CreateWorktreeRequest,
+        responder: muxy_proto::server::CommandResponder,
+        cx: &mut Context<Self>,
+    ) {
+        let project_id = request.project.id.clone();
+        let token = match self
+            .state
+            .project_operations
+            .begin_operation(&project_id, ProjectOperationKind::Create)
+        {
+            Ok(token) => token,
+            Err(BeginOperationError::Busy(_)) => {
+                responder.respond(muxy_proto::server::CommandReply::new(
+                    "error:worktree operation busy",
+                ));
+                return;
+            }
+        };
+        let home = muxy_core::prefs::home_dir();
+        let options = muxy_api::worktree_lifecycle::CreateWorktreeOptions {
+            git_options: self.project_runtime.git_options.clone(),
+            worktrees_dir: muxy_core::store::worktrees::worktrees_dir(),
+            current_worktrees: self
+                .state
+                .worktrees
+                .get(&project_id)
+                .cloned()
+                .unwrap_or_default(),
+            location_context: muxy_api::worktree_location::LocationContext {
+                home: home.clone(),
+                profile_worktree_root: muxy_core::prefs::app_support_dir()
+                    .join("worktree-checkouts"),
+                default_path_template: self.state.prefs.default_worktree_path_template.clone(),
+                default_parent_path: self.state.prefs.default_worktree_parent_path.clone(),
+            },
+            hook_options: muxy_api::worktree_hooks::HookOptions {
+                global_config_path: muxy_api::worktree_config::global_config_path(
+                    &home,
+                    std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+                ),
+                environment: Vec::new(),
+            },
+            timeout: std::time::Duration::from_secs(300),
+        };
+        cx.spawn(async move |window, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(
+                    async move { muxy_api::worktree_lifecycle::create_worktree(request, &options) },
+                )
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                let reply = match result {
+                    Ok(outcome) => {
+                        let created = outcome.worktree.clone();
+                        let effects = window.state.apply_created_worktree(&project_id, outcome);
+                        if !effects.navigation_recorded {
+                            log::warn!("created worktree navigation was not recorded");
+                        }
+                        for warning in effects.warnings {
+                            log::warn!("worktree creation warning: {warning:?}");
+                        }
+                        window.sync_watchers();
+                        format!(
+                            "ok\t{}\t{}\t{}\t{}",
+                            created.id,
+                            created.name,
+                            created.path,
+                            created.branch.as_deref().unwrap_or_default()
+                        )
+                    }
+                    Err(error) => format!("error:{error}"),
+                };
+                let schedule_fresh_probe = window
+                    .state
+                    .project_operations
+                    .finish_operation(&token)
+                    .is_ok_and(|outcome| outcome.schedule_fresh_probe);
+                responder.respond(muxy_proto::server::CommandReply::new(reply));
+                if schedule_fresh_probe && window.state.workspace.project(&project_id).is_some() {
+                    let ids = HashSet::from([project_id]);
+                    window.refresh_project_truth(Some(&ids), cx);
+                }
+                cx.set_menus(crate::views::window::menu_bar::menus(&window.state));
+                cx.activate(true);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn commit_project_truth(&mut self, truth: ProjectTruth) -> Result<usize, String> {
         let refresh_error = truth
             .candidate
@@ -229,12 +343,14 @@ fn project_probe(
     project_name: String,
     project_path: String,
     preferred_worktree_id: Option<String>,
+    current_worktrees: Vec<muxy_core::store::worktrees::Worktree>,
 ) -> ProjectProbe {
     ProjectProbe {
         project_id: token.project_id().to_owned(),
         project_name,
         project_path,
         preferred_worktree_id,
+        current_worktrees,
         generation: token.generation(),
         request_id: token.request_id(),
     }

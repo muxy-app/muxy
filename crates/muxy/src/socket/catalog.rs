@@ -42,6 +42,8 @@ pub const P2_PHASE5_HEADS: [&str; 12] = [
     "tab-move",
 ];
 
+pub const P3_IMPLEMENTED_LEGACY_HEADS: [&str; 1] = ["create-worktree"];
+
 pub const P2_PERMISSION_REQUIREMENTS: [(&str, Option<&str>); 33] = [
     ("list-projects", Some("projects:read")),
     ("switch-project", Some("projects:write")),
@@ -78,8 +80,10 @@ pub const P2_PERMISSION_REQUIREMENTS: [(&str, Option<&str>); 33] = [
     ("tab-move", Some("tabs:write")),
 ];
 
-pub const ROADMAP_DEFERRED_LEGACY_HEADS: [(&str, &str); 4] = [
-    ("create-worktree", "P3"),
+pub const P3_PERMISSION_REQUIREMENTS: [(&str, Option<&str>); 1] =
+    [("create-worktree", Some("worktrees:write"))];
+
+pub const ROADMAP_DEFERRED_LEGACY_HEADS: [(&str, &str); 3] = [
     ("list-sessions", "P8"),
     ("kill-session", "P8"),
     ("open-tab", "P10"),
@@ -242,6 +246,7 @@ pub fn recognized_command_heads() -> HashSet<String> {
         .into_iter()
         .chain(P2_PHASE4_HEADS)
         .chain(P2_PHASE5_HEADS)
+        .chain(P3_IMPLEMENTED_LEGACY_HEADS)
         .chain(
             ROADMAP_DEFERRED_LEGACY_HEADS
                 .into_iter()
@@ -271,6 +276,7 @@ pub fn required_permissions(command: &str) -> Vec<&'static str> {
     let head = parts.first().copied().unwrap_or_default();
     let mut permissions = P2_PERMISSION_REQUIREMENTS
         .iter()
+        .chain(P3_PERMISSION_REQUIREMENTS.iter())
         .find_map(|(candidate, permission)| (*candidate == head).then_some(*permission))
         .flatten()
         .into_iter()
@@ -327,6 +333,7 @@ mod tests {
         let legacy = p2
             .iter()
             .copied()
+            .chain(P3_IMPLEMENTED_LEGACY_HEADS)
             .chain(
                 ROADMAP_DEFERRED_LEGACY_HEADS
                     .into_iter()
@@ -361,6 +368,12 @@ mod tests {
                 (hash ^ u64::from(byte)).wrapping_mul(1_099_511_628_211)
             });
         assert_eq!(fingerprint, 16_943_492_558_170_763_262);
+        assert!(P3_IMPLEMENTED_LEGACY_HEADS.contains(&"create-worktree"));
+        assert!(
+            !ROADMAP_DEFERRED_LEGACY_HEADS
+                .iter()
+                .any(|(head, _)| *head == "create-worktree")
+        );
     }
 
     #[test]
@@ -394,15 +407,23 @@ mod tests {
             .collect::<BTreeSet<_>>();
         let mapped = P2_PERMISSION_REQUIREMENTS
             .into_iter()
+            .chain(P3_PERMISSION_REQUIREMENTS)
             .map(|(head, _)| head)
             .collect::<BTreeSet<_>>();
-        assert_eq!(mapped, p2);
+        assert_eq!(
+            mapped,
+            p2.into_iter().chain(P3_IMPLEMENTED_LEGACY_HEADS).collect()
+        );
         assert_eq!(required_permissions("list-panes"), ["panes:read"]);
         assert_eq!(
             required_permissions("split-right|echo|ready"),
             ["panes:write", "commands:exec"]
         );
         assert_eq!(required_permissions("split-right"), ["panes:write"]);
+        assert_eq!(
+            required_permissions("create-worktree|name|branch||||"),
+            ["worktrees:write"]
+        );
         assert_eq!(
             denied_permission("split-right|echo ready", &BTreeSet::new()),
             Some("panes:write")
@@ -475,5 +496,20 @@ mod tests {
         {
             assert!(!recognized.contains(head), "{head}");
         }
+    }
+
+    #[test]
+    fn socket_catalog_marks_create_worktree_implemented_without_changing_recognition() {
+        assert_eq!(recognized_command_heads().len(), 169);
+        assert_eq!(P3_IMPLEMENTED_LEGACY_HEADS, ["create-worktree"]);
+        assert_eq!(
+            required_permissions("create-worktree|name|branch||||"),
+            ["worktrees:write"]
+        );
+        assert!(
+            !ROADMAP_DEFERRED_LEGACY_HEADS
+                .iter()
+                .any(|(head, _)| *head == "create-worktree")
+        );
     }
 }
