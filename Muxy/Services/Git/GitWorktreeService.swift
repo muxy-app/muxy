@@ -269,7 +269,10 @@ actor GitWorktreeService: GitWorktreeListing {
             try? await pruneWorktrees(repoPath: repoPath, context: context, timeout: remaining)
         }
         try Task.checkCancellation()
-        let verificationTimeout = (try? deadline.remaining()) ?? Self.removalReconciliationTimeout
+        let verificationTimeout = max(
+            (try? deadline.remaining()) ?? 0,
+            Self.removalReconciliationTimeout
+        )
         try await reconcileRemoval(
             removalTarget,
             processQuiescer: processQuiescer,
