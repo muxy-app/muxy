@@ -4,6 +4,7 @@ mod git;
 mod keymap;
 #[cfg(target_os = "macos")]
 mod native_compositor;
+mod platform;
 mod resources;
 mod socket;
 mod state;

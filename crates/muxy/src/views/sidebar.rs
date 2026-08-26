@@ -41,7 +41,7 @@ fn project_list(state: &AppState, layout: AppLayout, cx: &mut Context<MainWindow
         .pt(metrics.spacing2())
         .child(workspace_switcher(state, layout, cx));
     if wide {
-        header = header.child(sort_button(state));
+        header = header.child(sort_button(state, cx));
     }
 
     let mut rows = div()

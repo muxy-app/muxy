@@ -58,13 +58,31 @@ pub enum SortMode {
 }
 
 impl SortMode {
-    fn parse(raw: &str) -> Self {
+    pub const ALL: [Self; 5] = [
+        Self::Manual,
+        Self::NameAscending,
+        Self::NameDescending,
+        Self::RecentlyActive,
+        Self::DateCreated,
+    ];
+
+    pub fn parse(raw: &str) -> Self {
         match raw {
             "nameAscending" => Self::NameAscending,
             "nameDescending" => Self::NameDescending,
             "recentlyActive" => Self::RecentlyActive,
             "dateCreated" => Self::DateCreated,
             _ => Self::Manual,
+        }
+    }
+
+    pub fn raw(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::NameAscending => "nameAscending",
+            Self::NameDescending => "nameDescending",
+            Self::RecentlyActive => "recentlyActive",
+            Self::DateCreated => "dateCreated",
         }
     }
 }
@@ -332,7 +350,7 @@ mod tests {
 
     use crate::environment::BuildMode;
 
-    use super::{ScalePreset, executable_is_test_process, resolve_app_support_dir};
+    use super::{ScalePreset, SortMode, executable_is_test_process, resolve_app_support_dir};
 
     #[test]
     fn parsing_a_raw_preset_is_the_identity() {
@@ -343,6 +361,24 @@ mod tests {
             ScalePreset::Huge,
         ] {
             assert_eq!(ScalePreset::parse(preset.raw()), preset);
+        }
+    }
+
+    #[test]
+    fn sort_modes_round_trip_all_five_raw_values() {
+        assert_eq!(SortMode::ALL.len(), 5);
+        assert_eq!(
+            SortMode::ALL.map(SortMode::raw),
+            [
+                "manual",
+                "nameAscending",
+                "nameDescending",
+                "recentlyActive",
+                "dateCreated",
+            ]
+        );
+        for mode in SortMode::ALL {
+            assert_eq!(SortMode::parse(mode.raw()), mode);
         }
     }
 

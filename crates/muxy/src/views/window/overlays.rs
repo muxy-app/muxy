@@ -1,6 +1,31 @@
 use super::*;
 
 impl MainWindow {
+    pub(crate) fn open_sort_menu(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items =
+            crate::views::workspace_switcher::sort_menu_items(self.state.workspace.sort_mode());
+        self.open_menu(items, position, cx);
+        window.focus(&self.view.menu_focus);
+    }
+
+    pub(crate) fn open_status_path_menu(
+        &mut self,
+        path: String,
+        remote: bool,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items = crate::views::status_bar::path_menu_items(path, remote);
+        self.open_menu(items, position, cx);
+        window.focus(&self.view.menu_focus);
+    }
+
     pub(crate) fn open_project_menu(
         &mut self,
         project_id: &str,
@@ -740,6 +765,16 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.open_menu(app_layout_menu_items(), position, cx);
+        window.focus(&self.view.menu_focus);
+    }
+
+    pub(crate) fn open_terminal_layout_menu(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let items: Vec<Item> = self
             .state
             .layouts()
@@ -864,5 +899,44 @@ impl MainWindow {
             });
         })
         .detach();
+    }
+}
+
+fn app_layout_menu_items() -> Vec<Item> {
+    vec![
+        Item::action("Project Focused", Command::DismissOverlay).checked(true),
+        Item::action("Tab Focused", Command::DismissOverlay).disabled(true),
+        Item::action("Agents Focused", Command::DismissOverlay).disabled(true),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chrome_app_layout_menu_matches_supported_sidebar_layouts() {
+        let items = app_layout_menu_items();
+        let entries: Vec<(&str, bool, bool)> = items
+            .iter()
+            .map(|item| match item {
+                Item::Action {
+                    label,
+                    disabled,
+                    checked,
+                    ..
+                } => (label.as_ref(), *disabled, *checked),
+                _ => panic!("app layout menu must contain actions only"),
+            })
+            .collect();
+
+        assert_eq!(
+            entries,
+            vec![
+                ("Project Focused", false, true),
+                ("Tab Focused", true, false),
+                ("Agents Focused", true, false),
+            ]
+        );
     }
 }

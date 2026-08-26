@@ -61,6 +61,14 @@ impl MainWindow {
                 }
                 self.dismiss_overlay(cx);
             }
+            Command::CopyStatusPath(path) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(path));
+                self.dismiss_overlay(cx);
+            }
+            Command::RevealStatusPath(path) => {
+                self.dismiss_overlay(cx);
+                self.reveal_status_path(path, cx);
+            }
             Command::RemoveProject(id) => self.confirm_remove(id, cx),
             Command::SelectWorkspaceGroup(id) => {
                 self.state.workspace.select_group(id);
@@ -73,6 +81,14 @@ impl MainWindow {
                 {
                     self.state.select_project(&first);
                 }
+                self.dismiss_overlay(cx);
+                cx.notify();
+            }
+            Command::SetProjectSort(mode) => {
+                let (key, value) = project_sort_setting(mode);
+                Prefs::store_settings_value(key, value);
+                self.state.prefs.sort_mode = mode;
+                self.state.workspace.set_sort_mode(mode);
                 self.dismiss_overlay(cx);
                 cx.notify();
             }
@@ -168,6 +184,25 @@ impl MainWindow {
             }
             Command::DismissOverlay => self.dismiss_overlay(cx),
         }
+    }
+
+    fn reveal_status_path(&mut self, path: String, cx: &mut Context<Self>) {
+        cx.spawn(async move |window, cx| {
+            let reveal_path = path.clone();
+            let result = cx
+                .background_executor()
+                .spawn(
+                    async move { crate::platform::reveal_path(std::path::Path::new(&reveal_path)) },
+                )
+                .await;
+            if let Err(error) = result {
+                let _ = window.update(cx, |window, cx| {
+                    let (title, message) = crate::views::status_bar::reveal_failure(&path, error);
+                    window.alert(title, message, cx);
+                });
+            }
+        })
+        .detach();
     }
 
     pub(super) fn apply_layout(&mut self, path: String, cx: &mut Context<Self>) {
@@ -395,5 +430,25 @@ impl MainWindow {
 
     pub(crate) fn reload_configuration(&mut self, cx: &mut Context<Self>) {
         self.apply_theme_setting(cx);
+    }
+}
+
+fn project_sort_setting(mode: muxy_core::prefs::SortMode) -> (&'static str, Value) {
+    ("muxy.projectSortMode", Value::String(mode.raw().to_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use muxy_core::prefs::SortMode;
+
+    #[test]
+    fn chrome_sort_command_selects_the_portable_project_sort_key() {
+        for mode in SortMode::ALL {
+            assert_eq!(
+                project_sort_setting(mode),
+                ("muxy.projectSortMode", Value::String(mode.raw().to_owned()))
+            );
+        }
     }
 }

@@ -166,10 +166,10 @@ pub(crate) fn render(
         _ => titlebar::main_titlebar(state, layout, cx),
     };
     let content = match &tab_workspace {
-        Some(workspace) => {
+        Some(workspace) if !shows_welcome(Some(workspace)) => {
             workspace_view::workspace_content(state, &panes, workspace, main_width, cx)
         }
-        None => welcome::workspace_content(state),
+        _ => welcome::workspace_content(state, cx),
     };
     let mut main_column = div()
         .flex()
@@ -185,6 +185,7 @@ pub(crate) fn render(
         main_column = main_column.child(status_bar::status_bar(
             state,
             focused_working_directory.as_deref(),
+            cx,
         ));
     }
 
@@ -507,7 +508,7 @@ pub(crate) fn render(
 
     columns = columns
         .child(main_column)
-        .child(titlebar::nav_overlay(state, layout))
+        .child(titlebar::nav_overlay(state, layout, cx))
         .child(sidebar_border);
 
     if let Some((bounds, zone)) = drop_highlight {
@@ -519,6 +520,10 @@ pub(crate) fn render(
     }
 
     columns.into_any_element()
+}
+
+fn shows_welcome(workspace: Option<&muxy_core::workspace::WorkspaceState>) -> bool {
+    workspace.is_none_or(|workspace| workspace.top_level_root.is_none())
 }
 
 fn open_configuration() {
@@ -534,6 +539,18 @@ fn open_configuration() {
 mod tests {
     use super::*;
     use muxy_core::prefs::ScalePreset;
+    use muxy_core::workspace::{Tab, TabKind, WorkspaceState};
+
+    #[test]
+    fn chrome_empty_project_uses_the_welcome_new_tab_surface() {
+        let empty = WorkspaceState::new("project");
+        let mut populated = WorkspaceState::new("project");
+        populated.new_top_level_tab(Tab::new(TabKind::Terminal));
+
+        assert!(shows_welcome(Some(&empty)));
+        assert!(!shows_welcome(Some(&populated)));
+        assert!(shows_welcome(None));
+    }
 
     #[test]
     fn sidebar_modes_preserve_hidden_icons_narrow_and_wide_layouts() {

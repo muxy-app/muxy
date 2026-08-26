@@ -11,7 +11,11 @@ use gpui::{
 use muxy_ui::components::{IconButton, IconGlyph};
 use muxy_ui::icon::Icon;
 
-pub fn nav_overlay(state: &AppState, layout: AppLayout) -> AnyElement {
+pub fn nav_overlay(
+    state: &AppState,
+    layout: AppLayout,
+    cx: &mut Context<MainWindow>,
+) -> AnyElement {
     let metrics = &state.metrics;
     let theme = &state.theme;
 
@@ -32,7 +36,7 @@ pub fn nav_overlay(state: &AppState, layout: AppLayout) -> AnyElement {
         .border_color(theme.border)
         .child(nav_arrow(state, "nav-back", Icon::ChevronLeft, false))
         .child(nav_arrow(state, "nav-forward", Icon::ChevronRight, false))
-        .child(layout_menu(state))
+        .child(layout_menu(state, cx))
         .into_any_element()
 }
 
@@ -67,7 +71,7 @@ fn nav_arrow(state: &AppState, id: &'static str, icon: Icon, enabled: bool) -> A
     arrow.into_any_element()
 }
 
-fn layout_menu(state: &AppState) -> AnyElement {
+fn layout_menu(state: &AppState, cx: &mut Context<MainWindow>) -> AnyElement {
     let metrics = &state.metrics;
     let theme = &state.theme;
 
@@ -80,6 +84,11 @@ fn layout_menu(state: &AppState) -> AnyElement {
         .justify_center()
         .size(metrics.scaled(22.0))
         .cursor_pointer()
+        .on_click(
+            cx.listener(|window: &mut MainWindow, event: &ClickEvent, view, cx| {
+                window.open_layout_menu(event.position(), view, cx);
+            }),
+        )
         .child(
             IconGlyph::new(Icon::Grid, metrics.font_body(), theme.fg_muted)
                 .hover_in_group("layout-menu", theme.fg),
@@ -135,7 +144,7 @@ fn pane_actions(state: &AppState, cx: &mut Context<MainWindow>) -> AnyElement {
     let glyph = metrics.scaled(13.0);
     let box_size = metrics.control_medium();
 
-    div()
+    let mut actions = div()
         .flex()
         .flex_row()
         .flex_none()
@@ -154,44 +163,62 @@ fn pane_actions(state: &AppState, cx: &mut Context<MainWindow>) -> AnyElement {
                 .tooltip("Apply Layout", theme.raised(), theme.fg, theme.border)
                 .on_click(cx.listener(
                     move |window: &mut MainWindow, event: &gpui::ClickEvent, view, cx| {
-                        window.open_layout_menu(event.position(), view, cx);
+                        window.open_terminal_layout_menu(event.position(), view, cx);
                     },
                 )),
             )
-        })
-        .child(action_button(
-            state,
-            "split-right",
-            Icon::Columns,
-            glyph,
-            box_size,
-        ))
-        .child(action_button(
-            state,
-            "split-down",
-            Icon::Rows,
-            glyph,
-            box_size,
-        ))
-        .child(action_button(state, "new-tab", Icon::Plus, glyph, box_size))
-        .child(action_button(
-            state,
-            "new-browser-tab",
-            Icon::Globe,
-            glyph,
-            box_size,
-        ))
-        .into_any_element()
+        });
+    for action in TITLEBAR_ACTIONS {
+        actions = actions.child(action_button(state, action, glyph, box_size, cx));
+    }
+    actions.into_any_element()
+}
+
+#[derive(Clone, Copy)]
+enum TitlebarAction {
+    SplitRight,
+    SplitDown,
+    NewTab,
+}
+
+const TITLEBAR_ACTIONS: [TitlebarAction; 3] = [
+    TitlebarAction::SplitRight,
+    TitlebarAction::SplitDown,
+    TitlebarAction::NewTab,
+];
+
+impl TitlebarAction {
+    fn id(self) -> &'static str {
+        match self {
+            Self::SplitRight => "split-right",
+            Self::SplitDown => "split-down",
+            Self::NewTab => "new-tab",
+        }
+    }
+
+    fn icon(self) -> Icon {
+        match self {
+            Self::SplitRight => Icon::Columns,
+            Self::SplitDown => Icon::Rows,
+            Self::NewTab => Icon::Plus,
+        }
+    }
+}
+
+#[cfg(test)]
+fn titlebar_action_ids() -> Vec<&'static str> {
+    TITLEBAR_ACTIONS.map(TitlebarAction::id).to_vec()
 }
 
 fn action_button(
     state: &AppState,
-    id: &'static str,
-    icon: Icon,
+    action: TitlebarAction,
     glyph: gpui::Pixels,
     box_size: gpui::Pixels,
+    cx: &mut Context<MainWindow>,
 ) -> AnyElement {
     let theme = &state.theme;
+    let id = action.id();
     div()
         .id(id)
         .group(id)
@@ -201,7 +228,18 @@ fn action_button(
         .justify_center()
         .size(box_size)
         .cursor_pointer()
-        .child(IconGlyph::new(icon, glyph, theme.fg_muted).hover_in_group(id, theme.fg))
+        .on_click(
+            cx.listener(move |window: &mut MainWindow, _, _, cx| match action {
+                TitlebarAction::SplitRight => {
+                    window.split_focused(muxy_core::workspace::Edge::Right, cx)
+                }
+                TitlebarAction::SplitDown => {
+                    window.split_focused(muxy_core::workspace::Edge::Bottom, cx)
+                }
+                TitlebarAction::NewTab => window.new_terminal_tab(cx),
+            }),
+        )
+        .child(IconGlyph::new(action.icon(), glyph, theme.fg_muted).hover_in_group(id, theme.fg))
         .into_any_element()
 }
 
@@ -312,4 +350,18 @@ fn open_project_control(state: &AppState, cx: &mut Context<MainWindow>) -> AnyEl
                 ),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chrome_titlebar_contract_excludes_browser_and_keeps_backed_actions() {
+        assert_eq!(
+            titlebar_action_ids(),
+            vec!["split-right", "split-down", "new-tab"]
+        );
+        assert!(!titlebar_action_ids().contains(&"new-browser-tab"));
+    }
 }

@@ -1,17 +1,18 @@
 use crate::state::AppState;
+use crate::views::window::MainWindow;
 use gpui::{
-    AnyElement, FontWeight, InteractiveElement, IntoElement, ParentElement, SharedString, Styled,
-    div, px, rgb,
+    AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, div, px, rgb,
 };
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
 
 const ACCENT_BUTTON: u32 = 0x0a7cff;
 
-pub fn workspace_content(state: &AppState) -> AnyElement {
+pub fn workspace_content(state: &AppState, cx: &mut Context<MainWindow>) -> AnyElement {
     let theme = &state.theme;
     let content = match state.active_project() {
-        Some(project) => empty_project(state, &project.name),
+        Some(project) => empty_project(state, &project.name, cx),
         None => welcome(state),
     };
 
@@ -44,7 +45,7 @@ fn welcome(state: &AppState) -> AnyElement {
         .into_any_element()
 }
 
-fn empty_project(state: &AppState, name: &str) -> AnyElement {
+fn empty_project(state: &AppState, name: &str, cx: &mut Context<MainWindow>) -> AnyElement {
     let metrics = &state.metrics;
     let theme = &state.theme;
 
@@ -91,6 +92,9 @@ fn empty_project(state: &AppState, name: &str) -> AnyElement {
                 .text_color(gpui::white())
                 .text_size(metrics.font_body())
                 .cursor_pointer()
+                .on_click(cx.listener(|window: &mut MainWindow, _, _, cx| {
+                    window.new_terminal_tab(cx);
+                }))
                 .child(SharedString::from("New Tab"))
                 .child(
                     div()

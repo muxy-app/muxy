@@ -199,9 +199,12 @@ impl Workspace {
                     .sort_by_key(|project| project.name.to_lowercase());
                 self.projects.reverse();
             }
-            SortMode::RecentlyActive => self
-                .projects
-                .sort_by(|left, right| right.last_active().total_cmp(&left.last_active())),
+            SortMode::RecentlyActive => self.projects.sort_by(|left, right| {
+                right
+                    .last_active()
+                    .total_cmp(&left.last_active())
+                    .then_with(|| left.sort_order.cmp(&right.sort_order))
+            }),
             SortMode::DateCreated => self
                 .projects
                 .sort_by(|left, right| left.created_at.total_cmp(&right.created_at)),
@@ -225,6 +228,10 @@ impl Workspace {
     pub fn set_sort_mode(&mut self, sort_mode: SortMode) {
         self.sort_mode = sort_mode;
         self.sort();
+    }
+
+    pub fn sort_mode(&self) -> SortMode {
+        self.sort_mode
     }
 
     pub fn ensure_home(&mut self) {
@@ -508,5 +515,47 @@ mod tests {
         assert_eq!(decoded[0].sort_order, 3);
         assert_eq!(decoded[0].icon.as_deref(), Some("hammer"));
         assert_eq!(decoded[0].icon_color.as_deref(), Some("blue"));
+    }
+
+    #[test]
+    fn sort_mode_changes_apply_immediately_and_keep_pinned_projects_first() {
+        let mut alpha = Project::new("Alpha".to_owned(), "/tmp/alpha".to_owned(), 2);
+        alpha.created_at = 3.0;
+        alpha.last_active_at = Some(1.0);
+        let mut beta = Project::new("Beta".to_owned(), "/tmp/beta".to_owned(), 5);
+        beta.created_at = 2.0;
+        beta.last_active_at = Some(2.0);
+        beta.is_pinned = true;
+        let mut gamma = Project::new("Gamma".to_owned(), "/tmp/gamma".to_owned(), 0);
+        gamma.created_at = 1.0;
+        gamma.last_active_at = Some(3.0);
+        let mut workspace = Workspace::for_tests(vec![alpha, beta, gamma]);
+
+        let cases = [
+            (SortMode::Manual, vec!["Beta", "Gamma", "Alpha"]),
+            (SortMode::NameAscending, vec!["Beta", "Alpha", "Gamma"]),
+            (SortMode::NameDescending, vec!["Beta", "Gamma", "Alpha"]),
+            (SortMode::RecentlyActive, vec!["Beta", "Gamma", "Alpha"]),
+            (SortMode::DateCreated, vec!["Beta", "Gamma", "Alpha"]),
+        ];
+
+        for (mode, expected) in cases {
+            workspace.set_sort_mode(mode);
+            assert_eq!(workspace.sort_mode(), mode);
+            assert_eq!(
+                workspace
+                    .projects
+                    .iter()
+                    .map(|project| project.name.as_str())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert!(workspace.projects[0].is_pinned);
+            assert!(
+                workspace.projects[1..]
+                    .iter()
+                    .all(|project| !project.is_pinned)
+            );
+        }
     }
 }
