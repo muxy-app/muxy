@@ -8,6 +8,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case appearance
     case terminal
     case quickTerminal
+    case globalWorkspace
     case browser
     case richInput
     case shortcuts
@@ -29,6 +30,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: "Interface"
         case .terminal: "Terminal"
         case .quickTerminal: "Quick Terminal"
+        case .globalWorkspace: "Global Workspace"
         case .browser: "Browser"
         case .richInput: "Composer"
         case .shortcuts: "Shortcuts"
@@ -50,6 +52,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: "macwindow"
         case .terminal: "terminal"
         case .quickTerminal: "bolt.horizontal.circle"
+        case .globalWorkspace: "rectangle.3.group"
         case .browser: "globe"
         case .richInput: "text.cursor"
         case .shortcuts: "keyboard"
@@ -570,6 +573,42 @@ enum SettingsCatalog {
             category: .terminal,
             section: "Background sessions",
             defaultValue: TerminalPersistentSessionPreferences.defaultIsEnabled
+        ),
+        SettingsCatalogItem(
+            key: GlobalWorkspacePreferences.enabledKey,
+            title: "Enable Global Workspace",
+            description: "Enables the system-wide Global Workspace trigger.",
+            category: .globalWorkspace,
+            section: "General",
+            defaultValue: GlobalWorkspacePreferences.defaultEnabled,
+            aliases: ["global hotkey", "workspace", "double command", "double control", "double option"]
+        ),
+        SettingsCatalogItem(
+            key: GlobalWorkspacePreferences.triggerKey,
+            title: "Global Workspace Trigger",
+            description: "Chooses the modifier double-tap gesture used to show Global Workspace.",
+            category: .globalWorkspace,
+            section: "Shortcut",
+            defaultValue: GlobalWorkspacePreferences.defaultTrigger.rawValue,
+            aliases: ["command", "control", "option", "modifier", "custom shortcut", "global shortcut", "hotkey"]
+        ),
+        SettingsCatalogItem(
+            key: GlobalWorkspacePreferences.doubleTapIntervalMillisecondsKey,
+            title: "Double Tap Interval",
+            description: "Sets the maximum interval between modifier taps in milliseconds.",
+            category: .globalWorkspace,
+            section: "Shortcut",
+            defaultValue: GlobalWorkspacePreferences.defaultDoubleTapIntervalMilliseconds,
+            aliases: ["timing", "milliseconds", "double tap"]
+        ),
+        SettingsCatalogItem(
+            key: GlobalWorkspacePreferences.toggleToHideKey,
+            title: "Toggle to Hide",
+            description: "Hides Global Workspace when its trigger is used while it is visible.",
+            category: .globalWorkspace,
+            section: "Shortcut",
+            defaultValue: GlobalWorkspacePreferences.defaultToggleToHide,
+            aliases: ["show only", "hide", "toggle"]
         ),
         SettingsCatalogItem(
             key: "shortcuts.app",

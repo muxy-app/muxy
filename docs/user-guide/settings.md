@@ -167,6 +167,18 @@ The gear button in the quick terminal opens an in-place settings popover with th
 
 When macOS Reduce Transparency or Increase Contrast is enabled, Muxy temporarily renders the quick terminal as opaque and unblurred without changing the saved glass settings.
 
+## Global workspace
+
+Open **Settings → Global Workspace** to configure the full Muxy workspace shortcut independently of Quick Terminal:
+
+- **Enable Global Workspace** controls the feature and is off by default.
+- Choose **Double Command**, **Double Control**, or **Double Option**, or record a custom Command-, Control-, or Option-based shortcut.
+- Double-modifier triggers require **System Settings → Privacy & Security → Input Monitoring** for use outside Muxy. Recorded conventional shortcuts do not.
+- **Double Tap Interval** sets the maximum time between taps from 100–1000 ms.
+- **Toggle to Hide** controls whether using the trigger while the workspace is visible hides it.
+
+The setting values are stored as `muxy.globalHotkey.enabled`, `muxy.globalHotkey.trigger`, `muxy.globalHotkey.doubleTapIntervalMilliseconds`, and `muxy.globalHotkey.toggleToHide`. A recorded shortcut is stored in `shortcuts.globalWorkspace` as a `customShortcut` key-combo object.
+
 ## App transparency
 
 Open **Settings → Interface → Appearance** to make the main window's workspace transparent:

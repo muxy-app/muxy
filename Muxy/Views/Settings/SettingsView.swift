@@ -153,6 +153,8 @@ struct SettingsView: View {
             TerminalSettingsView()
         case .quickTerminal:
             QuickTerminalSettingsView()
+        case .globalWorkspace:
+            GlobalWorkspaceSettingsSection()
         case .browser:
             BrowserSettingsView()
         case .richInput:

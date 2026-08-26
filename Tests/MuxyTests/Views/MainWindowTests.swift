@@ -2,6 +2,28 @@ import CoreGraphics
 import Testing
 @testable import Muxy
 
+@Suite("Main window full screen notification policy")
+struct MainWindowFullScreenNotificationPolicyTests {
+    @Test @MainActor func acceptsOnlyTheHostingWindowNotification() {
+        #expect(MainWindowFullScreenNotificationPolicy.shouldApply(
+            sourceIdentifier: ShortcutContext.mainWindowIdentifier,
+            targetIdentifier: ShortcutContext.mainWindowIdentifier
+        ))
+        #expect(!MainWindowFullScreenNotificationPolicy.shouldApply(
+            sourceIdentifier: ShortcutContext.globalWorkspaceWindowIdentifier,
+            targetIdentifier: ShortcutContext.mainWindowIdentifier
+        ))
+        #expect(MainWindowFullScreenNotificationPolicy.shouldApply(
+            sourceIdentifier: ShortcutContext.globalWorkspaceWindowIdentifier,
+            targetIdentifier: ShortcutContext.globalWorkspaceWindowIdentifier
+        ))
+        #expect(!MainWindowFullScreenNotificationPolicy.shouldApply(
+            sourceIdentifier: nil,
+            targetIdentifier: ShortcutContext.mainWindowIdentifier
+        ))
+    }
+}
+
 @Suite("Floating panel outside click decision")
 struct FloatingPanelOutsideClickDecisionTests {
     private let panelBounds = CGRect(x: 0, y: 0, width: 320, height: 240)

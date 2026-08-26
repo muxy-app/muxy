@@ -160,7 +160,8 @@ struct KeyboardShortcutsSettingsView: View {
                         conflictWarning = nil
                     },
                     onRecord: { combo in handleRecord(action: action, combo: combo) },
-                    onCancel: { recordingAction = nil
+                    onCancel: {
+                        recordingAction = nil
                         conflictWarning = nil
                     },
                     onReset: { resetBinding(action: action) },

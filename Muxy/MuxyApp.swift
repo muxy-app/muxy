@@ -90,6 +90,13 @@ struct MuxyApp: App {
                     .environment(ExtensionSettingsStore.shared)
                     .preferredColorScheme(MuxyTheme.colorScheme)
                     .onAppear {
+                        GlobalWorkspaceController.shared.configure(
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore,
+                            remoteDeviceStore: remoteDeviceStore,
+                            browserStores: (profiles: browserProfileStore, history: browserHistoryStore)
+                        )
                         startDeferredServicesIfNeeded()
                         startWorktreeAutoRefreshIfNeeded()
                         NotificationStore.shared.appState = appState
@@ -844,9 +851,12 @@ struct WindowConfigurator: NSViewRepresentable {
         let v = NSView()
         DispatchQueue.main.async {
             guard let w = v.window else { return }
-            w.identifier = ShortcutContext.mainWindowIdentifier
-            if Self.closeDuplicateMainWindow(w) {
-                return
+            let isGlobalWorkspace = ShortcutContext.isGlobalWorkspaceWindow(w)
+            if !isGlobalWorkspace {
+                w.identifier = ShortcutContext.mainWindowIdentifier
+                if Self.closeDuplicateMainWindow(w) {
+                    return
+                }
             }
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
@@ -858,7 +868,9 @@ struct WindowConfigurator: NSViewRepresentable {
             Self.repositionTrafficLights(in: w)
             Self.hideTitlebarDecorationView(in: w)
             Self.neutralizeSafeAreaInsets(in: w)
-            Self.interceptCloseButton(in: w, coordinator: context.coordinator)
+            if !isGlobalWorkspace {
+                Self.interceptCloseButton(in: w, coordinator: context.coordinator)
+            }
             context.coordinator.observe(window: w)
         }
         return v
@@ -1004,7 +1016,7 @@ struct WindowConfigurator: NSViewRepresentable {
                             let isFullScreen = w.styleMask.contains(.fullScreen)
                             NotificationCenter.default.post(
                                 name: .windowFullScreenDidChange,
-                                object: nil,
+                                object: w,
                                 userInfo: ["isFullScreen": isFullScreen]
                             )
                         }

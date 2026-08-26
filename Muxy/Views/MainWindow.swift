@@ -67,7 +67,18 @@ enum MainWindowLayout {
     }
 }
 
+enum MainWindowFullScreenNotificationPolicy {
+    static func shouldApply(
+        sourceIdentifier: NSUserInterfaceItemIdentifier?,
+        targetIdentifier: NSUserInterfaceItemIdentifier
+    ) -> Bool {
+        sourceIdentifier == targetIdentifier
+    }
+}
+
 struct MainWindow: View {
+    let windowIdentifier: NSUserInterfaceItemIdentifier
+
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -186,6 +197,10 @@ struct MainWindow: View {
     }
 
     private var showsTabsInTitleBar: Bool { layout.topbar == .tabStrip || isExtensionSidebarActive }
+
+    init(windowIdentifier: NSUserInterfaceItemIdentifier = ShortcutContext.mainWindowIdentifier) {
+        self.windowIdentifier = windowIdentifier
+    }
 
     var body: some View {
         windowColumns
@@ -320,6 +335,7 @@ struct MainWindow: View {
             onToggleSidebar: toggleSidebar,
             onToggleAppLayout: toggleAppLayout,
             onToggleExtensionConsole: toggleExtensionConsole,
+            fullScreenWindowIdentifier: windowIdentifier,
             onFullScreenChange: { isFullScreen = $0 },
             onWorktreeKeysChange: pruneWorktreeStatesAndVisited,
             onActiveWorktreeChange: refreshWorkspaceWatcherAndVisited,
@@ -2482,6 +2498,7 @@ private struct MainWindowEventListeners: ViewModifier {
     let onToggleSidebar: () -> Void
     let onToggleAppLayout: () -> Void
     let onToggleExtensionConsole: () -> Void
+    let fullScreenWindowIdentifier: NSUserInterfaceItemIdentifier
     let onFullScreenChange: (Bool) -> Void
     let onWorktreeKeysChange: () -> Void
     let onActiveWorktreeChange: () -> Void
@@ -2504,6 +2521,7 @@ private struct MainWindowEventListeners: ViewModifier {
             onToggleSidebar: onToggleSidebar,
             onToggleAppLayout: onToggleAppLayout,
             onToggleExtensionConsole: onToggleExtensionConsole,
+            fullScreenWindowIdentifier: fullScreenWindowIdentifier,
             onFullScreenChange: onFullScreenChange,
             inputListeners: inputListeners
         )
@@ -2533,6 +2551,7 @@ private struct MainWindowNotificationListeners: ViewModifier {
     let onToggleSidebar: () -> Void
     let onToggleAppLayout: () -> Void
     let onToggleExtensionConsole: () -> Void
+    let fullScreenWindowIdentifier: NSUserInterfaceItemIdentifier
     let onFullScreenChange: (Bool) -> Void
     let inputListeners: InputNotificationListeners
 
@@ -2560,6 +2579,12 @@ private struct MainWindowNotificationListeners: ViewModifier {
                 onToggleExtensionConsole()
             }
             .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
+                let sourceIdentifier = (notification.object as? NSWindow)?.identifier
+                guard MainWindowFullScreenNotificationPolicy.shouldApply(
+                    sourceIdentifier: sourceIdentifier,
+                    targetIdentifier: fullScreenWindowIdentifier
+                )
+                else { return }
                 onFullScreenChange(notification.userInfo?["isFullScreen"] as? Bool ?? false)
             }
             .modifier(inputListeners)

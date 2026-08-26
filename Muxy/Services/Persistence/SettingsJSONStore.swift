@@ -6,6 +6,7 @@ private let settingsJSONLogger = Logger(subsystem: "app.muxy", category: "Settin
 @MainActor
 enum SettingsJSONStore {
     typealias QuickTerminalShortcutUpdater = @MainActor (QuickTerminalShortcut) throws -> Void
+    typealias GlobalWorkspaceShortcutUpdater = @MainActor (GlobalWorkspaceShortcutConfiguration) throws -> Void
     typealias QuickTerminalEnabledUpdater = @MainActor (Bool) -> Void
     typealias QuickTerminalEnabledResetter = @MainActor () -> Void
     typealias AutomaticUpdatesUpdater = @MainActor (Bool) -> Void
@@ -20,6 +21,11 @@ enum SettingsJSONStore {
     private struct AutomaticUpdatesActions {
         let update: AutomaticUpdatesUpdater
         let reset: AutomaticUpdatesResetter
+    }
+
+    private struct ShortcutActions {
+        let quickTerminalUpdate: QuickTerminalShortcutUpdater
+        let globalWorkspaceUpdate: GlobalWorkspaceShortcutUpdater
     }
 
     private static var defaultsObserver: NSObjectProtocol?
@@ -42,8 +48,12 @@ enum SettingsJSONStore {
 
     static func saveUserSettingsText(
         _ text: String,
-        quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater = {
+        quickTerminalShortcutUpdater: @escaping QuickTerminalShortcutUpdater = {
             try QuickTerminalShortcutService.shared.updateShortcut($0)
+        },
+        globalWorkspaceShortcutUpdater: @escaping GlobalWorkspaceShortcutUpdater = {
+            try GlobalWorkspacePreferences.setShortcutConfiguration($0)
+            GlobalWorkspaceShortcutService.shared.refresh()
         },
         quickTerminalEnabledUpdater: QuickTerminalEnabledUpdater = {
             QuickTerminalPreferences.setEnabled($0)
@@ -76,9 +86,13 @@ enum SettingsJSONStore {
                 update: automaticUpdatesUpdater,
                 reset: automaticUpdatesResetter
             )
+            let shortcutActions = ShortcutActions(
+                quickTerminalUpdate: quickTerminalShortcutUpdater,
+                globalWorkspaceUpdate: globalWorkspaceShortcutUpdater
+            )
             try apply(
                 settings,
-                quickTerminalShortcutUpdater: quickTerminalShortcutUpdater,
+                shortcutActions: shortcutActions,
                 quickTerminalEnabledUpdater: quickTerminalEnabledUpdater,
                 quickTerminalEnabledResetter: quickTerminalEnabledResetter,
                 automaticUpdatesActions: automaticUpdatesActions
@@ -167,6 +181,9 @@ enum SettingsJSONStore {
         })
         dictionary["shortcuts.app"] = keyBindingsJSONObject(KeyBinding.defaults)
         dictionary["shortcuts.quickTerminal"] = codableJSONObject(QuickTerminalShortcut.default) ?? [:]
+        dictionary[GlobalWorkspacePreferences.jsonShortcutKey] = codableJSONObject(
+            GlobalWorkspaceShortcutConfiguration(trigger: GlobalWorkspacePreferences.defaultTrigger)
+        ) ?? [:]
         dictionary["shortcuts.customCommands"] = commandShortcutsJSONObject(CommandShortcutConfiguration())
         dictionary["ai.providers"] = notificationProviderSettings(defaultValue: true)
         dictionary["mobile.approvedDevices"] = []
@@ -180,6 +197,9 @@ enum SettingsJSONStore {
         })
         dictionary["shortcuts.app"] = keyBindingsJSONObject(KeyBindingStore.shared.bindings)
         dictionary["shortcuts.quickTerminal"] = codableJSONObject(QuickTerminalShortcutService.shared.shortcut) ?? [:]
+        dictionary[GlobalWorkspacePreferences.jsonShortcutKey] = codableJSONObject(
+            GlobalWorkspacePreferences.shortcutConfiguration()
+        ) ?? [:]
         dictionary["shortcuts.customCommands"] = commandShortcutsJSONObject(CommandShortcutConfiguration(
             prefixCombo: CommandShortcutStore.shared.prefixCombo,
             shortcuts: CommandShortcutStore.shared.shortcuts
@@ -201,7 +221,45 @@ enum SettingsJSONStore {
             settings[key] = try validatedValue(value, for: item)
         }
         try validateQuickTerminalShortcutConflicts(in: settings)
+        try validateGlobalWorkspaceShortcutConflicts(in: settings)
         return settings
+    }
+
+    private static func validateGlobalWorkspaceShortcutConflicts(in settings: [String: Any]) throws {
+        let configuration: GlobalWorkspaceShortcutConfiguration = settings[GlobalWorkspacePreferences.jsonShortcutKey]
+            .flatMap { codableValue(from: $0) }
+            ?? GlobalWorkspacePreferences.shortcutConfiguration()
+        guard configuration.trigger == .custom,
+              let combo = configuration.customShortcut?.keyCombo
+        else { return }
+        let quickTerminalShortcut: QuickTerminalShortcut = settings["shortcuts.quickTerminal"]
+            .flatMap { codableValue(from: $0) }
+            ?? QuickTerminalShortcutService.shared.shortcut
+        guard quickTerminalShortcut.keyCombo != combo else {
+            throw SettingsJSONError.invalidValue(GlobalWorkspacePreferences.jsonShortcutKey)
+        }
+
+        let bindings = settings["shortcuts.app"].flatMap(keyBindings(from:))
+            ?? KeyBindingStore.shared.bindings
+        guard !bindings.contains(where: { $0.combo == combo }) else {
+            throw SettingsJSONError.invalidValue(GlobalWorkspacePreferences.jsonShortcutKey)
+        }
+
+        let commandConfiguration = settings["shortcuts.customCommands"].flatMap(commandShortcutConfiguration(from:))
+            ?? CommandShortcutConfiguration(
+                prefixCombo: CommandShortcutStore.shared.prefixCombo,
+                shortcuts: CommandShortcutStore.shared.shortcuts
+            )
+        guard commandConfiguration.prefixCombo != combo,
+              !commandConfiguration.shortcuts.contains(where: { $0.combo == combo }),
+              ExtensionShortcutStore.shared.conflictingShortcut(
+                  for: combo,
+                  excludingExtensionID: nil,
+                  commandID: nil
+              ) == nil
+        else {
+            throw SettingsJSONError.invalidValue(GlobalWorkspacePreferences.jsonShortcutKey)
+        }
     }
 
     private static func validateQuickTerminalShortcutConflicts(in settings: [String: Any]) throws {
@@ -235,7 +293,7 @@ enum SettingsJSONStore {
 
     private static func apply(
         _ dictionary: [String: Any],
-        quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater,
+        shortcutActions: ShortcutActions,
         quickTerminalEnabledUpdater: QuickTerminalEnabledUpdater,
         quickTerminalEnabledResetter: QuickTerminalEnabledResetter,
         automaticUpdatesActions: AutomaticUpdatesActions
@@ -244,7 +302,16 @@ enum SettingsJSONStore {
             _ = try applySpecialSetting(
                 key: "shortcuts.quickTerminal",
                 value: quickTerminalShortcut,
-                quickTerminalShortcutUpdater: quickTerminalShortcutUpdater
+                quickTerminalShortcutUpdater: shortcutActions.quickTerminalUpdate,
+                globalWorkspaceShortcutUpdater: shortcutActions.globalWorkspaceUpdate
+            )
+        }
+        if let globalWorkspaceShortcut = dictionary[GlobalWorkspacePreferences.jsonShortcutKey] {
+            _ = try applySpecialSetting(
+                key: GlobalWorkspacePreferences.jsonShortcutKey,
+                value: globalWorkspaceShortcut,
+                quickTerminalShortcutUpdater: shortcutActions.quickTerminalUpdate,
+                globalWorkspaceShortcutUpdater: shortcutActions.globalWorkspaceUpdate
             )
         }
         if let enabled = dictionary[QuickTerminalPreferences.enabledKey] as? Bool {
@@ -257,14 +324,24 @@ enum SettingsJSONStore {
         } else if dictionary[UpdateService.automaticallyUpdatesKey] is NSNull {
             automaticUpdatesActions.reset()
         }
+        let globalWorkspaceKeys = Set([
+            GlobalWorkspacePreferences.enabledKey,
+            GlobalWorkspacePreferences.triggerKey,
+            GlobalWorkspacePreferences.doubleTapIntervalMillisecondsKey,
+            GlobalWorkspacePreferences.toggleToHideKey,
+        ])
+        let hasGlobalWorkspaceShortcut = dictionary[GlobalWorkspacePreferences.jsonShortcutKey] != nil
         for (key, value) in dictionary where key != "shortcuts.quickTerminal"
+            && key != GlobalWorkspacePreferences.jsonShortcutKey
             && key != QuickTerminalPreferences.enabledKey
             && key != UpdateService.automaticallyUpdatesKey
+            && (!hasGlobalWorkspaceShortcut || !globalWorkspaceKeys.contains(key))
         {
             if try applySpecialSetting(
                 key: key,
                 value: value,
-                quickTerminalShortcutUpdater: quickTerminalShortcutUpdater
+                quickTerminalShortcutUpdater: shortcutActions.quickTerminalUpdate,
+                globalWorkspaceShortcutUpdater: shortcutActions.globalWorkspaceUpdate
             ) {
                 continue
             }
@@ -366,6 +443,7 @@ enum SettingsJSONStore {
         let allowedValues: [String: Set<String>] = [
             UpdateChannel.storageKey: Set(UpdateChannel.allCases.map(\.rawValue)),
             ProjectPickerPreferences.storageKey: Set(ProjectPickerMode.allCases.map(\.rawValue)),
+            GlobalWorkspacePreferences.triggerKey: Set(GlobalWorkspaceTrigger.allCases.map(\.rawValue)),
             SentryConsent.storageKey: Set(["", SentryConsent.allowed.rawValue, SentryConsent.denied.rawValue]),
             "muxy.ui.scale": Set(UIScale.Preset.allCases.map(\.rawValue)),
             AppBackgroundStyle.storageKey: Set(AppBackgroundStyle.allCases.map(\.rawValue)),
@@ -422,6 +500,10 @@ enum SettingsJSONStore {
 
     private static func validateAllowedDouble(_ value: Double, key: String) throws {
         switch key {
+        case GlobalWorkspacePreferences.doubleTapIntervalMillisecondsKey:
+            guard (GlobalWorkspacePreferences.minimumDoubleTapIntervalMilliseconds
+                ... GlobalWorkspacePreferences.maximumDoubleTapIntervalMilliseconds).contains(value)
+            else { throw SettingsJSONError.invalidValue(key) }
         case TabWidthPreferences.maxWidthKey:
             guard TabWidthPreferences.isAllowedStoredValue(value) else { throw SettingsJSONError.invalidValue(key) }
         case "editor.richInputLineHeightMultiplier":
@@ -452,6 +534,7 @@ enum SettingsJSONStore {
         switch key {
         case "shortcuts.app",
              "shortcuts.quickTerminal",
+             GlobalWorkspacePreferences.jsonShortcutKey,
              "shortcuts.customCommands",
              "ai.providers",
              "mobile.approvedDevices":
@@ -469,6 +552,13 @@ enum SettingsJSONStore {
             guard let shortcut: QuickTerminalShortcut = codableValue(from: value),
                   let canonicalShortcut = shortcut.canonicalizedForCurrentKeyboardLayout(),
                   let canonicalValue = codableJSONObject(canonicalShortcut)
+            else {
+                throw SettingsJSONError.invalidValue(key)
+            }
+            return canonicalValue
+        case GlobalWorkspacePreferences.jsonShortcutKey:
+            guard let configuration: GlobalWorkspaceShortcutConfiguration = codableValue(from: value),
+                  let canonicalValue = canonicalGlobalWorkspaceShortcutConfiguration(configuration)
             else {
                 throw SettingsJSONError.invalidValue(key)
             }
@@ -492,7 +582,8 @@ enum SettingsJSONStore {
     private static func applySpecialSetting(
         key: String,
         value: Any,
-        quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater
+        quickTerminalShortcutUpdater: QuickTerminalShortcutUpdater,
+        globalWorkspaceShortcutUpdater: GlobalWorkspaceShortcutUpdater
     ) throws -> Bool {
         switch key {
         case SentryConsent.storageKey:
@@ -532,6 +623,11 @@ enum SettingsJSONStore {
         case "shortcuts.quickTerminal":
             guard let shortcut: QuickTerminalShortcut = codableValue(from: value) else { return true }
             try quickTerminalShortcutUpdater(shortcut)
+        case GlobalWorkspacePreferences.jsonShortcutKey:
+            guard let configuration: GlobalWorkspaceShortcutConfiguration = codableValue(from: value) else {
+                return true
+            }
+            try globalWorkspaceShortcutUpdater(configuration)
         case "shortcuts.customCommands":
             guard let configuration = commandShortcutConfiguration(from: value) else { return true }
             CommandShortcutStore.shared.replaceConfiguration(configuration)
@@ -611,6 +707,21 @@ enum SettingsJSONStore {
 
     private static func isValidKeyCombo(_ combo: KeyCombo) -> Bool {
         combo.isAssigned && combo.isCanonical
+    }
+
+    private static func canonicalGlobalWorkspaceShortcutConfiguration(
+        _ configuration: GlobalWorkspaceShortcutConfiguration
+    ) -> Any? {
+        if configuration.trigger == .custom {
+            guard let customShortcut = configuration.customShortcut,
+                  let canonicalShortcut = customShortcut.canonicalizedForCurrentKeyboardLayout()
+            else { return nil }
+            return codableJSONObject(GlobalWorkspaceShortcutConfiguration(
+                trigger: .custom,
+                customShortcut: canonicalShortcut
+            ))
+        }
+        return codableJSONObject(GlobalWorkspaceShortcutConfiguration(trigger: configuration.trigger))
     }
 
     private static func isValidAppKeyCombo(_ combo: KeyCombo) -> Bool {

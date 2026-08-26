@@ -1385,6 +1385,8 @@
 "Chooses the search engine used when you type a query in the browser address bar." = "Chooses the search engine used when you type a query in the browser address bar.";
 "Chooses the terminal theme for dark appearance." = "Chooses the terminal theme for dark appearance.";
 "Chooses the terminal theme for light appearance." = "Chooses the terminal theme for light appearance.";
+"Chooses the modifier double-tap gesture used to show Global Workspace." = "Chooses the modifier double-tap gesture used to show Global Workspace.";
+"Custom Shortcut" = "Custom Shortcut";
 "Collapsed Sidebar Style" = "Collapsed Sidebar Style";
 "Commit Prompt" = "Commit Prompt";
 "Commit Provider" = "Commit Provider";
@@ -1421,9 +1423,19 @@
 "Default Worktree Parent Folder" = "Default Worktree Parent Folder";
 "Default Worktree Path Template" = "Default Worktree Path Template";
 "Desktop Notifications" = "Desktop Notifications";
+"Double Tap Interval" = "Double Tap Interval";
+"Double Command" = "Double Command";
+"Double Control" = "Double Control";
+"Double Modifier" = "Double Modifier";
+"Double Option" = "Double Option";
+"Enable Global Workspace" = "Enable Global Workspace";
+"Enables the system-wide Global Workspace trigger." = "Enables the system-wide Global Workspace trigger.";
 "Expanded Sidebar Style" = "Expanded Sidebar Style";
 "Free Idle Background Terminals" = "Free Idle Background Terminals";
 "Frees a background tab's terminal after it stays idle, reclaiming memory." = "Frees a background tab's terminal after it stays idle, reclaiming memory.";
+"Global Workspace" = "Global Workspace";
+"Global Workspace Trigger" = "Global Workspace Trigger";
+"Hides Global Workspace when its trigger is used while it is visible." = "Hides Global Workspace when its trigger is used while it is visible.";
 "How long a background tab stays idle before its terminal is freed." = "How long a background tab stays idle before its terminal is freed.";
 "Idle Timeout (seconds)" = "Idle Timeout (seconds)";
 "Interface Size" = "Interface Size";
@@ -1447,6 +1459,8 @@
 "Restores a backup and replaces all current Muxy data." = "Restores a backup and replaces all current Muxy data.";
 "Saves settings, projects, remote devices and customizations to a file." = "Saves settings, projects, remote devices and customizations to a file.";
 "Sets the height of the quick terminal in points." = "Sets the height of the quick terminal in points.";
+"Sets the maximum interval between modifier taps in milliseconds." = "Sets the maximum interval between modifier taps in milliseconds.";
+"Shortcut Error" = "Shortcut Error";
 "Sets the maximum tab header width in pixels; the widest setting lets tabs fill the titlebar." = "Sets the maximum tab header width in pixels; the widest setting lets tabs fill the titlebar.";
 "Sets the page new browser tabs open to. Blank by default, or a website you choose." = "Sets the page new browser tabs open to. Blank by default, or a website you choose.";
 "Sets the width of the quick terminal in points." = "Sets the width of the quick terminal in points.";
@@ -1463,6 +1477,7 @@
 "Shows the QR code used to pair a mobile device." = "Shows the QR code used to pair a mobile device.";
 "Shows the permanent Home project at the top of the sidebar." = "Shows the permanent Home project at the top of the sidebar.";
 "Shows Muxy tips at the bottom of the built-in sidebar." = "Shows Muxy tips at the bottom of the built-in sidebar.";
+"Toggle to Hide" = "Toggle to Hide";
 "Shows toast notifications." = "Shows toast notifications.";
 "Sidebar Vibrancy" = "Sidebar Vibrancy";
 "Sorts the worktree switcher with the active worktree first, then by most-recently-used." = "Sorts the worktree switcher with the active worktree first, then by most-recently-used.";

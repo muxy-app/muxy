@@ -88,10 +88,32 @@ struct SettingsCatalogTests {
     }
 
     @Test
-    func quickTerminalSettingsAreSearchableAndJSONEditable() {
+    func quickTerminalAndGlobalWorkspaceAreSiblingCategories() throws {
+        let quickTerminalIndex = try #require(SettingsCatalog.categories.firstIndex(of: .quickTerminal))
+        let globalWorkspaceIndex = try #require(SettingsCatalog.categories.firstIndex(of: .globalWorkspace))
+
+        #expect(globalWorkspaceIndex == quickTerminalIndex + 1)
+    }
+
+    @Test
+    func quickTerminalAndGlobalWorkspaceSettingsAreSearchableAndJSONEditable() {
         let quickTerminalItems = SettingsCatalog.items.filter { $0.category == .quickTerminal }
+        let globalWorkspaceItems = SettingsCatalog.items.filter { $0.category == .globalWorkspace }
+        let globalWorkspaceKeys = [
+            GlobalWorkspacePreferences.enabledKey,
+            GlobalWorkspacePreferences.triggerKey,
+            GlobalWorkspacePreferences.doubleTapIntervalMillisecondsKey,
+            GlobalWorkspacePreferences.toggleToHideKey,
+        ]
 
         #expect(quickTerminalItems.allSatisfy { $0.category == .quickTerminal })
+        #expect(globalWorkspaceItems.allSatisfy { $0.category == .globalWorkspace })
+        #expect(globalWorkspaceKeys.allSatisfy { key in
+            globalWorkspaceItems.contains { $0.key == key }
+        })
+        #expect(!SettingsCatalog.items.contains { item in
+            item.category != .globalWorkspace && globalWorkspaceKeys.contains(item.key)
+        })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalPreferences.enabledKey })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalSizePreferences.widthKey })
         #expect(quickTerminalItems.contains { $0.key == QuickTerminalSizePreferences.heightKey })
@@ -120,6 +142,11 @@ struct SettingsCatalogTests {
         })
         #expect(SettingsCatalog.sectionMatches(query: "terminal size", category: .quickTerminal, section: "Size"))
         #expect(SettingsCatalog.sectionMatches(query: "vibrancy", category: .quickTerminal, section: "Appearance"))
+        #expect(SettingsCatalog.sectionMatches(query: "double tap", category: .globalWorkspace, section: "Shortcut"))
+        #expect(SettingsCatalog.matchingItems(query: "custom shortcut").contains {
+            $0.category == .globalWorkspace && $0.key == GlobalWorkspacePreferences.triggerKey
+        })
+        #expect(SettingsCatalog.sectionMatches(query: "enable", category: .globalWorkspace, section: "General"))
     }
 
     @Test
@@ -356,6 +383,7 @@ struct SettingsCatalogTests {
     func settingsRoutesRoundTripStoredIDs() throws {
         #expect(SettingsRoute(storedID: "builtin.terminal") == .builtin(.terminal))
         #expect(SettingsRoute(storedID: "builtin.quickTerminal") == .builtin(.quickTerminal))
+        #expect(SettingsRoute(storedID: "builtin.globalWorkspace") == .builtin(.globalWorkspace))
         #expect(SettingsRoute(storedID: "ext.com.example.tool") == .ext("com.example.tool"))
         #expect(SettingsRoute(storedID: "builtin.missing") == nil)
         #expect(SettingsRoute(storedID: "ext.") == nil)

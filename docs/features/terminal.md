@@ -64,6 +64,10 @@ Transparency and vibrancy apply only to the terminal workspace while preserving 
 
 The quick terminal is available while Muxy is running. Closing Muxy's main window still follows the existing quit behavior.
 
+## Global workspace
+
+Global Workspace is a separate Settings page from Quick Terminal. Enable it in **Settings → Global Workspace**, then choose a double Command, Control, or Option trigger or record a custom conventional shortcut. Double-modifier triggers need Input Monitoring to work system-wide; recorded shortcuts do not. The double-tap interval and whether the trigger toggles a visible workspace are configurable there.
+
 ## App transparency
 
 **Settings → Interface → Appearance** brings the same transparency and vibrancy controls to the main window: terminal panes, the top bar, and the status bar. Transparency ranges from 0–55% and defaults to 0, keeping the window opaque until it is raised. Vibrancy mixes the native macOS material from 0–100% behind the transparent background; because the main window itself stays opaque, the desktop shows through the vibrancy material and the effect needs a vibrancy above zero. The sidebar keeps its own vibrancy toggle.

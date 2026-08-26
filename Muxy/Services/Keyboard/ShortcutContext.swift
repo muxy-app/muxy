@@ -3,9 +3,15 @@ import AppKit
 @MainActor
 enum ShortcutContext {
     static let mainWindowIdentifier = NSUserInterfaceItemIdentifier("app.muxy.main-window")
+    static let globalWorkspaceWindowIdentifier = NSUserInterfaceItemIdentifier("app.muxy.global-workspace-window")
 
     static func isMainWindow(_ window: NSWindow?) -> Bool {
-        window?.identifier == mainWindowIdentifier
+        guard let identifier = window?.identifier else { return false }
+        return identifier == mainWindowIdentifier || identifier == globalWorkspaceWindowIdentifier
+    }
+
+    static func isGlobalWorkspaceWindow(_ window: NSWindow?) -> Bool {
+        window?.identifier == globalWorkspaceWindowIdentifier
     }
 
     static func activeScopes(

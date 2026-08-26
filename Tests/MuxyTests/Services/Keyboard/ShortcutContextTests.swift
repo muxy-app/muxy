@@ -12,8 +12,14 @@ struct ShortcutContextTests {
         return window
     }
 
-    @Test("non-main window only exposes the global scope")
-    func nonMainWindowScopes() {
+    private func globalWorkspaceWindow() -> NSWindow {
+        let window = NSWindow()
+        window.identifier = ShortcutContext.globalWorkspaceWindowIdentifier
+        return window
+    }
+
+    @Test("non-workspace window only exposes the global scope")
+    func nonWorkspaceWindowScopes() {
         let scopes = ShortcutContext.activeScopes(for: NSWindow(), isTerminalFocused: true)
         #expect(scopes == [.global])
     }
@@ -38,6 +44,24 @@ struct ShortcutContextTests {
             isBrowserFocused: true
         )
         #expect(scopes == [.global, .mainWindow, .browser])
+    }
+
+    @Test("global workspace exposes main workspace shortcut scopes")
+    func globalWorkspaceScopes() {
+        let scopes = ShortcutContext.activeScopes(
+            for: globalWorkspaceWindow(),
+            isTerminalFocused: true,
+            isBrowserFocused: true
+        )
+        #expect(scopes == [.global, .mainWindow, .terminal, .browser])
+    }
+
+    @Test("global workspace identity remains distinguishable")
+    func globalWorkspaceIdentity() {
+        let window = globalWorkspaceWindow()
+        #expect(ShortcutContext.isMainWindow(window))
+        #expect(ShortcutContext.isGlobalWorkspaceWindow(window))
+        #expect(!ShortcutContext.isGlobalWorkspaceWindow(mainWindow()))
     }
 
     @Test("find action is gated to the terminal scope")

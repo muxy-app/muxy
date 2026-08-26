@@ -38,8 +38,18 @@ final class ModifierKeyMonitor {
                 guard let self else { return }
                 let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
                 self.updateFlags(flags)
+                GlobalWorkspaceShortcutService.shared.refreshInputMonitoringAccess()
             }
         }
+        let service = GlobalWorkspaceShortcutService.shared
+        service.onTrigger = { toggleToHide in
+            if toggleToHide {
+                GlobalWorkspaceController.shared.toggle()
+            } else {
+                GlobalWorkspaceController.shared.show()
+            }
+        }
+        service.start()
     }
 
     func stop() {
@@ -49,6 +59,8 @@ final class ModifierKeyMonitor {
         if let activationObserver {
             NotificationCenter.default.removeObserver(activationObserver)
         }
+        GlobalWorkspaceShortcutService.shared.stop()
+        GlobalWorkspaceController.shared.stop(restoresFocus: false)
         monitor = nil
         activationObserver = nil
         cancelHint()
