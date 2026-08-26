@@ -4,7 +4,7 @@
 
 Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emulator (libghostty) + project/worktree manager + JS extension platform + embedded browser + mobile WebSocket server + AI-agent hook system + tmux-like persistent sessions. The Rust + GPUI rewrite is now in this repository on the `2.x` branch, with the 8-crate workspace at the branch root and the Swift implementation retained alongside it as the parity reference. The architecture refactor is **fully complete** and mechanically enforced by `scripts/check.sh`. The old phase plans are consumed or superseded; this document is the single roadmap for finishing the rewrite. It has passed one adversarial review pass; corrections from that review are folded in.
 
-**Goal:** Muxy 2.0 for macOS — a drop-in replacement for the Swift app. Users download 2.x, replace the app, and everything just works: same config files, same storage, same sockets, same CLI, zero migration. Linux comes after (this roadmap only keeps it compiling and launching).
+**Goal:** Muxy 2.0 for macOS replaces the Swift app in `/Applications`. Release performs one bounded, source-preserving import into `~/.muxy`, then Rust owns its storage. Debug owns `~/.muxy-dev`. Linux comes after, while this roadmap keeps it compiling and launching.
 
 ## Decisions of Record (from interview)
 
@@ -24,12 +24,12 @@ Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emu
 | 12 | **Dogfood-first ordering** — enablers → daily-driver parity → platform → outer ring → release machinery. |
 | 13 | **Repo workflow:** the active rewrite repository is `~/Projects/muxy-2.x` on branch `2.x`. The Rust workspace lives at the branch root alongside the retained Swift parity reference. Feature branches PR into `2.x`; `~/Projects/muxy` remains the 1.x working copy. |
 | 14 | **Release gate:** beta-channel soak + full parity checklist (details in Verification). |
+| 15 | **Storage cutover:** release imports the retained Swift profile once into `~/.muxy`; debug uses `~/.muxy-dev`; existing Rust data wins and the Swift source remains untouched. |
 
 ## Open decisions (surfaced by adversarial review — resolve at owning phase's planning)
 
 | Phase | Decision |
 |---|---|
-| P2.5 | Fidelity level of `settings.json` ↔ defaults sync: genuinely live (file watcher + defaults observation like 1.x) or documented startup/write-time sync. 1.x is live; anything less must be proven safe under coexistence. |
 | P10 | Fate of the **in-process** command-script runner (`ExtensionScriptRunner`, a second JSC embed inside the app with synchronous `__muxyDispatch`): keep in-process (breaks "JSC only in host" rule, adds JIT entitlement to main binary) vs move to the host process (changes command-script semantics). |
 | P14 | 1.x latent bug: `config-export` is missing from `verbNames` so `muxy config export` gets no reply in 1.x. Reproduce or fix. |
 | P15 | 1.x sunset specifics: contents of the final 1.x release / frozen appcast, beta-channel (rolling `beta-channel` tag) cutover, and whether the Homebrew tap continues. |
@@ -66,7 +66,7 @@ flowchart TD
 **Working today** (~43.6k LOC, 303 unit tests):
 - Terminal stack: libghostty FFI → host → NSView (IME, CJK fonts, mouse, pressure) → GPUI compositing; shell launch with startup commands; OSC titles/PWD/progress; search; overlay scrollbar; clipboard/paste/close confirmations.
 - Tabs/splits: full two-level tree (top-level tab groups + per-group split trees), drag/dock/reorder, pin/color/icon/rename, maximize, directional focus.
-- Persistence **aimed at** 1.x compatibility, with known hardening debt (see P2.5): `workspaces.json` has lossless raw passthrough; `projects.json` round-trip test exists but silently skips without a real profile; `projects.json`/`worktrees/*.json` currently **drop unknown Swift fields on write**; three different serializers are in use (hand-rolled Foundation writer, `to_vec_pretty`, compact `to_vec`) so byte-shape is not yet uniform; the 68-key settings mirror syncs at startup/own-writes only (not live), 5 composite keys + 3 `editor.*` keys are write-broken via the JSON editor; startup reads bypass cfprefsd via direct bundle-domain plist reads. Defaults and filesystem tests are isolated from production state.
+- Persistence uses Rust-owned profile roots. Release imports the current allowlist once from `~/Library/Application Support/Muxy` into `~/.muxy`; debug uses `~/.muxy-dev`; staged tests inject ignored roots. Existing destination data wins, the Swift source is never modified, and terminal migration outcomes never inspect it again. Preferences use private atomic `preferences.json`; only an eligible pending macOS release migration reads the production `NSUserDefaults` suite through Foundation.
 - Projects/groups/worktrees (read + switch), git truth off-thread, FS watcher, project picker, omnibox (6 scopes), repo layouts (`.muxy/layouts/*`), 490 bundled themes + paired light/dark, keybindings (54 of 1.x's 68 bindable actions modelled + unmodelled passthrough — parity audit needed), chorded command shortcuts + editor UI, settings modal (16 categories + JSON editor), native menu bar, app bundling/signing scripts (ad-hoc, single-binary only).
 
 ## Gap Map — 1.x feature vs 2.x status
@@ -75,8 +75,8 @@ flowchart TD
 |---|---|
 | Terminal emulation, search, scrollbar, confirmations | ✅ done (CJK temp-conf machinery needs parity audit) |
 | Tabs/splits/workspace persistence | ✅ done |
-| Projects/groups/picker/omnibox/layouts/themes/keybindings/settings UI | ✅ done (some inert buttons; compat hardening pending) |
-| Compat hardening (fixtures, raw passthrough, uniform serializer, live sync) | ❌ P2.5 |
+| Projects/groups/picker/omnibox/layouts/themes/keybindings/settings UI | ✅ done (some inert buttons; later feature parity audits remain) |
+| One-way Swift profile migration and Rust-owned storage | ✅ P2.5 complete |
 | Worktree **create/remove**, path templates, setup/teardown hooks | ❌ missing (read/switch only) |
 | Titlebar buttons, welcome New Tab, sort, nav arrows, misc inert settings actions | ❌ inert |
 | Git UI (changes/branch/PR popovers, commit/push/pull, gh, AI commit/PR text) | ❌ missing |
@@ -114,7 +114,7 @@ flowchart LR
         P0["P0 Repo migration ✓\n2.x branch + local gates"]
         P1["P1 Dev/prod isolation ✓\ncontracts + settings"]
         P2["P2 muxy.sock server +\ndispatcher core + CLI compat ✓"]
-        P25["P2.5 Compat hardening\n(fixtures, passthrough, serializer)"]
+        P25["P2.5 One-way Swift import\nRust-owned profile roots"]
     end
     subgraph B["Stage B — Daily driver"]
         P3["P3 Chrome wiring +\nworktree create/hooks"]
@@ -156,17 +156,17 @@ Each phase gets its own detailed plan (grill-me per task) before implementation.
 The active rewrite repository is `~/Projects/muxy-2.x` on branch `2.x`. The 8-crate Rust workspace is at the repository root alongside the retained Swift implementation, which remains the parity reference while the rewrite proceeds. Feature branches target `2.x`; `~/Projects/muxy` remains the 1.x working copy. Local enforcement is provided by `scripts/check.sh`, `scripts/build-app.sh`, and `scripts/verify-bundle.sh`. New phases extend crate-boundary and bundle gates when they add crates or executables. The existing 1.x workflows remain in the repository, while Rust macOS/Linux CI is deliberately deferred to P15 so it lands before release.
 *Acceptance: complete.* The active repository and `2.x` workflow are established, the Rust workspace builds from the branch root, and local quality gates are available.
 
-**P1 — Dev/prod isolation. COMPLETE for contracts and current settings.**
-`muxy-core::environment` owns compile-time mode selection, socket/session/hook names, mobile keys and defaults, and typed provider-config mutation policy. App Support, `settings.json`, standard defaults, Ghostty configuration, and non-mobile preferences remain shared. Debug and release mobile namespaces coexist in the shared JSON file, and inactive values survive sync, writes, Apply, and Reset. Isolated acceptance runs permanently reuse `com.muxy.tests` and `target/test-verification`; future phases do not create phase-numbered identities. Development foreign-provider mutation policy permits only explicit AI Notifications toggle and Refresh actions; current P1 controls still write only Muxy preferences, Refresh remains inert, and Test is non-mutating.
-*Acceptance: complete for P1 scope.* Debug/release contracts, mode-aware settings, guardrails, isolated staged launches, and sequential Swift/Rust settings coexistence are proven. Runtime coexistence remains assigned to P2 sockets, P8 sessions, P11 hooks/provider mutators, and P12 mobile. P14 must deny importer-triggered foreign provider mutation while still restoring Muxy preferences.
+**P1 — Dev/prod isolation. COMPLETE.**
+`muxy-core::environment` owns compile-time mode selection, storage roots, socket/session/hook names, mobile keys and defaults, and typed provider-config mutation policy. Debug uses `com.muxy.dev`, display name `Muxy Dev`, and `~/.muxy-dev`; release uses `com.muxy.app`, display name `Muxy`, and `~/.muxy`. Isolated acceptance runs permanently reuse `com.muxy.tests` and injected roots beneath `target/test-verification`. Development foreign-provider mutation policy permits only explicit AI Notifications toggle and Refresh actions; current P1 controls write only Muxy preferences, Refresh remains inert, and Test is non-mutating.
+*Acceptance: complete.* Bundle identity, file storage, Ghostty configuration, defaults ownership, runtime endpoint names, and mobile namespaces are isolated by mode. Runtime feature implementation remains assigned to P8 sessions, P11 hooks/provider mutators, and P12 mobile.
 
 **P2 — Socket server + dispatcher core + CLI compat. COMPLETE.**
 Consume `RuntimePathPolicy::main_socket_path` with caller-local build selection, bind the selected socket, export it to panes, and prove debug Rust coexists with the production Swift socket. Reproduce the real `NotificationSocketServer` protocol — **newline-delimited pipe-separated text** with base64-nested JSON fields (not NDJSON); CLI command replies are raw text terminated by a NUL byte then close; server→client `invoke` RPC with 15s timeout; modal push channels; 128 KiB message cap; no protocol versioning; subscription allowlist enforced only for identified extensions; the in-flight cap (8) applies to every session, while the 100-drop disconnect is extension-scoped. **Hook-envelope handling is structural to the server**: every unidentified line gets an `AgentHookProtocol` v3 JSON parse attempt + JSON ack, 256-entry dedup ring, PID→pane resolution — this lands here (P11 adds the installer/binary, not the server semantics). Document the three verb surfaces distinctly: `SocketCommandHandler` pipe verbs (~60), `MuxyAPIDispatcher` (146 dispatched cases; 169 accepted names incl. 37 legacy aliases), and the ~15 verbs implemented outside the dispatcher (`panes.split`, `sessions.*`, `tabs.rename/close/move`, lifecycle). Implement in P2 the verbs backed by existing functionality; later phases own their verbs (36 `browser.*` → P9, `list-sessions`/`kill-session` → P8, `create-worktree` → P3, `config-export|import` → P14). Bundle contract: ship `muxy-cli` at the literal legacy path `Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli` (installed shims hardcode it); note the CLI's default socket is the **prod** path (dev relies on `MUXY_SOCKET_PATH` from panes) and `open-project` uses `muxy://open` + `open -b com.muxy.app`. Terminal env contract exported into panes: `MUXY_PANE_ID`, `MUXY_PROJECT_ID`, `MUXY_WORKTREE_ID`, `MUXY_SOCKET_PATH` (`MUXY_HOOK_BIN`/`MUXY_HOOK_SCRIPT` land in P11 — verify the claude wrapper tolerates their absence, else stub the staging dir here).
 *Acceptance: complete.* All 33 P2 wire heads, path-open, raw hook, and raw notification pass through the installed 1.x shim and byte-identical nested CLI against an isolated staged Rust app. Synthetic extension sessions cover transport mechanics, the common gates pass, and the live production Swift socket remains unchanged.
 
-**P2.5 — Compatibility hardening.**
-Make the byte-parity contracts true before daily dogfooding writes real data: capture a golden fixture corpus from a real 1.x profile (checked into the repo, tests fail — not skip — without it); add lossless raw passthrough to `projects.json` and `worktrees/*.json` (matching `workspaces.json`/`project-groups.json`); unify on one Foundation-shaped serializer per 1.x's per-file profile (compact / pretty / prettySorted / `withoutEscapingSlashes`), including `workspaces.json` ordering; resolve the settings-sync open decision (live vs startup) and fix the 8 write-broken JSON-editor keys; cfprefsd-safe defaults reads (drop or fence the direct plist read); retain P1's mechanically verified defaults-suite and App Support test isolation; Foundation-date conversion tests.
-*Acceptance:* cross-run harness green — Swift writes → Rust reads → Rust writes → Swift reads, byte-diff clean per file profile; Swift 1.x launches and behaves against a profile 2.x has been writing.
+**P2.5 — One-way Swift profile migration. COMPLETE.**
+Release imports only current Rust-consumed paths from `~/Library/Application Support/Muxy` into `~/.muxy`, preserving the Swift source and every preexisting destination entry. Directory merges are recursive and do not follow symlinks or non-regular entries. Portable `preferences.json` replaces normal `NSUserDefaults` ownership; a narrow macOS reader imports only the approved production-suite keys during an eligible pending migration. Missing source, completed, and abandoned outcomes are terminal. First failure blocks startup and retries once; second failure records abandonment and continues without deleting imported data. Debug and ordinary tests never inspect the production source.
+*Acceptance: complete.* Focused migration and preference tests, Linux-neutral core compilation, 47 retained Swift tests, staged synthetic debug/release launches, source hashes, retry and abandonment assertions, review remediation, and all shared gates pass.
 
 ### Stage B — Daily-driver parity
 
@@ -246,18 +246,18 @@ Placement rules per phase:
 
 ## Cross-cutting parity contracts (apply to every phase)
 
-- **Formats:** Foundation date = f64 seconds since 2001-01-01 (except ISO-8601 in backup manifest + audit log); uppercase UUIDs; per-file JSON profile (compact vs pretty vs prettySorted, `withoutEscapingSlashes` for settings.json) via **one shared Foundation-shaped serializer** (P2.5); file modes 0600/0700 where 1.x sets them; atomic temp-file writes.
-- **Lossless passthrough everywhere:** every persisted store preserves unknown keys/files (after P2.5 this includes `projects.json` and `worktrees/*.json`); stale legacy files on real machines are never deleted.
+- **Formats:** Foundation date = f64 seconds since 2001-01-01 where retained formats require it; uppercase UUIDs; explicit JSON shape per current Rust store; private data uses atomic destination-side temporary files and file modes 0600/0700 where applicable.
+- **Migration preservation:** the one-way importer copies allowlisted App Support files without parsing or reserializing them. Existing Rust files and extension data win, and the retained Swift source is never modified or deleted.
 - **Sentinel UUIDs:** Home project `…-0001`, default browser profile `…-00B0` (→ `WKWebsiteDataStore.default()`), derived remote-Home IDs.
-- **Settings:** `settings.json` ↔ UserDefaults sync per the P2.5 fidelity decision, with per-key validation; 5 special composite keys; UserDefaults-only keys preserved.
-- **Decoding:** every store decodes with `decodeIfPresent`+defaults semantics; keybindings merge-with-defaults + conflict avoidance; per-element failure swallowing where 1.x does.
-- **The Swift app must still open cleanly against anything 2.x writes** — this stays true until 2.0 ships stable.
+- **Settings:** normal preference reads and writes use portable `preferences.json`; `settings.json` remains the user-facing settings mirror; `NSUserDefaults` is migration-only.
+- **Decoding:** every store decodes with defaults semantics appropriate to its current model; keybindings merge with defaults and avoid conflicts; malformed optional entries do not block unrelated state.
+- **Rollback:** the retained Swift profile remains untouched. Rust does not write back to Swift storage or promise that Swift can consume Rust-owned `~/.muxy` data.
 
 ## Risk register
 
 | Risk | Mitigation |
 |---|---|
-| `settings.json` ↔ defaults sync drift (the #1 compat risk) | P2.5 golden fixtures + cross-run harness (Swift↔Rust write/read cycles) run locally through P14 and in CI from P15 onward. |
+| Swift profile migration loses or overwrites user state | Allowlisted source-preserving copy, destination-wins merge, versioned terminal state, two-attempt cap, unit tests, and staged synthetic launch verification. |
 | Socket protocol fidelity (CLI + extensions + hooks all depend on it) | Real protocol pinned in P2 (pipe/NUL, hook envelope); the untouched bash CLI as continuous acceptance test; replay captured 1.x traffic. |
 | Installed CLI shim path coupling | Bundle ships `muxy-cli` at the legacy `Muxy_Muxy.bundle` path; verified in `verify-bundle.sh`. |
 | 1.x Sparkle auto-update collides with 2.0 publishing | P15 sunset design (frozen final 1.x appcast, beta-tag cutover, Homebrew decision) BEFORE any 2.0 artifacts are published to the repo's release channels. |
@@ -274,10 +274,10 @@ Placement rules per phase:
 ## Verification strategy
 
 1. **Per-phase:** unit tests in headless crates (pattern established, 303 tests); manual checklist per phase derived from exercising the Swift app; `scripts/check.sh` green locally through P14 and in CI from P15 onward.
-2. **Continuous compat harness (from P2.5):** golden-fixture round-trip tests for every persisted file against a captured 1.x profile — failing, not skipping, when fixtures are absent; "Swift 1.x still launches and behaves" cross-check after Rust writes.
+2. **One-way migration harness:** synthetic Swift-shaped sources verify allowlists, destination-wins merge, source hashes, defaults filtering, source-missing completion, retry, abandonment, and terminal no-reinspection through staged debug and release launches.
 3. **CLI acceptance:** installed 1.x `muxy` wrapper exercised against the dev socket from P2 onward, via the legacy bundle shim path.
 4. **Linux guardrail:** per-package Linux `cargo check` (excluding ghostty-sys/host) + launch check on a Linux CI runner, introduced in P15 and required before release.
-5. **Release gate (P16):** full parity checklist verified subsystem-by-subsystem against a real Swift-era profile; byte round-trips green; CLI untouched and working; marketplace extensions load and run; signed + notarized multi-binary DMG; 1.x sunset executed per P15 design; beta-channel soak with you + beta users living on it; then promote to stable as 2.0.
+5. **Release gate (P16):** full parity checklist verified subsystem-by-subsystem; one-way migration acceptance green; CLI untouched and working; marketplace extensions load and run; signed and notarized multi-binary DMG; 1.x sunset executed per P15 design; beta-channel soak with you and beta users living on it; then promote to stable as 2.0.
 
 ## Out of scope for this roadmap
 

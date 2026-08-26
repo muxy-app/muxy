@@ -12,8 +12,6 @@ use crate::runtime::{
     InitializationError, MainThreadError, initialize_ghostty, require_main_thread,
 };
 
-const MUXY_USER_CONFIG: &str = "Library/Application Support/Muxy/ghostty.conf";
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ColorScheme {
     Light,
@@ -38,17 +36,10 @@ pub struct ConfigPaths {
 
 impl ConfigPaths {
     pub fn new(bundled_defaults: impl Into<PathBuf>) -> Self {
-        Self::with_home(
-            bundled_defaults,
-            std::env::var_os("HOME").as_deref().map(Path::new),
-        )
-    }
-
-    pub fn with_home(bundled_defaults: impl Into<PathBuf>, home: Option<&Path>) -> Self {
         Self {
             bundled_defaults: bundled_defaults.into(),
             generated_overlay: None,
-            user_override: home.map(|home| home.join(MUXY_USER_CONFIG)),
+            user_override: None,
         }
     }
 
@@ -213,10 +204,9 @@ mod tests {
 
     #[test]
     fn config_path_order_is_defaults_then_bundle_then_existing_user_override() {
-        let home = Path::new("/Users/tester");
-        let paths =
-            ConfigPaths::with_home("/Muxy.app/Contents/Resources/muxy-defaults", Some(home));
-        let user = home.join(MUXY_USER_CONFIG);
+        let user = PathBuf::from("/Users/tester/.muxy/ghostty.conf");
+        let paths = ConfigPaths::new("/Muxy.app/Contents/Resources/muxy-defaults")
+            .with_user_override(Some(user.clone()));
         let order = paths.load_order_with(|path| path == user);
 
         assert_eq!(
@@ -231,7 +221,8 @@ mod tests {
 
     #[test]
     fn absent_optional_user_config_is_skipped_without_reordering_required_sources() {
-        let paths = ConfigPaths::with_home("/bundle/muxy-defaults", Some(Path::new("/home")));
+        let paths = ConfigPaths::new("/bundle/muxy-defaults")
+            .with_user_override(Some(PathBuf::from("/home/.muxy/ghostty.conf")));
         assert_eq!(
             paths.load_order_with(|_| false),
             vec![
@@ -243,17 +234,16 @@ mod tests {
 
     #[test]
     fn generated_overlay_precedes_user_override() {
-        let paths = ConfigPaths::with_home("/bundle/defaults", Some(Path::new("/home")))
-            .with_generated_overlay(Some(PathBuf::from("/tmp/cjk.conf")));
+        let paths = ConfigPaths::new("/bundle/defaults")
+            .with_generated_overlay(Some(PathBuf::from("/tmp/cjk.conf")))
+            .with_user_override(Some(PathBuf::from("/home/.muxy-dev/ghostty.conf")));
         assert_eq!(
             paths.load_order_with(|_| true),
             vec![
                 ConfigSource::DefaultFiles,
                 ConfigSource::File(PathBuf::from("/bundle/defaults")),
                 ConfigSource::File(PathBuf::from("/tmp/cjk.conf")),
-                ConfigSource::File(PathBuf::from(
-                    "/home/Library/Application Support/Muxy/ghostty.conf"
-                )),
+                ConfigSource::File(PathBuf::from("/home/.muxy-dev/ghostty.conf")),
             ]
         );
     }

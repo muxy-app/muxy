@@ -125,26 +125,35 @@ classDiagram
 
 ```mermaid
 flowchart LR
-    subgraph disk["~/Library/Application Support/Muxy"]
-        S["settings.json / ui-scale.json"]
-        K["keybindings.json / command-shortcuts.json"]
-        W["workspaces.json / project-groups.json"]
-        G["ghostty.conf / logos/"]
+    SWIFT["Retained Swift profile\nApp Support + NSUserDefaults"]
+    MIG["One-way migration\nallowlist + destination wins"]
+    subgraph release["Release: ~/.muxy"]
+        RF["stores + ghostty.conf"]
+        RP["preferences.json"]
+        RS["swift-profile-migration.json"]
     end
-    UD["NSUserDefaults\n(muxy.* keys, projects)"]
-    PY[".muxy/layouts/*.yml\n(per project)"]
+    subgraph debug["Debug: ~/.muxy-dev"]
+        DF["stores + ghostty.conf"]
+        DP["preferences.json"]
+    end
+    PY["project .muxy/layouts/*.yml"]
     GIT["git CLI\n(worktrees, status)"]
 
-    core["muxy-core\nprefs + stores\n(atomic writes)"] <--> disk
-    core <--> UD
+    SWIFT --> MIG
+    MIG --> release
+    core["muxy-core\nprefs + stores\n(atomic writes)"] <--> release
+    core <--> debug
     api["muxy-api"] --> PY
     api --> GIT
-    api -- "watcher (notify)" --> disk
+    api -- "watcher (notify)" --> release
+    api -- "watcher (notify)" --> debug
     api -- "truth::refresh_truth" --> GIT
 ```
 
-- All file writes go through `store::persistence` (atomic temp-file rename, `0600` for private data).
-- `muxy-api::truth` recomputes per-project git facts (repo? worktrees? labels) off the UI thread; `watcher` re-triggers on file changes.
+- Release reads the Swift profile only while its versioned migration state is pending. Completed, source-missing, and abandoned outcomes do not inspect it again.
+- Normal preference reads and writes use private atomic `preferences.json`. `NSUserDefaults` is migration-only.
+- File writes go through `store::persistence`; migration copies use unique destination-side temporary files and no-replace publication.
+- `muxy-api::truth` recomputes per-project git facts off the UI thread; `watcher` retriggers on file changes.
 
 ## Development and production policy
 
@@ -162,16 +171,16 @@ flowchart LR
 
 Each binary invokes `build_mode!` locally. No runtime environment variable selects development mode.
 
-| State | Debug and release |
-|---|---|
-| App Support and `settings.json` | Shared |
-| Defaults domain and non-mobile preferences | Shared |
-| Ghostty configuration | Shared |
-| Socket, session, and hook names | Isolated by policy |
-| Mobile keys | Isolated by policy |
-| Acceptance tests | Reuse `com.muxy.tests` and `target/test-verification` |
+| State | Debug | Release | Staged test |
+|---|---|---|---|
+| Bundle identity | `com.muxy.dev` | `com.muxy.app` | `com.muxy.tests` |
+| Root | `~/.muxy-dev` | `~/.muxy` | Injected ignored root |
+| Preferences | Root-local `preferences.json` | Root-local `preferences.json` | Root-local `preferences.json` |
+| Ghostty configuration | Root-local | Root-local | Root-local |
+| Swift import | Never | One bounded migration | Injected synthetic source only |
+| Runtime names | Development policy | Production policy | Selected build policy |
 
-`settings.json` keeps both mobile namespaces. The active profile updates its three keys and preserves the inactive three exactly. P1 defines and verifies these contracts but does not start sockets, daemons, hooks, provider installers, or the mobile server.
+Debug and release select their roots by compile-time build mode. Environment overrides are honored only by recognized test executables. Mobile runtime implementation remains assigned to P12.
 
 ## App wiring (muxy binary)
 

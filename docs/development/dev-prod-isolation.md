@@ -4,24 +4,38 @@
 
 ```mermaid
 flowchart LR
-    A[Choose a run mode] --> B{Use real Muxy settings?}
-    B -->|Yes| C[scripts/run.sh debug]
-    B -->|No| D[scripts/run-test-app.sh debug]
-    C --> E[com.muxy.app]
-    C --> F[~/Library/Application Support/Muxy]
-    D --> G[com.muxy.tests]
-    D --> H[target/test-verification/state]
+    A[Choose a run mode] --> B{Mode}
+    B -->|Debug| C[scripts/run.sh debug]
+    B -->|Release| D[scripts/run.sh release]
+    B -->|Isolated test| E[scripts/run-test-app.sh debug or release]
+    C --> F[com.muxy.dev]
+    C --> G[~/.muxy-dev]
+    D --> H[com.muxy.app]
+    D --> I[~/.muxy]
+    E --> J[com.muxy.tests]
+    E --> K[target/test-verification/state]
 ```
 
 | Goal | Command |
 |---|---|
-| Run normally | `scripts/run.sh debug` |
-| Test without production settings | `scripts/run-test-app.sh debug` |
-| Test the release build safely | `scripts/run-test-app.sh release` |
+| Run normal development | `scripts/run.sh debug` |
+| Run the release profile | `scripts/run.sh release` |
+| Test debug without development state | `scripts/run-test-app.sh debug` |
+| Test release without production state | `scripts/run-test-app.sh release` |
 
-> `scripts/run.sh` uses your real Muxy settings. The test runner creates a staged `MuxyTests` app.
+Normal debug has its own bundle identity and storage root. It does not read release App Support or release defaults. The test runner creates a staged `MuxyTests` app with injected storage.
 
 `com.muxy.tests` and `target/test-verification` are permanent test infrastructure. Every phase reuses them instead of creating phase-numbered identities.
+
+## Storage identities
+
+| Profile | Bundle identifier | Display name | Storage |
+|---|---|---|---|
+| Debug | `com.muxy.dev` | `Muxy Dev` | `~/.muxy-dev` |
+| Release | `com.muxy.app` | `Muxy` | `~/.muxy` |
+| Staged test | `com.muxy.tests` | `MuxyTests` | Injected ignored directory |
+
+Release imports the retained Swift profile once, then reads and writes only `~/.muxy`. Normal debug never inspects the Swift source or the release root. See [Swift profile migration](swift-profile-migration.md) for the allowlist and retry contract.
 
 ## Why the test app looks fresh
 
@@ -33,7 +47,7 @@ Saved projects                  No saved projects
 Your preferences                Clean test preferences
 ```
 
-The test app uses a separate defaults domain and project-local files. Remove its state at any time:
+The test app uses a separate identity and project-local files. Remove its state at any time:
 
 ```bash
 rm -rf target/test-verification
@@ -43,36 +57,22 @@ rm -rf target/test-verification
 
 ```mermaid
 flowchart TB
-    D[Debug] --> DS[muxy-dev.sock]
+    D[Debug] --> DR[~/.muxy-dev]
+    D --> DS[muxy-dev.sock]
     D --> DP[sessions-dev]
     D --> DH[hooks-dev]
-    D --> DM[Mobile .dev keys · port 4866]
+    D --> DM[Mobile .dev keys and port 4866]
 
-    R[Release] --> RS[muxy.sock]
+    R[Release] --> RR[~/.muxy]
+    R --> RS[muxy.sock]
     R --> RP[sessions]
     R --> RH[hooks]
-    R --> RM[Mobile production keys · port 4865]
+    R --> RM[Mobile production keys and port 4865]
 ```
 
-Normal debug and release apps still share:
+Debug and release do not share normal application storage. Runtime endpoint names and mobile keys remain mode-specific as an additional boundary.
 
-- App Support
-- non-mobile settings
-- Ghostty configuration
-
-Only runtime endpoint names and mobile keys differ by build mode.
-
-## Mobile settings stay side by side
-
-```mermaid
-flowchart LR
-    J[settings.json] --> D[Debug .dev values]
-    J --> P[Release values]
-    D --> DU[Debug Settings UI]
-    P --> PU[Release Settings UI]
-```
-
-Editing one profile does not replace the other profile’s values.
+## Mobile settings
 
 | Profile | Port key | Default |
 |---|---|---:|
@@ -85,11 +85,12 @@ Mobile server startup is not implemented yet. That runtime work belongs to P12.
 
 ```mermaid
 flowchart LR
-    T[Tests] --> U[Unique defaults suite]
-    T --> V[Temporary file paths]
-    A[Acceptance launch] --> B[Staged test bundle]
-    B --> C[Project-local state]
-    P[Production Muxy] --> D[Production state]
+    T[Tests] --> U[com.muxy.tests]
+    T --> V[Injected files]
+    D[Debug] --> W[com.muxy.dev]
+    D --> X[~/.muxy-dev]
+    P[Release] --> Y[com.muxy.app]
+    P --> Z[~/.muxy]
 ```
 
-Tests inject their storage. They do not select the production defaults domain.
+Tests inject their storage. Debug selects development storage by build mode. Neither accepts a production storage override merely because an environment variable is present.

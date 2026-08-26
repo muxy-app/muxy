@@ -269,23 +269,35 @@ fn ui_scale_path() -> PathBuf {
     super::app_support_dir().join("ui-scale.json")
 }
 
-fn read_defaults(key: &str, kind: Kind) -> Value {
+fn read_defaults(key: &str, kind: Kind, existing: Option<&Value>) -> Value {
     match kind {
-        Kind::Bool(fallback) => Value::Bool(defaults::read_bool(key).unwrap_or(fallback)),
-        Kind::Int(fallback) => {
-            Value::Number(Number::from(defaults::read_i64(key).unwrap_or(fallback)))
-        }
-        Kind::Double(fallback) => Number::from_f64(defaults::read_f64(key).unwrap_or(fallback))
-            .map_or(Value::Null, Value::Number),
-        Kind::Str(fallback) => {
-            Value::String(defaults::read_string(key).unwrap_or_else(|| fallback.to_owned()))
-        }
+        Kind::Bool(fallback) => Value::Bool(
+            defaults::read_bool(key)
+                .or_else(|| existing.and_then(Value::as_bool))
+                .unwrap_or(fallback),
+        ),
+        Kind::Int(fallback) => Value::Number(Number::from(
+            defaults::read_i64(key)
+                .or_else(|| existing.and_then(Value::as_i64))
+                .unwrap_or(fallback),
+        )),
+        Kind::Double(fallback) => Number::from_f64(
+            defaults::read_f64(key)
+                .or_else(|| existing.and_then(Value::as_f64))
+                .unwrap_or(fallback),
+        )
+        .map_or(Value::Null, Value::Number),
+        Kind::Str(fallback) => Value::String(
+            defaults::read_string(key)
+                .or_else(|| existing.and_then(Value::as_str).map(str::to_owned))
+                .unwrap_or_else(|| fallback.to_owned()),
+        ),
     }
 }
 
 fn read_entry(entry: &Entry, existing: Option<&Value>) -> Option<Value> {
     match entry.source {
-        Source::Defaults(kind) => Some(read_defaults(entry.key, kind)),
+        Source::Defaults(kind) => Some(read_defaults(entry.key, kind, existing)),
         Source::UiScale => Some(Value::String(read_ui_scale())),
         Source::ThemeDark => Some(Value::String(
             crate::store::ghostty_conf::theme_selection()
@@ -419,9 +431,17 @@ fn read_ui_scale() -> String {
         .to_owned()
 }
 
+fn stored_setting(key: &str) -> Option<Value> {
+    super::read_json(&path())
+        .as_ref()
+        .and_then(|root| root.get(key))
+        .cloned()
+}
+
 pub fn string_value(key: &str, default: &str) -> String {
     special_string(key)
         .or_else(|| defaults::read_string(key))
+        .or_else(|| stored_setting(key).and_then(|value| value.as_str().map(str::to_owned)))
         .unwrap_or_else(|| default.to_owned())
 }
 
@@ -437,15 +457,21 @@ fn special_string(key: &str) -> Option<String> {
 }
 
 pub fn bool_value(key: &str, default: bool) -> bool {
-    defaults::read_bool(key).unwrap_or(default)
+    defaults::read_bool(key)
+        .or_else(|| stored_setting(key).and_then(|value| value.as_bool()))
+        .unwrap_or(default)
 }
 
 pub fn i64_value(key: &str, default: i64) -> i64 {
-    defaults::read_i64(key).unwrap_or(default)
+    defaults::read_i64(key)
+        .or_else(|| stored_setting(key).and_then(|value| value.as_i64()))
+        .unwrap_or(default)
 }
 
 pub fn f64_value(key: &str, default: f64) -> f64 {
-    defaults::read_f64(key).unwrap_or(default)
+    defaults::read_f64(key)
+        .or_else(|| stored_setting(key).and_then(|value| value.as_f64()))
+        .unwrap_or(default)
 }
 
 pub fn set_ui_scale(preset: crate::prefs::ScalePreset) {
@@ -967,7 +993,7 @@ mod tests {
     use serde_json::{Value, json};
 
     #[test]
-    fn keys_with_their_own_source_do_not_read_from_user_defaults() {
+    fn keys_with_their_own_source_do_not_read_from_portable_preferences() {
         assert!(super::special_string("muxy.ui.scale").is_some());
         assert!(super::special_string("muxy.theme.dark").is_some());
         assert!(super::special_string("muxy.theme.light").is_some());
@@ -975,6 +1001,26 @@ mod tests {
         assert!(super::special_string("muxy.tabs.maxWidth").is_none());
         assert!(super::special_string("ai.providers").is_none());
         assert!(super::special_string("not.a.settings.key").is_none());
+    }
+
+    #[test]
+    fn imported_settings_values_survive_when_portable_preferences_are_missing() {
+        assert_eq!(
+            super::read_defaults(
+                "muxy.tests.importedBool",
+                super::Kind::Bool(false),
+                Some(&Value::Bool(true)),
+            ),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            super::read_defaults(
+                "muxy.tests.importedString",
+                super::Kind::Str("fallback"),
+                Some(&Value::String("imported".to_owned())),
+            ),
+            Value::String("imported".to_owned())
+        );
     }
 
     #[test]

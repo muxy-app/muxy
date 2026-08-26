@@ -745,7 +745,8 @@ impl GhosttySurfaceHandle {
 fn load_config(
     resources: &AppResources,
 ) -> Result<(GhosttyConfig, Option<TemporaryConfigFile>), ghostty_host::ConfigError> {
-    let paths = ConfigPaths::new(&resources.defaults_config);
+    let paths = ConfigPaths::new(&resources.defaults_config)
+        .with_user_override(Some(muxy_core::store::ghostty_conf::path()));
     let user_config = paths
         .user_override()
         .and_then(|path| fs::read_to_string(path).ok())

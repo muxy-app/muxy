@@ -41,6 +41,10 @@ const TRAFFIC_LIGHT_HEIGHT: f32 = 14.0;
 const TRAFFIC_LIGHT_X: f32 = 9.0;
 
 fn main() {
+    if let Err(error) = muxy_core::migration::run_startup() {
+        eprintln!("failed to migrate Swift profile: {error}");
+        std::process::exit(1);
+    }
     let app_support = muxy_core::prefs::app_support_dir();
     let mode = muxy_core::build_mode!();
     let socket_path =

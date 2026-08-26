@@ -3292,10 +3292,10 @@ name = "muxy-core"
 version = "0.1.0"
 dependencies = [
  "image",
+ "libc",
  "log",
  "objc2",
  "objc2-foundation",
- "plist",
  "resvg",
  "serde",
  "serde_json",

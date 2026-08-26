@@ -15,6 +15,9 @@ readonly RESOURCES_SHA256="877081c96cf4bc97fa7a15c397ad285f6e5c544ec43778b090301
 readonly XCFRAMEWORK_DIR="$PROJECT_ROOT/vendor/GhosttyKit.xcframework"
 readonly GHOSTTY_RESOURCES_DIR="$PROJECT_ROOT/resources/ghostty"
 readonly TERMINFO_DIR="$PROJECT_ROOT/resources/terminfo"
+readonly SWIFT_HEADER="$PROJECT_ROOT/GhosttyKit/ghostty.h"
+readonly SWIFT_GHOSTTY_RESOURCES_DIR="$PROJECT_ROOT/Muxy/Resources/ghostty"
+readonly SWIFT_TERMINFO_DIR="$PROJECT_ROOT/Muxy/Resources/terminfo"
 readonly INSTALL_STAMP_NAME=".muxy-release"
 
 xcframework_archive=""
@@ -86,7 +89,7 @@ while (($# > 0)); do
 done
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "GhosttyKit setup requires macOS"
-for command_name in xcode-select xcodebuild xcrun gh tar shasum plutil; do
+for command_name in cmp install xcode-select xcodebuild xcrun gh tar shasum plutil; do
     require_command "$command_name"
 done
 
@@ -149,6 +152,23 @@ validate_resources_install() {
         "$(stamp_value "$RESOURCES_SHA256")" ]] || return 1
     [[ "$(<"$TERMINFO_DIR/$INSTALL_STAMP_NAME")" == \
         "$(stamp_value "$RESOURCES_SHA256")" ]]
+}
+
+materialize_swift_bridges() {
+    local canonical_header="$XCFRAMEWORK_DIR/macos-arm64_x86_64/Headers/ghostty.h"
+
+    validate_xcframework_install || fail "canonical xcframework failed validation"
+    validate_resources_install || fail "canonical resources failed validation"
+    mkdir -p "$(dirname "$SWIFT_HEADER")" "$SWIFT_GHOSTTY_RESOURCES_DIR"
+    install -m 0644 "$canonical_header" "$SWIFT_HEADER"
+    rm -rf "$SWIFT_GHOSTTY_RESOURCES_DIR/shell-integration" "$SWIFT_TERMINFO_DIR"
+    cp -R "$GHOSTTY_RESOURCES_DIR/shell-integration" \
+        "$SWIFT_GHOSTTY_RESOURCES_DIR/shell-integration"
+    cp -R "$TERMINFO_DIR" "$SWIFT_TERMINFO_DIR"
+    cmp -s "$canonical_header" "$SWIFT_HEADER" || fail "Swift Ghostty header bridge differs"
+    validate_resources_contents "$SWIFT_GHOSTTY_RESOURCES_DIR" "$SWIFT_TERMINFO_DIR" || {
+        fail "Swift Ghostty resource mirrors failed validation"
+    }
 }
 
 verify_sha256() {
@@ -247,6 +267,7 @@ if validate_resources_install >/dev/null 2>&1; then
 fi
 
 if [[ "$need_xcframework" == false && "$need_resources" == false ]]; then
+    materialize_swift_bridges
     printf '==> GhosttyKit %s is already installed and valid\n' "$RELEASE_TAG"
     exit 0
 fi
@@ -273,4 +294,5 @@ else
     printf '==> Existing Ghostty runtime resources are valid\n'
 fi
 
+materialize_swift_bridges
 printf '==> GhosttyKit %s setup complete\n' "$RELEASE_TAG"

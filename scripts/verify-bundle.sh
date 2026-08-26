@@ -59,11 +59,22 @@ plist_value() {
     /usr/libexec/PlistBuddy -c "Print :$1" "$PLIST"
 }
 
-[[ "$(plist_value CFBundleName)" == "Muxy" ]] || fail "CFBundleName must be Muxy"
-[[ "$(plist_value CFBundleDisplayName)" == "Muxy" ]] || fail "CFBundleDisplayName must be Muxy"
+expected_name="Muxy"
+expected_identifier="com.muxy.app"
+if [[ "$PROFILE" == debug ]]; then
+    expected_name="Muxy Dev"
+    expected_identifier="com.muxy.dev"
+fi
+readonly expected_name expected_identifier
+[[ "$(plist_value CFBundleName)" == "$expected_name" ]] || {
+    fail "CFBundleName must be $expected_name for ${PROFILE:-release}"
+}
+[[ "$(plist_value CFBundleDisplayName)" == "$expected_name" ]] || {
+    fail "CFBundleDisplayName must be $expected_name for ${PROFILE:-release}"
+}
 [[ "$(plist_value CFBundleExecutable)" == "muxy" ]] || fail "CFBundleExecutable must be muxy"
-[[ "$(plist_value CFBundleIdentifier)" == "com.muxy.app" ]] || {
-    fail "CFBundleIdentifier must be com.muxy.app"
+[[ "$(plist_value CFBundleIdentifier)" == "$expected_identifier" ]] || {
+    fail "CFBundleIdentifier must be $expected_identifier for ${PROFILE:-release}"
 }
 [[ "$(plist_value CFBundlePackageType)" == "APPL" ]] || fail "CFBundlePackageType must be APPL"
 [[ "$(plist_value CFBundleIconFile)" == "AppIcon" ]] || fail "CFBundleIconFile must be AppIcon"
