@@ -8,10 +8,26 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RefreshOutcome {
+pub enum RefreshCandidate {
     Updated(Vec<Worktree>),
     Preserved(Vec<Worktree>, String),
     Unavailable(String),
+}
+
+impl RefreshCandidate {
+    pub fn worktrees(&self) -> Option<&[Worktree]> {
+        match self {
+            Self::Updated(worktrees) | Self::Preserved(worktrees, _) => Some(worktrees),
+            Self::Unavailable(_) => None,
+        }
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        match self {
+            Self::Updated(_) => None,
+            Self::Preserved(_, error) | Self::Unavailable(error) => Some(error),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -203,31 +219,40 @@ fn sort_primary_first(list: Vec<Worktree>) -> Vec<Worktree> {
     primary.into_iter().chain(others).collect()
 }
 
-pub fn refresh(
+pub fn probe(
     options: &GitOptions,
     project_id: &str,
     project_name: &str,
     project_path: &str,
-) -> RefreshOutcome {
-    let dir = worktrees_dir();
-    let persisted = match load_file_from(&dir, project_id) {
-        Ok(WorktreeFile::Missing) => {
-            let worktrees = vec![primary(project_name, project_path)];
-            if let Err(error) = save_to(&dir, project_id, &worktrees) {
-                return RefreshOutcome::Unavailable(error.to_string());
-            }
-            worktrees
-        }
+) -> RefreshCandidate {
+    probe_from(
+        options,
+        &worktrees_dir(),
+        project_id,
+        project_name,
+        project_path,
+    )
+}
+
+pub fn probe_from(
+    options: &GitOptions,
+    dir: &Path,
+    project_id: &str,
+    project_name: &str,
+    project_path: &str,
+) -> RefreshCandidate {
+    let persisted = match load_file_from(dir, project_id) {
+        Ok(WorktreeFile::Missing) => vec![primary(project_name, project_path)],
         Ok(WorktreeFile::Loaded(worktrees))
             if worktrees.iter().any(|worktree| worktree.is_primary) =>
         {
             worktrees
         }
-        Ok(WorktreeFile::Loaded(worktrees)) => return RefreshOutcome::Updated(worktrees),
+        Ok(WorktreeFile::Loaded(worktrees)) => return RefreshCandidate::Updated(worktrees),
         Ok(WorktreeFile::Invalid) => {
-            return RefreshOutcome::Unavailable("worktree file is malformed".to_owned());
+            return RefreshCandidate::Unavailable("worktree file is malformed".to_owned());
         }
-        Err(error) => return RefreshOutcome::Unavailable(error.to_string()),
+        Err(error) => return RefreshCandidate::Unavailable(error.to_string()),
     };
     let raw = match git::run_git(
         options,
@@ -237,7 +262,7 @@ pub fn refresh(
         Ok(raw) => raw,
         Err(error) => {
             log::warn!("worktree list failed for {project_path}: {error}");
-            return RefreshOutcome::Preserved(persisted, error.to_string());
+            return RefreshCandidate::Preserved(persisted, error.to_string());
         }
     };
     let reconciled = reconcile(
@@ -246,10 +271,18 @@ pub fn refresh(
         project_name,
         project_path,
     );
-    if let Err(error) = save_to(&dir, project_id, &reconciled) {
-        return RefreshOutcome::Preserved(persisted, error.to_string());
-    }
-    RefreshOutcome::Updated(reconciled)
+    RefreshCandidate::Updated(reconciled)
+}
+
+pub fn save_candidate(
+    dir: &Path,
+    project_id: &str,
+    candidate: &RefreshCandidate,
+) -> std::io::Result<()> {
+    let Some(worktrees) = candidate.worktrees() else {
+        return Ok(());
+    };
+    save_to(dir, project_id, worktrees)
 }
 
 pub fn label(worktrees: &[Worktree], preferred_id: Option<&str>) -> Option<String> {
@@ -454,5 +487,136 @@ mod tests {
         assert_eq!(label(&list, None).as_deref(), Some("primary"));
         assert_eq!(label(&list, Some("MISSING")).as_deref(), Some("primary"));
         assert_eq!(label(&[], None), None);
+    }
+
+    #[test]
+    fn probe_never_writes_missing_valid_malformed_failed_or_reconciled_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .arg(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let options = GitOptions {
+            executable: PathBuf::from("git"),
+            environment: HashMap::new(),
+        };
+
+        let missing_dir = temp.path().join("missing");
+        let missing = probe_from(
+            &options,
+            &missing_dir,
+            "MISSING",
+            "Repo",
+            &repo.to_string_lossy(),
+        );
+        assert!(missing.worktrees().is_some());
+        assert!(!missing_dir.exists());
+
+        let valid_dir = temp.path().join("valid");
+        let valid = vec![worktree(
+            "PRIMARY-ID",
+            "Repo",
+            &repo.to_string_lossy(),
+            Source::Muxy,
+            true,
+        )];
+        save_to(&valid_dir, "VALID", &valid).unwrap();
+        let valid_path = muxy_core::store::worktrees::file_path(&valid_dir, "VALID");
+        let valid_before = std::fs::read(&valid_path).unwrap();
+        let _ = probe_from(
+            &options,
+            &valid_dir,
+            "VALID",
+            "Repo",
+            &repo.to_string_lossy(),
+        );
+        assert_eq!(std::fs::read(&valid_path).unwrap(), valid_before);
+
+        let malformed_dir = temp.path().join("malformed");
+        std::fs::create_dir(&malformed_dir).unwrap();
+        let malformed_path = muxy_core::store::worktrees::file_path(&malformed_dir, "MALFORMED");
+        std::fs::write(&malformed_path, b"{invalid").unwrap();
+        let malformed_before = std::fs::read(&malformed_path).unwrap();
+        assert!(matches!(
+            probe_from(
+                &options,
+                &malformed_dir,
+                "MALFORMED",
+                "Repo",
+                &repo.to_string_lossy(),
+            ),
+            RefreshCandidate::Unavailable(_)
+        ));
+        assert_eq!(std::fs::read(&malformed_path).unwrap(), malformed_before);
+
+        let failed_dir = temp.path().join("failed");
+        save_to(&failed_dir, "FAILED", &valid).unwrap();
+        let failed_path = muxy_core::store::worktrees::file_path(&failed_dir, "FAILED");
+        let failed_before = std::fs::read(&failed_path).unwrap();
+        let missing_git = GitOptions {
+            executable: temp.path().join("missing-git"),
+            environment: HashMap::new(),
+        };
+        assert!(matches!(
+            probe_from(
+                &missing_git,
+                &failed_dir,
+                "FAILED",
+                "Repo",
+                &repo.to_string_lossy(),
+            ),
+            RefreshCandidate::Preserved(_, _)
+        ));
+        assert_eq!(std::fs::read(&failed_path).unwrap(), failed_before);
+
+        let reconciled_dir = temp.path().join("reconciled");
+        let mut stale = valid;
+        stale.push(worktree(
+            "STALE",
+            "Stale",
+            &temp.path().join("gone").to_string_lossy(),
+            Source::External,
+            false,
+        ));
+        save_to(&reconciled_dir, "RECONCILED", &stale).unwrap();
+        let reconciled_path = muxy_core::store::worktrees::file_path(&reconciled_dir, "RECONCILED");
+        let reconciled_before = std::fs::read(&reconciled_path).unwrap();
+        let candidate = probe_from(
+            &options,
+            &reconciled_dir,
+            "RECONCILED",
+            "Repo",
+            &repo.to_string_lossy(),
+        );
+        assert!(
+            !candidate
+                .worktrees()
+                .unwrap()
+                .iter()
+                .any(|worktree| worktree.id == "STALE")
+        );
+        assert_eq!(std::fs::read(&reconciled_path).unwrap(), reconciled_before);
+    }
+
+    #[test]
+    fn save_candidate_is_the_only_probe_persistence_step() {
+        let temp = tempfile::tempdir().unwrap();
+        let candidate = RefreshCandidate::Updated(vec![worktree(
+            "PRIMARY-ID",
+            "Repo",
+            "/repo",
+            Source::Muxy,
+            true,
+        )]);
+
+        save_candidate(temp.path(), "PROJECT", &candidate).unwrap();
+
+        assert!(muxy_core::store::worktrees::file_path(temp.path(), "PROJECT").is_file());
     }
 }

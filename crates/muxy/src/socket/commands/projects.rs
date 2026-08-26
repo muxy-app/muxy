@@ -67,30 +67,6 @@ pub fn ensure_project_context(state: &mut AppState, project_id: &str) -> Result<
     Ok(worktree)
 }
 
-pub fn apply_refresh(
-    state: &mut AppState,
-    project_id: &str,
-    worktrees: Vec<Worktree>,
-) -> Result<usize, String> {
-    let previous = state.worktrees.insert(project_id.to_owned(), worktrees);
-    let count = state.worktrees.get(project_id).map_or(0, Vec::len);
-    if let Some(project) = state.workspace.project(project_id).cloned()
-        && let Ok(worktree) = choose_worktree(state, &project)
-        && !select(state, project_id, &worktree.id)
-    {
-        match previous {
-            Some(previous) => {
-                state.worktrees.insert(project_id.to_owned(), previous);
-            }
-            None => {
-                state.worktrees.remove(project_id);
-            }
-        }
-        return Err("could not save project workspace".to_owned());
-    }
-    Ok(count)
-}
-
 pub fn handle(head: &str, parts: &[&str], state: &mut AppState) -> Option<ProjectCommand> {
     Some(match head {
         "list-projects" => {

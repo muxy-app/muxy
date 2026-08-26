@@ -36,6 +36,7 @@ pub struct AppState {
     pub shortcuts: ShortcutMap,
     pub command_shortcuts: CommandShortcuts,
     pub worktrees: HashMap<String, Vec<Worktree>>,
+    pub project_operations: crate::project_operations::ProjectOperations,
     pub navigation: NavigationHistory,
     pub(crate) navigation_recording_suppressed: bool,
     pub socket_ingress: IngressQueues,
@@ -128,6 +129,7 @@ impl AppState {
             shortcuts,
             command_shortcuts,
             worktrees,
+            project_operations: crate::project_operations::ProjectOperations::default(),
             navigation: NavigationHistory::default(),
             navigation_recording_suppressed: false,
             socket_ingress: IngressQueues::default(),
@@ -141,9 +143,11 @@ impl AppState {
         state
     }
 
-    pub fn apply_truth(&mut self, truth: Vec<muxy_api::truth::ProjectTruth>) {
+    pub fn apply_truth(&mut self, truth: Vec<muxy_api::truth::ProjectTruth>) -> io::Result<()> {
         let mut active_worktrees_changed = false;
         let mut tab_workspaces_changed = false;
+        let previous_workspace = self.workspace.clone();
+        let previous_worktrees = self.worktrees.clone();
         let previous_tab_workspaces = self.tab_workspaces.clone();
         let previous_active_worktree_ids = self.prefs.active_worktree_ids.clone();
         for entry in truth {
@@ -200,14 +204,16 @@ impl AppState {
             self.worktrees.insert(entry.project_id, worktrees);
         }
         if tab_workspaces_changed && let Err(error) = self.persist_tab_workspaces() {
-            log::warn!("failed to save refreshed worktree workspace: {error}");
+            self.workspace = previous_workspace;
+            self.worktrees = previous_worktrees;
             self.tab_workspaces = previous_tab_workspaces;
             self.prefs.active_worktree_ids = previous_active_worktree_ids;
-            active_worktrees_changed = false;
+            return Err(error);
         }
         if active_worktrees_changed {
             Prefs::store_active_worktree_ids(&self.prefs.active_worktree_ids);
         }
+        Ok(())
     }
 
     pub fn active_project(&self) -> Option<&Project> {
@@ -485,9 +491,13 @@ impl AppState {
     }
 
     pub fn remove_project(&mut self, project_id: &str) -> bool {
+        if self.project_operations.is_mutating(project_id) {
+            return false;
+        }
         if !self.workspace.remove(project_id) {
             return false;
         }
+        self.project_operations.project_removed(project_id);
         self.tab_workspaces.remove_project(project_id);
         self.prune_navigation_project(project_id);
         if self.active_project_id.as_deref() == Some(project_id) {
@@ -644,6 +654,7 @@ mod tests {
                 ("project-one".into(), vec![one]),
                 ("project-two".into(), vec![two]),
             ]),
+            project_operations: crate::project_operations::ProjectOperations::default(),
             navigation: NavigationHistory::default(),
             navigation_recording_suppressed: false,
             socket_ingress: IngressQueues::default(),
@@ -793,6 +804,66 @@ mod tests {
                 .current()
                 .map(|entry| entry.project_id.as_str()),
             Some("project-two")
+        );
+    }
+
+    #[test]
+    fn project_operation_blocks_project_removal_until_mutation_finishes() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = state_at(&directory.path().join("workspaces.json"));
+        let operation = state
+            .project_operations
+            .begin_operation(
+                "project-one",
+                crate::project_operations::ProjectOperationKind::Create,
+            )
+            .unwrap();
+
+        assert!(!state.remove_project("project-one"));
+        assert!(state.workspace.project("project-one").is_some());
+
+        state
+            .project_operations
+            .finish_operation(&operation)
+            .unwrap();
+        assert!(state.remove_project("project-one"));
+    }
+
+    #[test]
+    fn failed_truth_workspace_persistence_rolls_back_all_applied_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let blocker = directory.path().join("blocker");
+        std::fs::write(&blocker, b"blocked").unwrap();
+        let mut state = state_at(&blocker.join("workspaces.json"));
+        let previous_project = state.workspace.project("project-one").unwrap().clone();
+        let previous_worktrees = state.worktrees["project-one"].clone();
+        let previous_active_worktree_ids = state.prefs.active_worktree_ids.clone();
+        let previous_tab_workspaces = state.tab_workspaces.clone();
+        let mut refreshed = worktrees::primary("One", "/refreshed");
+        refreshed.id = "REFRESHED".into();
+
+        let result = state.apply_truth(vec![muxy_api::truth::ProjectTruth {
+            project_id: "project-one".into(),
+            generation: 1,
+            request_id: 2,
+            is_git_repo: true,
+            worktree_label: Some("refreshed".into()),
+            worktrees: Some(vec![refreshed]),
+            candidate: None,
+        }]);
+
+        assert!(result.is_err());
+        let project = state.workspace.project("project-one").unwrap();
+        assert_eq!(project.is_git_repo, previous_project.is_git_repo);
+        assert_eq!(project.worktree_label, previous_project.worktree_label);
+        assert_eq!(state.worktrees["project-one"], previous_worktrees);
+        assert_eq!(
+            state.prefs.active_worktree_ids,
+            previous_active_worktree_ids
+        );
+        assert_eq!(
+            state.tab_workspaces.states(),
+            previous_tab_workspaces.states()
         );
     }
 }

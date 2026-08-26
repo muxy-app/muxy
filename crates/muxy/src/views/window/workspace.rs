@@ -186,7 +186,7 @@ impl MainWindow {
                 .tab_workspaces
                 .remove_workspace(&project_id, &workspace_path);
             if !self.state.tab_workspaces.has_project(&project_id) {
-                self.remove_project(&project_id);
+                self.remove_project(&project_id, cx);
             }
         }
         let _ = self.state.persist_tab_workspaces();

@@ -590,14 +590,23 @@ impl MainWindow {
                 return;
             }
             let _ = window.update(cx, |window, cx| {
-                window.remove_project(&project_id);
+                window.remove_project(&project_id, cx);
                 cx.notify();
             });
         })
         .detach();
     }
 
-    pub(super) fn remove_project(&mut self, project_id: &str) {
+    pub(super) fn remove_project(&mut self, project_id: &str, cx: &mut Context<Self>) {
+        if self.state.project_operations.is_mutating(project_id) {
+            self.alert(
+                "Project Is Busy".to_owned(),
+                "Wait for the active worktree operation to finish before removing this project."
+                    .to_owned(),
+                cx,
+            );
+            return;
+        }
         self.state.remove_project(project_id);
     }
 
