@@ -4,11 +4,44 @@ use muxy_core::workspace::{CloseMode, TabId, TabKind};
 use muxy_core::workspace_store::WorkspaceStore;
 use muxy_terminal::backend::{LaunchCommand, PointerInput, SurfaceAction, TerminalSurfaceHandle};
 use muxy_terminal::confirmation::{ConfirmationId, ConfirmationKind};
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 pub trait AppSurfaceHandle: TerminalSurfaceHandle {
     fn element(&self, visible: bool) -> AnyElement;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaneLaunchContext {
+    pane_id: String,
+    project_id: String,
+    worktree_id: String,
+    socket_path: String,
+}
+
+impl PaneLaunchContext {
+    pub(crate) fn new(
+        pane_id: impl Into<String>,
+        project_id: impl Into<String>,
+        worktree_id: impl Into<String>,
+        socket_path: impl Into<String>,
+    ) -> Self {
+        Self {
+            pane_id: pane_id.into(),
+            project_id: project_id.into(),
+            worktree_id: worktree_id.into(),
+            socket_path: socket_path.into(),
+        }
+    }
+
+    pub fn environment(&self) -> [(&'static str, &str); 4] {
+        [
+            ("MUXY_PANE_ID", &self.pane_id),
+            ("MUXY_PROJECT_ID", &self.project_id),
+            ("MUXY_WORKTREE_ID", &self.worktree_id),
+            ("MUXY_SOCKET_PATH", &self.socket_path),
+        ]
+    }
 }
 
 pub struct TerminalSurfaces {
@@ -16,6 +49,8 @@ pub struct TerminalSurfaces {
     handles: HashMap<TabId, Box<dyn AppSurfaceHandle>>,
     pending_cwd: HashMap<TabId, PathBuf>,
     pending_command: HashMap<TabId, LaunchCommand>,
+    materialization_requested: HashSet<TabId>,
+    socket_path: Option<String>,
     pointer_tab: Option<TabId>,
 }
 
@@ -32,8 +67,16 @@ impl TerminalSurfaces {
             handles: HashMap::new(),
             pending_cwd: HashMap::new(),
             pending_command: HashMap::new(),
+            materialization_requested: HashSet::new(),
+            socket_path: None,
             pointer_tab: None,
         }
+    }
+
+    pub fn with_socket_path(socket_path: &Path) -> Self {
+        let mut surfaces = Self::new();
+        surfaces.socket_path = Some(socket_path.to_string_lossy().into_owned());
+        surfaces
     }
 
     pub fn backend_mut(&mut self) -> &mut Backend {
@@ -108,6 +151,17 @@ impl TerminalSurfaces {
 
     pub fn handle(&self, tab_id: &str) -> Option<&dyn AppSurfaceHandle> {
         self.handles.get(tab_id).map(Box::as_ref)
+    }
+
+    pub fn request_materialization(&mut self, store: &WorkspaceStore, tab_id: &str) -> bool {
+        if self.handles.contains_key(tab_id) {
+            return true;
+        }
+        if self.launch_context(store, tab_id).is_none() {
+            return false;
+        }
+        self.materialization_requested.insert(tab_id.to_owned());
+        true
     }
 
     pub fn has_native_scrollbar(&self, tab_id: &str) -> bool {
@@ -212,18 +266,27 @@ impl TerminalSurfaces {
         window: &mut Window,
         cx: &mut App,
     ) {
-        for tab_id in visible {
-            if self.handles.contains_key(tab_id) {
+        let candidates = self.materialization_candidates(visible);
+        for tab_id in candidates {
+            if self.handles.contains_key(&tab_id) {
+                self.materialization_requested.remove(&tab_id);
                 continue;
             }
-            let Some(directory) = self.launch_directory(store, tab_id) else {
+            let Some(directory) = self.launch_directory(store, &tab_id) else {
                 continue;
             };
-            let command = self.pending_command.get(tab_id).cloned();
-            if let Some(handle) = self.backend.spawn(tab_id, directory, command, window, cx) {
-                self.pending_cwd.remove(tab_id);
-                self.pending_command.remove(tab_id);
-                self.handles.insert(tab_id.clone(), handle);
+            let Some(context) = self.launch_context(store, &tab_id) else {
+                continue;
+            };
+            let command = self.pending_command.get(&tab_id).cloned();
+            if let Some(handle) = self
+                .backend
+                .spawn(&tab_id, directory, command, &context, window, cx)
+            {
+                self.pending_cwd.remove(&tab_id);
+                self.pending_command.remove(&tab_id);
+                self.materialization_requested.remove(&tab_id);
+                self.handles.insert(tab_id, handle);
             }
         }
         self.occlude_hidden(visible);
@@ -260,6 +323,8 @@ impl TerminalSurfaces {
             .retain(|tab_id, _| tab_is_known(store, tab_id));
         self.pending_command
             .retain(|tab_id, _| tab_is_known(store, tab_id));
+        self.materialization_requested
+            .retain(|tab_id| tab_is_known(store, tab_id));
         if self
             .pointer_tab
             .as_ref()
@@ -267,6 +332,36 @@ impl TerminalSurfaces {
         {
             self.pointer_tab = None;
         }
+    }
+
+    fn materialization_candidates(&self, visible: &[TabId]) -> Vec<TabId> {
+        let mut candidates = visible.to_vec();
+        let mut requested = self
+            .materialization_requested
+            .iter()
+            .filter(|tab_id| !visible.contains(tab_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        requested.sort_by_key(|tab_id| tab_id.to_ascii_uppercase());
+        candidates.extend(requested);
+        candidates
+    }
+
+    fn launch_context(&self, store: &WorkspaceStore, tab_id: &str) -> Option<PaneLaunchContext> {
+        let socket_path = self.socket_path.clone()?;
+        let (state, tab) = store
+            .states()
+            .iter()
+            .find_map(|state| state.tab(tab_id).map(|tab| (state, tab)))?;
+        if tab.kind != TabKind::Terminal {
+            return None;
+        }
+        Some(PaneLaunchContext::new(
+            canonical_uuid(&tab.id)?,
+            canonical_uuid(&state.project_id)?,
+            canonical_uuid(state.worktree_id.as_deref()?)?,
+            socket_path,
+        ))
     }
 
     fn launch_directory(&self, store: &WorkspaceStore, tab_id: &str) -> Option<PathBuf> {
@@ -280,6 +375,15 @@ impl TerminalSurfaces {
             .filter(|tab| tab.kind == TabKind::Terminal)?;
         tab.project_path.as_ref().map(PathBuf::from)
     }
+}
+
+fn canonical_uuid(value: &str) -> Option<String> {
+    (value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        }))
+    .then(|| value.to_ascii_uppercase())
 }
 
 fn tab_is_known(store: &WorkspaceStore, tab_id: &str) -> bool {
@@ -355,6 +459,16 @@ mod tests {
         (store, tabs)
     }
 
+    fn contextual_store() -> (WorkspaceStore, String, String, TabId) {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = WorkspaceStore::load_from(directory.path().join("workspaces.json"));
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let state = store.ensure_worktree(&project_id, &worktree_id, "/tmp/context");
+        let tab_id = state.top_level_order[0].clone();
+        (store, project_id, worktree_id, tab_id)
+    }
+
     fn insert_fake(surfaces: &mut TerminalSurfaces, tab_id: &str) -> Rc<Cell<bool>> {
         insert_fake_pair(surfaces, tab_id).0
     }
@@ -375,6 +489,38 @@ mod tests {
             }),
         );
         (occluded, pointer_inside)
+    }
+
+    #[test]
+    fn pane_launch_context_uses_real_uppercase_ids_and_selected_socket() {
+        let (store, project_id, worktree_id, tab_id) = contextual_store();
+        let surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
+        let context = surfaces.launch_context(&store, &tab_id).unwrap();
+
+        assert_eq!(
+            context.environment(),
+            [
+                ("MUXY_PANE_ID", tab_id.as_str()),
+                ("MUXY_PROJECT_ID", project_id.as_str()),
+                ("MUXY_WORKTREE_ID", worktree_id.as_str()),
+                ("MUXY_SOCKET_PATH", "/tmp/selected.socket"),
+            ]
+        );
+    }
+
+    #[test]
+    fn hidden_materialization_is_scheduled_once_and_requires_context() {
+        let (store, _, _, tab_id) = contextual_store();
+        let mut surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
+
+        assert!(surfaces.request_materialization(&store, &tab_id));
+        assert!(surfaces.request_materialization(&store, &tab_id));
+        let candidates = surfaces.materialization_candidates(&[]);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0], tab_id);
+
+        let (missing_context, tabs) = store_with(&[("not-a-uuid", "/tmp/missing")]);
+        assert!(!surfaces.request_materialization(&missing_context, &tabs[0]));
     }
 
     #[test]

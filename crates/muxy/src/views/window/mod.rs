@@ -75,7 +75,7 @@ impl MainWindow {
     ) -> Self {
         let menu_focus = cx.focus_handle();
         let workspace_focus = cx.focus_handle();
-        let mut terminals = TerminalSurfaces::new();
+        let mut terminals = TerminalSurfaces::with_socket_path(socket.socket_path());
         let combos = terminal_shortcut_combos(&state);
         if let Err(error) =
             terminals

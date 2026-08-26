@@ -70,7 +70,7 @@ create_repository() {
     printf '%s\n' "$name" > "$repository/README.md"
     git -C "$repository" add README.md
     git -C "$repository" commit -q -m initial
-    if [[ "$name" != gamma ]]; then
+    if [[ "$name" != gamma && "$name" != delta ]]; then
         git -C "$repository" worktree add -q -b shared "$ROOT/fixtures/$name-shared"
     fi
 }
@@ -78,8 +78,15 @@ create_repository() {
 create_repository alpha
 create_repository beta
 create_repository gamma
+create_repository delta
 
 MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$APP_SUPPORT" \
+    MUXY_PANE_ID="STALE-PANE" \
+    MUXY_PROJECT_ID="STALE-PROJECT" \
+    MUXY_WORKTREE_ID="STALE-WORKTREE" \
+    MUXY_SOCKET_PATH="/tmp/stale-muxy.sock" \
+    MUXY_HOOK_BIN="/tmp/stale-hook" \
+    MUXY_HOOK_SCRIPT="/tmp/stale-hook.sh" \
     "$APP_EXECUTABLE" > "$ROOT/logs/app.log" 2>&1 &
 APP_PID=$!
 for _ in $(jot 400); do
@@ -152,6 +159,8 @@ beta_refresh="$(accept refresh-worktrees refresh-worktrees Beta)"
 [[ "$beta_refresh" == ok$'\t'* ]] || fail "Beta worktree refresh failed"
 worktrees="$(accept list-worktrees list-worktrees Alpha)"
 printf '%s\n' "$worktrees" | grep -Fq $'\tshared\t' || fail "linked Alpha worktree missing"
+alpha_shared_id="$(printf '%s\n' "$worktrees" | grep -F $'\tshared\t' | head -n 1 | cut -f1)"
+[[ "$alpha_shared_id" =~ ^[0-9A-F-]{36}$ ]] || fail "linked Alpha worktree ID is invalid"
 expect_ok "$(accept switch-worktree switch-worktree shared --project Alpha)"
 workspaces="$(accept list-workspaces list-workspaces)"
 printf '%s\n' "$workspaces" | grep -Fq $'\tTeam\t' || fail "Team missing from list-workspaces"
@@ -195,20 +204,67 @@ shared_pane="$(accept split-right split-right --project Alpha --worktree shared)
 for pane_id in "$gamma_pane" "$alpha_pane" "$shared_pane"; do
     [[ "$pane_id" =~ ^[0-9A-F-]{36}$ ]] || fail "split did not return an uppercase UUID"
 done
-expect_ok "$(accept send send --pane "$gamma_pane" 'printf MUXY_PHASE7')"
+printf -v environment_probe 'printf "MUXY_ENV_BEGIN\\nPANE=%%s\\nPROJECT=%%s\\nWORKTREE=%%s\\nSOCKET=%%s\\nHOOK_BIN=%%s\\nHOOK_SCRIPT=%%s\\nMUXY_ENV_END\\n" "%sMUXY_PANE_ID" "%sMUXY_PROJECT_ID" "%sMUXY_WORKTREE_ID" "%sMUXY_SOCKET_PATH" "%s{MUXY_HOOK_BIN-unset}" "%s{MUXY_HOOK_SCRIPT-unset}"' '$' '$' '$' '$' '$' '$'
+readonly ENVIRONMENT_PROBE="$environment_probe"
+expect_ok "$(accept send send --pane "$alpha_tab" "$ENVIRONMENT_PROBE")"
+expect_ok "$(accept send-keys send-keys --pane "$alpha_tab" Enter)"
+hidden_screen=""
+for _ in $(jot 100); do
+    hidden_screen="$(accept read-screen read-screen --pane "$alpha_tab" --lines 30)"
+    [[ "$hidden_screen" == *"PANE=$alpha_tab"* ]] && break
+    sleep 0.05
+done
+[[ "$hidden_screen" == *"PANE=$alpha_tab"* ]] || fail "hidden pane did not receive its pane ID"
+[[ "$hidden_screen" == *"PROJECT=$alpha_id"* ]] || fail "hidden pane did not receive its project ID"
+[[ "$hidden_screen" == *"WORKTREE=$alpha_shared_id"* ]] || fail "hidden pane did not receive its worktree ID"
+[[ "$hidden_screen" == *"SOCKET=$DEVELOPMENT_SOCKET"* ]] || fail "hidden pane did not receive the selected socket"
+[[ "$hidden_screen" == *"HOOK_BIN=unset"* ]] || fail "hidden pane inherited MUXY_HOOK_BIN"
+[[ "$hidden_screen" == *"HOOK_SCRIPT=unset"* ]] || fail "hidden pane inherited MUXY_HOOK_SCRIPT"
+readonly SOURCE_DIRECTORY="$ROOT/fixtures/source-cwd"
+mkdir -p "$SOURCE_DIRECTORY"
+printf -v cwd_command 'cd %q && printf "MUXY_CWD_READY\\n"' "$SOURCE_DIRECTORY"
+expect_ok "$(accept send send --pane "$alpha_tab" "$cwd_command")"
+expect_ok "$(accept send-keys send-keys --pane "$alpha_tab" Enter)"
+for _ in $(jot 100); do
+    hidden_screen="$(accept read-screen read-screen --pane "$alpha_tab" --lines 30)"
+    printf '%s\n' "$hidden_screen" | grep -Fxq MUXY_CWD_READY && break
+    sleep 0.05
+done
+printf '%s\n' "$hidden_screen" | grep -Fxq MUXY_CWD_READY || fail "hidden pane did not change working directory"
+cwd_reported=false
+for _ in $(jot 100); do
+    if run_cli list-panes | grep -F "$alpha_tab" | grep -F "$SOURCE_DIRECTORY" | grep -Fq $'\tfalse'; then
+        cwd_reported=true
+        break
+    fi
+    sleep 0.05
+done
+[[ "$cwd_reported" == true ]] || fail "hidden inactive pane metadata did not report its working directory"
+printf -v source_cwd_command 'printf "MUXY_SOURCE_CWD:%%s\\n" "%sPWD"' '$'
+source_pane="$(accept split-right split-right --from "$alpha_tab" "$source_cwd_command")"
+[[ "$source_pane" =~ ^[0-9A-F-]{36}$ ]] || fail "source split did not return an uppercase UUID"
+source_screen=""
+for _ in $(jot 100); do
+    source_screen="$(accept read-screen read-screen --pane "$source_pane" --lines 20)"
+    printf '%s\n' "$source_screen" | grep -Fxq "MUXY_SOURCE_CWD:$SOURCE_DIRECTORY" && break
+    sleep 0.05
+done
+printf '%s\n' "$source_screen" | grep -Fxq "MUXY_SOURCE_CWD:$SOURCE_DIRECTORY" || fail "split did not inherit the explicit source pane working directory"
+expect_ok "$(accept send send --pane "$gamma_pane" 'printf "MUXY_PHASE7\n"')"
 expect_ok "$(accept send-keys send-keys --pane "$gamma_pane" Enter)"
 screen=""
 for _ in $(jot 100); do
     screen="$(accept read-screen read-screen --pane "$gamma_pane" --lines 20)"
-    [[ "$screen" == *MUXY_PHASE7* ]] && break
+    printf '%s\n' "$screen" | grep -Fxq MUXY_PHASE7 && break
     sleep 0.05
 done
-[[ "$screen" == *MUXY_PHASE7* ]] || fail "read-screen did not observe sent text"
+printf '%s\n' "$screen" | grep -Fxq MUXY_PHASE7 || fail "read-screen did not observe sent text"
 expect_ok "$(accept rename-pane rename-pane --pane "$gamma_pane" CompatPane)"
 panes="$(accept list-panes list-panes)"
 printf '%s\n' "$panes" | grep -Fq "$gamma_pane" || fail "split pane missing from list-panes"
 expect_ok "$(accept close-pane close-pane --pane "$alpha_pane")"
 expect_ok "$(accept close-pane close-pane --pane "$shared_pane")"
+expect_ok "$(accept close-pane close-pane --pane "$source_pane")"
 expect_ok "$(accept close-pane close-pane --pane "$gamma_pane")"
 
 expect_ok "$(accept tab-rename tab rename "$active_tab" CompatTab)"
@@ -219,7 +275,16 @@ expect_ok "$(accept tab-unpin tab unpin "$active_tab")"
 expect_ok "$(accept tab-move tab move "$active_tab" 0)"
 expect_ok "$(accept tab-close tab close "$active_tab")"
 
-run_cli "$ROOT/fixtures/gamma" >/dev/null || fail "path-open wrapper invocation failed"
+run_cli "$ROOT/fixtures/delta" >/dev/null || fail "path-open wrapper invocation failed"
+path_opened=false
+for _ in $(jot 100); do
+    if run_cli list-projects | grep -F "$ROOT/fixtures/delta" | grep -Fq $'\ttrue'; then
+        path_opened=true
+        break
+    fi
+    sleep 0.05
+done
+[[ "$path_opened" == true ]] || fail "path-open did not add and select the fresh project"
 printf '%s\n' path-open >> "$ACCEPTED_LOG"
 readonly HOOK='{"v":3,"kind":"agent_event","id":"p2-cli-hook","provider":"compat","phase":"finished","title":"Done","body":"Ready","pids":[],"ts":7,"test":true}'
 printf '%s\n' "$HOOK" | nc -w 2 -U "$DEVELOPMENT_SOCKET" > "$ROOT/logs/hook.out"
@@ -297,7 +362,9 @@ printf 'installed shim: %s\n' "$SHIM"
 printf 'staged app: %s\n' "$APP"
 printf 'development socket mode: 0600\n'
 printf 'accepted wire heads: 33\n'
-printf 'path-open: passed\n'
+printf 'pane context and hidden materialization: passed\n'
+printf 'explicit source working directory: passed\n'
+printf 'path-open mutation: passed\n'
 printf 'raw hook: passed\n'
 printf 'raw notification: passed\n'
 printf 'production socket preserved: %s pid %s\n' "$PRODUCTION_IDENTITY" "$PRODUCTION_PID"

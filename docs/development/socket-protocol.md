@@ -39,12 +39,13 @@ The server accepts newline-delimited input records with a 128 KiB unread-buffer 
 | Agent Hook v3 | `{"kind":"ack","ok":true,"v":3}\n` | May close after acknowledgement |
 | One-way ingress | No bytes | Caller may close |
 
-A session accepts at most eight commands. The ninth receives `error:too many commands`. The framing selected when an app request is accepted stays attached to that request even if an extension snapshot changes before app completion. Read EOF blocks new pushes and invokes but does not discard an already owed app reply.
+A session accepts at most eight concurrent app commands. An additional command received while eight replies are in flight gets `error:too many concurrent commands`. Capacity returns when a command completes. The framing selected when an app request is accepted stays attached to that request even if an extension snapshot changes before app completion. Read EOF blocks new pushes and invokes but does not discard an already owed app reply or a complete buffered invoke result.
 
 The Unix listener:
 
 - creates parent directories without weakening existing permissions
 - binds with socket mode 0600
+- proves the bound path reaches the new listener before claiming ownership
 - refuses a live endpoint without unlinking it
 - removes only a conclusively stale socket
 - removes the socket on shutdown only if path identity still matches the owned inode
@@ -57,9 +58,9 @@ Each complete record follows this order:
 1. If the session is unidentified, attempt strict Agent Hook v3 JSON parsing.
 2. A valid hook is acknowledged before deduplication and app delivery.
 3. Handle transport-owned sticky commands: `identify` and `subscribe`.
-4. For an identified session, handle `invoke-result` and incoming `extension-event`.
-5. Route `open-project` and `install-extension` as no-response compatibility ingress.
-6. Route a recognized app-command head to the app dispatcher.
+4. Route a recognized app-command head to the app dispatcher.
+5. For an identified session, handle `invoke-result` and incoming `extension-event`.
+6. Route `open-project` and `install-extension` as no-response compatibility ingress.
 7. Parse a structurally valid legacy notification with max-three-split payload behavior.
 8. Ignore records that match no route.
 

@@ -1,9 +1,12 @@
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, Read, Write};
+use std::net::Shutdown;
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+use uuid::Uuid;
 
 use super::ServerError;
 
@@ -45,8 +48,6 @@ impl Drop for BoundPathGuard<'_> {
         }
         if let Some(identity) = self.identity {
             remove_matching_socket(self.path, identity);
-        } else {
-            remove_socket(self.path);
         }
     }
 }
@@ -143,6 +144,12 @@ impl BoundSocket {
             identity: None,
             armed: true,
         };
+        listener
+            .set_nonblocking(true)
+            .map_err(|source| ServerError::SocketNonblocking {
+                path: path.to_path_buf(),
+                source,
+            })?;
         let metadata =
             fs::symlink_metadata(path).map_err(|source| ServerError::SocketMetadata {
                 path: path.to_path_buf(),
@@ -152,6 +159,7 @@ impl BoundSocket {
             return Err(ServerError::SocketChanged(path.to_path_buf()));
         }
         let identity = SocketIdentity::from_metadata(&metadata);
+        require_bound_listener(path, &listener, identity)?;
         guard.identify(identity);
         fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|source| {
             ServerError::SocketPermissions {
@@ -159,13 +167,7 @@ impl BoundSocket {
                 source,
             }
         })?;
-        require_matching_socket(path, identity)?;
-        listener
-            .set_nonblocking(true)
-            .map_err(|source| ServerError::SocketNonblocking {
-                path: path.to_path_buf(),
-                source,
-            })?;
+        require_bound_listener(path, &listener, identity)?;
         guard.disarm();
         drop(lock);
 
@@ -203,12 +205,48 @@ fn require_matching_socket(path: &Path, identity: SocketIdentity) -> Result<(), 
     }
 }
 
-fn remove_socket(path: &Path) {
-    let Ok(metadata) = fs::symlink_metadata(path) else {
-        return;
-    };
-    if metadata.file_type().is_socket() {
-        let _ = fs::remove_file(path);
+fn require_bound_listener(
+    path: &Path,
+    listener: &UnixListener,
+    identity: SocketIdentity,
+) -> Result<(), ServerError> {
+    require_matching_socket(path, identity)?;
+    let token = Uuid::new_v4().to_string().into_bytes();
+    let mut probe = UnixStream::connect(path).map_err(|source| ServerError::SocketProbe {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    probe
+        .write_all(&token)
+        .and_then(|()| probe.shutdown(Shutdown::Write))
+        .map_err(|source| ServerError::SocketProbe {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    let mut matched = false;
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let _ = stream.set_read_timeout(Some(Duration::from_millis(50)));
+                let mut payload = Vec::new();
+                let _ = stream
+                    .take((token.len() + 1) as u64)
+                    .read_to_end(&mut payload);
+                if payload == token {
+                    matched = true;
+                    break;
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        }
+    }
+    require_matching_socket(path, identity)?;
+    if matched {
+        Ok(())
+    } else {
+        Err(ServerError::SocketChanged(path.to_path_buf()))
     }
 }
 
@@ -314,4 +352,37 @@ const fn send_flags() -> libc::c_int {
 #[cfg(not(target_os = "linux"))]
 const fn send_flags() -> libc::c_int {
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unclaimed_guard_preserves_a_replacement_socket() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("main.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let identity = SocketIdentity::from_metadata(&fs::symlink_metadata(&path).unwrap());
+        fs::remove_file(&path).unwrap();
+        let replacement = UnixListener::bind(&path).unwrap();
+        let replacement_identity =
+            SocketIdentity::from_metadata(&fs::symlink_metadata(&path).unwrap());
+
+        assert!(require_bound_listener(&path, &listener, identity).is_err());
+        {
+            let _guard = BoundPathGuard {
+                path: &path,
+                identity: None,
+                armed: true,
+            };
+        }
+        assert_eq!(
+            SocketIdentity::from_metadata(&fs::symlink_metadata(&path).unwrap()),
+            replacement_identity
+        );
+        assert!(UnixStream::connect(&path).is_ok());
+        drop(replacement);
+    }
 }

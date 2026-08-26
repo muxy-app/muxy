@@ -1,6 +1,6 @@
 use crate::native_compositor::{NativeViewCompositor, NativeViewRegistration};
 use crate::resources::AppResources;
-use crate::terminal::surfaces::AppSurfaceHandle;
+use crate::terminal::surfaces::{AppSurfaceHandle, PaneLaunchContext};
 use async_channel::Receiver;
 use ghostty_host::{
     Action as RuntimeAction, ActionTarget, ClipboardContent, ClipboardLocation, ClipboardRequest,
@@ -54,6 +54,10 @@ pub(crate) fn install_development_cli_environment(
     mode: BuildMode,
     socket_path: &Path,
 ) -> Result<(), String> {
+    unsafe {
+        std::env::remove_var("MUXY_HOOK_BIN");
+        std::env::remove_var("MUXY_HOOK_SCRIPT");
+    }
     if !mode.is_development() {
         return Ok(());
     }
@@ -113,6 +117,29 @@ fn development_cli_environment(
         ),
         SurfaceEnvironmentVariable::new("MUXY_DEVELOPMENT_VERSION", env!("CARGO_PKG_VERSION")),
     ])
+}
+
+fn apply_pane_context(
+    mut environment: Vec<SurfaceEnvironmentVariable>,
+    context: &PaneLaunchContext,
+) -> Vec<SurfaceEnvironmentVariable> {
+    environment.retain(|variable| {
+        !matches!(
+            variable.key.as_str(),
+            "MUXY_PANE_ID"
+                | "MUXY_PROJECT_ID"
+                | "MUXY_WORKTREE_ID"
+                | "MUXY_SOCKET_PATH"
+                | "MUXY_HOOK_BIN"
+                | "MUXY_HOOK_SCRIPT"
+        )
+    });
+    environment.extend(
+        context
+            .environment()
+            .map(|(key, value)| SurfaceEnvironmentVariable::new(key, value)),
+    );
+    environment
 }
 
 struct PendingConfirmation {
@@ -408,6 +435,7 @@ impl GhosttyBackend {
         tab_id: &TabId,
         directory: PathBuf,
         command: Option<LaunchCommand>,
+        context: &PaneLaunchContext,
         window: &mut Window,
         cx: &mut App,
     ) -> Option<Box<dyn AppSurfaceHandle>> {
@@ -438,6 +466,7 @@ impl GhosttyBackend {
             ));
             startup_shell_command(&user_shell(), command.keeps_shell_open)
         });
+        let environment = apply_pane_context(environment, context);
         let options = SurfaceOptions {
             context: SurfaceContext::Window,
             working_directory: directory,
@@ -992,6 +1021,41 @@ mod tests {
             socket.to_string_lossy()
         );
         assert_eq!(value("MUXY_DEVELOPMENT_VERSION"), env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn pane_context_overrides_stale_values_and_removes_hook_variables() {
+        let context = PaneLaunchContext::new(
+            "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+            "11111111-2222-4333-8444-555555555555",
+            "66666666-7777-4888-8999-AAAAAAAAAAAA",
+            "/tmp/selected.socket",
+        );
+        let environment = apply_pane_context(
+            vec![
+                SurfaceEnvironmentVariable::new("MUXY_PANE_ID", "stale"),
+                SurfaceEnvironmentVariable::new("MUXY_SOCKET_PATH", "/tmp/stale.sock"),
+                SurfaceEnvironmentVariable::new("MUXY_HOOK_BIN", "/tmp/hook"),
+                SurfaceEnvironmentVariable::new("MUXY_HOOK_SCRIPT", "/tmp/hook.sh"),
+                SurfaceEnvironmentVariable::new("TERMINFO_DIRS", "/tmp/terminfo"),
+            ],
+            &context,
+        );
+        let value = |key: &str| {
+            environment
+                .iter()
+                .find(|variable| variable.key == key)
+                .map(|variable| variable.value.as_str())
+        };
+
+        assert_eq!(
+            value("MUXY_PANE_ID"),
+            Some("AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE")
+        );
+        assert_eq!(value("MUXY_SOCKET_PATH"), Some("/tmp/selected.socket"));
+        assert_eq!(value("TERMINFO_DIRS"), Some("/tmp/terminfo"));
+        assert_eq!(value("MUXY_HOOK_BIN"), None);
+        assert_eq!(value("MUXY_HOOK_SCRIPT"), None);
     }
 
     #[test]

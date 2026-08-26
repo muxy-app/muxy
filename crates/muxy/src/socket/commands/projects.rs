@@ -247,7 +247,7 @@ pub fn handle(head: &str, parts: &[&str], state: &mut AppState) -> Option<Projec
                 }
             };
             let workspace_identifier = match decode_optional(parts, 4, "create-project workspace") {
-                Ok(identifier) => identifier,
+                Ok(identifier) => identifier.map(|identifier| identifier.trim().to_owned()),
                 Err(error) => {
                     return Some(ProjectCommand::Immediate(CommandResult::reply(error)));
                 }
@@ -472,6 +472,44 @@ mod tests {
         assert_eq!(
             decode_optional(&["cmd", "%%%"], 1, "field"),
             Err("error:invalid field".to_owned())
+        );
+    }
+
+    #[test]
+    fn create_project_trims_the_workspace_identifier() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let project_path = temp.path().join("project");
+        std::fs::create_dir(&project_path).unwrap();
+        let mut state = super::super::test_state(temp.path());
+        let project = Project::new(
+            "Project".to_owned(),
+            project_path.to_string_lossy().into_owned(),
+            0,
+        );
+        let project_id = project.id.clone();
+        state.workspace = muxy_core::store::Workspace::for_tests(vec![project]);
+        state.workspace.groups =
+            muxy_core::store::Groups::load_from(temp.path().join("project-groups.json"));
+        state.worktrees.insert(
+            project_id,
+            vec![muxy_core::store::worktrees::primary(
+                "Project",
+                &project_path.to_string_lossy(),
+            )],
+        );
+        let group_id = state.workspace.groups.add("Team".to_owned());
+        let command = format!(
+            "create-project|{}|true||{}",
+            STANDARD.encode(project_path.to_string_lossy().as_bytes()),
+            STANDARD.encode(" Team ")
+        );
+
+        let response = reply(&command, &mut state);
+        assert!(response.starts_with("ok\t"), "{response}");
+        let project_id = response.split('\t').nth(1).unwrap();
+        assert_eq!(
+            state.workspace.groups.group_id_containing(project_id),
+            Some(group_id.as_str())
         );
     }
 

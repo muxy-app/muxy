@@ -569,15 +569,6 @@ fn run_worker(
                 eof_sessions.push(session_id);
             }
         }
-        for session_id in eof_sessions {
-            detach_session(
-                session_id,
-                &mut sessions,
-                &mut live_sessions,
-                &mut pending_invokes,
-            );
-        }
-
         for (session_id, record) in records {
             route_record(
                 session_id,
@@ -595,6 +586,15 @@ fn run_worker(
                     pending_invokes: &mut pending_invokes,
                     recent_hook_ids: &mut recent_hook_ids,
                 },
+            );
+        }
+
+        for session_id in eof_sessions {
+            detach_session(
+                session_id,
+                &mut sessions,
+                &mut live_sessions,
+                &mut pending_invokes,
             );
         }
 
@@ -1694,6 +1694,31 @@ mod tests {
         assert_eq!(
             replacement.recv_timeout(Duration::from_secs(1)).unwrap(),
             InvokeOutcome::Unavailable
+        );
+    }
+
+    #[test]
+    fn final_invoke_result_is_routed_before_half_close_detaches_its_owner() {
+        let directory = directory();
+        let path = directory.path().join("main.sock");
+        let (_server, handle, _) = SocketServer::start(extension_config(&path, true)).unwrap();
+        let mut writer = connect(&path);
+        let mut reader = BufReader::new(writer.try_clone().unwrap());
+        identify(&mut writer, &mut reader);
+
+        let request = InvokeRequest::new("sample.action", b"payload".to_vec());
+        let call_id = request.call_id.clone();
+        let result = handle.invoke("sample.extension", request);
+        assert_eq!(
+            read_line(&mut reader),
+            format!("invoke|{call_id}|sample.action|cGF5bG9hZA==\n")
+        );
+        writeln!(writer, "invoke-result|{call_id}|ok|cmlnaHQ=").unwrap();
+        writer.shutdown(Shutdown::Write).unwrap();
+
+        assert_eq!(
+            result.recv_timeout(Duration::from_secs(1)).unwrap(),
+            InvokeOutcome::Success(b"right".to_vec())
         );
     }
 

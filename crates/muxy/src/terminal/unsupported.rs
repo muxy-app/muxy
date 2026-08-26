@@ -1,4 +1,4 @@
-use crate::terminal::surfaces::AppSurfaceHandle;
+use crate::terminal::surfaces::{AppSurfaceHandle, PaneLaunchContext};
 use gpui::{App, Window};
 use muxy_core::shortcuts::KeyCombo;
 use muxy_core::workspace::TabId;
@@ -29,6 +29,7 @@ impl UnsupportedBackend {
         _tab_id: &TabId,
         _directory: PathBuf,
         _command: Option<LaunchCommand>,
+        _context: &PaneLaunchContext,
         _window: &mut Window,
         _cx: &mut App,
     ) -> Option<Box<dyn AppSurfaceHandle>> {

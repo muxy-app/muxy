@@ -68,9 +68,9 @@ fn split_result(
                 .map(|project| project.path.clone())
         })
         .ok_or_else(|| "no active workspace".to_owned())?;
-    let launch_directory = workspace
-        .area(&context.area_id)
-        .and_then(|area| area.active_tab_id.as_deref())
+    let launch_directory = context
+        .source_tab_id
+        .as_deref()
         .and_then(|tab_id| {
             window
                 .terminal_runtime
@@ -273,6 +273,7 @@ pub fn perform_surface(window: &MainWindow, command: &SurfaceCommand) -> Option<
 struct SplitContext {
     state_index: usize,
     area_id: String,
+    source_tab_id: Option<String>,
 }
 
 fn split_context(
@@ -298,12 +299,13 @@ fn split_context(
         None => None,
     };
     if let Some(pane_id) = from_pane.filter(|pane_id| valid_uuid(pane_id))
-        && let Some((state_index, area_id, _)) = locate_pane(window, pane_id)
+        && let Some((state_index, area_id, source_tab_id)) = locate_pane(window, pane_id)
         && target_index.is_none_or(|target_index| target_index == state_index)
     {
         return Ok(SplitContext {
             state_index,
             area_id,
+            source_tab_id: Some(source_tab_id),
         });
     }
     let state_index = match target_index {
@@ -322,13 +324,18 @@ fn split_context(
                 .ok_or_else(|| "no active workspace".to_owned())?
         }
     };
-    let area_id = window.state.tab_workspaces.states()[state_index]
+    let workspace = &window.state.tab_workspaces.states()[state_index];
+    let area_id = workspace
         .focused_area_id
         .clone()
         .ok_or_else(|| "no focused area".to_owned())?;
+    let source_tab_id = workspace
+        .area(&area_id)
+        .and_then(|area| area.active_tab_id.clone());
     Ok(SplitContext {
         state_index,
         area_id,
+        source_tab_id,
     })
 }
 

@@ -98,11 +98,26 @@ impl MainWindow {
                             self.finish_socket_command(result, request.responder, cx);
                         }
                         PaneCommand::Surface(command) => {
+                            if !self.terminal_runtime.surfaces.request_materialization(
+                                &self.state.tab_workspaces,
+                                &command.pane_id,
+                            ) {
+                                request.responder.respond(CommandReply::new(format!(
+                                    "error:pane launch context unavailable {}",
+                                    command.pane_id
+                                )));
+                                return;
+                            }
+                            cx.notify();
                             cx.spawn(async move |window, cx| {
                                 for _ in 0..40 {
                                     let reply = window
-                                        .update(cx, |window, _| {
-                                            panes::perform_surface(window, &command)
+                                        .update(cx, |window, cx| {
+                                            let reply = panes::perform_surface(window, &command);
+                                            if reply.is_none() {
+                                                cx.notify();
+                                            }
+                                            reply
                                         })
                                         .ok()
                                         .flatten();
