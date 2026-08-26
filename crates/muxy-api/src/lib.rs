@@ -5,5 +5,8 @@ pub mod picker;
 pub mod subprocess;
 pub mod truth;
 pub mod watcher;
+pub mod worktree_config;
+pub mod worktree_hooks;
+pub mod worktree_location;
 pub mod worktrees;
 pub mod yaml;
