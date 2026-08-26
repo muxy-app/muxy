@@ -1,325 +1,223 @@
-#[cfg(target_os = "macos")]
-struct DefaultsStore {
-    defaults: objc2::rc::Retained<objc2_foundation::NSUserDefaults>,
+use serde_json::{Map, Number, Value};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+const FILE_NAME: &str = "preferences.json";
+
+fn path() -> PathBuf {
+    super::app_support_dir().join(FILE_NAME)
 }
 
-#[cfg(target_os = "macos")]
-impl DefaultsStore {
-    fn standard() -> Self {
-        Self {
-            defaults: objc2_foundation::NSUserDefaults::standardUserDefaults(),
+fn read_map(path: &Path) -> std::io::Result<Map<String, Value>> {
+    let contents = match std::fs::read(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
+        Err(error) => return Err(error),
+    };
+    let value = serde_json::from_slice::<Value>(&contents)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    value
+        .as_object()
+        .cloned()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "expected JSON object"))
+}
+
+fn read_current() -> Option<Map<String, Value>> {
+    let path = path();
+    match read_map(&path) {
+        Ok(values) => Some(values),
+        Err(error) => {
+            log::warn!("failed to read {}: {error}", path.display());
+            None
         }
-    }
-
-    #[cfg(test)]
-    fn new(defaults: objc2::rc::Retained<objc2_foundation::NSUserDefaults>) -> Self {
-        Self { defaults }
-    }
-
-    fn store_bool(&self, key: &str, value: bool) {
-        use objc2::rc::Retained;
-        use objc2_foundation::{NSNumber, NSString};
-
-        let number: Retained<NSNumber> = NSNumber::numberWithBool(value);
-        unsafe {
-            self.defaults
-                .setObject_forKey(Some(&number), &NSString::from_str(key));
-        }
-        self.defaults.synchronize();
-    }
-
-    fn store_string(&self, key: &str, value: Option<&str>) {
-        use objc2_foundation::NSString;
-
-        let key = NSString::from_str(key);
-        match value {
-            Some(value) => {
-                let value = NSString::from_str(value);
-                unsafe { self.defaults.setObject_forKey(Some(&value), &key) };
-            }
-            None => self.defaults.removeObjectForKey(&key),
-        }
-        self.defaults.synchronize();
-    }
-
-    fn store_i64(&self, key: &str, value: i64) {
-        use objc2::rc::Retained;
-        use objc2_foundation::{NSNumber, NSString};
-
-        let number: Retained<NSNumber> = NSNumber::numberWithLongLong(value);
-        unsafe {
-            self.defaults
-                .setObject_forKey(Some(&number), &NSString::from_str(key));
-        }
-        self.defaults.synchronize();
-    }
-
-    fn store_f64(&self, key: &str, value: f64) {
-        use objc2::rc::Retained;
-        use objc2_foundation::{NSNumber, NSString};
-
-        let number: Retained<NSNumber> = NSNumber::numberWithDouble(value);
-        unsafe {
-            self.defaults
-                .setObject_forKey(Some(&number), &NSString::from_str(key));
-        }
-        self.defaults.synchronize();
-    }
-
-    fn store_dictionary(&self, key: &str, value: &std::collections::HashMap<String, String>) {
-        use objc2::rc::Retained;
-        use objc2_foundation::{NSDictionary, NSString};
-
-        let keys: Vec<Retained<NSString>> =
-            value.keys().map(|key| NSString::from_str(key)).collect();
-        let values: Vec<Retained<NSString>> = value
-            .values()
-            .map(|value| NSString::from_str(value))
-            .collect();
-        let key_refs: Vec<&NSString> = keys.iter().map(Retained::as_ref).collect();
-        let dictionary = NSDictionary::from_retained_objects(&key_refs, &values);
-        unsafe {
-            self.defaults
-                .setObject_forKey(Some(&dictionary), &NSString::from_str(key));
-        }
-        self.defaults.synchronize();
-    }
-
-    fn remove(&self, key: &str) {
-        use objc2_foundation::NSString;
-
-        self.defaults.removeObjectForKey(&NSString::from_str(key));
-        self.defaults.synchronize();
-    }
-
-    fn read_bool(&self, key: &str) -> Option<bool> {
-        Some(self.number(key)?.boolValue())
-    }
-
-    fn read_i64(&self, key: &str) -> Option<i64> {
-        Some(self.number(key)?.longLongValue())
-    }
-
-    fn read_f64(&self, key: &str) -> Option<f64> {
-        Some(self.number(key)?.doubleValue())
-    }
-
-    fn read_string(&self, key: &str) -> Option<String> {
-        use objc2_foundation::NSString;
-
-        Some(self.object(key)?.downcast::<NSString>().ok()?.to_string())
-    }
-
-    fn number(&self, key: &str) -> Option<objc2::rc::Retained<objc2_foundation::NSNumber>> {
-        self.object(key)?
-            .downcast::<objc2_foundation::NSNumber>()
-            .ok()
-    }
-
-    fn object(&self, key: &str) -> Option<objc2::rc::Retained<objc2::runtime::AnyObject>> {
-        use objc2_foundation::NSString;
-
-        self.defaults.objectForKey(&NSString::from_str(key))
     }
 }
 
-#[cfg(target_os = "macos")]
-pub(super) fn domain_name() -> Option<String> {
-    objc2_foundation::NSBundle::mainBundle()
-        .bundleIdentifier()
-        .map(|value| value.to_string())
+fn write_map(path: &Path, values: &Map<String, Value>) -> std::io::Result<()> {
+    let contents = serde_json::to_vec_pretty(values)?;
+    crate::store::write_private(path, &contents)
 }
 
-#[cfg(target_os = "macos")]
+fn update(key: &str, value: Option<Value>) {
+    let path = path();
+    if let Err(error) = update_at(&path, key, value) {
+        log::warn!("failed to update {}: {error}", path.display());
+    }
+}
+
+fn update_at(path: &Path, key: &str, value: Option<Value>) -> std::io::Result<()> {
+    let mut values = read_map(path)?;
+    match value {
+        Some(value) => {
+            values.insert(key.to_owned(), value);
+        }
+        None => {
+            values.remove(key);
+        }
+    }
+    write_map(path, &values)
+}
+
 pub fn store_bool(key: &str, value: bool) {
-    DefaultsStore::standard().store_bool(key, value);
+    update(key, Some(Value::Bool(value)));
 }
 
-#[cfg(target_os = "macos")]
 pub fn store_string(key: &str, value: Option<&str>) {
-    DefaultsStore::standard().store_string(key, value);
+    update(key, value.map(|value| Value::String(value.to_owned())));
 }
 
-#[cfg(target_os = "macos")]
 pub fn store_i64(key: &str, value: i64) {
-    DefaultsStore::standard().store_i64(key, value);
+    update(key, Some(Value::Number(Number::from(value))));
 }
 
-#[cfg(target_os = "macos")]
 pub fn store_f64(key: &str, value: f64) {
-    DefaultsStore::standard().store_f64(key, value);
+    if let Some(value) = Number::from_f64(value) {
+        update(key, Some(Value::Number(value)));
+    }
 }
 
-#[cfg(target_os = "macos")]
-pub fn store_dictionary(key: &str, value: &std::collections::HashMap<String, String>) {
-    DefaultsStore::standard().store_dictionary(key, value);
+pub fn store_dictionary(key: &str, value: &HashMap<String, String>) {
+    let value = value
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+        .collect();
+    update(key, Some(Value::Object(value)));
 }
 
-#[cfg(target_os = "macos")]
 pub fn remove(key: &str) {
-    DefaultsStore::standard().remove(key);
+    update(key, None);
 }
 
-#[cfg(target_os = "macos")]
 pub fn read_bool(key: &str) -> Option<bool> {
-    DefaultsStore::standard().read_bool(key)
+    read_current()?.get(key).and_then(Value::as_bool)
 }
 
-#[cfg(target_os = "macos")]
 pub fn read_i64(key: &str) -> Option<i64> {
-    DefaultsStore::standard().read_i64(key)
+    read_current()?.get(key).and_then(Value::as_i64)
 }
 
-#[cfg(target_os = "macos")]
 pub fn read_f64(key: &str) -> Option<f64> {
-    DefaultsStore::standard().read_f64(key)
+    read_current()?.get(key).and_then(Value::as_f64)
 }
 
-#[cfg(target_os = "macos")]
 pub fn read_string(key: &str) -> Option<String> {
-    DefaultsStore::standard().read_string(key)
+    read_current()?
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub(super) fn domain_name() -> Option<String> {
-    None
+pub fn read_dictionary(key: &str) -> Option<HashMap<String, String>> {
+    read_current()?
+        .get(key)
+        .and_then(Value::as_object)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_owned())))
+                .collect()
+        })
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn store_bool(_key: &str, _value: bool) {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn store_string(_key: &str, _value: Option<&str>) {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn store_i64(_key: &str, _value: i64) {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn store_f64(_key: &str, _value: f64) {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn store_dictionary(_key: &str, _value: &std::collections::HashMap<String, String>) {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn remove(_key: &str) {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn read_bool(_key: &str) -> Option<bool> {
-    None
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn read_i64(_key: &str) -> Option<i64> {
-    None
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn read_f64(_key: &str) -> Option<f64> {
-    None
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn read_string(_key: &str) -> Option<String> {
-    None
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn merge_imported(root: &Path, imported: &Map<String, Value>) -> std::io::Result<()> {
+    let path = root.join(FILE_NAME);
+    let mut values = read_map(&path)?;
+    for (key, value) in imported {
+        values.entry(key.clone()).or_insert_with(|| value.clone());
+    }
+    write_map(&path, &values)
 }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_os = "macos")]
-    struct TestDefaults {
-        store: super::DefaultsStore,
-        suite_name: objc2::rc::Retained<objc2_foundation::NSString>,
-    }
-
-    #[cfg(target_os = "macos")]
-    impl TestDefaults {
-        fn new() -> Self {
-            use objc2::AnyThread;
-            use objc2_foundation::{NSString, NSUserDefaults};
-            use std::time::{SystemTime, UNIX_EPOCH};
-
-            let unique = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let suite_name = NSString::from_str(&format!(
-                "muxy.tests.rust.{}.{}",
-                std::process::id(),
-                unique
-            ));
-            let defaults = NSUserDefaults::initWithSuiteName(
-                NSUserDefaults::alloc(),
-                Some(suite_name.as_ref()),
-            )
-            .unwrap();
-            defaults.removePersistentDomainForName(&suite_name);
-            Self {
-                store: super::DefaultsStore::new(defaults),
-                suite_name,
-            }
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    impl Drop for TestDefaults {
-        fn drop(&mut self) {
-            self.store
-                .defaults
-                .removePersistentDomainForName(&self.suite_name);
-        }
-    }
+    use serde_json::{Map, Value};
+    use std::collections::HashMap;
 
     #[test]
-    #[cfg(target_os = "macos")]
-    fn round_trips_every_accessor_in_an_isolated_suite() {
-        use objc2_foundation::{NSDictionary, NSString};
-
-        let defaults = TestDefaults::new();
-        let store = &defaults.store;
-
-        store.store_string("string", Some("hello"));
-        assert_eq!(store.read_string("string").as_deref(), Some("hello"));
-
-        store.store_bool("bool", true);
-        assert_eq!(store.read_bool("bool"), Some(true));
-        store.store_bool("bool", false);
-        assert_eq!(store.read_bool("bool"), Some(false));
-
-        store.store_i64("integer", 1800);
-        assert_eq!(store.read_i64("integer"), Some(1800));
-
-        store.store_f64("double", 1.25);
-        assert_eq!(store.read_f64("double"), Some(1.25));
-
-        let mut value = std::collections::HashMap::new();
-        value.insert("alpha".to_owned(), "one".to_owned());
-        store.store_dictionary("dictionary", &value);
-        let dictionary = store
-            .object("dictionary")
-            .unwrap()
-            .downcast::<NSDictionary>()
-            .unwrap();
-        let dictionary = unsafe { dictionary.cast_unchecked::<NSString, NSString>() };
-        assert_eq!(
-            dictionary
-                .objectForKey(&NSString::from_str("alpha"))
-                .unwrap()
-                .to_string(),
-            "one"
+    fn portable_preferences_round_trip_every_supported_type() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("preferences.json");
+        let mut values = Map::new();
+        values.insert("bool".to_owned(), Value::Bool(true));
+        values.insert("integer".to_owned(), Value::from(1800));
+        values.insert("double".to_owned(), Value::from(1.25));
+        values.insert("string".to_owned(), Value::String("hello".to_owned()));
+        values.insert(
+            "dictionary".to_owned(),
+            serde_json::json!({ "alpha": "one" }),
         );
+        super::write_map(&path, &values).expect("write");
 
-        for key in ["string", "bool", "integer", "double", "dictionary"] {
-            store.remove(key);
-            assert!(store.object(key).is_none());
-        }
+        let stored = super::read_map(&path).expect("read");
+        assert_eq!(stored.get("bool").and_then(Value::as_bool), Some(true));
+        assert_eq!(stored.get("integer").and_then(Value::as_i64), Some(1800));
+        assert_eq!(stored.get("double").and_then(Value::as_f64), Some(1.25));
+        assert_eq!(stored.get("string").and_then(Value::as_str), Some("hello"));
+        assert_eq!(
+            stored
+                .get("dictionary")
+                .and_then(Value::as_object)
+                .and_then(|value| value.get("alpha"))
+                .and_then(Value::as_str),
+            Some("one")
+        );
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
-    fn string_none_removes_the_value() {
-        let defaults = TestDefaults::new();
-        defaults.store.store_string("string", Some("value"));
-        defaults.store.store_string("string", None);
-        assert_eq!(defaults.store.read_string("string"), None);
+    fn imported_preferences_never_replace_existing_values() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("preferences.json");
+        let existing = serde_json::json!({ "shared": "rust", "existing": true });
+        super::write_map(&path, existing.as_object().expect("object")).expect("write");
+        let imported = serde_json::json!({ "shared": "swift", "missing": 42 });
+        super::merge_imported(directory.path(), imported.as_object().expect("object"))
+            .expect("merge");
+        assert_eq!(
+            super::read_map(&path).expect("read"),
+            serde_json::json!({ "shared": "rust", "existing": true, "missing": 42 })
+                .as_object()
+                .expect("object")
+                .clone()
+        );
+    }
+
+    #[test]
+    fn ordinary_updates_do_not_replace_a_malformed_file() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("preferences.json");
+        std::fs::write(&path, b"not json").expect("write malformed");
+        let result = super::update_at(&path, "new", Some(Value::Bool(true)));
+        assert_eq!(
+            result.expect_err("malformed preferences").kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        assert_eq!(std::fs::read(&path).expect("unchanged"), b"not json");
+    }
+
+    #[test]
+    fn imported_preferences_do_not_replace_a_malformed_file() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("preferences.json");
+        std::fs::write(&path, b"not json").expect("write malformed");
+        let imported = serde_json::json!({ "imported": true });
+        let result = super::merge_imported(directory.path(), imported.as_object().expect("object"));
+        assert_eq!(
+            result.expect_err("malformed preferences").kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        assert_eq!(std::fs::read(&path).expect("unchanged"), b"not json");
+    }
+
+    #[test]
+    fn dictionary_values_are_string_maps() {
+        let value: HashMap<String, String> = [
+            ("alpha".to_owned(), "one".to_owned()),
+            ("beta".to_owned(), "two".to_owned()),
+        ]
+        .into_iter()
+        .collect();
+        let json: Value = serde_json::to_value(&value).expect("serialize");
+        assert!(json.as_object().is_some());
     }
 }

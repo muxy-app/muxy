@@ -49,7 +49,7 @@ readonly PRODUCTION_PID
 kill -0 "$PRODUCTION_PID" 2>/dev/null || fail "production socket owner is not live"
 
 "$SCRIPT_DIR/build-app.sh" debug
-"$SCRIPT_DIR/verify-bundle.sh" "$PROJECT_ROOT/target/debug/Muxy.app"
+"$SCRIPT_DIR/verify-bundle.sh" "$PROJECT_ROOT/target/debug/Muxy.app" debug
 "$SCRIPT_DIR/stage-test-app.sh" "$PROJECT_ROOT/target/debug/Muxy.app" p2-cli >/dev/null
 readonly STAGED_CLI="$APP/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
 [[ -x "$STAGED_CLI" ]] || fail "staged nested CLI is not executable"

@@ -105,6 +105,11 @@ if [[ "$PROFILE" == debug ]]; then
         "$STAGING_BUNDLE/Contents/Resources/muxy-dev-bin/muxy"
 fi
 install -m 0644 "$INFO_PLIST" "$STAGING_BUNDLE/Contents/Info.plist"
+if [[ "$PROFILE" == debug ]]; then
+    plutil -replace CFBundleName -string "Muxy Dev" "$STAGING_BUNDLE/Contents/Info.plist"
+    plutil -replace CFBundleDisplayName -string "Muxy Dev" "$STAGING_BUNDLE/Contents/Info.plist"
+    plutil -replace CFBundleIdentifier -string "com.muxy.dev" "$STAGING_BUNDLE/Contents/Info.plist"
+fi
 iconutil --convert icns --output "$STAGING_BUNDLE/Contents/Resources/AppIcon.icns" "$ICONSET"
 
 cp -R "$GHOSTTY_RESOURCES" "$STAGING_BUNDLE/Contents/Resources/ghostty"

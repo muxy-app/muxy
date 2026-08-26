@@ -41,9 +41,27 @@ fi
 printf '==> Checking production defaults isolation\n'
 production_defaults_domain='com.muxy.'
 production_defaults_domain+='app'
-if rg -n -F "$production_defaults_domain" crates/ \
-    scripts/stage-test-app.sh scripts/run-test-app.sh; then
-    printf 'error: Rust and verification scripts must not select the production defaults domain\n' >&2
+production_defaults_matches="$(rg -n -F "$production_defaults_domain" crates/ \
+    scripts/stage-test-app.sh scripts/run-test-app.sh \
+    | rg -v '^crates/muxy-core/src/migration.rs:' || true)"
+if [[ -n "$production_defaults_matches" ]]; then
+    printf '%s\n' "$production_defaults_matches"
+    printf 'error: only the migration reader may select the production defaults domain\n' >&2
+    exit 1
+fi
+
+printf '==> Checking migration ownership\n'
+migration_owner='crates/muxy-core/src/migration.rs'
+migration_matches="$(rg -n 'NSUserDefaults|swift-profile-migration\.json|MUXY_TEST_SWIFT_' crates/ \
+    | rg -v "^${migration_owner}:" || true)"
+if [[ -n "$migration_matches" ]]; then
+    printf '%s\n' "$migration_matches"
+    printf 'error: migration-only state escaped %s\n' "$migration_owner" >&2
+    exit 1
+fi
+if rg -n 'Library/Preferences|plist::' crates/muxy-core/src \
+    || rg -n '^plist\.workspace' crates/muxy-core/Cargo.toml; then
+    printf 'error: normal core preferences must remain portable\n' >&2
     exit 1
 fi
 
@@ -135,9 +153,12 @@ printf '==> Running tests\n'
 cargo test --workspace --all-targets --all-features --locked --offline
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
+    printf '==> Checking staged migration safety guards\n'
+    "$SCRIPT_DIR/verify-p2-5-migration.sh" --self-test
+
     printf '==> Building debug application bundle\n'
     "$SCRIPT_DIR/build-app.sh" debug
 
     printf '==> Verifying debug application bundle\n'
-    "$SCRIPT_DIR/verify-bundle.sh" "$PROJECT_ROOT/target/debug/Muxy.app"
+    "$SCRIPT_DIR/verify-bundle.sh" "$PROJECT_ROOT/target/debug/Muxy.app" debug
 fi

@@ -1,4 +1,4 @@
-mod defaults;
+pub(crate) mod defaults;
 pub mod settings;
 
 use serde_json::Value;
@@ -133,7 +133,7 @@ impl Prefs {
         let mut prefs = Self::default();
         prefs.apply_settings_json();
         prefs.apply_ui_scale_json();
-        prefs.apply_user_defaults();
+        prefs.apply_portable_preferences();
         prefs
     }
 
@@ -201,78 +201,45 @@ impl Prefs {
         self.scale = ScalePreset::parse(preset);
     }
 
-    fn apply_user_defaults(&mut self) {
-        let Some(domain_name) = defaults::domain_name() else {
-            return;
-        };
-        let path = home_dir().join(format!("Library/Preferences/{domain_name}.plist"));
-        let Ok(plist::Value::Dictionary(defaults)) = plist::Value::from_file(&path) else {
-            return;
-        };
-        if let Some(id) = defaults
-            .get("muxy.activeProjectID")
-            .and_then(|v| v.as_string())
-        {
-            self.active_project_id = Some(id.to_owned());
+    fn apply_portable_preferences(&mut self) {
+        if let Some(id) = defaults::read_string("muxy.activeProjectID") {
+            self.active_project_id = Some(id);
         }
-        if let Some(id) = defaults
-            .get("muxy.ide.selectedBundleIdentifier")
-            .and_then(|value| value.as_string())
-        {
-            self.ide_bundle_identifier = Some(id.to_owned());
+        if let Some(id) = defaults::read_string("muxy.ide.selectedBundleIdentifier") {
+            self.ide_bundle_identifier = Some(id);
         }
-        if let Some(expanded) = defaults.get("muxy.sidebarExpanded").and_then(as_bool) {
+        if let Some(expanded) = defaults::read_bool("muxy.sidebarExpanded") {
             self.sidebar_expanded = expanded;
         }
-        if let Some(width) = defaults
-            .get("muxy.sidebarExpandedCustomWidth")
-            .and_then(|value| value.as_real())
-        {
+        if let Some(width) = defaults::read_f64("muxy.sidebarExpandedCustomWidth") {
             self.sidebar_expanded_custom_width = Some(width as f32);
         }
-        if let Some(mode) = defaults
-            .get("muxy.projectSortMode")
-            .and_then(|value| value.as_string())
-        {
-            self.sort_mode = SortMode::parse(mode);
+        if let Some(mode) = defaults::read_string("muxy.projectSortMode") {
+            self.sort_mode = SortMode::parse(&mode);
         }
-        if let Some(value) = defaults.get("muxy.browser.enabled").and_then(as_bool) {
+        if let Some(value) = defaults::read_bool("muxy.browser.enabled") {
             self.browser_enabled = value;
         }
-        if let Some(value) = defaults
-            .get("muxy.projects.keepOpenWhenNoTabs")
-            .and_then(as_bool)
-        {
+        if let Some(value) = defaults::read_bool("muxy.projects.keepOpenWhenNoTabs") {
             self.keep_projects_open = value;
         }
-        if let Some(value) = defaults
-            .get("muxy.tabs.maxWidth")
-            .and_then(|value| value.as_real())
+        if let Some(value) = defaults::read_f64("muxy.tabs.maxWidth")
             .filter(|value| value.is_finite() && *value >= 0.0)
         {
             self.tab_max_width = value as f32;
         }
-        if let Some(root) = defaults
-            .get("muxy.projectPicker.defaultDirectory")
-            .and_then(|value| value.as_string())
+        if let Some(root) = defaults::read_string("muxy.projectPicker.defaultDirectory")
             .filter(|value| !value.trim().is_empty())
         {
-            self.project_search_root = Some(root.to_owned());
+            self.project_search_root = Some(root);
         }
-        if let Some(id) = defaults
-            .get("muxy.activeProjectGroupID")
-            .and_then(|value| value.as_string())
+        if let Some(id) = defaults::read_string("muxy.activeProjectGroupID")
             .filter(|value| !value.trim().is_empty())
         {
-            self.active_group_id = Some(id.to_owned());
+            self.active_group_id = Some(id);
         }
-        if let Some(plist::Value::Dictionary(entries)) = defaults.get("muxy.activeWorktreeIDs") {
-            self.active_worktree_ids = entries
-                .iter()
-                .filter_map(|(project_id, worktree_id)| {
-                    Some((project_id.clone(), worktree_id.as_string()?.to_owned()))
-                })
-                .collect();
+        if let Some(entries) = defaults::read_dictionary("muxy.activeWorktreeIDs") {
+            self.active_worktree_ids = entries;
         }
     }
 
@@ -289,12 +256,6 @@ impl Prefs {
     }
 }
 
-fn as_bool(value: &plist::Value) -> Option<bool> {
-    value
-        .as_boolean()
-        .or_else(|| value.as_signed_integer().map(|number| number != 0))
-}
-
 const TEST_APP_SUPPORT_DIRECTORY: &str = "MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY";
 
 pub fn home_dir() -> PathBuf {
@@ -304,21 +265,26 @@ pub fn home_dir() -> PathBuf {
 }
 
 pub fn app_support_dir() -> PathBuf {
-    let executable_is_test = std::env::current_exe()
-        .ok()
-        .as_deref()
-        .is_some_and(executable_is_test_process);
-    let is_test = cfg!(test) || executable_is_test;
+    let is_test = is_test_process();
     let override_directory = is_test
         .then(|| std::env::var_os(TEST_APP_SUPPORT_DIRECTORY))
         .flatten();
     resolve_app_support_dir(
         &home_dir(),
+        crate::build_mode!(),
         is_test,
         override_directory.as_deref(),
         &std::env::temp_dir(),
         std::process::id(),
     )
+}
+
+pub fn is_test_process() -> bool {
+    cfg!(test)
+        || std::env::current_exe()
+            .ok()
+            .as_deref()
+            .is_some_and(executable_is_test_process)
 }
 
 fn executable_is_test_process(path: &Path) -> bool {
@@ -339,6 +305,7 @@ fn executable_is_test_process(path: &Path) -> bool {
 
 fn resolve_app_support_dir(
     home: &Path,
+    mode: crate::environment::BuildMode,
     is_test: bool,
     override_directory: Option<&OsStr>,
     temporary_directory: &Path,
@@ -350,7 +317,7 @@ fn resolve_app_support_dir(
         }
         return temporary_directory.join(format!("MuxyTests-{process_id}"));
     }
-    home.join("Library/Application Support/Muxy")
+    crate::environment::StoragePathPolicy::new(mode).root(home)
 }
 
 pub fn read_json(path: &PathBuf) -> Option<Value> {
@@ -362,6 +329,8 @@ pub fn read_json(path: &PathBuf) -> Option<Value> {
 mod tests {
     use std::ffi::OsStr;
     use std::path::Path;
+
+    use crate::environment::BuildMode;
 
     use super::{ScalePreset, executable_is_test_process, resolve_app_support_dir};
 
@@ -378,24 +347,39 @@ mod tests {
     }
 
     #[test]
-    fn normal_app_support_uses_the_user_home_and_ignores_test_override() {
+    fn normal_storage_path_uses_mode_specific_roots_and_ignores_test_override() {
+        let home = Path::new("/Users/example");
+        let override_directory = Some(OsStr::new("/project/test-state"));
         assert_eq!(
             resolve_app_support_dir(
-                Path::new("/Users/example"),
+                home,
+                BuildMode::Development,
                 false,
-                Some(OsStr::new("/project/test-state")),
+                override_directory,
                 Path::new("/tmp"),
                 42,
             ),
-            Path::new("/Users/example/Library/Application Support/Muxy")
+            Path::new("/Users/example/.muxy-dev")
+        );
+        assert_eq!(
+            resolve_app_support_dir(
+                home,
+                BuildMode::Production,
+                false,
+                override_directory,
+                Path::new("/tmp"),
+                42,
+            ),
+            Path::new("/Users/example/.muxy")
         );
     }
 
     #[test]
-    fn test_app_support_uses_a_nonempty_override() {
+    fn storage_path_uses_a_nonempty_test_override() {
         assert_eq!(
             resolve_app_support_dir(
                 Path::new("/Users/example"),
+                BuildMode::Development,
                 true,
                 Some(OsStr::new("/project/test-state")),
                 Path::new("/tmp"),
@@ -406,11 +390,12 @@ mod tests {
     }
 
     #[test]
-    fn test_app_support_falls_back_to_a_process_specific_temporary_directory() {
+    fn storage_path_falls_back_to_a_process_specific_test_directory() {
         for override_directory in [None, Some(OsStr::new(""))] {
             assert_eq!(
                 resolve_app_support_dir(
                     Path::new("/Users/example"),
+                    BuildMode::Production,
                     true,
                     override_directory,
                     Path::new("/tmp"),

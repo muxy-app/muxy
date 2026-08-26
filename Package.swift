@@ -101,7 +101,7 @@ let package = Package(
             ],
             linkerSettings: [
                 .unsafeFlags([
-                    "GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a",
+                    "vendor/GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a",
                 ]),
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
@@ -134,7 +134,7 @@ let package = Package(
             path: "Tests/MuxyTests",
             linkerSettings: [
                 .unsafeFlags([
-                    "GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a",
+                    "vendor/GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a",
                 ]),
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),

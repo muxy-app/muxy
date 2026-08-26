@@ -28,6 +28,28 @@ impl BuildMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StoragePathPolicy {
+    mode: BuildMode,
+}
+
+impl StoragePathPolicy {
+    pub const fn new(mode: BuildMode) -> Self {
+        Self { mode }
+    }
+
+    pub fn root(self, home: impl AsRef<Path>) -> PathBuf {
+        match self.mode {
+            BuildMode::Development => home.as_ref().join(".muxy-dev"),
+            BuildMode::Production => home.as_ref().join(".muxy"),
+        }
+    }
+
+    pub fn swift_source(home: impl AsRef<Path>) -> PathBuf {
+        home.as_ref().join("Library/Application Support/Muxy")
+    }
+}
+
 #[macro_export]
 macro_rules! build_mode {
     () => {
@@ -277,7 +299,8 @@ mod tests {
 
     use super::{
         BuildMode, MobileSettingsPolicy, ProviderConfigMutationPermit,
-        ProviderConfigMutationSource, RuntimePathPolicy, provider_config_mutation_allowed,
+        ProviderConfigMutationSource, RuntimePathPolicy, StoragePathPolicy,
+        provider_config_mutation_allowed,
     };
 
     const SOURCES: [ProviderConfigMutationSource; 8] = [
@@ -312,6 +335,23 @@ mod tests {
         assert_eq!(
             crate::build_mode!(),
             BuildMode::from_debug_assertions(cfg!(debug_assertions))
+        );
+    }
+
+    #[test]
+    fn storage_path_policy_separates_release_and_development_roots() {
+        let home = Path::new("/Users/example");
+        assert_eq!(
+            StoragePathPolicy::new(BuildMode::Production).root(home),
+            home.join(".muxy")
+        );
+        assert_eq!(
+            StoragePathPolicy::new(BuildMode::Development).root(home),
+            home.join(".muxy-dev")
+        );
+        assert_eq!(
+            StoragePathPolicy::swift_source(home),
+            home.join("Library/Application Support/Muxy")
         );
     }
 

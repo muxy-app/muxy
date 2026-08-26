@@ -55,10 +55,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            GhosttyKit.xcframework
-            GhosttyKit/ghostty.h
-            Muxy/Resources/ghostty
-            Muxy/Resources/terminfo
+            vendor/GhosttyKit.xcframework
+            resources/ghostty
+            resources/terminfo
           key: ghosttykit-${{ env.GHOSTTY_TAG }}
 
       - name: Setup GhosttyKit
