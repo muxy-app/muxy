@@ -5,6 +5,7 @@ members = [
     "crates/ghostty-host",
     "crates/muxy",
     "crates/muxy-core",
+    "crates/muxy-proto",
     "crates/muxy-terminal",
     "crates/muxy-ui",
     "crates/muxy-api",
@@ -20,6 +21,7 @@ ghostty-host = { path = "crates/ghostty-host" }
 ghostty-sys = { path = "crates/ghostty-sys" }
 muxy-api = { path = "crates/muxy-api" }
 muxy-core = { path = "crates/muxy-core" }
+muxy-proto = { path = "crates/muxy-proto" }
 muxy-terminal = { path = "crates/muxy-terminal" }
 muxy-ui = { path = "crates/muxy-ui" }
 gpui = "=0.2.2"
@@ -34,12 +36,15 @@ notify = "8"
 rfd = "0.15"
 resvg = "0.45"
 async-channel = "2"
+base64 = "0.22"
 bindgen = "0.71"
 block2 = "0.6"
+libc = "0.2"
 log = "0.4"
 raw-window-handle = "0.6"
 tempfile = "3"
 thiserror = "2"
+uuid = { version = "1", default-features = false, features = ["v4"] }
 objc2 = "0.6"
 objc2-core-foundation = "0.3"
 objc2-core-text = "0.3"

@@ -471,6 +471,7 @@ mod tests {
             shortcuts: muxy_core::shortcuts::ShortcutMap::load(),
             command_shortcuts: muxy_core::store::CommandShortcuts::default(),
             worktrees,
+            socket_ingress: crate::socket::ingress::IngressQueues::default(),
             active_project_id: Some(alpha),
             ide_name: None,
             appearance: muxy_ui::theme::Appearance::Dark,

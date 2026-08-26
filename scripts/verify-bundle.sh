@@ -7,9 +7,10 @@ readonly SCRIPT_DIR
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 readonly PROJECT_ROOT
 readonly APP_BUNDLE="${1:-$PROJECT_ROOT/target/debug/Muxy.app}"
+readonly PROFILE="${2:-}"
 
-if (($# > 1)); then
-    printf 'Usage: scripts/verify-bundle.sh [path/to/Muxy.app]\n' >&2
+if (($# > 2)) || [[ -n "$PROFILE" && "$PROFILE" != debug && "$PROFILE" != release ]]; then
+    printf 'Usage: scripts/verify-bundle.sh [path/to/Muxy.app] [debug|release]\n' >&2
     exit 2
 fi
 
@@ -18,7 +19,7 @@ fail() {
     exit 1
 }
 
-for command_name in codesign iconutil plutil; do
+for command_name in cmp codesign grep iconutil plutil; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command not found: $command_name"
 done
 [[ -x /usr/libexec/PlistBuddy ]] || fail "required command not found: /usr/libexec/PlistBuddy"
@@ -28,11 +29,30 @@ readonly PLIST="$CONTENTS/Info.plist"
 readonly RESOURCES="$CONTENTS/Resources"
 readonly EXECUTABLE="$CONTENTS/MacOS/muxy"
 readonly ICON="$RESOURCES/AppIcon.icns"
+readonly CLI_SOURCE="$PROJECT_ROOT/Muxy/Resources/scripts/muxy-cli"
+readonly BUNDLED_CLI="$RESOURCES/Muxy_Muxy.bundle/scripts/muxy-cli"
+readonly DEVELOPMENT_CLI_SOURCE="$PROJECT_ROOT/resources/muxy-dev-bin/muxy"
+readonly BUNDLED_DEVELOPMENT_CLI="$RESOURCES/muxy-dev-bin/muxy"
 
 [[ -d "$APP_BUNDLE" ]] || fail "app bundle not found: $APP_BUNDLE"
 [[ -x "$EXECUTABLE" ]] || fail "bundle executable is missing or not executable"
 [[ -f "$PLIST" ]] || fail "Info.plist is missing"
 [[ -s "$ICON" ]] || fail "AppIcon.icns is missing or empty"
+[[ -x "$BUNDLED_CLI" && -s "$BUNDLED_CLI" ]] || {
+    fail "bundled legacy CLI is missing or not executable"
+}
+cmp -s "$CLI_SOURCE" "$BUNDLED_CLI" || fail "bundled legacy CLI differs from retained source"
+if [[ "$PROFILE" == debug || -x "$BUNDLED_DEVELOPMENT_CLI" ]]; then
+    [[ -x "$BUNDLED_DEVELOPMENT_CLI" && -s "$BUNDLED_DEVELOPMENT_CLI" ]] || {
+        fail "bundled development CLI is missing or not executable"
+    }
+    cmp -s "$DEVELOPMENT_CLI_SOURCE" "$BUNDLED_DEVELOPMENT_CLI" || {
+        fail "bundled development CLI differs from its source"
+    }
+fi
+if [[ "$PROFILE" == release && -e "$BUNDLED_DEVELOPMENT_CLI" ]]; then
+    fail "release bundle contains the development CLI"
+fi
 plutil -lint "$PLIST" >/dev/null
 
 plist_value() {
@@ -60,6 +80,29 @@ plist_value() {
 [[ -s "$RESOURCES/ghostty/shell-integration/zsh/ghostty-integration" ]] || {
     fail "bundled zsh shell integration is missing"
 }
+readonly BUNDLED_DEVELOPMENT_FISH_INTEGRATION="$RESOURCES/ghostty/shell-integration/fish/vendor_conf.d/zz-muxy-development-cli.fish"
+if [[ "$PROFILE" == debug || -x "$BUNDLED_DEVELOPMENT_CLI" ]]; then
+    for integration in \
+        "$RESOURCES/ghostty/shell-integration/bash/ghostty.bash" \
+        "$RESOURCES/ghostty/shell-integration/zsh/ghostty-integration" \
+        "$BUNDLED_DEVELOPMENT_FISH_INTEGRATION"; do
+        grep -Fq 'MUXY_DEVELOPMENT_CLI_BIN' "$integration" || {
+            fail "bundled shell integration does not activate the development CLI: $integration"
+        }
+    done
+fi
+if [[ "$PROFILE" == release ]]; then
+    for integration in \
+        "$RESOURCES/ghostty/shell-integration/bash/ghostty.bash" \
+        "$RESOURCES/ghostty/shell-integration/zsh/ghostty-integration"; do
+        if grep -Fq 'MUXY_DEVELOPMENT_CLI_BIN' "$integration"; then
+            fail "release shell integration activates the development CLI: $integration"
+        fi
+    done
+    [[ ! -e "$BUNDLED_DEVELOPMENT_FISH_INTEGRATION" ]] || {
+        fail "release bundle contains the development fish integration"
+    }
+fi
 [[ -s "$RESOURCES/terminfo/67/ghostty" ]] || fail "bundled ghostty terminfo is missing"
 [[ -s "$RESOURCES/terminfo/78/xterm-ghostty" ]] || fail "bundled xterm-ghostty terminfo is missing"
 [[ -s "$RESOURCES/ghostty-overrides/muxy-defaults.conf" ]] || {

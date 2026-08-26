@@ -85,7 +85,7 @@ flowchart TD
 | Composer / rich input (+ drafts, attachments, broadcast) | ❌ settings only |
 | Idle terminal offline freeing + process-tree resource monitor | ❌ settings only |
 | Persistent sessions (`muxy-session` daemon + attach + UI) | ❌ missing |
-| `muxy.sock` server + verb dispatcher (3 entry surfaces) + CLI | ❌ missing |
+| `muxy.sock` server + verb dispatcher (3 entry surfaces) + CLI | ✅ P2 complete |
 | Extension platform (host, manifests, permissions, consent, audit, marketplace, surfaces) | ❌ missing |
 | Embedded browser (WKWebView, profiles, history, automation, cookie import) | ❌ missing |
 | AI agent hooks (muxy-hook, installer for 11 providers, agent detection, agents layout) | ❌ missing |
@@ -101,7 +101,7 @@ flowchart TD
 | install-skills + bundled skills + starter kits | ❌ missing |
 | Deferred startup ordering, TCC usage strings, tooltip/press-and-hold defaults | ❌ missing |
 | Transparency/blur, app layouts (`tabFocused`/`agentsFocused` refinements) | ❌ partial (projectFocused chrome only) |
-| Dev/prod isolation | ✅ P1 contracts and settings complete; runtime proof remains in P2/P8/P11/P12 |
+| Dev/prod isolation | ✅ P1 contracts and settings complete; P2 socket coexistence proven; session, hook, and mobile runtime proof remains in P8/P11/P12 |
 | Release signing/notarization/DMG, multi-binary bundle | ❌ ad-hoc, single binary |
 
 Note: 1.x has **no** menu-bar extra/NSStatusItem and **no** onboarding flow — none should be assumed.
@@ -113,7 +113,7 @@ flowchart LR
     subgraph A["Stage A — Foundations"]
         P0["P0 Repo migration ✓\n2.x branch + local gates"]
         P1["P1 Dev/prod isolation ✓\ncontracts + settings"]
-        P2["P2 muxy.sock server +\ndispatcher core + CLI compat"]
+        P2["P2 muxy.sock server +\ndispatcher core + CLI compat ✓"]
         P25["P2.5 Compat hardening\n(fixtures, passthrough, serializer)"]
     end
     subgraph B["Stage B — Daily driver"]
@@ -160,9 +160,9 @@ The active rewrite repository is `~/Projects/muxy-2.x` on branch `2.x`. The 7-cr
 `muxy-core::environment` owns compile-time mode selection, socket/session/hook names, mobile keys and defaults, and typed provider-config mutation policy. App Support, `settings.json`, standard defaults, Ghostty configuration, and non-mobile preferences remain shared. Debug and release mobile namespaces coexist in the shared JSON file, and inactive values survive sync, writes, Apply, and Reset. Isolated acceptance runs permanently reuse `com.muxy.tests` and `target/test-verification`; future phases do not create phase-numbered identities. Development foreign-provider mutation policy permits only explicit AI Notifications toggle and Refresh actions; current P1 controls still write only Muxy preferences, Refresh remains inert, and Test is non-mutating.
 *Acceptance: complete for P1 scope.* Debug/release contracts, mode-aware settings, guardrails, isolated staged launches, and sequential Swift/Rust settings coexistence are proven. Runtime coexistence remains assigned to P2 sockets, P8 sessions, P11 hooks/provider mutators, and P12 mobile. P14 must deny importer-triggered foreign provider mutation while still restoring Muxy preferences.
 
-**P2 — Socket server + dispatcher core + CLI compat.**
+**P2 — Socket server + dispatcher core + CLI compat. COMPLETE.**
 Consume `RuntimePathPolicy::main_socket_path` with caller-local build selection, bind the selected socket, export it to panes, and prove debug Rust coexists with the production Swift socket. Reproduce the real `NotificationSocketServer` protocol — **newline-delimited pipe-separated text** with base64-nested JSON fields (not NDJSON); CLI command replies are raw text terminated by a NUL byte then close; server→client `invoke` RPC with 15s timeout; modal push channels; 128 KiB message cap; no protocol versioning; subscription allowlist enforced only for identified extensions; in-flight cap (8) and 100-drop disconnect are extension-scoped. **Hook-envelope handling is structural to the server**: every unidentified line gets an `AgentHookProtocol` v3 JSON parse attempt + JSON ack, 256-entry dedup ring, PID→pane resolution — this lands here (P11 adds the installer/binary, not the server semantics). Document the three verb surfaces distinctly: `SocketCommandHandler` pipe verbs (~60), `MuxyAPIDispatcher` (146 dispatched cases; 169 accepted names incl. 37 legacy aliases), and the ~15 verbs implemented outside the dispatcher (`panes.split`, `sessions.*`, `tabs.rename/close/move`, lifecycle). Implement in P2 the verbs backed by existing functionality; later phases own their verbs (36 `browser.*` → P9, `list-sessions`/`kill-session` → P8, `create-worktree` → P3, `config-export|import` → P14). Bundle contract: ship `muxy-cli` at the literal legacy path `Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli` (installed shims hardcode it); note the CLI's default socket is the **prod** path (dev relies on `MUXY_SOCKET_PATH` from panes) and `open-project` uses `muxy://open` + `open -b com.muxy.app`. Terminal env contract exported into panes: `MUXY_PANE_ID`, `MUXY_PROJECT_ID`, `MUXY_WORKTREE_ID`, `MUXY_SOCKET_PATH` (`MUXY_HOOK_BIN`/`MUXY_HOOK_SCRIPT` land in P11 — verify the claude wrapper tolerates their absence, else stub the staging dir here).
-*Acceptance:* an explicit enumerated list of CLI commands achievable at P2 (status/notify/project/tab/pane read paths) passes against the installed 1.x wrapper via the legacy shim path.
+*Acceptance: complete.* All 33 P2 wire heads, path-open, raw hook, and raw notification pass through the installed 1.x shim and byte-identical nested CLI against an isolated staged Rust app. Synthetic extension sessions cover transport mechanics, the common gates pass, and the live production Swift socket remains unchanged.
 
 **P2.5 — Compatibility hardening.**
 Make the byte-parity contracts true before daily dogfooding writes real data: capture a golden fixture corpus from a real 1.x profile (checked into the repo, tests fail — not skip — without it); add lossless raw passthrough to `projects.json` and `worktrees/*.json` (matching `workspaces.json`/`project-groups.json`); unify on one Foundation-shaped serializer per 1.x's per-file profile (compact / pretty / prettySorted / `withoutEscapingSlashes`), including `workspaces.json` ordering; resolve the settings-sync open decision (live vs startup) and fix the 8 write-broken JSON-editor keys; cfprefsd-safe defaults reads (drop or fence the direct plist read); retain P1's mechanically verified defaults-suite and App Support test isolation; Foundation-date conversion tests.

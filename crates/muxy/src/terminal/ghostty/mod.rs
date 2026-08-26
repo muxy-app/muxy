@@ -13,6 +13,7 @@ use ghostty_host::{
 use gpui::{
     AnyElement, App, AppContext, Bounds, IntoElement, Styled, Task, Window, div, point, px,
 };
+use muxy_core::environment::BuildMode;
 use muxy_core::shortcuts::KeyCombo;
 use muxy_core::workspace::TabId;
 use muxy_terminal::backend::{
@@ -39,14 +40,80 @@ use objc2_app_kit::{NSBeep, NSView};
 use objc2_foundation::MainThreadMarker;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::rc::Rc;
 
 type SharedState = Rc<RefCell<TerminalSurfaceState>>;
 type SurfaceRegistry = Rc<RefCell<HashMap<u64, RoutedSurface>>>;
 type SharedConfirmations = Rc<RefCell<ConfirmationQueue<PendingConfirmation>>>;
+
+pub(crate) fn install_development_cli_environment(
+    mode: BuildMode,
+    socket_path: &Path,
+) -> Result<(), String> {
+    if !mode.is_development() {
+        return Ok(());
+    }
+    let resources = AppResources::discover().map_err(|error| error.to_string())?;
+    let environment = development_cli_environment(
+        mode,
+        &resources.root,
+        socket_path,
+        std::env::var_os("PATH").as_deref(),
+    )?;
+    for variable in environment {
+        unsafe { std::env::set_var(variable.key, variable.value) };
+    }
+    Ok(())
+}
+
+fn development_cli_environment(
+    mode: BuildMode,
+    resource_root: &Path,
+    socket_path: &Path,
+    inherited_path: Option<&OsStr>,
+) -> Result<Vec<SurfaceEnvironmentVariable>, String> {
+    if !mode.is_development() {
+        return Ok(Vec::new());
+    }
+    let bin = resource_root.join("muxy-dev-bin");
+    let launcher = bin.join("muxy");
+    if !launcher.is_file() {
+        return Err(format!(
+            "development CLI launcher is missing at {}",
+            launcher.display()
+        ));
+    }
+    let app_path = resource_root
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| "resource root is not inside an app bundle".to_owned())?;
+    let mut paths = vec![bin.clone()];
+    if let Some(inherited_path) = inherited_path {
+        paths.extend(std::env::split_paths(inherited_path).filter(|path| path != &bin));
+    }
+    let path = std::env::join_paths(paths)
+        .map_err(|error| format!("failed to build development terminal PATH: {error}"))?;
+    Ok(vec![
+        SurfaceEnvironmentVariable::new("PATH", path.to_string_lossy().into_owned()),
+        SurfaceEnvironmentVariable::new(
+            "MUXY_DEVELOPMENT_CLI_BIN",
+            bin.to_string_lossy().into_owned(),
+        ),
+        SurfaceEnvironmentVariable::new(
+            "MUXY_DEVELOPMENT_APP_PATH",
+            app_path.to_string_lossy().into_owned(),
+        ),
+        SurfaceEnvironmentVariable::new(
+            "MUXY_DEVELOPMENT_SOCKET_PATH",
+            socket_path.to_string_lossy().into_owned(),
+        ),
+        SurfaceEnvironmentVariable::new("MUXY_DEVELOPMENT_VERSION", env!("CARGO_PKG_VERSION")),
+    ])
+}
 
 struct PendingConfirmation {
     tab_id: TabId,
@@ -77,6 +144,7 @@ pub struct GhosttyBackend {
     surfaces: SurfaceRegistry,
     confirmations: SharedConfirmations,
     gate: Rc<ShortcutGate>,
+    launch_environment: Vec<SurfaceEnvironmentVariable>,
 }
 
 impl Default for GhosttyBackend {
@@ -96,16 +164,29 @@ impl GhosttyBackend {
             surfaces: Rc::new(RefCell::new(HashMap::new())),
             confirmations: Rc::new(RefCell::new(ConfirmationQueue::new())),
             gate: Rc::new(ShortcutGate::new(Vec::new())),
+            launch_environment: Vec::new(),
         }
     }
 
-    pub fn attach(&mut self, combos: Vec<KeyCombo>, window: &mut Window) -> Result<(), String> {
+    pub fn attach(
+        &mut self,
+        combos: Vec<KeyCombo>,
+        mode: BuildMode,
+        socket_path: &Path,
+        window: &mut Window,
+    ) -> Result<(), String> {
         if self.app.is_some() {
             return Ok(());
         }
         MainThreadMarker::new()
             .ok_or_else(|| "ghostty must attach on the main thread".to_owned())?;
         let resources = AppResources::discover().map_err(|error| error.to_string())?;
+        let launch_environment = development_cli_environment(
+            mode,
+            &resources.root,
+            socket_path,
+            std::env::var_os("PATH").as_deref(),
+        )?;
         unsafe { std::env::set_var("GHOSTTY_RESOURCES_DIR", &resources.ghostty) };
         let (config, cjk_overlay) = load_config(&resources).map_err(|error| error.to_string())?;
         let owned = config.try_clone().map_err(|error| error.to_string())?;
@@ -118,6 +199,7 @@ impl GhosttyBackend {
         self.resources = Some(resources);
         self.config = Some(config);
         self.cjk_overlay = cjk_overlay;
+        self.launch_environment = launch_environment;
         Ok(())
     }
 
@@ -344,10 +426,11 @@ impl GhosttyBackend {
 
         let scheme = host.color_scheme();
         app.set_color_scheme(scheme);
-        let mut environment = vec![SurfaceEnvironmentVariable::new(
+        let mut environment = self.launch_environment.clone();
+        environment.push(SurfaceEnvironmentVariable::new(
             "TERMINFO_DIRS",
             resources.terminfo.to_string_lossy().into_owned(),
-        )];
+        ));
         let launch = command.map(|command| {
             environment.push(SurfaceEnvironmentVariable::new(
                 "MUXY_STARTUP_COMMAND",
@@ -450,6 +533,22 @@ impl TerminalSurfaceHandle for GhosttySurfaceHandle {
 
     fn has_selection(&self) -> bool {
         self.host.has_selection()
+    }
+
+    fn send_text(&self, text: &str) -> bool {
+        self.host.send_text(text)
+    }
+
+    fn send_bytes(&self, bytes: &[u8]) -> bool {
+        self.host.send_bytes(bytes)
+    }
+
+    fn read_screen_text(&self, last_lines: usize) -> Option<String> {
+        self.host.read_screen_text(last_lines)
+    }
+
+    fn foreground_pid(&self) -> Option<u64> {
+        self.host.foreground_pid()
     }
 
     fn metadata(&self) -> &SurfaceMetadata {
@@ -842,5 +941,70 @@ impl GhosttyBackend {
         for surface in self.surfaces.borrow().values() {
             surface.host.set_window_active(active);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn development_cli_environment_targets_the_current_bundle_and_socket() {
+        let directory = tempfile::tempdir().unwrap();
+        let app = directory.path().join("MuxyTests.app");
+        let resources = app.join("Contents/Resources");
+        let bin = resources.join("muxy-dev-bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(bin.join("muxy"), b"launcher").unwrap();
+        let socket = directory.path().join(
+            muxy_core::environment::RuntimePathPolicy::new(BuildMode::Development)
+                .main_socket_filename(),
+        );
+        let inherited = OsStr::new("/usr/local/bin:/usr/bin:/bin");
+        let environment = development_cli_environment(
+            BuildMode::Development,
+            &resources,
+            &socket,
+            Some(inherited),
+        )
+        .unwrap();
+        let value = |key: &str| {
+            environment
+                .iter()
+                .find(|variable| variable.key == key)
+                .map(|variable| variable.value.as_str())
+                .unwrap()
+        };
+        let paths = std::env::split_paths(OsStr::new(value("PATH"))).collect::<Vec<_>>();
+        assert_eq!(paths[0], bin);
+        assert_eq!(
+            paths[1..],
+            [
+                PathBuf::from("/usr/local/bin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+            ]
+        );
+        assert_eq!(value("MUXY_DEVELOPMENT_CLI_BIN"), bin.to_string_lossy());
+        assert_eq!(value("MUXY_DEVELOPMENT_APP_PATH"), app.to_string_lossy());
+        assert_eq!(
+            value("MUXY_DEVELOPMENT_SOCKET_PATH"),
+            socket.to_string_lossy()
+        );
+        assert_eq!(value("MUXY_DEVELOPMENT_VERSION"), env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn production_terminal_environment_does_not_inject_the_development_cli() {
+        assert!(
+            development_cli_environment(
+                BuildMode::Production,
+                Path::new("/missing/resources"),
+                Path::new("/missing/socket"),
+                Some(OsStr::new("/usr/bin")),
+            )
+            .unwrap()
+            .is_empty()
+        );
     }
 }

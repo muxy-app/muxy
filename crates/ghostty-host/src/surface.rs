@@ -245,6 +245,17 @@ impl Drop for GhosttyTextGuard {
     }
 }
 
+struct GhosttyCellsGuard {
+    surface: ffi::ghostty_surface_t,
+    cells: *mut ffi::ghostty_cells_s,
+}
+
+impl Drop for GhosttyCellsGuard {
+    fn drop(&mut self) {
+        unsafe { ffi::ghostty_surface_free_cells(self.surface, self.cells) };
+    }
+}
+
 pub struct GhosttySurface {
     raw: NonNull<c_void>,
     id: SurfaceId,
@@ -555,6 +566,26 @@ impl GhosttySurface {
         })
     }
 
+    pub fn read_screen_text(&self, last_lines: usize) -> Option<String> {
+        self.assert_owner_thread();
+        let mut raw = ffi::ghostty_cells_s::default();
+        if !unsafe { ffi::ghostty_surface_read_cells(self.as_raw(), &mut raw) } {
+            return None;
+        }
+        let _guard = GhosttyCellsGuard {
+            surface: self.as_raw(),
+            cells: &mut raw,
+        };
+        let cols = usize::try_from(raw.cols).ok()?;
+        let rows = usize::try_from(raw.rows).ok()?;
+        let len = cols.checked_mul(rows)?;
+        if cols == 0 || rows == 0 || raw.cells.is_null() || len > raw.cells_len {
+            return Some(String::new());
+        }
+        let cells = unsafe { std::slice::from_raw_parts(raw.cells, len) };
+        Some(format_screen_cells(cells, cols, last_lines))
+    }
+
     pub fn quicklook_word(&self) -> Result<Option<SurfaceText>, SurfaceTextError> {
         self.read_surface_text("quick-look word", |surface, output| unsafe {
             ffi::ghostty_surface_quicklook_word(surface, output)
@@ -603,6 +634,34 @@ impl Drop for GhosttySurface {
         let _storage_must_outlive_surface = &self.storage;
         unsafe { ffi::ghostty_surface_free(self.as_raw()) };
     }
+}
+
+fn format_screen_cells(cells: &[ffi::ghostty_cell_s], cols: usize, last_lines: usize) -> String {
+    let mut lines = Vec::with_capacity(cells.len() / cols);
+    for row in cells.chunks_exact(cols) {
+        let line: String = row
+            .iter()
+            .map(|cell| {
+                (cell.codepoint != 0)
+                    .then(|| char::from_u32(cell.codepoint))
+                    .flatten()
+                    .unwrap_or(' ')
+            })
+            .collect();
+        lines.push(line);
+    }
+    while lines
+        .last()
+        .is_some_and(|line| line.chars().all(|value| value == ' '))
+    {
+        lines.pop();
+    }
+    let start = lines.len().saturating_sub(last_lines);
+    lines[start..]
+        .iter()
+        .map(|line| line.trim_end_matches(char::is_whitespace))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 unsafe fn copy_surface_text(
@@ -736,5 +795,21 @@ mod tests {
             result,
             Err(SurfaceTextError::NullText { operation: "test" })
         );
+    }
+
+    #[test]
+    fn screen_cells_trim_rows_and_keep_only_the_requested_suffix() {
+        let values = [
+            'a' as u32, ' ' as u32, 0, 'b' as u32, 'c' as u32, ' ' as u32, 0, 0, 0, 0, 0, 0,
+        ];
+        let cells: Vec<ffi::ghostty_cell_s> = values
+            .into_iter()
+            .map(|codepoint| ffi::ghostty_cell_s {
+                codepoint,
+                ..ffi::ghostty_cell_s::default()
+            })
+            .collect();
+        assert_eq!(format_screen_cells(&cells, 3, 50), "a\nbc");
+        assert_eq!(format_screen_cells(&cells, 3, 1), "bc");
     }
 }

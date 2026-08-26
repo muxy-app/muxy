@@ -14,7 +14,13 @@ impl UnsupportedBackend {
         Self
     }
 
-    pub fn attach(&mut self, _combos: Vec<KeyCombo>, _window: &mut Window) -> Result<(), String> {
+    pub fn attach(
+        &mut self,
+        _combos: Vec<KeyCombo>,
+        _mode: muxy_core::environment::BuildMode,
+        _socket_path: &std::path::Path,
+        _window: &mut Window,
+    ) -> Result<(), String> {
         Err("terminal surfaces are only available on macOS".to_owned())
     }
 

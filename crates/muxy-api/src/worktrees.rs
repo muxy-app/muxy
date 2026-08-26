@@ -1,8 +1,18 @@
 use crate::git;
 use crate::git::GitOptions;
-use muxy_core::store::worktrees::{Source, Worktree, load_from, save_to, worktrees_dir};
+use muxy_core::store::worktrees::{
+    Source, Worktree, WorktreeFile, load_file_from, load_or_create_primary_from, primary, save_to,
+    worktrees_dir,
+};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RefreshOutcome {
+    Updated(Vec<Worktree>),
+    Preserved(Vec<Worktree>, String),
+    Unavailable(String),
+}
 
 #[derive(Debug, Clone)]
 struct Record {
@@ -68,17 +78,14 @@ fn default_name(record: &Record) -> String {
         .unwrap_or_else(|| record.path.clone())
 }
 
-fn make_primary(project_name: &str, project_path: &str) -> Worktree {
-    Worktree {
-        id: muxy_core::store::new_uuid(),
-        name: project_name.to_owned(),
-        path: project_path.to_owned(),
-        branch: None,
-        source: Source::Muxy,
-        is_primary: true,
-        created_at: muxy_core::store::reference_now(),
-        last_active_at: None,
-    }
+pub fn load_or_create_primary(
+    project_id: &str,
+    project_name: &str,
+    project_path: &str,
+) -> Option<Vec<Worktree>> {
+    load_or_create_primary_from(&worktrees_dir(), project_id, project_name, project_path)
+        .ok()
+        .flatten()
 }
 
 fn reconcile(
@@ -98,7 +105,7 @@ fn reconcile(
             list[index].path = project_path.to_owned();
             list[index].name = project_name.to_owned();
         }
-        None => list.insert(0, make_primary(project_name, project_path)),
+        None => list.insert(0, primary(project_name, project_path)),
     }
 
     let mut existing_by_key: HashMap<PathBuf, (String, bool)> = HashMap::new();
@@ -201,9 +208,27 @@ pub fn refresh(
     project_id: &str,
     project_name: &str,
     project_path: &str,
-) -> Vec<Worktree> {
+) -> RefreshOutcome {
     let dir = worktrees_dir();
-    let persisted = load_from(&dir, project_id);
+    let persisted = match load_file_from(&dir, project_id) {
+        Ok(WorktreeFile::Missing) => {
+            let worktrees = vec![primary(project_name, project_path)];
+            if let Err(error) = save_to(&dir, project_id, &worktrees) {
+                return RefreshOutcome::Unavailable(error.to_string());
+            }
+            worktrees
+        }
+        Ok(WorktreeFile::Loaded(worktrees))
+            if worktrees.iter().any(|worktree| worktree.is_primary) =>
+        {
+            worktrees
+        }
+        Ok(WorktreeFile::Loaded(worktrees)) => return RefreshOutcome::Updated(worktrees),
+        Ok(WorktreeFile::Invalid) => {
+            return RefreshOutcome::Unavailable("worktree file is malformed".to_owned());
+        }
+        Err(error) => return RefreshOutcome::Unavailable(error.to_string()),
+    };
     let raw = match git::run_git(
         options,
         Path::new(project_path),
@@ -212,17 +237,19 @@ pub fn refresh(
         Ok(raw) => raw,
         Err(error) => {
             log::warn!("worktree list failed for {project_path}: {error}");
-            return persisted;
+            return RefreshOutcome::Preserved(persisted, error.to_string());
         }
     };
     let reconciled = reconcile(
-        persisted,
+        persisted.clone(),
         &parse_porcelain(&raw),
         project_name,
         project_path,
     );
-    let _ = save_to(&dir, project_id, &reconciled);
-    reconciled
+    if let Err(error) = save_to(&dir, project_id, &reconciled) {
+        return RefreshOutcome::Preserved(persisted, error.to_string());
+    }
+    RefreshOutcome::Updated(reconciled)
 }
 
 pub fn label(worktrees: &[Worktree], preferred_id: Option<&str>) -> Option<String> {

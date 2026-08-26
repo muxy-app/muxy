@@ -1,6 +1,6 @@
 # Architecture
 
-Muxy is a Cargo workspace of 7 crates, layered so that domain logic and services are platform-agnostic and testable, while GPUI and macOS-specific code live at the edges.
+Muxy is a Cargo workspace of 8 crates, layered so that domain logic, protocols, and services are platform-agnostic and testable, while GPUI and macOS-specific code live at the edges.
 
 ## Crate graph
 
@@ -8,6 +8,7 @@ Muxy is a Cargo workspace of 7 crates, layered so that domain logic and services
 flowchart TD
     muxy["muxy (binary)\nGPUI app, views, wiring"]
     api["muxy-api\nheadless services"]
+    proto["muxy-proto\nportable wire codecs + framing"]
     core["muxy-core\ndomain model + persistence"]
     term["muxy-terminal\nterminal abstraction"]
     ui["muxy-ui\nreusable GPUI kit"]
@@ -15,6 +16,7 @@ flowchart TD
     sys["ghostty-sys\nbindgen FFI"]
 
     muxy --> api
+    muxy --> proto
     muxy --> term
     muxy --> ui
     muxy --> core
@@ -26,17 +28,36 @@ flowchart TD
     sys --> lib["libghostty (C)"]
 ```
 
+`muxy-proto` is a headless downstream dependency for socket callers. It owns portable codecs, framing, session policy, extension correlation, and the Unix listener. The `muxy` binary owns command names, permissions, app state, terminal resolution, and lifecycle wiring. The protocol crate never depends back on `muxy`, GPUI, domain stores, terminal crates, Ghostty, or Objective-C libraries.
+
 ## Responsibilities
 
 | Crate | What lives there | Depends on GPUI? | macOS-only code? |
 |---|---|---|---|
 | `muxy` | app entry, `AppState`, all views, commands, keymap, terminal glue | yes | terminal backend |
 | `muxy-api` | git, worktrees, project "truth", IDE detection, layouts, yaml, fs watcher, picker logic | no | no |
+| `muxy-proto` | portable wire types, strict codecs, framing, and transport policy | no | Unix transport edge only |
 | `muxy-core` | prefs, settings catalog, shortcuts, stores, workspace/tab tree model | no | user-defaults access |
 | `muxy-terminal` | backend trait, surface signals, search, scrollbar, confirmation | no | ghostty impl |
 | `muxy-ui` | theme, icons, components, controls, text input, scrollbar | yes | SF Symbols |
 | `ghostty-host` | runtime, surface, config, input, mouse — safe API over FFI | no | yes |
 | `ghostty-sys` | raw bindgen bindings | no | yes |
+
+## Socket stack
+
+```mermaid
+flowchart LR
+    shim["installed muxy shim"] --> cli["untouched bundled muxy-cli"]
+    cli --> unix["muxy-proto Unix server\nframing + sessions + codecs"]
+    unix --> bridge["bounded typed request bridge"]
+    bridge --> app["muxy socket runtime\ncatalog + permissions + dispatch"]
+    app --> state2["AppState + persistent stores"]
+    app --> surfaces["TerminalSurfaces"]
+    app --> ingress["bounded hook / notification / extension sinks"]
+    app -- "typed replies" --> unix
+```
+
+The socket runtime is owned by the app lifecycle and shuts down with the window/app. Debug and release socket names come from `muxy-core::environment`; the protocol crate receives an explicit path and contains no filename policy. The complete framing, routing, command ownership, and exclusion contract is documented in [Socket protocol](docs/development/socket-protocol.md).
 
 ## Terminal stack
 
@@ -173,7 +194,7 @@ Views own no business logic: pickers, search, git truth, and layout parsing are 
 
 ```mermaid
 flowchart LR
-    common["muxy-core + muxy-api + muxy-ui\n+ muxy-terminal traits"] --> mac["macOS: ghostty backend\n(ghostty-host/sys)"]
+    common["muxy-core + muxy-api + muxy-proto + muxy-ui\n+ muxy-terminal traits"] --> mac["macOS: ghostty backend\n(ghostty-host/sys)"]
     common --> other["Linux / Windows:\nUnsupportedBackend (stub today)"]
 ```
 

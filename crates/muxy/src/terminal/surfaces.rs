@@ -115,6 +115,31 @@ impl TerminalSurfaces {
             .is_some_and(|handle| handle.has_native_scrollbar())
     }
 
+    pub fn send_text(&self, tab_id: &str, text: &str) -> bool {
+        self.handle(tab_id)
+            .is_some_and(|handle| handle.send_text(text))
+    }
+
+    pub fn send_bytes(&self, tab_id: &str, bytes: &[u8]) -> bool {
+        self.handle(tab_id)
+            .is_some_and(|handle| handle.send_bytes(bytes))
+    }
+
+    pub fn read_screen_text(&self, tab_id: &str, last_lines: usize) -> Option<String> {
+        self.handle(tab_id)?.read_screen_text(last_lines)
+    }
+
+    pub fn panes_matching_foreground_pid(&self, pid: u64) -> Vec<TabId> {
+        let mut panes = self
+            .handles
+            .iter()
+            .filter(|(_, handle)| handle.foreground_pid() == Some(pid))
+            .map(|(tab_id, _)| tab_id.clone())
+            .collect::<Vec<_>>();
+        panes.sort_by_key(|pane_id| pane_id.to_ascii_uppercase());
+        panes
+    }
+
     pub fn active_confirmation(&self) -> Option<(TabId, ConfirmationId, ConfirmationKind)> {
         self.backend.active_confirmation()
     }
@@ -275,6 +300,7 @@ mod tests {
         occluded: Rc<Cell<bool>>,
         pointer_inside: Rc<Cell<bool>>,
         metadata: SurfaceMetadata,
+        foreground_pid: Option<u64>,
     }
 
     impl AppSurfaceHandle for FakeHandle {
@@ -293,6 +319,9 @@ mod tests {
         }
         fn has_selection(&self) -> bool {
             false
+        }
+        fn foreground_pid(&self) -> Option<u64> {
+            self.foreground_pid
         }
         fn metadata(&self) -> &SurfaceMetadata {
             &self.metadata
@@ -342,6 +371,7 @@ mod tests {
                 occluded: occluded.clone(),
                 pointer_inside: pointer_inside.clone(),
                 metadata: SurfaceMetadata::default(),
+                foreground_pid: None,
             }),
         );
         (occluded, pointer_inside)
@@ -464,6 +494,27 @@ mod tests {
 
         assert!(!tab_is_known(&store, &tabs[1]));
         assert!(tab_is_known(&store, &tabs[0]));
+    }
+
+    #[test]
+    fn foreground_pid_matches_are_sorted_by_uppercase_pane_id() {
+        let mut surfaces = TerminalSurfaces::new();
+        for pane_id in ["B-pane", "a-pane"] {
+            surfaces.handles.insert(
+                pane_id.to_owned(),
+                Box::new(FakeHandle {
+                    occluded: Rc::new(Cell::new(false)),
+                    pointer_inside: Rc::new(Cell::new(false)),
+                    metadata: SurfaceMetadata::default(),
+                    foreground_pid: Some(42),
+                }),
+            );
+        }
+        assert_eq!(
+            surfaces.panes_matching_foreground_pid(42),
+            ["a-pane", "B-pane"]
+        );
+        assert!(surfaces.panes_matching_foreground_pid(7).is_empty());
     }
 
     #[test]
