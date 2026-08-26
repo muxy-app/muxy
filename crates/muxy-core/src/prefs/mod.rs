@@ -272,6 +272,12 @@ impl Prefs {
     pub fn store_active_worktree_ids(value: &std::collections::HashMap<String, String>) {
         defaults::store_dictionary("muxy.activeWorktreeIDs", value);
     }
+
+    pub fn try_store_active_worktree_ids(
+        value: &std::collections::HashMap<String, String>,
+    ) -> std::io::Result<()> {
+        defaults::try_store_dictionary("muxy.activeWorktreeIDs", value)
+    }
 }
 
 const TEST_APP_SUPPORT_DIRECTORY: &str = "MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY";

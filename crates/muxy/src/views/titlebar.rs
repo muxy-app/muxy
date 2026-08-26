@@ -34,15 +34,34 @@ pub fn nav_overlay(
         .bg(theme.bg)
         .border_r(px(1.0))
         .border_color(theme.border)
-        .child(nav_arrow(state, "nav-back", Icon::ChevronLeft, false))
-        .child(nav_arrow(state, "nav-forward", Icon::ChevronRight, false))
+        .child(nav_arrow(
+            state,
+            "nav-back",
+            Icon::ChevronLeft,
+            muxy_core::navigation::Direction::Back,
+            cx,
+        ))
+        .child(nav_arrow(
+            state,
+            "nav-forward",
+            Icon::ChevronRight,
+            muxy_core::navigation::Direction::Forward,
+            cx,
+        ))
         .child(layout_menu(state, cx))
         .into_any_element()
 }
 
-fn nav_arrow(state: &AppState, id: &'static str, icon: Icon, enabled: bool) -> AnyElement {
+fn nav_arrow(
+    state: &AppState,
+    id: &'static str,
+    icon: Icon,
+    direction: muxy_core::navigation::Direction,
+    cx: &mut Context<MainWindow>,
+) -> AnyElement {
     let metrics = &state.metrics;
     let theme = &state.theme;
+    let enabled = state.can_navigate(direction);
     let color = if enabled {
         theme.fg_muted
     } else {
@@ -64,6 +83,9 @@ fn nav_arrow(state: &AppState, id: &'static str, icon: Icon, enabled: bool) -> A
     if enabled {
         arrow = arrow
             .cursor_pointer()
+            .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
+                window.navigate(direction, cx);
+            }))
             .child(glyph.hover_in_group(id, theme.fg));
     } else {
         arrow = arrow.child(glyph);

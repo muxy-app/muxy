@@ -94,7 +94,7 @@ fn split_result(
     if !created {
         return Err("split succeeded but could not determine new pane ID".to_owned());
     }
-    if let Err(error) = window.state.tab_workspaces.save() {
+    if let Err(error) = window.state.persist_tab_workspaces() {
         window.state.tab_workspaces = previous;
         return Err(error.to_string());
     }
@@ -177,7 +177,7 @@ fn close(parts: &[&str], window: &mut MainWindow) -> Result<CommandResult, Strin
     if removed.is_empty() {
         return Ok(CommandResult::reply("ok"));
     }
-    if let Err(error) = window.state.tab_workspaces.save() {
+    if let Err(error) = window.state.persist_tab_workspaces() {
         window.state.tab_workspaces = previous;
         return Err(error.to_string());
     }
@@ -204,7 +204,7 @@ fn rename(parts: &[&str], window: &mut MainWindow) -> Result<CommandResult, Stri
         .tab_mut(&pane_id)
         .ok_or_else(|| "could not rename pane".to_owned())?;
     tab.custom_title = Some(parts[2..].join("|"));
-    if let Err(error) = window.state.tab_workspaces.save() {
+    if let Err(error) = window.state.persist_tab_workspaces() {
         window.state.tab_workspaces = previous;
         return Err(error.to_string());
     }
@@ -440,5 +440,14 @@ mod tests {
         assert!(key_bytes("space").is_none());
         assert!(valid_uuid("AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"));
         assert!(!valid_uuid("AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEZ"));
+    }
+
+    #[test]
+    fn socket_pane_mutations_use_the_navigation_persistence_seam() {
+        let source = include_str!("panes.rs");
+        let direct = ["window.state.tab_workspaces", ".save()"].concat();
+        let seam = ["window.state", ".persist_tab_workspaces()"].concat();
+        assert!(!source.contains(&direct));
+        assert!(source.contains(&seam));
     }
 }

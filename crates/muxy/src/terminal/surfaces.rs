@@ -108,6 +108,20 @@ impl TerminalSurfaces {
     }
 
     #[cfg(target_os = "macos")]
+    pub fn navigation_events(
+        &self,
+    ) -> Option<async_channel::Receiver<muxy_core::navigation::Direction>> {
+        Some(self.backend.navigation_event_receiver())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn navigation_events(
+        &self,
+    ) -> Option<async_channel::Receiver<muxy_core::navigation::Direction>> {
+        None
+    }
+
+    #[cfg(target_os = "macos")]
     pub fn route(
         &mut self,
         event: crate::terminal::TerminalEvent,

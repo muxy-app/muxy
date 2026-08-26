@@ -59,9 +59,9 @@ use crate::views::window::menu_bar;
 use crate::views::{omnibox, overlay, sidebar, status_bar, titlebar, welcome, workspace_view};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Styled, Window, actions, div, px,
-    relative,
+    AnyElement, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, ParentElement, Pixels,
+    Styled, Window, actions, div, px, relative,
 };
 use muxy_ui::scrollbar::ScrollbarRevealState;
 use muxy_ui::text_input::TextInput;
@@ -427,6 +427,16 @@ pub(crate) fn render(
             }),
         )
         .on_action(
+            cx.listener(|window, _: &crate::keymap::NavigateBack, _, cx| {
+                window.navigate(muxy_core::navigation::Direction::Back, cx);
+            }),
+        )
+        .on_action(
+            cx.listener(|window, _: &crate::keymap::NavigateForward, _, cx| {
+                window.navigate(muxy_core::navigation::Direction::Forward, cx);
+            }),
+        )
+        .on_action(
             cx.listener(|window, _: &crate::keymap::SelectProject1, _, cx| {
                 window.select_project_index(0, cx);
             }),
@@ -484,6 +494,14 @@ pub(crate) fn render(
         .on_action(cx.listener(|window, _: &SearchPrevious, _, cx| {
             window.navigate_search(false, cx);
         }))
+        .on_mouse_down(
+            MouseButton::Navigate(NavigationDirection::Back),
+            cx.listener(handle_navigation_mouse_down),
+        )
+        .on_mouse_down(
+            MouseButton::Navigate(NavigationDirection::Forward),
+            cx.listener(handle_navigation_mouse_down),
+        )
         .on_mouse_move(
             cx.listener(|window: &mut MainWindow, event: &MouseMoveEvent, _, cx| {
                 window.handle_workspace_mouse_move(event, cx);
@@ -522,6 +540,29 @@ pub(crate) fn render(
     columns.into_any_element()
 }
 
+fn handle_navigation_mouse_down(
+    window: &mut MainWindow,
+    event: &MouseDownEvent,
+    _: &mut Window,
+    cx: &mut Context<MainWindow>,
+) {
+    if let Some(direction) = mouse_navigation_direction(event.button) {
+        window.navigate(direction, cx);
+    }
+}
+
+fn mouse_navigation_direction(button: MouseButton) -> Option<muxy_core::navigation::Direction> {
+    match button {
+        MouseButton::Navigate(NavigationDirection::Back) => {
+            Some(muxy_core::navigation::Direction::Back)
+        }
+        MouseButton::Navigate(NavigationDirection::Forward) => {
+            Some(muxy_core::navigation::Direction::Forward)
+        }
+        MouseButton::Left | MouseButton::Right | MouseButton::Middle => None,
+    }
+}
+
 fn shows_welcome(workspace: Option<&muxy_core::workspace::WorkspaceState>) -> bool {
     workspace.is_none_or(|workspace| workspace.top_level_root.is_none())
 }
@@ -550,6 +591,23 @@ mod tests {
         assert!(shows_welcome(Some(&empty)));
         assert!(!shows_welcome(Some(&populated)));
         assert!(shows_welcome(None));
+    }
+
+    #[test]
+    fn navigation_mouse_buttons_map_to_history_directions() {
+        assert_eq!(
+            mouse_navigation_direction(gpui::MouseButton::Navigate(
+                gpui::NavigationDirection::Back
+            )),
+            Some(muxy_core::navigation::Direction::Back)
+        );
+        assert_eq!(
+            mouse_navigation_direction(gpui::MouseButton::Navigate(
+                gpui::NavigationDirection::Forward
+            )),
+            Some(muxy_core::navigation::Direction::Forward)
+        );
+        assert_eq!(mouse_navigation_direction(gpui::MouseButton::Left), None);
     }
 
     #[test]

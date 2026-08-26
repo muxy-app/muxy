@@ -304,7 +304,7 @@ impl MainWindow {
                 },
             );
         }
-        self.state.save_tab_workspaces();
+        let _ = self.state.persist_tab_workspaces();
         cx.notify();
     }
 

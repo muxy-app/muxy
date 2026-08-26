@@ -103,6 +103,30 @@ impl WorkspaceStore {
             .and_then(|index| self.states.get(index))
     }
 
+    pub fn worktree(&self, project_id: &str, worktree_id: &str) -> Option<&WorkspaceState> {
+        self.states.iter().find(|state| {
+            project_matches(state, project_id)
+                && state
+                    .worktree_id
+                    .as_deref()
+                    .is_some_and(|id| id.eq_ignore_ascii_case(worktree_id))
+        })
+    }
+
+    pub fn worktree_mut(
+        &mut self,
+        project_id: &str,
+        worktree_id: &str,
+    ) -> Option<&mut WorkspaceState> {
+        self.states.iter_mut().find(|state| {
+            project_matches(state, project_id)
+                && state
+                    .worktree_id
+                    .as_deref()
+                    .is_some_and(|id| id.eq_ignore_ascii_case(worktree_id))
+        })
+    }
+
     pub fn ensure_project(
         &mut self,
         project_id: impl Into<String>,
@@ -179,6 +203,30 @@ impl WorkspaceStore {
         let key = WorkspaceKey::from_state(&removed);
         self.snapshots.retain(|snapshot| snapshot.key != key);
         true
+    }
+
+    pub fn remove_worktree(
+        &mut self,
+        project_id: &str,
+        worktree_id: &str,
+    ) -> Option<WorkspaceState> {
+        let index = self.states.iter().position(|state| {
+            project_matches(state, project_id)
+                && state
+                    .worktree_id
+                    .as_deref()
+                    .is_some_and(|id| id.eq_ignore_ascii_case(worktree_id))
+        })?;
+        let removed = self.states.remove(index);
+        self.snapshots.retain(|snapshot| {
+            !snapshot.key.project_id.eq_ignore_ascii_case(project_id)
+                || snapshot
+                    .key
+                    .worktree_id
+                    .as_deref()
+                    .is_none_or(|id| !id.eq_ignore_ascii_case(worktree_id))
+        });
+        Some(removed)
     }
 
     pub fn has_project(&self, project_id: &str) -> bool {
@@ -1157,6 +1205,51 @@ mod tests {
         assert!(store.active("project", "/two").is_some());
         store.save().unwrap();
         assert_eq!(file.read().as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn exact_worktree_apis_use_ids_instead_of_stale_or_duplicate_paths() {
+        let file = TempFile::new();
+        file.write(&json!([
+            {
+                "projectID": "project",
+                "worktreeID": "one",
+                "worktreePath": "/shared",
+                "root": area("one-area", "/stale-one", vec![terminal_tab("one-tab")], 0),
+                "rawOnly": "must-not-return"
+            },
+            {
+                "projectID": "project",
+                "worktreeID": "two",
+                "worktreePath": "/shared",
+                "root": area("two-area", "/stale-two", vec![terminal_tab("two-tab")], 0)
+            }
+        ]));
+        let mut store = WorkspaceStore::load_from(&file.path);
+
+        assert_eq!(
+            store
+                .worktree("PROJECT", "TWO")
+                .unwrap()
+                .focused_area_id
+                .as_deref(),
+            Some("two-area")
+        );
+        store.worktree_mut("project", "one").unwrap().worktree_path = Some("/updated".into());
+        let removed = store.remove_worktree("project", "one").unwrap();
+        assert_eq!(removed.worktree_id.as_deref(), Some("one"));
+        assert!(store.worktree("project", "one").is_none());
+        store.ensure_worktree("project", "one", "/replacement");
+        store.save().unwrap();
+        let saved = file.read();
+        assert_eq!(saved.as_array().unwrap().len(), 2);
+        let replacement = saved
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["worktreeID"] == "one")
+            .unwrap();
+        assert!(replacement.get("rawOnly").is_none());
     }
 
     #[test]

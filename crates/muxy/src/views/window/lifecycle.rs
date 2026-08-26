@@ -93,5 +93,15 @@ pub(super) fn spawn_terminal_pumps(
             }
         }));
     }
+    if let Some(events) = terminals.navigation_events() {
+        tasks.push(cx.spawn(async move |window, cx| {
+            while let Ok(direction) = events.recv().await {
+                let updated = window.update(cx, |window, cx| window.navigate(direction, cx));
+                if updated.is_err() {
+                    return;
+                }
+            }
+        }));
+    }
     tasks
 }

@@ -30,7 +30,7 @@ impl MainWindow {
                     .surfaces
                     .handle_exit(&mut self.state.tab_workspaces, &tab_id)
                 {
-                    self.state.save_tab_workspaces();
+                    let _ = self.state.persist_tab_workspaces();
                 }
                 cx.notify();
             }
@@ -163,7 +163,7 @@ impl MainWindow {
             }
         }
         if changed {
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
         }
     }
 

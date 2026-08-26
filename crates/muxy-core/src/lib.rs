@@ -1,6 +1,7 @@
 pub mod environment;
 pub mod fold;
 pub mod migration;
+pub mod navigation;
 pub mod prefs;
 pub mod settings_catalog;
 pub mod shortcuts;

@@ -426,7 +426,7 @@ impl MainWindow {
                 workspace.select_root_tab(&root_id);
             }
             workspace.select_tab(&area_id, tab_id);
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
         }
         cx.notify();
     }
@@ -598,19 +598,7 @@ impl MainWindow {
     }
 
     pub(super) fn remove_project(&mut self, project_id: &str) {
-        if !self.state.workspace.remove(project_id) {
-            return;
-        }
-        self.state.tab_workspaces.remove_project(project_id);
-        self.state.save_tab_workspaces();
-        if self.state.active_project_id.as_deref() == Some(project_id) {
-            self.state.active_project_id = self
-                .state
-                .workspace
-                .visible_projects()
-                .first()
-                .map(|project| project.id.clone());
-        }
+        self.state.remove_project(project_id);
     }
 
     pub(super) fn ask(
