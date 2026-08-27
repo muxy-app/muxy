@@ -79,11 +79,13 @@ impl MainWindow {
         let workspace_focus = cx.focus_handle();
         let mut terminals = TerminalSurfaces::with_socket_path(socket.socket_path());
         let combos = terminal_shortcut_combos(&state);
-        if let Err(error) =
-            terminals
-                .backend_mut()
-                .attach(combos, mode, socket.socket_path(), window)
-        {
+        if let Err(error) = terminals.backend_mut().attach(
+            combos,
+            mode,
+            socket.socket_path(),
+            state.theme.bg.into(),
+            window,
+        ) {
             log::warn!("terminal backend unavailable: {error}");
         }
         let terminal_tasks = lifecycle::spawn_terminal_pumps(&mut terminals, cx);

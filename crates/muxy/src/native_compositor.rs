@@ -6,13 +6,14 @@ use std::rc::{Rc, Weak};
 
 use gpui::{
     App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    Pixels, Refineable as _, Style, StyleRefinement, Styled, Window,
+    Pixels, Refineable as _, Rgba, Style, StyleRefinement, Styled, Window,
 };
 use objc2::rc::Retained;
 use objc2::runtime::NSObjectProtocol;
-use objc2::{MainThreadOnly, Message as _, define_class, msg_send};
+use objc2::{DefinedClass, MainThreadOnly, Message as _, define_class, msg_send};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSTrackingArea, NSTrackingAreaOptions, NSView, NSWindowOrderingMode,
+    NSAutoresizingMaskOptions, NSColor, NSRectFill, NSTrackingArea, NSTrackingAreaOptions, NSView,
+    NSWindowOrderingMode,
 };
 use objc2_foundation::{MainThreadMarker, NSArray, NSPoint, NSRect, NSSize};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -57,11 +58,40 @@ pub enum NativeViewCompositorError {
     IdentityExhausted,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct NativeBackdrop {
+    red: f64,
+    green: f64,
+    blue: f64,
+    alpha: f64,
+}
+
+impl NativeBackdrop {
+    fn new(red: f64, green: f64, blue: f64) -> Self {
+        Self {
+            red,
+            green,
+            blue,
+            alpha: 1.0,
+        }
+    }
+}
+
+impl From<Rgba> for NativeBackdrop {
+    fn from(color: Rgba) -> Self {
+        Self::new(color.r.into(), color.g.into(), color.b.into())
+    }
+}
+
+struct NativeContainerIvars {
+    backdrop: Cell<NativeBackdrop>,
+}
+
 define_class!(
     #[unsafe(super(NSView))]
     #[thread_kind = MainThreadOnly]
     #[name = "MuxyNativeViewContainer"]
-    #[ivars = ()]
+    #[ivars = NativeContainerIvars]
     struct FlippedNativeViewContainer;
 
     impl FlippedNativeViewContainer {
@@ -69,16 +99,42 @@ define_class!(
         fn is_flipped(&self) -> bool {
             true
         }
+
+        #[unsafe(method(isOpaque))]
+        fn is_opaque(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, dirty_rect: NSRect) {
+            let backdrop = self.ivars().backdrop.get();
+            NSColor::colorWithSRGBRed_green_blue_alpha(
+                backdrop.red,
+                backdrop.green,
+                backdrop.blue,
+                backdrop.alpha,
+            )
+            .setFill();
+            NSRectFill(dirty_rect);
+        }
     }
 
     unsafe impl NSObjectProtocol for FlippedNativeViewContainer {}
 );
 
 impl FlippedNativeViewContainer {
-    fn new(mtm: MainThreadMarker, frame: NSRect) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(());
+    fn new(mtm: MainThreadMarker, frame: NSRect, backdrop: NativeBackdrop) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(NativeContainerIvars {
+            backdrop: Cell::new(backdrop),
+        });
         let this: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
         this
+    }
+
+    fn set_backdrop(&self, backdrop: NativeBackdrop) {
+        if self.ivars().backdrop.replace(backdrop) != backdrop {
+            self.setNeedsDisplay(true);
+        }
     }
 }
 
@@ -88,7 +144,7 @@ pub struct NativeViewCompositor {
 }
 
 impl NativeViewCompositor {
-    pub fn new(window: &Window) -> Result<Self, NativeViewCompositorError> {
+    pub fn new(window: &Window, backdrop: Rgba) -> Result<Self, NativeViewCompositorError> {
         let mtm = MainThreadMarker::new().ok_or(NativeViewCompositorError::NotMainThread)?;
         let handle = HasWindowHandle::window_handle(window)
             .map_err(NativeViewCompositorError::WindowHandle)?;
@@ -105,7 +161,8 @@ impl NativeViewCompositor {
         track_mouse_moved(&gpui_view);
 
         let initial_frame = gpui_view.frame();
-        let container = FlippedNativeViewContainer::new(mtm, initial_frame);
+        let container =
+            FlippedNativeViewContainer::new(mtm, initial_frame, NativeBackdrop::from(backdrop));
         container.setAutoresizingMask(
             NSAutoresizingMaskOptions::ViewWidthSizable
                 | NSAutoresizingMaskOptions::ViewHeightSizable,
@@ -180,6 +237,12 @@ impl NativeViewCompositor {
 
     pub fn gpui_view(&self) -> Retained<NSView> {
         self.inner.gpui_view.clone()
+    }
+
+    pub fn set_backdrop(&self, backdrop: Rgba) {
+        self.inner
+            .container
+            .set_backdrop(NativeBackdrop::from(backdrop));
     }
 }
 
@@ -617,7 +680,7 @@ impl RegistryModel {
 
 #[cfg(test)]
 mod tests {
-    use super::{NativeFrame, RegistryModel};
+    use super::{NativeBackdrop, NativeFrame, RegistryModel};
 
     fn frame(x: f64, y: f64, width: f64, height: f64) -> NativeFrame {
         NativeFrame {
@@ -696,5 +759,15 @@ mod tests {
         let new_id = registry.register(0).unwrap().id;
         assert!(new_id > removed, "removed ids must never be reused");
         assert_eq!(registry.order, vec![survivor, new_id]);
+    }
+
+    #[test]
+    fn native_container_backdrop_is_opaque() {
+        let backdrop = NativeBackdrop::new(0.1, 0.2, 0.3);
+
+        assert_eq!(backdrop.red, 0.1);
+        assert_eq!(backdrop.green, 0.2);
+        assert_eq!(backdrop.blue, 0.3);
+        assert_eq!(backdrop.alpha, 1.0);
     }
 }

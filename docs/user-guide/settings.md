@@ -50,7 +50,12 @@ Relative templates start from the project folder. For a project at `/code/my-app
 Choose **Folder** to retain Muxy's existing folder layout. A global folder stores worktrees under
 `<folder>/<project-name>/<worktree-name>`, while a folder selected in the new worktree dialog stores them under
 `<folder>/<worktree-name>`. A project-specific template or folder selected in that dialog takes precedence over the
-global setting. Remote worktrees keep their remote workspace layout.
+global setting. CLI creation without `--path` resolves a project template first, then a project folder, then the global
+template, then the global folder. The native **App Default** choice intentionally starts at the global template and
+global folder; choosing **Template** or **Folder** in the dialog stores a project override for later CLI creation. If no
+applicable setting exists, Muxy uses the profile-local `worktree-checkouts/<project-id>/<worktree-name>` directory.
+Explicit CLI paths always win. Relative and `~` paths are resolved before Git runs, and remote worktrees keep their
+remote workspace layout.
 
 ## Worktree lifecycle hooks
 
@@ -90,6 +95,27 @@ only the pre-authorized per-machine commands. A teardown command failure or inva
 leaves the worktree registered. Every hook command uses the worktree as its working directory and receives
 `MUXY_PROJECT_PATH`, `MUXY_WORKTREE_ID`, `MUXY_WORKTREE_PATH`, `MUXY_WORKTREE_NAME`, and `MUXY_WORKTREE_BRANCH`. Hooks do
 not run for remote or externally managed worktrees.
+
+Creation and removal share one monotonic five-minute budget across every hook and Git subprocess. A failure before Git
+creates or removes the checkout leaves tracking, workspace, panes, preferences, history, and selection unchanged. Once
+Git creation succeeds, later setup, tracking, workspace, preference, or reconciliation failures are warnings and never
+delete the checkout. Once Git removal succeeds, or reconciliation proves a failed/timed-out Git command already removed
+it, Muxy completes exact worktree-ID cleanup in memory; persistence failures are warnings and never claim the deletion
+was rolled back. If the primary repository directory is missing during removal, Muxy removes the stale app identity but
+preserves the secondary checkout files and reports that explicitly.
+
+Git and hook execution run in headless services rather than views. On Unix, timed-out commands terminate their process
+group, drain output, kill descendants after a short grace period, and reap the direct child. The hook environment adds
+the five `MUXY_*` worktree variables above while retaining the normal process environment and configured shell.
+
+## Project sorting and navigation
+
+The project sort menu supports Manual, Name (A–Z), Name (Z–A), Recently Active, and Date Added. Pinned projects remain
+first in every mode. The selected mode is applied immediately and stored as `muxy.projectSortMode` in `settings.json`.
+
+Back and Forward navigate complete project, worktree, area, and optional tab entries. Muxy keeps up to 100 entries,
+skips entries whose target no longer exists, and prunes deleted projects and worktrees. A failed workspace save does not
+move the history cursor or leave a partially applied selection.
 
 ## Focused-layout worktree grouping
 

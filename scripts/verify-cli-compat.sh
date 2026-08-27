@@ -7,15 +7,21 @@ readonly SCRIPT_DIR
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 readonly PROJECT_ROOT
 readonly SHIM="${1:-$(command -v muxy || true)}"
-readonly ROOT="$PROJECT_ROOT/target/test-verification/p2-cli"
+readonly ROOT="$PROJECT_ROOT/target/test-verification/p3-cli"
 readonly APP_SUPPORT="$ROOT/app-support"
+readonly XDG_CONFIG_ROOT="$ROOT/xdg-config"
 readonly PRODUCTION_SOCKET="${MUXY_PRODUCTION_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"
 readonly SOURCE_CLI="$PROJECT_ROOT/Muxy/Resources/scripts/muxy-cli"
-readonly APP="$PROJECT_ROOT/target/test-verification/apps/p2-cli/MuxyTests.app"
+readonly DEBUG_BUNDLE="$PROJECT_ROOT/target/debug/Muxy.app"
+readonly RELEASE_BUNDLE="$PROJECT_ROOT/target/release/Muxy.app"
+readonly APP="$PROJECT_ROOT/target/test-verification/apps/p3-cli-debug/MuxyTests.app"
+readonly RELEASE_APP="$PROJECT_ROOT/target/test-verification/apps/p3-cli-release/MuxyTests.app"
 readonly APP_EXECUTABLE="$APP/Contents/MacOS/MuxyTests"
 readonly DEVELOPMENT_SOCKET="$APP_SUPPORT/muxy-dev.sock"
 readonly COMMAND_LOG="$ROOT/commands.log"
 readonly ACCEPTED_LOG="$ROOT/accepted-heads.log"
+readonly PROJECT_SETUP_SENTINEL="$ROOT/project-setup-ran"
+readonly GLOBAL_SETUP_SENTINEL="$ROOT/global-setup-ran"
 APP_PID=""
 
 fail() {
@@ -49,14 +55,23 @@ readonly PRODUCTION_PID
 kill -0 "$PRODUCTION_PID" 2>/dev/null || fail "production socket owner is not live"
 
 "$SCRIPT_DIR/build-app.sh" debug
-"$SCRIPT_DIR/verify-bundle.sh" "$PROJECT_ROOT/target/debug/Muxy.app" debug
-"$SCRIPT_DIR/stage-test-app.sh" "$PROJECT_ROOT/target/debug/Muxy.app" p2-cli >/dev/null
+"$SCRIPT_DIR/verify-bundle.sh" "$DEBUG_BUNDLE" debug
+"$SCRIPT_DIR/stage-test-app.sh" "$DEBUG_BUNDLE" p3-cli-debug >/dev/null
+"$SCRIPT_DIR/build-app.sh" release
+"$SCRIPT_DIR/verify-bundle.sh" "$RELEASE_BUNDLE" release
+"$SCRIPT_DIR/stage-test-app.sh" "$RELEASE_BUNDLE" p3-cli-release >/dev/null
+readonly DEBUG_CLI="$DEBUG_BUNDLE/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+readonly RELEASE_CLI="$RELEASE_BUNDLE/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
 readonly STAGED_CLI="$APP/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
-[[ -x "$STAGED_CLI" ]] || fail "staged nested CLI is not executable"
-cmp -s "$SOURCE_CLI" "$STAGED_CLI" || fail "staged nested CLI differs from retained source"
+readonly STAGED_RELEASE_CLI="$RELEASE_APP/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+for bundled_cli in "$DEBUG_CLI" "$RELEASE_CLI" "$STAGED_CLI" "$STAGED_RELEASE_CLI"; do
+    [[ -x "$bundled_cli" ]] || fail "bundled CLI is not executable: $bundled_cli"
+    cmp -s "$SOURCE_CLI" "$bundled_cli" || fail "bundled CLI differs from retained source: $bundled_cli"
+done
 
-rm -rf "$ROOT/app-support" "$ROOT/fixtures" "$ROOT/logs"
-mkdir -p "$APP_SUPPORT" "$ROOT/fixtures" "$ROOT/logs"
+rm -rf "$ROOT/app-support" "$ROOT/fixtures" "$ROOT/logs" "$XDG_CONFIG_ROOT"
+rm -f "$PROJECT_SETUP_SENTINEL" "$GLOBAL_SETUP_SENTINEL"
+mkdir -p "$APP_SUPPORT" "$ROOT/fixtures" "$ROOT/logs" "$XDG_CONFIG_ROOT/muxy"
 : > "$COMMAND_LOG"
 : > "$ACCEPTED_LOG"
 
@@ -79,8 +94,14 @@ create_repository alpha
 create_repository beta
 create_repository gamma
 create_repository delta
+mkdir -p "$ROOT/fixtures/gamma/.muxy"
+printf '{"setup":[{"command":"touch %s","name":"Project setup"}]}\n' \
+    "$PROJECT_SETUP_SENTINEL" > "$ROOT/fixtures/gamma/.muxy/worktree.json"
+printf '{"setup":[{"command":"touch %s","name":"Per-machine setup"}]}\n' \
+    "$GLOBAL_SETUP_SENTINEL" > "$XDG_CONFIG_ROOT/muxy/worktree.json"
 
 MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$APP_SUPPORT" \
+    XDG_CONFIG_HOME="$XDG_CONFIG_ROOT" \
     MUXY_PANE_ID="STALE-PANE" \
     MUXY_PROJECT_ID="STALE-PROJECT" \
     MUXY_WORKTREE_ID="STALE-WORKTREE" \
@@ -152,6 +173,35 @@ gamma_id="$(printf '%s' "$gamma_reply" | cut -f2)"
 projects="$(accept list-projects list-projects)"
 printf '%s\n' "$projects" | grep -Fq $'\tAlpha\t' || fail "Alpha missing from list-projects"
 printf '%s\n' "$projects" | grep -Fq $'\tBeta\t' || fail "Beta missing from list-projects"
+created_path="$ROOT/fixtures/gamma-created"
+created_reply="$(accept create-worktree create-worktree "Compat Create" \
+    --branch compat/create --base main --project Gamma --path "$created_path")"
+created_tabs=0
+created_remainder="$created_reply"
+while [[ "$created_remainder" == *$'\t'* ]]; do
+    created_remainder="${created_remainder#*$'\t'}"
+    created_tabs=$((created_tabs + 1))
+done
+[[ "$created_tabs" == 4 && "$created_reply" != *$'\n'* ]] || {
+    fail "create-worktree did not return exactly five fields"
+}
+IFS=$'\t' read -r created_status created_id created_name created_reply_path \
+    created_branch <<< "$created_reply"
+[[ "$created_status" == ok ]] || fail "create-worktree status differed"
+[[ "$created_id" =~ ^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$ ]] || {
+    fail "created worktree ID is not an uppercase UUID"
+}
+[[ "$created_name" == "Compat Create" ]] || fail "created worktree name differed"
+[[ "$created_reply_path" == "$created_path" ]] || fail "created worktree path differed"
+[[ "$created_branch" == "compat/create" ]] || fail "created worktree branch differed"
+[[ -d "$created_path" ]] || fail "explicit worktree path was not created"
+created_worktrees="$(accept list-worktrees list-worktrees Gamma)"
+printf '%s\n' "$created_worktrees" | \
+    grep -Fxq "$created_id"$'\t'"Compat Create"$'\t'"$created_path"$'\t'"compat/create"$'\ttrue' || {
+    fail "created worktree was not visible and active before the reply path continued"
+}
+[[ ! -e "$PROJECT_SETUP_SENTINEL" ]] || fail "CLI create-worktree ran project setup"
+[[ ! -e "$GLOBAL_SETUP_SENTINEL" ]] || fail "CLI create-worktree ran per-machine setup"
 expect_ok "$(accept switch-project switch-project Alpha)"
 alpha_refresh="$(accept refresh-worktrees refresh-worktrees Alpha)"
 [[ "$alpha_refresh" == ok$'\t'* ]] || fail "refresh-worktrees did not return a count"
@@ -301,6 +351,7 @@ attach-project
 close-pane
 create-project
 create-workspace
+create-worktree
 delete-workspace
 detach-project
 list-panes
@@ -359,9 +410,12 @@ kill -0 "$PRODUCTION_PID" 2>/dev/null || fail "production Swift is no longer liv
 }
 
 printf 'installed shim: %s\n' "$SHIM"
-printf 'staged app: %s\n' "$APP"
+printf 'staged debug app: %s\n' "$APP"
+printf 'staged release app: %s\n' "$RELEASE_APP"
 printf 'development socket mode: 0600\n'
-printf 'accepted wire heads: 33\n'
+printf 'accepted wire heads: 34\n'
+printf 'create-worktree exact reply and active selection: passed\n'
+printf 'create-worktree setup hooks skipped: passed\n'
 printf 'pane context and hidden materialization: passed\n'
 printf 'explicit source working directory: passed\n'
 printf 'path-open mutation: passed\n'

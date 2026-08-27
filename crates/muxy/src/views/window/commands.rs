@@ -416,6 +416,10 @@ impl MainWindow {
             }
         };
         let theme = self.state.theme.clone();
+        self.terminal_runtime
+            .surfaces
+            .backend_mut()
+            .set_backdrop(theme.bg.into());
         let metrics = self.state.metrics;
         match &self.view.overlay {
             Overlay::Settings(modal) => {

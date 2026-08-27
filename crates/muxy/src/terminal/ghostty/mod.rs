@@ -205,6 +205,7 @@ impl GhosttyBackend {
         combos: Vec<KeyCombo>,
         mode: BuildMode,
         socket_path: &Path,
+        backdrop: gpui::Rgba,
         window: &mut Window,
     ) -> Result<(), String> {
         if self.app.is_some() {
@@ -223,7 +224,8 @@ impl GhosttyBackend {
         let (config, cjk_overlay) = load_config(&resources).map_err(|error| error.to_string())?;
         let owned = config.try_clone().map_err(|error| error.to_string())?;
         let app = GhosttyApp::new(owned).map_err(|error| error.to_string())?;
-        let compositor = NativeViewCompositor::new(window).map_err(|error| error.to_string())?;
+        let compositor =
+            NativeViewCompositor::new(window, backdrop).map_err(|error| error.to_string())?;
 
         self.gate = Rc::new(ShortcutGate::new(combos));
         self.app = Some(app);
@@ -239,6 +241,12 @@ impl GhosttyBackend {
         self.gate = Rc::new(ShortcutGate::new(combos));
         for surface in self.surfaces.borrow().values() {
             surface.host.set_shortcut_gate(self.gate.clone());
+        }
+    }
+
+    pub fn set_backdrop(&self, backdrop: gpui::Rgba) {
+        if let Some(compositor) = &self.compositor {
+            compositor.set_backdrop(backdrop);
         }
     }
 

@@ -93,7 +93,7 @@ When one PID matches multiple panes, uppercase pane-ID order breaks the tie. Hoo
 
 ## Direct pipe surface
 
-These are the 33 P2 accepted wire heads. Every row is implemented in P2 and is reachable through the untouched wrapper.
+These are the 34 accepted P2/P3 wire heads. Every row is implemented and reachable through the untouched wrapper.
 
 | Wrapper invocation | Direct head | App permission |
 |---|---|---|
@@ -110,6 +110,7 @@ These are the 33 P2 accepted wire heads. Every row is implemented in P2 and is r
 | `muxy list-worktrees ...` | `list-worktrees` | `worktrees:read` |
 | `muxy switch-worktree ...` | `switch-worktree` | `worktrees:write` |
 | `muxy refresh-worktrees ...` | `refresh-worktrees` | `worktrees:write` |
+| `muxy create-worktree ...` | `create-worktree` | `worktrees:write` |
 | `muxy list-workspaces` | `list-workspaces` | `projects:read` |
 | `muxy create-workspace ...` | `create-workspace` | `projects:write` |
 | `muxy switch-workspace ...` | `switch-workspace` | `projects:write` |
@@ -142,7 +143,7 @@ The app recognition catalog contains exactly 169 heads.
 | Direct category | Count | Status and owner |
 |---|---:|---|
 | P2 aliases listed above | 33 | Implemented in P2 |
-| `create-worktree` | 1 | Recognized, deferred to P3 |
+| `create-worktree` | 1 | Implemented in P3 |
 | `list-sessions`, `kill-session` | 2 | Recognized, deferred to P8 |
 | `open-tab` | 1 | Recognized, deferred to P10 |
 | Browser heads | 36 | Recognized, deferred to P9 |
@@ -174,7 +175,7 @@ The retained 15-name canonical outside-dispatcher surface is:
 
 `panes.split`, `sessions.list`, `sessions.kill`, `worktrees.create`, `tabs.rename`, `tabs.setColor`, `tabs.setPin`, `tabs.close`, `tabs.move`, `extension.settings.get`, `extension.settings.set`, `extension.statusbar.set`, `lifecycle.ackBeforeClose`, `lifecycle.resolveBeforeClose`, `lifecycle.closeSelf`.
 
-P2 implements backing behavior only through its accepted direct aliases. P3 owns worktree creation, P8 owns sessions, and P10 owns extension settings and lifecycle APIs.
+P2 implements backing behavior through its accepted direct aliases. P3 implements `worktrees.create` behavior through the retained `create-worktree` alias. P8 owns sessions, and P10 owns extension settings and lifecycle APIs.
 
 The following transport or ingress forms are outside the 169 app-command count:
 
@@ -199,4 +200,4 @@ The app owns all command names, phase ownership, permissions, project/worktree/t
 
 ## Explicit P2 exclusions
 
-P2 does not implement browser commands, session commands, worktree creation, extension APIs, hook installation or client resources, notification UI, backup/config behavior, skill installation, URL registration or cold launch, or production profile hardening. Those remain assigned to P3, P5, P8, P9, P10, P11, P14, P15, and P2.5 as listed above.
+P2 does not implement browser commands, session commands, extension APIs, hook installation or client resources, notification UI, backup/config behavior, skill installation, URL registration or cold launch, or production profile hardening. P3 adds the retained `create-worktree` alias without changing the 169-head recognition inventory. The remaining work stays assigned to P5, P8, P9, P10, P11, P14, P15, and P2.5 as listed above.
