@@ -47,6 +47,7 @@ pub enum ShortcutAction {
     RecentlyRemovedProjects,
     RefreshWorktrees,
     CreateWorktree,
+    RemoveCurrentWorktree,
     NextProject,
     PreviousProject,
     SelectProject1,
@@ -151,6 +152,7 @@ impl ShortcutAction {
             RecentlyRemovedProjects => ("Recently Removed Projects", "App"),
             RefreshWorktrees => ("Refresh Worktrees", "App"),
             CreateWorktree => ("New Worktree", "App"),
+            RemoveCurrentWorktree => ("Remove Current Worktree", "App"),
             ToggleSidebar => ("Toggle Sidebar", "App"),
             ToggleFullScreen => ("Toggle Full Screen", "App"),
             ToggleThemePicker => ("Theme Picker", "App"),
@@ -163,8 +165,7 @@ pub fn modelled_actions() -> Vec<ShortcutAction> {
     defaults().into_iter().map(|(action, _)| action).collect()
 }
 
-pub const UNMODELLED_DEFAULTS: [(&str, &str, u64); 9] = [
-    ("removeCurrentWorktree", "", 0),
+pub const UNMODELLED_DEFAULTS: [(&str, &str, u64); 8] = [
     ("toggleRichInput", "i", COMMAND),
     ("toggleComposerVoice", "", 0),
     ("submitRichInput", "return", COMMAND),
@@ -451,6 +452,7 @@ fn defaults() -> Vec<(ShortcutAction, KeyCombo)> {
         (RecentlyRemovedProjects, KeyCombo::new("", 0)),
         (RefreshWorktrees, KeyCombo::new("r", COMMAND | OPTION)),
         (CreateWorktree, KeyCombo::new("n", COMMAND | OPTION)),
+        (RemoveCurrentWorktree, KeyCombo::new("", 0)),
         (NextTab, KeyCombo::new("]", COMMAND)),
         (PreviousTab, KeyCombo::new("[", COMMAND)),
         (SelectTab1, KeyCombo::new("1", COMMAND)),
@@ -596,8 +598,12 @@ mod tests {
                 KeyCombo::new("rightarrow", COMMAND | CONTROL),
             ),
         ];
-        assert_eq!(modelled_actions().len(), 58);
-        assert_eq!(UNMODELLED_DEFAULTS.len(), 9);
+        assert_eq!(modelled_actions().len(), 59);
+        assert_eq!(UNMODELLED_DEFAULTS.len(), 8);
+        assert_eq!(
+            default_combo(ShortcutAction::RemoveCurrentWorktree),
+            KeyCombo::new("", 0)
+        );
         assert_eq!(
             default_combo(ShortcutAction::RefreshWorktrees),
             KeyCombo::new("r", COMMAND | OPTION)

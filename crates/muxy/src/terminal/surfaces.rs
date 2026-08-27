@@ -646,6 +646,30 @@ mod tests {
     }
 
     #[test]
+    fn remove_worktree_reconciliation_drops_handles_and_all_pending_launch_state() {
+        let (mut store, project_id, worktree_id, tab_id) = contextual_store();
+        let mut surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
+        insert_fake(&mut surfaces, &tab_id);
+        surfaces.queue_launch_directory(tab_id.clone(), PathBuf::from("/queued"));
+        surfaces.queue_launch_command(
+            tab_id.clone(),
+            LaunchCommand {
+                command: "echo pending".into(),
+                keeps_shell_open: true,
+            },
+        );
+        assert!(surfaces.request_materialization(&store, &tab_id));
+
+        assert!(store.remove_worktree(&project_id, &worktree_id).is_some());
+        surfaces.retain_known(&store);
+
+        assert!(!surfaces.handles.contains_key(&tab_id));
+        assert!(!surfaces.pending_cwd.contains_key(&tab_id));
+        assert!(!surfaces.pending_command.contains_key(&tab_id));
+        assert!(!surfaces.materialization_requested.contains(&tab_id));
+    }
+
+    #[test]
     fn handle_exit_closes_a_tab_in_a_non_active_workspace() {
         let (mut store, tabs) = store_with(&[("p1", "/tmp/p1"), ("p2", "/tmp/p2")]);
         let mut surfaces = TerminalSurfaces::new();

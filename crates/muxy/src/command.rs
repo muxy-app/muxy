@@ -19,6 +19,10 @@ pub enum Command {
     },
     RefreshWorktrees(String),
     NewWorktree(String),
+    RemoveWorktree {
+        project_id: String,
+        worktree_id: String,
+    },
     CopyPath(String),
     CopyStatusPath(String),
     RevealStatusPath(String),

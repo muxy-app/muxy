@@ -93,6 +93,10 @@ impl Project {
         self.worktrees_enabled && self.is_git_repo
     }
 
+    pub fn can_remove_worktree(&self, worktree: &super::worktrees::Worktree) -> bool {
+        !self.is_home() && !self.is_remote() && self.is_git_repo && !worktree.is_primary
+    }
+
     pub fn last_active(&self) -> f64 {
         self.last_active_at.unwrap_or(0.0)
     }

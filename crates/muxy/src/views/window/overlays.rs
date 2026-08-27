@@ -55,6 +55,48 @@ impl MainWindow {
         window.focus(&self.view.menu_focus);
     }
 
+    pub(crate) fn open_worktree_menu(
+        &mut self,
+        project_id: &str,
+        worktree_id: &str,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.state.workspace.project(project_id) else {
+            return;
+        };
+        let Some(worktree) = self.state.worktrees.get(project_id).and_then(|worktrees| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.id.eq_ignore_ascii_case(worktree_id))
+        }) else {
+            return;
+        };
+        let mut items = vec![Item::action(
+            "Switch Worktree",
+            Command::SelectWorktree {
+                project_id: project_id.to_owned(),
+                worktree_id: worktree.id.clone(),
+            },
+        )];
+        if project.can_remove_worktree(worktree) {
+            items.push(Item::Separator);
+            items.push(
+                Item::action(
+                    "Remove Worktree…",
+                    Command::RemoveWorktree {
+                        project_id: project_id.to_owned(),
+                        worktree_id: worktree.id.clone(),
+                    },
+                )
+                .destructive(),
+            );
+        }
+        self.open_menu(items, position, cx);
+        window.focus(&self.view.menu_focus);
+    }
+
     pub(crate) fn open_menu(
         &mut self,
         items: Vec<Item>,

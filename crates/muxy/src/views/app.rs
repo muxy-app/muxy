@@ -267,6 +267,23 @@ pub(crate) fn render(
                 window.open_create_worktree(&project_id, window_handle, cx);
             },
         ))
+        .on_action(
+            cx.listener(|window, _: &crate::keymap::RemoveCurrentWorktree, _, cx| {
+                let Some(project_id) = window.state.active_project_id.clone() else {
+                    return;
+                };
+                let Some(worktree_id) = window
+                    .state
+                    .prefs
+                    .active_worktree_ids
+                    .get(&project_id)
+                    .cloned()
+                else {
+                    return;
+                };
+                window.request_worktree_removal_inspection(project_id, worktree_id, cx);
+            }),
+        )
         .on_action(cx.listener(
             |window, action: &crate::keymap::RunCommandShortcut, window_handle, cx| {
                 window.perform(

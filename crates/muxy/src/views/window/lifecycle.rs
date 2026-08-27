@@ -330,6 +330,249 @@ impl MainWindow {
         }
     }
 
+    fn worktree_remove_options(
+        &self,
+        project_id: &str,
+    ) -> muxy_api::worktree_lifecycle::RemoveWorktreeOptions {
+        let create = self.worktree_create_options(project_id);
+        muxy_api::worktree_lifecycle::RemoveWorktreeOptions {
+            git_options: create.git_options,
+            worktrees_dir: create.worktrees_dir,
+            current_worktrees: create.current_worktrees,
+            hook_options: create.hook_options,
+            timeout: create.timeout,
+        }
+    }
+
+    pub(crate) fn request_worktree_removal_inspection(
+        &mut self,
+        project_id: String,
+        worktree_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.project_operations.is_busy(&project_id) {
+            self.alert(
+                "Remove Worktree".into(),
+                "Another worktree operation is still running.".into(),
+                cx,
+            );
+            return;
+        }
+        let Some(project) = self.state.workspace.project(&project_id).cloned() else {
+            return;
+        };
+        let Some(worktree) = self.state.worktrees.get(&project_id).and_then(|worktrees| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.id.eq_ignore_ascii_case(&worktree_id))
+                .cloned()
+        }) else {
+            return;
+        };
+        if worktree.is_primary {
+            self.alert(
+                "Remove Worktree".into(),
+                "The primary worktree cannot be removed.".into(),
+                cx,
+            );
+            return;
+        }
+        let generation = self.state.project_operations.generation(&project_id);
+        let identity = self
+            .view
+            .worktrees
+            .begin_removal(&project_id, &worktree_id, generation);
+        let options = self.worktree_remove_options(&project_id);
+        cx.spawn(async move |window, cx| {
+            let inspected = cx
+                .background_executor()
+                .spawn({
+                    let project = project.clone();
+                    let worktree = worktree.clone();
+                    async move {
+                        muxy_api::worktree_lifecycle::inspect_worktree_removal(
+                            &project, &worktree, &options,
+                        )
+                    }
+                })
+                .await;
+            let confirmation = window
+                .update(cx, |window, cx| {
+                    if !window.view.worktrees.matches_removal(&identity) {
+                        return None;
+                    }
+                    if !window.removal_request_is_current(&identity, &project, &worktree) {
+                        window.view.worktrees.clear_removal_if(&identity);
+                        return None;
+                    }
+                    let inspection = match inspected {
+                        Ok(inspection) => inspection,
+                        Err(error) => {
+                            window.view.worktrees.clear_removal();
+                            window.alert("Remove Worktree".into(), error.to_string(), cx);
+                            return None;
+                        }
+                    };
+                    if let Some(diagnostic) = &inspection.inspection_diagnostic {
+                        log::warn!("worktree removal inspection failed: {diagnostic}");
+                    }
+                    let approval = (inspection.worktree.source
+                        == muxy_core::store::worktrees::Source::Muxy)
+                        .then(|| {
+                            muxy_api::worktree_config::ProjectHookApproval::from_resolved(
+                                &inspection.teardown_commands,
+                            )
+                        });
+                    let answer = window.ask(
+                        format!("Remove '{}'?", inspection.worktree.name),
+                        removal_confirmation_message(&inspection),
+                        &["Remove", "Cancel"],
+                        cx,
+                    );
+                    Some((answer, inspection.worktree, approval))
+                })
+                .ok()
+                .flatten();
+            let Some((answer, inspected_worktree, approval)) = confirmation else {
+                return;
+            };
+            if answer.await != Some(0) {
+                let _ = window.update(cx, |window, _| {
+                    window.view.worktrees.clear_removal_if(&identity)
+                });
+                return;
+            }
+            let _ = window.update(cx, |window, cx| {
+                if !window.view.worktrees.matches_removal(&identity) {
+                    return;
+                }
+                if !window.removal_request_is_current(&identity, &project, &inspected_worktree) {
+                    window.view.worktrees.clear_removal_if(&identity);
+                    return;
+                }
+                window.view.worktrees.clear_removal_if(&identity);
+                window.request_native_worktree_removal(project, inspected_worktree, approval, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn removal_request_is_current(
+        &self,
+        identity: &super::view_state::RemovalRequestIdentity,
+        expected_project: &muxy_core::store::Project,
+        expected: &muxy_core::store::worktrees::Worktree,
+    ) -> bool {
+        self.view.worktrees.matches_removal(identity)
+            && !self.state.project_operations.is_busy(&identity.project_id)
+            && self
+                .state
+                .workspace
+                .project(&identity.project_id)
+                .is_some_and(|project| {
+                    project.path == expected_project.path
+                        && project.is_git_repo == expected_project.is_git_repo
+                        && project.remote_workspace_id == expected_project.remote_workspace_id
+                })
+            && self
+                .state
+                .project_operations
+                .generation(&identity.project_id)
+                == identity.generation
+            && self
+                .state
+                .worktrees
+                .get(&identity.project_id)
+                .and_then(|worktrees| {
+                    worktrees
+                        .iter()
+                        .find(|worktree| worktree.id.eq_ignore_ascii_case(&identity.worktree_id))
+                })
+                .is_some_and(|worktree| {
+                    worktree.path == expected.path
+                        && worktree.source == expected.source
+                        && worktree.is_primary == expected.is_primary
+                })
+    }
+
+    fn request_native_worktree_removal(
+        &mut self,
+        project: muxy_core::store::Project,
+        worktree: muxy_core::store::worktrees::Worktree,
+        project_hook_approval: Option<muxy_api::worktree_config::ProjectHookApproval>,
+        cx: &mut Context<Self>,
+    ) {
+        let project_id = project.id.clone();
+        let token = match self
+            .state
+            .project_operations
+            .begin_operation(&project_id, ProjectOperationKind::Remove)
+        {
+            Ok(token) => token,
+            Err(BeginOperationError::Busy(_)) => {
+                self.alert(
+                    "Remove Worktree".into(),
+                    "Another worktree operation is still running.".into(),
+                    cx,
+                );
+                return;
+            }
+        };
+        let request = muxy_api::worktree_lifecycle::RemoveWorktreeRequest {
+            project,
+            worktree,
+            project_hook_approval,
+        };
+        let options = self.worktree_remove_options(&project_id);
+        cx.spawn(async move |window, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(
+                    async move { muxy_api::worktree_lifecycle::remove_worktree(request, &options) },
+                )
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                match result {
+                    Ok(outcome) => {
+                        let effects = window.state.apply_removed_worktree(&project_id, outcome);
+                        if !effects.navigation_recorded {
+                            log::warn!("removed worktree replacement navigation was not recorded");
+                        }
+                        for tab_id in &effects.tab_ids {
+                            if let Some(handle) = window.terminal_runtime.surfaces.handle(tab_id) {
+                                handle.request_close();
+                            }
+                        }
+                        if !effects.warnings.is_empty() {
+                            window.alert(
+                                "Worktree Removed".into(),
+                                native_removal_warning(&effects.warnings),
+                                cx,
+                            );
+                        }
+                        window.sync_watchers();
+                    }
+                    Err(error) => {
+                        window.alert("Remove Worktree".into(), error.to_string(), cx);
+                    }
+                }
+                let schedule_fresh_probe = window
+                    .state
+                    .project_operations
+                    .finish_operation(&token)
+                    .is_ok_and(|outcome| outcome.schedule_fresh_probe);
+                if schedule_fresh_probe && window.state.workspace.project(&project_id).is_some() {
+                    let ids = HashSet::from([project_id.clone()]);
+                    window.refresh_project_truth(Some(&ids), cx);
+                }
+                cx.set_menus(crate::views::window::menu_bar::menus(&window.state));
+                cx.activate(true);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     pub(crate) fn request_native_worktree_creation(
         &mut self,
         request: muxy_api::worktree_lifecycle::CreateWorktreeRequest,
@@ -556,6 +799,65 @@ fn native_creation_warning(warnings: &[muxy_api::worktree_lifecycle::LifecycleWa
     )
 }
 
+fn removal_confirmation_message(
+    inspection: &muxy_api::worktree_lifecycle::RemovalInspection,
+) -> String {
+    let mut message = if inspection.dirty {
+        "This worktree has uncommitted changes. Removing it permanently discards those changes."
+            .to_owned()
+    } else {
+        "This permanently removes the worktree checkout.".to_owned()
+    };
+    if !inspection.teardown_commands.is_empty() {
+        message.push_str("\n\nThe following teardown commands will run first:");
+        for command in &inspection.teardown_commands {
+            let source = match command.source {
+                muxy_api::worktree_config::CommandSource::Project => "Project",
+                muxy_api::worktree_config::CommandSource::Global => "Per-machine",
+            };
+            let name = command
+                .command
+                .name
+                .as_deref()
+                .unwrap_or(&command.command.command);
+            message.push_str(&format!("\n{source}: {name}"));
+        }
+    }
+    message
+}
+
+fn native_removal_warning(warnings: &[muxy_api::worktree_lifecycle::LifecycleWarning]) -> String {
+    use muxy_api::worktree_lifecycle::LifecycleWarning;
+
+    let details = warnings
+        .iter()
+        .map(|warning| match warning {
+            LifecycleWarning::Reconciliation(error) => {
+                format!("Worktree discovery could not be refreshed: {error}")
+            }
+            LifecycleWarning::WorktreeListPersistence(error) => {
+                format!("The worktree list could not be saved: {error}")
+            }
+            LifecycleWarning::Setup(error) => format!("Setup reported: {error}"),
+            LifecycleWarning::WorkspacePersistence(error) => {
+                format!("The workspace cleanup could not be saved: {error}")
+            }
+            LifecycleWarning::ActivePreferencePersistence(error) => {
+                format!("The active worktree preference could not be saved: {error}")
+            }
+            LifecycleWarning::LocationPreferencePersistence(error) => {
+                format!("The location preference reported: {error}")
+            }
+            LifecycleWarning::ReconciledGitRemoval(error) => error.clone(),
+            LifecycleWarning::PreservedFiles(path) => {
+                format!("The primary repository was missing, so files were preserved at {path}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("Removal completed and was not rolled back:\n\n{details}")
+}
+
 pub(super) fn spawn_terminal_pumps(
     terminals: &mut TerminalSurfaces,
     cx: &mut Context<MainWindow>,
@@ -626,5 +928,39 @@ mod tests {
         assert!(warning.contains("was created and was not rolled back"));
         assert!(warning.contains("Setup did not finish: command failed"));
         assert!(warning.contains("location preference could not be saved: save failed"));
+    }
+
+    #[test]
+    fn remove_worktree_confirmation_distinguishes_dirty_state_and_command_sources() {
+        use muxy_api::worktree_config::{CommandSource, ResolvedCommand};
+        use muxy_core::store::worktrees::{Source, Worktree};
+
+        let inspection = muxy_api::worktree_lifecycle::RemovalInspection {
+            project_id: "PROJECT".into(),
+            worktree: Worktree {
+                id: "SECONDARY".into(),
+                name: "Feature".into(),
+                path: "/feature".into(),
+                branch: Some("feature".into()),
+                source: Source::Muxy,
+                is_primary: false,
+                created_at: 1.0,
+                last_active_at: None,
+            },
+            dirty: true,
+            teardown_commands: vec![
+                ResolvedCommand::new(
+                    "project-clean",
+                    Some("Project cleanup"),
+                    CommandSource::Project,
+                ),
+                ResolvedCommand::new("machine-clean", None, CommandSource::Global),
+            ],
+            inspection_diagnostic: None,
+        };
+        let message = removal_confirmation_message(&inspection);
+        assert!(message.contains("permanently discards those changes"));
+        assert!(message.contains("Project: Project cleanup"));
+        assert!(message.contains("Per-machine: machine-clean"));
     }
 }

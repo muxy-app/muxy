@@ -73,8 +73,14 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
         MenuItem::submenu(open_in_ide(state)),
         MenuItem::action("New Worktree...", keymap::CreateWorktree),
         MenuItem::action("Refresh Worktrees", keymap::RefreshWorktrees),
-        MenuItem::separator(),
     ];
+    if remove_worktree_available(state) {
+        file_items.push(MenuItem::action(
+            "Remove Worktree...",
+            keymap::RemoveCurrentWorktree,
+        ));
+    }
+    file_items.push(MenuItem::separator());
     file_items.extend(file_tab_items());
     file_items.extend([
         MenuItem::submenu(custom_commands(state)),
@@ -186,6 +192,27 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
             ],
         },
     ]
+}
+
+fn remove_worktree_available(state: &AppState) -> bool {
+    let Some(project_id) = state.active_project_id.as_deref() else {
+        return false;
+    };
+    let Some(project) = state.workspace.project(project_id) else {
+        return false;
+    };
+    let Some(worktree_id) = state.prefs.active_worktree_ids.get(project_id) else {
+        return false;
+    };
+    state
+        .worktrees
+        .get(project_id)
+        .and_then(|worktrees| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.id.eq_ignore_ascii_case(worktree_id))
+        })
+        .is_some_and(|worktree| project.can_remove_worktree(worktree))
 }
 
 fn file_tab_items() -> Vec<MenuItem> {

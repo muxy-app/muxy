@@ -39,6 +39,7 @@ actions!(
         RecentlyRemovedProjects,
         RefreshWorktrees,
         CreateWorktree,
+        RemoveCurrentWorktree,
         NextProject,
         PreviousProject,
         SelectProject1,
@@ -145,6 +146,9 @@ fn binding(action: ShortcutAction, key: String) -> Option<KeyBinding> {
         }
         ShortcutAction::RefreshWorktrees => KeyBinding::new(key, RefreshWorktrees, context),
         ShortcutAction::CreateWorktree => KeyBinding::new(key, CreateWorktree, context),
+        ShortcutAction::RemoveCurrentWorktree => {
+            KeyBinding::new(key, RemoveCurrentWorktree, context)
+        }
         ShortcutAction::NextProject => KeyBinding::new(key, NextProject, context),
         ShortcutAction::PreviousProject => KeyBinding::new(key, PreviousProject, context),
         ShortcutAction::SelectProject1 => KeyBinding::new(key, SelectProject1, context),

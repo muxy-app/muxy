@@ -228,6 +228,12 @@ impl ProjectOperations {
             .is_some_and(|kind| MUTATING_OPERATION_KINDS.contains(&kind))
     }
 
+    pub fn is_busy(&self, project_id: &str) -> bool {
+        self.projects
+            .get(project_id)
+            .is_some_and(|state| state.operation.is_some())
+    }
+
     pub fn project_removed(&mut self, project_id: &str) {
         let state = self.projects.entry(project_id.to_owned()).or_default();
         state.generation = state.generation.wrapping_add(1);
@@ -298,6 +304,12 @@ mod tests {
     #[test]
     fn project_operation_coordinator_serializes_mutations_and_refreshes_after_finish() {
         let mut operations = ProjectOperations::default();
+        let refresh = operations
+            .begin_operation("refreshing", ProjectOperationKind::Refresh)
+            .unwrap();
+        assert!(operations.is_busy("refreshing"));
+        operations.finish_operation(&refresh).unwrap();
+        assert!(!operations.is_busy("refreshing"));
         for kind in [ProjectOperationKind::Create, ProjectOperationKind::Remove] {
             let token = operations.begin_operation("project", kind).unwrap();
             assert!(operations.is_mutating("project"));

@@ -1,6 +1,7 @@
 use crate::git::{self, GitError, GitOptions};
 use crate::subprocess::Deadline;
-use crate::worktree_hooks::{HookContext, HookOptions, SetupPolicy, run_setup};
+use crate::worktree_config::{HookKind, ProjectHookApproval, ResolvedCommand};
+use crate::worktree_hooks::{HookContext, HookOptions, SetupPolicy, run_setup, run_teardown};
 use crate::worktree_location::{
     LocationContext, WorktreeLocationError, WorktreeLocationRequest, create_parent, resolve,
     sanitize_component,
@@ -50,6 +51,39 @@ pub struct CreateWorktreeOutcome {
     pub warnings: Vec<LifecycleWarning>,
 }
 
+#[derive(Clone, Debug)]
+pub struct RemoveWorktreeRequest {
+    pub project: Project,
+    pub worktree: Worktree,
+    pub project_hook_approval: Option<ProjectHookApproval>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RemoveWorktreeOptions {
+    pub git_options: GitOptions,
+    pub worktrees_dir: PathBuf,
+    pub current_worktrees: Vec<Worktree>,
+    pub hook_options: HookOptions,
+    pub timeout: Duration,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoveWorktreeOutcome {
+    pub removed: Worktree,
+    pub worktrees: Vec<Worktree>,
+    pub files_preserved: bool,
+    pub warnings: Vec<LifecycleWarning>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemovalInspection {
+    pub project_id: String,
+    pub worktree: Worktree,
+    pub dirty: bool,
+    pub teardown_commands: Vec<ResolvedCommand>,
+    pub inspection_diagnostic: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CreateWorktreeError {
     #[error("name and branch are required")]
@@ -64,6 +98,24 @@ pub enum CreateWorktreeError {
     PathExists(PathBuf),
     #[error(transparent)]
     Location(#[from] WorktreeLocationError),
+    #[error(transparent)]
+    Git(#[from] GitError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RemoveWorktreeError {
+    #[error("Home does not support worktree removal")]
+    HomeProject,
+    #[error("remote worktree removal is deferred to P12")]
+    RemoteProject,
+    #[error("project is not a local Git project")]
+    NotLocalGitProject,
+    #[error("the primary worktree cannot be removed")]
+    PrimaryWorktree,
+    #[error("worktree no longer matches current project state")]
+    StaleWorktree,
+    #[error(transparent)]
+    Hook(#[from] crate::worktree_hooks::WorktreeHookError),
     #[error(transparent)]
     Git(#[from] GitError),
 }
@@ -199,6 +251,160 @@ pub fn create_worktree(
     })
 }
 
+pub fn inspect_worktree_removal(
+    project: &Project,
+    worktree: &Worktree,
+    options: &RemoveWorktreeOptions,
+) -> Result<RemovalInspection, RemoveWorktreeError> {
+    let worktree = validated_removal_target(project, worktree, &options.current_worktrees)?;
+    let deadline = Deadline::new(options.timeout);
+    let mut diagnostics = Vec::new();
+    let dirty =
+        match git::is_worktree_dirty(&options.git_options, Path::new(&worktree.path), &deadline) {
+            Ok(dirty) => dirty,
+            Err(error) => {
+                diagnostics.push(error.to_string());
+                false
+            }
+        };
+    let teardown_commands = if worktree.source == Source::Muxy {
+        match crate::worktree_config::resolved_commands(
+            HookKind::Teardown,
+            Path::new(&project.path),
+            &options.hook_options.global_config_path,
+            true,
+        ) {
+            Ok(commands) => commands,
+            Err(error) => {
+                diagnostics.push(error.to_string());
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    Ok(RemovalInspection {
+        project_id: project.id.clone(),
+        worktree,
+        dirty,
+        teardown_commands,
+        inspection_diagnostic: (!diagnostics.is_empty()).then(|| diagnostics.join("\n")),
+    })
+}
+
+pub fn remove_worktree(
+    request: RemoveWorktreeRequest,
+    options: &RemoveWorktreeOptions,
+) -> Result<RemoveWorktreeOutcome, RemoveWorktreeError> {
+    let worktree = validated_removal_target(
+        &request.project,
+        &request.worktree,
+        &options.current_worktrees,
+    )?;
+    let mut warnings = Vec::new();
+    let repo_path = Path::new(&request.project.path);
+    let worktree_path = Path::new(&worktree.path);
+    let files_preserved = !repo_path.is_dir();
+    if files_preserved {
+        warnings.push(LifecycleWarning::PreservedFiles(worktree.path.clone()));
+    } else {
+        let deadline = Deadline::new(options.timeout);
+        if worktree.source == Source::Muxy {
+            run_teardown(
+                &hook_context(&request.project, &worktree),
+                request.project_hook_approval.as_ref(),
+                &options.hook_options,
+                &deadline,
+            )?;
+        }
+        let removal =
+            git::remove_worktree(&options.git_options, repo_path, worktree_path, &deadline)?;
+        if removal.reconciled {
+            warnings.push(LifecycleWarning::ReconciledGitRemoval(
+                "Git reported failure after the checkout was removed".into(),
+            ));
+        }
+        remove_empty_parent(worktree_path);
+    }
+    let worktrees = options
+        .current_worktrees
+        .iter()
+        .filter(|candidate| !candidate.id.eq_ignore_ascii_case(&worktree.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    let candidate = crate::worktrees::RefreshCandidate::Updated(worktrees.clone());
+    if let Some(error) = tracking_error(&options.worktrees_dir, &request.project.id) {
+        warnings.push(LifecycleWarning::WorktreeListPersistence(error));
+    } else if let Err(error) =
+        crate::worktrees::save_candidate(&options.worktrees_dir, &request.project.id, &candidate)
+    {
+        warnings.push(LifecycleWarning::WorktreeListPersistence(error.to_string()));
+    }
+    Ok(RemoveWorktreeOutcome {
+        removed: worktree,
+        worktrees,
+        files_preserved,
+        warnings,
+    })
+}
+
+fn validated_removal_target(
+    project: &Project,
+    requested: &Worktree,
+    current: &[Worktree],
+) -> Result<Worktree, RemoveWorktreeError> {
+    if project.is_home() {
+        return Err(RemoveWorktreeError::HomeProject);
+    }
+    if project.is_remote() {
+        return Err(RemoveWorktreeError::RemoteProject);
+    }
+    if !project.is_git_repo {
+        return Err(RemoveWorktreeError::NotLocalGitProject);
+    }
+    let Some(current) = current
+        .iter()
+        .find(|candidate| candidate.id.eq_ignore_ascii_case(&requested.id))
+    else {
+        return Err(RemoveWorktreeError::StaleWorktree);
+    };
+    if current.path != requested.path
+        || current.source != requested.source
+        || current.is_primary != requested.is_primary
+    {
+        return Err(RemoveWorktreeError::StaleWorktree);
+    }
+    if !project.can_remove_worktree(current)
+        || git::canonical_path(Path::new(&current.path))
+            == git::canonical_path(Path::new(&project.path))
+    {
+        return Err(RemoveWorktreeError::PrimaryWorktree);
+    }
+    Ok(current.clone())
+}
+
+fn hook_context(project: &Project, worktree: &Worktree) -> HookContext {
+    HookContext {
+        project_path: PathBuf::from(&project.path),
+        worktree_id: worktree.id.clone(),
+        worktree_path: PathBuf::from(&worktree.path),
+        worktree_name: worktree.name.clone(),
+        worktree_branch: worktree.branch.clone(),
+    }
+}
+
+fn remove_empty_parent(worktree_path: &Path) {
+    let Some(parent) = worktree_path.parent() else {
+        return;
+    };
+    if parent
+        .read_dir()
+        .is_ok_and(|mut entries| entries.next().is_none())
+    {
+        let _ = std::fs::remove_dir(parent);
+    }
+}
+
 fn tracking_error(directory: &Path, project_id: &str) -> Option<String> {
     match load_file_from(directory, project_id) {
         Ok(WorktreeFile::Missing | WorktreeFile::Loaded(_)) => None,
@@ -219,6 +425,24 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use std::time::Duration;
+
+    #[test]
+    fn remove_worktree_contract_requires_inspection_and_disk_first_outcomes() {
+        let _: Option<RemoveWorktreeRequest> = None;
+        let _: Option<RemovalInspection> = None;
+        let _: Option<RemoveWorktreeOutcome> = None;
+        let _ = inspect_worktree_removal;
+        let _ = remove_worktree;
+    }
+
+    fn verification_temp() -> tempfile::TempDir {
+        let root = Path::new("target/test-verification");
+        std::fs::create_dir_all(root).unwrap();
+        tempfile::Builder::new()
+            .prefix("p8.")
+            .tempdir_in(root)
+            .unwrap()
+    }
 
     fn run(repo: &Path, args: &[&str]) {
         let status = Command::new("git")
@@ -265,6 +489,314 @@ mod tests {
             },
             timeout: Duration::from_secs(10),
         }
+    }
+
+    fn removal_options(root: &Path, current_worktrees: Vec<Worktree>) -> RemoveWorktreeOptions {
+        let options = options(root);
+        RemoveWorktreeOptions {
+            git_options: options.git_options,
+            worktrees_dir: options.worktrees_dir,
+            current_worktrees,
+            hook_options: options.hook_options,
+            timeout: options.timeout,
+        }
+    }
+
+    fn created_secondary(
+        root: &Path,
+        project: &Project,
+        parent: &str,
+        branch: &str,
+    ) -> CreateWorktreeOutcome {
+        create_worktree(
+            request(project, branch, branch, root.join(parent).join("checkout")),
+            &options(root),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn remove_worktree_inspection_refuses_primary_and_models_dirty_hooks_and_diagnostics() {
+        let temp = verification_temp();
+        let project = repository(temp.path());
+        let created = created_secondary(temp.path(), &project, "inspection", "inspection");
+        let worktree = created.worktree.clone();
+        let initial_options = removal_options(temp.path(), created.worktrees.clone());
+        assert!(
+            !inspect_worktree_removal(&project, &worktree, &initial_options)
+                .unwrap()
+                .dirty
+        );
+        std::fs::write(Path::new(&worktree.path).join("dirty"), b"dirty").unwrap();
+        std::fs::create_dir_all(Path::new(&project.path).join(".muxy")).unwrap();
+        std::fs::write(
+            Path::new(&project.path).join(".muxy/worktree.json"),
+            r#"{"teardown":[{"command":"true","name":"Project cleanup"}]}"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(temp.path().join("xdg/muxy")).unwrap();
+        std::fs::write(
+            temp.path().join("xdg/muxy/worktree.json"),
+            r#"{"teardown":[{"command":"true","name":"Machine cleanup"}]}"#,
+        )
+        .unwrap();
+        let options = removal_options(temp.path(), created.worktrees.clone());
+
+        let inspection = inspect_worktree_removal(&project, &worktree, &options).unwrap();
+        assert!(inspection.dirty);
+        assert!(inspection.inspection_diagnostic.is_none());
+        assert_eq!(inspection.teardown_commands.len(), 2);
+        assert_eq!(
+            inspection.teardown_commands[0].source,
+            crate::worktree_config::CommandSource::Project
+        );
+        assert_eq!(
+            inspection.teardown_commands[1].source,
+            crate::worktree_config::CommandSource::Global
+        );
+
+        let primary = created
+            .worktrees
+            .iter()
+            .find(|candidate| candidate.is_primary)
+            .unwrap();
+        assert!(matches!(
+            inspect_worktree_removal(&project, primary, &options),
+            Err(RemoveWorktreeError::PrimaryWorktree)
+        ));
+        let mut disguised_primary = worktree.clone();
+        disguised_primary.path.clone_from(&project.path);
+        let mut disguised_options = options.clone();
+        disguised_options
+            .current_worktrees
+            .iter_mut()
+            .find(|candidate| candidate.id == disguised_primary.id)
+            .unwrap()
+            .path
+            .clone_from(&project.path);
+        assert!(matches!(
+            inspect_worktree_removal(&project, &disguised_primary, &disguised_options),
+            Err(RemoveWorktreeError::PrimaryWorktree)
+        ));
+
+        let mut stale = worktree.clone();
+        stale.path.push_str("-changed");
+        assert!(matches!(
+            inspect_worktree_removal(&project, &stale, &options),
+            Err(RemoveWorktreeError::StaleWorktree)
+        ));
+        let mut remote = project.clone();
+        remote.remote_workspace_id = Some("REMOTE".into());
+        assert!(matches!(
+            inspect_worktree_removal(&remote, &worktree, &options),
+            Err(RemoveWorktreeError::RemoteProject)
+        ));
+
+        let mut external = worktree.clone();
+        external.source = Source::External;
+        let mut external_options = options.clone();
+        external_options
+            .current_worktrees
+            .iter_mut()
+            .find(|candidate| candidate.id == external.id)
+            .unwrap()
+            .source = Source::External;
+        let external_inspection =
+            inspect_worktree_removal(&project, &external, &external_options).unwrap();
+        assert!(external_inspection.teardown_commands.is_empty());
+
+        let mut diagnostic_options = options;
+        diagnostic_options.git_options.executable = temp.path().join("missing-git");
+        let diagnostic =
+            inspect_worktree_removal(&project, &worktree, &diagnostic_options).unwrap();
+        assert!(!diagnostic.dirty);
+        assert!(diagnostic.inspection_diagnostic.is_some());
+    }
+
+    #[test]
+    fn remove_worktree_is_disk_first_and_preserves_pre_disk_failures() {
+        let temp = verification_temp();
+        let project = repository(temp.path());
+        let created = created_secondary(temp.path(), &project, "blocked", "blocked");
+        let worktree = created.worktree.clone();
+        std::fs::create_dir_all(Path::new(&project.path).join(".muxy")).unwrap();
+        std::fs::write(
+            Path::new(&project.path).join(".muxy/worktree.json"),
+            r#"{"teardown":["false"]}"#,
+        )
+        .unwrap();
+        let options = removal_options(temp.path(), created.worktrees.clone());
+        let inspection = inspect_worktree_removal(&project, &worktree, &options).unwrap();
+        let approval = ProjectHookApproval::from_resolved(&inspection.teardown_commands);
+        std::fs::write(
+            Path::new(&project.path).join(".muxy/worktree.json"),
+            r#"{"teardown":["true"]}"#,
+        )
+        .unwrap();
+        let result = remove_worktree(
+            RemoveWorktreeRequest {
+                project: project.clone(),
+                worktree: worktree.clone(),
+                project_hook_approval: Some(approval),
+            },
+            &options,
+        );
+        assert!(matches!(result, Err(RemoveWorktreeError::Hook(_))));
+        assert!(Path::new(&worktree.path).exists());
+        std::fs::write(
+            Path::new(&project.path).join(".muxy/worktree.json"),
+            r#"{"teardown":["false"]}"#,
+        )
+        .unwrap();
+        let inspection = inspect_worktree_removal(&project, &worktree, &options).unwrap();
+        let approval = ProjectHookApproval::from_resolved(&inspection.teardown_commands);
+        let result = remove_worktree(
+            RemoveWorktreeRequest {
+                project: project.clone(),
+                worktree: worktree.clone(),
+                project_hook_approval: Some(approval),
+            },
+            &options,
+        );
+        assert!(matches!(result, Err(RemoveWorktreeError::Hook(_))));
+        assert!(Path::new(&worktree.path).exists());
+        assert!(
+            muxy_core::store::worktrees::load_from(&options.worktrees_dir, &project.id)
+                .iter()
+                .any(|candidate| candidate.id == worktree.id)
+        );
+
+        std::fs::write(
+            Path::new(&project.path).join(".muxy/worktree.json"),
+            r#"{"teardown":["sleep 1"]}"#,
+        )
+        .unwrap();
+        let inspection = inspect_worktree_removal(&project, &worktree, &options).unwrap();
+        let approval = ProjectHookApproval::from_resolved(&inspection.teardown_commands);
+        let mut timeout_options = options.clone();
+        timeout_options.timeout = Duration::ZERO;
+        let result = remove_worktree(
+            RemoveWorktreeRequest {
+                project: project.clone(),
+                worktree: worktree.clone(),
+                project_hook_approval: Some(approval),
+            },
+            &timeout_options,
+        );
+        assert!(matches!(result, Err(RemoveWorktreeError::Hook(_))));
+        assert!(Path::new(&worktree.path).exists());
+
+        let mut git_failure_options = options;
+        git_failure_options.git_options.executable = temp.path().join("missing-git");
+        let mut external = worktree.clone();
+        external.source = Source::External;
+        git_failure_options
+            .current_worktrees
+            .iter_mut()
+            .find(|candidate| candidate.id == external.id)
+            .unwrap()
+            .source = Source::External;
+        let result = remove_worktree(
+            RemoveWorktreeRequest {
+                project,
+                worktree: external,
+                project_hook_approval: None,
+            },
+            &git_failure_options,
+        );
+        assert!(matches!(result, Err(RemoveWorktreeError::Git(_))));
+        assert!(Path::new(&worktree.path).exists());
+    }
+
+    #[test]
+    fn remove_worktree_cleans_disk_parent_and_warns_after_irreversible_failures() {
+        let temp = verification_temp();
+        let project = repository(temp.path());
+        let created = created_secondary(temp.path(), &project, "empty-parent", "removed");
+        let worktree = created.worktree.clone();
+        let parent = Path::new(&worktree.path).parent().unwrap().to_path_buf();
+        let blocked = temp.path().join("blocked-tracking");
+        std::fs::write(&blocked, b"blocked").unwrap();
+        let mut options = removal_options(temp.path(), created.worktrees.clone());
+        options.worktrees_dir = blocked.join("tracking");
+        let outcome = remove_worktree(
+            RemoveWorktreeRequest {
+                project: project.clone(),
+                worktree: worktree.clone(),
+                project_hook_approval: Some(ProjectHookApproval::from_resolved(&[])),
+            },
+            &options,
+        )
+        .unwrap();
+        assert!(!Path::new(&worktree.path).exists());
+        assert!(!parent.exists());
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|warning| matches!(warning, LifecycleWarning::WorktreeListPersistence(_)))
+        );
+        assert!(!outcome.files_preserved);
+        assert!(
+            outcome
+                .worktrees
+                .iter()
+                .all(|candidate| candidate.id != worktree.id)
+        );
+
+        let reconciled = created_secondary(temp.path(), &project, "reconciled", "reconciled");
+        let reconciled_worktree = reconciled.worktree.clone();
+        run(
+            Path::new(&project.path),
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                "--",
+                &reconciled_worktree.path,
+            ],
+        );
+        let reconciled_outcome = remove_worktree(
+            RemoveWorktreeRequest {
+                project: project.clone(),
+                worktree: reconciled_worktree,
+                project_hook_approval: Some(ProjectHookApproval::from_resolved(&[])),
+            },
+            &removal_options(temp.path(), reconciled.worktrees),
+        )
+        .unwrap();
+        assert!(
+            reconciled_outcome
+                .warnings
+                .iter()
+                .any(|warning| matches!(warning, LifecycleWarning::ReconciledGitRemoval(_)))
+        );
+
+        let preserved = created_secondary(temp.path(), &project, "preserved", "preserved");
+        let preserved_worktree = preserved.worktree.clone();
+        let mut missing_project = project;
+        missing_project.path = temp
+            .path()
+            .join("missing-primary")
+            .to_string_lossy()
+            .into_owned();
+        let preserved_outcome = remove_worktree(
+            RemoveWorktreeRequest {
+                project: missing_project,
+                worktree: preserved_worktree.clone(),
+                project_hook_approval: None,
+            },
+            &removal_options(temp.path(), preserved.worktrees),
+        )
+        .unwrap();
+        assert!(preserved_outcome.files_preserved);
+        assert!(Path::new(&preserved_worktree.path).exists());
+        assert!(
+            preserved_outcome
+                .warnings
+                .iter()
+                .any(|warning| matches!(warning, LifecycleWarning::PreservedFiles(_)))
+        );
     }
 
     fn request(

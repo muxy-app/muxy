@@ -12,6 +12,14 @@ pub(super) struct CreateRequestIdentity {
     pub(super) request_id: u64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct RemovalRequestIdentity {
+    pub(super) project_id: String,
+    pub(super) worktree_id: String,
+    pub(super) generation: u64,
+    pub(super) request_id: u64,
+}
+
 impl CreateRequestIdentity {
     pub(super) fn new(project_id: &str, generation: u64, request_id: u64) -> Self {
         Self {
@@ -26,6 +34,7 @@ impl CreateRequestIdentity {
 pub(super) struct WorktreeViewState {
     expanded: HashSet<String>,
     create_request: Option<CreateRequestIdentity>,
+    removal_request: Option<RemovalRequestIdentity>,
     next_request_id: u64,
 }
 
@@ -76,6 +85,37 @@ impl WorktreeViewState {
         self.create_request = None;
     }
 
+    pub(super) fn begin_removal(
+        &mut self,
+        project_id: &str,
+        worktree_id: &str,
+        generation: u64,
+    ) -> RemovalRequestIdentity {
+        self.next_request_id = self.next_request_id.wrapping_add(1);
+        let request = RemovalRequestIdentity {
+            project_id: project_id.to_owned(),
+            worktree_id: worktree_id.to_owned(),
+            generation,
+            request_id: self.next_request_id,
+        };
+        self.removal_request = Some(request.clone());
+        request
+    }
+
+    pub(super) fn matches_removal(&self, request: &RemovalRequestIdentity) -> bool {
+        self.removal_request.as_ref() == Some(request)
+    }
+
+    pub(super) fn clear_removal(&mut self) {
+        self.removal_request = None;
+    }
+
+    pub(super) fn clear_removal_if(&mut self, request: &RemovalRequestIdentity) {
+        if self.matches_removal(request) {
+            self.clear_removal();
+        }
+    }
+
     pub(super) fn rebase_create(&mut self, project_id: &str, generation: u64) {
         if let Some(request) = &mut self.create_request
             && request.project_id.eq_ignore_ascii_case(project_id)
@@ -92,6 +132,13 @@ impl WorktreeViewState {
             .is_some_and(|request| request.project_id.eq_ignore_ascii_case(project_id))
         {
             self.create_request = None;
+        }
+        if self
+            .removal_request
+            .as_ref()
+            .is_some_and(|request| request.project_id.eq_ignore_ascii_case(project_id))
+        {
+            self.removal_request = None;
         }
     }
 
@@ -111,6 +158,13 @@ impl WorktreeViewState {
             .is_some_and(|request| !project_ids.contains(&request.project_id))
         {
             self.create_request = None;
+        }
+        if self
+            .removal_request
+            .as_ref()
+            .is_some_and(|request| !project_ids.contains(&request.project_id))
+        {
+            self.removal_request = None;
         }
     }
 }
@@ -275,7 +329,17 @@ mod tests {
         state.rebase_create("PROJECT", 5);
         assert!(state.matches_create(&CreateRequestIdentity::new("PROJECT", 5, 7)));
         assert!(!state.matches_create(&current));
+        let removal = state.begin_removal("PROJECT", "SECONDARY", 5);
+        assert!(state.matches_removal(&removal));
+        assert!(!state.matches_removal(&RemovalRequestIdentity {
+            request_id: removal.request_id.wrapping_add(1),
+            ..removal.clone()
+        }));
+        let newer = state.begin_removal("PROJECT", "THIRD", 5);
+        state.clear_removal_if(&removal);
+        assert!(state.matches_removal(&newer));
         state.clear_project("PROJECT");
+        assert!(state.removal_request.is_none());
         assert!(state.create_request().is_none());
         assert!(!state.is_expanded("PROJECT"));
     }

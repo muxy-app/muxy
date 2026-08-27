@@ -127,6 +127,8 @@ fn project_list(
             for model in models {
                 let project_id = project.id.clone();
                 let worktree_id = model.id.clone();
+                let menu_project_id = project_id.clone();
+                let menu_worktree_id = worktree_id.clone();
                 nested = nested.child(
                     div()
                         .id(gpui::ElementId::Name(SharedString::from(format!(
@@ -136,6 +138,20 @@ fn project_list(
                             window.state.select_worktree(&project_id, &worktree_id);
                             cx.notify();
                         }))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(
+                                move |window: &mut MainWindow, event: &MouseDownEvent, view, cx| {
+                                    window.open_worktree_menu(
+                                        &menu_project_id,
+                                        &menu_worktree_id,
+                                        event.position,
+                                        view,
+                                        cx,
+                                    );
+                                },
+                            ),
+                        )
                         .child(worktree_row(state, &model)),
                 );
             }

@@ -21,6 +21,12 @@ pub struct CreationEffects {
     pub navigation_recorded: bool,
 }
 
+pub struct RemovalEffects {
+    pub tab_ids: Vec<String>,
+    pub warnings: Vec<muxy_api::worktree_lifecycle::LifecycleWarning>,
+    pub navigation_recorded: bool,
+}
+
 impl std::fmt::Display for NavigationApplyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -229,6 +235,120 @@ impl AppState {
         self.apply_created_worktree_with(project_id, outcome, |active_worktrees| {
             Prefs::try_store_active_worktree_ids(active_worktrees)
         })
+    }
+
+    pub fn apply_removed_worktree(
+        &mut self,
+        project_id: &str,
+        outcome: muxy_api::worktree_lifecycle::RemoveWorktreeOutcome,
+    ) -> RemovalEffects {
+        self.apply_removed_worktree_with(
+            project_id,
+            outcome,
+            |store| store.save(),
+            Prefs::try_store_active_worktree_ids,
+        )
+    }
+
+    fn apply_removed_worktree_with<SaveWorkspaces, SavePreferences>(
+        &mut self,
+        project_id: &str,
+        outcome: muxy_api::worktree_lifecycle::RemoveWorktreeOutcome,
+        save_workspaces: SaveWorkspaces,
+        save_preferences: SavePreferences,
+    ) -> RemovalEffects
+    where
+        SaveWorkspaces: FnOnce(&WorkspaceStore) -> io::Result<()>,
+        SavePreferences: FnOnce(&HashMap<String, String>) -> io::Result<()>,
+    {
+        let mut warnings = outcome.warnings;
+        let removed = outcome.removed;
+        let tab_ids = self
+            .tab_workspaces
+            .worktree(project_id, &removed.id)
+            .and_then(|workspace| workspace.root.as_ref())
+            .map(|root| root.tabs().iter().map(|tab| tab.id.clone()).collect())
+            .unwrap_or_default();
+        self.tab_workspaces.remove_worktree(project_id, &removed.id);
+        self.prune_navigation_worktree(project_id, &removed.id);
+        self.worktrees
+            .insert(project_id.to_owned(), outcome.worktrees.clone());
+
+        let selected = self.prefs.active_worktree_ids.get(project_id).cloned();
+        let replacement = selected
+            .as_ref()
+            .and_then(|selected| {
+                outcome
+                    .worktrees
+                    .iter()
+                    .find(|worktree| worktree.id.eq_ignore_ascii_case(selected))
+            })
+            .or_else(|| {
+                outcome
+                    .worktrees
+                    .iter()
+                    .find(|worktree| worktree.is_primary)
+            })
+            .or_else(|| outcome.worktrees.first())
+            .cloned();
+        match &replacement {
+            Some(worktree) => {
+                self.tab_workspaces
+                    .ensure_worktree(project_id, &worktree.id, &worktree.path);
+                self.prefs
+                    .active_worktree_ids
+                    .insert(project_id.to_owned(), worktree.id.clone());
+            }
+            None => {
+                self.prefs.active_worktree_ids.remove(project_id);
+            }
+        }
+        if let Some(project) = self
+            .workspace
+            .projects
+            .iter_mut()
+            .find(|project| project.id.eq_ignore_ascii_case(project_id))
+        {
+            project.worktree_label = replacement.as_ref().map(|worktree| {
+                if worktree.is_primary {
+                    "primary".to_owned()
+                } else {
+                    worktree.name.clone()
+                }
+            });
+        }
+
+        let navigation_recorded = match save_workspaces(&self.tab_workspaces) {
+            Ok(()) => {
+                self.prune_navigation_history();
+                if !self.navigation_recording_suppressed
+                    && let Some(entry) = self.current_navigation_entry()
+                {
+                    self.navigation.record(entry);
+                }
+                true
+            }
+            Err(error) => {
+                warnings.push(
+                    muxy_api::worktree_lifecycle::LifecycleWarning::WorkspacePersistence(
+                        error.to_string(),
+                    ),
+                );
+                false
+            }
+        };
+        if let Err(error) = save_preferences(&self.prefs.active_worktree_ids) {
+            warnings.push(
+                muxy_api::worktree_lifecycle::LifecycleWarning::ActivePreferencePersistence(
+                    error.to_string(),
+                ),
+            );
+        }
+        RemovalEffects {
+            tab_ids,
+            warnings,
+            navigation_recorded,
+        }
     }
 
     fn apply_created_worktree_with<F>(
@@ -693,6 +813,25 @@ mod tests {
     use muxy_core::store::worktrees;
     use muxy_ui::theme::ColorScheme;
 
+    #[test]
+    fn remove_worktree_contract_requires_post_disk_exact_cleanup_effects() {
+        let _: Option<RemovalEffects> = None;
+        let _ = AppState::apply_removed_worktree;
+    }
+
+    fn secondary(id: &str, name: &str, path: &str) -> Worktree {
+        Worktree {
+            id: id.into(),
+            name: name.into(),
+            path: path.into(),
+            branch: Some(name.into()),
+            source: muxy_core::store::worktrees::Source::Muxy,
+            is_primary: false,
+            created_at: 1.0,
+            last_active_at: None,
+        }
+    }
+
     fn project(id: &str, name: &str, path: &str) -> Project {
         let mut project = Project::new(name.into(), path.into(), 0);
         project.id = id.into();
@@ -895,6 +1034,120 @@ mod tests {
     }
 
     #[test]
+    fn remove_worktree_application_collects_tabs_prunes_exact_state_and_keeps_cleanup_on_save_failures()
+     {
+        let directory = tempfile::tempdir().unwrap();
+        let mut state = state_at(&directory.path().join("workspaces.json"));
+        let primary = state.worktrees["project-one"][0].clone();
+        let removed = secondary("REMOVED", "Removed", "/removed");
+        state
+            .worktrees
+            .get_mut("project-one")
+            .unwrap()
+            .push(removed.clone());
+        state
+            .tab_workspaces
+            .ensure_worktree("project-one", &removed.id, &removed.path);
+        state.active_project_id = Some("project-one".into());
+        state.prefs.active_project_id = Some("project-one".into());
+        state
+            .prefs
+            .active_worktree_ids
+            .insert("project-one".into(), removed.id.clone());
+        let removed_entry = state.current_navigation_entry().unwrap();
+        state.navigation.record(removed_entry);
+        let outcome = muxy_api::worktree_lifecycle::RemoveWorktreeOutcome {
+            removed: removed.clone(),
+            worktrees: vec![primary.clone()],
+            files_preserved: false,
+            warnings: Vec::new(),
+        };
+
+        let effects =
+            state.apply_removed_worktree_with("project-one", outcome, |_| Ok(()), |_| Ok(()));
+
+        assert!(!effects.tab_ids.is_empty());
+        assert!(effects.navigation_recorded);
+        assert!(effects.warnings.is_empty());
+        assert!(
+            state
+                .tab_workspaces
+                .worktree("project-one", &removed.id)
+                .is_none()
+        );
+        assert_eq!(
+            state.prefs.active_worktree_ids.get("project-one"),
+            Some(&primary.id)
+        );
+        assert!(
+            state
+                .navigation
+                .entries()
+                .iter()
+                .all(|entry| { !entry.worktree_id.eq_ignore_ascii_case(&removed.id) })
+        );
+        assert_eq!(
+            state
+                .workspace
+                .project("project-one")
+                .and_then(|project| project.worktree_label.as_deref()),
+            Some("primary")
+        );
+
+        let retained = secondary("RETAINED", "Retained", "/retained");
+        let doomed = secondary("DOOMED", "Doomed", "/doomed");
+        state.worktrees.insert(
+            "project-one".into(),
+            vec![primary, retained.clone(), doomed.clone()],
+        );
+        state
+            .tab_workspaces
+            .ensure_worktree("project-one", &retained.id, &retained.path);
+        state
+            .tab_workspaces
+            .ensure_worktree("project-one", &doomed.id, &doomed.path);
+        state
+            .prefs
+            .active_worktree_ids
+            .insert("project-one".into(), retained.id.clone());
+        let outcome = muxy_api::worktree_lifecycle::RemoveWorktreeOutcome {
+            removed: doomed.clone(),
+            worktrees: state.worktrees["project-one"]
+                .iter()
+                .filter(|worktree| worktree.id != doomed.id)
+                .cloned()
+                .collect(),
+            files_preserved: false,
+            warnings: Vec::new(),
+        };
+        let effects = state.apply_removed_worktree_with(
+            "project-one",
+            outcome,
+            |_| Err(io::Error::other("workspace failure")),
+            |_| Err(io::Error::other("preference failure")),
+        );
+        assert_eq!(
+            state.prefs.active_worktree_ids.get("project-one"),
+            Some(&retained.id)
+        );
+        assert!(
+            state
+                .tab_workspaces
+                .worktree("project-one", &doomed.id)
+                .is_none()
+        );
+        assert!(!effects.navigation_recorded);
+        assert!(effects.warnings.iter().any(|warning| matches!(
+            warning,
+            muxy_api::worktree_lifecycle::LifecycleWarning::WorkspacePersistence(_)
+        )));
+        assert!(effects.warnings.iter().any(|warning| matches!(
+            warning,
+            muxy_api::worktree_lifecycle::LifecycleWarning::ActivePreferencePersistence(_)
+        )));
+    }
+
+    #[test]
     fn navigation_commit_survives_pruning_before_a_forward_target() {
         let directory = tempfile::tempdir().unwrap();
         let mut state = state_at(&directory.path().join("workspaces.json"));
@@ -948,7 +1201,7 @@ mod tests {
             .project_operations
             .begin_operation(
                 "project-one",
-                crate::project_operations::ProjectOperationKind::Create,
+                crate::project_operations::ProjectOperationKind::Remove,
             )
             .unwrap();
 

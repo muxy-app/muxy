@@ -92,6 +92,23 @@ pub fn items(
                     .collect();
                 items.push(Item::submenu("Switch Worktree", switch));
             }
+            if let Some(worktree) = active_worktree_id.and_then(|active| {
+                worktrees
+                    .iter()
+                    .find(|worktree| worktree.id.eq_ignore_ascii_case(active))
+            }) && project.can_remove_worktree(worktree)
+            {
+                items.push(
+                    Item::action(
+                        "Remove Worktree…",
+                        Command::RemoveWorktree {
+                            project_id: id.clone(),
+                            worktree_id: worktree.id.clone(),
+                        },
+                    )
+                    .destructive(),
+                );
+            }
         }
     }
 
@@ -144,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn project_menu_exposes_refresh_new_and_switch_commands_without_remove() {
+    fn project_menu_exposes_refresh_new_switch_and_secondary_remove_commands() {
         let mut project = Project::new("Project".into(), "/repo".into(), 0);
         project.id = "PROJECT".into();
         project.is_git_repo = true;
@@ -175,7 +192,7 @@ mod tests {
         let labels = action_labels(&menu);
         assert!(labels.contains(&"Refresh Worktrees".to_owned()));
         assert!(labels.contains(&"New Worktree…".to_owned()));
-        assert!(!labels.contains(&"Remove Worktree".to_owned()));
+        assert!(labels.contains(&"Remove Worktree…".to_owned()));
         let switch = menu
             .iter()
             .find_map(|item| match item {
@@ -186,5 +203,12 @@ mod tests {
             })
             .unwrap();
         assert_eq!(switch.len(), 2);
+
+        let primary_menu = items(&project, &[], &worktrees, Some("PRIMARY"));
+        assert!(!action_labels(&primary_menu).contains(&"Remove Worktree…".to_owned()));
+
+        project.remote_workspace_id = Some("REMOTE".into());
+        let remote_menu = items(&project, &[], &worktrees, Some("FEATURE"));
+        assert!(!action_labels(&remote_menu).contains(&"Remove Worktree…".to_owned()));
     }
 }

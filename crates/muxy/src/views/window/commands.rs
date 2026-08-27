@@ -86,6 +86,13 @@ impl MainWindow {
                 self.dismiss_overlay(cx);
                 self.open_create_worktree(&id, window, cx);
             }
+            Command::RemoveWorktree {
+                project_id,
+                worktree_id,
+            } => {
+                self.dismiss_overlay(cx);
+                self.request_worktree_removal_inspection(project_id, worktree_id, cx);
+            }
             Command::CopyPath(id) => {
                 if let Some(project) = self.state.workspace.project(&id) {
                     cx.write_to_clipboard(ClipboardItem::new_string(project.path.clone()));
