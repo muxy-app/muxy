@@ -88,6 +88,7 @@ pub(crate) struct AppView<'a> {
     pub overlay: &'a Overlay,
     pub drop_highlight: Option<(Bounds<Pixels>, muxy_core::workspace::DropZone)>,
     pub focused_working_directory: Option<String>,
+    pub expanded_worktree_projects: &'a HashSet<String>,
 }
 
 pub(crate) fn render(
@@ -111,6 +112,7 @@ pub(crate) fn render(
         overlay,
         drop_highlight,
         focused_working_directory,
+        expanded_worktree_projects,
     } = view;
     let theme = state.theme.clone();
     let metrics = state.metrics;
@@ -129,7 +131,12 @@ pub(crate) fn render(
                 .flex_col()
                 .flex_grow()
                 .min_h(px(0.0))
-                .child(sidebar::sidebar(state, layout, cx)),
+                .child(sidebar::sidebar(
+                    state,
+                    layout,
+                    expanded_worktree_projects,
+                    cx,
+                )),
         );
 
     let sidebar_border = div()
@@ -242,6 +249,22 @@ pub(crate) fn render(
         .on_action(cx.listener(
             |window, _: &crate::keymap::RecentlyRemovedProjects, window_handle, cx| {
                 window.open_omnibox(omnibox::Scope::RecentlyRemovedProjects, window_handle, cx);
+            },
+        ))
+        .on_action(
+            cx.listener(|window, _: &crate::keymap::RefreshWorktrees, _, cx| {
+                let Some(project_id) = window.state.active_project_id.clone() else {
+                    return;
+                };
+                window.request_worktree_refresh(project_id, None, cx);
+            }),
+        )
+        .on_action(cx.listener(
+            |window, _: &crate::keymap::CreateWorktree, window_handle, cx| {
+                let Some(project_id) = window.state.active_project_id.clone() else {
+                    return;
+                };
+                window.open_create_worktree(&project_id, window_handle, cx);
             },
         ))
         .on_action(cx.listener(

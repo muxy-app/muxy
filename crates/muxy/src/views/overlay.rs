@@ -52,6 +52,7 @@ pub enum Overlay {
     Omnibox(Entity<crate::views::omnibox::Omnibox>),
     Settings(Entity<crate::views::settings::SettingsModal>),
     ThemePicker(Entity<crate::views::settings::theme_picker::ThemeBrowser>),
+    CreateWorktree(Entity<crate::views::create_worktree_overlay::CreateWorktreeModal>),
 }
 
 impl Overlay {
@@ -276,6 +277,16 @@ pub fn layer(
             .justify_center()
             .child(browser.clone())
             .into_any_element(),
+        Overlay::CreateWorktree(modal) => div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(modal.clone())
+            .into_any_element(),
     };
 
     let backdrop = matches!(
@@ -284,6 +295,7 @@ pub fn layer(
             | Overlay::Omnibox(_)
             | Overlay::Settings(_)
             | Overlay::ThemePicker(_)
+            | Overlay::CreateWorktree(_)
             | Overlay::TerminalConfirm { .. }
     );
 

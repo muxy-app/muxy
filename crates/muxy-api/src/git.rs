@@ -224,6 +224,38 @@ pub fn list_worktrees(
     Ok(records)
 }
 
+pub fn list_local_branches(
+    options: &GitOptions,
+    repo_path: &Path,
+    deadline: &Deadline,
+) -> Result<Vec<String>, GitError> {
+    let output = run_git_with_deadline(
+        options,
+        repo_path,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+        deadline,
+    )?;
+    let mut branches = output
+        .lines()
+        .map(str::trim)
+        .filter(|branch| !branch.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    branches.sort();
+    branches.dedup();
+    Ok(branches)
+}
+
+pub fn current_branch(
+    options: &GitOptions,
+    repo_path: &Path,
+    deadline: &Deadline,
+) -> Result<Option<String>, GitError> {
+    let output =
+        run_git_with_deadline(options, repo_path, &["branch", "--show-current"], deadline)?;
+    Ok((!output.trim().is_empty()).then(|| output.trim().to_owned()))
+}
+
 pub fn is_worktree_registered(
     options: &GitOptions,
     repo_path: &Path,

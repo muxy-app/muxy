@@ -3,6 +3,14 @@ use super::*;
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.reconcile_terminals(window, cx);
+        let project_ids = self
+            .state
+            .workspace
+            .projects
+            .iter()
+            .map(|project| project.id.clone())
+            .collect();
+        self.view.worktrees.retain_projects(&project_ids);
         if let Some(handle) = self.view.pending_focus.take() {
             window.focus(&handle);
         } else if !self.view.overlay.is_open()
@@ -67,6 +75,7 @@ impl Render for MainWindow {
                 overlay: &self.view.overlay,
                 drop_highlight,
                 focused_working_directory,
+                expanded_worktree_projects: self.view.worktrees.expanded_projects(),
             },
             window,
             cx,

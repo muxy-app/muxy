@@ -140,7 +140,9 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) {
         let Some(project) = self.state.workspace.project(&project_id).cloned() else {
-            respond_refresh(responder, format!("error:project not found {project_id}"));
+            let reply = format!("error:project not found {project_id}");
+            self.surface_native_refresh_error(&responder, &reply, cx);
+            respond_refresh(responder, reply);
             return;
         };
         let token = match self
@@ -150,7 +152,9 @@ impl MainWindow {
         {
             Ok(token) => token,
             Err(BeginOperationError::Busy(_)) => {
-                respond_refresh(responder, "error:worktree operation busy".to_owned());
+                let reply = "error:worktree operation busy".to_owned();
+                self.surface_native_refresh_error(&responder, &reply, cx);
+                respond_refresh(responder, reply);
                 return;
             }
         };
@@ -201,6 +205,7 @@ impl MainWindow {
                     .project_operations
                     .finish_operation(&token)
                     .is_ok_and(|outcome| outcome.schedule_fresh_probe);
+                window.surface_native_refresh_error(&responder, &reply, cx);
                 respond_refresh(responder, reply);
                 if schedule_fresh_probe
                     && window.state.workspace.project(token.project_id()).is_some()
@@ -212,6 +217,17 @@ impl MainWindow {
             });
         })
         .detach();
+    }
+
+    fn surface_native_refresh_error(
+        &mut self,
+        responder: &Option<muxy_proto::server::CommandResponder>,
+        reply: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(error) = native_refresh_error(responder.is_some(), reply) {
+            self.alert("Refresh Worktrees".into(), error.to_owned(), cx);
+        }
     }
 
     pub(crate) fn request_worktree_creation(
@@ -234,32 +250,7 @@ impl MainWindow {
                 return;
             }
         };
-        let home = muxy_core::prefs::home_dir();
-        let options = muxy_api::worktree_lifecycle::CreateWorktreeOptions {
-            git_options: self.project_runtime.git_options.clone(),
-            worktrees_dir: muxy_core::store::worktrees::worktrees_dir(),
-            current_worktrees: self
-                .state
-                .worktrees
-                .get(&project_id)
-                .cloned()
-                .unwrap_or_default(),
-            location_context: muxy_api::worktree_location::LocationContext {
-                home: home.clone(),
-                profile_worktree_root: muxy_core::prefs::app_support_dir()
-                    .join("worktree-checkouts"),
-                default_path_template: self.state.prefs.default_worktree_path_template.clone(),
-                default_parent_path: self.state.prefs.default_worktree_parent_path.clone(),
-            },
-            hook_options: muxy_api::worktree_hooks::HookOptions {
-                global_config_path: muxy_api::worktree_config::global_config_path(
-                    &home,
-                    std::env::var_os("XDG_CONFIG_HOME").as_deref(),
-                ),
-                environment: Vec::new(),
-            },
-            timeout: std::time::Duration::from_secs(300),
-        };
+        let options = self.worktree_create_options(&project_id);
         cx.spawn(async move |window, cx| {
             let result = cx
                 .background_executor()
@@ -301,6 +292,133 @@ impl MainWindow {
                 }
                 cx.set_menus(crate::views::window::menu_bar::menus(&window.state));
                 cx.activate(true);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn worktree_create_options(
+        &self,
+        project_id: &str,
+    ) -> muxy_api::worktree_lifecycle::CreateWorktreeOptions {
+        let home = muxy_core::prefs::home_dir();
+        muxy_api::worktree_lifecycle::CreateWorktreeOptions {
+            git_options: self.project_runtime.git_options.clone(),
+            worktrees_dir: muxy_core::store::worktrees::worktrees_dir(),
+            current_worktrees: self
+                .state
+                .worktrees
+                .get(project_id)
+                .cloned()
+                .unwrap_or_default(),
+            location_context: muxy_api::worktree_location::LocationContext {
+                home: home.clone(),
+                profile_worktree_root: muxy_core::prefs::app_support_dir()
+                    .join("worktree-checkouts"),
+                default_path_template: self.state.prefs.default_worktree_path_template.clone(),
+                default_parent_path: self.state.prefs.default_worktree_parent_path.clone(),
+            },
+            hook_options: muxy_api::worktree_hooks::HookOptions {
+                global_config_path: muxy_api::worktree_config::global_config_path(
+                    &home,
+                    std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+                ),
+                environment: Vec::new(),
+            },
+            timeout: std::time::Duration::from_secs(300),
+        }
+    }
+
+    pub(crate) fn request_native_worktree_creation(
+        &mut self,
+        request: muxy_api::worktree_lifecycle::CreateWorktreeRequest,
+        path_template: Option<String>,
+        parent_path: Option<String>,
+        modal: Entity<create_worktree_overlay::CreateWorktreeModal>,
+        cx: &mut Context<Self>,
+    ) {
+        let project_id = request.project.id.clone();
+        let token = match self
+            .state
+            .project_operations
+            .begin_operation(&project_id, ProjectOperationKind::Create)
+        {
+            Ok(token) => token,
+            Err(BeginOperationError::Busy(_)) => {
+                modal.update(cx, |modal, cx| {
+                    modal.set_error("worktree operation busy".into(), cx)
+                });
+                return;
+            }
+        };
+        modal.update(cx, |modal, cx| modal.set_running(true, cx));
+        let options = self.worktree_create_options(&project_id);
+        cx.spawn(async move |window, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(
+                    async move { muxy_api::worktree_lifecycle::create_worktree(request, &options) },
+                )
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                let succeeded = match result {
+                    Ok(outcome) => {
+                        let mut effects = window.state.apply_created_worktree(&project_id, outcome);
+                        if !effects.navigation_recorded {
+                            log::warn!("created worktree navigation was not recorded");
+                        }
+                        for warning in &effects.warnings {
+                            log::warn!("worktree creation warning: {warning:?}");
+                        }
+                        let location_persisted =
+                            window.state.workspace.update(&project_id, |project| {
+                            project.preferred_worktree_path_template = path_template.clone();
+                            project.preferred_worktree_parent_path = parent_path.clone();
+                        });
+                        if !location_persisted {
+                            log::warn!("worktree location preference was not persisted");
+                            effects.warnings.push(
+                                muxy_api::worktree_lifecycle::LifecycleWarning::LocationPreferencePersistence(
+                                    "the project workspace could not be saved".into(),
+                                ),
+                            );
+                        }
+                        window.view.worktrees.expand(&project_id);
+                        window.view.worktrees.clear_create();
+                        window.view.subscriptions.clear();
+                        window.view.overlay = Overlay::None;
+                        window.sync_watchers();
+                        if !effects.warnings.is_empty() {
+                            window.alert(
+                                "Worktree Created".into(),
+                                native_creation_warning(&effects.warnings),
+                                cx,
+                            );
+                        }
+                        true
+                    }
+                    Err(error) => {
+                        modal.update(cx, |modal, cx| modal.set_error(error.to_string(), cx));
+                        false
+                    }
+                };
+                let finish = window.state.project_operations.finish_operation(&token);
+                let schedule_fresh_probe = finish
+                    .as_ref()
+                    .is_ok_and(|outcome| outcome.schedule_fresh_probe);
+                if !succeeded && finish.is_ok() {
+                    let generation = window.state.project_operations.generation(&project_id);
+                    window.view.worktrees.rebase_create(&project_id, generation);
+                }
+                if schedule_fresh_probe && window.state.workspace.project(&project_id).is_some() {
+                    let ids = HashSet::from([project_id.clone()]);
+                    window.refresh_project_truth(Some(&ids), cx);
+                }
+                cx.set_menus(crate::views::window::menu_bar::menus(&window.state));
+                if succeeded {
+                    cx.activate(true);
+                }
                 cx.notify();
             });
         })
@@ -396,6 +514,48 @@ fn respond_refresh(responder: Option<muxy_proto::server::CommandResponder>, repl
     }
 }
 
+fn native_refresh_error(has_responder: bool, reply: &str) -> Option<&str> {
+    (!has_responder)
+        .then(|| reply.strip_prefix("error:"))
+        .flatten()
+}
+
+fn native_creation_warning(warnings: &[muxy_api::worktree_lifecycle::LifecycleWarning]) -> String {
+    use muxy_api::worktree_lifecycle::LifecycleWarning;
+
+    let details = warnings
+        .iter()
+        .map(|warning| match warning {
+            LifecycleWarning::Reconciliation(error) => {
+                format!("Worktree discovery could not be refreshed: {error}")
+            }
+            LifecycleWarning::WorktreeListPersistence(error) => {
+                format!("The worktree list could not be saved: {error}")
+            }
+            LifecycleWarning::Setup(error) => format!("Setup did not finish: {error}"),
+            LifecycleWarning::WorkspacePersistence(error) => {
+                format!("The workspace could not be saved: {error}")
+            }
+            LifecycleWarning::ActivePreferencePersistence(error) => {
+                format!("The active worktree preference could not be saved: {error}")
+            }
+            LifecycleWarning::LocationPreferencePersistence(error) => {
+                format!("The location preference could not be saved: {error}")
+            }
+            LifecycleWarning::ReconciledGitRemoval(error) => {
+                format!("Git removal reconciliation reported: {error}")
+            }
+            LifecycleWarning::PreservedFiles(error) => {
+                format!("Some files were preserved: {error}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "The worktree was created and was not rolled back. Some follow-up steps need attention:\n\n{details}"
+    )
+}
+
 pub(super) fn spawn_terminal_pumps(
     terminals: &mut TerminalSurfaces,
     cx: &mut Context<MainWindow>,
@@ -430,6 +590,9 @@ pub(super) fn spawn_terminal_pumps(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use muxy_api::worktree_lifecycle::LifecycleWarning;
+
     #[test]
     fn refresh_worktrees_routes_every_entry_through_the_coordinated_commit_seam() {
         let lifecycle = include_str!("lifecycle.rs");
@@ -445,5 +608,23 @@ mod tests {
         assert!(window.contains("refresh_project_truth(Some(&ids), cx)"));
         assert!(socket.contains("request_worktree_refresh"));
         assert!(!socket.contains("muxy_api::worktrees::refresh("));
+    }
+
+    #[test]
+    fn native_worktree_failures_are_user_visible_and_creation_warnings_disclaim_rollback() {
+        assert_eq!(
+            native_refresh_error(false, "error:worktree operation busy"),
+            Some("worktree operation busy")
+        );
+        assert_eq!(native_refresh_error(true, "error:socket failure"), None);
+        assert_eq!(native_refresh_error(false, "ok\t3"), None);
+
+        let warning = native_creation_warning(&[
+            LifecycleWarning::Setup("command failed".into()),
+            LifecycleWarning::LocationPreferencePersistence("save failed".into()),
+        ]);
+        assert!(warning.contains("was created and was not rolled back"));
+        assert!(warning.contains("Setup did not finish: command failed"));
+        assert!(warning.contains("location preference could not be saved: save failed"));
     }
 }

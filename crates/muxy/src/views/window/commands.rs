@@ -54,6 +54,37 @@ impl MainWindow {
                     project.worktrees_enabled = !enabled;
                 });
                 self.dismiss_overlay(cx);
+                if enabled {
+                    self.view.worktrees.clear_project(&id);
+                } else {
+                    self.request_worktree_refresh(id, None, cx);
+                }
+            }
+            Command::ToggleWorktreeExpansion(id) => {
+                self.view.worktrees.toggle(&id);
+                self.dismiss_overlay(cx);
+                cx.notify();
+            }
+            Command::SelectProject(id) => {
+                self.state.select_project(&id);
+                self.dismiss_overlay(cx);
+                cx.notify();
+            }
+            Command::SelectWorktree {
+                project_id,
+                worktree_id,
+            } => {
+                self.state.select_worktree(&project_id, &worktree_id);
+                self.dismiss_overlay(cx);
+                cx.notify();
+            }
+            Command::RefreshWorktrees(id) => {
+                self.dismiss_overlay(cx);
+                self.request_worktree_refresh(id, None, cx);
+            }
+            Command::NewWorktree(id) => {
+                self.dismiss_overlay(cx);
+                self.open_create_worktree(&id, window, cx);
             }
             Command::CopyPath(id) => {
                 if let Some(project) = self.state.workspace.project(&id) {

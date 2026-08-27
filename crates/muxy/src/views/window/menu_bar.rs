@@ -71,6 +71,8 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
     let mut file_items = vec![
         MenuItem::action("Open Project...", keymap::OpenProject),
         MenuItem::submenu(open_in_ide(state)),
+        MenuItem::action("New Worktree...", keymap::CreateWorktree),
+        MenuItem::action("Refresh Worktrees", keymap::RefreshWorktrees),
         MenuItem::separator(),
     ];
     file_items.extend(file_tab_items());

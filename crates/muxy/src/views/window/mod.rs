@@ -16,7 +16,9 @@ use crate::terminal::{
     dispatch_for_query,
 };
 use crate::views::menu::{Item, Menu};
-use crate::views::{omnibox, overlay, project_picker, settings, workspace_view};
+use crate::views::{
+    create_worktree_overlay, omnibox, overlay, project_picker, settings, workspace_view,
+};
 use gpui::{
     AppContext, Bounds, ClipboardItem, Context, Entity, Focusable, IntoElement, MouseMoveEvent,
     MouseUpEvent, Pixels, Point, Render, Task, Window, px,

@@ -38,7 +38,19 @@ impl MainWindow {
         };
         let groups: Vec<&muxy_core::store::Group> =
             self.state.workspace.groups.all().iter().collect();
-        let items = project_menu::items(project, &groups);
+        let worktrees = self
+            .state
+            .worktrees
+            .get(project_id)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let active = self
+            .state
+            .prefs
+            .active_worktree_ids
+            .get(project_id)
+            .map(String::as_str);
+        let items = project_menu::items(project, &groups, worktrees, active);
         self.open_menu(items, position, cx);
         window.focus(&self.view.menu_focus);
     }
@@ -82,6 +94,14 @@ impl MainWindow {
             self.resolve_terminal_confirmation(false, cx);
             return;
         }
+        if let Overlay::CreateWorktree(modal) = &self.view.overlay
+            && !modal.read(cx).dismissible()
+        {
+            return;
+        }
+        if matches!(self.view.overlay, Overlay::CreateWorktree(_)) {
+            self.view.worktrees.clear_create();
+        }
         self.view.subscriptions.clear();
         self.view.overlay = Overlay::None;
         cx.notify();
@@ -101,6 +121,7 @@ impl MainWindow {
             | Overlay::Omnibox(_)
             | Overlay::Settings(_)
             | Overlay::ThemePicker(_)
+            | Overlay::CreateWorktree(_)
             | Overlay::TerminalConfirm { .. } => gpui::point(px(0.0), px(0.0)),
         }
     }
@@ -267,6 +288,180 @@ impl MainWindow {
         self.view.subscriptions = vec![subscription];
         self.view.overlay = Overlay::ThemePicker(browser);
         cx.notify();
+    }
+
+    pub(crate) fn open_create_worktree(
+        &mut self,
+        project_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(self.view.overlay, Overlay::CreateWorktree(_))
+            || self.view.worktrees.create_request().is_some()
+            || self.state.project_operations.is_mutating(project_id)
+        {
+            return;
+        }
+        let Some(project) = self.state.workspace.project(project_id).cloned() else {
+            return;
+        };
+        if project.is_home() || project.is_remote() || !project.is_git_repo {
+            self.alert(
+                "New Worktree".into(),
+                "Worktrees require an existing local Git project.".into(),
+                cx,
+            );
+            return;
+        }
+        let generation = self.state.project_operations.generation(project_id);
+        let identity = self.view.worktrees.begin_create_for(project_id, generation);
+        let git_options = self.project_runtime.git_options.clone();
+        let home = muxy_core::prefs::home_dir();
+        let location_context = muxy_api::worktree_location::LocationContext {
+            home: home.clone(),
+            profile_worktree_root: muxy_core::prefs::app_support_dir().join("worktree-checkouts"),
+            default_path_template: self.state.prefs.default_worktree_path_template.clone(),
+            default_parent_path: self.state.prefs.default_worktree_parent_path.clone(),
+        };
+        let global_config = muxy_api::worktree_config::global_config_path(
+            &home,
+            std::env::var_os("XDG_CONFIG_HOME").as_deref(),
+        );
+        let project_path = project.path.clone();
+        let expected_path = project.path.clone();
+        cx.spawn(async move |window, cx| {
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    let deadline = muxy_api::subprocess::Deadline::new(Duration::from_secs(30));
+                    let branches = muxy_api::git::list_local_branches(
+                        &git_options,
+                        std::path::Path::new(&project_path),
+                        &deadline,
+                    );
+                    let current = muxy_api::git::current_branch(
+                        &git_options,
+                        std::path::Path::new(&project_path),
+                        &deadline,
+                    );
+                    let commands = muxy_api::worktree_config::resolved_commands(
+                        muxy_api::worktree_config::HookKind::Setup,
+                        std::path::Path::new(&project_path),
+                        &global_config,
+                        true,
+                    );
+                    (branches, current, commands)
+                })
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                if !window.view.worktrees.matches_create(&identity)
+                    || window
+                        .state
+                        .project_operations
+                        .generation(&identity.project_id)
+                        != identity.generation
+                    || window
+                        .state
+                        .workspace
+                        .project(&identity.project_id)
+                        .is_none_or(|current| current.path != expected_path)
+                {
+                    return;
+                }
+                let (branches, current, commands) = loaded;
+                let mut initial_error = None;
+                let branches = branches.unwrap_or_else(|error| {
+                    initial_error = Some(error.to_string());
+                    Vec::new()
+                });
+                let current = current.unwrap_or_else(|error| {
+                    initial_error.get_or_insert_with(|| error.to_string());
+                    None
+                });
+                let commands = commands.unwrap_or_else(|error| {
+                    initial_error.get_or_insert_with(|| error.to_string());
+                    Vec::new()
+                });
+                let mut form = create_worktree_overlay::CreateWorktreeForm::new(
+                    project,
+                    location_context,
+                    commands,
+                );
+                form.set_error(initial_error);
+                let theme = window.state.theme.clone();
+                let metrics = window.state.metrics;
+                let modal = cx.new(|cx| {
+                    create_worktree_overlay::CreateWorktreeModal::new(
+                        form, branches, current, theme, metrics, cx,
+                    )
+                });
+                let subscription =
+                    cx.subscribe(&modal, |window: &mut Self, modal, event, cx| match event {
+                        create_worktree_overlay::CreateWorktreeEvent::Dismiss => {
+                            window.view.worktrees.clear_create();
+                            window.dismiss_overlay(cx);
+                        }
+                        create_worktree_overlay::CreateWorktreeEvent::ChooseFolder => {
+                            window.choose_worktree_folder(modal, cx);
+                        }
+                        create_worktree_overlay::CreateWorktreeEvent::Submit {
+                            request,
+                            path_template,
+                            parent_path,
+                        } => window.request_native_worktree_creation(
+                            *request.clone(),
+                            path_template.clone(),
+                            parent_path.clone(),
+                            modal,
+                            cx,
+                        ),
+                    });
+                window.view.pending_focus = Some(modal.focus_handle(cx));
+                window.view.subscriptions = vec![subscription];
+                window.view.overlay = Overlay::CreateWorktree(modal);
+                cx.notify();
+            });
+        })
+        .detach();
+        window.focus(&self.view.workspace_focus);
+    }
+
+    fn choose_worktree_folder(
+        &mut self,
+        modal: Entity<create_worktree_overlay::CreateWorktreeModal>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(identity) = self.view.worktrees.create_request().cloned() else {
+            return;
+        };
+        let directory = self
+            .state
+            .workspace
+            .project(&identity.project_id)
+            .map(|project| project.path.clone());
+        cx.spawn(async move |window, cx| {
+            let selected =
+                crate::views::file_dialog::pick_folder(crate::views::file_dialog::FolderRequest {
+                    message: "Select where new worktrees for this project should be created",
+                    directory,
+                })
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                if !window.view.worktrees.matches_create(&identity)
+                    || window
+                        .state
+                        .project_operations
+                        .generation(&identity.project_id)
+                        != identity.generation
+                {
+                    return;
+                }
+                if let Some(path) = selected {
+                    modal.update(cx, |modal, cx| modal.set_folder(path, cx));
+                }
+            });
+        })
+        .detach();
     }
 
     pub(super) fn refresh_omnibox(&mut self, reset_highlight: bool, cx: &mut Context<Self>) {

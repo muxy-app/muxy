@@ -5,6 +5,116 @@ use muxy_ui::text_input::TextInput;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct CreateRequestIdentity {
+    pub(super) project_id: String,
+    pub(super) generation: u64,
+    pub(super) request_id: u64,
+}
+
+impl CreateRequestIdentity {
+    pub(super) fn new(project_id: &str, generation: u64, request_id: u64) -> Self {
+        Self {
+            project_id: project_id.to_owned(),
+            generation,
+            request_id,
+        }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct WorktreeViewState {
+    expanded: HashSet<String>,
+    create_request: Option<CreateRequestIdentity>,
+    next_request_id: u64,
+}
+
+impl WorktreeViewState {
+    #[cfg(test)]
+    pub(super) fn is_expanded(&self, project_id: &str) -> bool {
+        self.expanded.contains(project_id)
+    }
+
+    pub(super) fn toggle(&mut self, project_id: &str) {
+        if !self.expanded.remove(project_id) {
+            self.expanded.insert(project_id.to_owned());
+        }
+    }
+
+    pub(super) fn expand(&mut self, project_id: &str) {
+        self.expanded.insert(project_id.to_owned());
+    }
+
+    pub(super) fn expanded_projects(&self) -> &HashSet<String> {
+        &self.expanded
+    }
+
+    pub(super) fn begin_create(&mut self, request: CreateRequestIdentity) {
+        self.create_request = Some(request);
+    }
+
+    pub(super) fn begin_create_for(
+        &mut self,
+        project_id: &str,
+        generation: u64,
+    ) -> CreateRequestIdentity {
+        self.next_request_id = self.next_request_id.wrapping_add(1);
+        let request = CreateRequestIdentity::new(project_id, generation, self.next_request_id);
+        self.begin_create(request.clone());
+        request
+    }
+
+    pub(super) fn matches_create(&self, request: &CreateRequestIdentity) -> bool {
+        self.create_request.as_ref() == Some(request)
+    }
+
+    pub(super) fn create_request(&self) -> Option<&CreateRequestIdentity> {
+        self.create_request.as_ref()
+    }
+
+    pub(super) fn clear_create(&mut self) {
+        self.create_request = None;
+    }
+
+    pub(super) fn rebase_create(&mut self, project_id: &str, generation: u64) {
+        if let Some(request) = &mut self.create_request
+            && request.project_id.eq_ignore_ascii_case(project_id)
+        {
+            request.generation = generation;
+        }
+    }
+
+    pub(super) fn clear_project(&mut self, project_id: &str) {
+        self.expanded.remove(project_id);
+        if self
+            .create_request
+            .as_ref()
+            .is_some_and(|request| request.project_id.eq_ignore_ascii_case(project_id))
+        {
+            self.create_request = None;
+        }
+    }
+
+    pub(super) fn retain_projects(&mut self, project_ids: &HashSet<String>) {
+        let removed = self
+            .expanded
+            .iter()
+            .filter(|project_id| !project_ids.contains(*project_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        for project_id in removed {
+            self.clear_project(&project_id);
+        }
+        if self
+            .create_request
+            .as_ref()
+            .is_some_and(|request| !project_ids.contains(&request.project_id))
+        {
+            self.create_request = None;
+        }
+    }
+}
+
 pub(super) enum WorkspaceGesture {
     Tab {
         tab_id: String,
@@ -96,6 +206,7 @@ pub(super) struct ViewState {
     pub(super) pending_focus: Option<FocusHandle>,
     pub(super) subscriptions: Vec<Subscription>,
     pub(super) sidebar_expanded: bool,
+    pub(super) worktrees: WorktreeViewState,
     pub(super) workspace: WorkspaceInteractionState,
     pub(super) terminal: TerminalViewState,
 }
@@ -113,6 +224,7 @@ impl ViewState {
             workspace_focus,
             subscriptions: Vec::new(),
             sidebar_expanded,
+            worktrees: WorktreeViewState::default(),
             workspace: WorkspaceInteractionState::new(),
             terminal: TerminalViewState::new(),
         }
@@ -144,5 +256,27 @@ mod tests {
         assert!(terminal.attention.is_empty());
         assert!(terminal.bell_flashes.is_empty());
         assert!(terminal.bell_expiry.is_none());
+    }
+
+    #[test]
+    fn worktree_rows_view_state_tracks_expansion_and_rejects_stale_request_identity() {
+        let mut state = WorktreeViewState::default();
+        assert!(!state.is_expanded("PROJECT"));
+        state.toggle("PROJECT");
+        assert!(state.is_expanded("PROJECT"));
+        state.toggle("PROJECT");
+        assert!(!state.is_expanded("PROJECT"));
+
+        let current = CreateRequestIdentity::new("PROJECT", 4, 7);
+        state.begin_create(current.clone());
+        assert!(state.matches_create(&current));
+        assert!(!state.matches_create(&CreateRequestIdentity::new("PROJECT", 4, 6)));
+        assert!(!state.matches_create(&CreateRequestIdentity::new("OTHER", 4, 7)));
+        state.rebase_create("PROJECT", 5);
+        assert!(state.matches_create(&CreateRequestIdentity::new("PROJECT", 5, 7)));
+        assert!(!state.matches_create(&current));
+        state.clear_project("PROJECT");
+        assert!(state.create_request().is_none());
+        assert!(!state.is_expanded("PROJECT"));
     }
 }

@@ -236,7 +236,6 @@ impl ProjectOperations {
         state.operation = None;
     }
 
-    #[cfg(test)]
     pub fn generation(&self, project_id: &str) -> u64 {
         self.projects
             .get(project_id)
