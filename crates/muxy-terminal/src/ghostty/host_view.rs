@@ -61,6 +61,8 @@ pub struct HostViewPoint {
 pub enum HostViewEvent {
     ContextMenu(HostViewPoint),
     Appearance(ColorScheme),
+    NavigateBack,
+    NavigateForward,
 }
 
 #[allow(dead_code)]
@@ -1422,6 +1424,16 @@ impl GhosttyHostView {
                 }
             }
             NSEventType::OtherMouseDown | NSEventType::OtherMouseUp
+                if navigation_button_event(event.buttonNumber()).is_some() =>
+            {
+                if event.r#type() == NSEventType::OtherMouseDown
+                    && let Some(navigation) = navigation_button_event(event.buttonNumber())
+                {
+                    let _ = self.ivars().events.try_send(navigation);
+                }
+                return true;
+            }
+            NSEventType::OtherMouseDown | NSEventType::OtherMouseUp
                 if event.buttonNumber() >= 5 =>
             {
                 if let Some(button) = mouse_button(event.buttonNumber()) {
@@ -1731,6 +1743,14 @@ fn mouse_button(number: isize) -> Option<MouseButton> {
     }
 }
 
+fn navigation_button_event(number: isize) -> Option<HostViewEvent> {
+    match number {
+        3 => Some(HostViewEvent::NavigateBack),
+        4 => Some(HostViewEvent::NavigateForward),
+        _ => None,
+    }
+}
+
 fn mouse_button_mask(button: MouseButton) -> u16 {
     let index = match button {
         MouseButton::Unknown => return 0,
@@ -1924,6 +1944,20 @@ mod tests {
         assert_eq!(mouse_button(10), Some(MouseButton::Eleven));
         assert_eq!(mouse_button(11), None);
         assert_eq!(mouse_button(-1), None);
+    }
+
+    #[test]
+    fn appkit_navigation_buttons_are_application_events() {
+        assert_eq!(
+            navigation_button_event(3),
+            Some(HostViewEvent::NavigateBack)
+        );
+        assert_eq!(
+            navigation_button_event(4),
+            Some(HostViewEvent::NavigateForward)
+        );
+        assert_eq!(navigation_button_event(2), None);
+        assert_eq!(navigation_button_event(5), None);
     }
 
     #[test]

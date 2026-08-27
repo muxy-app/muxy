@@ -59,9 +59,9 @@ use crate::views::window::menu_bar;
 use crate::views::{omnibox, overlay, sidebar, status_bar, titlebar, welcome, workspace_view};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Styled, Window, actions, div, px,
-    relative,
+    AnyElement, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection, ParentElement, Pixels,
+    Styled, Window, actions, div, px, relative,
 };
 use muxy_ui::scrollbar::ScrollbarRevealState;
 use muxy_ui::text_input::TextInput;
@@ -88,6 +88,7 @@ pub(crate) struct AppView<'a> {
     pub overlay: &'a Overlay,
     pub drop_highlight: Option<(Bounds<Pixels>, muxy_core::workspace::DropZone)>,
     pub focused_working_directory: Option<String>,
+    pub expanded_worktree_projects: &'a HashSet<String>,
 }
 
 pub(crate) fn render(
@@ -111,6 +112,7 @@ pub(crate) fn render(
         overlay,
         drop_highlight,
         focused_working_directory,
+        expanded_worktree_projects,
     } = view;
     let theme = state.theme.clone();
     let metrics = state.metrics;
@@ -129,7 +131,12 @@ pub(crate) fn render(
                 .flex_col()
                 .flex_grow()
                 .min_h(px(0.0))
-                .child(sidebar::sidebar(state, layout, cx)),
+                .child(sidebar::sidebar(
+                    state,
+                    layout,
+                    expanded_worktree_projects,
+                    cx,
+                )),
         );
 
     let sidebar_border = div()
@@ -166,10 +173,10 @@ pub(crate) fn render(
         _ => titlebar::main_titlebar(state, layout, cx),
     };
     let content = match &tab_workspace {
-        Some(workspace) => {
+        Some(workspace) if !shows_welcome(Some(workspace)) => {
             workspace_view::workspace_content(state, &panes, workspace, main_width, cx)
         }
-        None => welcome::workspace_content(state),
+        _ => welcome::workspace_content(state, cx),
     };
     let mut main_column = div()
         .flex()
@@ -185,6 +192,7 @@ pub(crate) fn render(
         main_column = main_column.child(status_bar::status_bar(
             state,
             focused_working_directory.as_deref(),
+            cx,
         ));
     }
 
@@ -243,6 +251,39 @@ pub(crate) fn render(
                 window.open_omnibox(omnibox::Scope::RecentlyRemovedProjects, window_handle, cx);
             },
         ))
+        .on_action(
+            cx.listener(|window, _: &crate::keymap::RefreshWorktrees, _, cx| {
+                let Some(project_id) = window.state.active_project_id.clone() else {
+                    return;
+                };
+                window.request_worktree_refresh(project_id, None, cx);
+            }),
+        )
+        .on_action(cx.listener(
+            |window, _: &crate::keymap::CreateWorktree, window_handle, cx| {
+                let Some(project_id) = window.state.active_project_id.clone() else {
+                    return;
+                };
+                window.open_create_worktree(&project_id, window_handle, cx);
+            },
+        ))
+        .on_action(
+            cx.listener(|window, _: &crate::keymap::RemoveCurrentWorktree, _, cx| {
+                let Some(project_id) = window.state.active_project_id.clone() else {
+                    return;
+                };
+                let Some(worktree_id) = window
+                    .state
+                    .prefs
+                    .active_worktree_ids
+                    .get(&project_id)
+                    .cloned()
+                else {
+                    return;
+                };
+                window.request_worktree_removal_inspection(project_id, worktree_id, cx);
+            }),
+        )
         .on_action(cx.listener(
             |window, action: &crate::keymap::RunCommandShortcut, window_handle, cx| {
                 window.perform(
@@ -426,6 +467,16 @@ pub(crate) fn render(
             }),
         )
         .on_action(
+            cx.listener(|window, _: &crate::keymap::NavigateBack, _, cx| {
+                window.navigate(muxy_core::navigation::Direction::Back, cx);
+            }),
+        )
+        .on_action(
+            cx.listener(|window, _: &crate::keymap::NavigateForward, _, cx| {
+                window.navigate(muxy_core::navigation::Direction::Forward, cx);
+            }),
+        )
+        .on_action(
             cx.listener(|window, _: &crate::keymap::SelectProject1, _, cx| {
                 window.select_project_index(0, cx);
             }),
@@ -483,6 +534,14 @@ pub(crate) fn render(
         .on_action(cx.listener(|window, _: &SearchPrevious, _, cx| {
             window.navigate_search(false, cx);
         }))
+        .on_mouse_down(
+            MouseButton::Navigate(NavigationDirection::Back),
+            cx.listener(handle_navigation_mouse_down),
+        )
+        .on_mouse_down(
+            MouseButton::Navigate(NavigationDirection::Forward),
+            cx.listener(handle_navigation_mouse_down),
+        )
         .on_mouse_move(
             cx.listener(|window: &mut MainWindow, event: &MouseMoveEvent, _, cx| {
                 window.handle_workspace_mouse_move(event, cx);
@@ -507,7 +566,7 @@ pub(crate) fn render(
 
     columns = columns
         .child(main_column)
-        .child(titlebar::nav_overlay(state, layout))
+        .child(titlebar::nav_overlay(state, layout, cx))
         .child(sidebar_border);
 
     if let Some((bounds, zone)) = drop_highlight {
@@ -519,6 +578,33 @@ pub(crate) fn render(
     }
 
     columns.into_any_element()
+}
+
+fn handle_navigation_mouse_down(
+    window: &mut MainWindow,
+    event: &MouseDownEvent,
+    _: &mut Window,
+    cx: &mut Context<MainWindow>,
+) {
+    if let Some(direction) = mouse_navigation_direction(event.button) {
+        window.navigate(direction, cx);
+    }
+}
+
+fn mouse_navigation_direction(button: MouseButton) -> Option<muxy_core::navigation::Direction> {
+    match button {
+        MouseButton::Navigate(NavigationDirection::Back) => {
+            Some(muxy_core::navigation::Direction::Back)
+        }
+        MouseButton::Navigate(NavigationDirection::Forward) => {
+            Some(muxy_core::navigation::Direction::Forward)
+        }
+        MouseButton::Left | MouseButton::Right | MouseButton::Middle => None,
+    }
+}
+
+fn shows_welcome(workspace: Option<&muxy_core::workspace::WorkspaceState>) -> bool {
+    workspace.is_none_or(|workspace| workspace.top_level_root.is_none())
 }
 
 fn open_configuration() {
@@ -534,6 +620,35 @@ fn open_configuration() {
 mod tests {
     use super::*;
     use muxy_core::prefs::ScalePreset;
+    use muxy_core::workspace::{Tab, TabKind, WorkspaceState};
+
+    #[test]
+    fn chrome_empty_project_uses_the_welcome_new_tab_surface() {
+        let empty = WorkspaceState::new("project");
+        let mut populated = WorkspaceState::new("project");
+        populated.new_top_level_tab(Tab::new(TabKind::Terminal));
+
+        assert!(shows_welcome(Some(&empty)));
+        assert!(!shows_welcome(Some(&populated)));
+        assert!(shows_welcome(None));
+    }
+
+    #[test]
+    fn navigation_mouse_buttons_map_to_history_directions() {
+        assert_eq!(
+            mouse_navigation_direction(gpui::MouseButton::Navigate(
+                gpui::NavigationDirection::Back
+            )),
+            Some(muxy_core::navigation::Direction::Back)
+        );
+        assert_eq!(
+            mouse_navigation_direction(gpui::MouseButton::Navigate(
+                gpui::NavigationDirection::Forward
+            )),
+            Some(muxy_core::navigation::Direction::Forward)
+        );
+        assert_eq!(mouse_navigation_direction(gpui::MouseButton::Left), None);
+    }
 
     #[test]
     fn sidebar_modes_preserve_hidden_icons_narrow_and_wide_layouts() {

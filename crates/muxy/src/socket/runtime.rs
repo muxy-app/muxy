@@ -153,54 +153,10 @@ impl MainWindow {
                             self.finish_socket_command(result, request.responder, cx);
                         }
                         ProjectCommand::Refresh(project) => {
-                            let options = crate::git::options();
-                            cx.spawn(async move |window, cx| {
-                                let project_id = project.id.clone();
-                                let outcome = cx
-                                    .background_executor()
-                                    .spawn(async move {
-                                        muxy_api::worktrees::refresh(
-                                            &options,
-                                            &project.id,
-                                            &project.name,
-                                            &project.path,
-                                        )
-                                    })
-                                    .await;
-                                let _ = window.update(cx, |window, cx| {
-                                    let reply = match outcome {
-                                        muxy_api::worktrees::RefreshOutcome::Updated(worktrees) => {
-                                            match projects::apply_refresh(
-                                                &mut window.state,
-                                                &project_id,
-                                                worktrees,
-                                            ) {
-                                                Ok(count) => {
-                                                    window.socket_state_changed(cx);
-                                                    format!("ok\t{count}")
-                                                }
-                                                Err(error) => format!("error:{error}"),
-                                            }
-                                        }
-                                        muxy_api::worktrees::RefreshOutcome::Preserved(
-                                            worktrees,
-                                            error,
-                                        ) => {
-                                            let _ = projects::apply_refresh(
-                                                &mut window.state,
-                                                &project_id,
-                                                worktrees,
-                                            );
-                                            format!("error:{error}")
-                                        }
-                                        muxy_api::worktrees::RefreshOutcome::Unavailable(error) => {
-                                            format!("error:{error}")
-                                        }
-                                    };
-                                    request.responder.respond(CommandReply::new(reply));
-                                });
-                            })
-                            .detach();
+                            self.request_worktree_refresh(project.id, Some(request.responder), cx);
+                        }
+                        ProjectCommand::Create(create) => {
+                            self.request_worktree_creation(*create, request.responder, cx);
                         }
                     }
                     return;

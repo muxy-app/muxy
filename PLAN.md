@@ -170,8 +170,9 @@ Release imports only current Rust-consumed paths from `~/Library/Application Sup
 
 ### Stage B — Daily-driver parity
 
-**P3 — Chrome wiring + worktree lifecycle.**
+**P3 — Chrome wiring + worktree lifecycle. COMPLETE.**
 Wire every inert control that has a backing feature: titlebar split/new-tab buttons, nav arrows, layout menu, welcome New Tab, workspace sort, sidebar footer, status-bar buttons (new-browser-tab button wires in P9 when browser exists). Worktree **create/remove** with `{branch}`/`{project-name}`/`{base-dir}` path templates, `worktree-checkouts/` management, `.muxy/worktree.json` + `~/.config/muxy/worktree.json` setup/teardown hooks with the approval/hash-check flow, 5-min budget, and `MUXY_*` env contract. Includes the CLI `create-worktree` verb.
+*Acceptance: complete.* Chrome, sorting, navigation, native and CLI worktree creation/removal, setup/teardown hooks, bounded Git processes, failure handling, and installed-wrapper parity are verified. All 34 implemented wire heads pass through the retained byte-identical CLI, debug and release isolated launches close normally without shared-profile mutation, and the shared gates and post-implementation audit are green.
 **P4 — Git/VCS UI.** Changes/branch/PR popovers, stage/unstage/discard, commit, push/pull, repo status bar, `gh` integration, AI-generated commit messages and PR text. Login-shell PATH hydration lands here (git/gh/provider discovery depends on it).
 **P5 — Notifications.** OSC 9/777 + socket sources (hook source already flows via P2's server; extensions later) into one store: toast (4 positions), panel with read state, macOS UserNotifications when backgrounded, 14 named system sounds + None (via `NSSound(named:)`, nothing bundled), 2-s coalescing, click-to-navigate, `notifications.json` cap 200.
 **P6 — Quick Terminal.** Global hotkey (Carbon `RegisterEventHotKey` + double-Shift with Input Monitoring), slide-out panel window, persistent home shell, size/transparency/blur settings, `quick-terminal-shortcut.json` conflict validation.

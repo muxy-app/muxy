@@ -19,6 +19,7 @@ impl UnsupportedBackend {
         _combos: Vec<KeyCombo>,
         _mode: muxy_core::environment::BuildMode,
         _socket_path: &std::path::Path,
+        _backdrop: gpui::Rgba,
         _window: &mut Window,
     ) -> Result<(), String> {
         Err("terminal surfaces are only available on macOS".to_owned())
@@ -37,6 +38,8 @@ impl UnsupportedBackend {
     }
 
     pub fn set_shortcut_combos(&mut self, _combos: Vec<KeyCombo>) {}
+
+    pub fn set_backdrop(&self, _backdrop: gpui::Rgba) {}
 
     pub fn tick(&self) {}
 

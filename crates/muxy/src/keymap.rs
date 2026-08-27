@@ -37,6 +37,9 @@ actions!(
         ToggleMaximizePane,
         OpenProject,
         RecentlyRemovedProjects,
+        RefreshWorktrees,
+        CreateWorktree,
+        RemoveCurrentWorktree,
         NextProject,
         PreviousProject,
         SelectProject1,
@@ -48,6 +51,8 @@ actions!(
         SelectProject7,
         SelectProject8,
         SelectProject9,
+        NavigateBack,
+        NavigateForward,
         FindInTerminal,
         TerminalOmnibox,
         TerminalOmniboxProjects,
@@ -139,6 +144,11 @@ fn binding(action: ShortcutAction, key: String) -> Option<KeyBinding> {
         ShortcutAction::RecentlyRemovedProjects => {
             KeyBinding::new(key, RecentlyRemovedProjects, context)
         }
+        ShortcutAction::RefreshWorktrees => KeyBinding::new(key, RefreshWorktrees, context),
+        ShortcutAction::CreateWorktree => KeyBinding::new(key, CreateWorktree, context),
+        ShortcutAction::RemoveCurrentWorktree => {
+            KeyBinding::new(key, RemoveCurrentWorktree, context)
+        }
         ShortcutAction::NextProject => KeyBinding::new(key, NextProject, context),
         ShortcutAction::PreviousProject => KeyBinding::new(key, PreviousProject, context),
         ShortcutAction::SelectProject1 => KeyBinding::new(key, SelectProject1, context),
@@ -150,6 +160,8 @@ fn binding(action: ShortcutAction, key: String) -> Option<KeyBinding> {
         ShortcutAction::SelectProject7 => KeyBinding::new(key, SelectProject7, context),
         ShortcutAction::SelectProject8 => KeyBinding::new(key, SelectProject8, context),
         ShortcutAction::SelectProject9 => KeyBinding::new(key, SelectProject9, context),
+        ShortcutAction::NavigateBack => KeyBinding::new(key, NavigateBack, context),
+        ShortcutAction::NavigateForward => KeyBinding::new(key, NavigateForward, context),
         ShortcutAction::FindInTerminal => KeyBinding::new(key, FindInTerminal, context),
         ShortcutAction::TerminalOmnibox => KeyBinding::new(key, TerminalOmnibox, context),
         ShortcutAction::TerminalOmniboxProjects => {

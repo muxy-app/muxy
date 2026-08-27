@@ -258,7 +258,7 @@ fn mutate(
         window.state.tab_workspaces = previous;
         return Err(error);
     }
-    if let Err(error) = window.state.tab_workspaces.save() {
+    if let Err(error) = window.state.persist_tab_workspaces() {
         window.state.tab_workspaces = previous;
         return Err(error.to_string());
     }
@@ -483,5 +483,14 @@ mod tests {
         assert_eq!(color("#3e63dd"), Ok(Some("blue".to_owned())));
         assert_eq!(color(""), Ok(None));
         assert_eq!(color("purple"), Err("unknown color 'purple'".to_owned()));
+    }
+
+    #[test]
+    fn socket_tab_mutations_use_the_navigation_persistence_seam() {
+        let source = include_str!("tabs.rs");
+        let direct = ["window.state.tab_workspaces", ".save()"].concat();
+        let seam = ["window.state", ".persist_tab_workspaces()"].concat();
+        assert!(!source.contains(&direct));
+        assert!(source.contains(&seam));
     }
 }

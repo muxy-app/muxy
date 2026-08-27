@@ -1,6 +1,9 @@
 use crate::state::AppState;
 use crate::views::app::AppLayout;
-use crate::views::project_row::{collapsed_row, expanded_row};
+use crate::views::project_row::{
+    collapsed_row, expanded_row, new_worktree_row, worktree_header_command, worktree_row,
+    worktree_row_models,
+};
 use crate::views::sidebar_footer::sidebar_footer;
 use crate::views::workspace_switcher::{sort_button, workspace_switcher};
 use gpui::{
@@ -12,18 +15,28 @@ use muxy_ui::icon::Icon;
 
 use crate::views::window::MainWindow;
 
-pub fn sidebar(state: &AppState, layout: AppLayout, cx: &mut Context<MainWindow>) -> AnyElement {
+pub fn sidebar(
+    state: &AppState,
+    layout: AppLayout,
+    expanded_worktree_projects: &std::collections::HashSet<String>,
+    cx: &mut Context<MainWindow>,
+) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .size_full()
         .min_h(px(0.0))
-        .child(project_list(state, layout, cx))
+        .child(project_list(state, layout, expanded_worktree_projects, cx))
         .child(sidebar_footer(state, layout, cx))
         .into_any_element()
 }
 
-fn project_list(state: &AppState, layout: AppLayout, cx: &mut Context<MainWindow>) -> AnyElement {
+fn project_list(
+    state: &AppState,
+    layout: AppLayout,
+    expanded_worktree_projects: &std::collections::HashSet<String>,
+    cx: &mut Context<MainWindow>,
+) -> AnyElement {
     let metrics = &state.metrics;
     let wide = layout.wide_sidebar;
     let horizontal = if wide {
@@ -41,7 +54,7 @@ fn project_list(state: &AppState, layout: AppLayout, cx: &mut Context<MainWindow
         .pt(metrics.spacing2())
         .child(workspace_switcher(state, layout, cx));
     if wide {
-        header = header.child(sort_button(state));
+        header = header.child(sort_button(state, cx));
     }
 
     let mut rows = div()
@@ -64,20 +77,28 @@ fn project_list(state: &AppState, layout: AppLayout, cx: &mut Context<MainWindow
 
     for (index, project) in visible.iter().enumerate() {
         let id = project.id.clone();
+        let worktrees = state
+            .worktrees
+            .get(&project.id)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let has_worktrees = project.has_worktree_ui() && !worktrees.is_empty();
+        let worktrees_expanded =
+            wide && has_worktrees && expanded_worktree_projects.contains(&project.id);
         let row = if wide {
-            expanded_row(state, project)
+            expanded_row(state, project, worktrees_expanded)
         } else {
             collapsed_row(state, project)
         };
         let menu_id = id.clone();
+        let command = worktree_header_command(&id, state.is_active(project), has_worktrees);
         let mut entry = div().flex().flex_col().child(
             div()
                 .id(gpui::ElementId::Name(SharedString::from(format!(
                     "row-{id}"
                 ))))
-                .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
-                    window.state.select_project(&id);
-                    cx.notify();
+                .on_click(cx.listener(move |window: &mut MainWindow, _, view, cx| {
+                    window.perform(command.clone(), view, cx);
                 }))
                 .on_mouse_down(
                     MouseButton::Right,
@@ -89,6 +110,64 @@ fn project_list(state: &AppState, layout: AppLayout, cx: &mut Context<MainWindow
                 )
                 .child(row),
         );
+
+        if worktrees_expanded {
+            let active = state
+                .prefs
+                .active_worktree_ids
+                .get(&project.id)
+                .map(String::as_str);
+            let models = worktree_row_models(worktrees, active, true);
+            let mut nested = div()
+                .flex()
+                .flex_col()
+                .gap(metrics.scaled(1.0))
+                .pt(metrics.spacing1())
+                .pb(metrics.spacing2());
+            for model in models {
+                let project_id = project.id.clone();
+                let worktree_id = model.id.clone();
+                let menu_project_id = project_id.clone();
+                let menu_worktree_id = worktree_id.clone();
+                nested = nested.child(
+                    div()
+                        .id(gpui::ElementId::Name(SharedString::from(format!(
+                            "worktree-{worktree_id}"
+                        ))))
+                        .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
+                            window.state.select_worktree(&project_id, &worktree_id);
+                            cx.notify();
+                        }))
+                        .on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(
+                                move |window: &mut MainWindow, event: &MouseDownEvent, view, cx| {
+                                    window.open_worktree_menu(
+                                        &menu_project_id,
+                                        &menu_worktree_id,
+                                        event.position,
+                                        view,
+                                        cx,
+                                    );
+                                },
+                            ),
+                        )
+                        .child(worktree_row(state, &model)),
+                );
+            }
+            let project_id = project.id.clone();
+            nested = nested.child(
+                div()
+                    .id(gpui::ElementId::Name(SharedString::from(format!(
+                        "new-worktree-{project_id}"
+                    ))))
+                    .on_click(cx.listener(move |window: &mut MainWindow, _, view, cx| {
+                        window.open_create_worktree(&project_id, view, cx);
+                    }))
+                    .child(new_worktree_row(state)),
+            );
+            entry = entry.child(nested);
+        }
 
         if pinned_boundary == Some(index) {
             entry = entry.child(

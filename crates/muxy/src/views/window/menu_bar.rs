@@ -68,6 +68,44 @@ pub fn reserved_combos() -> Vec<shortcuts::KeyCombo> {
 }
 
 pub fn menus(state: &AppState) -> Vec<Menu> {
+    let mut file_items = vec![
+        MenuItem::action("Open Project...", keymap::OpenProject),
+        MenuItem::submenu(open_in_ide(state)),
+        MenuItem::action("New Worktree...", keymap::CreateWorktree),
+        MenuItem::action("Refresh Worktrees", keymap::RefreshWorktrees),
+    ];
+    if remove_worktree_available(state) {
+        file_items.push(MenuItem::action(
+            "Remove Worktree...",
+            keymap::RemoveCurrentWorktree,
+        ));
+    }
+    file_items.push(MenuItem::separator());
+    file_items.extend(file_tab_items());
+    file_items.extend([
+        MenuItem::submenu(custom_commands(state)),
+        MenuItem::separator(),
+        MenuItem::action("Close Tab", keymap::CloseTab),
+        MenuItem::separator(),
+        MenuItem::action("Rename Tab", keymap::RenameTab),
+        MenuItem::action("Pin/Unpin Tab", keymap::PinUnpinTab),
+        MenuItem::separator(),
+        MenuItem::action("Split Right", keymap::SplitRight),
+        MenuItem::action("Split Down", keymap::SplitDown),
+        MenuItem::action("Close Pane", keymap::ClosePane),
+        MenuItem::action("Focus Pane Left", keymap::FocusPaneLeft),
+        MenuItem::action("Focus Pane Right", keymap::FocusPaneRight),
+        MenuItem::action("Focus Pane Up", keymap::FocusPaneUp),
+        MenuItem::action("Focus Pane Down", keymap::FocusPaneDown),
+        MenuItem::action(
+            "Cycle Next Tab (All Panes)",
+            keymap::CycleNextTabAcrossPanes,
+        ),
+        MenuItem::action(
+            "Cycle Previous Tab (All Panes)",
+            keymap::CyclePreviousTabAcrossPanes,
+        ),
+    ]);
     vec![
         Menu {
             name: "Muxy".into(),
@@ -98,36 +136,7 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
         },
         Menu {
             name: "File".into(),
-            items: vec![
-                MenuItem::action("Open Project...", keymap::OpenProject),
-                MenuItem::submenu(open_in_ide(state)),
-                MenuItem::separator(),
-                MenuItem::action("New Tab", keymap::NewTab),
-                MenuItem::action("New Home Tab", keymap::NewHomeTab),
-                MenuItem::action("New Browser Tab", keymap::NewBrowserTab),
-                MenuItem::submenu(custom_commands(state)),
-                MenuItem::separator(),
-                MenuItem::action("Close Tab", keymap::CloseTab),
-                MenuItem::separator(),
-                MenuItem::action("Rename Tab", keymap::RenameTab),
-                MenuItem::action("Pin/Unpin Tab", keymap::PinUnpinTab),
-                MenuItem::separator(),
-                MenuItem::action("Split Right", keymap::SplitRight),
-                MenuItem::action("Split Down", keymap::SplitDown),
-                MenuItem::action("Close Pane", keymap::ClosePane),
-                MenuItem::action("Focus Pane Left", keymap::FocusPaneLeft),
-                MenuItem::action("Focus Pane Right", keymap::FocusPaneRight),
-                MenuItem::action("Focus Pane Up", keymap::FocusPaneUp),
-                MenuItem::action("Focus Pane Down", keymap::FocusPaneDown),
-                MenuItem::action(
-                    "Cycle Next Tab (All Panes)",
-                    keymap::CycleNextTabAcrossPanes,
-                ),
-                MenuItem::action(
-                    "Cycle Previous Tab (All Panes)",
-                    keymap::CyclePreviousTabAcrossPanes,
-                ),
-            ],
+            items: file_items,
         },
         Menu {
             name: "View".into(),
@@ -183,6 +192,63 @@ pub fn menus(state: &AppState) -> Vec<Menu> {
             ],
         },
     ]
+}
+
+fn remove_worktree_available(state: &AppState) -> bool {
+    let Some(project_id) = state.active_project_id.as_deref() else {
+        return false;
+    };
+    let Some(project) = state.workspace.project(project_id) else {
+        return false;
+    };
+    let Some(worktree_id) = state.prefs.active_worktree_ids.get(project_id) else {
+        return false;
+    };
+    state
+        .worktrees
+        .get(project_id)
+        .and_then(|worktrees| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.id.eq_ignore_ascii_case(worktree_id))
+        })
+        .is_some_and(|worktree| project.can_remove_worktree(worktree))
+}
+
+fn file_tab_items() -> Vec<MenuItem> {
+    FILE_TAB_ACTIONS
+        .into_iter()
+        .map(FileTabAction::menu_item)
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+enum FileTabAction {
+    NewTab,
+    NewHomeTab,
+}
+
+const FILE_TAB_ACTIONS: [FileTabAction; 2] = [FileTabAction::NewTab, FileTabAction::NewHomeTab];
+
+impl FileTabAction {
+    fn label(self) -> &'static str {
+        match self {
+            Self::NewTab => "New Tab",
+            Self::NewHomeTab => "New Home Tab",
+        }
+    }
+
+    fn menu_item(self) -> MenuItem {
+        match self {
+            Self::NewTab => MenuItem::action(self.label(), keymap::NewTab),
+            Self::NewHomeTab => MenuItem::action(self.label(), keymap::NewHomeTab),
+        }
+    }
+}
+
+#[cfg(test)]
+fn file_tab_action_labels() -> Vec<&'static str> {
+    FILE_TAB_ACTIONS.map(FileTabAction::label).to_vec()
 }
 
 fn open_in_ide(state: &AppState) -> Menu {
@@ -250,5 +316,16 @@ fn custom_commands(state: &AppState) -> Menu {
     Menu {
         name: "Custom Commands".into(),
         items,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chrome_file_menu_contract_hides_the_browser_entry() {
+        assert_eq!(file_tab_action_labels(), vec!["New Tab", "New Home Tab"]);
+        assert!(!file_tab_action_labels().contains(&"New Browser Tab"));
     }
 }

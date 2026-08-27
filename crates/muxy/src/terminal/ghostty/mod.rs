@@ -27,7 +27,7 @@ use muxy_terminal::confirmation::{
 use muxy_terminal::ghostty::cjk_font::{
     TemporaryConfigFile, config_text_for_user, resolve_system_font_family,
 };
-use muxy_terminal::ghostty::host_view::GhosttyHostView;
+use muxy_terminal::ghostty::host_view::{GhosttyHostView, HostViewEvent};
 use muxy_terminal::ghostty::pasteboard;
 use muxy_terminal::ghostty::state::{
     ApplyActionResult, MouseShape, ProgressKind, RuntimeTarget, TerminalActionEvent, TerminalColor,
@@ -172,6 +172,8 @@ pub struct GhosttyBackend {
     confirmations: SharedConfirmations,
     gate: Rc<ShortcutGate>,
     launch_environment: Vec<SurfaceEnvironmentVariable>,
+    navigation_events: async_channel::Sender<muxy_core::navigation::Direction>,
+    navigation_event_receiver: Receiver<muxy_core::navigation::Direction>,
 }
 
 impl Default for GhosttyBackend {
@@ -182,6 +184,7 @@ impl Default for GhosttyBackend {
 
 impl GhosttyBackend {
     pub fn new() -> Self {
+        let (navigation_events, navigation_event_receiver) = async_channel::bounded(32);
         Self {
             app: None,
             compositor: None,
@@ -192,6 +195,8 @@ impl GhosttyBackend {
             confirmations: Rc::new(RefCell::new(ConfirmationQueue::new())),
             gate: Rc::new(ShortcutGate::new(Vec::new())),
             launch_environment: Vec::new(),
+            navigation_events,
+            navigation_event_receiver,
         }
     }
 
@@ -200,6 +205,7 @@ impl GhosttyBackend {
         combos: Vec<KeyCombo>,
         mode: BuildMode,
         socket_path: &Path,
+        backdrop: gpui::Rgba,
         window: &mut Window,
     ) -> Result<(), String> {
         if self.app.is_some() {
@@ -218,7 +224,8 @@ impl GhosttyBackend {
         let (config, cjk_overlay) = load_config(&resources).map_err(|error| error.to_string())?;
         let owned = config.try_clone().map_err(|error| error.to_string())?;
         let app = GhosttyApp::new(owned).map_err(|error| error.to_string())?;
-        let compositor = NativeViewCompositor::new(window).map_err(|error| error.to_string())?;
+        let compositor =
+            NativeViewCompositor::new(window, backdrop).map_err(|error| error.to_string())?;
 
         self.gate = Rc::new(ShortcutGate::new(combos));
         self.app = Some(app);
@@ -237,12 +244,22 @@ impl GhosttyBackend {
         }
     }
 
+    pub fn set_backdrop(&self, backdrop: gpui::Rgba) {
+        if let Some(compositor) = &self.compositor {
+            compositor.set_backdrop(backdrop);
+        }
+    }
+
     pub fn wakeup_receiver(&self) -> Option<Receiver<()>> {
         self.app.as_ref().map(GhosttyApp::wakeup_receiver)
     }
 
     pub fn event_receiver(&self) -> Option<Receiver<RuntimeEvent>> {
         self.app.as_ref().map(GhosttyApp::event_receiver)
+    }
+
+    pub fn navigation_event_receiver(&self) -> Receiver<muxy_core::navigation::Direction> {
+        self.navigation_event_receiver.clone()
     }
 
     pub fn tick(&self) {
@@ -494,7 +511,19 @@ impl GhosttyBackend {
         );
 
         let host_events = host.event_receiver();
-        let task = cx.background_spawn(async move { while host_events.recv().await.is_ok() {} });
+        let navigation_events = self.navigation_events.clone();
+        let task = cx.background_spawn(async move {
+            while let Ok(event) = host_events.recv().await {
+                let direction = match event {
+                    HostViewEvent::NavigateBack => muxy_core::navigation::Direction::Back,
+                    HostViewEvent::NavigateForward => muxy_core::navigation::Direction::Forward,
+                    HostViewEvent::ContextMenu(_) | HostViewEvent::Appearance(_) => continue,
+                };
+                if navigation_events.send(direction).await.is_err() {
+                    return;
+                }
+            }
+        });
 
         Some(Box::new(GhosttySurfaceHandle {
             registration,

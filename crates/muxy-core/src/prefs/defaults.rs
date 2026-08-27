@@ -84,6 +84,14 @@ pub fn store_dictionary(key: &str, value: &HashMap<String, String>) {
     update(key, Some(Value::Object(value)));
 }
 
+pub fn try_store_dictionary(key: &str, value: &HashMap<String, String>) -> std::io::Result<()> {
+    let value = value
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+        .collect();
+    update_at(&path(), key, Some(Value::Object(value)))
+}
+
 pub fn remove(key: &str) {
     update(key, None);
 }

@@ -1,4 +1,5 @@
 pub mod app;
+pub mod create_worktree_overlay;
 pub mod file_dialog;
 pub mod menu;
 pub mod omnibox;

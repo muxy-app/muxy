@@ -45,6 +45,9 @@ pub enum ShortcutAction {
     ToggleMaximizePane,
     OpenProject,
     RecentlyRemovedProjects,
+    RefreshWorktrees,
+    CreateWorktree,
+    RemoveCurrentWorktree,
     NextProject,
     PreviousProject,
     SelectProject1,
@@ -56,6 +59,8 @@ pub enum ShortcutAction {
     SelectProject7,
     SelectProject8,
     SelectProject9,
+    NavigateBack,
+    NavigateForward,
     FindInTerminal,
     TerminalOmnibox,
     TerminalOmniboxProjects,
@@ -135,6 +140,8 @@ impl ShortcutAction {
             SelectProject7 => ("Project 7", "Project Navigation"),
             SelectProject8 => ("Project 8", "Project Navigation"),
             SelectProject9 => ("Project 9", "Project Navigation"),
+            NavigateBack => ("Navigate Back", "Navigation"),
+            NavigateForward => ("Navigate Forward", "Navigation"),
             FindInTerminal => ("Find", "Terminal"),
             TerminalOmnibox => ("Terminal Omnibox Open Tabs", "Terminal"),
             TerminalOmniboxProjects => ("Terminal Omnibox Projects", "Terminal"),
@@ -143,6 +150,9 @@ impl ShortcutAction {
             TerminalOmniboxCommands => ("Terminal Omnibox Custom Commands", "Terminal"),
             OpenProject => ("Open Project", "App"),
             RecentlyRemovedProjects => ("Recently Removed Projects", "App"),
+            RefreshWorktrees => ("Refresh Worktrees", "App"),
+            CreateWorktree => ("New Worktree", "App"),
+            RemoveCurrentWorktree => ("Remove Current Worktree", "App"),
             ToggleSidebar => ("Toggle Sidebar", "App"),
             ToggleFullScreen => ("Toggle Full Screen", "App"),
             ToggleThemePicker => ("Theme Picker", "App"),
@@ -155,17 +165,12 @@ pub fn modelled_actions() -> Vec<ShortcutAction> {
     defaults().into_iter().map(|(action, _)| action).collect()
 }
 
-pub const UNMODELLED_DEFAULTS: [(&str, &str, u64); 13] = [
-    ("refreshWorktrees", "r", COMMAND | OPTION),
-    ("createWorktree", "n", COMMAND | OPTION),
-    ("removeCurrentWorktree", "", 0),
+pub const UNMODELLED_DEFAULTS: [(&str, &str, u64); 8] = [
     ("toggleRichInput", "i", COMMAND),
     ("toggleComposerVoice", "", 0),
     ("submitRichInput", "return", COMMAND),
     ("submitRichInputWithoutReturn", "return", COMMAND | SHIFT),
     ("toggleAppLayout", "l", COMMAND | SHIFT),
-    ("navigateBack", "leftarrow", COMMAND | CONTROL),
-    ("navigateForward", "rightarrow", COMMAND | CONTROL),
     ("toggleVoiceRecording", "i", COMMAND | SHIFT),
     ("toggleExtensionConsole", "`", COMMAND),
     ("inspectElement", "i", COMMAND | OPTION),
@@ -445,6 +450,9 @@ fn defaults() -> Vec<(ShortcutAction, KeyCombo)> {
         ),
         (OpenProject, KeyCombo::new("o", COMMAND)),
         (RecentlyRemovedProjects, KeyCombo::new("", 0)),
+        (RefreshWorktrees, KeyCombo::new("r", COMMAND | OPTION)),
+        (CreateWorktree, KeyCombo::new("n", COMMAND | OPTION)),
+        (RemoveCurrentWorktree, KeyCombo::new("", 0)),
         (NextTab, KeyCombo::new("]", COMMAND)),
         (PreviousTab, KeyCombo::new("[", COMMAND)),
         (SelectTab1, KeyCombo::new("1", COMMAND)),
@@ -467,6 +475,11 @@ fn defaults() -> Vec<(ShortcutAction, KeyCombo)> {
         (SelectProject7, KeyCombo::new("7", CONTROL)),
         (SelectProject8, KeyCombo::new("8", CONTROL)),
         (SelectProject9, KeyCombo::new("9", CONTROL)),
+        (NavigateBack, KeyCombo::new("leftarrow", COMMAND | CONTROL)),
+        (
+            NavigateForward,
+            KeyCombo::new("rightarrow", COMMAND | CONTROL),
+        ),
         (FindInTerminal, KeyCombo::new("f", COMMAND)),
         (TerminalOmnibox, KeyCombo::new("o", COMMAND | OPTION)),
         (
@@ -543,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn phase_three_defaults_match_swift() {
+    fn phase_three_navigation_defaults_match_swift() {
         use ShortcutAction::*;
         let map = ShortcutMap::merge_with_unknown(HashMap::new(), Vec::new());
         let expected = [
@@ -579,8 +592,27 @@ mod tests {
             (ToggleFullScreen, KeyCombo::new("f", COMMAND | CONTROL)),
             (ToggleThemePicker, KeyCombo::new("k", COMMAND | SHIFT)),
             (ReloadConfig, KeyCombo::new("r", COMMAND | SHIFT)),
+            (NavigateBack, KeyCombo::new("leftarrow", COMMAND | CONTROL)),
+            (
+                NavigateForward,
+                KeyCombo::new("rightarrow", COMMAND | CONTROL),
+            ),
         ];
-        assert_eq!(expected.len(), 23);
+        assert_eq!(modelled_actions().len(), 59);
+        assert_eq!(UNMODELLED_DEFAULTS.len(), 8);
+        assert_eq!(
+            default_combo(ShortcutAction::RemoveCurrentWorktree),
+            KeyCombo::new("", 0)
+        );
+        assert_eq!(
+            default_combo(ShortcutAction::RefreshWorktrees),
+            KeyCombo::new("r", COMMAND | OPTION)
+        );
+        assert_eq!(
+            default_combo(ShortcutAction::CreateWorktree),
+            KeyCombo::new("n", COMMAND | OPTION)
+        );
+        assert_eq!(expected.len(), 25);
         for (action, combo) in expected {
             assert_eq!(map.combo(action), &combo, "{action:?}");
         }
@@ -713,6 +745,8 @@ mod tests {
             ("toggleFullScreen", ShortcutAction::ToggleFullScreen),
             ("toggleThemePicker", ShortcutAction::ToggleThemePicker),
             ("reloadConfig", ShortcutAction::ReloadConfig),
+            ("navigateBack", ShortcutAction::NavigateBack),
+            ("navigateForward", ShortcutAction::NavigateForward),
         ];
         for (raw, action) in cases {
             let decoded: ShortcutAction =

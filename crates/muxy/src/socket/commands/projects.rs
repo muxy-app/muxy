@@ -7,11 +7,12 @@ use crate::state::AppState;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use muxy_core::store::{HOME_PROJECT_ID, Project, Worktree};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub enum ProjectCommand {
     Immediate(CommandResult),
     Refresh(Box<Project>),
+    Create(Box<muxy_api::worktree_lifecycle::CreateWorktreeRequest>),
 }
 
 fn decode(value: &str) -> Option<String> {
@@ -65,30 +66,6 @@ pub fn ensure_project_context(state: &mut AppState, project_id: &str) -> Result<
         return Err("error:could not save project workspace".to_owned());
     }
     Ok(worktree)
-}
-
-pub fn apply_refresh(
-    state: &mut AppState,
-    project_id: &str,
-    worktrees: Vec<Worktree>,
-) -> Result<usize, String> {
-    let previous = state.worktrees.insert(project_id.to_owned(), worktrees);
-    let count = state.worktrees.get(project_id).map_or(0, Vec::len);
-    if let Some(project) = state.workspace.project(project_id).cloned()
-        && let Ok(worktree) = choose_worktree(state, &project)
-        && !select(state, project_id, &worktree.id)
-    {
-        match previous {
-            Some(previous) => {
-                state.worktrees.insert(project_id.to_owned(), previous);
-            }
-            None => {
-                state.worktrees.remove(project_id);
-            }
-        }
-        return Err("could not save project workspace".to_owned());
-    }
-    Ok(count)
 }
 
 pub fn handle(head: &str, parts: &[&str], state: &mut AppState) -> Option<ProjectCommand> {
@@ -222,6 +199,52 @@ pub fn handle(head: &str, parts: &[&str], state: &mut AppState) -> Option<Projec
                 ))));
             };
             ProjectCommand::Refresh(Box::new(project))
+        }
+        "create-worktree" => {
+            if parts.len() < 3 {
+                return Some(ProjectCommand::Immediate(CommandResult::reply(
+                    "error:usage create-worktree|name|branch[|project][|path][|createBranch][|baseBranch]",
+                )));
+            }
+            let name = parts[1].trim();
+            let branch = parts[2].trim();
+            if name.is_empty() || branch.is_empty() {
+                return Some(ProjectCommand::Immediate(CommandResult::reply(
+                    "error:name and branch are required",
+                )));
+            }
+            let project_identifier = parts.get(3).map(|value| value.trim());
+            let Some(project) = resolve_project(state, project_identifier).cloned() else {
+                return Some(ProjectCommand::Immediate(CommandResult::reply(format!(
+                    "error:project not found{}",
+                    project_identifier
+                        .filter(|identifier| !identifier.is_empty())
+                        .map_or(String::new(), |identifier| format!(" {identifier}"))
+                ))));
+            };
+            let requested_path = parts.get(4).map_or("", |value| *value).trim();
+            let create_branch = parts.get(5) != Some(&"false");
+            let base_branch = create_branch
+                .then(|| parts.get(6).map_or("", |value| *value).trim().to_owned())
+                .filter(|value| !value.is_empty());
+            let location = if requested_path.is_empty() {
+                muxy_api::worktree_location::WorktreeLocationRequest::ConfiguredPrecedence
+            } else {
+                muxy_api::worktree_location::WorktreeLocationRequest::Explicit(PathBuf::from(
+                    requested_path,
+                ))
+            };
+            ProjectCommand::Create(Box::new(
+                muxy_api::worktree_lifecycle::CreateWorktreeRequest {
+                    project,
+                    name: name.to_owned(),
+                    branch: branch.to_owned(),
+                    create_branch,
+                    base_branch,
+                    location,
+                    setup_policy: muxy_api::worktree_hooks::SetupPolicy::SkipAll,
+                },
+            ))
         }
         "create-project" => {
             if parts.len() < 2 {
@@ -463,6 +486,7 @@ mod tests {
         match handle(parts[0], &parts, state).expect("recognized") {
             ProjectCommand::Immediate(result) => result.reply,
             ProjectCommand::Refresh(_) => "refresh".to_owned(),
+            ProjectCommand::Create(_) => "create".to_owned(),
         }
     }
 
@@ -510,6 +534,47 @@ mod tests {
         assert_eq!(
             state.workspace.groups.group_id_containing(project_id),
             Some(group_id.as_str())
+        );
+    }
+
+    #[test]
+    fn socket_create_worktree_parses_all_seven_fields_and_resolves_projects() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut state = super::super::test_state(temp.path());
+        let mut project = Project::new("Project".into(), "/repo".into(), 0);
+        project.id = "PROJECT-ID".into();
+        state.workspace = muxy_core::store::Workspace::for_tests(vec![project.clone()]);
+        state.active_project_id = Some(project.id.clone());
+
+        let command =
+            "create-worktree| Feature | feature/one |Project|/tmp/explicit|false| ignored ";
+        let parts = command.split('|').collect::<Vec<_>>();
+        let ProjectCommand::Create(request) = handle(parts[0], &parts, &mut state).unwrap() else {
+            panic!("expected create request");
+        };
+        assert_eq!(request.name, "Feature");
+        assert_eq!(request.branch, "feature/one");
+        assert!(!request.create_branch);
+        assert_eq!(request.base_branch, None);
+        assert_eq!(request.project.id, "PROJECT-ID");
+        assert_eq!(
+            request.location,
+            muxy_api::worktree_location::WorktreeLocationRequest::Explicit(
+                std::path::PathBuf::from("/tmp/explicit")
+            )
+        );
+        assert_eq!(
+            request.setup_policy,
+            muxy_api::worktree_hooks::SetupPolicy::SkipAll
+        );
+
+        assert_eq!(
+            reply("create-worktree||branch||||", &mut state),
+            "error:name and branch are required"
+        );
+        assert_eq!(
+            reply("create-worktree|name|branch|missing|||", &mut state),
+            "error:project not found missing"
         );
     }
 

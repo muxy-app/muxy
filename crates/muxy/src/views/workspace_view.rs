@@ -1297,12 +1297,12 @@ fn strip_actions(
     let maximize_target = target_root_tab_id.map(str::to_owned);
     let split_right_target = target_root_tab_id.map(str::to_owned);
     let split_down_target = target_root_tab_id.map(str::to_owned);
-    let browser_target = target_root_tab_id.map(str::to_owned);
     let show_maximize = workspace.maximized_area_id.is_some()
         || target_root_tab_id
             .and_then(|tab_id| workspace.visible_layout(tab_id))
             .is_some_and(|layout| layout.area_ids().len() > 1);
     let has_layouts = !state.layouts().is_empty();
+    let visible_actions = strip_action_ids(show_maximize, has_layouts);
 
     div()
         .flex()
@@ -1311,7 +1311,7 @@ fn strip_actions(
         .items_center()
         .h_full()
         .pr(metrics.spacing2())
-        .when(show_maximize, |element| {
+        .when(visible_actions.contains(&"maximize"), |element| {
             element.child(
                 IconButton::new(
                     SharedString::from(format!("maximize-pane-{group_id}")),
@@ -1342,76 +1342,61 @@ fn strip_actions(
                 })),
             )
         })
-        .child(
-            IconButton::new(
-                SharedString::from(format!("split-pane-right-{group_id}")),
-                Icon::Columns,
-                glyph_size,
-                box_size,
-                theme.fg_muted,
-                theme.fg,
-            )
-            .tooltip(
-                state.shortcuts.tooltip(
-                    "Split Right",
-                    muxy_core::shortcuts::ShortcutAction::SplitRight,
-                ),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-            )
-            .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
-                if let Some(tab_id) = split_right_target.as_deref() {
-                    window.select_root_tab(tab_id, cx);
-                }
-                window.split_focused(Edge::Right, cx);
-            })),
-        )
-        .child(
-            IconButton::new(
-                SharedString::from(format!("split-pane-down-{group_id}")),
-                Icon::Rows,
-                glyph_size,
-                box_size,
-                theme.fg_muted,
-                theme.fg,
-            )
-            .tooltip(
-                state.shortcuts.tooltip(
-                    "Split Down",
-                    muxy_core::shortcuts::ShortcutAction::SplitDown,
-                ),
-                theme.raised(),
-                theme.fg,
-                theme.border,
-            )
-            .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
-                if let Some(tab_id) = split_down_target.as_deref() {
-                    window.select_root_tab(tab_id, cx);
-                }
-                window.split_focused(Edge::Bottom, cx);
-            })),
-        )
-        .when(state.prefs.browser_enabled, |element| {
+        .when(visible_actions.contains(&"split-right"), |element| {
             element.child(
                 IconButton::new(
-                    SharedString::from(format!("new-browser-{group_id}")),
-                    Icon::Globe,
+                    SharedString::from(format!("split-pane-right-{group_id}")),
+                    Icon::Columns,
                     glyph_size,
                     box_size,
                     theme.fg_muted,
                     theme.fg,
                 )
-                .tooltip("Open Browser Tab", theme.raised(), theme.fg, theme.border)
+                .tooltip(
+                    state.shortcuts.tooltip(
+                        "Split Right",
+                        muxy_core::shortcuts::ShortcutAction::SplitRight,
+                    ),
+                    theme.raised(),
+                    theme.fg,
+                    theme.border,
+                )
                 .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
-                    if let Some(tab_id) = browser_target.as_deref() {
+                    if let Some(tab_id) = split_right_target.as_deref() {
                         window.select_root_tab(tab_id, cx);
                     }
-                    window.new_browser_tab(cx);
+                    window.split_focused(Edge::Right, cx);
                 })),
             )
         })
-        .when(has_layouts, |element| {
+        .when(visible_actions.contains(&"split-down"), |element| {
+            element.child(
+                IconButton::new(
+                    SharedString::from(format!("split-pane-down-{group_id}")),
+                    Icon::Rows,
+                    glyph_size,
+                    box_size,
+                    theme.fg_muted,
+                    theme.fg,
+                )
+                .tooltip(
+                    state.shortcuts.tooltip(
+                        "Split Down",
+                        muxy_core::shortcuts::ShortcutAction::SplitDown,
+                    ),
+                    theme.raised(),
+                    theme.fg,
+                    theme.border,
+                )
+                .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
+                    if let Some(tab_id) = split_down_target.as_deref() {
+                        window.select_root_tab(tab_id, cx);
+                    }
+                    window.split_focused(Edge::Bottom, cx);
+                })),
+            )
+        })
+        .when(visible_actions.contains(&"apply-layout"), |element| {
             element.child(
                 IconButton::new(
                     SharedString::from(format!("apply-layout-{group_id}")),
@@ -1424,12 +1409,24 @@ fn strip_actions(
                 .tooltip("Apply Layout", theme.raised(), theme.fg, theme.border)
                 .on_click(cx.listener(
                     move |window: &mut MainWindow, event: &gpui::ClickEvent, view, cx| {
-                        window.open_layout_menu(event.position(), view, cx);
+                        window.open_terminal_layout_menu(event.position(), view, cx);
                     },
                 )),
             )
         })
         .into_any_element()
+}
+
+fn strip_action_ids(show_maximize: bool, has_layouts: bool) -> Vec<&'static str> {
+    let mut ids = Vec::new();
+    if show_maximize {
+        ids.push("maximize");
+    }
+    ids.extend(["split-right", "split-down"]);
+    if has_layouts {
+        ids.push("apply-layout");
+    }
+    ids
 }
 
 struct SplitChildren {
@@ -1761,5 +1758,17 @@ mod tests {
         assert!(ring_path(bounds, -1.0, px(1.5)).is_some());
         assert!(ring_path(bounds, 0.5, px(1.5)).is_some());
         assert!(ring_path(bounds, 2.0, px(1.5)).is_some());
+    }
+
+    #[test]
+    fn chrome_tab_strip_contract_excludes_the_browser_action() {
+        assert_eq!(
+            strip_action_ids(false, false),
+            vec!["split-right", "split-down"]
+        );
+        assert_eq!(
+            strip_action_ids(true, true),
+            vec!["maximize", "split-right", "split-down", "apply-layout"]
+        );
     }
 }

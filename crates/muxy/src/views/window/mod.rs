@@ -16,7 +16,9 @@ use crate::terminal::{
     dispatch_for_query,
 };
 use crate::views::menu::{Item, Menu};
-use crate::views::{omnibox, overlay, project_picker, settings, workspace_view};
+use crate::views::{
+    create_worktree_overlay, omnibox, overlay, project_picker, settings, workspace_view,
+};
 use gpui::{
     AppContext, Bounds, ClipboardItem, Context, Entity, Focusable, IntoElement, MouseMoveEvent,
     MouseUpEvent, Pixels, Point, Render, Task, Window, px,
@@ -77,11 +79,13 @@ impl MainWindow {
         let workspace_focus = cx.focus_handle();
         let mut terminals = TerminalSurfaces::with_socket_path(socket.socket_path());
         let combos = terminal_shortcut_combos(&state);
-        if let Err(error) =
-            terminals
-                .backend_mut()
-                .attach(combos, mode, socket.socket_path(), window)
-        {
+        if let Err(error) = terminals.backend_mut().attach(
+            combos,
+            mode,
+            socket.socket_path(),
+            state.theme.bg.into(),
+            window,
+        ) {
             log::warn!("terminal backend unavailable: {error}");
         }
         let terminal_tasks = lifecycle::spawn_terminal_pumps(&mut terminals, cx);

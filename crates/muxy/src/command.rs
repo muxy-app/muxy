@@ -1,3 +1,5 @@
+use muxy_core::prefs::SortMode;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     TogglePin(String),
@@ -9,9 +11,24 @@ pub enum Command {
     PickLogo(String),
     RemoveLogo(String),
     ToggleWorktrees(String),
+    ToggleWorktreeExpansion(String),
+    SelectProject(String),
+    SelectWorktree {
+        project_id: String,
+        worktree_id: String,
+    },
+    RefreshWorktrees(String),
+    NewWorktree(String),
+    RemoveWorktree {
+        project_id: String,
+        worktree_id: String,
+    },
     CopyPath(String),
+    CopyStatusPath(String),
+    RevealStatusPath(String),
     RemoveProject(String),
     SelectWorkspaceGroup(Option<String>),
+    SetProjectSort(SortMode),
     DeleteWorkspaceGroup(String),
     CreateWorkspaceGroup,
     RenameWorkspaceGroup(String),

@@ -58,13 +58,31 @@ pub enum SortMode {
 }
 
 impl SortMode {
-    fn parse(raw: &str) -> Self {
+    pub const ALL: [Self; 5] = [
+        Self::Manual,
+        Self::NameAscending,
+        Self::NameDescending,
+        Self::RecentlyActive,
+        Self::DateCreated,
+    ];
+
+    pub fn parse(raw: &str) -> Self {
         match raw {
             "nameAscending" => Self::NameAscending,
             "nameDescending" => Self::NameDescending,
             "recentlyActive" => Self::RecentlyActive,
             "dateCreated" => Self::DateCreated,
             _ => Self::Manual,
+        }
+    }
+
+    pub fn raw(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::NameAscending => "nameAscending",
+            Self::NameDescending => "nameDescending",
+            Self::RecentlyActive => "recentlyActive",
+            Self::DateCreated => "dateCreated",
         }
     }
 }
@@ -96,6 +114,8 @@ pub struct Prefs {
     pub ide_bundle_identifier: Option<String>,
     pub sort_mode: SortMode,
     pub project_search_root: Option<String>,
+    pub default_worktree_path_template: Option<String>,
+    pub default_worktree_parent_path: Option<String>,
     pub active_worktree_ids: std::collections::HashMap<String, String>,
     pub active_group_id: Option<String>,
 }
@@ -122,6 +142,8 @@ impl Default for Prefs {
             ide_bundle_identifier: None,
             sort_mode: SortMode::Manual,
             project_search_root: None,
+            default_worktree_path_template: None,
+            default_worktree_parent_path: None,
             active_worktree_ids: std::collections::HashMap::new(),
             active_group_id: None,
         }
@@ -141,6 +163,10 @@ impl Prefs {
         let Some(root) = read_json(&app_support_dir().join("settings.json")) else {
             return;
         };
+        self.apply_settings_root(&root);
+    }
+
+    fn apply_settings_root(&mut self, root: &Value) {
         let string = |key: &str| root.get(key).and_then(Value::as_str).map(str::to_owned);
         let flag = |key: &str| root.get(key).and_then(Value::as_bool);
         let number = |key: &str| root.get(key).and_then(Value::as_f64);
@@ -189,6 +215,10 @@ impl Prefs {
                 _ => ExpandedStyle::Wide,
             };
         }
+        self.default_worktree_path_template = string("muxy.general.defaultWorktreePathTemplate")
+            .filter(|value| !value.trim().is_empty());
+        self.default_worktree_parent_path = string("muxy.general.defaultWorktreeParentPath")
+            .filter(|value| !value.trim().is_empty());
     }
 
     fn apply_ui_scale_json(&mut self) {
@@ -253,6 +283,12 @@ impl Prefs {
 
     pub fn store_active_worktree_ids(value: &std::collections::HashMap<String, String>) {
         defaults::store_dictionary("muxy.activeWorktreeIDs", value);
+    }
+
+    pub fn try_store_active_worktree_ids(
+        value: &std::collections::HashMap<String, String>,
+    ) -> std::io::Result<()> {
+        defaults::try_store_dictionary("muxy.activeWorktreeIDs", value)
     }
 }
 
@@ -332,7 +368,7 @@ mod tests {
 
     use crate::environment::BuildMode;
 
-    use super::{ScalePreset, executable_is_test_process, resolve_app_support_dir};
+    use super::{ScalePreset, SortMode, executable_is_test_process, resolve_app_support_dir};
 
     #[test]
     fn parsing_a_raw_preset_is_the_identity() {
@@ -344,6 +380,42 @@ mod tests {
         ] {
             assert_eq!(ScalePreset::parse(preset.raw()), preset);
         }
+    }
+
+    #[test]
+    fn sort_modes_round_trip_all_five_raw_values() {
+        assert_eq!(SortMode::ALL.len(), 5);
+        assert_eq!(
+            SortMode::ALL.map(SortMode::raw),
+            [
+                "manual",
+                "nameAscending",
+                "nameDescending",
+                "recentlyActive",
+                "dateCreated",
+            ]
+        );
+        for mode in SortMode::ALL {
+            assert_eq!(SortMode::parse(mode.raw()), mode);
+        }
+    }
+
+    #[test]
+    fn default_worktree_locations_load_from_portable_settings() {
+        let mut prefs = super::Prefs::default();
+        prefs.apply_settings_root(&serde_json::json!({
+            "muxy.general.defaultWorktreePathTemplate": "../{base-dir}.{branch}",
+            "muxy.general.defaultWorktreeParentPath": "/worktrees"
+        }));
+
+        assert_eq!(
+            prefs.default_worktree_path_template.as_deref(),
+            Some("../{base-dir}.{branch}")
+        );
+        assert_eq!(
+            prefs.default_worktree_parent_path.as_deref(),
+            Some("/worktrees")
+        );
     }
 
     #[test]

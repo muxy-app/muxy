@@ -193,7 +193,9 @@ muxy create-worktree hotfix --existing --branch release/1.2
 muxy create-worktree review --project "My App" --path ~/worktrees/review
 ```
 
-On success it prints `ok`, the worktree ID, name, path, and branch (tab-separated).
+On success it prints exactly `ok`, the uppercase worktree ID, name, resolved path, and branch (tab-separated), after the new worktree is selected. CLI creation never runs project or per-machine setup hooks because the socket request has no interactive approval step.
+
+Once Git creates the checkout, later tracking, workspace, preference, or reconciliation failures do not delete it. Muxy logs those post-Git warnings and still returns the successful five-field reply so it never falsely claims the worktree was rolled back. A validation, branch, path, busy-operation, or Git-add failure before creation returns `error:<message>` instead.
 
 Refresh worktrees from Git:
 

@@ -1,6 +1,18 @@
 use super::*;
 
 impl MainWindow {
+    pub(crate) fn navigate(
+        &mut self,
+        direction: muxy_core::navigation::Direction,
+        cx: &mut Context<Self>,
+    ) {
+        match self.state.navigate(direction) {
+            Ok(true) => cx.notify(),
+            Ok(false) => {}
+            Err(error) => log::warn!("failed to navigate workspace history: {error}"),
+        }
+    }
+
     pub(crate) fn focus_workspace(&self, window: &mut Window) {
         window.focus(&self.view.workspace_focus);
     }
@@ -15,7 +27,7 @@ impl MainWindow {
             .active_tab_workspace_mut()
             .is_some_and(|workspace| workspace.select_root_tab(tab_id))
         {
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
             cx.notify();
         }
     }
@@ -58,7 +70,7 @@ impl MainWindow {
                 keeps_shell_open: true,
             },
         );
-        self.state.save_tab_workspaces();
+        let _ = self.state.persist_tab_workspaces();
         cx.notify();
     }
 
@@ -103,7 +115,7 @@ impl MainWindow {
                     .surfaces
                     .queue_launch_directory(tab_id, directory);
             }
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
             cx.notify();
         }
     }
@@ -174,10 +186,10 @@ impl MainWindow {
                 .tab_workspaces
                 .remove_workspace(&project_id, &workspace_path);
             if !self.state.tab_workspaces.has_project(&project_id) {
-                self.remove_project(&project_id);
+                self.remove_project(&project_id, cx);
             }
         }
-        self.state.save_tab_workspaces();
+        let _ = self.state.persist_tab_workspaces();
         cx.notify();
     }
 
@@ -205,7 +217,7 @@ impl MainWindow {
                     .surfaces
                     .queue_launch_directory(tab_id, directory);
             }
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
             cx.notify();
         }
     }
@@ -274,7 +286,7 @@ impl MainWindow {
             .active_tab_workspace_mut()
             .is_some_and(|workspace| workspace.focus_area(Some(area_id)))
         {
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
             cx.notify();
         }
     }
@@ -499,7 +511,7 @@ impl MainWindow {
                     .active_tab_workspace_mut()
                     .is_some_and(|workspace| workspace.move_pane_center(&active_tab_id, &target))
             {
-                self.state.save_tab_workspaces();
+                let _ = self.state.persist_tab_workspaces();
                 cx.notify();
             }
         } else if let Some(tab_id) = visible_tabs.get(&target) {
@@ -518,7 +530,7 @@ impl MainWindow {
             .active_tab_workspace_mut()
             .is_some_and(|workspace| workspace.select_tab(area_id, tab_id))
         {
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
             cx.notify();
         }
     }
@@ -557,7 +569,7 @@ impl MainWindow {
             if let Some(workspace) = self.state.active_tab_workspace_mut() {
                 workspace.reorder_top_level_tab(&created, index);
             }
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
             cx.notify();
         }
     }
@@ -574,7 +586,7 @@ impl MainWindow {
             .and_then(|workspace| workspace.tab_mut(tab_id))
         {
             tab.custom_title = title.filter(|title| !title.trim().is_empty());
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
             self.dismiss_overlay(cx);
         }
     }
@@ -591,7 +603,7 @@ impl MainWindow {
             .and_then(|workspace| workspace.tab_mut(tab_id))
         {
             tab.color_id = color;
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
             self.dismiss_overlay(cx);
         }
     }
@@ -606,7 +618,7 @@ impl MainWindow {
             .active_tab_workspace_mut()
             .is_some_and(|workspace| workspace.set_tab_pinned(tab_id, !pinned))
         {
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
         }
         self.dismiss_overlay(cx);
     }
@@ -623,7 +635,7 @@ impl MainWindow {
             .map(|workspace| workspace.close_tab(tab_id, mode))
             .unwrap_or_default();
         if !removed.is_empty() {
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
         }
         self.dismiss_overlay(cx);
     }
@@ -1001,7 +1013,7 @@ impl MainWindow {
             _ => false,
         };
         if changed {
-            self.state.save_tab_workspaces();
+            let _ = self.state.persist_tab_workspaces();
             cx.notify();
         }
     }
