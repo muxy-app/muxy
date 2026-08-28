@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class QuickTerminalPanel: NSPanel {
     var onKeyDown: ((NSEvent) -> Bool)?
+    var onResignKey: (() -> Void)?
 
     init(contentRect: NSRect) {
         super.init(
@@ -26,6 +27,11 @@ final class QuickTerminalPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func resignKey() {
+        super.resignKey()
+        onResignKey?()
+    }
 
     override func sendEvent(_ event: NSEvent) {
         if event.type == .keyDown, onKeyDown?(event) == true {

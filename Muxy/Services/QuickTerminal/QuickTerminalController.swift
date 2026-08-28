@@ -137,6 +137,7 @@ final class QuickTerminalController: NSObject {
         contentView?.clearTerminal(status: "Closed")
         session.terminate()
         panel?.onKeyDown = nil
+        panel?.onResignKey = nil
         panel?.contentView = nil
         panel?.close()
         panel = nil
@@ -248,6 +249,9 @@ final class QuickTerminalController: NSObject {
         panel.contentView = contentView
         panel.onKeyDown = { [weak contentView] event in
             contentView?.handleKeyDown(event) ?? false
+        }
+        panel.onResignKey = { [weak self] in
+            self?.hide()
         }
         contentView.onClose = { [weak self] in
             self?.hide()

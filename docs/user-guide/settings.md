@@ -151,7 +151,7 @@ The setting is stored as `muxy.terminalPersistentSession.enabled` in `settings.j
 
 ## Quick terminal
 
-The assigned shortcut is the only way to open the quick terminal. On a display with a camera cutout, the terminal expands out of it like a dynamic island. Open **Quick Terminal** in Settings to configure its shortcut, size, and appearance:
+The assigned shortcut is the only way to open the quick terminal. Dismiss it with the shortcut, the close button, or a click anywhere outside the panel. On a display with a camera cutout, the terminal expands out of it like a dynamic island. Open **Quick Terminal** in Settings to configure its shortcut, size, and appearance:
 
 - **Enable Quick Terminal** controls the entire feature. Turning it off stops the shortcut listener, closes the panel, and releases its shell while preserving its settings.
 - No shortcut is assigned by default.
