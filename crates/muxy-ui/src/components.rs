@@ -208,6 +208,8 @@ impl Tooltip {
 impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .max_w(px(320.0))
+            .line_clamp(4)
             .px(px(8.0))
             .py(px(4.0))
             .rounded(px(5.0))

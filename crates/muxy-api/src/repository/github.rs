@@ -444,13 +444,7 @@ impl RepositoryService {
                 message: "Pull request was created but could not be read back".to_owned(),
             });
         };
-        match self.gh_pr_view(
-            repository,
-            context,
-            Some(&view_argument),
-            control,
-            &deadline,
-        ) {
+        match self.gh_pr_view(repository, context, &view_argument, control, &deadline) {
             Ok(ViewResult::Found(info)) => Ok(CreatePullRequestOutcome::Created(Box::new(
                 resolved_pull_request(context.clone(), *info),
             ))),
@@ -575,13 +569,7 @@ impl RepositoryService {
         if let Some(number) =
             self.configured_pull_request_number(repository, &context.branch, control, deadline)?
         {
-            match self.gh_pr_view(
-                repository,
-                &context,
-                Some(&number.to_string()),
-                control,
-                deadline,
-            ) {
+            match self.gh_pr_view(repository, &context, &number.to_string(), control, deadline) {
                 Ok(ViewResult::Found(info)) => {
                     return Ok(PullRequestLookup::Found(Box::new(resolved_pull_request(
                         context, *info,
@@ -594,16 +582,14 @@ impl RepositoryService {
         let branch = std::str::from_utf8(&context.branch)
             .map_err(|_| GitHubError::InvalidBranch)?
             .to_owned();
-        for argument in [None, Some(branch.as_str())] {
-            match self.gh_pr_view(repository, &context, argument, control, deadline) {
-                Ok(ViewResult::Found(info)) => {
-                    return Ok(PullRequestLookup::Found(Box::new(resolved_pull_request(
-                        context, *info,
-                    ))));
-                }
-                Ok(ViewResult::NoPullRequest) => {}
-                Err(error) => failure = Some(error),
+        match self.gh_pr_view(repository, &context, branch.as_str(), control, deadline) {
+            Ok(ViewResult::Found(info)) => {
+                return Ok(PullRequestLookup::Found(Box::new(resolved_pull_request(
+                    context, *info,
+                ))));
             }
+            Ok(ViewResult::NoPullRequest) => {}
+            Err(error) => failure = Some(error),
         }
         match self.gh_pr_list(repository, &context, control, deadline) {
             Ok(Some(info)) => Ok(PullRequestLookup::Found(Box::new(resolved_pull_request(
@@ -717,7 +703,7 @@ impl RepositoryService {
         let ViewResult::Found(current) = self.gh_pr_view(
             repository,
             &resolved.repository,
-            Some(&argument),
+            &argument,
             control,
             deadline,
         )?
@@ -951,15 +937,13 @@ impl RepositoryService {
         &self,
         repository: &Path,
         context: &GitHubRepositoryContext,
-        argument: Option<&str>,
+        argument: &str,
         control: &GitHubControl,
         deadline: &Deadline,
     ) -> Result<ViewResult, GitHubError> {
         let repository_argument = context.identity.repository_argument();
         let mut args = string_args(&["pr", "view"]);
-        if let Some(argument) = argument {
-            args.push(OsString::from(argument));
-        }
+        args.push(OsString::from(argument));
         args.extend(string_args(&[
             "--repo",
             &repository_argument,
@@ -1767,13 +1751,18 @@ exit 2
                 .filter(|call| call.get(1).map(String::as_str) == Some("pr"))
                 .map(|call| call[2].as_str())
                 .collect::<Vec<_>>(),
-            ["view", "view", "list"]
+            ["view", "list"]
         );
+        assert!(calls.iter().all(|call| {
+            call.get(1).map(String::as_str) != Some("pr")
+                || call.get(2).map(String::as_str) != Some("view")
+                || call.get(3).map(String::as_str) == Some("topic")
+        }));
     }
 
     #[cfg(unix)]
     #[test]
-    fn repository_github_lookup_honors_configured_current_and_branch_order() {
+    fn repository_github_lookup_honors_configured_and_branch_order() {
         let configured = GitHubFixture::new("configured", true);
         git(
             Some(&configured.repository),
@@ -1790,17 +1779,6 @@ exit 2
                 && call.get(3).map(String::as_str) == Some("17")
         }));
 
-        let current = GitHubFixture::new("current", true);
-        assert!(matches!(current.lookup(), Ok(PullRequestLookup::Found(_))));
-        assert_eq!(
-            current
-                .calls()
-                .iter()
-                .filter(|call| call.get(1).map(String::as_str) == Some("pr"))
-                .count(),
-            1
-        );
-
         let branch = GitHubFixture::new("branch", true);
         assert!(matches!(branch.lookup(), Ok(PullRequestLookup::Found(_))));
         let branch_calls = branch.calls();
@@ -1809,7 +1787,7 @@ exit 2
                 .iter()
                 .filter(|call| call.get(1).map(String::as_str) == Some("pr"))
                 .count(),
-            2
+            1
         );
         assert!(branch_calls.iter().any(|call| {
             call.get(1).map(String::as_str) == Some("pr")
