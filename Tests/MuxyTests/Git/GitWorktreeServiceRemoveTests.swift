@@ -924,15 +924,15 @@ struct GitWorktreeServiceRemoveTests {
             repoPath: repo.path,
             path: worktreePath,
             force: true,
-            timeout: 0.5,
-            removalRunner: { repoPath, arguments, context, timeout in
+            timeout: 5,
+            removalRunner: { repoPath, arguments, context, _ in
                 _ = try await GitProcessRunner.runGit(
                     repoPath: repoPath,
                     arguments: arguments,
                     context: context,
-                    timeout: timeout
+                    timeout: 10
                 )
-                try await Task.sleep(for: .milliseconds(600))
+                try await Task.sleep(for: .milliseconds(5100))
                 return GitProcessResult(status: 0, stdout: "", stdoutData: Data(), stderr: "", truncated: false)
             }
         )
