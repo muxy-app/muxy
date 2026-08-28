@@ -154,7 +154,7 @@ impl CommandShortcuts {
         let combo = combo_with_default_modifier(combo.clone());
         self.shortcuts
             .iter()
-            .find(|shortcut| shortcut.id != excluding && shortcut.combo == combo)
+            .find(|shortcut| shortcut.id != excluding && shortcut.combo.conflicts_with(&combo))
     }
 
     pub fn save(&self) -> std::io::Result<()> {

@@ -384,6 +384,13 @@ impl SettingsModal {
     fn persist_shortcuts(&mut self, cx: &mut Context<Self>) {
         if let Err(error) = self.shortcuts.save() {
             log::warn!("failed to write keybindings.json: {error}");
+            self.shortcuts = ShortcutMap::load();
+            let bindings = self.binding_list();
+            if let Some(editor) = self.editor.clone() {
+                editor.update(cx, |editor, cx| editor.apply(bindings, cx));
+            }
+            cx.notify();
+            return;
         }
         cx.emit(SettingsEvent::Applied(Effect::Shortcuts));
         cx.notify();

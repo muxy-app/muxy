@@ -334,7 +334,6 @@ impl MainWindow {
 
     pub(super) fn rebind_shortcuts(&mut self, cx: &mut Context<Self>) {
         cx.clear_key_bindings();
-        cx.bind_keys(muxy_ui::text_input::key_bindings());
         cx.bind_keys(key_bindings());
         cx.bind_keys(crate::keymap::key_bindings(&self.state.shortcuts));
         cx.bind_keys(crate::keymap::command_bindings(

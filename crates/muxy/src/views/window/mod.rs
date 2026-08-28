@@ -42,7 +42,9 @@ const BELL_FLASH_DURATION: Duration = Duration::from_millis(1250);
 const WATCHER_DEBOUNCE_MS: u64 = 300;
 
 pub fn key_bindings() -> Vec<gpui::KeyBinding> {
-    let mut bindings = project_picker::key_bindings();
+    let mut bindings = muxy_ui::text_input::key_bindings();
+    bindings.extend(muxy_ui::command_popover::key_bindings());
+    bindings.extend(project_picker::key_bindings());
     bindings.extend(crate::views::menu::key_bindings());
     bindings.extend(menu_bar::key_bindings());
     bindings.extend(omnibox::view::key_bindings());

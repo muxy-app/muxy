@@ -62,8 +62,6 @@ fn main() {
     Application::new()
         .with_assets(Assets)
         .run(move |cx: &mut App| {
-            cx.bind_keys(muxy_ui::text_input::key_bindings());
-            cx.bind_keys(muxy_ui::command_popover::key_bindings());
             cx.bind_keys(views::window::key_bindings());
             register_app_actions(cx);
 
