@@ -55,6 +55,7 @@ impl Omnibox {
                     height: Some(460.0),
                     max_height: None,
                     completion_on_tab: false,
+                    confirm_on_click: true,
                 },
                 theme,
                 metrics,

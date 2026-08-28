@@ -733,6 +733,7 @@ fn branch_picker(
                 height: None,
                 max_height: Some(220.0),
                 completion_on_tab: false,
+                confirm_on_click: true,
             },
             theme,
             metrics,

@@ -84,6 +84,7 @@ impl ProjectPicker {
                     height: Some(460.0),
                     max_height: None,
                     completion_on_tab: true,
+                    confirm_on_click: true,
                 },
                 theme,
                 metrics,

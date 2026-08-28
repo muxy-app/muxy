@@ -53,6 +53,10 @@ impl MainWindow {
         self.view.repository.reset_watcher();
         if matches!(self.view.overlay, Overlay::Repository { .. }) {
             self.view.overlay = Overlay::None;
+            self.view
+                .repository
+                .coordinator
+                .set_changes_monitoring(false);
         }
         self.view
             .repository
@@ -250,7 +254,12 @@ impl MainWindow {
         else {
             return;
         };
-        self.view.repository.coordinator.state_mut().changes = LoadState::Loading;
+        self.view
+            .repository
+            .coordinator
+            .state_mut()
+            .changes
+            .begin_refresh();
         let path = self
             .view
             .repository
@@ -275,6 +284,7 @@ impl MainWindow {
                     Ok(changes) => LoadState::Ready(changes),
                     Err(error) => LoadState::Error(error.to_string()),
                 };
+                window.sync_changes_picker(cx);
                 cx.notify();
             });
         })
@@ -699,6 +709,188 @@ impl MainWindow {
         }
     }
 
+    pub(crate) fn start_changes_mutation(
+        &mut self,
+        kind: crate::views::repository::changes::ChangesMutationKind,
+        cx: &mut Context<Self>,
+    ) {
+        let discard = matches!(
+            kind,
+            crate::views::repository::changes::ChangesMutationKind::Discard(_)
+        );
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            if discard {
+                self.set_changes_discard_in_flight(false);
+            }
+            return;
+        };
+        let plan = crate::views::repository::changes::changes_mutation_plan(key.clone(), kind);
+        if !plan.background
+            || !plan.revalidate_key
+            || self.state.active_repository_key().as_ref() != Some(&plan.key)
+        {
+            if discard {
+                self.set_changes_discard_in_flight(false);
+            }
+            return;
+        }
+        let token = match self
+            .state
+            .project_operations
+            .begin_operation(&key.project_id, plan.operation_kind)
+        {
+            Ok(token) => token,
+            Err(_) => {
+                if discard {
+                    self.set_changes_discard_in_flight(false);
+                }
+                self.set_changes_operation_error("Another project mutation is running".to_owned());
+                self.sync_changes_picker(cx);
+                return;
+            }
+        };
+        let Some((cancellation, boundary)) = self
+            .view
+            .repository
+            .coordinator
+            .begin_mutation(token.request_id())
+        else {
+            let _ = self.state.project_operations.finish_operation(&token);
+            if discard {
+                self.set_changes_discard_in_flight(false);
+            }
+            return;
+        };
+        self.set_changes_operation_error(String::new());
+        let service = self
+            .repository_service()
+            .with_cancellation(cancellation.clone());
+        let operation_plan = plan.clone();
+        let control = MutationControl::with_cancellation_and_boundary(cancellation, boundary);
+        cx.spawn(async move |window, cx| {
+            let execution = cx
+                .background_executor()
+                .spawn(async move { execute_changes_mutation(service, operation_plan, control) })
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                let _ = window.state.project_operations.finish_operation(&token);
+                if discard
+                    && matches!(
+                        &window.view.overlay,
+                        Overlay::Repository {
+                            kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                            ..
+                        } if popover.key == plan.key
+                    )
+                {
+                    window.set_changes_discard_in_flight(false);
+                }
+                let Some(completion) = window
+                    .view
+                    .repository
+                    .coordinator
+                    .finish_mutation(token.request_id(), execution.effect)
+                else {
+                    return;
+                };
+                let current = completion.current_identity
+                    && window.state.active_repository_key().as_ref() == Some(&plan.key)
+                    && window.view.repository.coordinator.key() == Some(&plan.key);
+                if !current {
+                    return;
+                }
+                window
+                    .view
+                    .repository
+                    .coordinator
+                    .request_refresh(completion.refresh);
+                window
+                    .view
+                    .repository
+                    .coordinator
+                    .request_refresh(plan.refresh);
+                match execution.result {
+                    Ok(_) => {
+                        if let Overlay::Repository {
+                            kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                            ..
+                        } = &mut window.view.overlay
+                            && popover.key == plan.key
+                        {
+                            popover.selection.clear();
+                            popover.discard.cancel();
+                            popover.operation_error = None;
+                        }
+                    }
+                    Err(error) => window.set_changes_operation_error(error),
+                }
+                window.dispatch_repository_refresh(cx);
+                window.sync_changes_picker(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+        self.sync_changes_picker(cx);
+    }
+
+    fn set_changes_operation_error(&mut self, error: String) {
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+            ..
+        } = &mut self.view.overlay
+        {
+            popover.operation_error = (!error.is_empty()).then_some(error);
+        }
+    }
+
+    fn set_changes_discard_in_flight(&mut self, in_flight: bool) {
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+            ..
+        } = &mut self.view.overlay
+        {
+            popover.discard_in_flight = in_flight;
+        }
+    }
+
+    pub(crate) fn count_untracked_lines(
+        &mut self,
+        key: crate::repository::RepositoryKey,
+        file: muxy_api::repository::ChangedFile,
+        cx: &mut Context<Self>,
+    ) {
+        let service = self.repository_service();
+        let path = key.normalized_path.clone();
+        let id = file.stable_id();
+        cx.spawn(async move |window, cx| {
+            let count = cx
+                .background_executor()
+                .spawn(async move { service.untracked_line_count(&path, &file) })
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                let current = matches!(
+                    &window.view.repository.coordinator.state().changes,
+                    LoadState::Ready(changes) if changes.files.iter().any(|file| {
+                        file.stable_id() == id && file.is_untracked
+                    })
+                );
+                let Overlay::Repository {
+                    kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                    ..
+                } = &mut window.view.overlay
+                else {
+                    return;
+                };
+                if !current || popover.key != key {
+                    return;
+                }
+                popover.line_counts.insert(id, count);
+                window.sync_changes_picker(cx);
+            });
+        })
+        .detach();
+    }
+
     fn install_repository_watcher(&mut self, identity: RepositoryIdentity, cx: &mut Context<Self>) {
         self.view.repository.reset_watcher();
         let Ok((watcher, events)) =
@@ -815,6 +1007,104 @@ struct BranchMutationExecution {
     effect: MutationEffect,
 }
 
+struct ChangesMutationExecution {
+    result: Result<MutationOutcome, String>,
+    effect: MutationEffect,
+}
+
+fn execute_changes_mutation(
+    service: RepositoryService,
+    plan: crate::views::repository::changes::ChangesMutationPlan,
+    control: MutationControl,
+) -> ChangesMutationExecution {
+    let identity = match service.repository_identity(&plan.key.normalized_path) {
+        Ok(identity) if identity.worktree_root == plan.key.normalized_path => identity,
+        Ok(_) => {
+            return ChangesMutationExecution {
+                result: Err("Repository identity changed".to_owned()),
+                effect: MutationEffect::NoMutation,
+            };
+        }
+        Err(error) => {
+            return ChangesMutationExecution {
+                result: Err(error.to_string()),
+                effect: MutationEffect::NoMutation,
+            };
+        }
+    };
+    let mut changed = false;
+    let result = match plan.kind {
+        crate::views::repository::changes::ChangesMutationKind::Stage(files) => {
+            execute_file_mutations(files, &mut changed, |file| {
+                service.stage(&identity.worktree_root, file, &control)
+            })
+        }
+        crate::views::repository::changes::ChangesMutationKind::StageAll => service
+            .stage_all(&identity.worktree_root, &control)
+            .inspect(|outcome| {
+                changed = *outcome == MutationOutcome::Success;
+            }),
+        crate::views::repository::changes::ChangesMutationKind::Unstage(files) => {
+            execute_file_mutations(files, &mut changed, |file| {
+                service.unstage(&identity.worktree_root, file, &control)
+            })
+        }
+        crate::views::repository::changes::ChangesMutationKind::UnstageAll => service
+            .unstage_all(&identity.worktree_root, &control)
+            .inspect(|outcome| {
+                changed = *outcome == MutationOutcome::Success;
+            }),
+        crate::views::repository::changes::ChangesMutationKind::Discard(files) => {
+            execute_file_mutations(files, &mut changed, |file| {
+                service.discard(&identity.worktree_root, file, &control)
+            })
+        }
+    };
+    match result {
+        Ok(outcome) => ChangesMutationExecution {
+            result: Ok(outcome),
+            effect: if changed {
+                MutationEffect::Uncertain
+            } else {
+                MutationEffect::NoMutation
+            },
+        },
+        Err(error) => ChangesMutationExecution {
+            effect: if changed {
+                MutationEffect::PartialSuccess {
+                    completed: "earlier file actions",
+                }
+            } else {
+                error.effect()
+            },
+            result: Err(if changed {
+                format!("Some files changed before the operation failed: {error}")
+            } else {
+                error.to_string()
+            }),
+        },
+    }
+}
+
+fn execute_file_mutations(
+    files: Vec<muxy_api::repository::ChangedFile>,
+    changed: &mut bool,
+    mut execute: impl FnMut(
+        &muxy_api::repository::ChangedFile,
+    )
+        -> Result<MutationOutcome, muxy_api::repository::RepositoryMutationError>,
+) -> Result<MutationOutcome, muxy_api::repository::RepositoryMutationError> {
+    let mut outcome = MutationOutcome::NoMutation;
+    for file in &files {
+        let current = execute(file)?;
+        if current == MutationOutcome::Success {
+            *changed = true;
+            outcome = MutationOutcome::Success;
+        }
+    }
+    Ok(outcome)
+}
+
 fn execute_branch_mutation(
     service: RepositoryService,
     plan: BranchMutationPlan,
@@ -882,13 +1172,18 @@ fn branch_execution_error(message: &str, effect: MutationEffect) -> BranchMutati
 #[cfg(test)]
 mod tests {
     #[test]
-    fn phase_six_keeps_later_repository_controls_and_popovers_unrendered() {
+    fn phase_seven_renders_changes_and_keeps_later_controls_unrendered() {
         let status_bar = include_str!("../status_bar.rs");
-        assert!(status_bar.contains(".id(\"status-branch\")"));
-        assert!(!status_bar.contains(".id(\"status-changes\")"));
+        let overlays = include_str!("overlays.rs");
+        let changes = include_str!("../repository/changes.rs");
+        assert!(status_bar.contains("\"status-branch\""));
+        assert!(status_bar.contains("\"status-changes\""));
         assert!(!status_bar.contains(".id(\"status-commit-ai\")"));
         assert!(!status_bar.contains(".id(\"status-create-pr-ai\")"));
         assert!(!status_bar.contains(".id(\"status-pull-request\")"));
         assert!(!status_bar.contains(".id(\"status-repository-unavailable\")"));
+        assert!(overlays.contains("request_worktree_removal_inspection"));
+        assert!(!overlays.contains("remove_worktree(&"));
+        assert!(changes.contains("action.disabled = mutation_busy"));
     }
 }

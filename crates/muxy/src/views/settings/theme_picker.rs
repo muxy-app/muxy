@@ -65,6 +65,7 @@ impl ThemeBrowser {
                     height: None,
                     max_height: Some(PICKER_MAX_HEIGHT),
                     completion_on_tab: false,
+                    confirm_on_click: true,
                 },
                 theme,
                 metrics,

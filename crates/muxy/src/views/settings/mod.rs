@@ -760,6 +760,7 @@ impl SettingsModal {
                     height: None,
                     max_height: Some(280.0),
                     completion_on_tab: false,
+                    confirm_on_click: true,
                 },
                 theme,
                 metrics,

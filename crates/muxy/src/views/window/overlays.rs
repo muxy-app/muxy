@@ -7,6 +7,10 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.view
+            .repository
+            .coordinator
+            .set_changes_monitoring(false);
         let Some(key) = self.view.repository.coordinator.key().cloned() else {
             return;
         };
@@ -39,6 +43,7 @@ impl MainWindow {
                     height: Some(400.0),
                     max_height: None,
                     completion_on_tab: false,
+                    confirm_on_click: true,
                 },
                 theme,
                 metrics,
@@ -72,6 +77,402 @@ impl MainWindow {
         cx.notify();
     }
 
+    pub(crate) fn open_changes_popover(
+        &mut self,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            return;
+        };
+        if matches!(
+            &self.view.overlay,
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                ..
+            } if popover.key == key
+        ) {
+            self.dismiss_overlay(cx);
+            return;
+        }
+        let removable_worktree = self
+            .state
+            .workspace
+            .project(&key.project_id)
+            .and_then(|project| {
+                self.state
+                    .worktrees
+                    .get(&key.project_id)
+                    .and_then(|worktrees| {
+                        worktrees
+                            .iter()
+                            .find(|worktree| worktree.id.eq_ignore_ascii_case(&key.worktree_id))
+                    })
+                    .filter(|worktree| project.can_remove_worktree(worktree))
+            })
+            .map(|worktree| (key.project_id.clone(), worktree.id.clone()));
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        let picker = cx.new(move |cx| {
+            muxy_ui::command_popover::CommandPopover::new(
+                muxy_ui::command_popover::CommandPopoverConfig {
+                    id: "repository-changes-picker".into(),
+                    presentation: muxy_ui::command_popover::CommandPopoverPresentation::Popover,
+                    density: muxy_ui::command_popover::CommandPopoverDensity::Comfortable,
+                    tabs: vec![muxy_ui::command_popover::CommandPopoverTab::new(
+                        "changes", "Changes",
+                    )],
+                    placeholder: "Search changed files…".into(),
+                    footer_actions: Vec::new(),
+                    footer_hints: Vec::new(),
+                    width: Some(
+                        crate::views::repository::changes::changes_overlay_policy().target_width,
+                    ),
+                    height: Some(
+                        crate::views::repository::changes::changes_overlay_policy().target_height,
+                    ),
+                    max_height: None,
+                    completion_on_tab: false,
+                    confirm_on_click: false,
+                },
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let subscription = cx.subscribe(&picker, |window: &mut Self, picker, event, cx| {
+            window.handle_changes_picker_event(&picker, event, cx);
+        });
+        window.focus(&picker.focus_handle(cx));
+        self.view.subscriptions = vec![subscription];
+        self.view.overlay = Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Changes(Box::new(
+                crate::views::repository::changes::ChangesPopover {
+                    key,
+                    picker,
+                    selection: Default::default(),
+                    discard: Default::default(),
+                    operation_error: None,
+                    line_counts: Default::default(),
+                    removable_worktree,
+                    discard_in_flight: false,
+                },
+            )),
+            anchor,
+        };
+        self.view
+            .repository
+            .coordinator
+            .set_changes_monitoring(true);
+        self.view
+            .repository
+            .coordinator
+            .request_refresh(crate::repository::RepositoryRefreshSet::summary_and_changes());
+        self.dispatch_repository_refresh(cx);
+        self.sync_changes_picker(cx);
+        cx.notify();
+    }
+
+    fn handle_changes_picker_event(
+        &mut self,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        event: &muxy_ui::command_popover::CommandPopoverEvent,
+        cx: &mut Context<Self>,
+    ) {
+        use muxy_ui::command_popover::CommandPopoverEvent;
+        match event {
+            CommandPopoverEvent::QueryChanged { .. } => {
+                if let Overlay::Repository {
+                    kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                    ..
+                } = &mut self.view.overlay
+                {
+                    popover.discard.cancel();
+                }
+                self.sync_changes_picker(cx);
+            }
+            CommandPopoverEvent::RowClicked {
+                row,
+                shift,
+                platform,
+            } => {
+                let gesture = if *shift {
+                    crate::views::repository::changes::ChangeSelectionGesture::Range
+                } else if *platform {
+                    crate::views::repository::changes::ChangeSelectionGesture::Toggle
+                } else {
+                    crate::views::repository::changes::ChangeSelectionGesture::Plain
+                };
+                self.select_changes_row(row.as_ref(), gesture, cx);
+            }
+            CommandPopoverEvent::Confirmed(selection) => self.select_changes_row(
+                selection.id.as_ref(),
+                crate::views::repository::changes::ChangeSelectionGesture::Plain,
+                cx,
+            ),
+            CommandPopoverEvent::RowAction { row, action } => {
+                self.perform_changes_row_action(picker, row.as_ref(), action.as_ref(), cx);
+            }
+            CommandPopoverEvent::FooterAction(action) => {
+                self.perform_changes_footer_action(picker, action.as_ref(), cx);
+            }
+            CommandPopoverEvent::Dismissed => self.dismiss_overlay(cx),
+            CommandPopoverEvent::InlineActionDismissed => {
+                if let Overlay::Repository {
+                    kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                    ..
+                } = &mut self.view.overlay
+                {
+                    popover.discard.cancel();
+                }
+            }
+            CommandPopoverEvent::TabChanged(_)
+            | CommandPopoverEvent::SelectionChanged(_)
+            | CommandPopoverEvent::SecondaryConfirmed(_)
+            | CommandPopoverEvent::Submitted { .. }
+            | CommandPopoverEvent::CompletionRequested
+            | CommandPopoverEvent::NavigateBackRequested => {}
+        }
+    }
+
+    fn select_changes_row(
+        &mut self,
+        row: &str,
+        gesture: crate::views::repository::changes::ChangeSelectionGesture,
+        cx: &mut Context<Self>,
+    ) {
+        let changes = self.view.repository.coordinator.state().changes.clone();
+        let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+            ..
+        } = &mut self.view.overlay
+        else {
+            return;
+        };
+        let query = popover.picker.read(cx).query().to_owned();
+        let Some(selected) = crate::views::repository::changes::find_row(
+            &changes,
+            &query,
+            &popover.line_counts,
+            row,
+        ) else {
+            return;
+        };
+        let ordered =
+            crate::views::repository::changes::ordered_keys(&changes, &query, &popover.line_counts);
+        popover.selection.apply(selected.key, gesture, &ordered);
+        self.sync_changes_picker(cx);
+    }
+
+    fn perform_changes_row_action(
+        &mut self,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        row: &str,
+        action: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let changes = self.view.repository.coordinator.state().changes.clone();
+        let Some((key, query, line_counts)) = (match &self.view.overlay {
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                ..
+            } => Some((
+                popover.key.clone(),
+                popover.picker.read(cx).query().to_owned(),
+                popover.line_counts.clone(),
+            )),
+            _ => None,
+        }) else {
+            return;
+        };
+        let Some(presented) =
+            crate::views::repository::changes::find_row(&changes, &query, &line_counts, row)
+        else {
+            return;
+        };
+        match action {
+            "stage" => self.start_changes_mutation(
+                crate::views::repository::changes::ChangesMutationKind::Stage(vec![presented.file]),
+                cx,
+            ),
+            "unstage" => self.start_changes_mutation(
+                crate::views::repository::changes::ChangesMutationKind::Unstage(vec![
+                    presented.file,
+                ]),
+                cx,
+            ),
+            "stats" => self.count_untracked_lines(key, presented.file, cx),
+            "discard" => {
+                let files = vec![presented.file];
+                let warning = crate::views::repository::changes::discard_warning(&files);
+                if let Overlay::Repository {
+                    kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                    ..
+                } = &mut self.view.overlay
+                    && popover.discard.request(key, &files)
+                {
+                    let _ = picker.update(cx, |picker, cx| {
+                        picker.open_confirmation_with_message(
+                            row,
+                            "discard",
+                            Some(warning.into()),
+                            cx,
+                        )
+                    });
+                }
+            }
+            "confirm:discard" => self.confirm_changes_discard(cx),
+            _ => {}
+        }
+    }
+
+    fn perform_changes_footer_action(
+        &mut self,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        action: &str,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            "stage-all" => self.start_changes_mutation(
+                crate::views::repository::changes::ChangesMutationKind::StageAll,
+                cx,
+            ),
+            "unstage-all" => self.start_changes_mutation(
+                crate::views::repository::changes::ChangesMutationKind::UnstageAll,
+                cx,
+            ),
+            "stage-selected" => {
+                let files = self.selected_change_files(|row| row.can_stage);
+                self.start_changes_mutation(
+                    crate::views::repository::changes::ChangesMutationKind::Stage(files),
+                    cx,
+                );
+            }
+            "unstage-selected" => {
+                let files = self.selected_change_files(|row| row.can_unstage);
+                self.start_changes_mutation(
+                    crate::views::repository::changes::ChangesMutationKind::Unstage(files),
+                    cx,
+                );
+            }
+            "discard-selected" => {
+                let files = self.selected_change_files(|row| row.can_discard);
+                let warning = crate::views::repository::changes::discard_warning(&files);
+                let first_row = self.first_selected_change_row();
+                if let Overlay::Repository {
+                    kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                    ..
+                } = &mut self.view.overlay
+                    && popover.discard.request(popover.key.clone(), &files)
+                    && let Some(first_row) = first_row
+                {
+                    let _ = picker.update(cx, |picker, cx| {
+                        picker.open_confirmation_with_message(
+                            &first_row,
+                            "discard",
+                            Some(warning.into()),
+                            cx,
+                        )
+                    });
+                }
+            }
+            "retry" => {
+                if let Overlay::Repository {
+                    kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                    ..
+                } = &mut self.view.overlay
+                {
+                    popover.operation_error = None;
+                }
+                self.view.repository.coordinator.request_refresh(
+                    crate::repository::RepositoryRefreshSet::summary_and_changes(),
+                );
+                self.dispatch_repository_refresh(cx);
+                self.sync_changes_picker(cx);
+            }
+            "remove-worktree" => {
+                let target = match &self.view.overlay {
+                    Overlay::Repository {
+                        kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                        ..
+                    } => popover.removable_worktree.clone(),
+                    _ => None,
+                };
+                if let Some((project_id, worktree_id)) = target {
+                    self.close_repository_overlay(cx);
+                    self.request_worktree_removal_inspection(project_id, worktree_id, cx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn selected_change_files(
+        &self,
+        predicate: impl Fn(&crate::views::repository::changes::PresentedChangeRow) -> bool,
+    ) -> Vec<muxy_api::repository::ChangedFile> {
+        let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+            ..
+        } = &self.view.overlay
+        else {
+            return Vec::new();
+        };
+        crate::views::repository::changes::selected_files(
+            &self.view.repository.coordinator.state().changes,
+            "",
+            &popover.line_counts,
+            popover.selection.selected(),
+            predicate,
+        )
+    }
+
+    fn first_selected_change_row(&self) -> Option<String> {
+        let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+            ..
+        } = &self.view.overlay
+        else {
+            return None;
+        };
+        crate::views::repository::changes::present_changes(
+            &self.view.repository.coordinator.state().changes,
+            "",
+            &popover.line_counts,
+        )
+        .sections
+        .into_iter()
+        .flat_map(|section| section.rows)
+        .filter(|row| popover.selection.contains(&row.key) && row.can_discard)
+        .max_by_key(|row| row.file.is_untracked)
+        .map(|row| crate::views::repository::changes::row_id(&row.key))
+    }
+
+    fn confirm_changes_discard(&mut self, cx: &mut Context<Self>) {
+        let changes = match &self.view.repository.coordinator.state().changes {
+            crate::repository::LoadState::Ready(changes) => changes.files.clone(),
+            _ => return,
+        };
+        let files = match &mut self.view.overlay {
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                ..
+            } => {
+                let Some(files) = popover.discard.take(&popover.key, &changes) else {
+                    return;
+                };
+                popover.discard_in_flight = true;
+                files
+            }
+            _ => return,
+        };
+        self.start_changes_mutation(
+            crate::views::repository::changes::ChangesMutationKind::Discard(files),
+            cx,
+        );
+    }
+
     fn handle_repository_picker_event(
         &mut self,
         picker: &Entity<muxy_ui::command_popover::CommandPopover>,
@@ -83,7 +484,7 @@ impl MainWindow {
             CommandPopoverEvent::QueryChanged { .. } | CommandPopoverEvent::TabChanged(_) => {
                 self.sync_repository_picker(cx);
             }
-            CommandPopoverEvent::SelectionChanged(_) => {}
+            CommandPopoverEvent::SelectionChanged(_) | CommandPopoverEvent::RowClicked { .. } => {}
             CommandPopoverEvent::Confirmed(selection) => {
                 self.confirm_repository_picker_selection(picker, selection.id.as_ref(), cx);
             }
@@ -95,6 +496,7 @@ impl MainWindow {
             }
             CommandPopoverEvent::Dismissed => self.dismiss_overlay(cx),
             CommandPopoverEvent::FooterAction(_)
+            | CommandPopoverEvent::InlineActionDismissed
             | CommandPopoverEvent::Submitted { .. }
             | CommandPopoverEvent::CompletionRequested
             | CommandPopoverEvent::NavigateBackRequested => {}
@@ -114,6 +516,23 @@ impl MainWindow {
         } = &self.view.overlay
         {
             crate::views::repository::branch::sync_picker(popover, busy, cx);
+        }
+    }
+
+    pub(super) fn sync_changes_picker(&mut self, cx: &mut Context<Self>) {
+        let changes = self.view.repository.coordinator.state().changes.clone();
+        let busy = self
+            .view
+            .repository
+            .coordinator
+            .key()
+            .is_some_and(|key| self.state.project_operations.is_mutating(&key.project_id));
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+            ..
+        } = &mut self.view.overlay
+        {
+            crate::views::repository::changes::sync_picker(popover, &changes, busy, cx);
         }
     }
 
@@ -278,6 +697,10 @@ impl MainWindow {
         if !matches!(self.view.overlay, Overlay::Repository { .. }) {
             return;
         }
+        self.view
+            .repository
+            .coordinator
+            .set_changes_monitoring(false);
         self.view.subscriptions.clear();
         self.view.overlay = Overlay::None;
         self.view.pending_focus = Some(self.view.workspace_focus.clone());
@@ -427,6 +850,15 @@ impl MainWindow {
         if matches!(self.view.overlay, Overlay::CreateWorktree(_)) {
             self.view.worktrees.clear_create();
         }
+        if matches!(
+            &self.view.overlay,
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
+                ..
+            } if popover.discard_in_flight
+        ) {
+            return;
+        }
         if let Overlay::Repository {
             kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
             ..
@@ -438,6 +870,19 @@ impl MainWindow {
                 cx.notify();
                 return;
             }
+            self.view.pending_focus = Some(self.view.workspace_focus.clone());
+        }
+        if matches!(
+            self.view.overlay,
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::Changes(_),
+                ..
+            }
+        ) {
+            self.view
+                .repository
+                .coordinator
+                .set_changes_monitoring(false);
             self.view.pending_focus = Some(self.view.workspace_focus.clone());
         }
         self.view.subscriptions.clear();
@@ -1490,6 +1935,7 @@ impl MainWindow {
                     height: None,
                     max_height: Some(480.0),
                     completion_on_tab: false,
+                    confirm_on_click: true,
                 },
                 theme,
                 metrics,
@@ -1521,6 +1967,7 @@ impl MainWindow {
                     height: None,
                     max_height: Some(480.0),
                     completion_on_tab: false,
+                    confirm_on_click: true,
                 },
                 theme,
                 metrics,

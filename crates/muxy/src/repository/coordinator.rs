@@ -117,7 +117,6 @@ impl RepositoryRefreshSet {
         set
     }
 
-    #[cfg(test)]
     pub(crate) fn summary_and_changes() -> Self {
         let mut set = Self::empty();
         set.insert(RepositoryReadKind::Summary);

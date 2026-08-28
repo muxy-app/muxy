@@ -11,12 +11,21 @@ pub(crate) enum RepositoryControlKind {
     RepositoryUnavailable,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RepositoryControlTone {
+    Default,
+    Clean,
+    Dirty,
+    Danger,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RepositoryControl {
     pub kind: RepositoryControlKind,
     pub label: String,
     pub tooltip: String,
     pub enabled: bool,
+    pub tone: RepositoryControlTone,
 }
 
 pub(crate) fn repository_controls(state: &RepositoryState) -> Vec<RepositoryControl> {
@@ -123,11 +132,18 @@ fn ready_controls(summary: &RepositorySummary) -> Vec<RepositoryControl> {
             branch_tooltip,
             true,
         ),
-        control(
+        control_with_tone(
             RepositoryControlKind::Changes,
             changes_label,
             changes_tooltip,
             true,
+            if summary.conflicted_count > 0 {
+                RepositoryControlTone::Danger
+            } else if summary.is_dirty() {
+                RepositoryControlTone::Dirty
+            } else {
+                RepositoryControlTone::Clean
+            },
         ),
         control(
             RepositoryControlKind::CommitAi,
@@ -144,11 +160,28 @@ fn control(
     tooltip: impl Into<String>,
     enabled: bool,
 ) -> RepositoryControl {
+    control_with_tone(
+        kind,
+        label,
+        tooltip,
+        enabled,
+        RepositoryControlTone::Default,
+    )
+}
+
+fn control_with_tone(
+    kind: RepositoryControlKind,
+    label: impl Into<String>,
+    tooltip: impl Into<String>,
+    enabled: bool,
+    tone: RepositoryControlTone,
+) -> RepositoryControl {
     RepositoryControl {
         kind,
         label: label.into(),
         tooltip: tooltip.into(),
         enabled,
+        tone,
     }
 }
 
@@ -205,6 +238,7 @@ mod tests {
         let clean = repository_controls(&repository);
         assert_eq!(clean[0].label, "main");
         assert_eq!(clean[1].label, "Clean");
+        assert_eq!(clean[1].tone, RepositoryControlTone::Clean);
         assert!(clean[0].tooltip.contains("No upstream"));
 
         let LoadState::Ready(current_summary) = &mut repository.summary else {
@@ -218,8 +252,18 @@ mod tests {
         current_summary.upstream = Some("origin/main".to_owned());
         let dirty = repository_controls(&repository);
         assert_eq!(dirty[1].label, "4 Changes");
+        assert_eq!(dirty[1].tone, RepositoryControlTone::Dirty);
         assert!(dirty[0].tooltip.contains("2 ahead"));
         assert!(dirty[0].tooltip.contains("3 behind"));
+
+        let LoadState::Ready(current_summary) = &mut repository.summary else {
+            panic!("summary")
+        };
+        current_summary.conflicted_count = 1;
+        assert_eq!(
+            repository_controls(&repository)[1].tone,
+            RepositoryControlTone::Danger
+        );
 
         let LoadState::Ready(current_summary) = &mut repository.summary else {
             panic!("summary")

@@ -306,6 +306,7 @@ pub struct CommandPopoverRow {
     pub actions: Vec<CommandPopoverAction>,
     pub swatches: Vec<Hsla>,
     pub current: bool,
+    pub selected: bool,
     pub disabled: bool,
 }
 
@@ -320,6 +321,7 @@ impl CommandPopoverRow {
             actions: Vec::new(),
             swatches: Vec::new(),
             current: false,
+            selected: false,
             disabled: false,
         }
     }
@@ -628,6 +630,7 @@ pub struct CommandPopoverConfig {
     pub height: Option<f32>,
     pub max_height: Option<f32>,
     pub completion_on_tab: bool,
+    pub confirm_on_click: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -638,6 +641,11 @@ pub enum CommandPopoverEvent {
     },
     TabChanged(SharedString),
     SelectionChanged(CommandPopoverSelection),
+    RowClicked {
+        row: SharedString,
+        shift: bool,
+        platform: bool,
+    },
     Confirmed(CommandPopoverSelection),
     SecondaryConfirmed(CommandPopoverSelection),
     Submitted {
@@ -650,6 +658,7 @@ pub enum CommandPopoverEvent {
         action: SharedString,
     },
     FooterAction(SharedString),
+    InlineActionDismissed,
     Dismissed,
 }
 
@@ -663,6 +672,7 @@ pub struct CommandPopover {
     metrics: Metrics,
     focused: bool,
     detail: Option<(SharedString, Vec<SharedString>)>,
+    confirmation_message: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -717,6 +727,7 @@ impl CommandPopover {
             metrics,
             focused: false,
             detail: None,
+            confirmation_message: None,
             _subscriptions: vec![subscription],
         }
     }
@@ -746,6 +757,7 @@ impl CommandPopover {
 
     pub fn set_items(&mut self, items: Vec<CommandPopoverItem>, cx: &mut Context<Self>) {
         self.state.set_items(items);
+        self.confirmation_message = None;
         self.scroll.reset(self.state.item_count());
         self.scroll_to_selection();
         cx.notify();
@@ -806,7 +818,18 @@ impl CommandPopover {
         action: &str,
         cx: &mut Context<Self>,
     ) -> Result<(), UnknownCommandPopoverRow> {
+        self.open_confirmation_with_message(row, action, None, cx)
+    }
+
+    pub fn open_confirmation_with_message(
+        &mut self,
+        row: &str,
+        action: &str,
+        message: Option<SharedString>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), UnknownCommandPopoverRow> {
         self.state.open_inline_action(row, action)?;
+        self.confirmation_message = message;
         cx.notify();
         Ok(())
     }
@@ -872,7 +895,11 @@ impl CommandPopover {
             return;
         }
         match self.state.escape() {
-            CommandPopoverEscape::CloseInlineAction => cx.notify(),
+            CommandPopoverEscape::CloseInlineAction => {
+                self.confirmation_message = None;
+                cx.emit(CommandPopoverEvent::InlineActionDismissed);
+                cx.notify();
+            }
             CommandPopoverEscape::Dismiss => cx.emit(CommandPopoverEvent::Dismissed),
         }
     }
@@ -999,7 +1026,7 @@ impl CommandPopover {
                 {
                     return self.render_confirmation(row, cx);
                 }
-                let selected = self.state.selected_row_id() == Some(row.id.as_ref());
+                let highlighted = self.state.selected_row_id() == Some(row.id.as_ref());
                 let row_height = layout.row_height;
                 let id = row.id.clone();
                 let hover_id = row.id.clone();
@@ -1029,7 +1056,9 @@ impl CommandPopover {
                     } else {
                         self.theme.fg
                     })
-                    .when(selected, |element| element.bg(selected_background))
+                    .when(highlighted || row.selected, |element| {
+                        element.bg(selected_background)
+                    })
                     .when(!row.disabled, |element| {
                         element
                             .cursor_pointer()
@@ -1043,14 +1072,23 @@ impl CommandPopover {
                                     cx.notify();
                                 }
                             }))
-                            .on_click(cx.listener(move |popover, _, _, cx| {
-                                let _ = popover.state.select_row(&id);
-                                if let Some(selection) = popover.state.confirm() {
-                                    cx.emit(CommandPopoverEvent::Confirmed(selection));
-                                }
-                            }))
+                            .on_click(cx.listener(
+                                move |popover, event: &gpui::ClickEvent, _, cx| {
+                                    let _ = popover.state.select_row(&id);
+                                    cx.emit(CommandPopoverEvent::RowClicked {
+                                        row: id.clone(),
+                                        shift: event.modifiers().shift,
+                                        platform: event.modifiers().platform,
+                                    });
+                                    if popover.config.confirm_on_click
+                                        && let Some(selection) = popover.state.confirm()
+                                    {
+                                        cx.emit(CommandPopoverEvent::Confirmed(selection));
+                                    }
+                                },
+                            ))
                     });
-                if row.current {
+                if row.current || row.selected {
                     content = content.child(
                         IconGlyph::new(Icon::Check, self.metrics.icon_sm(), self.theme.accent)
                             .into_any_element(),
@@ -1076,7 +1114,7 @@ impl CommandPopover {
                                 .min_w(px(0.0))
                                 .truncate()
                                 .text_size(self.metrics.font_body())
-                                .font_weight(if row.current {
+                                .font_weight(if row.current || row.selected {
                                     FontWeight::SEMIBOLD
                                 } else {
                                     FontWeight::NORMAL
@@ -1219,6 +1257,10 @@ impl CommandPopover {
             .find(|action| action.id == action_id)
             .map(|action| action.label.clone())
             .unwrap_or_else(|| "Confirm".into());
+        let message = self
+            .confirmation_message
+            .clone()
+            .unwrap_or_else(|| format!("{}?", label).into());
         let row_id = row.id.clone();
         let confirmed_action = SharedString::from(format!("confirm:{action_id}"));
         let content = div()
@@ -1236,7 +1278,8 @@ impl CommandPopover {
                     .flex_grow()
                     .text_size(self.metrics.font_footnote())
                     .text_color(self.theme.fg)
-                    .child(format!("{}?", label)),
+                    .truncate()
+                    .child(message),
             )
             .child(
                 div()
@@ -1251,6 +1294,8 @@ impl CommandPopover {
                     .child("Cancel")
                     .on_click(cx.listener(|popover, _, _, cx| {
                         let _ = popover.state.escape();
+                        popover.confirmation_message = None;
+                        cx.emit(CommandPopoverEvent::InlineActionDismissed);
                         cx.notify();
                     })),
             )

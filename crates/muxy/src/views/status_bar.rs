@@ -52,6 +52,13 @@ pub fn status_bar(
                     left = left.child(branch_chip(state, control, cx));
                 }
             }
+            StatusControl::Changes => {
+                if let Some(control) = repository_controls.iter().find(|control| {
+                    control.kind == crate::repository::RepositoryControlKind::Changes
+                }) {
+                    left = left.child(changes_chip(state, control, cx));
+                }
+            }
         }
     }
 
@@ -75,6 +82,7 @@ enum StatusControl {
     Path,
     Separator,
     Branch,
+    Changes,
 }
 
 fn status_controls(
@@ -85,14 +93,22 @@ fn status_controls(
     if has_path {
         controls.push(StatusControl::Path);
     }
-    if repository_controls
-        .iter()
-        .any(|control| control.kind == crate::repository::RepositoryControlKind::Branch)
-    {
+    for control in [StatusControl::Branch, StatusControl::Changes] {
+        let kind = match control {
+            StatusControl::Branch => crate::repository::RepositoryControlKind::Branch,
+            StatusControl::Changes => crate::repository::RepositoryControlKind::Changes,
+            StatusControl::Path | StatusControl::Separator => unreachable!(),
+        };
+        if !repository_controls
+            .iter()
+            .any(|candidate| candidate.kind == kind)
+        {
+            continue;
+        }
         if !controls.is_empty() {
             controls.push(StatusControl::Separator);
         }
-        controls.push(StatusControl::Branch);
+        controls.push(control);
     }
     controls
 }
@@ -212,25 +228,63 @@ fn branch_chip(
     control: &crate::repository::RepositoryControl,
     cx: &mut Context<MainWindow>,
 ) -> AnyElement {
+    repository_chip(
+        "status-branch",
+        Icon::GitBranch,
+        state,
+        control,
+        MainWindow::open_branch_popover,
+        cx,
+    )
+}
+
+fn changes_chip(
+    state: &AppState,
+    control: &crate::repository::RepositoryControl,
+    cx: &mut Context<MainWindow>,
+) -> AnyElement {
+    repository_chip(
+        "status-changes",
+        Icon::ArrowUpDown,
+        state,
+        control,
+        MainWindow::open_changes_popover,
+        cx,
+    )
+}
+
+type RepositoryPopoverOpener =
+    fn(&mut MainWindow, gpui::Bounds<gpui::Pixels>, &mut gpui::Window, &mut Context<MainWindow>);
+
+fn repository_chip(
+    id: &'static str,
+    icon: Icon,
+    state: &AppState,
+    control: &crate::repository::RepositoryControl,
+    open: RepositoryPopoverOpener,
+    cx: &mut Context<MainWindow>,
+) -> AnyElement {
     let metrics = &state.metrics;
     let theme = &state.theme;
     let enabled = control.enabled;
     let bounds = Rc::new(Cell::new(None));
     let recorder = bounds.clone();
     let click_bounds = bounds.clone();
+    let enabled_color = match control.tone {
+        crate::repository::RepositoryControlTone::Default => theme.fg_muted,
+        crate::repository::RepositoryControlTone::Clean => theme.accent,
+        crate::repository::RepositoryControlTone::Dirty => theme.warning,
+        crate::repository::RepositoryControlTone::Danger => theme.danger,
+    };
     div()
-        .id("status-branch")
+        .id(id)
         .relative()
         .flex()
         .flex_row()
         .items_center()
         .gap(px(4.0))
         .h_full()
-        .text_color(if enabled {
-            theme.fg_muted
-        } else {
-            theme.fg_dim
-        })
+        .text_color(if enabled { enabled_color } else { theme.fg_dim })
         .when(enabled, |element| {
             element
                 .cursor_pointer()
@@ -242,7 +296,7 @@ fn branch_chip(
                 cx.listener(
                     move |window: &mut MainWindow, _: &MouseDownEvent, view, cx| {
                         if let Some(bounds) = click_bounds.get() {
-                            window.open_branch_popover(bounds, view, cx);
+                            open(window, bounds, view, cx);
                         }
                     },
                 ),
@@ -256,14 +310,10 @@ fn branch_chip(
             .absolute()
             .size_full(),
         )
-        .child(muxy_ui::components::SymbolGlyph::new(
-            "arrow.triangle.branch",
+        .child(IconGlyph::new(
+            icon,
             metrics.font_caption(),
-            if enabled {
-                theme.fg_muted
-            } else {
-                theme.fg_dim
-            },
+            if enabled { enabled_color } else { theme.fg_dim },
         ))
         .child(
             div()
@@ -302,6 +352,7 @@ fn status_control_ids(has_path: bool) -> Vec<&'static str> {
             StatusControl::Path => "status-path",
             StatusControl::Separator => "status-separator",
             StatusControl::Branch => "status-branch",
+            StatusControl::Changes => "status-changes",
         })
         .collect()
 }
@@ -346,6 +397,7 @@ mod tests {
             label: "main".to_owned(),
             tooltip: "No upstream".to_owned(),
             enabled: true,
+            tone: crate::repository::RepositoryControlTone::Default,
         }];
         assert_eq!(
             status_controls(true, &repository)
@@ -354,6 +406,7 @@ mod tests {
                     StatusControl::Path => "status-path",
                     StatusControl::Separator => "status-separator",
                     StatusControl::Branch => "status-branch",
+                    StatusControl::Changes => "status-changes",
                 })
                 .collect::<Vec<_>>(),
             ["status-path", "status-separator", "status-branch"]
@@ -365,9 +418,48 @@ mod tests {
                     StatusControl::Path => "status-path",
                     StatusControl::Separator => "status-separator",
                     StatusControl::Branch => "status-branch",
+                    StatusControl::Changes => "status-changes",
                 })
                 .collect::<Vec<_>>(),
             ["status-branch"]
+        );
+    }
+
+    #[test]
+    fn phase_seven_orders_branch_and_changes_with_section_separators() {
+        let repository = vec![
+            crate::repository::RepositoryControl {
+                kind: crate::repository::RepositoryControlKind::Branch,
+                label: "main".to_owned(),
+                tooltip: "No upstream".to_owned(),
+                enabled: true,
+                tone: crate::repository::RepositoryControlTone::Default,
+            },
+            crate::repository::RepositoryControl {
+                kind: crate::repository::RepositoryControlKind::Changes,
+                label: "2 Changes".to_owned(),
+                tooltip: "1 staged · 1 unstaged".to_owned(),
+                enabled: true,
+                tone: crate::repository::RepositoryControlTone::Dirty,
+            },
+        ];
+        assert_eq!(
+            status_controls(true, &repository)
+                .iter()
+                .map(|control| match control {
+                    StatusControl::Path => "status-path",
+                    StatusControl::Separator => "status-separator",
+                    StatusControl::Branch => "status-branch",
+                    StatusControl::Changes => "status-changes",
+                })
+                .collect::<Vec<_>>(),
+            [
+                "status-path",
+                "status-separator",
+                "status-branch",
+                "status-separator",
+                "status-changes",
+            ]
         );
     }
 }
