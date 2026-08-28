@@ -1,21 +1,19 @@
 use crate::themes::ThemeEntry;
-use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render,
+    Subscription,
 };
 use muxy_core::fold::fold;
 use muxy_core::prefs::settings;
-use muxy_ui::components::SymbolGlyph;
-use muxy_ui::text_input::{self, InputEvent, InputStyle, TextInput};
+use muxy_ui::command_popover::{
+    CommandPopover, CommandPopoverConfig, CommandPopoverDensity, CommandPopoverEvent,
+    CommandPopoverItem, CommandPopoverPresentation, CommandPopoverRow, CommandPopoverStatus,
+    CommandPopoverTab,
+};
 use muxy_ui::theme::{Appearance, Metrics, Theme};
 
-const PANEL_WIDTH: f32 = 280.0;
-const PANEL_HEIGHT: f32 = 400.0;
-const PANEL_MARGIN: f32 = 80.0;
-const MIN_PANEL_HEIGHT: f32 = 180.0;
-const SWATCH_HEIGHT: f32 = 14.0;
+pub const PICKER_WIDTH: f32 = 340.0;
+pub const PICKER_MAX_HEIGHT: f32 = 360.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ThemeMode {
@@ -32,23 +30,16 @@ pub enum ThemeBrowserEvent {
 pub struct ThemeBrowser {
     mode: ThemeMode,
     entries: Vec<ThemeEntry>,
-    search: Entity<TextInput>,
-    query: String,
-    highlighted: usize,
     appearance: Appearance,
-    theme: Theme,
-    metrics: Metrics,
-    scroll: ScrollHandle,
-    focus_handle: FocusHandle,
-    focused: bool,
+    picker: Entity<CommandPopover>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<ThemeBrowserEvent> for ThemeBrowser {}
 
 impl Focusable for ThemeBrowser {
-    fn focus_handle(&self, _: &App) -> FocusHandle {
-        self.focus_handle.clone()
+    fn focus_handle(&self, cx: &App) -> FocusHandle {
+        self.picker.focus_handle(cx)
     }
 }
 
@@ -60,40 +51,72 @@ impl ThemeBrowser {
         metrics: Metrics,
         cx: &mut Context<Self>,
     ) -> Self {
-        let style = InputStyle::field(&theme, &metrics);
-        let search = cx.new(|cx| {
-            TextInput::new(style, cx)
-                .with_key_context(text_input::BARE_CONTEXT)
-                .with_placeholder("Search themes")
+        let picker = cx.new(|cx| {
+            CommandPopover::new(
+                CommandPopoverConfig {
+                    id: "theme-browser".into(),
+                    presentation: CommandPopoverPresentation::Popover,
+                    density: CommandPopoverDensity::Compact,
+                    tabs: vec![CommandPopoverTab::new("themes", "Themes")],
+                    placeholder: "Search themes…".into(),
+                    footer_actions: Vec::new(),
+                    footer_hints: Vec::new(),
+                    width: Some(PICKER_WIDTH),
+                    height: None,
+                    max_height: Some(PICKER_MAX_HEIGHT),
+                    completion_on_tab: false,
+                    confirm_on_click: true,
+                },
+                theme,
+                metrics,
+                cx,
+            )
         });
-        let subscription = cx.subscribe(&search, |browser: &mut Self, input, event, cx| {
-            if matches!(event, InputEvent::Changed) {
-                browser.query = input.read(cx).text().to_owned();
-                browser.highlighted = 0;
-                cx.notify();
-            }
-        });
-
-        Self {
+        let subscription = cx.subscribe(
+            &picker,
+            |browser: &mut Self, picker, event, cx| match event {
+                CommandPopoverEvent::QueryChanged { query, .. } => {
+                    browser.sync_picker(query.as_ref(), cx)
+                }
+                CommandPopoverEvent::Confirmed(selection)
+                | CommandPopoverEvent::SecondaryConfirmed(selection) => {
+                    let Some(index) = selection
+                        .id
+                        .strip_prefix("theme-")
+                        .and_then(|index| index.parse::<usize>().ok())
+                    else {
+                        return;
+                    };
+                    if let Some(name) = browser.entries.get(index).map(|entry| entry.name.clone()) {
+                        browser.select(name, cx);
+                    }
+                }
+                CommandPopoverEvent::Dismissed => cx.emit(ThemeBrowserEvent::Dismiss),
+                _ => {
+                    let _ = picker;
+                }
+            },
+        );
+        let browser = Self {
             mode,
             entries: crate::themes::catalog(),
-            search,
-            query: String::new(),
-            highlighted: 0,
             appearance,
-            theme,
-            metrics,
-            scroll: ScrollHandle::default(),
-            focus_handle: cx.focus_handle(),
-            focused: false,
+            picker,
             _subscriptions: vec![subscription],
-        }
+        };
+        browser.sync_picker("", cx);
+        browser
+    }
+
+    pub fn picker(&self) -> &Entity<CommandPopover> {
+        &self.picker
     }
 
     pub fn set_appearance(&mut self, theme: Theme, metrics: Metrics, cx: &mut Context<Self>) {
-        self.theme = theme;
-        self.metrics = metrics;
-        cx.notify();
+        self.picker
+            .update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
+        let query = self.picker.read(cx).query().to_owned();
+        self.sync_picker(&query, cx);
     }
 
     fn is_dark(&self) -> bool {
@@ -105,20 +128,42 @@ impl ThemeBrowser {
     }
 
     fn active_name(&self) -> String {
-        let key = if self.is_dark() {
-            "muxy.theme.dark"
-        } else {
-            "muxy.theme.light"
-        };
-        settings::string_value(key, "")
+        settings::string_value(
+            if self.is_dark() {
+                "muxy.theme.dark"
+            } else {
+                "muxy.theme.light"
+            },
+            "",
+        )
     }
 
-    fn matches(&self) -> Vec<&ThemeEntry> {
-        let query = fold(self.query.trim());
-        self.entries
+    fn sync_picker(&self, query: &str, cx: &mut Context<Self>) {
+        let query = fold(query.trim());
+        let active = self.active_name();
+        let items = self
+            .entries
             .iter()
-            .filter(|entry| query.is_empty() || fold(&entry.name).contains(&query))
-            .collect()
+            .enumerate()
+            .filter(|(_, entry)| query.is_empty() || fold(&entry.name).contains(&query))
+            .map(|(index, entry)| {
+                let mut row = CommandPopoverRow::new(format!("theme-{index}"), entry.name.clone());
+                row.current = entry.name == active;
+                row.swatches = (0..16)
+                    .filter_map(|slot| entry.scheme.palette_color(slot).map(Into::into))
+                    .collect();
+                CommandPopoverItem::Row(row)
+            })
+            .collect::<Vec<_>>();
+        let status = if items.is_empty() {
+            CommandPopoverStatus::Empty("No themes found".into())
+        } else {
+            CommandPopoverStatus::Ready
+        };
+        self.picker.update(cx, |picker, cx| {
+            picker.set_items(items, cx);
+            picker.set_status(status, cx);
+        });
     }
 
     fn select(&mut self, name: String, cx: &mut Context<Self>) {
@@ -133,183 +178,10 @@ impl ThemeBrowser {
         cx.emit(ThemeBrowserEvent::Applied);
         cx.notify();
     }
-
-    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let count = self.matches().len();
-        match event.keystroke.key.as_str() {
-            "escape" => {
-                cx.stop_propagation();
-                cx.emit(ThemeBrowserEvent::Dismiss);
-            }
-            "down" if count > 0 => {
-                cx.stop_propagation();
-                self.highlighted = (self.highlighted + 1).min(count - 1);
-                cx.notify();
-            }
-            "up" if count > 0 => {
-                cx.stop_propagation();
-                self.highlighted = self.highlighted.saturating_sub(1);
-                cx.notify();
-            }
-            "enter" => {
-                cx.stop_propagation();
-                let Some(name) = self
-                    .matches()
-                    .get(self.highlighted)
-                    .map(|entry| entry.name.clone())
-                else {
-                    return;
-                };
-                self.select(name, cx);
-            }
-            _ => {}
-        }
-    }
-
-    fn row(&self, entry: &ThemeEntry, index: usize, cx: &mut Context<Self>) -> AnyElement {
-        let metrics = &self.metrics;
-        let theme = &self.theme;
-        let active = entry.name == self.active_name();
-        let highlighted = index == self.highlighted;
-        let name = entry.name.clone();
-
-        let background = entry.scheme.background.map(Into::into).unwrap_or(theme.bg);
-        let foreground = entry.scheme.foreground.map(Into::into).unwrap_or(theme.fg);
-
-        let mut strip = div()
-            .flex()
-            .flex_row()
-            .h(metrics.scaled(SWATCH_HEIGHT))
-            .rounded(metrics.scaled(3.0))
-            .border_1()
-            .border_color(theme.border)
-            .overflow_hidden()
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .w(metrics.control_medium())
-                    .h_full()
-                    .bg(background)
-                    .text_size(metrics.font_xs())
-                    .text_color(foreground)
-                    .child(SharedString::from("Ab")),
-            );
-        for slot in 0..16 {
-            let color = entry
-                .scheme
-                .palette_color(slot)
-                .map(Into::into)
-                .unwrap_or(background);
-            strip = strip.child(div().flex_grow().h_full().bg(color));
-        }
-
-        let mut header = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(metrics.spacing2())
-            .child(
-                div()
-                    .flex_grow()
-                    .min_w(px(0.0))
-                    .truncate()
-                    .text_size(metrics.font_footnote())
-                    .text_color(theme.fg)
-                    .child(SharedString::from(entry.name.clone())),
-            );
-        if active {
-            header = header.child(SymbolGlyph::new(
-                "checkmark",
-                metrics.font_xs(),
-                theme.accent,
-            ));
-        }
-
-        div()
-            .id(SharedString::from(format!("theme-row-{}", entry.name)))
-            .flex()
-            .flex_col()
-            .gap(metrics.spacing2())
-            .px(metrics.spacing5())
-            .py(metrics.scaled(5.0))
-            .cursor_pointer()
-            .when(highlighted, |element| element.bg(theme.surface))
-            .when(!highlighted, |element| {
-                element.hover(|style| style.bg(theme.hover))
-            })
-            .on_click(cx.listener(move |browser: &mut Self, _, _, cx| {
-                browser.select(name.clone(), cx);
-            }))
-            .child(header)
-            .child(strip)
-            .into_any_element()
-    }
 }
 
 impl Render for ThemeBrowser {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let metrics = self.metrics;
-        let theme = self.theme.clone();
-        if !self.focused {
-            self.focused = true;
-            window.focus(&self.search.focus_handle(cx));
-        }
-
-        let matches = self.matches();
-        let mut list = div().flex().flex_col();
-        if matches.is_empty() {
-            list = list.child(
-                div()
-                    .p(metrics.spacing6())
-                    .text_size(metrics.font_footnote())
-                    .text_color(theme.fg_muted)
-                    .child(SharedString::from("No themes found")),
-            );
-        }
-        for (index, entry) in matches.into_iter().enumerate() {
-            list = list.child(self.row(entry, index, cx));
-        }
-
-        div()
-            .track_focus(&self.focus_handle)
-            .on_key_down(cx.listener(Self::on_key_down))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .occlude()
-            .flex()
-            .flex_col()
-            .w(metrics.scaled(PANEL_WIDTH))
-            .h(metrics.scaled(PANEL_HEIGHT).min(
-                (window.viewport_size().height - metrics.scaled(PANEL_MARGIN))
-                    .max(metrics.scaled(MIN_PANEL_HEIGHT)),
-            ))
-            .rounded(metrics.radius_lg())
-            .bg(theme.raised())
-            .border_1()
-            .border_color(theme.border)
-            .shadow_lg()
-            .overflow_hidden()
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .px(metrics.spacing5())
-                    .py(metrics.spacing4())
-                    .child(muxy_ui::text_input::growing_input(&self.search)),
-            )
-            .child(div().h(px(1.0)).flex_none().bg(theme.border))
-            .child(
-                div()
-                    .id("theme-browser-list")
-                    .flex()
-                    .flex_col()
-                    .flex_grow()
-                    .min_h(px(0.0))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
-                    .child(list),
-            )
+    fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {
+        self.picker.clone()
     }
 }

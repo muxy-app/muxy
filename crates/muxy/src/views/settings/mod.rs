@@ -19,6 +19,11 @@ use gpui::{
 use muxy_core::prefs::{Prefs, settings};
 use muxy_core::shortcuts::{KeyCombo, ShortcutMap};
 use muxy_core::store::CommandShortcuts;
+use muxy_ui::command_popover::{
+    CommandPopover, CommandPopoverConfig, CommandPopoverDensity, CommandPopoverEvent,
+    CommandPopoverItem, CommandPopoverPresentation, CommandPopoverRow, CommandPopoverStatus,
+    CommandPopoverTab,
+};
 use muxy_ui::components::SymbolGlyph;
 use muxy_ui::text_input::{self, InputEvent, InputStyle, TextInput};
 use muxy_ui::theme::{Appearance, Metrics, Theme};
@@ -94,6 +99,13 @@ struct SliderDrag {
     value: f32,
 }
 
+#[derive(Clone)]
+pub enum SettingsPickerTarget {
+    Setting,
+    Editor(String),
+    Number(Vec<(String, f64)>),
+}
+
 pub struct Field {
     pub id: String,
     pub value: String,
@@ -106,7 +118,8 @@ pub struct SettingsModal {
     route: Category,
     search: Entity<TextInput>,
     query: String,
-    open_picker: Option<String>,
+    picker: Option<(String, Entity<CommandPopover>)>,
+    picker_subscription: Option<Subscription>,
     sidebar_scroll: ScrollHandle,
     content_scroll: ScrollHandle,
     theme: Theme,
@@ -156,7 +169,7 @@ impl SettingsModal {
         let subscription = cx.subscribe(&search, |modal: &mut Self, input, event, cx| {
             if matches!(event, InputEvent::Changed) {
                 modal.query = input.read(cx).text().to_owned();
-                modal.open_picker = None;
+                modal.close_picker(cx);
                 if !settings_catalog::category_matches(modal.route, &modal.query)
                     && let Some(first) = modal.visible_categories().first()
                 {
@@ -173,7 +186,8 @@ impl SettingsModal {
             route,
             search,
             query: String::new(),
-            open_picker: None,
+            picker: None,
+            picker_subscription: None,
             sidebar_scroll: ScrollHandle::default(),
             content_scroll: ScrollHandle::default(),
             theme,
@@ -220,6 +234,11 @@ impl SettingsModal {
                 browser.set_appearance(theme.clone(), metrics, cx);
             });
         }
+        if let Some((_, picker)) = &self.picker {
+            picker.update(cx, |picker, cx| {
+                picker.set_appearance(theme.clone(), metrics, cx);
+            });
+        }
         if let Some(editor) = &self.editor {
             editor.update(cx, |editor, cx| {
                 editor.set_appearance(theme, metrics, cx);
@@ -242,7 +261,7 @@ impl SettingsModal {
 
     pub fn set_selection(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
         self.selections.insert(key.to_owned(), value.to_owned());
-        self.open_picker = None;
+        self.close_picker(cx);
         cx.notify();
     }
 
@@ -365,6 +384,13 @@ impl SettingsModal {
     fn persist_shortcuts(&mut self, cx: &mut Context<Self>) {
         if let Err(error) = self.shortcuts.save() {
             log::warn!("failed to write keybindings.json: {error}");
+            self.shortcuts = ShortcutMap::load();
+            let bindings = self.binding_list();
+            if let Some(editor) = self.editor.clone() {
+                editor.update(cx, |editor, cx| editor.apply(bindings, cx));
+            }
+            cx.notify();
+            return;
         }
         cx.emit(SettingsEvent::Applied(Effect::Shortcuts));
         cx.notify();
@@ -390,7 +416,7 @@ impl SettingsModal {
     }
 
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.open_picker = None;
+        self.close_picker(cx);
         cx.notify();
     }
 
@@ -512,7 +538,7 @@ impl SettingsModal {
     pub fn arm_command(&mut self, target: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.armed_command = Some(target.to_owned());
         self.command_conflict = None;
-        self.open_picker = None;
+        self.close_picker(cx);
         window.focus(&self.focus_handle);
         cx.notify();
     }
@@ -635,7 +661,7 @@ impl SettingsModal {
             bounds: grab.bounds,
             value,
         });
-        self.open_picker = None;
+        self.close_picker(cx);
         cx.notify();
     }
 
@@ -659,8 +685,11 @@ impl SettingsModal {
         &self.query
     }
 
-    pub fn open_picker(&self) -> Option<&str> {
-        self.open_picker.as_deref()
+    pub fn picker(&self, key: &str) -> Option<&Entity<CommandPopover>> {
+        self.picker
+            .as_ref()
+            .filter(|(open, _)| open == key)
+            .map(|(_, picker)| picker)
     }
 
     pub fn theme_browser(&self, key: &str) -> Option<&Entity<ThemeBrowser>> {
@@ -671,7 +700,7 @@ impl SettingsModal {
     }
 
     pub fn toggle_theme_browser(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.open_picker = None;
+        self.close_picker(cx);
         if self.theme_browser(key).is_some() {
             self.browser = None;
             cx.notify();
@@ -702,17 +731,110 @@ impl SettingsModal {
     }
 
     pub fn close_picker(&mut self, cx: &mut Context<Self>) {
-        if self.open_picker.take().is_some() {
+        if self.picker.take().is_some() {
+            self.picker_subscription = None;
             cx.notify();
         }
     }
 
-    pub fn toggle_picker(&mut self, key: &str, cx: &mut Context<Self>) {
-        self.open_picker = if self.open_picker.as_deref() == Some(key) {
-            None
-        } else {
-            Some(key.to_owned())
-        };
+    pub fn toggle_picker(
+        &mut self,
+        key: &str,
+        choices: Vec<controls::Choice>,
+        selected: String,
+        target: SettingsPickerTarget,
+        cx: &mut Context<Self>,
+    ) {
+        if self.picker(key).is_some() {
+            self.close_picker(cx);
+            return;
+        }
+        self.close_picker(cx);
+        self.browser = None;
+        let theme = self.theme.clone();
+        let metrics = self.metrics;
+        let picker = cx.new(|cx| {
+            CommandPopover::new(
+                CommandPopoverConfig {
+                    id: format!("settings-popover-{key}").into(),
+                    presentation: CommandPopoverPresentation::Popover,
+                    density: CommandPopoverDensity::Compact,
+                    tabs: vec![CommandPopoverTab::new("options", "Options")],
+                    placeholder: "Search options…".into(),
+                    footer_actions: Vec::new(),
+                    footer_hints: Vec::new(),
+                    width: Some(controls::CONTROL_WIDTH),
+                    height: None,
+                    max_height: Some(280.0),
+                    completion_on_tab: false,
+                    confirm_on_click: true,
+                },
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        sync_settings_picker(&picker, &choices, &selected, "", cx);
+        let event_choices = choices.clone();
+        let event_selected = selected.clone();
+        let event_key = key.to_owned();
+        let subscription =
+            cx.subscribe(
+                &picker,
+                move |modal: &mut Self, picker, event, cx| match event {
+                    CommandPopoverEvent::QueryChanged { query, .. } => {
+                        sync_settings_picker(&picker, &event_choices, &event_selected, query, cx);
+                    }
+                    CommandPopoverEvent::Confirmed(selection)
+                    | CommandPopoverEvent::SecondaryConfirmed(selection) => {
+                        let Some(index) = selection
+                            .id
+                            .strip_prefix("settings-choice-")
+                            .and_then(|index| index.parse::<usize>().ok())
+                        else {
+                            return;
+                        };
+                        let Some(choice) = event_choices.get(index) else {
+                            return;
+                        };
+                        if !choice.enabled {
+                            return;
+                        }
+                        match &target {
+                            SettingsPickerTarget::Setting => {
+                                modal.write(&event_key, Value::String(choice.value.clone()), cx)
+                            }
+                            SettingsPickerTarget::Editor(name) => {
+                                settings::set_editor_setting(
+                                    name,
+                                    Value::String(choice.value.clone()),
+                                );
+                                modal.close_picker(cx);
+                                modal.refresh(cx);
+                            }
+                            SettingsPickerTarget::Number(values) => {
+                                let Some(value) = values
+                                    .iter()
+                                    .find(|(label, _)| label == &choice.value)
+                                    .map(|(_, value)| *value)
+                                else {
+                                    return;
+                                };
+                                modal.write(
+                                    &event_key,
+                                    serde_json::Number::from_f64(value)
+                                        .map_or(Value::Null, Value::Number),
+                                    cx,
+                                );
+                            }
+                        }
+                    }
+                    CommandPopoverEvent::Dismissed => modal.close_picker(cx),
+                    _ => {}
+                },
+            );
+        self.picker = Some((key.to_owned(), picker));
+        self.picker_subscription = Some(subscription);
         cx.notify();
     }
 
@@ -727,7 +849,7 @@ impl SettingsModal {
     }
 
     pub fn write(&mut self, key: &str, value: Value, cx: &mut Context<Self>) {
-        self.open_picker = None;
+        self.close_picker(cx);
         Prefs::store_settings_value(key, value);
         if CHROME_KEYS.contains(&key) {
             cx.emit(SettingsEvent::Applied(Effect::Chrome));
@@ -736,7 +858,7 @@ impl SettingsModal {
     }
 
     pub fn set_scale(&mut self, preset: muxy_core::prefs::ScalePreset, cx: &mut Context<Self>) {
-        self.open_picker = None;
+        self.close_picker(cx);
         settings::set_ui_scale(preset);
         cx.emit(SettingsEvent::Applied(Effect::Scale));
         cx.notify();
@@ -751,7 +873,7 @@ impl SettingsModal {
 
     fn select(&mut self, category: Category, cx: &mut Context<Self>) {
         self.route = category;
-        self.open_picker = None;
+        self.close_picker(cx);
         Prefs::store_default(ROUTE_KEY, Some(&category.route()));
         cx.notify();
     }
@@ -776,7 +898,8 @@ impl SettingsModal {
             cx.stop_propagation();
             return;
         }
-        if self.browser.take().is_some() || self.open_picker.take().is_some() {
+        if self.browser.take().is_some() || self.picker.take().is_some() {
+            self.picker_subscription = None;
             cx.stop_propagation();
             cx.notify();
             return;
@@ -1022,6 +1145,48 @@ impl SettingsModal {
     }
 }
 
+fn sync_settings_picker(
+    picker: &Entity<CommandPopover>,
+    choices: &[controls::Choice],
+    selected: &str,
+    query: &str,
+    cx: &mut Context<SettingsModal>,
+) {
+    let query = query.trim().to_lowercase();
+    let items = choices
+        .iter()
+        .enumerate()
+        .filter(|(_, choice)| {
+            query.is_empty()
+                || choice.label.to_lowercase().contains(&query)
+                || choice.value.to_lowercase().contains(&query)
+        })
+        .map(|(index, choice)| {
+            let mut row =
+                CommandPopoverRow::new(format!("settings-choice-{index}"), choice.label.clone());
+            row.current = choice.value == selected;
+            row.disabled = !choice.enabled;
+            CommandPopoverItem::Row(row)
+        })
+        .collect::<Vec<_>>();
+    let status = if items.is_empty() {
+        CommandPopoverStatus::Empty("No matching options".into())
+    } else {
+        CommandPopoverStatus::Ready
+    };
+    let selected_id = choices
+        .iter()
+        .position(|choice| choice.value == selected)
+        .map(|index| format!("settings-choice-{index}"));
+    picker.update(cx, |picker, cx| {
+        picker.set_items(items, cx);
+        picker.set_status(status, cx);
+        if let Some(selected_id) = selected_id {
+            let _ = picker.select_row(&selected_id, cx);
+        }
+    });
+}
+
 fn value_at(spec: SliderSpec, bounds: Bounds<Pixels>, position: gpui::Point<Pixels>) -> f32 {
     let fraction = controls::fraction_at(bounds, position);
     (spec.min + (spec.max - spec.min) * fraction).round()
@@ -1085,8 +1250,8 @@ impl Render for SettingsModal {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|modal: &mut Self, _, _, cx| {
-                            if modal.browser.take().is_some() || modal.open_picker.take().is_some()
-                            {
+                            if modal.browser.take().is_some() || modal.picker.take().is_some() {
+                                modal.picker_subscription = None;
                                 cx.notify();
                             }
                             cx.stop_propagation();

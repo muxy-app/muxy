@@ -1,6 +1,9 @@
+pub mod command_popover;
 pub mod components;
 pub mod controls;
 pub mod icon;
+pub mod motion;
+pub mod popover;
 pub mod scrollbar;
 pub mod symbols;
 pub mod text_input;

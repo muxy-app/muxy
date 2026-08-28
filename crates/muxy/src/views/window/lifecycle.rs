@@ -7,20 +7,47 @@ use muxy_api::truth::{ProjectProbe, ProjectTruth};
 pub(super) struct ProjectRuntime {
     pub(super) watchers: muxy_api::watcher::Watchers,
     pub(super) git_options: muxy_api::git::GitOptions,
+    pub(super) execution_environment: muxy_api::execution_environment::ExecutionEnvironmentSource,
     pub(super) _watcher_task: Task<()>,
+    pub(super) _environment_task: Task<()>,
 }
 
 impl ProjectRuntime {
-    pub(super) fn new(watchers: muxy_api::watcher::Watchers, watcher_task: Task<()>) -> Self {
+    pub(super) fn new(
+        watchers: muxy_api::watcher::Watchers,
+        watcher_task: Task<()>,
+        execution_environment: muxy_api::execution_environment::ExecutionEnvironmentSource,
+        environment_task: Task<()>,
+    ) -> Self {
+        let git_options = crate::git::options(&execution_environment.snapshot());
         Self {
             watchers,
-            git_options: crate::git::options(),
+            git_options,
+            execution_environment,
             _watcher_task: watcher_task,
+            _environment_task: environment_task,
         }
     }
 }
 
+impl Drop for ProjectRuntime {
+    fn drop(&mut self) {
+        self.execution_environment.close();
+    }
+}
+
 impl MainWindow {
+    pub(super) fn apply_environment_upgrade(
+        &mut self,
+        environment: muxy_api::execution_environment::ExecutionEnvironment,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_runtime.git_options = crate::git::options(&environment);
+        self.repository_environment_upgraded(cx);
+        self.refresh_project_truth(None, cx);
+        self.sync_watchers();
+    }
+
     pub(super) fn sync_watchers(&mut self) {
         let projects: Vec<(String, String)> = self
             .state
@@ -910,6 +937,21 @@ mod tests {
         assert!(window.contains("refresh_project_truth(Some(&ids), cx)"));
         assert!(socket.contains("request_worktree_refresh"));
         assert!(!socket.contains("muxy_api::worktrees::refresh("));
+    }
+
+    #[test]
+    fn environment_hydration_replaces_future_git_options_and_refreshes_project_truth() {
+        let main = include_str!("../../main.rs");
+        let window = include_str!("mod.rs");
+        let lifecycle = include_str!("lifecycle.rs");
+
+        assert!(main.contains("let execution_environment = git::environment_source();"));
+        assert!(window.contains("execution_environment.start_hydration()"));
+        assert!(window.contains("apply_environment_upgrade"));
+        assert!(lifecycle.contains("crate::git::options(&environment)"));
+        assert!(lifecycle.contains("self.refresh_project_truth(None, cx);"));
+        assert!(lifecycle.contains("self.sync_watchers();"));
+        assert!(lifecycle.contains("self.execution_environment.close();"));
     }
 
     #[test]

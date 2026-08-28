@@ -1,7 +1,9 @@
+pub mod execution_environment;
 pub mod git;
 pub mod ide;
 pub mod layouts;
 pub mod picker;
+pub mod repository;
 pub mod subprocess;
 pub mod truth;
 pub mod watcher;

@@ -76,6 +76,10 @@ fn editor_picker_row(
     let style = modal.style();
     let name = key.strip_prefix("editor.").unwrap_or(key);
     let selected = editor_string(key, default);
+    let popover = modal.picker(key).cloned();
+    let toggle_choices = choices.clone();
+    let toggle_selected = selected.clone();
+    let target = SettingsPickerTarget::Editor(name.to_owned());
     controls::row(
         style,
         label,
@@ -84,15 +88,16 @@ fn editor_picker_row(
             key,
             choices,
             &selected,
-            modal.open_picker() == Some(key),
-            cx.listener(move |modal: &mut SettingsModal, _, _, cx| modal.toggle_picker(key, cx)),
-            cx.listener(
-                move |modal: &mut SettingsModal, value: &SharedString, _, cx| {
-                    settings::set_editor_setting(name, Value::String(value.to_string()));
-                    modal.close_picker(cx);
-                    modal.refresh(cx);
-                },
-            ),
+            popover,
+            cx.listener(move |modal: &mut SettingsModal, _, _, cx| {
+                modal.toggle_picker(
+                    key,
+                    toggle_choices.clone(),
+                    toggle_selected.clone(),
+                    target.clone(),
+                    cx,
+                )
+            }),
         ),
     )
 }

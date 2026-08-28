@@ -5,10 +5,14 @@ pub enum ProjectOperationKind {
     Refresh,
     Create,
     Remove,
+    RepositoryMutation,
 }
 
-const MUTATING_OPERATION_KINDS: [ProjectOperationKind; 2] =
-    [ProjectOperationKind::Create, ProjectOperationKind::Remove];
+const MUTATING_OPERATION_KINDS: [ProjectOperationKind; 3] = [
+    ProjectOperationKind::Create,
+    ProjectOperationKind::Remove,
+    ProjectOperationKind::RepositoryMutation,
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProbeToken {
@@ -321,6 +325,25 @@ mod tests {
             assert!(finished.schedule_fresh_probe);
             assert!(!operations.is_mutating("project"));
         }
+
+        let repository = operations
+            .begin_operation("repository", ProjectOperationKind::RepositoryMutation)
+            .unwrap();
+        assert!(operations.is_mutating("repository"));
+        for kind in [
+            ProjectOperationKind::Create,
+            ProjectOperationKind::Remove,
+            ProjectOperationKind::RepositoryMutation,
+        ] {
+            assert!(matches!(
+                operations.begin_operation("repository", kind),
+                Err(BeginOperationError::Busy(
+                    ProjectOperationKind::RepositoryMutation
+                ))
+            ));
+        }
+        assert!(operations.finish_operation(&repository).is_ok());
+        assert!(operations.finish_operation(&repository).is_err());
     }
 
     #[test]

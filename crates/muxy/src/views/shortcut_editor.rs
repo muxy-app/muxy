@@ -1,8 +1,8 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
-    InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    InteractiveElement, IntoElement, KeyDownEvent, MouseButton, ParentElement, Render,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
 };
 use muxy_core::fold::fold;
 use muxy_core::shortcuts::{CATEGORIES, COMMAND, CONTROL, KeyCombo, OPTION, SHIFT, ShortcutAction};
@@ -11,6 +11,27 @@ use muxy_ui::text_input::{self, InputEvent, InputStyle, TextInput};
 use muxy_ui::theme::{Metrics, Theme};
 
 const ROW_HEIGHT: f32 = 32.0;
+
+fn replace_binding(
+    bindings: &mut [(ShortcutAction, KeyCombo)],
+    action: ShortcutAction,
+    combo: KeyCombo,
+) -> Result<(), ShortcutAction> {
+    if combo.is_assigned()
+        && let Some((other, _)) = bindings
+            .iter()
+            .find(|(candidate, existing)| *candidate != action && existing.conflicts_with(&combo))
+    {
+        return Err(*other);
+    }
+    if let Some((_, existing)) = bindings
+        .iter_mut()
+        .find(|(candidate, _)| *candidate == action)
+    {
+        *existing = combo;
+    }
+    Ok(())
+}
 
 pub enum ShortcutEditorEvent {
     Save {
@@ -116,32 +137,19 @@ impl ShortcutEditor {
             .unwrap_or_else(|| KeyCombo::new("", 0))
     }
 
-    fn conflicting(&self, combo: &KeyCombo, excluding: ShortcutAction) -> Option<ShortcutAction> {
-        if !combo.is_assigned() {
-            return None;
-        }
-        self.bindings
-            .iter()
-            .find(|(action, existing)| *action != excluding && existing == combo)
-            .map(|(action, _)| *action)
-    }
-
     fn commit(&mut self, action: ShortcutAction, combo: KeyCombo, cx: &mut Context<Self>) {
-        if let Some(other) = self.conflicting(&combo, action) {
+        let saved = combo.clone();
+        if let Err(other) = replace_binding(&mut self.bindings, action, combo) {
             self.conflict = Some((action, other));
             cx.notify();
             return;
         }
         self.conflict = None;
         self.armed = None;
-        if let Some(entry) = self
-            .bindings
-            .iter_mut()
-            .find(|(candidate, _)| *candidate == action)
-        {
-            entry.1 = combo.clone();
-        }
-        cx.emit(ShortcutEditorEvent::Save { action, combo });
+        cx.emit(ShortcutEditorEvent::Save {
+            action,
+            combo: saved,
+        });
         cx.notify();
     }
 
@@ -259,24 +267,9 @@ impl ShortcutEditor {
             );
         }
         trailing = trailing
-            .child(self.row_action(action, "unassign", "xmark", cx))
-            .child(self.row_action(action, "reset", "arrow.counterclockwise", cx));
-        trailing = trailing.child(
-            div()
-                .px(metrics.scaled(6.0))
-                .py(metrics.scaled(2.0))
-                .rounded(metrics.radius_sm())
-                .bg(theme.surface)
-                .border_1()
-                .border_color(if armed { theme.accent } else { theme.border })
-                .text_size(metrics.font_footnote())
-                .text_color(if combo.is_assigned() {
-                    theme.fg
-                } else {
-                    theme.fg_dim
-                })
-                .child(SharedString::from(value)),
-        );
+            .child(self.row_action(action, "unassign", "xmark", !combo.is_assigned(), cx))
+            .child(self.row_action(action, "reset", "arrow.counterclockwise", false, cx))
+            .child(self.recording_chip(action, &combo, value, armed, cx));
 
         div()
             .id(SharedString::from(format!(
@@ -292,19 +285,10 @@ impl ShortcutEditor {
             .px(metrics.spacing6())
             .h(metrics.scaled(ROW_HEIGHT))
             .flex_none()
-            .cursor_pointer()
             .when(armed, |element| element.bg(theme.surface))
             .when(!armed, |element| {
                 element.hover(|style| style.bg(theme.hover))
             })
-            .on_click(
-                cx.listener(move |editor: &mut Self, _, window: &mut Window, cx| {
-                    editor.armed = Some(action);
-                    editor.conflict = None;
-                    window.focus(&editor.focus_handle);
-                    cx.notify();
-                }),
-            )
             .child(
                 div()
                     .flex_grow()
@@ -323,6 +307,7 @@ impl ShortcutEditor {
         action: ShortcutAction,
         kind: &'static str,
         symbol: &'static str,
+        disabled: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let metrics = &self.metrics;
@@ -338,25 +323,70 @@ impl ShortcutEditor {
             .justify_center()
             .size(metrics.control_small())
             .rounded(metrics.radius_sm())
-            .cursor_pointer()
             .invisible()
             .group_hover("shortcut-row", |style| style.visible())
-            .hover(|style| style.bg(theme.hover))
+            .when(disabled, |element| element.opacity(0.35))
+            .when(!disabled, |element| {
+                element
+                    .cursor_pointer()
+                    .hover(|style| style.bg(theme.hover))
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |editor: &mut Self, _, _, cx| {
+                        let combo = if kind == "unassign" {
+                            KeyCombo::new("", 0)
+                        } else {
+                            muxy_core::shortcuts::default_combo(action)
+                        };
+                        editor.commit(action, combo, cx);
+                    }))
+            })
             .child(SymbolGlyph::new(
                 symbol,
                 metrics.font_caption(),
                 theme.fg_muted,
             ))
-            .on_click(cx.listener(move |editor: &mut Self, _, _, cx| {
-                let combo = if kind == "unassign" {
-                    KeyCombo::new("", 0)
-                } else {
-                    muxy_core::shortcuts::default_combo(action)
-                };
-                editor.armed = None;
-                editor.conflict = None;
-                editor.commit(action, combo, cx);
-            }))
+            .into_any_element()
+    }
+
+    fn recording_chip(
+        &self,
+        action: ShortcutAction,
+        combo: &KeyCombo,
+        value: String,
+        armed: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let metrics = &self.metrics;
+        let theme = &self.theme;
+        div()
+            .id(SharedString::from(format!(
+                "shortcut-record-{}",
+                action.display_name()
+            )))
+            .px(metrics.scaled(6.0))
+            .py(metrics.scaled(2.0))
+            .rounded(metrics.radius_sm())
+            .cursor_pointer()
+            .bg(theme.surface)
+            .border_1()
+            .border_color(if armed { theme.accent } else { theme.border })
+            .text_size(metrics.font_footnote())
+            .text_color(if combo.is_assigned() {
+                theme.fg
+            } else {
+                theme.fg_dim
+            })
+            .hover(|style| style.bg(theme.hover))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(
+                cx.listener(move |editor: &mut Self, _, window: &mut Window, cx| {
+                    editor.armed = Some(action);
+                    editor.conflict = None;
+                    window.focus(&editor.focus_handle);
+                    cx.notify();
+                }),
+            )
+            .child(SharedString::from(value))
             .into_any_element()
     }
 
@@ -510,5 +540,56 @@ mod tests {
             Some(KeyCombo::new("tab", CONTROL))
         );
         assert!(capture(&event("f13", Modifiers::command()), true).is_none());
+    }
+
+    #[test]
+    fn recording_reset_and_unassign_replace_only_the_target_binding() {
+        let other = KeyCombo::new("w", COMMAND);
+        let mut bindings = vec![
+            (ShortcutAction::NewTab, KeyCombo::new("t", COMMAND)),
+            (ShortcutAction::CloseTab, other.clone()),
+        ];
+
+        replace_binding(
+            &mut bindings,
+            ShortcutAction::NewTab,
+            KeyCombo::new("n", COMMAND | SHIFT),
+        )
+        .unwrap();
+        assert_eq!(bindings[0].1, KeyCombo::new("n", COMMAND | SHIFT));
+        assert_eq!(bindings[1].1, other);
+
+        replace_binding(&mut bindings, ShortcutAction::NewTab, KeyCombo::new("", 0)).unwrap();
+        assert!(!bindings[0].1.is_assigned());
+
+        replace_binding(
+            &mut bindings,
+            ShortcutAction::NewTab,
+            muxy_core::shortcuts::default_combo(ShortcutAction::NewTab),
+        )
+        .unwrap();
+        assert_eq!(
+            bindings[0].1,
+            muxy_core::shortcuts::default_combo(ShortcutAction::NewTab)
+        );
+    }
+
+    #[test]
+    fn conflicting_recording_preserves_both_existing_bindings() {
+        let mut bindings = vec![
+            (ShortcutAction::NewTab, KeyCombo::new("t", COMMAND)),
+            (ShortcutAction::CloseTab, KeyCombo::new("w", COMMAND)),
+        ];
+        let before = bindings.clone();
+
+        assert_eq!(
+            replace_binding(
+                &mut bindings,
+                ShortcutAction::NewTab,
+                KeyCombo::new("w", COMMAND),
+            ),
+            Err(ShortcutAction::CloseTab)
+        );
+        assert_eq!(bindings, before);
     }
 }

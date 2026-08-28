@@ -61,9 +61,9 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
         )],
     ));
 
-    let providers: Vec<AnyElement> = settings::AI_PROVIDERS
+    let providers: Vec<AnyElement> = muxy_core::repository_ai::PROVIDERS
         .iter()
-        .map(|(id, name)| provider_row(modal, id, name, cx))
+        .map(|provider| provider_row(modal, provider.id, provider.display_name, cx))
         .collect();
     sections.extend(visible(
         modal,

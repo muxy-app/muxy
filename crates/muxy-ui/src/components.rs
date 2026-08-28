@@ -174,29 +174,42 @@ impl RenderOnce for IconButton {
         }
         if let Some((text, background, foreground, border)) = tooltip {
             button = button.tooltip(move |_, cx| {
-                cx.new(|_| TooltipView {
-                    text: text.clone(),
-                    background,
-                    foreground,
-                    border,
-                })
-                .into()
+                cx.new(|_| Tooltip::new(text.clone(), background, foreground, border))
+                    .into()
             });
         }
         button
     }
 }
 
-struct TooltipView {
+pub struct Tooltip {
     text: SharedString,
     background: Hsla,
     foreground: Hsla,
     border: Hsla,
 }
 
-impl Render for TooltipView {
+impl Tooltip {
+    pub fn new(
+        text: impl Into<SharedString>,
+        background: Hsla,
+        foreground: Hsla,
+        border: Hsla,
+    ) -> Self {
+        Self {
+            text: text.into(),
+            background,
+            foreground,
+            border,
+        }
+    }
+}
+
+impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .max_w(px(320.0))
+            .line_clamp(4)
             .px(px(8.0))
             .py(px(4.0))
             .rounded(px(5.0))

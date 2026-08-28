@@ -1,11 +1,9 @@
 use super::defaults;
 use crate::environment::{MobileSettingsKeys, MobileSettingsPolicy};
+use crate::repository_ai::{COMMIT_PROMPT, CREATE_PULL_REQUEST_PROMPT, PROVIDERS};
 use serde_json::{Map, Number, Value};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
-
-const COMMIT_PROMPT: &str = "Write a concise commit message that explains the intent of all staged changes. Follow the repository's existing commit-message style.";
-const PULL_REQUEST_PROMPT: &str = "Write an accurate pull request title and a concise summary of the changes. Choose a short descriptive branch name and the appropriate target branch.";
 
 pub const MOBILE_POLICY: MobileSettingsPolicy = MobileSettingsPolicy::new(crate::build_mode!());
 pub const MOBILE_KEYS: MobileSettingsKeys = MOBILE_POLICY.keys();
@@ -123,7 +121,7 @@ pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 69] {
         text("muxy.ai.repositoryActions.createPullRequest.provider", ""),
         text(
             "muxy.ai.repositoryActions.createPullRequest.prompt",
-            PULL_REQUEST_PROMPT,
+            CREATE_PULL_REQUEST_PROMPT,
         ),
         text("muxy.recording.language", ""),
         text("muxy.notifications.sound", "Funk"),
@@ -185,19 +183,6 @@ pub const NOTIFICATION_SOUNDS: [&str; 15] = [
 ];
 
 pub const TOAST_POSITIONS: [&str; 4] = ["Top Center", "Top Right", "Bottom Center", "Bottom Right"];
-
-pub const AI_PROVIDERS: [(&str, &str); 10] = [
-    ("claude", "Claude Code"),
-    ("opencode", "OpenCode"),
-    ("codex", "Codex"),
-    ("cursor", "Cursor CLI"),
-    ("copilot", "GitHub Copilot"),
-    ("droid", "Droid"),
-    ("pi", "Pi"),
-    ("grok", "Grok"),
-    ("kiro", "Kiro CLI"),
-    ("xal", "Xal"),
-];
 
 pub fn provider_key(id: &str) -> String {
     format!("muxy.notifications.provider.{id}.enabled")
@@ -353,12 +338,12 @@ pub fn set_quick_terminal_shortcut(kind: &str) {
 }
 
 fn read_ai_providers(existing: Option<&Value>) -> Value {
-    let object: Map<String, Value> = AI_PROVIDERS
+    let object: Map<String, Value> = PROVIDERS
         .iter()
-        .map(|(id, _)| {
+        .map(|provider| {
             (
-                (*id).to_owned(),
-                Value::Bool(bool_value(&provider_key(id), true)),
+                provider.id.to_owned(),
+                Value::Bool(bool_value(&provider_key(provider.id), true)),
             )
         })
         .collect();
@@ -609,9 +594,9 @@ fn default_entry_value(entry: &Entry) -> Value {
         Source::QuickTerminalShortcut => serde_json::json!({ "type": "unassigned" }),
         Source::CustomCommands => crate::store::CommandShortcuts::default().mirror_value(),
         Source::AiProviders => Value::Object(
-            AI_PROVIDERS
+            PROVIDERS
                 .iter()
-                .map(|(id, _)| ((*id).to_owned(), Value::Bool(true)))
+                .map(|provider| (provider.id.to_owned(), Value::Bool(true)))
                 .collect(),
         ),
         Source::ApprovedDevices => Value::Array(Vec::new()),
@@ -1405,7 +1390,7 @@ mod tests {
         );
         assert_eq!(
             root["ai.providers"].as_object().map(serde_json::Map::len),
-            Some(super::AI_PROVIDERS.len())
+            Some(crate::repository_ai::PROVIDERS.len())
         );
     }
 
@@ -1481,7 +1466,7 @@ mod tests {
         assert_eq!(object["mobile.approvedDevices"], json!([]));
         assert_eq!(
             object["ai.providers"].as_object().map(serde_json::Map::len),
-            Some(10)
+            Some(crate::repository_ai::PROVIDERS.len())
         );
     }
 

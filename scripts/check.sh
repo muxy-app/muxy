@@ -104,10 +104,55 @@ if [[ -n "$debug_selector_matches" ]]; then
     printf 'error: debug_assertions is owned by %s\n' "$environment_owner" >&2
     exit 1
 fi
+execution_environment_owner='crates/muxy-api/src/execution_environment.rs'
+fallback_path_matches="$(rg -n -U --glob '*.rs' \
+    '"/opt/homebrew/bin",\s*"/usr/local/bin",\s*"/usr/bin",\s*"/bin",\s*"/usr/sbin",\s*"/sbin"' \
+    crates/ | rg -v "^${execution_environment_owner}:" || true)"
+if [[ -n "$fallback_path_matches" ]]; then
+    printf '%s\n' "$fallback_path_matches"
+    printf 'error: executable fallback PATH policy is owned by %s\n' \
+        "$execution_environment_owner" >&2
+    exit 1
+fi
+process_environment_matches="$(rg -n --glob '*.rs' 'std::env::vars_os\(\)' crates/ \
+    | rg -v "^${execution_environment_owner}:" || true)"
+if [[ -n "$process_environment_matches" ]]; then
+    printf '%s\n' "$process_environment_matches"
+    printf 'error: execution environment snapshots are owned by %s\n' \
+        "$execution_environment_owner" >&2
+    exit 1
+fi
 removed_hook_flag='FF_AI_'
 removed_hook_flag+='HOOKS'
 if rg -n -F "$removed_hook_flag" crates/ scripts/ PLAN.md ARCHITECTURE.md; then
     printf 'error: removed AI hook flag remains in the Rust design\n' >&2
+    exit 1
+fi
+
+printf '==> Checking P4 repository ownership\n'
+[[ -x scripts/verify-p4-vcs.sh ]] || {
+    printf 'error: P4 verification script must be executable\n' >&2
+    exit 1
+}
+provider_catalog_owner='crates/muxy-core/src/repository_ai.rs'
+provider_catalog_matches="$(rg -n 'ProviderDescriptor\s*\{' crates/ --glob '*.rs' \
+    | rg -v "^${provider_catalog_owner}:" || true)"
+if [[ -n "$provider_catalog_matches" ]]; then
+    printf '%s\n' "$provider_catalog_matches"
+    printf 'error: repository provider catalog is owned by %s\n' \
+        "$provider_catalog_owner" >&2
+    exit 1
+fi
+socket_git_matches="$(rg -n '"git\.[^"]+"' crates/muxy/src/socket --glob '*.rs' \
+    | rg -v '^crates/muxy/src/socket/catalog.rs:' || true)"
+if [[ -n "$socket_git_matches" ]]; then
+    printf '%s\n' "$socket_git_matches"
+    printf 'error: P10 owns every git socket command\n' >&2
+    exit 1
+fi
+if rg -n 'Command::new\(("|r#")?(sh|bash|zsh|fish)' \
+    crates/muxy-api/src/repository crates/muxy/src/repository; then
+    printf 'error: repository services must not dispatch through a shell\n' >&2
     exit 1
 fi
 
@@ -155,6 +200,9 @@ cargo test --workspace --all-targets --all-features --locked --offline
 if [[ "$(uname -s)" == "Darwin" ]]; then
     printf '==> Checking staged migration safety guards\n'
     "$SCRIPT_DIR/verify-p2-5-migration.sh" --self-test
+
+    printf '==> Checking P4 VCS verification guards\n'
+    "$SCRIPT_DIR/verify-p4-vcs.sh" --self-test
 
     printf '==> Building debug application bundle\n'
     "$SCRIPT_DIR/build-app.sh" debug

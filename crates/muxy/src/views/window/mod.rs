@@ -4,6 +4,7 @@ pub mod menu_bar;
 mod overlays;
 mod project_menu;
 mod render;
+mod repository;
 mod terminal;
 mod view_state;
 mod workspace;
@@ -41,11 +42,15 @@ const BELL_FLASH_DURATION: Duration = Duration::from_millis(1250);
 const WATCHER_DEBOUNCE_MS: u64 = 300;
 
 pub fn key_bindings() -> Vec<gpui::KeyBinding> {
-    let mut bindings = project_picker::key_bindings();
+    let mut bindings = muxy_ui::text_input::key_bindings();
+    bindings.extend(muxy_ui::command_popover::key_bindings());
+    bindings.extend(project_picker::key_bindings());
     bindings.extend(crate::views::menu::key_bindings());
     bindings.extend(menu_bar::key_bindings());
     bindings.extend(omnibox::view::key_bindings());
     bindings.extend(settings::key_bindings());
+    bindings.extend(crate::views::repository::pull_request::key_bindings());
+    bindings.extend(crate::views::repository::ai::key_bindings());
     bindings.push(gpui::KeyBinding::new(
         "shift-enter",
         crate::views::app::SearchPrevious,
@@ -72,6 +77,7 @@ impl MainWindow {
         state: AppState,
         socket: SocketBootstrap,
         mode: muxy_core::environment::BuildMode,
+        execution_environment: muxy_api::execution_environment::ExecutionEnvironmentSource,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -107,16 +113,49 @@ impl MainWindow {
                 }
             }
         });
+        let hydration = execution_environment.start_hydration();
+        let hydrated_environment = execution_environment.clone();
+        let environment_task = cx.spawn(async move |window, cx| {
+            let Some(hydration) = hydration else {
+                return;
+            };
+            let Ok(outcome) = hydration.recv().await else {
+                return;
+            };
+            if !matches!(
+                outcome,
+                muxy_api::execution_environment::HydrationOutcome::Upgraded { .. }
+            ) {
+                return;
+            }
+            let environment = hydrated_environment.snapshot();
+            let _ = window.update(cx, |window, cx| {
+                window.apply_environment_upgrade(environment, cx);
+            });
+        });
         let view = ViewState::new(menu_focus, workspace_focus, state.prefs.sidebar_expanded);
         let socket_runtime = SocketRuntime::attach(socket, cx);
         let mut main_window = Self {
             state,
             view,
             terminal_runtime: TerminalRuntime::new(terminals, terminal_tasks),
-            project_runtime: ProjectRuntime::new(watchers, watcher_task),
+            project_runtime: ProjectRuntime::new(
+                watchers,
+                watcher_task,
+                execution_environment,
+                environment_task,
+            ),
             _socket_runtime: socket_runtime,
             picker_search: muxy_api::picker::search::SearchService::new(),
         };
+        main_window.view.activation_subscription = Some(cx.observe_window_activation(
+            window,
+            |window, app_window, cx| {
+                if app_window.is_window_active() {
+                    window.refresh_repository_on_activation(cx);
+                }
+            },
+        ));
         main_window.refresh_project_truth(None, cx);
         cx.set_menus(menu_bar::menus(&main_window.state));
         main_window

@@ -238,6 +238,12 @@ impl KeyCombo {
         Some(parts.join("-"))
     }
 
+    pub fn conflicts_with(&self, other: &Self) -> bool {
+        self.keystroke()
+            .zip(other.keystroke())
+            .is_some_and(|(left, right)| left == right)
+    }
+
     pub fn display(&self) -> String {
         if !self.is_assigned() {
             return "Unassigned".to_owned();
@@ -312,8 +318,7 @@ impl ShortcutMap {
     ) -> Self {
         let mut claimed = saved
             .values()
-            .filter(|combo| combo.is_assigned())
-            .cloned()
+            .filter_map(KeyCombo::keystroke)
             .collect::<HashSet<_>>();
         claimed.extend(
             unknown
@@ -321,13 +326,16 @@ impl ShortcutMap {
                 .filter_map(|entry| {
                     serde_json::from_value::<KeyCombo>(entry.get("combo")?.clone()).ok()
                 })
-                .filter(KeyCombo::is_assigned),
+                .filter_map(|combo| combo.keystroke()),
         );
         let mut bindings = HashMap::new();
         for (action, default) in defaults() {
             let combo = if let Some(saved) = saved.get(&action) {
                 saved.clone()
-            } else if !default.is_assigned() || claimed.insert(default.clone()) {
+            } else if default
+                .keystroke()
+                .is_none_or(|keystroke| claimed.insert(keystroke))
+            {
                 default
             } else {
                 KeyCombo::new("", 0)
@@ -342,7 +350,7 @@ impl ShortcutMap {
     }
 
     pub fn reset_to_defaults(&mut self) {
-        self.bindings = defaults().into_iter().collect();
+        *self = Self::merge_with_unknown(HashMap::new(), self.unknown.clone());
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -519,6 +527,45 @@ mod tests {
             "shift-ctrl-d"
         };
         assert_eq!(combo.keystroke().as_deref(), Some(expected));
+    }
+
+    #[test]
+    fn conflicts_compare_the_effective_gpui_keystroke() {
+        let command = KeyCombo::new("t", COMMAND);
+        let control = KeyCombo::new("t", CONTROL);
+        assert_eq!(command.conflicts_with(&control), !cfg!(target_os = "macos"));
+        assert!(!command.conflicts_with(&KeyCombo::new("w", COMMAND)));
+        assert!(!command.conflicts_with(&KeyCombo::new("", 0)));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn saved_control_binding_claims_the_equivalent_command_default() {
+        let mut saved = HashMap::new();
+        saved.insert(ShortcutAction::CloseTab, KeyCombo::new("t", CONTROL));
+        let map = ShortcutMap::merge_with_unknown(saved, Vec::new());
+        assert!(!map.combo(ShortcutAction::NewTab).is_assigned());
+    }
+
+    #[test]
+    fn reset_to_defaults_uses_the_platform_conflict_model_and_preserves_unknown_entries() {
+        let unknown = serde_json::json!({
+            "action": "extensionAction",
+            "combo": { "key": "x", "modifiers": COMMAND }
+        });
+        let mut map = ShortcutMap::merge_with_unknown(HashMap::new(), vec![unknown.clone()]);
+        map.set(ShortcutAction::NewTab, KeyCombo::new("z", COMMAND | SHIFT));
+        map.reset_to_defaults();
+
+        assert_eq!(map.unknown, vec![unknown]);
+        assert_eq!(
+            map.combo(ShortcutAction::NewTab),
+            &KeyCombo::new("t", COMMAND)
+        );
+        assert_eq!(
+            map.combo(ShortcutAction::NextProject).is_assigned(),
+            cfg!(target_os = "macos")
+        );
     }
 
     #[test]

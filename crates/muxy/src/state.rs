@@ -9,6 +9,7 @@ use muxy_core::workspace_store::WorkspaceStore;
 use muxy_ui::theme::{Appearance, Metrics, Theme};
 use std::collections::HashMap;
 use std::io;
+use std::path::Path;
 
 #[derive(Debug)]
 pub enum NavigationApplyError {
@@ -439,6 +440,38 @@ impl AppState {
             .and_then(|workspace| workspace.worktree_path.clone())
             .filter(|path| !path.is_empty())
             .unwrap_or_else(|| project.path.clone())
+    }
+
+    pub(crate) fn active_repository_key(&self) -> Option<crate::repository::RepositoryKey> {
+        let project = self.active_project()?;
+        if project.is_home() || project.is_remote() || !project.is_git_repo {
+            return None;
+        }
+        let path = self.active_worktree_path(project);
+        let path = Path::new(&path);
+        if !muxy_api::git::is_repository_path(path) {
+            return None;
+        }
+        let normalized_path = std::fs::canonicalize(path).ok()?;
+        let worktree_id = self
+            .prefs
+            .active_worktree_ids
+            .get(&project.id)
+            .cloned()
+            .or_else(|| {
+                self.worktrees.get(&project.id).and_then(|worktrees| {
+                    worktrees
+                        .iter()
+                        .find(|worktree| worktree.is_primary)
+                        .map(|worktree| worktree.id.clone())
+                })
+            })
+            .unwrap_or_else(|| format!("primary:{}", project.id));
+        Some(crate::repository::RepositoryKey {
+            project_id: project.id.clone(),
+            worktree_id,
+            normalized_path,
+        })
     }
 
     pub fn active_tab_workspace(&self) -> Option<&WorkspaceState> {
@@ -1251,5 +1284,144 @@ mod tests {
             state.tab_workspaces.states(),
             previous_tab_workspaces.states()
         );
+    }
+
+    #[test]
+    fn active_repository_key_uses_selected_worktree_and_excludes_nonlocal_candidates() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = directory.path().join("repository");
+        let secondary = directory.path().join("secondary");
+        std::fs::create_dir_all(repository.join(".git")).unwrap();
+        std::fs::create_dir_all(&secondary).unwrap();
+        std::fs::write(
+            secondary.join(".git"),
+            format!(
+                "gitdir: {}/worktrees/secondary\n",
+                repository.join(".git").display()
+            ),
+        )
+        .unwrap();
+        let mut state = state_at(&directory.path().join("workspaces.json"));
+        let project = state
+            .workspace
+            .projects
+            .iter_mut()
+            .find(|project| project.id == "project-one")
+            .unwrap();
+        project.path = repository.to_string_lossy().into_owned();
+        project.is_git_repo = true;
+        let primary = &mut state.worktrees.get_mut("project-one").unwrap()[0];
+        primary.id = "PRIMARY".to_owned();
+        primary.path = repository.to_string_lossy().into_owned();
+        let mut linked = primary.clone();
+        linked.id = "SECONDARY".to_owned();
+        linked.name = "feature".to_owned();
+        linked.path = secondary.to_string_lossy().into_owned();
+        linked.is_primary = false;
+        state.worktrees.get_mut("project-one").unwrap().push(linked);
+        state.active_project_id = Some("project-one".to_owned());
+        state
+            .prefs
+            .active_worktree_ids
+            .insert("project-one".to_owned(), "PRIMARY".to_owned());
+
+        let primary_key = state.active_repository_key().unwrap();
+        assert_eq!(primary_key.worktree_id, "PRIMARY");
+        assert_eq!(
+            primary_key.normalized_path,
+            std::fs::canonicalize(&repository).unwrap()
+        );
+
+        state
+            .prefs
+            .active_worktree_ids
+            .insert("project-one".to_owned(), "SECONDARY".to_owned());
+        let secondary_key = state.active_repository_key().unwrap();
+        assert_eq!(secondary_key.worktree_id, "SECONDARY");
+        assert_eq!(
+            secondary_key.normalized_path,
+            std::fs::canonicalize(&secondary).unwrap()
+        );
+        let focused_terminal_cwd = directory.path().join("unrelated-terminal-cwd");
+        std::fs::create_dir_all(&focused_terminal_cwd).unwrap();
+        assert_ne!(secondary_key.normalized_path, focused_terminal_cwd);
+        assert_eq!(state.active_repository_key().unwrap(), secondary_key);
+
+        let other_repository = directory.path().join("other-repository");
+        std::fs::create_dir_all(other_repository.join(".git")).unwrap();
+        let mut other_project = state
+            .workspace
+            .projects
+            .iter()
+            .find(|project| project.id == "project-one")
+            .unwrap()
+            .clone();
+        other_project.id = "repository-switch".to_owned();
+        other_project.path = other_repository.to_string_lossy().into_owned();
+        other_project.is_git_repo = true;
+        other_project.remote_workspace_id = None;
+        other_project.remote_device_id = None;
+        let mut other_worktree = state.worktrees["project-one"][0].clone();
+        other_worktree.id = "OTHER_PRIMARY".to_owned();
+        other_worktree.path = other_repository.to_string_lossy().into_owned();
+        state.workspace.projects.push(other_project);
+        state
+            .worktrees
+            .insert("repository-switch".to_owned(), vec![other_worktree]);
+        state
+            .prefs
+            .active_worktree_ids
+            .insert("repository-switch".to_owned(), "OTHER_PRIMARY".to_owned());
+        state.active_project_id = Some("repository-switch".to_owned());
+        assert_eq!(
+            state.active_project().unwrap().path,
+            other_repository.to_string_lossy()
+        );
+        assert_eq!(
+            state.active_worktree_path(state.active_project().unwrap()),
+            other_repository.to_string_lossy()
+        );
+        assert!(muxy_api::git::is_repository_path(&other_repository));
+        let other_key = state.active_repository_key().unwrap();
+        assert_eq!(other_key.project_id, "repository-switch");
+        assert_eq!(other_key.worktree_id, "OTHER_PRIMARY");
+        assert_eq!(
+            other_key.normalized_path,
+            std::fs::canonicalize(&other_repository).unwrap()
+        );
+        state.active_project_id = Some("project-one".to_owned());
+
+        state
+            .workspace
+            .projects
+            .iter_mut()
+            .find(|project| project.id == "project-one")
+            .unwrap()
+            .is_git_repo = false;
+        assert!(state.active_repository_key().is_none());
+        state
+            .workspace
+            .projects
+            .iter_mut()
+            .find(|project| project.id == "project-one")
+            .unwrap()
+            .is_git_repo = true;
+        state
+            .workspace
+            .projects
+            .iter_mut()
+            .find(|project| project.id == "project-one")
+            .unwrap()
+            .remote_workspace_id = Some("remote".to_owned());
+        assert!(state.active_repository_key().is_none());
+        state
+            .workspace
+            .projects
+            .iter_mut()
+            .find(|project| project.id == "project-one")
+            .unwrap()
+            .remote_workspace_id = None;
+        state.active_project_id = Some(muxy_core::store::HOME_PROJECT_ID.to_owned());
+        assert!(state.active_repository_key().is_none());
     }
 }
