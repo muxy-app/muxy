@@ -186,6 +186,56 @@ result when post-disk persistence reports warnings.
 commit, and pruning. App selection uses one navigation-aware workspace persistence seam; failed persistence restores the
 previous selection and does not commit the cursor.
 
+## Repository and AI execution
+
+```mermaid
+flowchart LR
+    shell["bounded login-shell hydration"] --> env["ExecutionEnvironment snapshot\nPATH · HOME · optional COPILOT_HOME"]
+    env --> read["RepositoryService reads\nsummary · branches · changes"]
+    env --> gh["GitHub service\nexplicit repository identity"]
+    env --> providers["eleven-provider catalog\nabsolute executable discovery"]
+    watch["working tree + Git metadata watcher\ncapacity one · 800 ms trailing debounce"] --> coord["RepositoryCoordinator\nidentity + per-read revisions"]
+    read --> coord
+    gh --> coord
+    providers --> coord
+    coord --> ui["status bar + anchored GPUI popovers"]
+    ui --> lane["shared ProjectOperations\nrepository mutation lane"]
+    lane --> mutate["validated Git / gh / AI mutation"]
+    mutate --> coord
+```
+
+The selected local project and exact worktree define repository identity. Terminal CWD, a previous project, remote
+placeholders, and non-Git directories cannot redirect a read or mutation. Summary, branch, changes, pull-request, and
+provider reads carry independent monotonically increasing revisions and cancellation signals. The coordinator rejects
+late results after identity, branch, HEAD, environment, or request changes. It preserves verified summary and
+pull-request presentation during replacement reads so ordinary refreshes do not flash status controls back to generic
+loading labels.
+
+`muxy-api::repository` owns bounded Git and `gh` processes, raw-path validation, repository parsers, safe mutations,
+GitHub identity, and AI workflows. Every child receives a sanitized environment and direct argv, bounded independent
+streams, a retained deadline, cancellation, and process-group cleanup on Unix. Repository reads may disable optional
+locks; mutations revalidate captured branch, HEAD, remote, upstream, push ref, and GitHub identity immediately before
+their irreversible boundary. Raw changed-file identities remain byte-preserving and destructive untracked deletion is
+descriptor-relative and symlink-safe.
+
+`RepositoryCoordinator` and `ProjectOperations` form one mutation lane shared by worktree, branch, changes,
+pull-request, and AI actions. Reads coalesce while the current identity owns that lane. An identity change cancels work
+that has not dispatched; an already-dispatched irreversible child may finish only as a bounded stale operation and
+cannot block or consume the new identity's refreshes. Completion releases both lanes exactly once and refreshes only
+the truth affected by the outcome. Closing the app cancels and reaps every child and rejects all late UI output.
+
+The provider catalog and prompt policy live once in `muxy-core`. Provider discovery resolves exact executable files
+from the hydrated snapshot; execution uses fixed headless arguments, a replacement environment, closed stdin, 256 KiB
+per output stream, and a five-minute workflow deadline. Prompt construction bounds configured and one-run prompts,
+repository fields, lists, diffs, new-file content, and total payload; it never logs prompts or responses. Commit and
+create-PR workflows revalidate branch, HEAD, staged tree, remote, upstream, push target, and GitHub identity at every
+relevant boundary and report exact partial effects without attempting unsafe rollback.
+
+All repository, GitHub, provider, and AI policy is headless and Linux-checkable in `muxy-api` and `muxy-core`. GPUI
+status controls and reusable virtualized popovers stay in `muxy` and `muxy-ui`. Unix process-group handling, native URL
+launching, filesystem descriptor APIs, and watcher backends are narrow cfg-gated edges behind neutral services. Whole
+app Linux linking and launch remain P15 work; P4 proves the headless Linux target separately.
+
 ## Development and production policy
 
 `muxy-core::environment` owns build-mode names and authorization facts.

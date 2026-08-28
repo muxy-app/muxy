@@ -700,6 +700,10 @@ fn prompt_context(
             .as_deref()
             .map(|branch| service.branch_diff(repository, branch))
             .transpose()?
+            .map(|diff| BoundedText {
+                text: redact_new_file_bodies(&diff.text),
+                truncated: diff.truncated,
+            })
     } else {
         None
     };
@@ -870,7 +874,8 @@ impl RepositoryService {
     ) -> Result<RepositoryAiWorkflowOutcome, RepositoryAiWorkflowError> {
         let mut completed = RepositoryAiCompletedBoundary::None;
         let mutation = control.mutation();
-        let summary = self
+        let read = self.clone().with_cancellation(control.cancellation());
+        let summary = read
             .summary(repository)
             .map_err(|error| workflow_error(completed, error))?;
         validate_expected_context(&summary, request.expected_context.as_ref())
@@ -910,7 +915,7 @@ impl RepositoryService {
         self.stage_all(repository, &mutation)
             .map_err(|error| workflow_error(completed, error))?;
         completed = RepositoryAiCompletedBoundary::Staged;
-        let context = prompt_context(self, repository, false)
+        let context = prompt_context(&read, repository, false)
             .map_err(|error| workflow_error(completed, error))?;
         if context.staged_diff.text.trim().is_empty() {
             return Err(workflow_message(
@@ -937,6 +942,7 @@ impl RepositoryService {
         let message =
             decode_commit_response(&output).map_err(|error| workflow_error(completed, error))?;
         self.ensure_ai_local_identity(
+            &read,
             repository,
             &LocalIdentity {
                 branch: original_branch.clone(),
@@ -949,7 +955,7 @@ impl RepositoryService {
         self.commit(repository, &message, &mutation)
             .map_err(|error| workflow_error(completed, error))?;
         completed = RepositoryAiCompletedBoundary::Committed;
-        let committed = self
+        let committed = read
             .summary(repository)
             .map_err(|error| workflow_error(completed, error))?;
         if committed.branch != original_branch
@@ -963,7 +969,7 @@ impl RepositoryService {
         };
         self.ensure_push_target(repository, &push_target, &mutation)
             .map_err(|error| workflow_error(completed, error))?;
-        self.ensure_branch_head(repository, &original_branch, &head_oid, completed)?;
+        self.ensure_branch_head(&read, repository, &original_branch, &head_oid, completed)?;
         self.push_snapshot(
             repository,
             &push_target,
@@ -985,7 +991,8 @@ impl RepositoryService {
         let mut completed = RepositoryAiCompletedBoundary::None;
         let mutation = control.mutation();
         let github = control.github();
-        let summary = self
+        let read = self.clone().with_cancellation(control.cancellation());
+        let summary = read
             .summary(repository)
             .map_err(|error| workflow_error(completed, error))?;
         validate_expected_context(&summary, request.expected_context.as_ref())
@@ -1045,7 +1052,7 @@ impl RepositoryService {
         self.stage_all(repository, &mutation)
             .map_err(|error| workflow_error(completed, error))?;
         completed = RepositoryAiCompletedBoundary::Staged;
-        let context = prompt_context(self, repository, true)
+        let context = prompt_context(&read, repository, true)
             .map_err(|error| workflow_error(completed, error))?;
         if context.staged_diff.text.trim().is_empty()
             && context
@@ -1077,13 +1084,13 @@ impl RepositoryService {
             control.provider_timeout,
         )
         .map_err(|error| workflow_error(completed, error))?;
-        let local = self
+        let local = read
             .local_branches(repository)
             .map_err(|error| workflow_error(completed, error))?
             .into_iter()
             .map(|branch| String::from_utf8_lossy(&branch).into_owned())
             .collect();
-        let remote = self
+        let remote = read
             .remote_branches(repository)
             .map_err(|error| workflow_error(completed, error))?
             .into_iter()
@@ -1094,6 +1101,7 @@ impl RepositoryService {
         self.check_branch(repository, metadata.new_branch_name.as_bytes(), &mutation)
             .map_err(|error| workflow_error(completed, error))?;
         self.ensure_ai_local_identity(
+            &read,
             repository,
             &LocalIdentity {
                 branch: original_branch.clone(),
@@ -1106,6 +1114,7 @@ impl RepositoryService {
         self.ensure_origin_target(repository, &origin_target, &mutation)
             .map_err(|error| workflow_error(completed, error))?;
         self.ensure_ai_local_identity(
+            &read,
             repository,
             &LocalIdentity {
                 branch: original_branch,
@@ -1130,6 +1139,7 @@ impl RepositoryService {
             ));
         }
         self.ensure_ai_local_identity(
+            &read,
             repository,
             &LocalIdentity {
                 branch: metadata.new_branch_name.clone(),
@@ -1142,7 +1152,7 @@ impl RepositoryService {
         self.commit(repository, &metadata.title, &mutation)
             .map_err(|error| workflow_error(completed, error))?;
         completed = RepositoryAiCompletedBoundary::Committed;
-        let committed = self
+        let committed = read
             .summary(repository)
             .map_err(|error| workflow_error(completed, error))?;
         let RepositoryHead::Commit(head_oid) = &committed.head else {
@@ -1156,7 +1166,13 @@ impl RepositoryService {
         }
         self.ensure_push_target(repository, &generated_push_target, &mutation)
             .map_err(|error| workflow_error(completed, error))?;
-        self.ensure_branch_head(repository, &metadata.new_branch_name, head_oid, completed)?;
+        self.ensure_branch_head(
+            &read,
+            repository,
+            &metadata.new_branch_name,
+            head_oid,
+            completed,
+        )?;
         self.push_snapshot(
             repository,
             &generated_push_target,
@@ -1211,12 +1227,13 @@ impl RepositoryService {
 
     fn ensure_ai_local_identity(
         &self,
+        read: &RepositoryService,
         repository: &Path,
         expected: &LocalIdentity,
         control: &MutationControl,
         completed: RepositoryAiCompletedBoundary,
     ) -> Result<(), RepositoryAiWorkflowError> {
-        let summary = self
+        let summary = read
             .summary(repository)
             .map_err(|error| workflow_error(completed, error))?;
         let tree = self
@@ -1234,12 +1251,13 @@ impl RepositoryService {
 
     fn ensure_branch_head(
         &self,
+        read: &RepositoryService,
         repository: &Path,
         expected_branch: &str,
         expected_head: &str,
         completed: RepositoryAiCompletedBoundary,
     ) -> Result<(), RepositoryAiWorkflowError> {
-        let summary = self
+        let summary = read
             .summary(repository)
             .map_err(|error| workflow_error(completed, error))?;
         if summary.branch != expected_branch
@@ -1464,6 +1482,22 @@ mod tests {
         fn commit_count(&self) -> String {
             git(Some(&self.repository), &["rev-list", "--count", "HEAD"])
         }
+
+        fn block_git_command(&mut self, pattern: &str) -> PathBuf {
+            let wrapper = self._temp.path().join("blocking-git");
+            let started = self._temp.path().join("git-read-started");
+            let git = self.service.options.git.executable.clone();
+            write_executable(
+                &wrapper,
+                &format!(
+                    "#!/bin/sh\ncase \"$*\" in *'{pattern}'*) : > '{}'; sleep 5;; esac\nexec '{}' \"$@\"\n",
+                    started.display(),
+                    git.display()
+                ),
+            );
+            self.service.options.git.executable = wrapper;
+            started
+        }
     }
 
     #[cfg(unix)]
@@ -1534,6 +1568,31 @@ exit 2
         let inventory = ProviderInventory::discover(&environment, temp.path(), false);
         assert!(inventory.installation("claude").is_none());
         assert!(inventory.installation("codex").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn p4_external_fixture_is_consumed_when_present() {
+        let Some(root) = std::env::var_os("MUXY_P4_FIXTURE_ROOT").map(PathBuf::from) else {
+            return;
+        };
+        let repository = root.join("repository");
+        let environment = ExecutionEnvironment::from_current_process();
+        let executable = environment.resolve_executable(OsStr::new("git")).unwrap();
+        let service = RepositoryService::new(RepositoryOptions {
+            git: GitOptions {
+                executable,
+                environment: HashMap::new(),
+            },
+            environment: environment.clone(),
+        });
+        let summary = service.summary(&repository).unwrap();
+        assert_eq!(summary.branch, "main");
+        let inventory = ProviderInventory::discover(&environment, &root, false);
+        assert_eq!(
+            inventory.installation("codex").unwrap().executable,
+            root.join("bin/codex")
+        );
     }
 
     #[test]
@@ -1616,6 +1675,38 @@ exit 2
         assert!(redacted.contains("new file contents omitted"));
         assert!(!redacted.contains("secret body"));
         assert!(redacted.contains("-old\n+new"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pull_request_prompt_redacts_committed_new_file_bodies() {
+        let fixture = WorkflowFixture::new(true, true);
+        fs::write(
+            fixture.repository.join("committed-secret.txt"),
+            "BRANCH_DIFF_PRIVATE_SENTINEL\n",
+        )
+        .unwrap();
+        git(Some(&fixture.repository), &["add", "committed-secret.txt"]);
+        git(
+            Some(&fixture.repository),
+            &["commit", "-m", "Add private fixture"],
+        );
+        let leaked = fixture.request.home.join("prompt-leaked");
+        write_executable(
+            &fixture.provider,
+            "#!/bin/sh\ncase \"$*\" in *BRANCH_DIFF_PRIVATE_SENTINEL*) : > \"$HOME/prompt-leaked\";; esac\nprintf '%s' '{\"newBranchName\":\"feature/ai\",\"targetBranchName\":\"main\",\"title\":\"AI pull request\",\"summary\":\"Generated summary\"}'\n",
+        );
+
+        fixture
+            .service
+            .ai_create_pull_request(
+                &fixture.repository,
+                &fixture.request,
+                &RepositoryAiWorkflowControl::default(),
+            )
+            .unwrap();
+
+        assert!(!leaked.exists());
     }
 
     #[test]
@@ -1916,6 +2007,46 @@ exit 2
         cancel.join().unwrap();
         assert_eq!(error.completed, RepositoryAiCompletedBoundary::Staged);
         assert_eq!(fixture.commit_count(), "1");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workflow_read_phases_honor_identity_cancellation() {
+        for (pattern, completed) in [
+            ("--porcelain=v2", RepositoryAiCompletedBoundary::None),
+            ("--porcelain=1", RepositoryAiCompletedBoundary::Staged),
+            (
+                "ls-remote --symref origin HEAD",
+                RepositoryAiCompletedBoundary::Staged,
+            ),
+            (
+                "log -z --format=%s --max-count=12",
+                RepositoryAiCompletedBoundary::Staged,
+            ),
+        ] {
+            let mut fixture = WorkflowFixture::new(true, false);
+            let started = fixture.block_git_command(pattern);
+            let control = RepositoryAiWorkflowControl::default();
+            let cancellation = control.clone();
+            let cancel = std::thread::spawn(move || {
+                for _ in 0..400 {
+                    if started.exists() {
+                        cancellation.cancel();
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                panic!("blocked read did not start");
+            });
+            let began = std::time::Instant::now();
+            let error = fixture
+                .service
+                .ai_commit_and_push(&fixture.repository, &fixture.request, &control)
+                .unwrap_err();
+            cancel.join().unwrap();
+            assert_eq!(error.completed, completed, "{pattern}: {error:?}");
+            assert!(began.elapsed() < Duration::from_secs(2), "{pattern}");
+        }
     }
 
     #[cfg(unix)]

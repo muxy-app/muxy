@@ -816,6 +816,7 @@ impl MainWindow {
             kind: crate::views::overlay::RepositoryPopoverKind::Branch(Box::new(
                 crate::views::repository::branch::BranchPopover {
                     key,
+                    load_request: 0,
                     picker,
                     deletion: Default::default(),
                     operation_error: None,
@@ -1297,6 +1298,16 @@ impl MainWindow {
         let Some(key) = self.view.repository.coordinator.key().cloned() else {
             return;
         };
+        let request = match &mut self.view.overlay {
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
+                ..
+            } if popover.key == key => {
+                popover.load_request = popover.load_request.wrapping_add(1).max(1);
+                popover.load_request
+            }
+            _ => return,
+        };
         let service = self.repository_service();
         let path = key.normalized_path.clone();
         cx.spawn(async move |window, cx| {
@@ -1316,7 +1327,7 @@ impl MainWindow {
                 else {
                     return;
                 };
-                if popover.key != key {
+                if popover.key != key || popover.load_request != request {
                     return;
                 }
                 popover.branch_entries = match result.0 {

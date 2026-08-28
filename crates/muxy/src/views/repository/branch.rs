@@ -289,6 +289,7 @@ pub(crate) fn clamp_axis(origin: f32, size: f32, viewport: f32, margin: f32) -> 
 
 pub(crate) struct BranchPopover {
     pub(crate) key: RepositoryKey,
+    pub(crate) load_request: u64,
     pub(crate) picker: Entity<CommandPopover>,
     pub(crate) deletion: BranchDeletionState,
     pub(crate) operation_error: Option<String>,

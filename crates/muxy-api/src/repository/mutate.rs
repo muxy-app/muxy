@@ -1084,16 +1084,18 @@ impl RepositoryService {
         control: &MutationControl,
         effect: MutationEffect,
     ) -> Result<(), RepositoryMutationError> {
-        let args = if snapshot.upstream.is_some() {
-            os_args(&["push"])
-        } else {
-            vec![
-                OsString::from("push"),
-                OsString::from("--set-upstream"),
-                OsString::from("origin"),
-                os_string(&snapshot.branch)?,
-            ]
-        };
+        let mut refspec = snapshot.branch.clone();
+        refspec.push(b':');
+        refspec.extend_from_slice(&snapshot.push_ref);
+        let mut args = vec![OsString::from("push")];
+        if snapshot.upstream.is_none() {
+            args.push(OsString::from("--set-upstream"));
+        }
+        args.extend([
+            OsString::from("--"),
+            os_string(&snapshot.remote)?,
+            os_string(&refspec)?,
+        ]);
         self.mutate(repository, "push", args, true, control, effect)
             .map(|_| ())
     }
@@ -1819,6 +1821,47 @@ mod tests {
             service.commit(&repo, "   ", &control()),
             Err(RepositoryMutationError::EmptyMessage)
         ));
+    }
+
+    #[test]
+    fn repository_mutate_pushes_to_the_snapshotted_remote_and_destination() {
+        for (configuration, destination) in [
+            (("branch.main.pushRemote", "fork"), "refs/heads/main"),
+            (("remote.pushDefault", "fork"), "refs/heads/main"),
+            (
+                ("branch.main.merge", "refs/heads/review/main"),
+                "refs/heads/review/main",
+            ),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let (origin, repo, service) = remote_fixture(temp.path());
+            let fork = temp.path().join("fork.git");
+            git(
+                None,
+                &["init", "--bare", "-q", "-b", "main", fork.to_str().unwrap()],
+            );
+            git(
+                Some(&repo),
+                &["remote", "add", "fork", fork.to_str().unwrap()],
+            );
+            git(Some(&repo), &["config", configuration.0, configuration.1]);
+            write(&repo, "local.txt", "local\n");
+            commit_fixture(&repo, "local");
+            let local_head = rev(&repo, "HEAD");
+            let origin_head = rev(&origin, "refs/heads/main");
+
+            service.push(&repo, &control()).unwrap();
+
+            let target = if configuration.0 == "branch.main.merge" {
+                &origin
+            } else {
+                &fork
+            };
+            assert_eq!(rev(target, destination), local_head, "{}", configuration.0);
+            if target == &fork {
+                assert_eq!(rev(&origin, "refs/heads/main"), origin_head);
+            }
+        }
     }
 
     #[test]

@@ -1043,8 +1043,11 @@ impl CommandPopover {
                 .text_color(color)
                 .child(text.clone())
                 .into_any_element(),
-            CommandPopoverLeading::Asset(path) => gpui::img(path.clone())
+            CommandPopoverLeading::Asset(path) => gpui::svg()
+                .path(path.clone())
                 .size(metrics.icon_md())
+                .flex_none()
+                .text_color(color)
                 .into_any_element(),
             CommandPopoverLeading::Swatch(color) => div()
                 .size(metrics.icon_md())
@@ -1211,6 +1214,7 @@ impl CommandPopover {
                 if let Some(trailing) = row.trailing {
                     content = content.child(
                         div()
+                            .flex_none()
                             .text_size(self.metrics.font_footnote())
                             .text_color(self.theme.fg_muted)
                             .child(trailing),

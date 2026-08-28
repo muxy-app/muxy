@@ -129,6 +129,33 @@ if rg -n -F "$removed_hook_flag" crates/ scripts/ PLAN.md ARCHITECTURE.md; then
     exit 1
 fi
 
+printf '==> Checking P4 repository ownership\n'
+[[ -x scripts/verify-p4-vcs.sh ]] || {
+    printf 'error: P4 verification script must be executable\n' >&2
+    exit 1
+}
+provider_catalog_owner='crates/muxy-core/src/repository_ai.rs'
+provider_catalog_matches="$(rg -n 'ProviderDescriptor\s*\{' crates/ --glob '*.rs' \
+    | rg -v "^${provider_catalog_owner}:" || true)"
+if [[ -n "$provider_catalog_matches" ]]; then
+    printf '%s\n' "$provider_catalog_matches"
+    printf 'error: repository provider catalog is owned by %s\n' \
+        "$provider_catalog_owner" >&2
+    exit 1
+fi
+socket_git_matches="$(rg -n '"git\.[^"]+"' crates/muxy/src/socket --glob '*.rs' \
+    | rg -v '^crates/muxy/src/socket/catalog.rs:' || true)"
+if [[ -n "$socket_git_matches" ]]; then
+    printf '%s\n' "$socket_git_matches"
+    printf 'error: P10 owns every git socket command\n' >&2
+    exit 1
+fi
+if rg -n 'Command::new\(("|r#")?(sh|bash|zsh|fish)' \
+    crates/muxy-api/src/repository crates/muxy/src/repository; then
+    printf 'error: repository services must not dispatch through a shell\n' >&2
+    exit 1
+fi
+
 printf '==> Checking superseded paths\n'
 for superseded in chrome ui store prefs workspace workspace_store.rs shortcuts.rs; do
     if [[ -e "crates/muxy/src/$superseded" ]]; then
@@ -173,6 +200,9 @@ cargo test --workspace --all-targets --all-features --locked --offline
 if [[ "$(uname -s)" == "Darwin" ]]; then
     printf '==> Checking staged migration safety guards\n'
     "$SCRIPT_DIR/verify-p2-5-migration.sh" --self-test
+
+    printf '==> Checking P4 VCS verification guards\n'
+    "$SCRIPT_DIR/verify-p4-vcs.sh" --self-test
 
     printf '==> Building debug application bundle\n'
     "$SCRIPT_DIR/build-app.sh" debug

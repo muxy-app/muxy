@@ -18,7 +18,7 @@ use muxy_ui::theme::{Metrics, Theme};
 
 const KEY_CONTEXT: &str = "RepositoryAiPopover";
 const PROVIDER_POPOVER_WIDTH: f32 = 300.0;
-const PROVIDER_POPOVER_HEIGHT: f32 = 300.0;
+const PROVIDER_POPOVER_HEIGHT: f32 = 260.0;
 
 actions!(repository_ai_popover, [Dismiss, Submit]);
 
@@ -793,7 +793,7 @@ mod tests {
     fn provider_menu_contains_automatic_and_all_catalog_entries() {
         let inventory = muxy_api::repository::ProviderInventory::default();
         let rows = rows(provider_items("codex", &inventory, ""));
-        assert_eq!(provider_popover_size(), (300.0, 300.0));
+        assert_eq!(provider_popover_size(), (300.0, 260.0));
         assert_eq!(rows.len(), PROVIDERS.len() + 1);
         assert_eq!(rows[0].id.as_ref(), "provider:auto");
         assert_eq!(

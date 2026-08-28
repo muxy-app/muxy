@@ -328,6 +328,17 @@ mod tests {
         repository_controls(state, &RepositoryAiPreferences::default(), false)
     }
 
+    fn control_contract_name(kind: RepositoryControlKind) -> &'static str {
+        match kind {
+            RepositoryControlKind::Branch => "branch",
+            RepositoryControlKind::Changes => "changes",
+            RepositoryControlKind::CommitAi => "commit-ai",
+            RepositoryControlKind::CreatePullRequestAi => "create-pr-ai",
+            RepositoryControlKind::PullRequest => "pull-request",
+            RepositoryControlKind::RepositoryUnavailable => "repository-unavailable",
+        }
+    }
+
     fn summary(branch: &str, head: RepositoryHead) -> RepositorySummary {
         RepositorySummary {
             branch: branch.to_owned(),
@@ -392,6 +403,37 @@ mod tests {
 
         repository.summary = LoadState::Ready(summary("topic", RepositoryHead::Unborn));
         assert_eq!(controls(&repository)[0].label, "topic");
+    }
+
+    #[test]
+    fn p4_repository_control_inventory_is_exact() {
+        let mut loading = state();
+        loading.summary = LoadState::Loading;
+        loading.pull_request = PullRequestLoadState::Loading;
+        let mut no_pull_request = state();
+        no_pull_request.summary =
+            LoadState::Ready(summary("main", RepositoryHead::Commit("a".repeat(40))));
+        no_pull_request.pull_request = PullRequestLoadState::NoPullRequest;
+        let mut unavailable = state();
+        unavailable.summary = LoadState::Error("broken".to_owned());
+        let mut names = [loading, no_pull_request, unavailable]
+            .iter()
+            .flat_map(controls)
+            .map(|control| control_contract_name(control.kind))
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(
+            names,
+            [
+                "branch",
+                "changes",
+                "commit-ai",
+                "create-pr-ai",
+                "pull-request",
+                "repository-unavailable",
+            ]
+        );
     }
 
     #[test]
