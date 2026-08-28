@@ -3,6 +3,7 @@ pub mod fold;
 pub mod migration;
 pub mod navigation;
 pub mod prefs;
+pub mod repository_ai;
 pub mod settings_catalog;
 pub mod shortcuts;
 pub mod store;

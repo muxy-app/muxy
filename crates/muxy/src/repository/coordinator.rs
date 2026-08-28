@@ -1,7 +1,9 @@
 use muxy_api::repository::{
-    ChangedFiles, MutationBoundary, MutationEffect, PullRequestInfo, RepositorySummary,
+    ChangedFiles, MutationBoundary, MutationEffect, ProviderInventory, PullRequestInfo,
+    RepositorySummary,
 };
 use muxy_api::subprocess::CancellationSignal;
+use muxy_core::repository_ai::RepositoryAiAction;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -199,7 +201,16 @@ pub(crate) struct RepositoryState {
     pub branches: LoadState<Vec<Vec<u8>>>,
     pub changes: LoadState<ChangedFiles>,
     pub pull_request: PullRequestLoadState,
-    pub providers: LoadState<()>,
+    pub providers: LoadState<ProviderInventory>,
+    pub ai: RepositoryAiRunState,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[allow(dead_code)]
+pub(crate) enum RepositoryAiRunState {
+    #[default]
+    Idle,
+    Running(RepositoryAiAction),
 }
 
 #[derive(Clone, Debug)]
@@ -450,6 +461,50 @@ impl RepositoryCoordinator {
     }
 
     #[allow(dead_code)]
+    pub(crate) fn begin_ai_mutation(
+        &mut self,
+        request_id: u64,
+        action: RepositoryAiAction,
+    ) -> Option<(CancellationSignal, MutationBoundary)> {
+        let control = self.begin_mutation(request_id)?;
+        self.state.ai = RepositoryAiRunState::Running(action);
+        Some(control)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn begin_ai_operation(
+        &mut self,
+        operations: &mut crate::project_operations::ProjectOperations,
+        project_id: &str,
+        action: RepositoryAiAction,
+    ) -> Result<
+        (
+            crate::project_operations::ProjectOperationToken,
+            muxy_api::repository::RepositoryAiWorkflowControl,
+        ),
+        &'static str,
+    > {
+        let token = operations
+            .begin_operation(
+                project_id,
+                crate::project_operations::ProjectOperationKind::RepositoryMutation,
+            )
+            .map_err(|_| "Another project mutation is running")?;
+        let Some((cancellation, boundary)) = self.begin_ai_mutation(token.request_id(), action)
+        else {
+            let _ = operations.finish_operation(&token);
+            return Err("Another repository mutation is running");
+        };
+        Ok((
+            token,
+            muxy_api::repository::RepositoryAiWorkflowControl::with_cancellation_and_boundary(
+                cancellation,
+                boundary,
+            ),
+        ))
+    }
+
+    #[allow(dead_code)]
     pub fn mark_irreversible(&mut self, request_id: u64) -> Option<()> {
         let mutation = self.mutation.as_mut()?;
         if mutation.request_id != request_id {
@@ -473,6 +528,31 @@ impl RepositoryCoordinator {
             current_identity: mutation.current_identity && !self.closed,
             refresh: std::mem::take(&mut self.pending_refresh),
         })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn finish_ai_mutation(
+        &mut self,
+        request_id: u64,
+        effect: MutationEffect,
+    ) -> Option<MutationCompletion> {
+        self.pending_refresh
+            .union(RepositoryRefreshSet::repository_truth());
+        let completion = self.finish_mutation(request_id, effect)?;
+        self.state.ai = RepositoryAiRunState::Idle;
+        Some(completion)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn finish_ai_operation(
+        &mut self,
+        operations: &mut crate::project_operations::ProjectOperations,
+        token: &crate::project_operations::ProjectOperationToken,
+        effect: MutationEffect,
+    ) -> Option<MutationCompletion> {
+        let completion = self.finish_ai_mutation(token.request_id(), effect);
+        let operation_finished = operations.finish_operation(token).is_ok();
+        operation_finished.then_some(completion).flatten()
     }
 
     pub(crate) fn close(&mut self) {
@@ -678,6 +758,68 @@ mod tests {
             assert!(!coordinator.finish_read(&read, None));
         }
         assert_eq!(coordinator.active_request_count(), 0);
+    }
+
+    #[test]
+    fn ai_workflow_uses_the_shared_mutation_lane_and_refreshes_all_repository_truth() {
+        let mut coordinator = RepositoryCoordinator::default();
+        let mut operations = crate::project_operations::ProjectOperations::default();
+        coordinator.activate(Some(key("one", "primary")));
+        let (token, workflow) = coordinator
+            .begin_ai_operation(&mut operations, "one", RepositoryAiAction::Commit)
+            .unwrap();
+        assert_eq!(
+            coordinator.state().ai,
+            RepositoryAiRunState::Running(RepositoryAiAction::Commit)
+        );
+        for kind in [
+            crate::project_operations::ProjectOperationKind::Create,
+            crate::project_operations::ProjectOperationKind::Remove,
+            crate::project_operations::ProjectOperationKind::RepositoryMutation,
+        ] {
+            assert!(operations.begin_operation("one", kind).is_err());
+        }
+        assert!(coordinator.begin_mutation(10).is_none());
+        assert!(!workflow.cancellation().is_cancelled());
+        let completion = coordinator
+            .finish_ai_operation(&mut operations, &token, MutationEffect::NoMutation)
+            .unwrap();
+        assert!(
+            operations
+                .begin_operation(
+                    "one",
+                    crate::project_operations::ProjectOperationKind::Remove
+                )
+                .is_ok()
+        );
+        assert_eq!(coordinator.state().ai, RepositoryAiRunState::Idle);
+        for kind in [
+            RepositoryReadKind::Summary,
+            RepositoryReadKind::Branches,
+            RepositoryReadKind::Changes,
+            RepositoryReadKind::PullRequest,
+        ] {
+            assert!(completion.refresh.contains(kind));
+        }
+    }
+
+    #[test]
+    fn ai_operation_rolls_back_the_project_lane_when_repository_acquisition_fails() {
+        let mut coordinator = RepositoryCoordinator::default();
+        let mut operations = crate::project_operations::ProjectOperations::default();
+        assert!(
+            coordinator
+                .begin_ai_operation(&mut operations, "one", RepositoryAiAction::Commit)
+                .is_err()
+        );
+        assert!(
+            operations
+                .begin_operation(
+                    "one",
+                    crate::project_operations::ProjectOperationKind::Create
+                )
+                .is_ok()
+        );
     }
 }
 #[test]

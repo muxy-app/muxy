@@ -283,10 +283,10 @@ const HOME_PAGE: &str = "muxy.browser.homePageURL";
 const BLANK_PAGE: &str = "about:blank";
 const COMPOSER_FONT: &str = "editor.richInputFontFamily";
 const COMPOSER_IMAGE: &str = "editor.richInputImageStrategy";
-const COMMIT_PROVIDER: &str = "muxy.ai.repositoryActions.commit.provider";
-const COMMIT_PROMPT_KEY: &str = "muxy.ai.repositoryActions.commit.prompt";
-const PR_PROVIDER: &str = "muxy.ai.repositoryActions.createPullRequest.provider";
-const PR_PROMPT_KEY: &str = "muxy.ai.repositoryActions.createPullRequest.prompt";
+const COMMIT_PROVIDER: &str = muxy_core::repository_ai::COMMIT_PROVIDER_KEY;
+const COMMIT_PROMPT_KEY: &str = muxy_core::repository_ai::COMMIT_PROMPT_KEY;
+const PR_PROVIDER: &str = muxy_core::repository_ai::CREATE_PULL_REQUEST_PROVIDER_KEY;
+const PR_PROMPT_KEY: &str = muxy_core::repository_ai::CREATE_PULL_REQUEST_PROMPT_KEY;
 const MOBILE_ENABLED: &str = settings::MOBILE_KEYS.enabled;
 const MOBILE_PORT: &str = settings::MOBILE_KEYS.port;
 const MOBILE_CAP: &str = settings::MOBILE_KEYS.scrollback_cap;
@@ -295,8 +295,8 @@ const QUICK_HEIGHT: &str = "muxy.quickTerminal.height";
 const QUICK_TRANSPARENCY: &str = "muxy.quickTerminal.transparency";
 const QUICK_BLUR: &str = "muxy.quickTerminal.blur";
 
-const COMMIT_PROMPT: &str = "Write a concise commit message that explains the intent of all staged changes. Follow the repository's existing commit-message style.";
-const PULL_REQUEST_PROMPT: &str = "Write an accurate pull request title and a concise summary of the changes. Choose a short descriptive branch name and the appropriate target branch.";
+const COMMIT_PROMPT: &str = muxy_core::repository_ai::COMMIT_PROMPT;
+const PULL_REQUEST_PROMPT: &str = muxy_core::repository_ai::CREATE_PULL_REQUEST_PROMPT;
 
 const QUICK_TRANSPARENCY_SLIDER: SliderSpec = SliderSpec {
     key: QUICK_TRANSPARENCY,

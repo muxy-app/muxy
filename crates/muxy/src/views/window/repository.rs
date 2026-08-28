@@ -106,7 +106,7 @@ impl MainWindow {
             self.request_current_pull_request(cx);
         }
         if refresh.contains(RepositoryReadKind::Providers) {
-            self.resolve_repository_providers();
+            self.resolve_repository_providers(cx);
         }
     }
 
@@ -372,7 +372,7 @@ impl MainWindow {
         ))
     }
 
-    fn resolve_repository_providers(&mut self) {
+    fn resolve_repository_providers(&mut self, cx: &mut Context<Self>) {
         let Some(token) = self
             .view
             .repository
@@ -381,9 +381,33 @@ impl MainWindow {
         else {
             return;
         };
-        if self.view.repository.coordinator.finish_read(&token, None) {
-            self.view.repository.coordinator.state_mut().providers = LoadState::Ready(());
-        }
+        self.view
+            .repository
+            .coordinator
+            .state_mut()
+            .providers
+            .begin_refresh();
+        let environment = self.project_runtime.execution_environment.snapshot();
+        cx.spawn(async move |window, cx| {
+            let inventory = cx
+                .background_executor()
+                .spawn(async move {
+                    muxy_api::repository::ProviderInventory::discover(
+                        &environment,
+                        &muxy_core::prefs::home_dir(),
+                        true,
+                    )
+                })
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                if window.view.repository.coordinator.finish_read(&token, None) {
+                    window.view.repository.coordinator.state_mut().providers =
+                        LoadState::Ready(inventory);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     pub(crate) fn switch_repository_branch(&mut self, branch: Vec<u8>, cx: &mut Context<Self>) {

@@ -5,6 +5,11 @@ use serde_json::Value;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use crate::repository_ai::{
+    COMMIT_PROMPT, COMMIT_PROMPT_KEY, COMMIT_PROVIDER_KEY, CREATE_PULL_REQUEST_PROMPT,
+    CREATE_PULL_REQUEST_PROMPT_KEY, CREATE_PULL_REQUEST_PROVIDER_KEY, RepositoryAiPreferences,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScalePreset {
     Regular,
@@ -118,6 +123,7 @@ pub struct Prefs {
     pub default_worktree_parent_path: Option<String>,
     pub active_worktree_ids: std::collections::HashMap<String, String>,
     pub active_group_id: Option<String>,
+    pub repository_ai: RepositoryAiPreferences,
 }
 
 impl Default for Prefs {
@@ -146,6 +152,7 @@ impl Default for Prefs {
             default_worktree_parent_path: None,
             active_worktree_ids: std::collections::HashMap::new(),
             active_group_id: None,
+            repository_ai: RepositoryAiPreferences::default(),
         }
     }
 }
@@ -219,6 +226,13 @@ impl Prefs {
             .filter(|value| !value.trim().is_empty());
         self.default_worktree_parent_path = string("muxy.general.defaultWorktreeParentPath")
             .filter(|value| !value.trim().is_empty());
+        self.repository_ai.commit.provider = string(COMMIT_PROVIDER_KEY).unwrap_or_default();
+        self.repository_ai.commit.prompt =
+            string(COMMIT_PROMPT_KEY).unwrap_or_else(|| COMMIT_PROMPT.to_owned());
+        self.repository_ai.create_pull_request.provider =
+            string(CREATE_PULL_REQUEST_PROVIDER_KEY).unwrap_or_default();
+        self.repository_ai.create_pull_request.prompt = string(CREATE_PULL_REQUEST_PROMPT_KEY)
+            .unwrap_or_else(|| CREATE_PULL_REQUEST_PROMPT.to_owned());
     }
 
     fn apply_ui_scale_json(&mut self) {
@@ -416,6 +430,22 @@ mod tests {
             prefs.default_worktree_parent_path.as_deref(),
             Some("/worktrees")
         );
+    }
+
+    #[test]
+    fn repository_ai_preferences_load_as_typed_runtime_fields() {
+        let mut prefs = super::Prefs::default();
+        prefs.apply_settings_root(&serde_json::json!({
+            "muxy.ai.repositoryActions.commit.provider": "codex",
+            "muxy.ai.repositoryActions.commit.prompt": "Commit prompt",
+            "muxy.ai.repositoryActions.createPullRequest.provider": "claude",
+            "muxy.ai.repositoryActions.createPullRequest.prompt": "PR prompt"
+        }));
+
+        assert_eq!(prefs.repository_ai.commit.provider, "codex");
+        assert_eq!(prefs.repository_ai.commit.prompt, "Commit prompt");
+        assert_eq!(prefs.repository_ai.create_pull_request.provider, "claude");
+        assert_eq!(prefs.repository_ai.create_pull_request.prompt, "PR prompt");
     }
 
     #[test]

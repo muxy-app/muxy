@@ -293,6 +293,13 @@ impl Workspace {
         false
     }
 
+    pub fn set_pull_request_prompt(&mut self, id: &str, prompt: Option<&str>) -> bool {
+        let prompt = crate::repository_ai::normalized_project_prompt(prompt);
+        self.update(id, move |project| {
+            project.pull_request_prompt = prompt;
+        })
+    }
+
     fn next_sort_order(&self) -> i64 {
         self.projects
             .iter()

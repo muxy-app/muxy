@@ -33,9 +33,9 @@ fn ai_action(
     let selected = settings::string_value(provider_key, "");
     let mut choices = vec![Choice::new("", "Auto")];
     choices.extend(
-        settings::AI_PROVIDERS
+        muxy_core::repository_ai::PROVIDERS
             .iter()
-            .map(|(id, name)| Choice::new(*id, *name)),
+            .map(|provider| Choice::new(provider.id, provider.display_name)),
     );
 
     let mut items = vec![picker_row(

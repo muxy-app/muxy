@@ -238,11 +238,29 @@ pub struct BranchDeletionIntent {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct PushTargetSnapshot {
+pub(super) struct PushTargetSnapshot {
     branch: Vec<u8>,
     upstream: Option<Vec<u8>>,
     remote: Vec<u8>,
     push_ref: Vec<u8>,
+    fetch_url: Vec<u8>,
+    push_url: Vec<u8>,
+    configuration: Vec<u8>,
+}
+
+impl PushTargetSnapshot {
+    pub(super) fn is_new_origin_branch(&self, branch: &[u8]) -> bool {
+        let mut expected_ref = b"refs/heads/".to_vec();
+        expected_ref.extend_from_slice(branch);
+        self.branch == branch
+            && self.upstream.is_none()
+            && self.remote == b"origin"
+            && self.push_ref == expected_ref
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct OriginTargetSnapshot {
     fetch_url: Vec<u8>,
     push_url: Vec<u8>,
     configuration: Vec<u8>,
@@ -809,7 +827,7 @@ impl RepositoryService {
             })
     }
 
-    fn check_branch(
+    pub(super) fn check_branch(
         &self,
         repository: &Path,
         branch: &[u8],
@@ -833,6 +851,32 @@ impl RepositoryService {
         } else {
             Err(RepositoryMutationError::InvalidBranch)
         }
+    }
+
+    pub(super) fn staged_tree_oid(
+        &self,
+        repository: &Path,
+        control: &MutationControl,
+    ) -> Result<Vec<u8>, RepositoryMutationError> {
+        let output = self.read(
+            repository,
+            "staged tree identity",
+            os_args(&["write-tree"]),
+            control,
+        )?;
+        trim_output(&output.stdout)
+            .filter(|oid| matches!(oid.len(), 40 | 64) && oid.iter().all(u8::is_ascii_hexdigit))
+            .map(<[u8]>::to_vec)
+            .ok_or_else(|| {
+                command_error(
+                    "staged tree identity",
+                    MutationEffect::NoMutation,
+                    RepositoryError::Parse {
+                        operation: "staged tree identity",
+                        source: super::RepositoryParseError::ObjectId,
+                    },
+                )
+            })
     }
 
     fn current_branch(
@@ -871,7 +915,7 @@ impl RepositoryService {
             .ok_or(RepositoryMutationError::MissingBranch)
     }
 
-    fn push_target_snapshot(
+    pub(super) fn push_target_snapshot(
         &self,
         repository: &Path,
         control: &MutationControl,
@@ -924,6 +968,30 @@ impl RepositoryService {
         })
     }
 
+    pub(super) fn origin_target_snapshot(
+        &self,
+        repository: &Path,
+        control: &MutationControl,
+    ) -> Result<OriginTargetSnapshot, RepositoryMutationError> {
+        Ok(OriginTargetSnapshot {
+            fetch_url: self.remote_url(repository, b"origin", false, control)?,
+            push_url: self.remote_url(repository, b"origin", true, control)?,
+            configuration: self.remote_configuration(repository, control)?,
+        })
+    }
+
+    pub(super) fn ensure_origin_target(
+        &self,
+        repository: &Path,
+        expected: &OriginTargetSnapshot,
+        control: &MutationControl,
+    ) -> Result<(), RepositoryMutationError> {
+        if self.origin_target_snapshot(repository, control)? != *expected {
+            return Err(RepositoryMutationError::RemoteContextChanged);
+        }
+        Ok(())
+    }
+
     fn remote_configuration(
         &self,
         repository: &Path,
@@ -944,7 +1012,7 @@ impl RepositoryService {
             .unwrap_or_default())
     }
 
-    fn ensure_push_target(
+    pub(super) fn ensure_push_target(
         &self,
         repository: &Path,
         expected: &PushTargetSnapshot,
@@ -1009,7 +1077,7 @@ impl RepositoryService {
             .ok_or(RepositoryMutationError::RemoteContextChanged)
     }
 
-    fn push_snapshot(
+    pub(super) fn push_snapshot(
         &self,
         repository: &Path,
         snapshot: &PushTargetSnapshot,
