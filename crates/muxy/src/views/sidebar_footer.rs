@@ -84,20 +84,36 @@ fn footer_control(
             window.toggle_sidebar(cx);
         }))
         .into_any_element(),
-        FooterControl::ThemePicker => IconButton::new(
-            "theme-picker",
-            Icon::Palette,
-            glyph,
-            box_size,
-            theme.fg_muted,
-            theme.fg,
-        )
-        .on_click(cx.listener(
-            |window: &mut MainWindow, _, window_handle: &mut gpui::Window, cx| {
-                window.open_theme_picker(window_handle, cx);
-            },
-        ))
-        .into_any_element(),
+        FooterControl::ThemePicker => {
+            let view = cx.weak_entity();
+            div()
+                .flex()
+                .flex_none()
+                .child(
+                    IconButton::new(
+                        "theme-picker",
+                        Icon::Palette,
+                        glyph,
+                        box_size,
+                        theme.fg_muted,
+                        theme.fg,
+                    )
+                    .on_click(cx.listener(
+                        |window: &mut MainWindow, _, window_handle: &mut gpui::Window, cx| {
+                            window.open_theme_picker(window_handle, cx);
+                        },
+                    )),
+                )
+                .on_children_prepainted(move |bounds, _, cx| {
+                    let Some(bounds) = bounds.first().copied() else {
+                        return;
+                    };
+                    let _ = view.update(cx, |window, _| {
+                        window.record_theme_picker_anchor(bounds);
+                    });
+                })
+                .into_any_element()
+        }
     }
 }
 

@@ -97,7 +97,7 @@ fn idle_timeout_row(modal: &SettingsModal, cx: &mut Context<SettingsModal>) -> A
         .min_by(|left, right| (left.0 - stored).abs().total_cmp(&(right.0 - stored).abs()))
         .map(|entry| entry.1)
         .unwrap_or("5 minutes");
-    let choices = IDLE_TIMEOUTS
+    let choices: Vec<Choice> = IDLE_TIMEOUTS
         .iter()
         .map(|(_, label)| Choice {
             value: (*label).to_owned(),
@@ -105,32 +105,32 @@ fn idle_timeout_row(modal: &SettingsModal, cx: &mut Context<SettingsModal>) -> A
             enabled,
         })
         .collect();
+    let popover = enabled
+        .then(|| modal.picker(IDLE_THRESHOLD).cloned())
+        .flatten();
+    let toggle_choices = choices.clone();
+    let selected = closest.to_owned();
+    let values: Vec<(String, f64)> = IDLE_TIMEOUTS
+        .iter()
+        .map(|(seconds, label)| ((*label).to_owned(), *seconds))
+        .collect();
 
     let control = controls::picker(
         style,
         IDLE_THRESHOLD,
         choices,
         closest,
-        enabled && modal.open_picker() == Some(IDLE_THRESHOLD),
+        popover,
         cx.listener(move |modal: &mut SettingsModal, _, _, cx| {
             if settings::bool_value(OFFLINE_ENABLED, false) {
-                modal.toggle_picker(IDLE_THRESHOLD, cx);
+                modal.toggle_picker(
+                    IDLE_THRESHOLD,
+                    toggle_choices.clone(),
+                    selected.clone(),
+                    SettingsPickerTarget::Number(values.clone()),
+                    cx,
+                );
             }
-        }),
-        cx.listener(|modal: &mut SettingsModal, value: &SharedString, _, cx| {
-            let Some(seconds) = IDLE_TIMEOUTS
-                .iter()
-                .find(|(_, label)| *label == value.as_ref())
-                .map(|(seconds, _)| *seconds)
-            else {
-                return;
-            };
-            let number = serde_json::Number::from_f64(seconds);
-            modal.write(
-                IDLE_THRESHOLD,
-                number.map_or(Value::Null, Value::Number),
-                cx,
-            );
         }),
     );
 

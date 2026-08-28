@@ -11,6 +11,12 @@ use muxy_api::worktree_location::{
     LocationContext, WorktreeLocationRequest, resolve, sanitize_component, validate_template,
 };
 use muxy_core::store::Project;
+use muxy_ui::command_popover::{
+    CommandPopover, CommandPopoverConfig, CommandPopoverDensity, CommandPopoverEvent,
+    CommandPopoverItem, CommandPopoverLeading, CommandPopoverPresentation, CommandPopoverRow,
+    CommandPopoverStatus, CommandPopoverTab,
+};
+use muxy_ui::icon::Icon;
 use muxy_ui::text_input::{InputEvent, InputStyle, TextInput, growing_input};
 use muxy_ui::theme::{Metrics, Theme};
 use std::path::PathBuf;
@@ -39,18 +45,12 @@ enum ModalAction {
     Submit,
 }
 
-#[derive(Clone, Copy)]
-enum BranchChoiceTarget {
-    Base,
-    Existing,
-}
-
 pub struct CreateWorktreeModal {
     form: CreateWorktreeForm,
     name: Entity<TextInput>,
     branch: Entity<TextInput>,
-    base_branch: Entity<TextInput>,
-    existing_branch: Entity<TextInput>,
+    base_branch_picker: Entity<CommandPopover>,
+    existing_branch_picker: Entity<CommandPopover>,
     location: Entity<TextInput>,
     branches: Vec<String>,
     theme: Theme,
@@ -89,16 +89,24 @@ impl CreateWorktreeModal {
             .unwrap_or_default();
         form.set_base_branch(&default_branch);
         form.set_existing_branch(branches.first().map(String::as_str).unwrap_or_default());
-        let base_branch = cx.new(|cx| {
-            TextInput::new(style, cx)
-                .with_placeholder("main")
-                .with_text(default_branch)
-        });
-        let existing_branch = cx.new(|cx| {
-            TextInput::new(style, cx)
-                .with_placeholder("existing branch")
-                .with_text(branches.first().cloned().unwrap_or_default())
-        });
+        let base_branch_picker = branch_picker(
+            "worktree-base-branch-picker",
+            "Search base branches…",
+            &branches,
+            Some(&default_branch),
+            theme.clone(),
+            metrics,
+            cx,
+        );
+        let existing_branch_picker = branch_picker(
+            "worktree-existing-branch-picker",
+            "Search branches…",
+            &branches,
+            branches.first(),
+            theme.clone(),
+            metrics,
+            cx,
+        );
         let location_value = match form.location() {
             LocationChoice::Default => String::new(),
             LocationChoice::Template(value) => value.clone(),
@@ -133,22 +141,13 @@ impl CreateWorktreeModal {
             }
             cx.notify();
         });
-        let base_subscription = cx.subscribe(&base_branch, |modal: &mut Self, input, event, cx| {
-            match event {
-                InputEvent::Changed => modal.form.set_base_branch(input.read(cx).text()),
-                InputEvent::Submitted => modal.submit(cx),
-                InputEvent::Cancelled => modal.cancel(cx),
-            }
-            cx.notify();
-        });
-        let existing_subscription =
-            cx.subscribe(&existing_branch, |modal: &mut Self, input, event, cx| {
-                match event {
-                    InputEvent::Changed => modal.form.set_existing_branch(input.read(cx).text()),
-                    InputEvent::Submitted => modal.submit(cx),
-                    InputEvent::Cancelled => modal.cancel(cx),
-                }
-                cx.notify();
+        let base_subscription = cx
+            .subscribe(&base_branch_picker, |modal: &mut Self, _, event, cx| {
+                modal.handle_branch_picker(true, event, cx)
+            });
+        let existing_subscription = cx
+            .subscribe(&existing_branch_picker, |modal: &mut Self, _, event, cx| {
+                modal.handle_branch_picker(false, event, cx)
             });
         let location_subscription =
             cx.subscribe(&location, |modal: &mut Self, input, event, cx| {
@@ -174,8 +173,8 @@ impl CreateWorktreeModal {
             form,
             name,
             branch,
-            base_branch,
-            existing_branch,
+            base_branch_picker,
+            existing_branch_picker,
             location,
             branches,
             theme,
@@ -244,71 +243,68 @@ impl CreateWorktreeModal {
         }
     }
 
-    fn branch_choices(
-        &self,
-        target: BranchChoiceTarget,
-        selected: &str,
+    fn handle_branch_picker(
+        &mut self,
+        base: bool,
+        event: &CommandPopoverEvent,
         cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let mut choices = div()
-            .flex()
-            .flex_row()
-            .flex_wrap()
-            .gap(self.metrics.spacing2());
-        for (index, branch) in self.branches.iter().enumerate() {
-            let value = branch.clone();
-            let active = value == selected;
-            choices = choices.child(
-                div()
-                    .id(gpui::ElementId::Name(SharedString::from(format!(
-                        "worktree-branch-choice-{index}"
-                    ))))
-                    .px(self.metrics.spacing3())
-                    .py(self.metrics.spacing2())
-                    .rounded(self.metrics.radius_sm())
-                    .border_1()
-                    .border_color(if active {
-                        self.theme.accent
-                    } else {
-                        self.theme.border
-                    })
-                    .bg(if active {
-                        self.theme.accent
-                    } else {
-                        self.theme.surface
-                    })
-                    .text_size(self.metrics.font_caption())
-                    .text_color(if active {
-                        self.theme.accent_foreground
-                    } else {
-                        self.theme.fg
-                    })
-                    .when(!self.form.running(), |choice| {
-                        choice
-                            .cursor_pointer()
-                            .hover(|style| style.bg(self.theme.hover))
-                            .on_click(cx.listener(move |modal, _, _, cx| {
-                                match target {
-                                    BranchChoiceTarget::Base => {
-                                        modal.form.set_base_branch(&value);
-                                        modal.base_branch.update(cx, |input, cx| {
-                                            input.set_text(value.clone(), cx)
-                                        });
-                                    }
-                                    BranchChoiceTarget::Existing => {
-                                        modal.form.set_existing_branch(&value);
-                                        modal.existing_branch.update(cx, |input, cx| {
-                                            input.set_text(value.clone(), cx)
-                                        });
-                                    }
-                                }
-                                cx.notify();
-                            }))
-                    })
-                    .child(SharedString::from(branch.clone())),
-            );
+    ) {
+        match event {
+            CommandPopoverEvent::QueryChanged { .. } => self.sync_branch_picker(base, cx),
+            CommandPopoverEvent::Confirmed(selection)
+            | CommandPopoverEvent::SecondaryConfirmed(selection) => {
+                let Some(index) = selection
+                    .id
+                    .strip_prefix("worktree-branch-")
+                    .and_then(|value| value.parse::<usize>().ok())
+                else {
+                    return;
+                };
+                let Some(branch) = self.branches.get(index) else {
+                    return;
+                };
+                if base {
+                    self.form.set_base_branch(branch);
+                } else {
+                    self.form.set_existing_branch(branch);
+                }
+                self.sync_branch_picker(base, cx);
+                cx.notify();
+            }
+            CommandPopoverEvent::Dismissed => self.cancel(cx),
+            _ => {}
         }
-        choices.into_any_element()
+    }
+
+    fn sync_branch_picker(&self, base: bool, cx: &mut Context<Self>) {
+        let picker = if base {
+            &self.base_branch_picker
+        } else {
+            &self.existing_branch_picker
+        };
+        let query = picker.read(cx).query().trim().to_lowercase();
+        let selected = if base {
+            self.form.base_branch()
+        } else {
+            self.form.existing_branch()
+        };
+        let items = branch_items(&self.branches, &query, selected, self.form.running());
+        picker.update(cx, |picker, cx| {
+            picker.set_items(items, cx);
+            if picker.query().is_empty()
+                && let Some(index) = self.branches.iter().position(|branch| branch == selected)
+            {
+                let _ = picker.select_row(&format!("worktree-branch-{index}"), cx);
+            }
+            picker.set_status(
+                if self.branches.is_empty() {
+                    CommandPopoverStatus::Empty("No branches available".into())
+                } else {
+                    CommandPopoverStatus::Ready
+                },
+                cx,
+            );
+        });
     }
 
     fn field(&self, label: &str, input: &Entity<TextInput>) -> AnyElement {
@@ -334,6 +330,21 @@ impl CreateWorktreeModal {
                     .border_color(self.theme.border)
                     .child(growing_input(input)),
             )
+            .into_any_element()
+    }
+
+    fn branch_picker_field(&self, label: &str, picker: &Entity<CommandPopover>) -> AnyElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap(self.metrics.spacing2())
+            .child(
+                div()
+                    .text_size(self.metrics.font_footnote())
+                    .text_color(self.theme.fg_muted)
+                    .child(SharedString::from(label.to_owned())),
+            )
+            .child(picker.clone())
             .into_any_element()
     }
 
@@ -513,15 +524,9 @@ impl Render for CreateWorktreeModal {
             .child(branch_modes);
         form = if self.form.create_new_branch() {
             form.child(self.field("Branch Name", &self.branch))
-                .child(self.field("Base Branch", &self.base_branch))
-                .child(self.branch_choices(BranchChoiceTarget::Base, self.form.base_branch(), cx))
+                .child(self.branch_picker_field("Base Branch", &self.base_branch_picker))
         } else {
-            form.child(self.field("Branch", &self.existing_branch))
-                .child(self.branch_choices(
-                    BranchChoiceTarget::Existing,
-                    self.form.existing_branch(),
-                    cx,
-                ))
+            form.child(self.branch_picker_field("Branch", &self.existing_branch_picker))
         };
         form = form.child(
             div()
@@ -696,6 +701,70 @@ impl Render for CreateWorktreeModal {
             .child(form)
             .child(footer)
     }
+}
+
+fn branch_picker(
+    id: &'static str,
+    placeholder: &'static str,
+    branches: &[String],
+    selected: Option<&String>,
+    theme: Theme,
+    metrics: Metrics,
+    cx: &mut Context<CreateWorktreeModal>,
+) -> Entity<CommandPopover> {
+    let items = branch_items(branches, "", selected.map_or("", String::as_str), false);
+    let selected = selected.and_then(|selected| {
+        branches
+            .iter()
+            .position(|branch| branch == selected)
+            .map(|index| format!("worktree-branch-{index}"))
+    });
+    cx.new(move |cx| {
+        let mut picker = CommandPopover::new(
+            CommandPopoverConfig {
+                id: id.into(),
+                presentation: CommandPopoverPresentation::Embedded,
+                density: CommandPopoverDensity::Compact,
+                tabs: vec![CommandPopoverTab::new("branches", "Branches")],
+                placeholder: placeholder.into(),
+                footer_actions: Vec::new(),
+                footer_hints: Vec::new(),
+                width: None,
+                height: None,
+                max_height: Some(220.0),
+                completion_on_tab: false,
+            },
+            theme,
+            metrics,
+            cx,
+        );
+        picker.set_items(items, cx);
+        if let Some(selected) = selected {
+            let _ = picker.select_row(&selected, cx);
+        }
+        picker
+    })
+}
+
+fn branch_items(
+    branches: &[String],
+    query: &str,
+    selected: &str,
+    disabled: bool,
+) -> Vec<CommandPopoverItem> {
+    branches
+        .iter()
+        .enumerate()
+        .filter(|(_, branch)| query.is_empty() || branch.to_lowercase().contains(query))
+        .map(|(index, branch)| {
+            let mut row =
+                CommandPopoverRow::new(format!("worktree-branch-{index}"), branch.clone());
+            row.leading = Some(CommandPopoverLeading::Icon(Icon::GitBranch));
+            row.current = branch == selected;
+            row.disabled = disabled;
+            CommandPopoverItem::Row(row)
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug)]

@@ -7,12 +7,7 @@ use gpui::{
     AnyElement, Context, Entity, FontWeight, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled, div, px,
 };
-use muxy_core::store::ICON_PALETTE;
-use muxy_ui::components::SymbolGlyph;
-use muxy_ui::symbols;
 use muxy_ui::text_input::TextInput;
-
-const SYMBOL_COLUMNS: usize = 7;
 
 pub enum Overlay {
     None,
@@ -31,16 +26,15 @@ pub enum Overlay {
         bounds: gpui::Bounds<Pixels>,
     },
     Symbols {
-        project_id: String,
-        search: Entity<TextInput>,
+        picker: Entity<muxy_ui::command_popover::CommandPopover>,
         anchor: Point<Pixels>,
     },
     Colors {
-        project_id: String,
+        picker: Entity<muxy_ui::command_popover::CommandPopover>,
         anchor: Point<Pixels>,
     },
     TabColors {
-        tab_id: String,
+        picker: Entity<muxy_ui::command_popover::CommandPopover>,
         anchor: Point<Pixels>,
     },
     TerminalConfirm {
@@ -51,8 +45,30 @@ pub enum Overlay {
     Picker(Entity<crate::views::project_picker::ProjectPicker>),
     Omnibox(Entity<crate::views::omnibox::Omnibox>),
     Settings(Entity<crate::views::settings::SettingsModal>),
-    ThemePicker(Entity<crate::views::settings::theme_picker::ThemeBrowser>),
+    ThemePicker {
+        browser: Entity<crate::views::settings::theme_picker::ThemeBrowser>,
+        anchor: Option<gpui::Bounds<Pixels>>,
+    },
     CreateWorktree(Entity<crate::views::create_worktree_overlay::CreateWorktreeModal>),
+    Repository {
+        kind: RepositoryPopoverKind,
+        anchor: gpui::Bounds<Pixels>,
+    },
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RepositoryAiAction {
+    Commit,
+    CreatePullRequest,
+}
+
+#[allow(dead_code)]
+pub enum RepositoryPopoverKind {
+    Branch(Box<crate::views::repository::branch::BranchPopover>),
+    Changes,
+    PullRequest,
+    Ai(RepositoryAiAction),
 }
 
 impl Overlay {
@@ -192,6 +208,8 @@ fn dialog_button(
 pub fn layer(
     overlay: &Overlay,
     state: &AppState,
+    repository_state: &crate::repository::RepositoryState,
+    repository_mutation_busy: bool,
     focus: &gpui::FocusHandle,
     window: &mut gpui::Window,
     cx: &mut Context<MainWindow>,
@@ -232,51 +250,32 @@ pub fn layer(
             rename_popover(heading, input, anchor, state, cx)
         }
         Overlay::TabRename { input, bounds } => tab_rename_inline(input, *bounds, state),
-        Overlay::Symbols {
-            project_id,
-            search,
-            anchor,
-        } => {
-            let anchor = clamp(
-                *anchor,
-                gpui::size(state.metrics.scaled(300.0), state.metrics.scaled(400.0)),
-                viewport,
-                state,
-            );
-            symbol_popover(project_id, search, anchor, state, cx)
-        }
-        Overlay::Colors { project_id, anchor } => {
-            let anchor = clamp(
-                *anchor,
-                gpui::size(state.metrics.scaled(216.0), state.metrics.scaled(240.0)),
-                viewport,
-                state,
-            );
-            color_popover(project_id, anchor, state, focus, cx)
-        }
-        Overlay::TabColors { tab_id, anchor } => {
-            let anchor = clamp(
-                *anchor,
-                gpui::size(state.metrics.scaled(216.0), state.metrics.scaled(96.0)),
-                viewport,
-                state,
-            );
-            tab_color_popover(tab_id, anchor, state, cx)
-        }
+        Overlay::Symbols { picker, anchor }
+        | Overlay::Colors { picker, anchor }
+        | Overlay::TabColors { picker, anchor } => anchored_picker(
+            picker,
+            *anchor,
+            gpui::size(state.metrics.scaled(400.0), state.metrics.scaled(480.0)),
+            viewport,
+            state,
+        ),
         Overlay::TerminalConfirm { kind, .. } => confirmation_dialog(*kind, state, focus, cx),
         Overlay::Picker(picker) => picker.clone().into_any_element(),
         Overlay::Omnibox(omnibox) => omnibox.clone().into_any_element(),
         Overlay::Settings(modal) => modal.clone().into_any_element(),
-        Overlay::ThemePicker(browser) => div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .child(browser.clone())
-            .into_any_element(),
+        Overlay::ThemePicker { browser, anchor } => {
+            let picker = browser.read(cx).picker().clone();
+            let offsets = theme_picker_offsets(
+                *anchor,
+                state
+                    .metrics
+                    .scaled(crate::views::settings::theme_picker::PICKER_WIDTH),
+                viewport,
+                state.metrics.spacing4(),
+                state.metrics.spacing2(),
+            );
+            bottom_anchored_picker(&picker, offsets.x, offsets.y)
+        }
         Overlay::CreateWorktree(modal) => div()
             .absolute()
             .top_0()
@@ -287,16 +286,47 @@ pub fn layer(
             .justify_center()
             .child(modal.clone())
             .into_any_element(),
+        Overlay::Repository {
+            kind: RepositoryPopoverKind::Branch(popover),
+            anchor,
+        } => {
+            let policy = crate::views::repository::branch::branch_overlay_policy();
+            let size = gpui::size(
+                state.metrics.scaled(policy.target_width),
+                state.metrics.scaled(policy.target_height),
+            );
+            let origin = clamp(
+                gpui::point(
+                    anchor.origin.x,
+                    anchor.origin.y - size.height - state.metrics.spacing2(),
+                ),
+                size,
+                viewport,
+                state,
+            );
+            let bounds = gpui::Bounds { origin, size };
+            let current_branch = match &repository_state.summary {
+                crate::repository::LoadState::Ready(summary) if !summary.is_detached => {
+                    Some(summary.branch.as_str())
+                }
+                _ => None,
+            };
+            crate::views::repository::branch::render(
+                popover,
+                &repository_state.branches,
+                current_branch,
+                repository_mutation_busy,
+                bounds,
+                state,
+                cx,
+            )
+        }
+        Overlay::Repository { .. } => return div().into_any_element(),
     };
 
     let backdrop = matches!(
         overlay,
-        Overlay::Picker(_)
-            | Overlay::Omnibox(_)
-            | Overlay::Settings(_)
-            | Overlay::ThemePicker(_)
-            | Overlay::CreateWorktree(_)
-            | Overlay::TerminalConfirm { .. }
+        Overlay::Settings(_) | Overlay::CreateWorktree(_) | Overlay::TerminalConfirm { .. }
     );
 
     div()
@@ -331,13 +361,6 @@ pub fn layer(
         .into_any_element()
 }
 
-fn with_opacity(color: gpui::Hsla, opacity: f32) -> gpui::Hsla {
-    gpui::Hsla {
-        a: color.a * opacity,
-        ..color
-    }
-}
-
 fn clamp(
     anchor: Point<Pixels>,
     size: gpui::Size<Pixels>,
@@ -345,9 +368,19 @@ fn clamp(
     state: &AppState,
 ) -> Point<Pixels> {
     let margin = state.metrics.spacing4();
-    let horizontal = (viewport.width - size.width - margin).max(margin);
-    let vertical = (viewport.height - size.height - margin).max(margin);
-    gpui::point(anchor.x.min(horizontal), anchor.y.min(vertical))
+    let horizontal = crate::views::repository::branch::clamp_axis(
+        f32::from(anchor.x),
+        f32::from(size.width),
+        f32::from(viewport.width),
+        f32::from(margin),
+    );
+    let vertical = crate::views::repository::branch::clamp_axis(
+        f32::from(anchor.y),
+        f32::from(size.height),
+        f32::from(viewport.height),
+        f32::from(margin),
+    );
+    gpui::point(px(horizontal), px(vertical))
 }
 
 fn menu_size(menu: &Menu, state: &AppState) -> gpui::Size<Pixels> {
@@ -446,252 +479,81 @@ fn tab_rename_inline(
         .into_any_element()
 }
 
-fn symbol_popover(
-    project_id: &str,
-    search: &Entity<TextInput>,
+fn anchored_picker(
+    picker: &Entity<muxy_ui::command_popover::CommandPopover>,
     anchor: Point<Pixels>,
+    size: gpui::Size<Pixels>,
+    viewport: gpui::Size<Pixels>,
     state: &AppState,
-    cx: &mut Context<MainWindow>,
 ) -> AnyElement {
-    let metrics = &state.metrics;
-    let theme = &state.theme;
-    let query = search.read(cx).text().to_owned();
-    let selected = state
-        .workspace
-        .project(project_id)
-        .and_then(|project| project.icon.clone());
-    let matches = symbols::matching(&query);
-
-    let mut grid = div().flex().flex_col().gap(metrics.spacing4());
-    for row in matches.chunks(SYMBOL_COLUMNS) {
-        let mut line = div().flex().flex_row().gap(metrics.spacing4());
-        for symbol in row {
-            let name = symbol.symbol;
-            let is_selected = selected.as_deref() == Some(name);
-            let project_id = project_id.to_owned();
-            line = line.child(
-                div()
-                    .id(SharedString::from(format!("symbol-{name}")))
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .size(metrics.control_large())
-                    .rounded(metrics.radius_sm())
-                    .cursor_pointer()
-                    .when(is_selected, |element| {
-                        element.bg(with_opacity(theme.accent, 0.2))
-                    })
-                    .hover(|style| style.bg(theme.hover))
-                    .child(SymbolGlyph::new(
-                        name,
-                        metrics.font_title_large(),
-                        if is_selected { theme.accent } else { theme.fg },
-                    ))
-                    .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
-                        window.set_icon(&project_id, Some(name.to_owned()), cx);
-                    })),
-            );
-        }
-        grid = grid.child(line);
-    }
-
-    let project = project_id.to_owned();
-    panel(anchor, state)
-        .w(metrics.scaled(300.0))
-        .child(title("Icon", state))
-        .child(field_frame(state).child(search.clone()))
-        .child(
-            div()
-                .id("symbol-grid")
-                .h(metrics.scaled(260.0))
-                .overflow_y_scroll()
-                .child(grid),
-        )
-        .child(div().h(px(1.0)).bg(theme.border))
-        .child(
-            div()
-                .id("remove-icon")
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(metrics.spacing3())
-                .cursor_pointer()
-                .text_size(metrics.font_footnote())
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.fg_muted)
-                .when(selected.is_none(), |element| element.opacity(0.4))
-                .child(SymbolGlyph::new(
-                    "xmark.circle",
-                    metrics.font_caption(),
-                    theme.fg_muted,
-                ))
-                .child(SharedString::from("Remove Icon"))
-                .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
-                    window.set_icon(&project, None, cx);
-                })),
-        )
+    let origin = clamp(anchor, size, viewport, state);
+    div()
+        .absolute()
+        .left(origin.x)
+        .top(origin.y)
+        .child(picker.clone())
         .into_any_element()
 }
 
-fn color_popover(
-    project_id: &str,
-    anchor: Point<Pixels>,
-    state: &AppState,
-    focus: &gpui::FocusHandle,
-    cx: &mut Context<MainWindow>,
+fn theme_picker_offsets(
+    anchor: Option<gpui::Bounds<Pixels>>,
+    width: Pixels,
+    viewport: gpui::Size<Pixels>,
+    margin: Pixels,
+    gap: Pixels,
+) -> Point<Pixels> {
+    let Some(anchor) = anchor else {
+        return gpui::point(margin, margin);
+    };
+    let left = crate::views::repository::branch::clamp_axis(
+        f32::from(anchor.origin.x),
+        f32::from(width),
+        f32::from(viewport.width),
+        f32::from(margin),
+    );
+    let bottom = (viewport.height - anchor.origin.y + gap)
+        .max(margin)
+        .min(viewport.height - margin);
+    gpui::point(px(left), bottom)
+}
+
+fn bottom_anchored_picker(
+    picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+    left: Pixels,
+    bottom: Pixels,
 ) -> AnyElement {
-    let metrics = &state.metrics;
-    let theme = &state.theme;
-    let selected = state
-        .workspace
-        .project(project_id)
-        .and_then(|project| project.icon_color.clone());
-
-    let mut grid = div().flex().flex_col().gap(metrics.spacing4());
-    for row in ICON_PALETTE.chunks(6) {
-        let mut line = div().flex().flex_row().gap(metrics.spacing4());
-        for swatch in row {
-            let id = swatch.id;
-            let is_selected = selected.as_deref() == Some(id);
-            let color: gpui::Hsla = crate::views::swatches::icon_color(Some(id))
-                .map(Into::into)
-                .unwrap_or(theme.fg_muted);
-            let project_id = project_id.to_owned();
-            let foreground: gpui::Hsla = crate::views::swatches::icon_foreground(Some(id))
-                .map(Into::into)
-                .unwrap_or(theme.fg);
-            let mut swatch_circle = div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(metrics.scaled(22.0))
-                .rounded_full()
-                .bg(color);
-            if is_selected {
-                swatch_circle = swatch_circle.child(
-                    div()
-                        .size(metrics.scaled(18.0))
-                        .rounded_full()
-                        .border_2()
-                        .border_color(foreground),
-                );
-            }
-            line = line.child(
-                div()
-                    .id(SharedString::from(format!("swatch-{id}")))
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .size(metrics.control_medium())
-                    .cursor_pointer()
-                    .child(swatch_circle)
-                    .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
-                        window.set_icon_color(&project_id, Some(id.to_owned()), cx);
-                    })),
-            );
-        }
-        grid = grid.child(line);
-    }
-
-    let project = project_id.to_owned();
-    panel(anchor, state)
-        .key_context(menu::KEY_CONTEXT)
-        .track_focus(focus)
-        .on_action(cx.listener(
-            |window: &mut MainWindow, _: &crate::views::menu::DismissMenu, _, cx| {
-                window.dismiss_overlay(cx);
-            },
-        ))
-        .w(metrics.scaled(216.0))
-        .child(title("Icon Color", state))
-        .child(grid)
-        .child(div().h(px(1.0)).bg(theme.border))
-        .child(
-            div()
-                .id("reset-icon-color")
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(metrics.spacing3())
-                .cursor_pointer()
-                .text_size(metrics.font_footnote())
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.fg_muted)
-                .when(selected.is_none(), |element| element.opacity(0.4))
-                .child(SymbolGlyph::new(
-                    "arrow.uturn.backward",
-                    metrics.font_caption(),
-                    theme.fg_muted,
-                ))
-                .child(SharedString::from("Reset to Default"))
-                .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
-                    window.set_icon_color(&project, None, cx);
-                })),
-        )
+    div()
+        .absolute()
+        .left(left)
+        .bottom(bottom)
+        .child(picker.clone())
         .into_any_element()
 }
 
-fn tab_color_popover(
-    tab_id: &str,
-    anchor: Point<Pixels>,
-    state: &AppState,
-    cx: &mut Context<MainWindow>,
-) -> AnyElement {
-    let metrics = &state.metrics;
-    let selected = state
-        .active_tab_workspace()
-        .and_then(|workspace| workspace.tab(tab_id))
-        .and_then(|tab| tab.color_id.as_deref());
-    let mut grid = div().flex().flex_col().gap(metrics.spacing4());
-    for row in ICON_PALETTE.chunks(6) {
-        let mut line = div().flex().flex_row().gap(metrics.spacing4());
-        for swatch in row {
-            let id = swatch.id;
-            let tab_id = tab_id.to_owned();
-            let color: gpui::Hsla = crate::views::swatches::icon_color(Some(id))
-                .map(Into::into)
-                .unwrap_or(state.theme.fg_muted);
-            let foreground: gpui::Hsla = crate::views::swatches::icon_foreground(Some(id))
-                .map(Into::into)
-                .unwrap_or(state.theme.fg);
-            let mut circle = div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(metrics.scaled(22.0))
-                .rounded_full()
-                .bg(color);
-            if selected == Some(id) {
-                circle = circle.child(
-                    div()
-                        .size(metrics.scaled(18.0))
-                        .rounded_full()
-                        .border_2()
-                        .border_color(foreground),
-                );
-            }
-            line = line.child(
-                div()
-                    .id(SharedString::from(format!("tab-swatch-{id}")))
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .size(metrics.control_medium())
-                    .cursor_pointer()
-                    .child(circle)
-                    .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
-                        window.set_tab_color(&tab_id, Some(id.to_owned()), cx);
-                    })),
-            );
-        }
-        grid = grid.child(line);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn theme_picker_keeps_full_and_filtered_results_attached_to_the_sidebar_anchor() {
+        let viewport = gpui::size(px(1200.0), px(800.0));
+        let anchor = gpui::Bounds {
+            origin: gpui::point(px(196.0), px(744.0)),
+            size: gpui::size(px(24.0), px(24.0)),
+        };
+
+        let offsets = theme_picker_offsets(Some(anchor), px(340.0), viewport, px(8.0), px(4.0));
+        let attached_bottom = viewport.height - offsets.y;
+        let full_top = attached_bottom - px(360.0);
+        let filtered_top = attached_bottom - px(74.0);
+
+        assert_eq!(offsets, gpui::point(px(196.0), px(60.0)));
+        assert_eq!(attached_bottom, px(740.0));
+        assert_eq!(full_top, px(380.0));
+        assert_eq!(filtered_top, px(666.0));
+        assert_eq!(
+            theme_picker_offsets(None, px(340.0), viewport, px(8.0), px(4.0)),
+            gpui::point(px(8.0), px(8.0))
+        );
     }
-    panel(anchor, state)
-        .w(metrics.scaled(216.0))
-        .child(title("Tab Color", state))
-        .child(grid)
-        .into_any_element()
 }

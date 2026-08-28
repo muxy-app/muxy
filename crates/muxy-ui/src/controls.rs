@@ -1,3 +1,4 @@
+use crate::command_popover::CommandPopover;
 use crate::components::SymbolGlyph;
 use crate::text_input::TextInput;
 use crate::theme::{Metrics, Theme};
@@ -19,6 +20,7 @@ pub struct Style<'a> {
     pub metrics: &'a Metrics,
 }
 
+#[derive(Clone)]
 pub struct Choice {
     pub value: String,
     pub label: String,
@@ -181,18 +183,58 @@ pub fn picker(
     id: &str,
     choices: Vec<Choice>,
     selected: &str,
-    open: bool,
+    popover: Option<Entity<CommandPopover>>,
     on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    on_select: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    let Style { theme, metrics } = style;
+    let metrics = style.metrics;
     let label = choices
         .iter()
         .find(|choice| choice.value == selected)
         .map(|choice| choice.label.clone())
         .unwrap_or_default();
+    let field = picker_trigger(style, id, &label, popover.is_some(), on_toggle);
 
-    let field = div()
+    let Some(popover) = popover else {
+        return div()
+            .relative()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .child(field)
+            .into_any_element();
+    };
+
+    div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .child(field)
+        .child(
+            deferred(
+                anchored()
+                    .anchor(Corner::TopLeft)
+                    .offset(point(
+                        px(0.0),
+                        metrics.control_medium() + metrics.spacing1(),
+                    ))
+                    .snap_to_window_with_margin(px(8.0))
+                    .child(popover),
+            )
+            .with_priority(1),
+        )
+        .into_any_element()
+}
+
+pub fn picker_trigger(
+    style: Style,
+    id: &str,
+    label: &str,
+    open: bool,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let Style { theme, metrics } = style;
+    div()
         .id(SharedString::from(format!("settings-picker-{id}")))
         .flex()
         .flex_row()
@@ -215,7 +257,7 @@ pub fn picker(
                 .truncate()
                 .text_size(metrics.font_footnote())
                 .text_color(theme.fg)
-                .child(SharedString::from(label)),
+                .child(SharedString::from(label.to_owned())),
         )
         .child(SymbolGlyph::new(
             "chevron.up.chevron.down",
@@ -223,82 +265,7 @@ pub fn picker(
             theme.fg_muted,
         ))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(on_toggle);
-
-    if !open {
-        return div()
-            .relative()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .child(field)
-            .into_any_element();
-    }
-
-    let handler = Rc::new(on_select);
-    let mut list = div()
-        .id(SharedString::from(format!("settings-picker-list-{id}")))
-        .occlude()
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .flex()
-        .flex_col()
-        .w(metrics.scaled(CONTROL_WIDTH))
-        .max_h(metrics.scaled(220.0))
-        .overflow_y_scroll()
-        .rounded(metrics.radius_sm())
-        .bg(theme.raised())
-        .border_1()
-        .border_color(theme.border)
-        .shadow_lg();
-
-    for choice in &choices {
-        let is_selected = choice.value == selected;
-        let handler = handler.clone();
-        let value = SharedString::from(choice.value.clone());
-        list = list.child(
-            div()
-                .id(SharedString::from(format!(
-                    "settings-choice-{id}-{}",
-                    choice.value
-                )))
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(metrics.spacing3())
-                .px(metrics.spacing4())
-                .py(metrics.spacing2())
-                .text_size(metrics.font_footnote())
-                .text_color(if is_selected { theme.accent } else { theme.fg })
-                .when(!choice.enabled, |element| element.opacity(0.4))
-                .when(choice.enabled, |element| {
-                    element
-                        .cursor_pointer()
-                        .hover(|hover| hover.bg(theme.hover))
-                        .on_click(move |_, window, cx| handler(&value, window, cx))
-                })
-                .child(SharedString::from(choice.label.clone())),
-        );
-    }
-
-    div()
-        .relative()
-        .flex()
-        .flex_col()
-        .flex_none()
-        .child(field)
-        .child(
-            deferred(
-                anchored()
-                    .anchor(Corner::TopLeft)
-                    .offset(point(
-                        px(0.0),
-                        metrics.control_medium() + metrics.spacing1(),
-                    ))
-                    .snap_to_window_with_margin(px(8.0))
-                    .child(list),
-            )
-            .with_priority(1),
-        )
+        .on_click(on_toggle)
         .into_any_element()
 }
 

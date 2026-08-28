@@ -6,6 +6,7 @@ mod keymap;
 mod native_compositor;
 mod platform;
 mod project_operations;
+mod repository;
 mod resources;
 mod socket;
 mod state;
@@ -56,11 +57,13 @@ fn main() {
         .unwrap_or_else(|error| panic!("failed to install development CLI environment: {error}"));
     let socket = socket::runtime::start(socket_path)
         .unwrap_or_else(|error| panic!("failed to start socket server: {error}"));
+    let execution_environment = git::environment_source();
 
     Application::new()
         .with_assets(Assets)
         .run(move |cx: &mut App| {
             cx.bind_keys(muxy_ui::text_input::key_bindings());
+            cx.bind_keys(muxy_ui::command_popover::key_bindings());
             cx.bind_keys(views::window::key_bindings());
             register_app_actions(cx);
 
@@ -90,7 +93,7 @@ fn main() {
             };
 
             cx.open_window(options, move |window, cx| {
-                cx.new(|cx| MainWindow::new(state, socket, mode, window, cx))
+                cx.new(|cx| MainWindow::new(state, socket, mode, execution_environment, window, cx))
             })
             .expect("failed to open window");
             cx.activate(true);

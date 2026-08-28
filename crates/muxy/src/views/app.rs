@@ -74,6 +74,9 @@ actions!(terminal_surface, [SearchPrevious]);
 
 pub(crate) struct AppView<'a> {
     pub state: &'a AppState,
+    pub repository_controls: &'a [crate::repository::RepositoryControl],
+    pub repository_state: &'a crate::repository::RepositoryState,
+    pub repository_mutation_busy: bool,
     pub layout: AppLayout,
     pub workspace_focus: &'a FocusHandle,
     pub menu_focus: &'a FocusHandle,
@@ -98,6 +101,9 @@ pub(crate) fn render(
 ) -> AnyElement {
     let AppView {
         state,
+        repository_controls,
+        repository_state,
+        repository_mutation_busy,
         layout,
         workspace_focus,
         menu_focus,
@@ -192,6 +198,7 @@ pub(crate) fn render(
         main_column = main_column.child(status_bar::status_bar(
             state,
             focused_working_directory.as_deref(),
+            repository_controls,
             cx,
         ));
     }
@@ -574,7 +581,15 @@ pub(crate) fn render(
     }
 
     if overlay.is_open() {
-        columns = columns.child(overlay::layer(overlay, state, menu_focus, window, cx));
+        columns = columns.child(overlay::layer(
+            overlay,
+            state,
+            repository_state,
+            repository_mutation_busy,
+            menu_focus,
+            window,
+            cx,
+        ));
     }
 
     columns.into_any_element()

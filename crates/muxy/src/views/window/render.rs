@@ -2,6 +2,7 @@ use super::*;
 
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_repository_context(cx);
         self.reconcile_terminals(window, cx);
         let project_ids = self
             .state
@@ -51,6 +52,13 @@ impl Render for MainWindow {
             self.view.workspace.split_bounds.clear();
         }
         let focused_working_directory = self.focused_working_directory();
+        let repository_controls =
+            crate::repository::repository_controls(self.view.repository.coordinator.state());
+        let repository_state = self.view.repository.coordinator.state();
+        let repository_mutation_busy = repository_state
+            .key
+            .as_ref()
+            .is_some_and(|key| self.state.project_operations.is_mutating(&key.project_id));
         let drop_highlight = self.workspace_drop_highlight();
         let drag = self
             .view
@@ -61,6 +69,9 @@ impl Render for MainWindow {
         crate::views::app::render(
             crate::views::app::AppView {
                 state: &self.state,
+                repository_controls: &repository_controls,
+                repository_state,
+                repository_mutation_busy,
                 layout,
                 workspace_focus: &self.view.workspace_focus,
                 menu_focus: &self.view.menu_focus,

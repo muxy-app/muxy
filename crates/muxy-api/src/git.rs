@@ -1,11 +1,16 @@
-use crate::subprocess::{Deadline, SubprocessError, SubprocessRequest};
+pub(crate) mod command;
+pub(crate) mod validation;
+
+use crate::subprocess::{CapturedOutput, Deadline, SubprocessError};
+pub(crate) use command::run_git;
+use command::run_git_with_deadline;
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
-const DEFAULT_GIT_TIMEOUT: Duration = Duration::from_secs(30);
+pub use validation::{RepositoryPathError, SafeDeleteError, SafeUntrackedDelete, validate_branch};
+
 const RECONCILIATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
@@ -34,61 +39,6 @@ pub enum GitError {
     Process(#[from] SubprocessError),
 }
 
-pub(crate) fn run_git(
-    options: &GitOptions,
-    path: &Path,
-    args: &[&str],
-) -> Result<String, GitError> {
-    let deadline = Deadline::new(DEFAULT_GIT_TIMEOUT);
-    run_git_with_deadline(options, path, args, &deadline)
-}
-
-fn run_git_with_deadline(
-    options: &GitOptions,
-    path: &Path,
-    args: &[&str],
-    deadline: &Deadline,
-) -> Result<String, GitError> {
-    let output = run_git_output(options, path, args, deadline)?;
-    if !output.status.success() {
-        return Err(GitError::Status {
-            status: output.status,
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        });
-    }
-    String::from_utf8(output.stdout).map_err(|_| GitError::NonUtf8)
-}
-
-fn run_git_output(
-    options: &GitOptions,
-    path: &Path,
-    args: &[&str],
-    deadline: &Deadline,
-) -> Result<crate::subprocess::SubprocessOutput, GitError> {
-    let mut command_args = vec![OsString::from("-C"), path.as_os_str().to_owned()];
-    command_args.extend(args.iter().map(OsString::from));
-    crate::subprocess::run(
-        SubprocessRequest {
-            executable: options.executable.clone(),
-            args: command_args,
-            current_dir: None,
-            environment: options
-                .environment
-                .iter()
-                .map(|(key, value)| (OsString::from(key), OsString::from(value)))
-                .collect(),
-        },
-        Some(deadline),
-    )
-    .map_err(|error| match error {
-        SubprocessError::Spawn(source) => GitError::Execute {
-            executable: options.executable.clone(),
-            source,
-        },
-        other => GitError::Process(other),
-    })
-}
-
 pub(crate) fn is_git_repo(options: &GitOptions, path: &Path) -> bool {
     run_git(options, path, &["rev-parse", "--is-inside-work-tree"])
         .is_ok_and(|output| output.trim() == "true")
@@ -106,6 +56,10 @@ pub(crate) fn git_dir(path: &Path) -> Option<PathBuf> {
         .find_map(|line| line.strip_prefix("gitdir:"))?
         .trim();
     Some(truncate_at_worktrees(&normalize(&path.join(target))))
+}
+
+pub fn is_repository_path(path: &Path) -> bool {
+    path.is_dir() && git_dir(path).is_some()
 }
 
 pub(crate) fn canonical_path(path: &Path) -> PathBuf {
@@ -132,18 +86,6 @@ pub struct GitWorktreeRecord {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RemoveWorktreeOutcome {
     pub reconciled: bool,
-}
-
-pub fn validate_branch(branch: &str) -> Result<(), GitError> {
-    if branch.is_empty()
-        || branch.starts_with('-')
-        || !branch
-            .chars()
-            .all(|character| character.is_alphanumeric() || "._/-".contains(character))
-    {
-        return Err(GitError::InvalidBranch);
-    }
-    Ok(())
 }
 
 pub fn add_worktree(
@@ -295,9 +237,10 @@ pub fn remove_worktree(
         Ok(_) => {
             let verification = retained_deadline(deadline);
             if is_worktree_registered(options, repo_path, worktree_path, &verification)? {
-                return Err(GitError::Process(SubprocessError::Wait(io::Error::other(
-                    "worktree remains registered after removal",
-                ))));
+                return Err(GitError::Process(SubprocessError::Wait {
+                    source: io::Error::other("worktree remains registered after removal"),
+                    output: CapturedOutput::default(),
+                }));
             }
             Ok(RemoveWorktreeOutcome { reconciled: false })
         }

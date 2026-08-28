@@ -104,6 +104,24 @@ if [[ -n "$debug_selector_matches" ]]; then
     printf 'error: debug_assertions is owned by %s\n' "$environment_owner" >&2
     exit 1
 fi
+execution_environment_owner='crates/muxy-api/src/execution_environment.rs'
+fallback_path_matches="$(rg -n -U --glob '*.rs' \
+    '"/opt/homebrew/bin",\s*"/usr/local/bin",\s*"/usr/bin",\s*"/bin",\s*"/usr/sbin",\s*"/sbin"' \
+    crates/ | rg -v "^${execution_environment_owner}:" || true)"
+if [[ -n "$fallback_path_matches" ]]; then
+    printf '%s\n' "$fallback_path_matches"
+    printf 'error: executable fallback PATH policy is owned by %s\n' \
+        "$execution_environment_owner" >&2
+    exit 1
+fi
+process_environment_matches="$(rg -n --glob '*.rs' 'std::env::vars_os\(\)' crates/ \
+    | rg -v "^${execution_environment_owner}:" || true)"
+if [[ -n "$process_environment_matches" ]]; then
+    printf '%s\n' "$process_environment_matches"
+    printf 'error: execution environment snapshots are owned by %s\n' \
+        "$execution_environment_owner" >&2
+    exit 1
+fi
 removed_hook_flag='FF_AI_'
 removed_hook_flag+='HOOKS'
 if rg -n -F "$removed_hook_flag" crates/ scripts/ PLAN.md ARCHITECTURE.md; then

@@ -6,6 +6,7 @@ pub mod omnibox;
 pub mod overlay;
 pub mod project_picker;
 pub mod project_row;
+pub mod repository;
 pub mod settings;
 pub mod shortcut_editor;
 pub mod sidebar;

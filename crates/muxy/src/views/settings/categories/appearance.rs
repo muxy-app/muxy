@@ -225,31 +225,15 @@ fn theme_row(
         name
     };
 
-    let button = div()
-        .id(SharedString::from(format!("theme-button-{key}")))
-        .flex()
-        .flex_none()
-        .flex_row()
-        .items_center()
-        .gap(metrics.spacing3())
-        .h(metrics.control_medium())
-        .px(metrics.spacing4())
-        .rounded(metrics.radius_sm())
-        .cursor_pointer()
-        .bg(style.theme.surface)
-        .hover(|hover| hover.bg(style.theme.hover))
-        .text_size(metrics.font_footnote())
-        .text_color(style.theme.fg)
-        .child(SharedString::from(name))
-        .child(SymbolGlyph::new(
-            "chevron.up.chevron.down",
-            metrics.font_caption(),
-            style.theme.fg_muted,
-        ))
-        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(cx.listener(move |modal: &mut SettingsModal, _, _, cx| {
+    let button = controls::picker_trigger(
+        style,
+        key,
+        &name,
+        modal.theme_browser(key).is_some(),
+        cx.listener(move |modal: &mut SettingsModal, _, _, cx| {
             modal.toggle_theme_browser(key, cx);
-        }));
+        }),
+    );
 
     let mut wrapper = div().relative().flex().flex_col().flex_none().child(button);
     if let Some(browser) = modal.theme_browser(key) {

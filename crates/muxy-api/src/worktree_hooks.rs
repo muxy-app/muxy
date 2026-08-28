@@ -1,4 +1,6 @@
-use crate::subprocess::{Deadline, SubprocessError, SubprocessRequest, run};
+use crate::subprocess::{
+    CapturedOutput, Deadline, EnvironmentMode, StdinMode, SubprocessError, SubprocessRequest, run,
+};
 use crate::worktree_config::{
     CommandSource, HookKind, ProjectHookApproval, ResolvedCommand, WorktreeConfigError,
     commands_for_execution,
@@ -163,8 +165,7 @@ fn run_commands(
                 completed,
                 command,
                 SubprocessError::TimedOut {
-                    stdout: Vec::new(),
-                    stderr: Vec::new(),
+                    output: CapturedOutput::default(),
                 },
             ));
         }
@@ -173,7 +174,14 @@ fn run_commands(
                 executable: shell.clone(),
                 args: shell_arguments(&command.command.command),
                 current_dir: Some(context.worktree_path.clone()),
-                environment: environment.clone(),
+                stdin: StdinMode::Inherit,
+                environment: EnvironmentMode::Inherit {
+                    set: environment.clone(),
+                    remove: Vec::new(),
+                },
+                stdout_limit: usize::MAX,
+                stderr_limit: usize::MAX,
+                cancellation: None,
             },
             Some(deadline),
         ) {

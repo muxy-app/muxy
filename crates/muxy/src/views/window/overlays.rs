@@ -1,6 +1,289 @@
 use super::*;
 
 impl MainWindow {
+    pub(crate) fn open_branch_popover(
+        &mut self,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            return;
+        };
+        if matches!(
+            &self.view.overlay,
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
+                ..
+            } if popover.key == key
+        ) {
+            self.dismiss_overlay(cx);
+            return;
+        }
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        let picker = cx.new(move |cx| {
+            muxy_ui::command_popover::CommandPopover::new(
+                muxy_ui::command_popover::CommandPopoverConfig {
+                    id: "repository-picker".into(),
+                    presentation: muxy_ui::command_popover::CommandPopoverPresentation::Popover,
+                    density: muxy_ui::command_popover::CommandPopoverDensity::Comfortable,
+                    tabs: vec![
+                        muxy_ui::command_popover::CommandPopoverTab::new("branches", "Branches"),
+                        muxy_ui::command_popover::CommandPopoverTab::new("stashes", "Stashes"),
+                    ],
+                    placeholder: "Switch, create, or search…".into(),
+                    footer_actions: Vec::new(),
+                    footer_hints: Vec::new(),
+                    width: Some(520.0),
+                    height: Some(400.0),
+                    max_height: None,
+                    completion_on_tab: false,
+                },
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let subscription = cx.subscribe(&picker, |window: &mut Self, picker, event, cx| {
+            window.handle_repository_picker_event(&picker, event, cx);
+        });
+        window.focus(&picker.focus_handle(cx));
+        self.view.subscriptions = vec![subscription];
+        self.view.overlay = Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Branch(Box::new(
+                crate::views::repository::branch::BranchPopover {
+                    key,
+                    picker,
+                    deletion: Default::default(),
+                    operation_error: None,
+                    branch_entries: crate::repository::LoadState::Loading,
+                    stashes: crate::repository::LoadState::Loading,
+                },
+            )),
+            anchor,
+        };
+        self.view
+            .repository
+            .coordinator
+            .request_refresh(crate::repository::RepositoryRefreshSet::summary_and_branches());
+        self.dispatch_repository_refresh(cx);
+        self.load_repository_picker_data(cx);
+        cx.notify();
+    }
+
+    fn handle_repository_picker_event(
+        &mut self,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        event: &muxy_ui::command_popover::CommandPopoverEvent,
+        cx: &mut Context<Self>,
+    ) {
+        use muxy_ui::command_popover::CommandPopoverEvent;
+        match event {
+            CommandPopoverEvent::QueryChanged { .. } | CommandPopoverEvent::TabChanged(_) => {
+                self.sync_repository_picker(cx);
+            }
+            CommandPopoverEvent::SelectionChanged(_) => {}
+            CommandPopoverEvent::Confirmed(selection) => {
+                self.confirm_repository_picker_selection(picker, selection.id.as_ref(), cx);
+            }
+            CommandPopoverEvent::SecondaryConfirmed(selection) => {
+                self.confirm_repository_picker_selection(picker, selection.id.as_ref(), cx);
+            }
+            CommandPopoverEvent::RowAction { row, action } => {
+                self.perform_repository_picker_row_action(row.as_ref(), action.as_ref(), cx);
+            }
+            CommandPopoverEvent::Dismissed => self.dismiss_overlay(cx),
+            CommandPopoverEvent::FooterAction(_)
+            | CommandPopoverEvent::Submitted { .. }
+            | CommandPopoverEvent::CompletionRequested
+            | CommandPopoverEvent::NavigateBackRequested => {}
+        }
+    }
+
+    pub(super) fn sync_repository_picker(&mut self, cx: &mut Context<Self>) {
+        let busy = self
+            .view
+            .repository
+            .coordinator
+            .key()
+            .is_some_and(|key| self.state.project_operations.is_mutating(&key.project_id));
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
+            ..
+        } = &self.view.overlay
+        {
+            crate::views::repository::branch::sync_picker(popover, busy, cx);
+        }
+    }
+
+    pub(super) fn load_repository_picker_data(&mut self, cx: &mut Context<Self>) {
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            return;
+        };
+        let service = self.repository_service();
+        let path = key.normalized_path.clone();
+        cx.spawn(async move |window, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let branches = service.branch_entries(&path);
+                    let stashes = service.stash_entries(&path);
+                    (branches, stashes)
+                })
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                let Overlay::Repository {
+                    kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
+                    ..
+                } = &mut window.view.overlay
+                else {
+                    return;
+                };
+                if popover.key != key {
+                    return;
+                }
+                popover.branch_entries = match result.0 {
+                    Ok(entries) => crate::repository::LoadState::Ready(entries),
+                    Err(error) => crate::repository::LoadState::Error(error.to_string()),
+                };
+                popover.stashes = match result.1 {
+                    Ok(entries) => crate::repository::LoadState::Ready(entries),
+                    Err(error) => crate::repository::LoadState::Error(error.to_string()),
+                };
+                window.sync_repository_picker(cx);
+            });
+        })
+        .detach();
+    }
+
+    fn confirm_repository_picker_selection(
+        &mut self,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        selection: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let active_tab = picker.read(cx).active_tab().to_owned();
+        if active_tab == "branches" {
+            if selection == "create-branch" {
+                let branch = picker.read(cx).query().trim().to_owned();
+                self.create_repository_branch(branch, cx);
+                return;
+            }
+            let entry = self.repository_picker_branch(selection);
+            if let Some(entry) = entry {
+                match entry.kind {
+                    muxy_api::repository::BranchKind::Local => {
+                        self.switch_repository_branch(entry.name, cx)
+                    }
+                    muxy_api::repository::BranchKind::Remote => {
+                        self.switch_repository_remote_branch(entry.name, cx)
+                    }
+                }
+            }
+            return;
+        }
+        if selection == "create-stash" {
+            self.create_repository_stash(cx);
+            return;
+        }
+        if let Some(entry) = self.repository_picker_stash(selection) {
+            self.preview_repository_stash(entry, cx);
+        }
+    }
+
+    fn perform_repository_picker_row_action(
+        &mut self,
+        row: &str,
+        action: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(branch) = self.repository_picker_branch(row) {
+            if action == "delete" {
+                self.open_repository_picker_confirmation(row, action, cx);
+            } else if action == "confirm:delete" {
+                let Some(key) = self.view.repository.coordinator.key().cloned() else {
+                    return;
+                };
+                self.request_branch_deletion(key, branch.name.clone(), cx);
+                self.confirm_branch_deletion(branch.name, cx);
+            }
+            return;
+        }
+        let Some(stash) = self.repository_picker_stash(row) else {
+            return;
+        };
+        match action {
+            "preview" => self.preview_repository_stash(stash, cx),
+            "apply" => self.apply_repository_stash(stash, cx),
+            "pop" => self.pop_repository_stash(stash, cx),
+            "drop" => self.open_repository_picker_confirmation(row, action, cx),
+            "confirm:drop" => self.drop_repository_stash(stash, cx),
+            _ => {}
+        }
+    }
+
+    fn repository_picker_stash(&self, row: &str) -> Option<muxy_api::repository::StashEntry> {
+        let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
+            ..
+        } = &self.view.overlay
+        else {
+            return None;
+        };
+        match &popover.stashes {
+            crate::repository::LoadState::Ready(entries) => entries
+                .iter()
+                .find(|entry| crate::views::repository::branch::stash_row_id(entry) == row)
+                .cloned(),
+            _ => None,
+        }
+    }
+
+    fn repository_picker_branch(&self, row: &str) -> Option<muxy_api::repository::BranchEntry> {
+        let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
+            ..
+        } = &self.view.overlay
+        else {
+            return None;
+        };
+        match &popover.branch_entries {
+            crate::repository::LoadState::Ready(entries) => entries
+                .iter()
+                .find(|entry| crate::views::repository::branch::branch_row_id(entry) == row)
+                .cloned(),
+            _ => None,
+        }
+    }
+
+    fn open_repository_picker_confirmation(
+        &mut self,
+        row: &str,
+        action: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
+            ..
+        } = &self.view.overlay
+        {
+            let _ = popover
+                .picker
+                .update(cx, |picker, cx| picker.open_confirmation(row, action, cx));
+        }
+    }
+
+    pub(super) fn close_repository_overlay(&mut self, cx: &mut Context<Self>) {
+        if !matches!(self.view.overlay, Overlay::Repository { .. }) {
+            return;
+        }
+        self.view.subscriptions.clear();
+        self.view.overlay = Overlay::None;
+        self.view.pending_focus = Some(self.view.workspace_focus.clone());
+        cx.notify();
+    }
+
     pub(crate) fn open_sort_menu(
         &mut self,
         position: Point<Pixels>,
@@ -144,6 +427,19 @@ impl MainWindow {
         if matches!(self.view.overlay, Overlay::CreateWorktree(_)) {
             self.view.worktrees.clear_create();
         }
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
+            ..
+        } = &mut self.view.overlay
+        {
+            if popover.deletion.escape()
+                == crate::views::repository::branch::BranchEscapeAction::CancelDeletion
+            {
+                cx.notify();
+                return;
+            }
+            self.view.pending_focus = Some(self.view.workspace_focus.clone());
+        }
         self.view.subscriptions.clear();
         self.view.overlay = Overlay::None;
         cx.notify();
@@ -157,12 +453,13 @@ impl MainWindow {
             | Overlay::Symbols { anchor, .. }
             | Overlay::Colors { anchor, .. }
             | Overlay::TabColors { anchor, .. } => *anchor,
+            Overlay::Repository { anchor, .. } => anchor.origin,
             Overlay::TabRename { bounds, .. } => bounds.origin,
             Overlay::None
             | Overlay::Picker(_)
             | Overlay::Omnibox(_)
             | Overlay::Settings(_)
-            | Overlay::ThemePicker(_)
+            | Overlay::ThemePicker { .. }
             | Overlay::CreateWorktree(_)
             | Overlay::TerminalConfirm { .. } => gpui::point(px(0.0), px(0.0)),
         }
@@ -305,7 +602,7 @@ impl MainWindow {
     }
 
     pub(crate) fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if matches!(self.view.overlay, Overlay::ThemePicker(_)) {
+        if matches!(self.view.overlay, Overlay::ThemePicker { .. }) {
             self.dismiss_overlay(cx);
             return;
         }
@@ -328,8 +625,15 @@ impl MainWindow {
 
         window.focus(&browser.focus_handle(cx));
         self.view.subscriptions = vec![subscription];
-        self.view.overlay = Overlay::ThemePicker(browser);
+        self.view.overlay = Overlay::ThemePicker {
+            browser,
+            anchor: self.view.theme_picker_anchor,
+        };
         cx.notify();
+    }
+
+    pub(crate) fn record_theme_picker_anchor(&mut self, bounds: Bounds<Pixels>) {
+        self.view.theme_picker_anchor = Some(bounds);
     }
 
     pub(crate) fn open_create_worktree(
@@ -1081,21 +1385,181 @@ impl MainWindow {
         window.focus(&self.view.menu_focus);
     }
 
+    pub(super) fn open_project_color_picker(&mut self, project_id: String, cx: &mut Context<Self>) {
+        let anchor = self.menu_anchor();
+        let selected = self
+            .state
+            .workspace
+            .project(&project_id)
+            .and_then(|project| project.icon_color.clone());
+        let picker = self.new_color_picker("project-color-picker", "Project Colors", cx);
+        sync_color_picker(&picker, "", selected.as_deref(), cx);
+        let target = project_id.clone();
+        let subscription = cx.subscribe(&picker, move |window: &mut Self, picker, event, cx| {
+            use muxy_ui::command_popover::CommandPopoverEvent;
+            match event {
+                CommandPopoverEvent::QueryChanged { query, .. } => {
+                    let selected = window
+                        .state
+                        .workspace
+                        .project(&target)
+                        .and_then(|project| project.icon_color.as_deref());
+                    sync_color_picker(&picker, query.as_ref(), selected, cx);
+                }
+                CommandPopoverEvent::Confirmed(selection)
+                | CommandPopoverEvent::SecondaryConfirmed(selection) => {
+                    if let Some(color) = selection.id.strip_prefix("color-") {
+                        window.set_icon_color(&target, Some(color.to_owned()), cx);
+                    }
+                }
+                CommandPopoverEvent::FooterAction(action) if action.as_ref() == "reset" => {
+                    window.set_icon_color(&target, None, cx)
+                }
+                CommandPopoverEvent::Dismissed => window.dismiss_overlay(cx),
+                _ => {}
+            }
+        });
+        self.view.subscriptions = vec![subscription];
+        self.view.overlay = Overlay::Colors { picker, anchor };
+        cx.notify();
+    }
+
+    pub(super) fn open_tab_color_picker(&mut self, tab_id: String, cx: &mut Context<Self>) {
+        let anchor = self.menu_anchor();
+        let selected = self
+            .state
+            .active_tab_workspace()
+            .and_then(|workspace| workspace.tab(&tab_id))
+            .and_then(|tab| tab.color_id.clone());
+        let picker = self.new_color_picker("tab-color-picker", "Tab Colors", cx);
+        sync_color_picker(&picker, "", selected.as_deref(), cx);
+        let target = tab_id.clone();
+        let subscription = cx.subscribe(&picker, move |window: &mut Self, picker, event, cx| {
+            use muxy_ui::command_popover::CommandPopoverEvent;
+            match event {
+                CommandPopoverEvent::QueryChanged { query, .. } => {
+                    let selected = window
+                        .state
+                        .active_tab_workspace()
+                        .and_then(|workspace| workspace.tab(&target))
+                        .and_then(|tab| tab.color_id.as_deref());
+                    sync_color_picker(&picker, query.as_ref(), selected, cx);
+                }
+                CommandPopoverEvent::Confirmed(selection)
+                | CommandPopoverEvent::SecondaryConfirmed(selection) => {
+                    if let Some(color) = selection.id.strip_prefix("color-") {
+                        window.set_tab_color(&target, Some(color.to_owned()), cx);
+                    }
+                }
+                CommandPopoverEvent::FooterAction(action) if action.as_ref() == "reset" => {
+                    window.set_tab_color(&target, None, cx)
+                }
+                CommandPopoverEvent::Dismissed => window.dismiss_overlay(cx),
+                _ => {}
+            }
+        });
+        self.view.subscriptions = vec![subscription];
+        self.view.overlay = Overlay::TabColors { picker, anchor };
+        cx.notify();
+    }
+
+    fn new_color_picker(
+        &self,
+        id: &'static str,
+        title: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Entity<muxy_ui::command_popover::CommandPopover> {
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        cx.new(move |cx| {
+            muxy_ui::command_popover::CommandPopover::new(
+                muxy_ui::command_popover::CommandPopoverConfig {
+                    id: id.into(),
+                    presentation: muxy_ui::command_popover::CommandPopoverPresentation::Popover,
+                    density: muxy_ui::command_popover::CommandPopoverDensity::Compact,
+                    tabs: vec![muxy_ui::command_popover::CommandPopoverTab::new(
+                        "colors", title,
+                    )],
+                    placeholder: "Search colors…".into(),
+                    footer_actions: vec![muxy_ui::command_popover::CommandPopoverAction::new(
+                        "reset",
+                        "Reset to Default",
+                    )],
+                    footer_hints: Vec::new(),
+                    width: Some(400.0),
+                    height: None,
+                    max_height: Some(480.0),
+                    completion_on_tab: false,
+                },
+                theme,
+                metrics,
+                cx,
+            )
+        })
+    }
+
     pub(super) fn open_symbol_picker(&mut self, project_id: String, cx: &mut Context<Self>) {
         let anchor = self.menu_anchor();
-        let style = self.input_style();
-        let search = cx.new(|cx| TextInput::new(style, cx).with_placeholder("Search symbols..."));
-        let subscription = cx.subscribe(&search, |window: &mut Self, _, event, cx| match event {
-            InputEvent::Cancelled => window.dismiss_overlay(cx),
-            _ => cx.notify(),
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        let picker = cx.new(move |cx| {
+            muxy_ui::command_popover::CommandPopover::new(
+                muxy_ui::command_popover::CommandPopoverConfig {
+                    id: "symbol-picker".into(),
+                    presentation: muxy_ui::command_popover::CommandPopoverPresentation::Popover,
+                    density: muxy_ui::command_popover::CommandPopoverDensity::Compact,
+                    tabs: vec![muxy_ui::command_popover::CommandPopoverTab::new(
+                        "symbols", "Icons",
+                    )],
+                    placeholder: "Search icons…".into(),
+                    footer_actions: vec![muxy_ui::command_popover::CommandPopoverAction::new(
+                        "remove",
+                        "Remove Icon",
+                    )],
+                    footer_hints: Vec::new(),
+                    width: Some(400.0),
+                    height: None,
+                    max_height: Some(480.0),
+                    completion_on_tab: false,
+                },
+                theme,
+                metrics,
+                cx,
+            )
         });
-        self.view.pending_focus = Some(search.focus_handle(cx));
+        let selected = self
+            .state
+            .workspace
+            .project(&project_id)
+            .and_then(|project| project.icon.as_deref());
+        sync_symbol_picker(&picker, "", selected, cx);
+        let target = project_id.clone();
+        let subscription = cx.subscribe(&picker, move |window: &mut Self, picker, event, cx| {
+            use muxy_ui::command_popover::CommandPopoverEvent;
+            match event {
+                CommandPopoverEvent::QueryChanged { query, .. } => {
+                    let selected = window
+                        .state
+                        .workspace
+                        .project(&target)
+                        .and_then(|project| project.icon.as_deref());
+                    sync_symbol_picker(&picker, query.as_ref(), selected, cx);
+                }
+                CommandPopoverEvent::Confirmed(selection)
+                | CommandPopoverEvent::SecondaryConfirmed(selection) => {
+                    if let Some(symbol) = selection.id.strip_prefix("symbol-") {
+                        window.set_icon(&target, Some(symbol.to_owned()), cx);
+                    }
+                }
+                CommandPopoverEvent::FooterAction(action) if action.as_ref() == "remove" => {
+                    window.set_icon(&target, None, cx)
+                }
+                CommandPopoverEvent::Dismissed => window.dismiss_overlay(cx),
+                _ => {}
+            }
+        });
         self.view.subscriptions = vec![subscription];
-        self.view.overlay = Overlay::Symbols {
-            project_id,
-            search,
-            anchor,
-        };
+        self.view.overlay = Overlay::Symbols { picker, anchor };
         cx.notify();
     }
 
@@ -1134,6 +1598,83 @@ impl MainWindow {
         })
         .detach();
     }
+}
+
+fn sync_color_picker(
+    picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+    query: &str,
+    selected: Option<&str>,
+    cx: &mut Context<MainWindow>,
+) {
+    let query = query.trim().to_lowercase();
+    let items = muxy_core::store::ICON_PALETTE
+        .iter()
+        .filter(|swatch| query.is_empty() || swatch.id.contains(&query))
+        .map(|swatch| {
+            let mut row = muxy_ui::command_popover::CommandPopoverRow::new(
+                format!("color-{}", swatch.id),
+                title_case(swatch.id),
+            );
+            row.subtitle = Some(swatch.hex.into());
+            row.leading = crate::views::swatches::icon_color(Some(swatch.id))
+                .map(Into::into)
+                .map(muxy_ui::command_popover::CommandPopoverLeading::Swatch);
+            row.current = selected == Some(swatch.id);
+            muxy_ui::command_popover::CommandPopoverItem::Row(row)
+        })
+        .collect::<Vec<_>>();
+    let status = if items.is_empty() {
+        muxy_ui::command_popover::CommandPopoverStatus::Empty("No colors found".into())
+    } else {
+        muxy_ui::command_popover::CommandPopoverStatus::Ready
+    };
+    picker.update(cx, |picker, cx| {
+        picker.set_items(items, cx);
+        picker.set_status(status, cx);
+    });
+}
+
+fn title_case(value: &str) -> String {
+    let mut characters = value.chars();
+    match characters.next() {
+        Some(first) => first.to_uppercase().chain(characters).collect(),
+        None => String::new(),
+    }
+}
+
+fn sync_symbol_picker(
+    picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+    query: &str,
+    selected: Option<&str>,
+    cx: &mut Context<MainWindow>,
+) {
+    let items = muxy_ui::symbols::matching(query)
+        .into_iter()
+        .filter(|symbol| {
+            cfg!(target_os = "macos") || muxy_ui::icon::Icon::from_symbol(symbol.symbol).is_some()
+        })
+        .map(|symbol| {
+            let mut row = muxy_ui::command_popover::CommandPopoverRow::new(
+                format!("symbol-{}", symbol.symbol),
+                symbol.name,
+            );
+            row.subtitle = Some(symbol.symbol.into());
+            row.leading = Some(muxy_ui::command_popover::CommandPopoverLeading::Symbol(
+                symbol.symbol.into(),
+            ));
+            row.current = selected == Some(symbol.symbol);
+            muxy_ui::command_popover::CommandPopoverItem::Row(row)
+        })
+        .collect::<Vec<_>>();
+    let status = if items.is_empty() {
+        muxy_ui::command_popover::CommandPopoverStatus::Empty("No icons found".into())
+    } else {
+        muxy_ui::command_popover::CommandPopoverStatus::Ready
+    };
+    picker.update(cx, |picker, cx| {
+        picker.set_items(items, cx);
+        picker.set_status(status, cx);
+    });
 }
 
 fn app_layout_menu_items() -> Vec<Item> {

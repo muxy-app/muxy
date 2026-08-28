@@ -1,3 +1,4 @@
+pub mod command_popover;
 pub mod components;
 pub mod controls;
 pub mod icon;

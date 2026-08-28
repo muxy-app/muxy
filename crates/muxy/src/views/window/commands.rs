@@ -24,16 +24,7 @@ impl MainWindow {
             Command::StartRename(id) => self.start_rename(id, cx),
             Command::OpenSymbolPicker(id) => self.open_symbol_picker(id, cx),
             Command::RemoveIcon(id) => self.set_icon(&id, None, cx),
-            Command::OpenColorPicker(id) => {
-                let anchor = self.menu_anchor();
-                self.view.subscriptions.clear();
-                self.view.pending_focus = Some(self.view.menu_focus.clone());
-                self.view.overlay = Overlay::Colors {
-                    project_id: id,
-                    anchor,
-                };
-                cx.notify();
-            }
+            Command::OpenColorPicker(id) => self.open_project_color_picker(id, cx),
             Command::ResetIconColor(id) => self.set_icon_color(&id, None, cx),
             Command::PickLogo(id) => self.pick_logo(id, cx),
             Command::RemoveLogo(id) => {
@@ -175,12 +166,7 @@ impl MainWindow {
             }
             Command::StartTabRename(id) => self.start_tab_rename(id, None, cx),
             Command::ResetTabTitle(id) => self.set_tab_title(&id, None, cx),
-            Command::OpenTabColorPicker(id) => {
-                let anchor = self.menu_anchor();
-                self.view.subscriptions.clear();
-                self.view.overlay = Overlay::TabColors { tab_id: id, anchor };
-                cx.notify();
-            }
+            Command::OpenTabColorPicker(id) => self.open_tab_color_picker(id, cx),
             Command::ResetTabColor(id) => self.set_tab_color(&id, None, cx),
             Command::ToggleTabPinned(id) => self.toggle_tab_pinned(&id, cx),
             Command::CloseTab(id) => {
@@ -425,7 +411,7 @@ impl MainWindow {
             Overlay::Settings(modal) => {
                 modal.update(cx, |modal, cx| modal.set_appearance(theme, metrics, cx));
             }
-            Overlay::ThemePicker(browser) => {
+            Overlay::ThemePicker { browser, .. } => {
                 browser.update(cx, |browser, cx| {
                     browser.set_appearance(theme, metrics, cx);
                 });

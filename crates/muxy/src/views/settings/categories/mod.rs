@@ -1,4 +1,4 @@
-use super::{Category, Field, SettingsModal, SliderSpec};
+use super::{Category, Field, SettingsModal, SettingsPickerTarget, SliderSpec};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Context, Corner, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -202,6 +202,9 @@ fn picker_row(
 ) -> AnyElement {
     let style = modal.style();
     let selected = settings::string_value(key, default);
+    let popover = modal.picker(key).cloned();
+    let toggle_choices = choices.clone();
+    let toggle_selected = selected.clone();
     controls::row(
         style,
         label,
@@ -210,13 +213,16 @@ fn picker_row(
             key,
             choices,
             &selected,
-            modal.open_picker() == Some(key),
-            cx.listener(move |modal: &mut SettingsModal, _, _, cx| modal.toggle_picker(key, cx)),
-            cx.listener(
-                move |modal: &mut SettingsModal, value: &SharedString, _, cx| {
-                    modal.write(key, Value::String(value.to_string()), cx);
-                },
-            ),
+            popover,
+            cx.listener(move |modal: &mut SettingsModal, _, _, cx| {
+                modal.toggle_picker(
+                    key,
+                    toggle_choices.clone(),
+                    toggle_selected.clone(),
+                    SettingsPickerTarget::Setting,
+                    cx,
+                )
+            }),
         ),
     )
 }
