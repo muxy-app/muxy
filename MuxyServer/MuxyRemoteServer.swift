@@ -272,17 +272,57 @@ public final class MuxyRemoteServer: @unchecked Sendable {
     }
 
     func handleRequest(_ request: MuxyRequest, from clientID: UUID) {
+        if request.method == .takeOverPane {
+            Task { @MainActor in
+                self.processTakeOverRequest(request, clientID: clientID) { response in
+                    self.send(response, to: clientID)
+                }
+            }
+            return
+        }
         if Self.voidMethods.contains(request.method) {
             Task { @MainActor in _ = await processRequest(request, clientID: clientID) }
             return
         }
         Task { @MainActor in
             let response = await processRequest(request, clientID: clientID)
-            guard let data = try? MuxyCodec.encode(.response(response)) else { return }
-            self.queue.async { [weak self] in
-                self?.connections[clientID]?.send(data)
-            }
+            self.send(response, to: clientID)
         }
+    }
+
+    private func send(_ response: MuxyResponse, to clientID: UUID) {
+        guard let data = try? MuxyCodec.encode(.response(response)) else { return }
+        queue.async { [weak self] in
+            self?.connections[clientID]?.send(data)
+        }
+    }
+
+    @MainActor
+    func processTakeOverRequest(
+        _ request: MuxyRequest,
+        clientID: UUID,
+        responseHandler: (MuxyResponse) -> Void
+    ) {
+        guard let delegate else {
+            responseHandler(MuxyResponse(id: request.id, error: .internalError))
+            return
+        }
+        guard isAuthenticated(clientID) else {
+            responseHandler(MuxyResponse(id: request.id, error: .unauthorized))
+            return
+        }
+        guard case let .takeOverPane(params) = request.params else {
+            responseHandler(MuxyResponse(id: request.id, error: .invalidParams))
+            return
+        }
+
+        responseHandler(MuxyResponse(id: request.id, result: .ok))
+        delegate.takeOverPane(
+            paneID: params.paneID,
+            clientID: clientID,
+            cols: params.cols,
+            rows: params.rows
+        )
     }
 
     private static let voidMethods: Set<MuxyMethod> = [.terminalInput]
@@ -818,16 +858,11 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             return MuxyResponse(id: request.id, result: .deviceInfo(info))
 
         case .takeOverPane:
-            guard case let .takeOverPane(params) = request.params else {
-                return MuxyResponse(id: request.id, error: .invalidParams)
+            var response = MuxyResponse(id: request.id, error: .internalError)
+            processTakeOverRequest(request, clientID: clientID) {
+                response = $0
             }
-            delegate.takeOverPane(
-                paneID: params.paneID,
-                clientID: clientID,
-                cols: params.cols,
-                rows: params.rows
-            )
-            return MuxyResponse(id: request.id, result: .ok)
+            return response
 
         case .releasePane:
             guard case let .releasePane(params) = request.params else {
