@@ -36,7 +36,11 @@ actor GitWorktreeService: GitWorktreeListing {
         _ context: WorkspaceContext,
         _ timeout: TimeInterval
     ) async throws -> GitProcessResult
-    typealias ProcessQuiescer = @Sendable (_ path: String, _ timeout: TimeInterval) async throws -> Void
+    typealias ProcessQuiescer = @Sendable (
+        _ path: String,
+        _ identity: WorktreeProcessQuiescer.DirectoryIdentity,
+        _ timeout: TimeInterval
+    ) async throws -> Void
 
     private struct RemovalTarget {
         let canonicalPath: String
@@ -201,7 +205,9 @@ actor GitWorktreeService: GitWorktreeListing {
         context: WorkspaceContext = .local,
         timeout: TimeInterval = defaultWorktreeRemovalTimeout,
         removalRunner: RemovalRunner = runRemoval,
-        processQuiescer: ProcessQuiescer = WorktreeProcessQuiescer.quiesce
+        processQuiescer: ProcessQuiescer = { path, identity, timeout in
+            try await WorktreeProcessQuiescer.quiesce(path: path, matching: identity, timeout: timeout)
+        }
     ) async throws -> String {
         let deadline = OperationDeadline(timeout: timeout)
         let records = try await listWorktrees(
@@ -244,7 +250,23 @@ actor GitWorktreeService: GitWorktreeListing {
             originalDirectoryIdentity: originalDirectoryIdentity
         )
         if wasRegistered, !context.isRemote {
-            try await processQuiescer(residualPath, deadline.remaining())
+            if try await context.fileOps.exists(at: residualPath, timeout: deadline.remaining()) {
+                guard Self.isOwnedLocalCheckout(
+                    originalPath: path,
+                    checkoutPath: residualPath,
+                    repoPath: repoPath
+                )
+                else {
+                    throw GitWorktreeError.commandFailed("Worktree ownership could not be verified.")
+                }
+                guard let originalDirectoryIdentity else {
+                    throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
+                }
+                try await processQuiescer(residualPath, originalDirectoryIdentity, deadline.remaining())
+                guard WorktreeProcessQuiescer.directoryIdentity(at: residualPath) == originalDirectoryIdentity else {
+                    throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
+                }
+            }
         }
 
         var args: [String] = ["worktree", "remove"]
@@ -310,15 +332,20 @@ actor GitWorktreeService: GitWorktreeListing {
         guard !target.context.isRemote, let originalDirectoryIdentity = target.originalDirectoryIdentity else {
             throw GitWorktreeError.commandFailed("\(failureMessage) The remaining directory could not be verified.")
         }
+        guard WorktreeProcessQuiescer.directoryIdentity(at: target.residualPath) == originalDirectoryIdentity else {
+            throw GitWorktreeError.commandFailed("\(failureMessage) The remaining directory changed during removal.")
+        }
 
         do {
-            try await processQuiescer(target.residualPath, deadline.remaining())
-            try await GitProcessRunner.offMainThrowing {
-                try WorktreeProcessQuiescer.removeDirectory(
-                    at: target.residualPath,
-                    matching: originalDirectoryIdentity
-                )
+            try await processQuiescer(target.residualPath, originalDirectoryIdentity, deadline.remaining())
+            guard WorktreeProcessQuiescer.directoryIdentity(at: target.residualPath) == originalDirectoryIdentity else {
+                throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
             }
+            try await WorktreeProcessQuiescer.removeDirectory(
+                at: target.residualPath,
+                matching: originalDirectoryIdentity,
+                timeout: deadline.remaining()
+            )
         } catch {
             throw GitWorktreeError.commandFailed("\(failureMessage) Residual cleanup failed: \(error.localizedDescription)")
         }
@@ -413,6 +440,77 @@ actor GitWorktreeService: GitWorktreeListing {
             return true
         }
         return false
+    }
+
+    private static func isOwnedLocalCheckout(originalPath: String, checkoutPath: String, repoPath: String) -> Bool {
+        let inputPath = localInputPath(originalPath, relativeTo: repoPath)
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: inputPath)) == nil else { return false }
+        let checkout = URL(fileURLWithPath: checkoutPath, isDirectory: true).standardizedFileURL
+        let checkoutGit = checkout.appendingPathComponent(".git")
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: checkoutGit.path)) == nil,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: checkoutGit.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let size = attributes[.size] as? NSNumber,
+              size.intValue <= 4096,
+              let gitdir = gitDirectoryReference(at: checkoutGit)
+        else { return false }
+        guard let commonGitDirectory = commonGitDirectory(repoPath: repoPath) else { return false }
+        let worktrees = commonGitDirectory.appendingPathComponent("worktrees", isDirectory: true)
+        guard gitdir.deletingLastPathComponent() == worktrees else { return false }
+        let adminGitdir = gitdir.appendingPathComponent("gitdir")
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: adminGitdir.path)) == nil,
+              let backlink = adminGitdirBacklink(at: adminGitdir),
+              backlink == checkoutGit.resolvingSymlinksInPath().standardizedFileURL
+        else { return false }
+        return true
+    }
+
+    private static func commonGitDirectory(repoPath: String) -> URL? {
+        let dotGit = URL(fileURLWithPath: repoPath, isDirectory: true).appendingPathComponent(".git")
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: dotGit.path)) == nil else { return nil }
+        if (try? dotGit.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            return dotGit.resolvingSymlinksInPath().standardizedFileURL
+        }
+        guard let gitdir = gitDirectoryReference(at: dotGit) else { return nil }
+        if gitdir.deletingLastPathComponent().lastPathComponent == "worktrees" {
+            return gitdir.deletingLastPathComponent().deletingLastPathComponent()
+        }
+        return gitdir
+    }
+
+    private static func localInputPath(_ path: String, relativeTo repoPath: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        guard !expanded.hasPrefix("/") else {
+            return URL(fileURLWithPath: expanded).standardizedFileURL.path
+        }
+        return URL(fileURLWithPath: repoPath, isDirectory: true)
+            .appendingPathComponent(expanded)
+            .standardizedFileURL.path
+    }
+
+    private static func gitDirectoryReference(at file: URL) -> URL? {
+        guard let contents = try? String(contentsOf: file, encoding: .utf8),
+              let firstLine = contents.split(whereSeparator: \Character.isNewline).first,
+              firstLine.hasPrefix("gitdir: ")
+        else { return nil }
+        let reference = firstLine.dropFirst("gitdir: ".count).trimmingCharacters(in: .whitespaces)
+        guard !reference.isEmpty else { return nil }
+        return URL(fileURLWithPath: reference, relativeTo: file.deletingLastPathComponent())
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+    }
+
+    private static func adminGitdirBacklink(at file: URL) -> URL? {
+        guard let contents = try? String(contentsOf: file, encoding: .utf8),
+              let firstLine = contents.split(whereSeparator: \Character.isNewline).first
+        else { return nil }
+        let reference = firstLine.trimmingCharacters(in: .whitespaces)
+        guard !reference.isEmpty else { return nil }
+        return URL(fileURLWithPath: reference, relativeTo: file.deletingLastPathComponent())
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
     }
 
     private func listWorktrees(

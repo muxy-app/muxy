@@ -24,28 +24,72 @@ enum WorktreeProcessQuiescerError: LocalizedError {
 
 enum WorktreeProcessQuiescer {
     static let quarantinePrefix = ".muxy-removal-"
+    typealias BoundedRemover = @Sendable (_ path: String, _ timeout: TimeInterval) async throws -> Void
 
     struct DirectoryIdentity: Equatable, Sendable {
         let device: UInt64
         let inode: UInt64
     }
 
-    static func quiesce(path: String, timeout: TimeInterval) async throws {
-        let deadline = OperationDeadline(timeout: timeout)
-        var processIDs = matchingProcessIDs(using: path)
-        guard !processIDs.isEmpty else { return }
+    private struct ProcessMatcher {
+        let path: String
+        let identity: DirectoryIdentity
+        let workingDirectory: @Sendable (pid_t) -> String?
 
-        signal(SIGTERM, processIDs: processIDs, path: path)
+        func matching(_ candidates: [pid_t]) throws -> [pid_t] {
+            try validate()
+            let matches = WorktreeProcessQuiescer.matchingProcessIDs(
+                using: path,
+                candidates: candidates,
+                workingDirectory: workingDirectory
+            )
+            try validate()
+            return matches
+        }
+
+        func validate() throws {
+            guard WorktreeProcessQuiescer.directoryIdentity(at: path) == identity else {
+                throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
+            }
+        }
+    }
+
+    static func quiesce(
+        path: String,
+        matching expectedIdentity: DirectoryIdentity,
+        timeout: TimeInterval,
+        processIDs: @escaping @Sendable () -> [pid_t] = { ProcSampling.listAllPIDs() },
+        workingDirectory: @escaping @Sendable (pid_t) -> String? = ProcessArgumentsInspector.workingDirectory,
+        sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = { kill($0, $1) }
+    ) async throws {
+        let deadline = OperationDeadline(timeout: timeout)
+        let matcher = ProcessMatcher(path: path, identity: expectedIdentity, workingDirectory: workingDirectory)
+        var matchedProcessIDs = try matcher.matching(processIDs())
+        guard !matchedProcessIDs.isEmpty else { return }
+
+        try signal(
+            SIGTERM,
+            processIDs: matchedProcessIDs,
+            matcher: matcher,
+            deadline: deadline,
+            sendSignal: sendSignal
+        )
         try await sleep(for: 0.3, deadline: deadline)
 
-        processIDs = matchingProcessIDs(using: path)
-        guard !processIDs.isEmpty else { return }
+        matchedProcessIDs = try matcher.matching(processIDs())
+        guard !matchedProcessIDs.isEmpty else { return }
 
-        signal(SIGKILL, processIDs: processIDs, path: path)
+        try signal(
+            SIGKILL,
+            processIDs: matchedProcessIDs,
+            matcher: matcher,
+            deadline: deadline,
+            sendSignal: sendSignal
+        )
         for _ in 0 ..< 10 {
             try await sleep(for: 0.05, deadline: deadline)
-            processIDs = matchingProcessIDs(using: path)
-            guard !processIDs.isEmpty else { return }
+            matchedProcessIDs = try matcher.matching(processIDs())
+            guard !matchedProcessIDs.isEmpty else { return }
         }
 
         throw WorktreeProcessQuiescerError.processesStillRunning
@@ -78,35 +122,72 @@ enum WorktreeProcessQuiescer {
         return DirectoryIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
     }
 
-    static func removeDirectory(at path: String, matching expectedIdentity: DirectoryIdentity) throws {
+    static func removeDirectory(
+        at path: String,
+        matching expectedIdentity: DirectoryIdentity,
+        timeout: TimeInterval,
+        boundedRemover: @escaping BoundedRemover = { path, timeout in
+            try await LocalFileOps().removeItem(at: path, timeout: timeout)
+        }
+    ) async throws {
         let source = URL(fileURLWithPath: path)
         let quarantine = source.deletingLastPathComponent().appendingPathComponent(
             "\(quarantinePrefix)\(UUID().uuidString)",
             isDirectory: true
         )
-        try FileManager.default.moveItem(at: source, to: quarantine)
-        guard directoryIdentity(at: quarantine.path) == expectedIdentity else {
-            if !FileManager.default.fileExists(atPath: source.path) {
-                do {
-                    try FileManager.default.moveItem(at: quarantine, to: source)
-                } catch {
-                    throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: quarantine.path)
-                }
+        guard directoryIdentity(at: source.path) == expectedIdentity else {
+            throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
+        }
+        try await GitProcessRunner.offMainThrowing {
+            guard directoryIdentity(at: source.path) == expectedIdentity else {
                 throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
             }
-            throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: quarantine.path)
+            try FileManager.default.moveItem(at: source, to: quarantine)
         }
-        try FileManager.default.removeItem(at: quarantine)
+        guard directoryIdentity(at: quarantine.path) == expectedIdentity else {
+            try await restore(quarantine, to: source)
+            throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
+        }
+        do {
+            try await boundedRemover(quarantine.path, timeout)
+        } catch {
+            guard await LocalFileOps().exists(at: quarantine.path) else { return }
+            try await restore(quarantine, to: source)
+            throw error
+        }
     }
 
-    private static func signal(_ value: Int32, processIDs: [pid_t], path: String) {
-        let currentMatches = Set(matchingProcessIDs(using: path, candidates: processIDs))
+    private static func signal(
+        _ value: Int32,
+        processIDs: [pid_t],
+        matcher: ProcessMatcher,
+        deadline: OperationDeadline,
+        sendSignal: (pid_t, Int32) -> Int32
+    ) throws {
+        let currentMatches = try Set(matcher.matching(processIDs))
         let identifiers = String(describing: currentMatches.sorted())
         logger.info(
-            "Signal \(value), pids \(identifiers, privacy: .public), worktree \(path, privacy: .private(mask: .hash))"
+            "Signal \(value), pids \(identifiers, privacy: .public), worktree \(matcher.path, privacy: .private(mask: .hash))"
         )
         for processID in processIDs where currentMatches.contains(processID) {
-            kill(processID, value)
+            try matcher.validate()
+            _ = try deadline.remaining()
+            _ = sendSignal(processID, value)
+        }
+    }
+
+    private static func restore(_ quarantine: URL, to source: URL) async throws {
+        do {
+            try await GitProcessRunner.offMainThrowing {
+                guard !FileManager.default.fileExists(atPath: source.path),
+                      (try? FileManager.default.destinationOfSymbolicLink(atPath: source.path)) == nil
+                else {
+                    throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: quarantine.path)
+                }
+                try FileManager.default.moveItem(at: quarantine, to: source)
+            }
+        } catch {
+            throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: quarantine.path)
         }
     }
 

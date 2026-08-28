@@ -52,6 +52,37 @@ struct GitWorktreeServiceRemoveTests {
         #expect(!records.contains { $0.path == worktreePath })
     }
 
+    @Test("removes a worktree when the repository path is another linked worktree")
+    func removesFromLinkedWorktreeRepositoryPath() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let linkedRepoPath = repo.siblingPath("linked-repository-wt")
+        let worktreePath = repo.siblingPath("linked-repository-target-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: linkedRepoPath,
+            branch: "linked-repository-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: linkedRepoPath,
+            path: worktreePath,
+            branch: "linked-repository-target-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+
+        try await GitWorktreeService.shared.removeWorktree(
+            repoPath: linkedRepoPath,
+            path: worktreePath,
+            force: true
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: worktreePath))
+    }
+
     @Test("rejects the primary worktree without stopping its processes")
     func rejectsPrimaryWorktreeWithoutStoppingProcesses() async throws {
         let repo = try TempGitRepo()
@@ -197,6 +228,158 @@ struct GitWorktreeServiceRemoveTests {
         #expect(try String(contentsOf: marker, encoding: .utf8) == "replacement")
     }
 
+    @Test("does not invoke Git after quiescing replaces a registered worktree")
+    func doesNotInvokeGitAfterQuiescingReplacement() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("quiesce-race-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "quiesce-race-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        let marker = URL(fileURLWithPath: worktreePath).appendingPathComponent("replacement.txt")
+        let invoked = InvocationRecorder()
+
+        await #expect(throws: WorktreeProcessQuiescerError.self) {
+            try await GitWorktreeService.shared.removeWorktree(
+                repoPath: repo.path,
+                path: worktreePath,
+                force: true,
+                removalRunner: { _, _, _, _ in
+                    invoked.record()
+                    return GitProcessResult(status: 0, stdout: "", stdoutData: Data(), stderr: "", truncated: false)
+                },
+                processQuiescer: { _, _, _ in
+                    try FileManager.default.removeItem(atPath: worktreePath)
+                    try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+                    try "replacement".write(to: marker, atomically: true, encoding: .utf8)
+                }
+            )
+        }
+
+        #expect(!invoked.wasInvoked)
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "replacement")
+    }
+
+    @Test("rejects a registered path reused by an unrelated directory")
+    func rejectsRegisteredPathReusedByUnrelatedDirectory() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("preexisting-replacement-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "preexisting-replacement-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        try FileManager.default.removeItem(atPath: worktreePath)
+        try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+        let marker = URL(fileURLWithPath: worktreePath).appendingPathComponent("preserved.txt")
+        try "preserved".write(to: marker, atomically: true, encoding: .utf8)
+        let invoked = InvocationRecorder()
+
+        await #expect(throws: GitWorktreeService.GitWorktreeError.self) {
+            try await GitWorktreeService.shared.removeWorktree(
+                repoPath: repo.path,
+                path: worktreePath,
+                force: true,
+                removalRunner: { _, _, _, _ in
+                    invoked.record()
+                    return GitProcessResult(status: 0, stdout: "", stdoutData: Data(), stderr: "", truncated: false)
+                },
+                processQuiescer: { _, _, _ in invoked.record() }
+            )
+        }
+
+        #expect(!invoked.wasInvoked)
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "preserved")
+    }
+
+    @Test("rejects a registered path replaced by a symlink")
+    func rejectsRegisteredPathReplacedBySymlink() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("symlink-replacement-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "symlink-replacement-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        let replacement = URL(fileURLWithPath: repo.siblingPath("symlink-replacement-target"), isDirectory: true)
+        try FileManager.default.createDirectory(at: replacement, withIntermediateDirectories: true)
+        let marker = replacement.appendingPathComponent("preserved.txt")
+        try "preserved".write(to: marker, atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(atPath: worktreePath)
+        try FileManager.default.createSymbolicLink(
+            at: URL(fileURLWithPath: worktreePath),
+            withDestinationURL: replacement
+        )
+        let invoked = InvocationRecorder()
+
+        await #expect(throws: GitWorktreeService.GitWorktreeError.self) {
+            try await GitWorktreeService.shared.removeWorktree(
+                repoPath: repo.path,
+                path: worktreePath,
+                force: true,
+                removalRunner: { _, _, _, _ in
+                    invoked.record()
+                    return GitProcessResult(status: 0, stdout: "", stdoutData: Data(), stderr: "", truncated: false)
+                },
+                processQuiescer: { _, _, _ in invoked.record() }
+            )
+        }
+
+        #expect(!invoked.wasInvoked)
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "preserved")
+    }
+
+    @Test("does not quiesce a replacement during reconciliation")
+    func doesNotQuiesceReplacementDuringReconciliation() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("reconciliation-race-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "reconciliation-race-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        let quiescer = InvocationRecorder()
+
+        await #expect(throws: Error.self) {
+            try await GitWorktreeService.shared.removeWorktree(
+                repoPath: repo.path,
+                path: worktreePath,
+                force: true,
+                removalRunner: { repoPath, arguments, context, timeout in
+                    _ = try await GitProcessRunner.runGit(
+                        repoPath: repoPath,
+                        arguments: arguments,
+                        context: context,
+                        timeout: timeout
+                    )
+                    try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+                    return GitProcessResult(status: 255, stdout: "", stdoutData: Data(), stderr: "Directory not empty", truncated: false)
+                },
+                processQuiescer: { _, _, _ in quiescer.record() }
+            )
+        }
+
+        #expect(quiescer.invocationCount == 1)
+        #expect(FileManager.default.fileExists(atPath: worktreePath))
+    }
+
     @Test("succeeds when the worktree folder is gone and git admin metadata is orphaned")
     func succeedsForOrphanedWorktree() async throws {
         let repo = try TempGitRepo()
@@ -218,6 +401,34 @@ struct GitWorktreeServiceRemoveTests {
 
         let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
         #expect(!records.contains { $0.path == worktreePath })
+    }
+
+    @Test("removes registered administrative metadata when the local checkout is absent")
+    func removesRegisteredMetadataWhenCheckoutIsAbsent() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("missing-checkout-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "missing-checkout-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        try FileManager.default.removeItem(atPath: worktreePath)
+
+        try await GitWorktreeService.shared.removeWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            force: true,
+            processQuiescer: { _, _, _ in
+                throw WorktreeProcessQuiescerError.processesStillRunning
+            }
+        )
+
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        #expect(!records.contains { GitWorktreeService.canonicalPath($0.path) == GitWorktreeService.canonicalPath(worktreePath) })
     }
 
     @Test("throws when git leaves the worktree registered")
@@ -302,6 +513,43 @@ struct GitWorktreeServiceRemoveTests {
 
         #expect(cleanupResult == .removed)
         #expect(!FileManager.default.fileExists(atPath: worktreePath))
+    }
+
+    @Test("force cleanup stops active processes in a stale managed checkout")
+    func forceCleanupStopsActiveProcessesInStaleManagedCheckout() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+        let projectID = UUID()
+        let worktreeRoot = MuxyFileStorage.worktreeRoot(forProjectID: projectID)
+        defer { try? FileManager.default.removeItem(at: worktreeRoot) }
+        let worktreePath = worktreeRoot.appendingPathComponent("active-stale", isDirectory: true).path
+        try FileManager.default.createDirectory(atPath: worktreePath, withIntermediateDirectories: true)
+        try "gitdir: \(repo.path)/.git/worktrees/missing\n".write(
+            toFile: URL(fileURLWithPath: worktreePath).appendingPathComponent(".git").path,
+            atomically: true,
+            encoding: .utf8
+        )
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        process.currentDirectoryURL = URL(fileURLWithPath: worktreePath)
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        let worktree = Worktree(name: "active-stale", path: worktreePath, branch: "active-stale", source: .muxy, isPrimary: false)
+
+        let result = try await WorktreeStore.cleanupOnDisk(
+            worktree: worktree,
+            projectID: projectID,
+            repoPath: repo.path,
+            force: true
+        )
+
+        #expect(result == .removed)
+        #expect(!process.isRunning)
     }
 
     @Test("force cleanup succeeds when teardown removes an unregistered Muxy-managed checkout")
@@ -657,6 +905,42 @@ struct GitWorktreeServiceRemoveTests {
         #expect(!records.contains { GitWorktreeService.canonicalPath($0.path) == target })
     }
 
+    @Test("reconciles after the removal deadline has elapsed")
+    func reconcilesAfterRemovalDeadlineElapsed() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("timeout-floor-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "timeout-floor-feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+
+        try await GitWorktreeService.shared.removeWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            force: true,
+            timeout: 0.5,
+            removalRunner: { repoPath, arguments, context, timeout in
+                _ = try await GitProcessRunner.runGit(
+                    repoPath: repoPath,
+                    arguments: arguments,
+                    context: context,
+                    timeout: timeout
+                )
+                try await Task.sleep(for: .milliseconds(600))
+                return GitProcessResult(status: 0, stdout: "", stdoutData: Data(), stderr: "", truncated: false)
+            }
+        )
+
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        #expect(!records.contains { GitWorktreeService.canonicalPath($0.path) == GitWorktreeService.canonicalPath(worktreePath) })
+    }
+
     @Test("cleanupOnDisk preserves an orphaned worktree when its main repo is missing")
     func cleanupPreservesOrphanedWorktreeWhenRepoIsMissing() async throws {
         let repo = try TempGitRepo()
@@ -850,6 +1134,18 @@ struct GitWorktreeServiceRemoveTests {
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: restricted.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: restricted.path) }
         #expect(try await LocalFileOps().exists(at: restricted.appendingPathComponent("unknown").path, timeout: 1))
+    }
+}
+
+private final class InvocationRecorder: @unchecked Sendable {
+    private(set) var invocationCount = 0
+
+    var wasInvoked: Bool {
+        invocationCount > 0
+    }
+
+    func record() {
+        invocationCount += 1
     }
 }
 

@@ -80,10 +80,7 @@ struct WorktreeRemovalRequest {
 final class WorktreeStore {
     private static let maxRefreshAttempts = 3
 
-    private struct FileIdentity: Equatable {
-        let device: UInt64
-        let inode: UInt64
-    }
+    private typealias FileIdentity = WorktreeProcessQuiescer.DirectoryIdentity
 
     private enum CleanupPlan {
         case registered
@@ -794,7 +791,31 @@ final class WorktreeStore {
         else {
             return .finished(.preservedUnverifiedDirectory)
         }
-        let quarantine = try await quarantineManagedCheckout(worktree.path, projectID: projectID)
+        try await WorktreeProcessQuiescer.quiesce(
+            path: worktree.path,
+            matching: identity,
+            timeout: operation.deadline.remaining()
+        )
+        guard isMuxyManagedCheckout(worktree, projectID: projectID),
+              checkoutReferencesRepository(worktreePath: worktree.path, repoPath: operation.repoPath),
+              fileIdentity(at: worktree.path) == identity
+        else {
+            return .finished(.preservedUnverifiedDirectory)
+        }
+        let isRegisteredAfterQuiescing = try await GitWorktreeService.shared.isWorktreeRegistered(
+            repoPath: operation.repoPath,
+            path: worktree.path,
+            context: operation.context,
+            timeout: operation.deadline.remaining()
+        )
+        guard !isRegisteredAfterQuiescing else {
+            throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
+        }
+        let quarantine = try await quarantineManagedCheckout(
+            worktree.path,
+            projectID: projectID,
+            matching: identity
+        )
         guard fileIdentity(at: quarantine.path) == identity else {
             try await restoreOrReport(quarantine, to: worktree.path)
             return .finished(.preservedUnverifiedDirectory)
@@ -847,18 +868,24 @@ final class WorktreeStore {
         return (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) == nil
     }
 
-    private static func fileIdentity(at path: String) -> FileIdentity? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
-              let device = attributes[.systemNumber] as? NSNumber,
-              let inode = attributes[.systemFileNumber] as? NSNumber
-        else { return nil }
-        return FileIdentity(device: device.uint64Value, inode: inode.uint64Value)
+    nonisolated private static func fileIdentity(at path: String) -> FileIdentity? {
+        WorktreeProcessQuiescer.directoryIdentity(at: path)
     }
 
-    private static func quarantineManagedCheckout(_ path: String, projectID: UUID) async throws -> URL {
+    private static func quarantineManagedCheckout(
+        _ path: String,
+        projectID: UUID,
+        matching identity: FileIdentity
+    ) async throws -> URL {
         let quarantine = MuxyFileStorage.worktreeRoot(forProjectID: projectID, create: false)
             .appendingPathComponent(".muxy-removing-\(UUID().uuidString)", isDirectory: true)
+        guard fileIdentity(at: path) == identity else {
+            throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
+        }
         try await GitProcessRunner.offMainThrowing {
+            guard fileIdentity(at: path) == identity else {
+                throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
+            }
             try FileManager.default.moveItem(atPath: path, toPath: quarantine.path)
         }
         return quarantine
