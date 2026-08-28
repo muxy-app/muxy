@@ -1,6 +1,218 @@
 use super::*;
 
 impl MainWindow {
+    pub(crate) fn open_pull_request_popover(
+        &mut self,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            return;
+        };
+        if matches!(
+            self.view.repository.coordinator.state().pull_request,
+            crate::repository::PullRequestLoadState::Unavailable(_)
+        ) {
+            self.view
+                .repository
+                .coordinator
+                .request_refresh(crate::repository::RepositoryRefreshSet::pull_request());
+            self.dispatch_repository_refresh(cx);
+            return;
+        }
+        if matches!(
+            &self.view.overlay,
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::PullRequest(popover),
+                ..
+            } if popover.key == key
+        ) {
+            self.dismiss_overlay(cx);
+            return;
+        }
+        let (resolved, summary) = match (
+            &self.view.repository.coordinator.state().pull_request,
+            &self.view.repository.coordinator.state().summary,
+        ) {
+            (
+                crate::repository::PullRequestLoadState::Found {
+                    info: _,
+                    resolved: Some(resolved),
+                },
+                crate::repository::LoadState::Ready(summary),
+            ) => (resolved.clone(), summary.clone()),
+            _ => return,
+        };
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        let panel_key = key.clone();
+        let repository_identity = resolved.repository_identity().clone();
+        let info = resolved.info.clone();
+        let panel = cx.new(move |cx| {
+            crate::views::repository::pull_request::PullRequestPanel::new(
+                panel_key,
+                repository_identity,
+                &info,
+                &summary,
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let subscription = cx.subscribe(&panel, |window: &mut Self, _, event, cx| {
+            window.handle_pull_request_popover_event(event, cx);
+        });
+        window.focus(&panel.focus_handle(cx));
+        self.view.subscriptions = vec![subscription];
+        self.view.overlay = Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::PullRequest(Box::new(
+                crate::views::repository::pull_request::PullRequestPopover {
+                    key,
+                    resolved,
+                    panel,
+                    operation_error: None,
+                    operation_message: None,
+                },
+            )),
+            anchor,
+        };
+        self.sync_pull_request_popover(cx);
+        cx.notify();
+    }
+
+    fn refresh_pull_request_popover(&mut self, cx: &mut Context<Self>) {
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::PullRequest(popover),
+            ..
+        } = &self.view.overlay
+        {
+            popover
+                .panel
+                .update(cx, |panel, cx| panel.set_busy(true, cx));
+        }
+        self.view
+            .repository
+            .coordinator
+            .request_refresh(crate::repository::RepositoryRefreshSet::pull_request());
+        self.dispatch_repository_refresh(cx);
+    }
+
+    fn handle_pull_request_popover_event(
+        &mut self,
+        event: &crate::views::repository::pull_request::PullRequestPopoverEvent,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::views::repository::pull_request::{
+            PullRequestConfirmedAction, PullRequestMutationKind, PullRequestPopoverEvent,
+        };
+        match event {
+            PullRequestPopoverEvent::Refresh => {
+                self.refresh_pull_request_popover(cx);
+            }
+            PullRequestPopoverEvent::Open => self.open_current_pull_request_url(cx),
+            PullRequestPopoverEvent::Update(identity) => {
+                self.start_pull_request_mutation(PullRequestMutationKind::Update, identity, cx)
+            }
+            PullRequestPopoverEvent::Execute {
+                action: PullRequestConfirmedAction::Merge(method),
+                identity,
+            } => self.start_pull_request_mutation(
+                PullRequestMutationKind::Merge(*method),
+                identity,
+                cx,
+            ),
+            PullRequestPopoverEvent::Execute {
+                action: PullRequestConfirmedAction::Close,
+                identity,
+            } => self.start_pull_request_mutation(PullRequestMutationKind::Close, identity, cx),
+            PullRequestPopoverEvent::Dismiss => self.dismiss_overlay(cx),
+        }
+    }
+
+    fn open_current_pull_request_url(&mut self, cx: &mut Context<Self>) {
+        let url = match &self.view.repository.coordinator.state().pull_request {
+            crate::repository::PullRequestLoadState::Found { info, .. } => info.url.clone(),
+            _ => return,
+        };
+        cx.spawn(async move |window, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::platform::open_external_url(&url) })
+                .await;
+            if let Err(error) = result {
+                let _ = window.update(cx, |window, cx| {
+                    window.alert(
+                        "Could Not Open Pull Request".to_owned(),
+                        error.to_string(),
+                        cx,
+                    );
+                });
+            }
+        })
+        .detach();
+    }
+
+    pub(super) fn sync_pull_request_popover(&mut self, cx: &mut Context<Self>) {
+        let key = self.view.repository.coordinator.key().cloned();
+        let busy = key
+            .as_ref()
+            .is_some_and(|key| self.state.project_operations.is_mutating(&key.project_id));
+        let mut close = false;
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::PullRequest(popover),
+            ..
+        } = &mut self.view.overlay
+        {
+            if key.as_ref() != Some(&popover.key) {
+                close = true;
+            } else {
+                match (
+                    &self.view.repository.coordinator.state().pull_request,
+                    &self.view.repository.coordinator.state().summary,
+                ) {
+                    (
+                        crate::repository::PullRequestLoadState::Found {
+                            info,
+                            resolved: Some(resolved),
+                        },
+                        crate::repository::LoadState::Ready(summary),
+                    ) => {
+                        popover.resolved = resolved.clone();
+                        let error = popover.operation_error.clone();
+                        let message = popover.operation_message.clone();
+                        let key = key.expect("matching pull request popover requires a key");
+                        let repository_identity = resolved.repository_identity().clone();
+                        popover.panel.update(cx, |panel, cx| {
+                            panel.sync(
+                                key,
+                                repository_identity,
+                                info,
+                                summary,
+                                crate::views::repository::pull_request::PullRequestOperationState {
+                                    busy,
+                                    error,
+                                    message,
+                                },
+                                cx,
+                            )
+                        });
+                    }
+                    (crate::repository::PullRequestLoadState::Loading, _)
+                    | (_, crate::repository::LoadState::Loading) => {
+                        popover
+                            .panel
+                            .update(cx, |panel, cx| panel.set_busy(true, cx));
+                    }
+                    _ => close = true,
+                }
+            }
+        }
+        if close {
+            self.dismiss_overlay(cx);
+        }
+    }
+
     pub(crate) fn open_branch_popover(
         &mut self,
         anchor: Bounds<Pixels>,
@@ -859,6 +1071,15 @@ impl MainWindow {
         ) {
             return;
         }
+        if matches!(
+            &self.view.overlay,
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::PullRequest(popover),
+                ..
+            } if self.state.project_operations.is_mutating(&popover.key.project_id)
+        ) {
+            return;
+        }
         if let Overlay::Repository {
             kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
             ..
@@ -883,6 +1104,15 @@ impl MainWindow {
                 .repository
                 .coordinator
                 .set_changes_monitoring(false);
+            self.view.pending_focus = Some(self.view.workspace_focus.clone());
+        }
+        if matches!(
+            self.view.overlay,
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::PullRequest(_),
+                ..
+            }
+        ) {
             self.view.pending_focus = Some(self.view.workspace_focus.clone());
         }
         self.view.subscriptions.clear();

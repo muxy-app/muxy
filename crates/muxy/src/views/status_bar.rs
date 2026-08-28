@@ -59,6 +59,14 @@ pub fn status_bar(
                     left = left.child(changes_chip(state, control, cx));
                 }
             }
+            StatusControl::PullRequest => {
+                if let Some(control) = repository_controls.iter().find(|control| {
+                    control.kind == crate::repository::RepositoryControlKind::PullRequest
+                        && control.enabled
+                }) {
+                    left = left.child(pull_request_chip(state, control, cx));
+                }
+            }
         }
     }
 
@@ -83,6 +91,7 @@ enum StatusControl {
     Separator,
     Branch,
     Changes,
+    PullRequest,
 }
 
 fn status_controls(
@@ -93,16 +102,21 @@ fn status_controls(
     if has_path {
         controls.push(StatusControl::Path);
     }
-    for control in [StatusControl::Branch, StatusControl::Changes] {
+    for control in [
+        StatusControl::Branch,
+        StatusControl::Changes,
+        StatusControl::PullRequest,
+    ] {
         let kind = match control {
             StatusControl::Branch => crate::repository::RepositoryControlKind::Branch,
             StatusControl::Changes => crate::repository::RepositoryControlKind::Changes,
+            StatusControl::PullRequest => crate::repository::RepositoryControlKind::PullRequest,
             StatusControl::Path | StatusControl::Separator => unreachable!(),
         };
-        if !repository_controls
-            .iter()
-            .any(|candidate| candidate.kind == kind)
-        {
+        if !repository_controls.iter().any(|candidate| {
+            candidate.kind == kind
+                && (!matches!(control, StatusControl::PullRequest) || candidate.enabled)
+        }) {
             continue;
         }
         if !controls.is_empty() {
@@ -253,6 +267,21 @@ fn changes_chip(
     )
 }
 
+fn pull_request_chip(
+    state: &AppState,
+    control: &crate::repository::RepositoryControl,
+    cx: &mut Context<MainWindow>,
+) -> AnyElement {
+    repository_chip(
+        "status-pull-request",
+        Icon::GitBranch,
+        state,
+        control,
+        MainWindow::open_pull_request_popover,
+        cx,
+    )
+}
+
 type RepositoryPopoverOpener =
     fn(&mut MainWindow, gpui::Bounds<gpui::Pixels>, &mut gpui::Window, &mut Context<MainWindow>);
 
@@ -353,6 +382,7 @@ fn status_control_ids(has_path: bool) -> Vec<&'static str> {
             StatusControl::Separator => "status-separator",
             StatusControl::Branch => "status-branch",
             StatusControl::Changes => "status-changes",
+            StatusControl::PullRequest => "status-pull-request",
         })
         .collect()
 }
@@ -407,6 +437,7 @@ mod tests {
                     StatusControl::Separator => "status-separator",
                     StatusControl::Branch => "status-branch",
                     StatusControl::Changes => "status-changes",
+                    StatusControl::PullRequest => "status-pull-request",
                 })
                 .collect::<Vec<_>>(),
             ["status-path", "status-separator", "status-branch"]
@@ -419,6 +450,7 @@ mod tests {
                     StatusControl::Separator => "status-separator",
                     StatusControl::Branch => "status-branch",
                     StatusControl::Changes => "status-changes",
+                    StatusControl::PullRequest => "status-pull-request",
                 })
                 .collect::<Vec<_>>(),
             ["status-branch"]
@@ -451,6 +483,7 @@ mod tests {
                     StatusControl::Separator => "status-separator",
                     StatusControl::Branch => "status-branch",
                     StatusControl::Changes => "status-changes",
+                    StatusControl::PullRequest => "status-pull-request",
                 })
                 .collect::<Vec<_>>(),
             [
@@ -461,5 +494,62 @@ mod tests {
                 "status-changes",
             ]
         );
+    }
+
+    #[test]
+    fn phase_eight_adds_only_actionable_pull_requests_after_changes() {
+        let mut repository = vec![
+            crate::repository::RepositoryControl {
+                kind: crate::repository::RepositoryControlKind::Branch,
+                label: "main".to_owned(),
+                tooltip: "No upstream".to_owned(),
+                enabled: true,
+                tone: crate::repository::RepositoryControlTone::Default,
+            },
+            crate::repository::RepositoryControl {
+                kind: crate::repository::RepositoryControlKind::Changes,
+                label: "Clean".to_owned(),
+                tooltip: "Clean".to_owned(),
+                enabled: true,
+                tone: crate::repository::RepositoryControlTone::Clean,
+            },
+            crate::repository::RepositoryControl {
+                kind: crate::repository::RepositoryControlKind::PullRequest,
+                label: "#42".to_owned(),
+                tooltip: "Pull request #42".to_owned(),
+                enabled: true,
+                tone: crate::repository::RepositoryControlTone::Clean,
+            },
+        ];
+        let ids = |repository: &[crate::repository::RepositoryControl]| {
+            status_controls(true, repository)
+                .iter()
+                .map(|control| match control {
+                    StatusControl::Path => "status-path",
+                    StatusControl::Separator => "status-separator",
+                    StatusControl::Branch => "status-branch",
+                    StatusControl::Changes => "status-changes",
+                    StatusControl::PullRequest => "status-pull-request",
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            ids(&repository),
+            [
+                "status-path",
+                "status-separator",
+                "status-branch",
+                "status-separator",
+                "status-changes",
+                "status-separator",
+                "status-pull-request",
+            ]
+        );
+
+        repository[2].enabled = false;
+        assert!(!ids(&repository).contains(&"status-pull-request"));
+        repository[2].label = "Retry PR".to_owned();
+        repository[2].enabled = true;
+        assert!(ids(&repository).contains(&"status-pull-request"));
     }
 }

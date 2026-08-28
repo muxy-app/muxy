@@ -179,6 +179,7 @@ impl MainWindow {
                         window.install_repository_watcher(identity, cx);
                         window.request_current_pull_request(cx);
                         window.dispatch_repository_refresh(cx);
+                        window.sync_pull_request_popover(cx);
                     }
                     Err(error) => {
                         window.view.repository.coordinator.state_mut().summary =
@@ -341,12 +342,14 @@ impl MainWindow {
                     return;
                 }
                 window.view.repository.coordinator.state_mut().pull_request = match result {
-                    Ok(PullRequestLookup::Found(pull_request)) => {
-                        PullRequestLoadState::Found(Box::new(pull_request.info.clone()))
-                    }
+                    Ok(PullRequestLookup::Found(pull_request)) => PullRequestLoadState::Found {
+                        info: Box::new(pull_request.info.clone()),
+                        resolved: Some(pull_request),
+                    },
                     Ok(PullRequestLookup::NoPullRequest(_)) => PullRequestLoadState::NoPullRequest,
                     Err(error) => PullRequestLoadState::Unavailable(error.to_string()),
                 };
+                window.sync_pull_request_popover(cx);
                 cx.notify();
             });
         })
@@ -853,6 +856,169 @@ impl MainWindow {
         }
     }
 
+    pub(crate) fn start_pull_request_mutation(
+        &mut self,
+        kind: crate::views::repository::pull_request::PullRequestMutationKind,
+        expected_identity: &crate::views::repository::pull_request::PullRequestConfirmationIdentity,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            return;
+        };
+        let (resolved, current_identity, allowed) = match (
+            &self.view.overlay,
+            &self.view.repository.coordinator.state().pull_request,
+            &self.view.repository.coordinator.state().summary,
+        ) {
+            (
+                Overlay::Repository {
+                    kind: crate::views::overlay::RepositoryPopoverKind::PullRequest(popover),
+                    ..
+                },
+                PullRequestLoadState::Found { info, .. },
+                LoadState::Ready(summary),
+            ) if popover.key == key => {
+                let current_identity = crate::views::repository::pull_request::PullRequestConfirmationIdentity::from_resolved(
+                    key.clone(),
+                    &popover.resolved,
+                );
+                let presentation =
+                    crate::views::repository::pull_request::present_pull_request(info, summary);
+                let allowed = match kind {
+                    crate::views::repository::pull_request::PullRequestMutationKind::Update => {
+                        presentation.update.is_some_and(|update| update.enabled)
+                    }
+                    crate::views::repository::pull_request::PullRequestMutationKind::Merge(_) => {
+                        presentation.merge.enabled
+                    }
+                    crate::views::repository::pull_request::PullRequestMutationKind::Close => {
+                        presentation.close.enabled
+                    }
+                };
+                (popover.resolved.clone(), current_identity, allowed)
+            }
+            _ => return,
+        };
+        if let Err(error) =
+            validate_pull_request_action(expected_identity, &current_identity, allowed)
+        {
+            self.set_pull_request_operation_error(error.to_owned());
+            self.sync_pull_request_popover(cx);
+            return;
+        }
+        let plan = crate::views::repository::pull_request::pull_request_mutation_plan(
+            key.clone(),
+            resolved,
+            kind,
+        );
+        if !plan.background
+            || !plan.revalidate_key
+            || self.state.active_repository_key().as_ref() != Some(&plan.key)
+        {
+            return;
+        }
+        let token = match self
+            .state
+            .project_operations
+            .begin_operation(&key.project_id, plan.operation_kind)
+        {
+            Ok(token) => token,
+            Err(_) => {
+                self.set_pull_request_operation_error(
+                    "Another project mutation is running".to_owned(),
+                );
+                self.sync_pull_request_popover(cx);
+                return;
+            }
+        };
+        let Some((cancellation, boundary)) = self
+            .view
+            .repository
+            .coordinator
+            .begin_mutation(token.request_id())
+        else {
+            let _ = self.state.project_operations.finish_operation(&token);
+            return;
+        };
+        self.set_pull_request_operation_error(String::new());
+        self.set_pull_request_operation_message(None);
+        self.sync_pull_request_popover(cx);
+        let service = self.repository_service();
+        let operation_plan = plan.clone();
+        let control = GitHubControl::with_cancellation_and_boundary(cancellation, boundary);
+        cx.spawn(async move |window, cx| {
+            let execution = cx
+                .background_executor()
+                .spawn(
+                    async move { execute_pull_request_mutation(service, operation_plan, control) },
+                )
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                let _ = window.state.project_operations.finish_operation(&token);
+                let Some(completion) = window
+                    .view
+                    .repository
+                    .coordinator
+                    .finish_mutation(token.request_id(), execution.effect)
+                else {
+                    return;
+                };
+                let current = completion.current_identity
+                    && window.state.active_repository_key().as_ref() == Some(&plan.key)
+                    && window.view.repository.coordinator.key() == Some(&plan.key);
+                let Some((completion_refresh, plan_refresh)) =
+                    pull_request_completion_refreshes(current, completion.refresh, plan.refresh)
+                else {
+                    return;
+                };
+                window
+                    .view
+                    .repository
+                    .coordinator
+                    .request_refresh(completion_refresh);
+                window
+                    .view
+                    .repository
+                    .coordinator
+                    .request_refresh(plan_refresh);
+                match execution.result {
+                    Ok(message) => {
+                        window.set_pull_request_operation_error(String::new());
+                        window.set_pull_request_operation_message(message);
+                    }
+                    Err(error) => {
+                        window.set_pull_request_operation_message(None);
+                        window.set_pull_request_operation_error(error);
+                    }
+                }
+                window.dispatch_repository_refresh(cx);
+                window.sync_pull_request_popover(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn set_pull_request_operation_error(&mut self, error: String) {
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::PullRequest(popover),
+            ..
+        } = &mut self.view.overlay
+        {
+            popover.operation_error = (!error.is_empty()).then_some(error);
+        }
+    }
+
+    fn set_pull_request_operation_message(&mut self, message: Option<String>) {
+        if let Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::PullRequest(popover),
+            ..
+        } = &mut self.view.overlay
+        {
+            popover.operation_message = message;
+        }
+    }
+
     pub(crate) fn count_untracked_lines(
         &mut self,
         key: crate::repository::RepositoryKey,
@@ -1010,6 +1176,115 @@ struct BranchMutationExecution {
 struct ChangesMutationExecution {
     result: Result<MutationOutcome, String>,
     effect: MutationEffect,
+}
+
+struct PullRequestMutationExecution {
+    result: Result<Option<String>, String>,
+    effect: MutationEffect,
+}
+
+fn validate_pull_request_action(
+    expected: &crate::views::repository::pull_request::PullRequestConfirmationIdentity,
+    current: &crate::views::repository::pull_request::PullRequestConfirmationIdentity,
+    allowed: bool,
+) -> Result<(), &'static str> {
+    if expected != current {
+        Err("Pull request identity changed; review it before continuing")
+    } else if !allowed {
+        Err("Pull request action is no longer available")
+    } else {
+        Ok(())
+    }
+}
+
+fn pull_request_completion_refreshes(
+    current: bool,
+    completion: RepositoryRefreshSet,
+    planned: RepositoryRefreshSet,
+) -> Option<(RepositoryRefreshSet, RepositoryRefreshSet)> {
+    current.then_some((completion, planned))
+}
+
+fn execute_pull_request_mutation(
+    service: RepositoryService,
+    plan: crate::views::repository::pull_request::PullRequestMutationPlan,
+    control: GitHubControl,
+) -> PullRequestMutationExecution {
+    use crate::views::repository::pull_request::PullRequestMutationKind;
+    match plan.kind {
+        PullRequestMutationKind::Update => pull_request_update_execution(
+            service.update_pull_request(&plan.key.normalized_path, &plan.resolved, &control),
+        ),
+        PullRequestMutationKind::Merge(method) => pull_request_merge_execution(
+            service.merge_pull_request(&plan.key.normalized_path, &plan.resolved, method, &control),
+        ),
+        PullRequestMutationKind::Close => pull_request_close_execution(service.close_pull_request(
+            &plan.key.normalized_path,
+            &plan.resolved,
+            &control,
+        )),
+    }
+}
+
+fn pull_request_update_execution(
+    result: Result<MutationOutcome, muxy_api::repository::GitHubError>,
+) -> PullRequestMutationExecution {
+    map_pull_request_execution(result.map(|outcome| {
+        (
+            None,
+            if outcome == MutationOutcome::Success {
+                MutationEffect::Uncertain
+            } else {
+                MutationEffect::NoMutation
+            },
+        )
+    }))
+}
+
+fn pull_request_merge_execution(
+    result: Result<
+        muxy_api::repository::PullRequestMergeOutcome,
+        muxy_api::repository::GitHubError,
+    >,
+) -> PullRequestMutationExecution {
+    use muxy_api::repository::PullRequestMergeOutcome;
+    map_pull_request_execution(result.map(|outcome| {
+        (
+            match outcome {
+                PullRequestMergeOutcome::Success => None,
+                PullRequestMergeOutcome::SuccessWithWarning(message) => Some(message),
+            },
+            MutationEffect::Uncertain,
+        )
+    }))
+}
+
+fn pull_request_close_execution(
+    result: Result<(), muxy_api::repository::GitHubError>,
+) -> PullRequestMutationExecution {
+    map_pull_request_execution(result.map(|_| (None, MutationEffect::Uncertain)))
+}
+
+fn map_pull_request_execution(
+    result: Result<(Option<String>, MutationEffect), muxy_api::repository::GitHubError>,
+) -> PullRequestMutationExecution {
+    use muxy_api::repository::GitHubMutationEffect;
+    match result {
+        Ok((message, effect)) => PullRequestMutationExecution {
+            result: Ok(message),
+            effect,
+        },
+        Err(error) => PullRequestMutationExecution {
+            effect: match error.mutation_effect() {
+                Some(GitHubMutationEffect::Uncertain) => MutationEffect::Uncertain,
+                Some(GitHubMutationEffect::PartialSuccess) => MutationEffect::PartialSuccess {
+                    completed: "pull request action",
+                },
+                Some(GitHubMutationEffect::NoMutation) | None => MutationEffect::NoMutation,
+            },
+            result: Err(error.to_string()),
+        },
+    }
 }
 
 fn execute_changes_mutation(
@@ -1171,19 +1446,124 @@ fn branch_execution_error(message: &str, effect: MutationEffect) -> BranchMutati
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::project_operations::{BeginOperationError, ProjectOperationKind, ProjectOperations};
+    use crate::repository::RepositoryKey;
+    use crate::views::repository::pull_request::PullRequestConfirmationIdentity;
+    use muxy_api::repository::{
+        GitHubMutationEffect, GitHubRepositoryIdentity, PullRequestMergeOutcome,
+    };
+
     #[test]
-    fn phase_seven_renders_changes_and_keeps_later_controls_unrendered() {
+    fn phase_eight_wires_pull_request_actions_without_rendering_ai_controls() {
         let status_bar = include_str!("../status_bar.rs");
         let overlays = include_str!("overlays.rs");
         let changes = include_str!("../repository/changes.rs");
+        let repository = include_str!("repository.rs");
         assert!(status_bar.contains("\"status-branch\""));
         assert!(status_bar.contains("\"status-changes\""));
+        assert!(status_bar.contains("\"status-pull-request\""));
         assert!(!status_bar.contains(".id(\"status-commit-ai\")"));
         assert!(!status_bar.contains(".id(\"status-create-pr-ai\")"));
-        assert!(!status_bar.contains(".id(\"status-pull-request\")"));
         assert!(!status_bar.contains(".id(\"status-repository-unavailable\")"));
         assert!(overlays.contains("request_worktree_removal_inspection"));
         assert!(!overlays.contains("remove_worktree(&"));
+        assert!(overlays.contains("open_external_url"));
         assert!(changes.contains("action.disabled = mutation_busy"));
+        assert!(repository.contains("with_cancellation_and_boundary"));
+        assert!(repository.contains("update_pull_request"));
+        assert!(repository.contains("merge_pull_request"));
+        assert!(repository.contains("close_pull_request"));
+    }
+
+    fn confirmation_identity(repository_name: &str) -> PullRequestConfirmationIdentity {
+        PullRequestConfirmationIdentity {
+            key: RepositoryKey {
+                project_id: "project".to_owned(),
+                worktree_id: "worktree".to_owned(),
+                normalized_path: std::path::PathBuf::from("/repo"),
+            },
+            repository: GitHubRepositoryIdentity {
+                host: "github.com".to_owned(),
+                owner: "muxy".to_owned(),
+                name: repository_name.to_owned(),
+            },
+            number: 42,
+            branch: "topic".to_owned(),
+            head_oid: "a".repeat(40),
+        }
+    }
+
+    #[test]
+    fn pull_request_action_revalidation_rejects_repository_and_availability_changes() {
+        let expected = confirmation_identity("app");
+        assert!(validate_pull_request_action(&expected, &expected, true).is_ok());
+        assert_eq!(
+            validate_pull_request_action(&expected, &confirmation_identity("other"), true),
+            Err("Pull request identity changed; review it before continuing")
+        );
+        assert_eq!(
+            validate_pull_request_action(&expected, &expected, false),
+            Err("Pull request action is no longer available")
+        );
+    }
+
+    #[test]
+    fn pull_request_actions_share_the_project_mutation_lane() {
+        let mut operations = ProjectOperations::default();
+        let active = operations
+            .begin_operation("project", ProjectOperationKind::RepositoryMutation)
+            .unwrap();
+        assert!(matches!(
+            operations.begin_operation("project", ProjectOperationKind::RepositoryMutation),
+            Err(BeginOperationError::Busy(
+                ProjectOperationKind::RepositoryMutation
+            ))
+        ));
+        operations.finish_operation(&active).unwrap();
+    }
+
+    #[test]
+    fn pull_request_completion_refreshes_only_the_current_identity() {
+        let completion = RepositoryRefreshSet::summary_and_changes();
+        let planned = RepositoryRefreshSet::pull_request();
+        assert!(pull_request_completion_refreshes(false, completion, planned).is_none());
+        let (actual_completion, actual_planned) =
+            pull_request_completion_refreshes(true, completion, planned).unwrap();
+        assert!(actual_completion.contains(RepositoryReadKind::Summary));
+        assert!(actual_completion.contains(RepositoryReadKind::Changes));
+        assert!(!actual_completion.contains(RepositoryReadKind::PullRequest));
+        assert!(actual_planned.contains(RepositoryReadKind::PullRequest));
+        assert!(!actual_planned.contains(RepositoryReadKind::Summary));
+    }
+
+    #[test]
+    fn pull_request_execution_preserves_no_mutation_warnings_and_partial_success() {
+        let no_update = pull_request_update_execution(Ok(MutationOutcome::NoMutation));
+        assert!(matches!(no_update.effect, MutationEffect::NoMutation));
+        assert_eq!(no_update.result, Ok(None));
+
+        let warning = pull_request_merge_execution(Ok(
+            PullRequestMergeOutcome::SuccessWithWarning("local follow-up failed".to_owned()),
+        ));
+        assert!(matches!(warning.effect, MutationEffect::Uncertain));
+        assert_eq!(
+            warning.result,
+            Ok(Some("local follow-up failed".to_owned()))
+        );
+
+        let partial =
+            pull_request_merge_execution(Err(muxy_api::repository::GitHubError::Command {
+                operation: "merge pull request",
+                effect: GitHubMutationEffect::PartialSuccess,
+                message: "follow-up failed".to_owned(),
+            }));
+        assert!(matches!(
+            partial.effect,
+            MutationEffect::PartialSuccess {
+                completed: "pull request action"
+            }
+        ));
+        assert!(partial.result.is_err());
     }
 }

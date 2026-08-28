@@ -167,11 +167,15 @@ impl MutationControl {
         }
     }
 
-    pub(crate) fn from_parts(timeout: Duration, cancellation: Option<CancellationSignal>) -> Self {
+    pub(crate) fn from_parts_with_boundary(
+        timeout: Duration,
+        cancellation: Option<CancellationSignal>,
+        boundary: MutationBoundary,
+    ) -> Self {
         Self {
             timeout,
             cancellation,
-            boundary: MutationBoundary::default(),
+            boundary,
         }
     }
 }

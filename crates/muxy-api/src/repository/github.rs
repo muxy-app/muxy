@@ -1,5 +1,6 @@
 use super::{
-    MutationControl, MutationEffect, MutationOutcome, RepositoryMutationError, RepositoryService,
+    MutationBoundary, MutationControl, MutationEffect, MutationOutcome, RepositoryMutationError,
+    RepositoryService,
 };
 use crate::git::command::{RepositoryCommandRequest, repository_command, run_output};
 use crate::git::validate_branch;
@@ -22,6 +23,7 @@ const PR_JSON_FIELDS: &str = "url,number,state,isDraft,baseRefName,mergeable,mer
 pub struct GitHubControl {
     timeout: Duration,
     cancellation: Option<CancellationSignal>,
+    boundary: MutationBoundary,
 }
 
 impl Default for GitHubControl {
@@ -29,6 +31,7 @@ impl Default for GitHubControl {
         Self {
             timeout: DEFAULT_TIMEOUT,
             cancellation: None,
+            boundary: MutationBoundary::default(),
         }
     }
 }
@@ -38,6 +41,7 @@ impl GitHubControl {
         Self {
             timeout,
             cancellation: None,
+            boundary: MutationBoundary::default(),
         }
     }
 
@@ -45,11 +49,27 @@ impl GitHubControl {
         Self {
             timeout: DEFAULT_TIMEOUT,
             cancellation: Some(cancellation),
+            boundary: MutationBoundary::default(),
+        }
+    }
+
+    pub fn with_cancellation_and_boundary(
+        cancellation: CancellationSignal,
+        boundary: MutationBoundary,
+    ) -> Self {
+        Self {
+            timeout: DEFAULT_TIMEOUT,
+            cancellation: Some(cancellation),
+            boundary,
         }
     }
 
     fn mutation_control(&self) -> MutationControl {
-        MutationControl::from_parts(self.timeout, self.cancellation.clone())
+        MutationControl::from_parts_with_boundary(
+            self.timeout,
+            self.cancellation.clone(),
+            self.boundary.clone(),
+        )
     }
 
     fn is_cancelled(&self) -> bool {
@@ -237,6 +257,12 @@ pub struct ResolvedPullRequest {
     number: u64,
     url: ValidatedExternalUrl,
     base_branch: String,
+}
+
+impl ResolvedPullRequest {
+    pub fn repository_identity(&self) -> &GitHubRepositoryIdentity {
+        &self.repository.identity
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1051,6 +1077,10 @@ impl RepositoryService {
             .environment
             .resolve_executable("gh".as_ref())
             .ok_or(GitHubError::MissingExecutable)?;
+        let irreversible = effect != GitHubMutationEffect::NoMutation;
+        if irreversible && !control.boundary.begin_irreversible() {
+            return Err(GitHubError::Cancelled { operation, effect });
+        }
         let output = crate::subprocess::run(
             SubprocessRequest {
                 executable,
@@ -1063,8 +1093,14 @@ impl RepositoryService {
                 cancellation: control.cancellation.clone(),
             },
             Some(deadline),
-        )
-        .map_err(|source| GitHubError::Process {
+        );
+        if irreversible
+            && control.boundary.finish_irreversible()
+            && let Some(cancellation) = &control.cancellation
+        {
+            cancellation.cancel();
+        }
+        let output = output.map_err(|source| GitHubError::Process {
             operation,
             effect,
             source: Box::new(source),

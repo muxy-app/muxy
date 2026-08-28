@@ -1,5 +1,8 @@
 use super::{LoadState, PullRequestLoadState, RepositoryState};
-use muxy_api::repository::RepositorySummary;
+use muxy_api::repository::{
+    PullRequestChecksStatus, PullRequestMergeState, PullRequestMergeable, PullRequestState,
+    RepositorySummary,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RepositoryControlKind {
@@ -86,20 +89,46 @@ pub(crate) fn repository_controls(state: &RepositoryState) -> Vec<RepositoryCont
             "Create a pull request with AI",
             summary.is_some(),
         ),
-        PullRequestLoadState::Unavailable(error) => control(
+        PullRequestLoadState::Unavailable(error) => control_with_tone(
             RepositoryControlKind::PullRequest,
-            "Pull Request",
+            "Retry PR",
             error,
-            false,
-        ),
-        PullRequestLoadState::Found(pull_request) => control(
-            RepositoryControlKind::PullRequest,
-            format!("#{}", pull_request.number),
-            format!("Pull request #{}", pull_request.number),
             true,
+            RepositoryControlTone::Danger,
+        ),
+        PullRequestLoadState::Found { info, .. } => control_with_tone(
+            RepositoryControlKind::PullRequest,
+            format!("#{}", info.number),
+            format!("Pull request #{}", info.number),
+            true,
+            pull_request_tone(info),
         ),
     });
     controls
+}
+
+fn pull_request_tone(info: &muxy_api::repository::PullRequestInfo) -> RepositoryControlTone {
+    if info.state == PullRequestState::Closed
+        || info.mergeable == PullRequestMergeable::Conflicting
+        || info.merge_state == PullRequestMergeState::Dirty
+        || info.checks.status == PullRequestChecksStatus::Failure
+    {
+        RepositoryControlTone::Danger
+    } else if info.state == PullRequestState::Open
+        && (info.is_draft
+            || matches!(
+                info.merge_state,
+                PullRequestMergeState::Behind
+                    | PullRequestMergeState::Blocked
+                    | PullRequestMergeState::Draft
+                    | PullRequestMergeState::Unstable
+            )
+            || info.checks.status == PullRequestChecksStatus::Pending)
+    {
+        RepositoryControlTone::Dirty
+    } else {
+        RepositoryControlTone::Clean
+    }
 }
 
 fn ready_controls(summary: &RepositorySummary) -> Vec<RepositoryControl> {
@@ -302,36 +331,47 @@ mod tests {
         );
 
         repository.pull_request = PullRequestLoadState::Unavailable("login required".to_owned());
-        assert!(
-            repository_controls(&repository)
-                .iter()
-                .any(|control| control.tooltip.contains("login required"))
-        );
+        let unavailable = repository_controls(&repository);
+        let unavailable = unavailable
+            .iter()
+            .find(|control| control.kind == RepositoryControlKind::PullRequest)
+            .unwrap();
+        assert_eq!(unavailable.label, "Retry PR");
+        assert!(unavailable.enabled);
+        assert_eq!(unavailable.tone, RepositoryControlTone::Danger);
 
-        repository.pull_request = PullRequestLoadState::Found(Box::new(PullRequestInfo {
-            url: ValidatedExternalUrl::try_from("https://github.com/muxy/repo/pull/42".to_owned())
+        repository.pull_request = PullRequestLoadState::Found {
+            info: Box::new(PullRequestInfo {
+                url: ValidatedExternalUrl::try_from(
+                    "https://github.com/muxy/repo/pull/42".to_owned(),
+                )
                 .unwrap(),
-            number: 42,
-            state: PullRequestState::Open,
-            is_draft: false,
-            base_branch: "main".to_owned(),
-            mergeable: PullRequestMergeable::Mergeable,
-            merge_state: PullRequestMergeState::Clean,
-            checks: PullRequestChecks {
-                status: PullRequestChecksStatus::Success,
-                passing: 1,
-                failing: 0,
-                pending: 0,
-                total: 1,
-            },
-            is_cross_repository: false,
-            head_oid: "a".repeat(40),
-            head_branch: "topic".to_owned(),
-        }));
+                number: 42,
+                state: PullRequestState::Open,
+                is_draft: false,
+                base_branch: "main".to_owned(),
+                mergeable: PullRequestMergeable::Mergeable,
+                merge_state: PullRequestMergeState::Clean,
+                checks: PullRequestChecks {
+                    status: PullRequestChecksStatus::Success,
+                    passing: 1,
+                    failing: 0,
+                    pending: 0,
+                    total: 1,
+                },
+                is_cross_repository: false,
+                head_oid: "a".repeat(40),
+                head_branch: "topic".to_owned(),
+            }),
+            resolved: None,
+        };
         let found = repository_controls(&repository);
-        assert!(found.iter().any(|control| {
-            control.kind == RepositoryControlKind::PullRequest && control.label == "#42"
-        }));
+        let found = found
+            .iter()
+            .find(|control| control.kind == RepositoryControlKind::PullRequest)
+            .unwrap();
+        assert_eq!(found.label, "#42");
+        assert_eq!(found.tone, RepositoryControlTone::Clean);
 
         repository.key = None;
         assert!(repository_controls(&repository).is_empty());

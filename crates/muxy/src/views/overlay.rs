@@ -67,7 +67,7 @@ pub enum RepositoryAiAction {
 pub enum RepositoryPopoverKind {
     Branch(Box<crate::views::repository::branch::BranchPopover>),
     Changes(Box<crate::views::repository::changes::ChangesPopover>),
-    PullRequest,
+    PullRequest(Box<crate::views::repository::pull_request::PullRequestPopover>),
     Ai(RepositoryAiAction),
 }
 
@@ -340,6 +340,28 @@ pub fn layer(
                 state,
             );
             crate::views::repository::changes::render(popover, gpui::Bounds { origin, size })
+        }
+        Overlay::Repository {
+            kind: RepositoryPopoverKind::PullRequest(popover),
+            anchor,
+        } => {
+            let presentation = popover.panel.read(cx).presentation();
+            let policy =
+                crate::views::repository::pull_request::pull_request_overlay_policy(&presentation);
+            let size = gpui::size(
+                state.metrics.scaled(policy.target_width),
+                state.metrics.scaled(policy.target_height),
+            );
+            let origin = clamp(
+                gpui::point(
+                    anchor.origin.x,
+                    anchor.origin.y - size.height - state.metrics.spacing2(),
+                ),
+                size,
+                viewport,
+                state,
+            );
+            crate::views::repository::pull_request::render(popover, gpui::Bounds { origin, size })
         }
         Overlay::Repository { .. } => return div().into_any_element(),
     };

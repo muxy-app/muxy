@@ -132,6 +132,18 @@ impl RepositoryRefreshSet {
         set
     }
 
+    pub(crate) fn pull_request() -> Self {
+        let mut set = Self::empty();
+        set.insert(RepositoryReadKind::PullRequest);
+        set
+    }
+
+    pub(crate) fn repository_truth() -> Self {
+        let mut set = Self::summary_branches_pull_request();
+        set.insert(RepositoryReadKind::Changes);
+        set
+    }
+
     #[cfg(test)]
     pub(crate) fn is_empty(self) -> bool {
         self.0 == 0
@@ -174,7 +186,10 @@ pub(crate) enum PullRequestLoadState {
     Loading,
     NoPullRequest,
     Unavailable(String),
-    Found(Box<PullRequestInfo>),
+    Found {
+        info: Box<PullRequestInfo>,
+        resolved: Option<Box<muxy_api::repository::ResolvedPullRequest>>,
+    },
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
