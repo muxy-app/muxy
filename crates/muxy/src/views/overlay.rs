@@ -45,6 +45,9 @@ pub enum Overlay {
     Picker(Entity<crate::views::project_picker::ProjectPicker>),
     Omnibox(Entity<crate::views::omnibox::Omnibox>),
     Settings(Entity<crate::views::settings::SettingsModal>),
+    Notifications {
+        anchor: gpui::Bounds<Pixels>,
+    },
     ThemePicker {
         browser: Entity<crate::views::settings::theme_picker::ThemeBrowser>,
         anchor: Option<gpui::Bounds<Pixels>>,
@@ -255,6 +258,28 @@ pub fn layer(
         Overlay::Picker(picker) => picker.clone().into_any_element(),
         Overlay::Omnibox(omnibox) => omnibox.clone().into_any_element(),
         Overlay::Settings(modal) => modal.clone().into_any_element(),
+        Overlay::Notifications { anchor } => {
+            let size = gpui::size(
+                state
+                    .metrics
+                    .scaled(crate::views::notifications::panel::PANEL_WIDTH),
+                state
+                    .metrics
+                    .scaled(crate::views::notifications::panel::PANEL_HEIGHT),
+            );
+            let origin = crate::views::notifications::panel::panel_origin(
+                *anchor,
+                size,
+                viewport,
+                state.metrics.spacing4(),
+                state.metrics.spacing2(),
+            );
+            let model = crate::views::notifications::panel::model(
+                state.notification_store.records(),
+                muxy_core::store::reference_now(),
+            );
+            crate::views::notifications::panel::render(model, origin, focus, state, cx)
+        }
         Overlay::ThemePicker { browser, anchor } => {
             let picker = browser.read(cx).picker().clone();
             let offsets = theme_picker_offsets(

@@ -142,7 +142,15 @@ fn with_opacity(color: Hsla, opacity: f32) -> Hsla {
     }
 }
 
-pub fn collapsed_row(state: &AppState, project: &Project) -> AnyElement {
+fn unread_dot(state: &AppState) -> AnyElement {
+    div()
+        .size(state.metrics.scaled(6.0))
+        .rounded_full()
+        .bg(state.theme.accent)
+        .into_any_element()
+}
+
+pub fn collapsed_row(state: &AppState, project: &Project, unread: bool) -> AnyElement {
     let metrics = &state.metrics;
     let inset = metrics.scaled(3.0);
     let is_active = state.is_active(project);
@@ -177,10 +185,18 @@ pub fn collapsed_row(state: &AppState, project: &Project) -> AnyElement {
         .cursor_pointer()
         .child(project_tile(state, project, group))
         .child(ring)
+        .when(unread, |element| {
+            element.child(div().absolute().top_0().right_0().child(unread_dot(state)))
+        })
         .into_any_element()
 }
 
-pub fn expanded_row(state: &AppState, project: &Project, worktrees_expanded: bool) -> AnyElement {
+pub fn expanded_row(
+    state: &AppState,
+    project: &Project,
+    worktrees_expanded: bool,
+    unread: bool,
+) -> AnyElement {
     let metrics = &state.metrics;
     let theme = &state.theme;
     let is_active = state.is_active(project);
@@ -231,6 +247,10 @@ pub fn expanded_row(state: &AppState, project: &Project, worktrees_expanded: boo
         .child(project_tile(state, project, group))
         .child(label);
 
+    if unread {
+        row = row.child(unread_dot(state));
+    }
+
     if project.has_worktree_ui() {
         row = row.child(
             div()
@@ -260,10 +280,10 @@ pub fn expanded_row(state: &AppState, project: &Project, worktrees_expanded: boo
     row.into_any_element()
 }
 
-pub fn worktree_row(state: &AppState, model: &WorktreeRowModel) -> AnyElement {
+pub fn worktree_row(state: &AppState, model: &WorktreeRowModel, unread: bool) -> AnyElement {
     let metrics = &state.metrics;
     let theme = &state.theme;
-    let dot = match model.kind {
+    let kind_dot = match model.kind {
         WorktreeRowKind::Primary => theme.accent,
         WorktreeRowKind::Managed => theme.fg,
         WorktreeRowKind::External => theme.fg_dim,
@@ -306,8 +326,9 @@ pub fn worktree_row(state: &AppState, model: &WorktreeRowModel) -> AnyElement {
         .when(!model.active, |row| {
             row.hover(|style| style.bg(theme.hover))
         })
-        .child(div().size(metrics.scaled(7.0)).rounded_full().bg(dot))
+        .child(div().size(metrics.scaled(7.0)).rounded_full().bg(kind_dot))
         .child(label)
+        .when(unread, |element| element.child(unread_dot(state)))
         .into_any_element()
 }
 

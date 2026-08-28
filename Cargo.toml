@@ -74,6 +74,17 @@ objc2-app-kit = { version = "0.3", features = [
     "NSWindow",
     "NSPasteboard",
     "NSScreen",
+    "NSSound",
+] }
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = [
+    "block2",
+    "NSString_UserNotifications",
+    "UNNotification",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotificationSettings",
+    "UNUserNotificationCenter",
 ] }
 
 [workspace.lints.rust]

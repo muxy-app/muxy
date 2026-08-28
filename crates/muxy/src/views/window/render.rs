@@ -4,6 +4,7 @@ impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_repository_context(cx);
         self.reconcile_terminals(window, cx);
+        self.sync_active_notification_read_state(cx);
         let project_ids = self
             .state
             .workspace
@@ -87,6 +88,11 @@ impl Render for MainWindow {
                 drag,
                 now: self.view.terminal.started_at.elapsed(),
                 overlay: &self.view.overlay,
+                toast: self
+                    .view
+                    .toast
+                    .current()
+                    .map(|content| (content, self.view.toast.generation())),
                 drop_highlight,
                 focused_working_directory,
                 expanded_worktree_projects: self.view.worktrees.expanded_projects(),

@@ -1,91 +1,81 @@
 # AI notifications
 
-Muxy tracks the AI coding agents running inside its terminals — Antigravity CLI, Claude Code, Codex, Cursor, GitHub Copilot, Droid, Grok, Kiro CLI, OpenCode, Pi, and Xal — and surfaces their lifecycle as pane and worktree status, completion badges, and notifications when a turn finishes, or — for providers that expose a waiting hook — when an agent needs attention.
+The Rust app accepts Agent Hook v3 events from Antigravity CLI, Claude Code, Codex, Cursor, GitHub Copilot, Droid, Grok, Kiro CLI, OpenCode, Pi, and Xal through the Unix socket. P2 owns the wire protocol, acknowledgement, deduplication, and initial pane resolution. P5 consumes the resulting typed event and routes known-provider notifications through the same history and delivery coordinator as legacy socket and terminal OSC notifications.
 
-There are two independent sources of truth, and hooks are authoritative.
+The current Rust implementation does not install provider hooks, mutate provider configuration, track provider health, or update agent lifecycle UI. Those client and integration features remain P11 work. The provider Test and Refresh controls do not execute hook installation or repair in P5.
 
-## Detection vs. hooks
+## Protocol v3
 
-- **Hooks** are the primary signal. Each provider's CLI is configured to run a small Muxy hook when it starts a turn, finishes, or needs input. The hook reports the exact lifecycle phase (`working`, `waiting`, `finished`), so status changes are precise and event-driven.
-- **Detection** is the fallback. Muxy watches the foreground process of each pane to notice when an agent is running even if its hooks are missing or misconfigured. Detection can tell that an agent *stopped* being the foreground process, but not why.
-
-When detection reports that a working agent is no longer active, Muxy waits a short grace window (4 seconds) for a hook `finished` event before falling back to marking the pane idle. A hook event arriving inside the window always wins, so a correctly hooked agent is never idled prematurely by detection.
-
-A `waiting` pane is handled more conservatively, because a waiting agent still has a live process and must never be idled just for leaving the foreground. It uses a much longer window (30 seconds), and Muxy records the detected process ID before detection is lost. At the end of each window, Muxy idles the pane only if that process is gone; a live process schedules another low-frequency check. This recovers panes whose agent was killed before its `Stop` hook could run, without cutting short an agent that is genuinely waiting on input.
-
-## Session end
-
-Leaving the foreground and exiting are different events. Once detection identifies an agent, Muxy watches that process for exit, so quitting the agent ends its session immediately without polling. Ending a session idles the pane and drops it from the Agents Focused sidebar, while completion badges and notifications from the finished turn stay. A `finished` hook event arriving after the process is gone does not revive the session; the next `working` or `waiting` event, or detecting an agent again, starts a new one. Agents running over SSH are not detected locally, so their sessions end only when the pane closes.
-
-## Protocol (v3)
-
-Hooks talk to Muxy over a Unix domain socket at `~/Library/Application Support/Muxy/muxy.sock` (`muxy-dev.sock` for debug builds). The wire format is a single newline-delimited JSON object per event, acknowledged by the server:
+Hooks send one newline-delimited JSON object to `~/Library/Application Support/Muxy/muxy.sock` or `muxy-dev.sock` for a debug build:
 
 ```json
-{"v":3,"kind":"agent_event","id":"…","provider":"claude_hook","paneID":"…","phase":"finished","title":"Claude Code","body":"Done","pids":[],"ts":1721234567}
+{"v":3,"kind":"agent_event","id":"…","provider":"codex","paneID":"…","phase":"finished","title":"Codex","body":"Done","pids":[],"ts":1721234567}
 ```
 
-- `id` is a UUID identifying one logical event. The bridge generates it once when the message is built and re-sends the identical line on every retry, so a retried event carries the same `id`.
-- `paneID` is the target pane. When the CLI cannot know it, the field is omitted and `pids` carries the process's ancestor chain; Muxy resolves the nearest matching pane by foreground process id.
-- `phase` is `working`, `waiting`, or `finished`. `finished` maps to the `idle` status.
-- `test: true` marks a synthetic event from the settings Test button — it is delivered as a notification but never changes agent status.
+- `id` identifies one logical delivery. A retry must resend the same line and ID.
+- `provider` must match one of the eleven provider IDs in Muxy's shared provider catalog before P5 creates notification history.
+- `paneID` is optional. When it is absent, P2 can resolve the first supplied process ancestor in `pids` to a pane.
+- `phase` is `working`, `waiting`, or `finished`.
+- `test: true` marks a synthetic notification event.
 
-The server replies with `{"v":3,"kind":"ack","ok":true}`. Events with the wrong version, wrong kind, empty provider, or a malformed pane id are rejected without an ack. This is the only agent protocol Muxy accepts; there is no pipe-format fallback.
+The server replies to a valid envelope with:
 
-The bridge accepts at most 1 MiB from standard input and uses one monotonic 400 ms execution budget across input reading, socket connection, writes, acknowledgement reads, and retries. Reaching the payload cap returns immediately instead of draining the rest of standard input.
+```json
+{"kind":"ack","ok":true,"v":3}
+```
 
-### Duplicate suppression
+The acknowledgement is sent before duplicate suppression and app delivery. The server remembers the 256 most recently applied non-empty IDs. A duplicate is acknowledged again but does not create another notification. A missing or empty ID is not deduplicated.
 
-The bridge retries an event when an ack does not arrive within its delivery budget, so a lost or slow ack can deliver the same event twice. The server remembers the 256 most recently applied `id` values (FIFO eviction) and, on a repeat, still acks so the client stops retrying, then skips the event entirely. Duplicate deliveries do not update agent status, hook health, event time, or notifications. An event with a missing or empty `id` is never deduplicated and is always delivered.
+Events with the wrong version, wrong kind, unsupported phase, empty provider, or malformed pane ID are rejected without an acknowledgement. The bridge-side one-mebibyte input cap and 400 ms delivery budget belong to the future P11 client implementation, not the P5 receiver.
 
-When an AI hook and terminal OSC report the same body and navigation context within two seconds, Muxy coalesces only their macOS desktop-notification delivery. Matching titles and the default completion titles are treated as equivalent for this delivery check. A delivery is suppressed only when exactly one complementary pending ingress matches; ambiguous candidates, including different AI providers, are all delivered. Both notification records remain available to the notification list, API, extensions, and in-app delivery. Extension-origin notifications are not eligible for this coalescing.
+## Target resolution
 
-## Staging layout
+Normal events require a known provider and a live resolved terminal pane. An explicit or process-matched pane that has become stale is dropped and never falls back to another tab. An unresolved normal event is also dropped.
 
-The compiled hook bridge (`muxy-hook`) and the provider shims are staged into `~/Library/Application Support/Muxy/hooks` (`hooks-dev` for debug builds) with private permissions:
+A Test event uses its live explicit pane when supplied. If its pane ID is absent or malformed, it may fall back to the active terminal context. A valid stale Test pane is dropped. Test titles default to `Notifications`.
 
-- `muxy-hook` — the compiled bridge every hook invokes.
-- `muxy-antigravity-hook.sh`, `muxy-claude-hook.sh`, `muxy-codex-hook.sh`, `muxy-copilot-hook.sh`, `muxy-cursor-hook.sh`, `muxy-droid-hook.sh`, `muxy-grok-hook.sh`, `muxy-kiro-hook.sh` — thin shell shims that exec the colocated `muxy-hook`.
-- `opencode-muxy-plugin.js`, `muxy-pi-extension.ts`, `muxy-xal-plugin.ts` — plugin/extension entry points that spawn the staged `muxy-hook`. When the binary is missing they log a clear error to their own stderr and skip the event. That stderr never reaches Muxy, so nothing restages automatically — use **Refresh** in Settings to restage.
+A normal event with empty title and body creates no notification. If only the title is empty, it defaults to `Task completed!`. P5 uses processing time for history ordering; the envelope timestamp remains diagnostic protocol data.
 
-The OpenCode entry point is installed globally at `~/.config/opencode/plugins/muxy-notify.js`. OpenCode loads local plugins at startup, so restart any running OpenCode session after Muxy first installs or repairs this file.
+Every accepted record captures complete project, worktree, area, root-tab, pane, and worktree-path identity before any store or presentation mutation starts.
 
-The Xal entry point is installed at `~/.xal/plugins/muxy-notify/plugin.ts` and its directory is added to the `plugins` array in `~/.xal/config.json`, because Xal loads only the plugins that array names. Xal loads plugins at startup, so restart any running Xal session after Muxy installs or repairs them.
+## History and delivery
 
-Reconciliation starts only after the complete staged resource set is available. Each provider also verifies that the shared `muxy-hook` bridge exists and is executable, so a stale shim or plugin cannot report healthy while its bridge is missing.
+Accepted AI events enter the shared newest-first notification history. The store retains at most 200 records in the selected Rust profile's private `notifications.json`. It tolerates malformed sibling rows, writes atomically with mode 0600, debounces ordinary saves for two seconds, and flushes synchronously when the main window closes or the app quits. Loaded history is retained and marked read at startup. The Rust app does not import the retained Swift notification file.
 
-Terminals export `MUXY_PANE_ID`, `MUXY_SOCKET_PATH`, `MUXY_HOOK_BIN`, `MUXY_HOOK_SCRIPT`, `MUXY_PROJECT_ID`, and `MUXY_WORKTREE_ID` so shims and plugins can reach the socket and binary and identify their context.
+Delivery settings are independent:
 
-## Health and repair engine
+- Notification toasts use the latest-replacing three-second toast presentation.
+- macOS desktop delivery is optional. Ordinary delivery never prompts for authorization; enabling the setting owns the permission request.
+- Sound uses one of the fourteen named macOS system sounds. `None` and unknown names are silent.
+- Generic worktree and repository feedback may use the same toast presentation but never enters notification history, desktop delivery, sound, coalescing, or unread state.
 
-Each provider integration is reconciled declaratively: Muxy **verifies** that every managed event has exactly one current Muxy hook and **repairs** stale or duplicate entries in place when it drifts, preserving any foreign hooks the user configured. Reconciliation runs at launch, when a provider becomes available, and whenever a provider's config file changes — the latter is watched with FSEvents and debounced, so an external edit to `~/.claude`, `~/.codex`, and the like triggers an automatic re-verify without polling.
+The sidebar footer bell opens the notification panel. Rows show source, title, body, relative time, and unread state. Opening a live row navigates by stable project, worktree, area, root-tab, and pane IDs; the stored worktree path is context data only. Opening a stale row recreates nothing but still marks the record read. Project, worktree, root-tab, and omnibox presentation derive unread state from the same store.
 
-Muxy records a hash of every config file it writes and ignores watcher events whose content matches its own last write, so a repair never re-triggers itself. A per-file rate limiter caps repairs within a rolling minute; when it trips — most commonly when a release and a debug build both manage the same config — Muxy stops rewriting and reports a `conflict` instead of spinning.
+## Hook and OSC pairing
 
-Providers that moved to a new config location also declare their obsolete paths. Those are watched alongside the managed ones and deleted on install, so an older Muxy build restoring a superseded copy triggers a repair instead of leaving two live hooks.
+When one AI hook and one terminal OSC notification carry the same body and navigation context within two seconds, Muxy may suppress only the second macOS desktop request. Matching titles and the default completion titles are equivalent for this comparison.
 
-Results are tracked per provider in the health store — install state, last verified/repaired time, last event time, and last error — and shown in **Settings → Notifications** as a status dot and line per provider. A `conflict` means Muxy found a non-Muxy hook it will not overwrite; the message names it. Antigravity CLI hooks live in `~/.gemini/config/hooks.json`. Copilot CLI hooks live in `~/.copilot/hooks/muxy-notify.json` (or `$COPILOT_HOME/hooks/` when set); restart the CLI after Muxy repairs hooks so the new config is loaded. Kiro CLI hooks live in `~/.kiro/hooks/muxy-notify.json`; global hooks require the CLI's V3 mode (`kiro-cli --v3`), available since CLI 2.13 and standard in CLI 3.0. Kiro loads hooks at session start, so start a new session after Muxy installs or repairs the file. Xal reports `working` and `idle` only: its plugin hooks cover prompt submission and turn completion, but an interrupted or failed turn runs no hook, so a cancelled turn keeps the pane `working` until the next prompt or until detection ends the session. Muxy manages the user-level `~/.xal/config.json`; a project-level `.xal/config.json` that declares its own `plugins` array replaces the user array entirely, and Xal will not load Muxy's plugin in that project.
+Both records remain in history. Both toasts and both sounds remain. Suppression occurs only when exactly one complementary pending event matches. Ambiguous candidates, different providers, target mismatches, body mismatches, and events outside the two-second window are delivered independently. Legacy socket and future extension-origin notifications are not pairing candidates.
 
-OpenCode also runs a bounded, read-only `opencode debug info` discovery probe after reconciliation. Its provider row reports the resolved CLI version and whether OpenCode's effective plugin list contains Muxy's exact managed plugin. Discovery results are separate from hook verification and event delivery, and are logged through the `ProviderDiscovery` unified-log category with executable paths kept private.
+## P11 boundary
 
-The OpenCode plugin writes structured `service=muxy` entries to OpenCode's own logs when it initializes, forwards a permission or question, or cannot launch `muxy-hook`. Use `opencode debug paths` to locate the active OpenCode log directory and `opencode debug info` to inspect the effective plugin list manually.
+P11 remains responsible for:
 
-## Test button
+- the `muxy-hook` client executable and provider-specific shims or plugins
+- declarative installation, verification, repair, and obsolete-resource cleanup
+- provider configuration mutation permits and development-mode safety
+- foreground-process detection and agent lifecycle status
+- provider health, Test, and Refresh behavior
+- hook staging paths and `MUXY_HOOK_BIN` or `MUXY_HOOK_SCRIPT` terminal variables
 
-Each provider row in **Settings → Notifications** has a **Test** button. It runs the staged `muxy-hook` with `--event test --test`, which sends a `test: true` event over the live socket. The pass/fail signal is the bridge's exit code, so a passing test confirms the delivery path — staged binary, socket, server, and ack — without touching agent status. It does not verify that the resulting in-app notification was presented. **Refresh** restages the provider's hook files and re-runs reconciliation.
-
-## Extension surface
-
-Agent status is exposed to extensions as the `agent.status` event and `muxy.agents.list()`, and completions post `notification.posted`. See [Extension events](../extensions/events.md).
+P5 adds none of those behaviors. It consumes only Agent Hook v3 envelopes already accepted by the P2 socket server.
 
 ## Troubleshooting
 
-- **No notifications from an agent.** Open **Settings → Notifications**, check the provider's status dot, and click **Refresh** to restage and re-verify. Run **Test** to confirm the socket path end to end.
-- **OpenCode still does not report permissions or questions after Refresh.** Restart the OpenCode session so it loads the repaired global plugin from `~/.config/opencode/plugins`.
-- **Hook delivery failures.** The bridge logs failures to `~/Library/Application Support/Muxy/hooks.log`.
-- **Socket missing.** Verify it exists: `ls -l ~/Library/Application\ Support/Muxy/muxy.sock`.
-- **Conflict reported.** Muxy found a foreign hook in the provider's config and left it untouched. Remove or rename it if you want Muxy to own that hook, then **Refresh**.
-- **Logs.** Stream live: `log stream --predicate 'subsystem == "app.muxy"' --info --debug`.
-- **OpenCode discovery logs.** Filter the provider probe: `log stream --predicate 'subsystem == "app.muxy" AND category == "ProviderDiscovery"' --info --debug`.
+- **No acknowledgement.** Check the socket path and validate the v3 envelope, provider, phase, and pane ID syntax.
+- **Acknowledged but no history row.** Confirm the provider ID is known and the resolved pane is still live. Empty normal title and body are intentionally dropped.
+- **Duplicate delivery missing.** Reusing a non-empty event ID is expected to suppress the duplicate after acknowledging it.
+- **Socket missing.** Check `ls -l ~/Library/Application\ Support/Muxy/muxy.sock` or the debug `muxy-dev.sock` path.
+- **Provider integration unavailable.** Automatic hook installation and repair are not implemented until P11.
 
-See also [Terminal notifications](terminal.md) for OSC-based terminal notifications, and the general [Troubleshooting](../user-guide/troubleshooting.md) guide.
+See [Terminal notifications](terminal.md) for OSC 9 and OSC 777 behavior and [Socket protocol](../development/socket-protocol.md) for framing and routing details.

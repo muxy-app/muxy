@@ -113,6 +113,12 @@ pub struct ColorChange {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DesktopNotification {
+    pub title: String,
+    pub body: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Action {
     SetTitle(String),
     SetTabTitle(String),
@@ -129,6 +135,7 @@ pub enum Action {
     Progress(ProgressReport),
     Scrollbar(Scrollbar),
     ColorChange(ColorChange),
+    DesktopNotification(DesktopNotification),
     ReloadConfig { soft: bool },
     Unsupported { tag: u32 },
 }
@@ -576,6 +583,16 @@ unsafe fn dispatch_action(
 
 unsafe fn decode_action(raw: ffi::ghostty_action_s) -> DecodedAction {
     let action = match raw.tag {
+        ffi::ghostty_action_tag_e_GHOSTTY_ACTION_DESKTOP_NOTIFICATION => {
+            let payload = unsafe { raw.action.desktop_notification };
+            let Some(title) = (unsafe { copy_optional_utf8_c_string(payload.title) }) else {
+                return DecodedAction::Invalid(raw.tag);
+            };
+            let Some(body) = (unsafe { copy_optional_utf8_c_string(payload.body) }) else {
+                return DecodedAction::Invalid(raw.tag);
+            };
+            Action::DesktopNotification(DesktopNotification { title, body })
+        }
         ffi::ghostty_action_tag_e_GHOSTTY_ACTION_SET_TITLE => {
             let payload = unsafe { raw.action.set_title };
             let Some(title) = (unsafe { copy_required_utf8_c_string(payload.title) }) else {
@@ -877,6 +894,16 @@ unsafe fn copy_required_utf8_c_string(value: *const c_char) -> Option<String> {
         .map(str::to_owned)
 }
 
+unsafe fn copy_optional_utf8_c_string(value: *const c_char) -> Option<String> {
+    if value.is_null() {
+        return Some(String::new());
+    }
+    unsafe { CStr::from_ptr(value) }
+        .to_str()
+        .ok()
+        .map(str::to_owned)
+}
+
 unsafe fn copy_required_path(value: *const c_char) -> Option<PathBuf> {
     if value.is_null() {
         return None;
@@ -971,6 +998,107 @@ mod tests {
             Ok(RuntimeEvent::Action(ActionEvent {
                 target: ActionTarget::App,
                 action: Action::SetTitle("shell title".to_owned()),
+            }))
+        );
+    }
+
+    #[test]
+    fn desktop_notification_payload_is_owned_and_nulls_become_empty() {
+        let title = CString::new("Build complete").unwrap();
+        let body = CString::new("Ready").unwrap();
+        let raw = raw_action(
+            ffi::ghostty_action_tag_e_GHOSTTY_ACTION_DESKTOP_NOTIFICATION,
+            ffi::ghostty_action_u {
+                desktop_notification: ffi::ghostty_action_desktop_notification_s {
+                    title: title.as_ptr(),
+                    body: body.as_ptr(),
+                },
+            },
+        );
+        let decoded = unsafe { decode_action(raw) };
+        drop((title, body));
+        assert!(matches!(
+            decoded,
+            DecodedAction::Supported(Action::DesktopNotification(DesktopNotification {
+                title,
+                body,
+            })) if title == "Build complete" && body == "Ready"
+        ));
+
+        let raw = raw_action(
+            ffi::ghostty_action_tag_e_GHOSTTY_ACTION_DESKTOP_NOTIFICATION,
+            ffi::ghostty_action_u {
+                desktop_notification: ffi::ghostty_action_desktop_notification_s {
+                    title: ptr::null(),
+                    body: ptr::null(),
+                },
+            },
+        );
+        assert!(matches!(
+            unsafe { decode_action(raw) },
+            DecodedAction::Supported(Action::DesktopNotification(DesktopNotification {
+                title,
+                body,
+            })) if title.is_empty() && body.is_empty()
+        ));
+    }
+
+    #[test]
+    fn desktop_notification_invalid_utf8_is_unhandled_and_valid_surface_is_dispatched() {
+        let invalid = [0xFF_u8, 0];
+        let tag = ffi::ghostty_action_tag_e_GHOSTTY_ACTION_DESKTOP_NOTIFICATION;
+        let raw = raw_action(
+            tag,
+            ffi::ghostty_action_u {
+                desktop_notification: ffi::ghostty_action_desktop_notification_s {
+                    title: invalid.as_ptr().cast(),
+                    body: ptr::null(),
+                },
+            },
+        );
+        let bridge = RuntimeBridge::new();
+        assert!(!unsafe {
+            dispatch_action(
+                &bridge.callback_state.events,
+                ActionTarget::Surface(Some(SurfaceId::allocate())),
+                raw,
+            )
+        });
+        assert!(matches!(
+            bridge.event_receiver.try_recv(),
+            Ok(RuntimeEvent::Action(ActionEvent {
+                action: Action::Unsupported { tag: observed },
+                ..
+            })) if observed == tag
+        ));
+
+        let title = CString::new("Done").unwrap();
+        let body = CString::new("Body").unwrap();
+        let raw = raw_action(
+            tag,
+            ffi::ghostty_action_u {
+                desktop_notification: ffi::ghostty_action_desktop_notification_s {
+                    title: title.as_ptr(),
+                    body: body.as_ptr(),
+                },
+            },
+        );
+        let surface_id = SurfaceId::allocate();
+        assert!(unsafe {
+            dispatch_action(
+                &bridge.callback_state.events,
+                ActionTarget::Surface(Some(surface_id)),
+                raw,
+            )
+        });
+        assert_eq!(
+            bridge.event_receiver.try_recv(),
+            Ok(RuntimeEvent::Action(ActionEvent {
+                target: ActionTarget::Surface(Some(surface_id)),
+                action: Action::DesktopNotification(DesktopNotification {
+                    title: "Done".to_owned(),
+                    body: "Body".to_owned(),
+                }),
             }))
         );
     }

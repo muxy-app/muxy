@@ -538,6 +538,7 @@ impl MainWindow {
             .repository_service()
             .with_cancellation(cancellation.clone());
         let path = key.normalized_path.clone();
+        let completion_kind = kind.clone();
         let control = MutationControl::with_cancellation_and_boundary(cancellation, boundary);
         cx.spawn(async move |window, cx| {
             let execution = cx
@@ -563,6 +564,12 @@ impl MainWindow {
                     Ok(_) => {
                         window.set_branch_operation_error(String::new());
                         window.load_repository_picker_data(cx);
+                        window.feedback(
+                            "Stash Updated",
+                            stash_success_message(&completion_kind),
+                            crate::toast::ToastTone::Success,
+                            cx,
+                        );
                     }
                     Err(error) => window.set_branch_operation_error(error),
                 }
@@ -702,25 +709,36 @@ impl MainWindow {
                     .coordinator
                     .request_refresh(plan.refresh);
                 match execution.result {
-                    Ok(_) => match &completion_kind {
-                        BranchMutationKind::Delete(branch) => {
-                            if let Overlay::Repository {
-                                kind: crate::views::overlay::RepositoryPopoverKind::Branch(popover),
-                                ..
-                            } = &mut window.view.overlay
-                                && popover.key == plan.key
-                            {
-                                popover.deletion.finish(&plan.key, branch, Ok(()));
-                                popover.operation_error = None;
-                                window.view.pending_focus = Some(popover.picker.focus_handle(cx));
+                    Ok(_) => {
+                        window.feedback(
+                            "Branch Updated",
+                            branch_success_message(&completion_kind),
+                            crate::toast::ToastTone::Success,
+                            cx,
+                        );
+                        match &completion_kind {
+                            BranchMutationKind::Delete(branch) => {
+                                if let Overlay::Repository {
+                                    kind: crate::views::overlay::RepositoryPopoverKind::Branch(
+                                        popover,
+                                    ),
+                                    ..
+                                } = &mut window.view.overlay
+                                    && popover.key == plan.key
+                                {
+                                    popover.deletion.finish(&plan.key, branch, Ok(()));
+                                    popover.operation_error = None;
+                                    window.view.pending_focus =
+                                        Some(popover.picker.focus_handle(cx));
+                                }
+                            }
+                            BranchMutationKind::Switch(_)
+                            | BranchMutationKind::SwitchRemote(_)
+                            | BranchMutationKind::Create(_) => {
+                                window.close_repository_overlay(cx);
                             }
                         }
-                        BranchMutationKind::Switch(_)
-                        | BranchMutationKind::SwitchRemote(_)
-                        | BranchMutationKind::Create(_) => {
-                            window.close_repository_overlay(cx);
-                        }
-                    },
+                    }
                     Err(error) => {
                         if let BranchMutationKind::Delete(branch) = &completion_kind
                             && let Overlay::Repository {
@@ -856,6 +874,12 @@ impl MainWindow {
                     .request_refresh(plan.refresh);
                 match execution.result {
                     Ok(_) => {
+                        window.feedback(
+                            "Changes Updated",
+                            changes_success_message(&plan.kind),
+                            crate::toast::ToastTone::Success,
+                            cx,
+                        );
                         if let Overlay::Repository {
                             kind: crate::views::overlay::RepositoryPopoverKind::Changes(popover),
                             ..
@@ -1026,7 +1050,18 @@ impl MainWindow {
                 match execution.result {
                     Ok(message) => {
                         window.set_pull_request_operation_error(String::new());
-                        window.set_pull_request_operation_message(message);
+                        window.set_pull_request_operation_message(None);
+                        let tone = if message.is_some() {
+                            crate::toast::ToastTone::Warning
+                        } else {
+                            crate::toast::ToastTone::Success
+                        };
+                        window.feedback(
+                            "Pull Request Updated",
+                            message.unwrap_or_else(|| pull_request_success_message(&plan.kind)),
+                            tone,
+                            cx,
+                        );
                     }
                     Err(error) => {
                         window.set_pull_request_operation_message(None);
@@ -1165,11 +1200,69 @@ impl MainWindow {
     }
 }
 
+#[derive(Clone)]
 enum StashMutationKind {
     Create,
     Apply(StashEntry),
     Pop(StashEntry),
     Drop(StashEntry),
+}
+
+fn stash_success_message(kind: &StashMutationKind) -> &'static str {
+    match kind {
+        StashMutationKind::Create => "Changes were stashed.",
+        StashMutationKind::Apply(_) => "The stash was applied.",
+        StashMutationKind::Pop(_) => "The stash was popped.",
+        StashMutationKind::Drop(_) => "The stash was deleted.",
+    }
+}
+
+fn branch_success_message(kind: &BranchMutationKind) -> String {
+    let (action, branch) = match kind {
+        BranchMutationKind::Switch(branch) => ("Switched to", String::from_utf8_lossy(branch)),
+        BranchMutationKind::SwitchRemote(branch) => {
+            ("Switched to", String::from_utf8_lossy(branch))
+        }
+        BranchMutationKind::Create(branch) => {
+            ("Created", std::borrow::Cow::Borrowed(branch.as_str()))
+        }
+        BranchMutationKind::Delete(branch) => ("Deleted", String::from_utf8_lossy(branch)),
+    };
+    format!("{action} {branch}.")
+}
+
+fn changes_success_message(
+    kind: &crate::views::repository::changes::ChangesMutationKind,
+) -> &'static str {
+    match kind {
+        crate::views::repository::changes::ChangesMutationKind::Stage(_)
+        | crate::views::repository::changes::ChangesMutationKind::StageAll => {
+            "Changes were staged."
+        }
+        crate::views::repository::changes::ChangesMutationKind::Unstage(_)
+        | crate::views::repository::changes::ChangesMutationKind::UnstageAll => {
+            "Changes were unstaged."
+        }
+        crate::views::repository::changes::ChangesMutationKind::Discard(_) => {
+            "Changes were discarded."
+        }
+    }
+}
+
+fn pull_request_success_message(
+    kind: &crate::views::repository::pull_request::PullRequestMutationKind,
+) -> String {
+    match kind {
+        crate::views::repository::pull_request::PullRequestMutationKind::Update => {
+            "The pull request branch was updated.".to_owned()
+        }
+        crate::views::repository::pull_request::PullRequestMutationKind::Merge(_) => {
+            "The pull request was merged.".to_owned()
+        }
+        crate::views::repository::pull_request::PullRequestMutationKind::Close => {
+            "The pull request was closed.".to_owned()
+        }
+    }
 }
 
 struct StashMutationExecution {

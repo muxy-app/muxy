@@ -4,6 +4,7 @@ mod git;
 mod keymap;
 #[cfg(target_os = "macos")]
 mod native_compositor;
+pub mod notifications;
 mod platform;
 mod project_operations;
 mod repository;
@@ -12,6 +13,7 @@ mod socket;
 mod state;
 mod terminal;
 mod themes;
+pub mod toast;
 mod views;
 
 use assets::Assets;
@@ -65,6 +67,8 @@ fn main() {
             cx.bind_keys(views::window::key_bindings());
             register_app_actions(cx);
 
+            let desktop_notifications =
+                notifications::desktop::DesktopNotificationService::prepare();
             let state = AppState::load(cx);
             muxy_core::prefs::settings::sync();
             cx.bind_keys(keymap::key_bindings(&state.shortcuts));
@@ -91,7 +95,17 @@ fn main() {
             };
 
             cx.open_window(options, move |window, cx| {
-                cx.new(|cx| MainWindow::new(state, socket, mode, execution_environment, window, cx))
+                cx.new(|cx| {
+                    MainWindow::new(
+                        state,
+                        socket,
+                        mode,
+                        execution_environment,
+                        desktop_notifications,
+                        window,
+                        cx,
+                    )
+                })
             })
             .expect("failed to open window");
             cx.activate(true);

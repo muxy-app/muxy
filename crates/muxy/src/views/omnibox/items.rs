@@ -87,6 +87,17 @@ pub struct Item {
     pub subtitle: Option<String>,
     pub search_key: String,
     pub action: ItemAction,
+    pub unread: bool,
+}
+
+impl Item {
+    pub fn accessibility_label(&self) -> String {
+        if self.unread {
+            format!("{}, unread", self.title)
+        } else {
+            self.title.clone()
+        }
+    }
 }
 
 pub fn items(state: &AppState, terminals: &TerminalSurfaces, scope: Scope) -> Vec<Item> {
@@ -113,6 +124,7 @@ fn project_items(state: &AppState) -> Vec<Item> {
             subtitle: Some(project.path.clone()),
             search_key: [project.name.as_str(), project.path.as_str()].join(" "),
             action: ItemAction::SelectProject(project.id.clone()),
+            unread: state.notification_store.unread_project(&project.id) > 0,
         })
         .collect()
 }
@@ -132,6 +144,7 @@ fn recently_removed_items() -> Vec<Item> {
             subtitle: Some(entry.project.path.clone()),
             search_key: [entry.project.name.as_str(), entry.project.path.as_str()].join(" "),
             action: ItemAction::RestoreProject(entry.project.id.clone()),
+            unread: false,
         })
         .collect()
 }
@@ -168,6 +181,10 @@ fn worktree_items(state: &AppState) -> Vec<Item> {
                 project_id: project.id.clone(),
                 worktree_id: worktree.id.clone(),
             },
+            unread: state
+                .notification_store
+                .unread_worktree(&project.id, &worktree.id)
+                > 0,
         })
         .collect()
 }
@@ -187,6 +204,7 @@ fn workspace_items(state: &AppState) -> Vec<Item> {
         subtitle: Some("All projects".to_owned()),
         search_key: "All Projects".to_owned(),
         action: ItemAction::SelectGroup(None),
+        unread: false,
     }];
     for group in state.workspace.groups.all() {
         let count = stored
@@ -210,6 +228,7 @@ fn workspace_items(state: &AppState) -> Vec<Item> {
             }),
             search_key: group.name.clone(),
             action: ItemAction::SelectGroup(Some(group.id.clone())),
+            unread: false,
         });
     }
     items
@@ -294,6 +313,13 @@ fn open_tab_items(state: &AppState, terminals: &TerminalSurfaces) -> Vec<Item> {
                                 worktree_path: worktree_path.clone(),
                                 tab_id: tab.id.clone(),
                             },
+                            unread: workspace.worktree_id.as_deref().is_some_and(|worktree_id| {
+                                state.notification_store.unread_tab(
+                                    &project.id,
+                                    worktree_id,
+                                    tab.root_id(),
+                                ) > 0
+                            }),
                         },
                     ));
                 }
@@ -326,6 +352,7 @@ fn command_items(state: &AppState) -> Vec<Item> {
             subtitle: Some(shortcut.trimmed_command()),
             search_key: [shortcut.display_name(), shortcut.trimmed_command()].join(" "),
             action: ItemAction::RunCommand(shortcut.id.clone()),
+            unread: false,
         })
         .collect()
 }
@@ -410,11 +437,20 @@ mod tests {
             subtitle: None,
             search_key: title.to_owned(),
             action: ItemAction::SelectProject(title.to_owned()),
+            unread: false,
         }
     }
 
     fn titles(items: &[Item]) -> Vec<&str> {
         items.iter().map(|item| item.title.as_str()).collect()
+    }
+
+    #[test]
+    fn omnibox_unread_accessibility_output_is_explicit() {
+        let mut value = item("Project", "Projects");
+        assert_eq!(value.accessibility_label(), "Project");
+        value.unread = true;
+        assert_eq!(value.accessibility_label(), "Project, unread");
     }
 
     #[test]
@@ -475,6 +511,9 @@ mod tests {
             navigation: muxy_core::navigation::NavigationHistory::default(),
             navigation_recording_suppressed: false,
             socket_ingress: crate::socket::ingress::IngressQueues::default(),
+            notification_store: muxy_core::notifications::NotificationStore::empty_at(
+                std::path::Path::new(directory).join("notifications.json"),
+            ),
             active_project_id: Some(alpha),
             ide_name: None,
             appearance: muxy_ui::theme::Appearance::Dark,

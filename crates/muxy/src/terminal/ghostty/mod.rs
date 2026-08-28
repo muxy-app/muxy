@@ -405,6 +405,18 @@ impl GhosttyBackend {
             self.reload_config();
             return None;
         }
+        if matches!(&event.action, RuntimeAction::DesktopNotification(_)) {
+            let surfaces = self.surfaces.borrow();
+            return route_desktop_notification(
+                runtime_target(event.target),
+                &event.action,
+                |surface_id| {
+                    surfaces
+                        .get(&surface_id)
+                        .map(|surface| surface.tab_id.clone())
+                },
+            );
+        }
         if event.target == ActionTarget::App {
             return None;
         }
@@ -708,6 +720,7 @@ impl TerminalSurfaceHandle for GhosttySurfaceHandle {
                 self.metadata = metadata;
                 true
             }
+            SurfaceSignal::DesktopNotification { .. } => false,
             SurfaceSignal::Exited => true,
             SurfaceSignal::Confirm { .. } => false,
         }
@@ -922,6 +935,27 @@ fn terminal_mouse_shape(shape: RuntimeMouseShape) -> MouseShape {
     }
 }
 
+fn route_desktop_notification(
+    target: RuntimeTarget,
+    action: &RuntimeAction,
+    tab_for_surface: impl Fn(u64) -> Option<TabId>,
+) -> Option<(TabId, SurfaceSignal)> {
+    let RuntimeTarget::Surface(Some(surface_id)) = target else {
+        return None;
+    };
+    let RuntimeAction::DesktopNotification(notification) = action else {
+        return None;
+    };
+    let tab_id = tab_for_surface(surface_id)?;
+    Some((
+        tab_id,
+        SurfaceSignal::DesktopNotification {
+            title: notification.title.clone(),
+            body: notification.body.clone(),
+        },
+    ))
+}
+
 fn terminal_state_action(action: &RuntimeAction) -> TerminalStateAction {
     match action {
         RuntimeAction::SetTitle(title) => TerminalStateAction::SetTitle(title.clone()),
@@ -975,6 +1009,9 @@ fn terminal_state_action(action: &RuntimeAction) -> TerminalStateAction {
             },
         },
         RuntimeAction::Unsupported { tag } => TerminalStateAction::Unsupported { tag: *tag },
+        RuntimeAction::DesktopNotification(_) => {
+            unreachable!("desktop notifications are routed before terminal state")
+        }
         RuntimeAction::ReloadConfig { .. } => {
             unreachable!("config reloads are handled before the surface state")
         }
@@ -1006,6 +1043,49 @@ impl GhosttyBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_notification_routes_only_exact_live_surface_targets_without_metadata() {
+        let action = RuntimeAction::DesktopNotification(ghostty_host::DesktopNotification {
+            title: "Done".to_owned(),
+            body: "Ready".to_owned(),
+        });
+        let routed =
+            route_desktop_notification(RuntimeTarget::Surface(Some(7)), &action, |surface_id| {
+                (surface_id == 7).then(|| "PANE".to_owned())
+            });
+        assert_eq!(
+            routed,
+            Some((
+                "PANE".to_owned(),
+                SurfaceSignal::DesktopNotification {
+                    title: "Done".to_owned(),
+                    body: "Ready".to_owned(),
+                }
+            ))
+        );
+        for target in [
+            RuntimeTarget::App,
+            RuntimeTarget::Surface(None),
+            RuntimeTarget::Surface(Some(8)),
+            RuntimeTarget::Unknown(99),
+        ] {
+            assert!(
+                route_desktop_notification(target, &action, |surface_id| {
+                    (surface_id == 7).then(|| "PANE".to_owned())
+                })
+                .is_none()
+            );
+        }
+        assert!(
+            route_desktop_notification(
+                RuntimeTarget::Surface(Some(7)),
+                &RuntimeAction::Bell,
+                |_| Some("PANE".to_owned())
+            )
+            .is_none()
+        );
+    }
 
     #[test]
     fn development_cli_environment_targets_the_current_bundle_and_socket() {

@@ -59,6 +59,10 @@ pub enum SurfaceAction {
 #[derive(Clone, Debug, PartialEq)]
 pub enum SurfaceSignal {
     Metadata(SurfaceMetadata),
+    DesktopNotification {
+        title: String,
+        body: String,
+    },
     Exited,
     Confirm {
         id: ConfirmationId,
@@ -348,6 +352,21 @@ mod tests {
              set muxy_status $status; if test $muxy_status -ne 0; exec \"$argv[1]\" -l; \
              else exit $muxy_status; end' /opt/homebrew/bin/fish"
         );
+    }
+
+    #[test]
+    fn desktop_notification_signal_is_owned_and_separate_from_persistent_metadata() {
+        let metadata = SurfaceMetadata::default();
+        let signal = SurfaceSignal::DesktopNotification {
+            title: "Done".to_owned(),
+            body: "Ready".to_owned(),
+        };
+        assert!(matches!(
+            signal,
+            SurfaceSignal::DesktopNotification { title, body }
+                if title == "Done" && body == "Ready"
+        ));
+        assert_eq!(metadata, SurfaceMetadata::default());
     }
 
     #[test]

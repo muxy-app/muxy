@@ -249,9 +249,15 @@ The Agents Focused layout keeps the normal top-level tab strip in the title bar 
 
 ## Notifications from the terminal
 
-OSC 9 and OSC 777 notification escape sequences are routed into Muxy's notification panel and (optionally) macOS notifications.
+Muxy accepts the pinned Ghostty build's OSC 9 and OSC 777 desktop-notification actions. OSC 9 supplies a body and uses `Command executed!` when no title is present. OSC 777 supplies its title and body. The callback payload is copied immediately and routed as a transient terminal signal, so notification text never enters persisted terminal metadata.
 
-For AI coding agents (Antigravity CLI, Claude Code, Codex, Cursor, Droid, Grok, Kiro, OpenCode, Pi, Xal), Muxy uses hook-based lifecycle events rather than escape sequences — see [AI notifications](ai-notifications.md).
+When Muxy is active and the event targets the exact visible pane, an OSC notification is sound-only. It does not create history, unread state, a toast, or a macOS notification. Every other accepted OSC notification enters the shared newest-first history, which retains at most 200 records in the selected profile's private `notifications.json`.
+
+The sidebar footer bell opens a 320 by 400 notification panel above its anchor. Rows show source, title, body, relative time, and unread state. Rows can be opened or removed, and the full history can be cleared. Live rows navigate by stable project, worktree, root-tab, area, and pane IDs. The stored worktree path is context data and does not override those IDs. A stale row recreates nothing but is still marked read. Loaded history remains available after restart and is marked read when the main window starts.
+
+Notification toasts are controlled separately from generic success and error feedback. The latest toast replaces the previous one and dismisses after three seconds. macOS desktop delivery is optional and requests permission only when its setting is enabled. Ordinary delivery never opens the permission prompt. Sounds use the selected macOS system sound; `None` and unknown names are silent.
+
+For AI coding agents, accepted Agent Hook v3 events use the same history and presentation path. Hook installation and agent lifecycle UI remain separate work. See [AI notifications](ai-notifications.md).
 
 ## Quick-select labels
 

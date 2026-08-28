@@ -89,7 +89,18 @@ The app records a typed resolution:
 3. first supplied PID with a matching terminal foreground PID
 4. unresolved
 
-When one PID matches multiple panes, uppercase pane-ID order breaks the tie. Hook, extension-event, and legacy-notification app queues are bounded and evict their oldest record on overflow. P2 intentionally adds no notification UI.
+When one PID matches multiple panes, uppercase pane-ID order breaks the tie. Hook, extension-event, and legacy-notification app queues are bounded and evict their oldest record on overflow. P5 consumes each current typed hook or legacy notification once after retaining it in the diagnostic queue. It does not replay queue history. Extension events remain staged for P10.
+
+## Notification application behavior
+
+P5 does not change framing, acknowledgement, permission, queue, or recognition behavior. It converts accepted typed ingress after transport routing:
+
+- A legacy notification with a valid pane ID must target a live terminal pane. A missing or malformed pane ID falls back to the active terminal context. A valid stale pane ID is dropped.
+- The legacy `type` maps through the single eleven-provider catalog. An exact provider socket key becomes an AI-provider source; any other type becomes a socket source.
+- A normal hook requires a known provider and a live resolved pane. A hook Test event may use the active terminal fallback when its pane ID is absent or malformed. Hook installation, provider status, and Test/Refresh execution remain P11 work.
+- Accepted records carry complete project, worktree, area, root-tab, pane, and worktree-path identity. They enter the same capped `notifications.json` history used by terminal OSC notifications.
+
+History persistence is app policy, not transport policy. The store is a private top-level JSON array capped at 200 newest records. The app debounces ordinary writes for two seconds and synchronously flushes when the main window closes or the app quits. Loaded rows are retained and marked read at startup. The Rust profile never imports the retained Swift notification file.
 
 ## Direct pipe surface
 
@@ -186,8 +197,8 @@ The following transport or ingress forms are outside the 169 app-command count:
 | `extension-event` | Bidirectional identified local event, implemented in P2 |
 | `open-project` | Incoming one-way path open, implemented in P2 |
 | `install-extension` | Incoming one-way compatibility no-op, implementation deferred to P10 |
-| Agent Hook v3 JSON | Incoming acknowledgement plus typed sink, implemented in P2 |
-| Legacy `type|paneID|title|body` | Incoming one-way typed sink, implemented in P2; UI deferred to P5 |
+| Agent Hook v3 JSON | Incoming acknowledgement plus typed sink in P2; known-provider notification delivery and history implemented in P5 |
+| Legacy `type|paneID|title|body` | Incoming one-way typed sink in P2; notification delivery and history implemented in P5 |
 | `invoke`, `modal-result`, `modal-query`, `event` | Outbound extension pushes, transport implemented in P2 |
 | `config-export`, `config-import` | Retained recognition oddity, handler-like wrapper forms not present in the 169-name recognition set; deferred to P14 |
 | `install-skills` | Executes locally in the CLI; deferred to P14 |
@@ -200,4 +211,4 @@ The app owns all command names, phase ownership, permissions, project/worktree/t
 
 ## Explicit P2 exclusions
 
-P2 does not implement browser commands, session commands, extension APIs, hook installation or client resources, notification UI, backup/config behavior, skill installation, URL registration or cold launch, or production profile hardening. P3 adds the retained `create-worktree` alias without changing the 169-head recognition inventory. The remaining work stays assigned to P5, P8, P9, P10, P11, P14, P15, and P2.5 as listed above.
+P2 itself does not implement browser commands, session commands, extension APIs, hook installation or client resources, notification presentation, backup/config behavior, skill installation, URL registration or cold launch, or production profile hardening. P3 adds the retained `create-worktree` alias without changing the 169-head recognition inventory. P5 adds application-owned notification storage and presentation without changing this protocol. The remaining work stays assigned to P8, P9, P10, P11, P14, and P15 as listed above.

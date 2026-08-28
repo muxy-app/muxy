@@ -46,7 +46,7 @@ pub fn key_bindings() -> Vec<KeyBinding> {
     vec![KeyBinding::new("cmd-w", Dismiss, Some(KEY_CONTEXT))]
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Effect {
     Chrome,
     Scale,
@@ -56,9 +56,22 @@ pub enum Effect {
     All,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SettingsEvent {
     Dismiss,
     Applied(Effect),
+    SetDesktopNotifications(bool),
+    PreviewNotificationSound(String),
+}
+
+fn desktop_notification_event(enabled: bool, pending: bool) -> SettingsEvent {
+    SettingsEvent::SetDesktopNotifications(if pending { false } else { !enabled })
+}
+
+fn notification_sound_event(name: &str) -> Option<SettingsEvent> {
+    settings::NOTIFICATION_SOUNDS
+        .contains(&name)
+        .then(|| SettingsEvent::PreviewNotificationSound(name.to_owned()))
 }
 
 const CHROME_KEYS: [&str; 11] = [
@@ -102,6 +115,7 @@ struct SliderDrag {
 #[derive(Clone)]
 pub enum SettingsPickerTarget {
     Setting,
+    NotificationSound,
     Editor(String),
     Number(Vec<(String, f64)>),
 }
@@ -137,6 +151,7 @@ pub struct SettingsModal {
     added_command: Option<String>,
     command_conflict: Option<String>,
     delete_all_countdown: Option<u8>,
+    desktop_authorization_pending: bool,
     errors: HashMap<String, String>,
     json_error: Option<String>,
     json_status: Option<String>,
@@ -205,6 +220,7 @@ impl SettingsModal {
             added_command: None,
             command_conflict: None,
             delete_all_countdown: None,
+            desktop_authorization_pending: false,
             errors: HashMap::new(),
             json_error: None,
             json_status: None,
@@ -804,6 +820,9 @@ impl SettingsModal {
                             SettingsPickerTarget::Setting => {
                                 modal.write(&event_key, Value::String(choice.value.clone()), cx)
                             }
+                            SettingsPickerTarget::NotificationSound => {
+                                modal.write_notification_sound(&choice.value, cx);
+                            }
                             SettingsPickerTarget::Editor(name) => {
                                 settings::set_editor_setting(
                                     name,
@@ -846,6 +865,35 @@ impl SettingsModal {
     ) {
         let key = settings::provider_key(provider);
         self.write(&key, Value::Bool(enabled), cx);
+    }
+
+    pub fn request_desktop_notifications(&mut self, cx: &mut Context<Self>) {
+        let enabled = settings::bool_value("muxy.notifications.desktopEnabled", false);
+        let event = desktop_notification_event(enabled, self.desktop_authorization_pending);
+        self.desktop_authorization_pending =
+            matches!(event, SettingsEvent::SetDesktopNotifications(true));
+        cx.emit(event);
+        cx.notify();
+    }
+
+    pub fn set_desktop_authorization_pending(&mut self, pending: bool, cx: &mut Context<Self>) {
+        self.desktop_authorization_pending = pending;
+        self.refresh(cx);
+    }
+
+    pub fn desktop_authorization_pending(&self) -> bool {
+        self.desktop_authorization_pending
+    }
+
+    pub fn write_notification_sound(&mut self, name: &str, cx: &mut Context<Self>) -> bool {
+        let Some(event) = notification_sound_event(name) else {
+            return false;
+        };
+        self.close_picker(cx);
+        Prefs::store_settings_value("muxy.notifications.sound", Value::String(name.to_owned()));
+        cx.emit(event);
+        cx.notify();
+        true
     }
 
     pub fn write(&mut self, key: &str, value: Value, cx: &mut Context<Self>) {
@@ -1281,5 +1329,53 @@ impl Render for SettingsModal {
                             .child(self.content(cx)),
                     ),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_desktop_toggle_emits_exact_events_and_pending_click_disables() {
+        assert_eq!(
+            desktop_notification_event(false, false),
+            SettingsEvent::SetDesktopNotifications(true)
+        );
+        assert_eq!(
+            desktop_notification_event(true, false),
+            SettingsEvent::SetDesktopNotifications(false)
+        );
+        assert_eq!(
+            desktop_notification_event(false, true),
+            SettingsEvent::SetDesktopNotifications(false)
+        );
+    }
+
+    #[test]
+    fn settings_sound_picker_accepts_only_catalog_names_and_emits_exact_preview() {
+        for name in settings::NOTIFICATION_SOUNDS {
+            assert_eq!(
+                notification_sound_event(name),
+                Some(SettingsEvent::PreviewNotificationSound(name.to_owned()))
+            );
+        }
+        assert_eq!(notification_sound_event("unknown"), None);
+        assert_eq!(notification_sound_event(""), None);
+    }
+
+    #[test]
+    fn settings_sound_preview_path_has_no_history_or_toast_effect() {
+        let source = include_str!("../window/overlays.rs");
+        let start = source.find("fn preview_notification_sound").unwrap();
+        let end = source[start..]
+            .find("pub(crate) fn open_theme_picker")
+            .unwrap()
+            + start;
+        let preview = &source[start..end];
+        assert!(preview.contains("notification_coordinator.play_sound(name)"));
+        assert!(!preview.contains("feedback("));
+        assert!(!preview.contains("show_toast"));
+        assert!(!preview.contains("notification_store"));
     }
 }
