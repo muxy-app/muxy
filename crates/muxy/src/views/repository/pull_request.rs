@@ -13,6 +13,7 @@ use muxy_api::repository::{
 };
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
+use muxy_ui::motion::timed_progress_fill;
 use muxy_ui::popover::PopoverSurface;
 use muxy_ui::theme::{Metrics, Theme};
 use std::time::{Duration, Instant};
@@ -699,22 +700,17 @@ impl PullRequestPanel {
         }
         selector.into_any_element()
     }
-
-    fn confirmation_progress(&self, now: Instant) -> f32 {
-        let Some(pending) = self.confirmation.pending() else {
-            return 0.0;
-        };
-        let remaining = pending.deadline.saturating_duration_since(now);
-        1.0 - remaining.as_secs_f32() / CONFIRMATION_DURATION.as_secs_f32()
-    }
 }
 
 impl Render for PullRequestPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
         let pending = self.confirmation.pending().map(|pending| pending.action);
+        let pending_generation = self
+            .confirmation
+            .pending()
+            .map(|pending| pending.generation);
         let remaining = self.confirmation.remaining_seconds(now).unwrap_or(5);
-        let progress = self.confirmation_progress(now).clamp(0.0, 1.0);
         let open_enabled = !self.busy && pending.is_none();
         let refresh_enabled = !self.busy && pending.is_none();
         let update_enabled = self
@@ -787,15 +783,16 @@ impl Render for PullRequestPanel {
             actions = actions.child(
                 div()
                     .relative()
-                    .child(
-                        div()
-                            .absolute()
-                            .left(gpui::px(0.0))
-                            .top(gpui::px(0.0))
-                            .bottom(gpui::px(0.0))
-                            .w(gpui::relative(if merge_progress { progress } else { 0.0 }))
-                            .rounded(self.metrics.radius_sm())
-                            .bg(self.theme.accent_soft),
+                    .when_some(
+                        merge_progress.then_some(pending_generation).flatten(),
+                        |button, generation| {
+                            button.child(timed_progress_fill(
+                                SharedString::from(format!("pr-merge-progress-{generation}")),
+                                CONFIRMATION_DURATION,
+                                self.theme.accent_soft,
+                                self.metrics.radius_sm(),
+                            ))
+                        },
                     )
                     .child(self.action_button(
                         "pr-merge",
@@ -815,15 +812,16 @@ impl Render for PullRequestPanel {
             actions = actions.child(
                 div()
                     .relative()
-                    .child(
-                        div()
-                            .absolute()
-                            .left(gpui::px(0.0))
-                            .top(gpui::px(0.0))
-                            .bottom(gpui::px(0.0))
-                            .w(gpui::relative(if close_progress { progress } else { 0.0 }))
-                            .rounded(self.metrics.radius_sm())
-                            .bg(self.theme.accent_soft),
+                    .when_some(
+                        close_progress.then_some(pending_generation).flatten(),
+                        |button, generation| {
+                            button.child(timed_progress_fill(
+                                SharedString::from(format!("pr-close-progress-{generation}")),
+                                CONFIRMATION_DURATION,
+                                self.theme.accent_soft,
+                                self.metrics.radius_sm(),
+                            ))
+                        },
                     )
                     .child(self.action_button(
                         "pr-close",
@@ -1252,6 +1250,7 @@ mod tests {
         else {
             panic!("arm")
         };
+        assert_ne!(stale, current);
         assert_eq!(
             state.expire(current, &identity, now + CONFIRMATION_DURATION),
             Some((PullRequestConfirmedAction::Close, identity.clone()))
