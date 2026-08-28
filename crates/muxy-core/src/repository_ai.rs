@@ -20,6 +20,7 @@ pub struct ProviderDescriptor {
     pub id: &'static str,
     pub display_name: &'static str,
     pub icon_key: &'static str,
+    pub notification_socket_key: &'static str,
     pub executable_names: &'static [&'static str],
     pub home_relative_bins: &'static [&'static str],
     pub headless_arguments: &'static [&'static str],
@@ -32,6 +33,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "claude",
         display_name: "Claude Code",
         icon_key: "claude",
+        notification_socket_key: "claude_hook",
         executable_names: &["claude"],
         home_relative_bins: &[".local/bin"],
         headless_arguments: &[
@@ -50,6 +52,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "opencode",
         display_name: "OpenCode",
         icon_key: "opencode",
+        notification_socket_key: "opencode",
         executable_names: &["opencode"],
         home_relative_bins: &[".opencode/bin", ".local/bin"],
         headless_arguments: &["run", "--pure"],
@@ -60,6 +63,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "codex",
         display_name: "Codex",
         icon_key: "codex",
+        notification_socket_key: "codex_hook",
         executable_names: &["codex"],
         home_relative_bins: &[".local/bin", ".npm-global/bin"],
         headless_arguments: &[
@@ -77,6 +81,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "cursor",
         display_name: "Cursor CLI",
         icon_key: "cursor",
+        notification_socket_key: "cursor_hook",
         executable_names: &["cursor-agent"],
         home_relative_bins: &[".local/bin"],
         headless_arguments: &["--print", "--output-format", "text"],
@@ -87,6 +92,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "copilot",
         display_name: "GitHub Copilot",
         icon_key: "copilot",
+        notification_socket_key: "copilot_hook",
         executable_names: &["copilot"],
         home_relative_bins: &[".local/bin", ".npm-global/bin"],
         headless_arguments: &["--silent", "--no-ask-user", "--available-tools=", "-p"],
@@ -97,6 +103,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "droid",
         display_name: "Droid",
         icon_key: "factory",
+        notification_socket_key: "droid_hook",
         executable_names: &["droid"],
         home_relative_bins: &[".factory/bin", ".local/bin"],
         headless_arguments: &["exec", "--output-format", "text"],
@@ -107,6 +114,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "pi",
         display_name: "Pi",
         icon_key: "pi",
+        notification_socket_key: "pi",
         executable_names: &["pi"],
         home_relative_bins: &[".local/bin"],
         headless_arguments: &["--print", "--no-session", "--no-tools"],
@@ -117,6 +125,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "grok",
         display_name: "Grok",
         icon_key: "grok",
+        notification_socket_key: "grok_hook",
         executable_names: &["grok"],
         home_relative_bins: &[".local/bin"],
         headless_arguments: &[
@@ -138,6 +147,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "kiro",
         display_name: "Kiro CLI",
         icon_key: "kiro",
+        notification_socket_key: "kiro_hook",
         executable_names: &["kiro-cli"],
         home_relative_bins: &[".local/bin"],
         headless_arguments: &["chat", "--no-interactive", "--trust-tools="],
@@ -148,6 +158,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "xal",
         display_name: "Xal",
         icon_key: "xal",
+        notification_socket_key: "xal",
         executable_names: &["xal"],
         home_relative_bins: &[".local/bin"],
         headless_arguments: &["run", "--format", "text"],
@@ -158,6 +169,7 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         id: "antigravity",
         display_name: "Antigravity CLI",
         icon_key: "antigravity",
+        notification_socket_key: "antigravity_hook",
         executable_names: &["agy", "antigravity"],
         home_relative_bins: &[".local/bin", ".gemini/antigravity-cli/bin"],
         headless_arguments: &["--print", "--output-format", "text", "--mode=plan"],
@@ -165,6 +177,16 @@ pub const PROVIDERS: [ProviderDescriptor; 11] = [
         environment: &[],
     },
 ];
+
+pub fn provider(id: &str) -> Option<&'static ProviderDescriptor> {
+    PROVIDERS.iter().find(|provider| provider.id == id)
+}
+
+pub fn provider_for_notification_socket_key(key: &str) -> Option<&'static ProviderDescriptor> {
+    PROVIDERS
+        .iter()
+        .find(|provider| provider.notification_socket_key == key)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RepositoryAiAction {
@@ -408,6 +430,32 @@ mod tests {
         assert_eq!(antigravity.executable_names, ["agy", "antigravity"]);
         assert_eq!(antigravity.display_name, "Antigravity CLI");
         assert_eq!(PROVIDERS[5].icon_key, "factory");
+    }
+
+    #[test]
+    fn notification_socket_keys_map_exactly_to_the_shared_provider_catalog() {
+        let expected = [
+            ("antigravity_hook", "antigravity"),
+            ("claude_hook", "claude"),
+            ("codex_hook", "codex"),
+            ("copilot_hook", "copilot"),
+            ("cursor_hook", "cursor"),
+            ("droid_hook", "droid"),
+            ("grok_hook", "grok"),
+            ("kiro_hook", "kiro"),
+            ("opencode", "opencode"),
+            ("pi", "pi"),
+            ("xal", "xal"),
+        ];
+        for (key, id) in expected {
+            assert_eq!(
+                provider_for_notification_socket_key(key).map(|provider| provider.id),
+                Some(id)
+            );
+            assert_eq!(provider(id).map(|provider| provider.id), Some(id));
+        }
+        assert_eq!(provider_for_notification_socket_key("unknown"), None);
+        assert_eq!(provider("unknown"), None);
     }
 
     #[test]

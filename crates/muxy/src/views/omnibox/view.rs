@@ -112,10 +112,13 @@ impl Omnibox {
                 section = Some(item.section.clone());
                 items.push(CommandPopoverItem::section(item.section.clone()));
             }
+            let accessibility_label = item.accessibility_label();
+            debug_assert!(!accessibility_label.is_empty());
             let mut row =
                 CommandPopoverRow::new(format!("omnibox-{}", item.id), item.title.clone());
             row.subtitle = item.subtitle.clone().map(Into::into);
             row.leading = Some(CommandPopoverLeading::Symbol(item.symbol.clone().into()));
+            row.trailing = item.unread.then(|| "•".into());
             items.push(CommandPopoverItem::Row(row));
         }
         let first = self.rows.first().map(|item| format!("omnibox-{}", item.id));

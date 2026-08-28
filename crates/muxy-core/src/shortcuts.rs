@@ -530,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn conflicts_compare_the_effective_gpui_keystroke() {
+    fn conflicts_compare_the_effective_ui_keystroke() {
         let command = KeyCombo::new("t", COMMAND);
         let control = KeyCombo::new("t", CONTROL);
         assert_eq!(command.conflicts_with(&control), !cfg!(target_os = "macos"));

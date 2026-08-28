@@ -42,6 +42,9 @@ pub fn test_state(directory: &std::path::Path) -> crate::state::AppState {
         navigation: muxy_core::navigation::NavigationHistory::default(),
         navigation_recording_suppressed: false,
         socket_ingress: crate::socket::ingress::IngressQueues::default(),
+        notification_store: muxy_core::notifications::NotificationStore::empty_at(
+            directory.join("notifications.json"),
+        ),
         active_project_id: None,
         ide_name: None,
         appearance: muxy_ui::theme::Appearance::Dark,

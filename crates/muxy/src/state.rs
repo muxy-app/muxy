@@ -1,6 +1,7 @@
 use crate::socket::ingress::IngressQueues;
 use gpui::{App, WindowAppearance};
 use muxy_core::navigation::{Direction, NavigationEntry, NavigationHistory};
+use muxy_core::notifications::{NotificationStore, NotificationTarget};
 use muxy_core::prefs::Prefs;
 use muxy_core::shortcuts::ShortcutMap;
 use muxy_core::store::{CommandShortcuts, Project, Workspace, Worktree};
@@ -39,6 +40,20 @@ impl std::fmt::Display for NavigationApplyError {
 
 impl std::error::Error for NavigationApplyError {}
 
+fn load_notification_store() -> NotificationStore {
+    load_notification_store_from(muxy_core::prefs::app_support_dir().join("notifications.json"))
+}
+
+fn load_notification_store_from(path: impl Into<std::path::PathBuf>) -> NotificationStore {
+    let mut store = NotificationStore::load_from(path);
+    if store.mark_all_read()
+        && let Err(error) = store.flush()
+    {
+        log::warn!("failed to clear retained notification unread state: {error}");
+    }
+    store
+}
+
 pub struct AppState {
     pub prefs: Prefs,
     pub theme: Theme,
@@ -52,6 +67,7 @@ pub struct AppState {
     pub navigation: NavigationHistory,
     pub(crate) navigation_recording_suppressed: bool,
     pub socket_ingress: IngressQueues,
+    pub notification_store: NotificationStore,
     pub active_project_id: Option<String>,
     pub ide_name: Option<String>,
     pub appearance: Appearance,
@@ -126,6 +142,7 @@ impl AppState {
         };
         let shortcuts = ShortcutMap::load();
         let command_shortcuts = CommandShortcuts::load();
+        let notification_store = load_notification_store();
         let active_project_id = workspace.resolve_active(&prefs);
         let ide_name = prefs
             .ide_bundle_identifier
@@ -145,6 +162,7 @@ impl AppState {
             navigation: NavigationHistory::default(),
             navigation_recording_suppressed: false,
             socket_ingress: IngressQueues::default(),
+            notification_store,
             active_project_id,
             ide_name,
             appearance,
@@ -493,6 +511,100 @@ impl AppState {
         self.tab_workspaces.active_mut(&id, &path)
     }
 
+    pub(crate) fn notification_target_for_pane(&self, pane_id: &str) -> Option<NotificationTarget> {
+        let pane_id = muxy_core::notifications::canonical_uuid(pane_id)?;
+        self.tab_workspaces.states().iter().find_map(|workspace| {
+            workspace
+                .tab(&pane_id)
+                .and_then(|_| self.notification_target_in_workspace(workspace, &pane_id))
+        })
+    }
+
+    pub(crate) fn notification_target_is_focused(&self, target: &NotificationTarget) -> bool {
+        let Some(workspace) = self.active_tab_workspace() else {
+            return false;
+        };
+        if !workspace
+            .project_id
+            .eq_ignore_ascii_case(&target.project_id)
+            || workspace
+                .worktree_id
+                .as_deref()
+                .is_none_or(|id| !id.eq_ignore_ascii_case(&target.worktree_id))
+            || workspace.focused_area_id.as_deref() != Some(target.area_id.as_str())
+            || workspace
+                .area(&target.area_id)
+                .and_then(|area| area.active_tab_id.as_deref())
+                != Some(target.pane_id.as_str())
+            || workspace.root_id_for_tab(&target.pane_id) != Some(target.tab_id.as_str())
+        {
+            return false;
+        }
+        workspace
+            .visible_area_tabs()
+            .iter()
+            .any(|(area_id, tab_id)| {
+                area_id.eq_ignore_ascii_case(&target.area_id)
+                    && tab_id.eq_ignore_ascii_case(&target.pane_id)
+            })
+    }
+
+    pub(crate) fn active_notification_target(&self) -> Option<NotificationTarget> {
+        let workspace = self.active_tab_workspace()?;
+        let area_id = workspace.focused_area_id.as_deref()?;
+        let pane_id = workspace.area(area_id)?.active_tab_id.as_deref()?;
+        self.notification_target_in_workspace(workspace, pane_id)
+    }
+
+    pub(crate) fn active_first_terminal_notification_target(&self) -> Option<NotificationTarget> {
+        let workspace = self.active_tab_workspace()?;
+        let pane_id = workspace
+            .root
+            .as_ref()?
+            .tabs()
+            .into_iter()
+            .find(|tab| tab.kind == muxy_core::workspace::TabKind::Terminal)?
+            .id
+            .clone();
+        self.notification_target_in_workspace(workspace, &pane_id)
+    }
+
+    fn notification_target_in_workspace(
+        &self,
+        workspace: &WorkspaceState,
+        pane_id: &str,
+    ) -> Option<NotificationTarget> {
+        let project = self
+            .workspace
+            .projects
+            .iter()
+            .find(|project| project.id.eq_ignore_ascii_case(&workspace.project_id))?;
+        let worktree_id = workspace.worktree_id.as_deref().or_else(|| {
+            self.prefs
+                .active_worktree_ids
+                .get(&workspace.project_id)
+                .map(String::as_str)
+        })?;
+        let worktree = self
+            .worktrees
+            .get(&project.id)?
+            .iter()
+            .find(|worktree| worktree.id.eq_ignore_ascii_case(worktree_id))?;
+        let tab = workspace.tab(pane_id)?;
+        if tab.kind != muxy_core::workspace::TabKind::Terminal {
+            return None;
+        }
+        let area = workspace.area_containing_tab(pane_id)?;
+        NotificationTarget::new(
+            pane_id,
+            &project.id,
+            &worktree.id,
+            &area.id,
+            tab.root_id(),
+            &worktree.path,
+        )
+    }
+
     pub fn layouts(&self) -> Vec<muxy_api::layouts::Descriptor> {
         self.active_project()
             .map(|project| muxy_api::layouts::discover(&self.active_worktree_path(project)))
@@ -606,6 +718,19 @@ impl AppState {
         }) else {
             return Ok(false);
         };
+        let entry = target.entry.clone();
+        let index = target.index;
+        if !self.apply_navigation_entry(&entry)? {
+            return Ok(false);
+        }
+        self.navigation.commit_target(index);
+        Ok(true)
+    }
+
+    pub(crate) fn apply_navigation_entry(
+        &mut self,
+        entry: &NavigationEntry,
+    ) -> Result<bool, NavigationApplyError> {
         let previous_tab_workspaces = self.tab_workspaces.clone();
         let previous_workspace = self.workspace.clone();
         let previous_active_project_id = self.active_project_id.clone();
@@ -613,21 +738,20 @@ impl AppState {
         let previous_active_worktree_ids = self.prefs.active_worktree_ids.clone();
         let previous_suppression = self.navigation_recording_suppressed;
 
-        self.active_project_id = Some(target.entry.project_id.clone());
-        self.prefs.active_project_id = Some(target.entry.project_id.clone());
-        self.prefs.active_worktree_ids.insert(
-            target.entry.project_id.clone(),
-            target.entry.worktree_id.clone(),
-        );
+        self.active_project_id = Some(entry.project_id.clone());
+        self.prefs.active_project_id = Some(entry.project_id.clone());
+        self.prefs
+            .active_worktree_ids
+            .insert(entry.project_id.clone(), entry.worktree_id.clone());
         let applied = self
             .tab_workspaces
-            .worktree_mut(&target.entry.project_id, &target.entry.worktree_id)
-            .is_some_and(|workspace| match target.entry.tab_id.as_deref() {
-                Some(tab_id) => workspace.select_tab(&target.entry.area_id, tab_id),
+            .worktree_mut(&entry.project_id, &entry.worktree_id)
+            .is_some_and(|workspace| match entry.tab_id.as_deref() {
+                Some(tab_id) => workspace.select_tab(&entry.area_id, tab_id),
                 None => {
-                    let exists = workspace.area(&target.entry.area_id).is_some();
+                    let exists = workspace.area(&entry.area_id).is_some();
                     if exists {
-                        workspace.focus_area(Some(&target.entry.area_id));
+                        workspace.focus_area(Some(&entry.area_id));
                     }
                     exists
                 }
@@ -661,23 +785,16 @@ impl AppState {
             self.navigation_recording_suppressed = previous_suppression;
             return Err(NavigationApplyError::PreferencePersistence(error));
         }
-        Prefs::store_default(
-            "muxy.activeProjectID",
-            Some(target.entry.project_id.as_str()),
-        );
-        if let Some(worktree) = self
-            .worktrees
-            .get(&target.entry.project_id)
-            .and_then(|worktrees| {
-                worktrees
-                    .iter()
-                    .find(|worktree| worktree.id.eq_ignore_ascii_case(&target.entry.worktree_id))
-            })
-            && let Some(project) = self
-                .workspace
-                .projects
-                .iter_mut()
-                .find(|project| project.id.eq_ignore_ascii_case(&target.entry.project_id))
+        Prefs::store_default("muxy.activeProjectID", Some(entry.project_id.as_str()));
+        if let Some(worktree) = self.worktrees.get(&entry.project_id).and_then(|worktrees| {
+            worktrees
+                .iter()
+                .find(|worktree| worktree.id.eq_ignore_ascii_case(&entry.worktree_id))
+        }) && let Some(project) = self
+            .workspace
+            .projects
+            .iter_mut()
+            .find(|project| project.id.eq_ignore_ascii_case(&entry.project_id))
         {
             project.worktree_label = Some(if worktree.is_primary {
                 "primary".to_owned()
@@ -685,9 +802,7 @@ impl AppState {
                 worktree.name.clone()
             });
         }
-        self.workspace
-            .activate_group_for_project(&target.entry.project_id);
-        self.navigation.commit_target(target.index);
+        self.workspace.activate_group_for_project(&entry.project_id);
         self.navigation_recording_suppressed = previous_suppression;
         Ok(true)
     }
@@ -852,6 +967,57 @@ mod tests {
         let _ = AppState::apply_removed_worktree;
     }
 
+    #[test]
+    fn notifications_startup_retains_rows_marks_them_read_and_flushes_immediately() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("notifications.json");
+        let target = NotificationTarget::new(
+            "11111111-2222-4333-8444-555555555555",
+            "22222222-3333-4444-8555-666666666666",
+            "33333333-4444-4555-8666-777777777777",
+            "44444444-5555-4666-8777-888888888888",
+            "55555555-6666-4777-8888-999999999999",
+            "/tmp/worktree",
+        )
+        .unwrap();
+        let mut store = NotificationStore::empty_at(&path);
+        store.insert(
+            muxy_core::notifications::NotificationRecord::new(
+                target,
+                muxy_core::notifications::NotificationSource::Socket,
+                "Title",
+                "Body",
+                1.0,
+            )
+            .unwrap(),
+        );
+        store.flush().unwrap();
+
+        let loaded = load_notification_store_from(&path);
+        assert_eq!(loaded.records().len(), 1);
+        assert!(loaded.records()[0].is_read);
+        assert!(!loaded.needs_flush());
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted[0]["isRead"], true);
+    }
+
+    #[test]
+    fn notifications_startup_empty_cutover_does_not_create_or_rewrite_a_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let absent = directory.path().join("absent.json");
+        let loaded = load_notification_store_from(&absent);
+        assert!(loaded.records().is_empty());
+        assert!(!absent.exists());
+
+        let invalid = directory.path().join("invalid.json");
+        std::fs::write(&invalid, b"not-json").unwrap();
+        let before = std::fs::read(&invalid).unwrap();
+        let loaded = load_notification_store_from(&invalid);
+        assert!(loaded.records().is_empty());
+        assert_eq!(std::fs::read(&invalid).unwrap(), before);
+    }
+
     fn secondary(id: &str, name: &str, path: &str) -> Worktree {
         Worktree {
             id: id.into(),
@@ -899,6 +1065,9 @@ mod tests {
             navigation: NavigationHistory::default(),
             navigation_recording_suppressed: false,
             socket_ingress: IngressQueues::default(),
+            notification_store: NotificationStore::empty_at(
+                path.with_file_name("notifications.json"),
+            ),
             active_project_id: None,
             ide_name: None,
             appearance: Appearance::Dark,

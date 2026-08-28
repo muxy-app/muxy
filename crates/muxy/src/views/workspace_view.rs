@@ -38,6 +38,7 @@ pub struct Panes<'a> {
     pub reveal: &'a std::collections::HashMap<String, ScrollbarRevealState>,
     pub attention: &'a std::collections::HashSet<String>,
     pub bell_flashes: &'a std::collections::HashMap<String, std::time::Duration>,
+    pub notifications: &'a muxy_core::notifications::NotificationStore,
     pub drag: Option<(&'a str, f64)>,
     pub now: std::time::Duration,
 }
@@ -124,6 +125,12 @@ impl Panes<'_> {
                 indicator.shows_attention = true;
             }
         }
+        if let Some(worktree_id) = workspace.worktree_id.as_deref() {
+            indicator.unread =
+                self.notifications
+                    .unread_tab(&workspace.project_id, worktree_id, root_tab_id)
+                    > 0;
+        }
         indicator
     }
 }
@@ -142,6 +149,12 @@ struct TabIndicator {
     progress: SurfaceProgress,
     shows_attention: bool,
     bell_flashing: bool,
+    unread: bool,
+}
+
+fn shows_tab_indicator_dot(indicator: TabIndicator) -> bool {
+    indicator.shows_attention
+        || (indicator.unread && !indicator.progress.is_active() && !indicator.bell_flashing)
 }
 
 pub fn titlebar_tab_strip(
@@ -1607,7 +1620,7 @@ fn tab_indicator_glyph(
         .justify_center()
         .size(size)
         .child(content)
-        .when(indicator.shows_attention, |element| {
+        .when(shows_tab_indicator_dot(indicator), |element| {
             element.child(
                 div()
                     .absolute()
@@ -1750,6 +1763,34 @@ mod tests {
         assert!(shows_terminal_attention(true, Some("a"), "b", true));
         assert!(!shows_terminal_attention(true, Some("a"), "a", true));
         assert!(!shows_terminal_attention(false, None, "a", false));
+    }
+
+    #[test]
+    fn unread_dot_never_replaces_progress_or_bell_and_coexists_with_attention() {
+        let unread = TabIndicator {
+            unread: true,
+            ..Default::default()
+        };
+        assert!(shows_tab_indicator_dot(unread));
+        assert!(!shows_tab_indicator_dot(TabIndicator {
+            progress: SurfaceProgress {
+                kind: Some(SurfaceProgressKind::Set),
+                value: Some(0.5),
+            },
+            ..unread
+        }));
+        assert!(!shows_tab_indicator_dot(TabIndicator {
+            bell_flashing: true,
+            ..unread
+        }));
+        assert!(shows_tab_indicator_dot(TabIndicator {
+            progress: SurfaceProgress {
+                kind: Some(SurfaceProgressKind::Set),
+                value: Some(0.5),
+            },
+            shows_attention: true,
+            ..unread
+        }));
     }
 
     #[test]

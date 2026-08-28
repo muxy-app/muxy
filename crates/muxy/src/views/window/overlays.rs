@@ -1,5 +1,20 @@
 use super::*;
 
+fn desktop_authorization_failure(
+    result: crate::notifications::desktop::AuthorizationResult,
+) -> &'static str {
+    match result {
+        crate::notifications::desktop::AuthorizationResult::Denied => "Permission was not granted.",
+        crate::notifications::desktop::AuthorizationResult::Unavailable => {
+            "Desktop notifications are unavailable on this system."
+        }
+        crate::notifications::desktop::AuthorizationResult::Failed => {
+            "Muxy could not update desktop notification permission."
+        }
+        crate::notifications::desktop::AuthorizationResult::Allowed => "",
+    }
+}
+
 fn repository_ai_workflow_effect(
     result: &Result<
         muxy_api::repository::RepositoryAiWorkflowOutcome,
@@ -137,7 +152,12 @@ impl MainWindow {
         let provider = match inventory.resolve_action(&self.state.prefs.repository_ai, action) {
             Ok(provider) => provider.descriptor.display_name.to_owned(),
             Err(error) => {
-                self.alert("AI Provider Unavailable".to_owned(), error.to_string(), cx);
+                self.feedback(
+                    "AI Provider Unavailable",
+                    error.to_string(),
+                    crate::toast::ToastTone::Error,
+                    cx,
+                );
                 return;
             }
         };
@@ -434,9 +454,10 @@ impl MainWindow {
         {
             self.dismiss_overlay(cx);
         } else {
-            self.alert(
-                "Could Not Save Project Prompt".to_owned(),
-                "Muxy could not persist the project pull request prompt.".to_owned(),
+            self.feedback(
+                "Could Not Save Project Prompt",
+                "Muxy could not persist the project pull request prompt.",
+                crate::toast::ToastTone::Error,
                 cx,
             );
         }
@@ -455,10 +476,10 @@ impl MainWindow {
             &self.view.repository.coordinator.state().summary,
         ) {
             self.dismiss_overlay(cx);
-            self.alert(
-                "Repository Context Changed".to_owned(),
-                "The branch or commit changed after confirmation. Review the action and try again."
-                    .to_owned(),
+            self.feedback(
+                "Repository Context Changed",
+                "The branch or commit changed after confirmation. Review the action and try again.",
+                crate::toast::ToastTone::Warning,
                 cx,
             );
             return;
@@ -488,9 +509,10 @@ impl MainWindow {
         let (token, control) = match acquisition {
             Ok(acquisition) => acquisition,
             Err(error) => {
-                self.alert(
-                    "Repository Action Unavailable".to_owned(),
-                    error.to_owned(),
+                self.feedback(
+                    "Repository Action Unavailable",
+                    error,
+                    crate::toast::ToastTone::Warning,
                     cx,
                 );
                 return;
@@ -513,34 +535,52 @@ impl MainWindow {
                     }
                 })
                 .await;
-            let _ = window.update(cx, |window, cx| {
-                let effect = repository_ai_workflow_effect(&result);
-                let completion = window.view.repository.coordinator.finish_ai_operation(
-                    &mut window.state.project_operations,
-                    &token,
-                    effect,
-                );
-                if let Some(completion) = current_repository_ai_completion(
-                    completion,
-                    window.view.repository.coordinator.key(),
-                    &key,
-                ) {
-                    window
-                        .view
-                        .repository
-                        .coordinator
-                        .request_refresh(completion.refresh);
-                    window.dispatch_repository_refresh(cx);
-                    if let Err(error) = result {
-                        window.alert(
-                            "Repository AI Action Failed".to_owned(),
-                            error.to_string(),
+            let _ =
+                window.update(cx, |window, cx| {
+                    let effect = repository_ai_workflow_effect(&result);
+                    let completion = window.view.repository.coordinator.finish_ai_operation(
+                        &mut window.state.project_operations,
+                        &token,
+                        effect,
+                    );
+                    if let Some(completion) = current_repository_ai_completion(
+                        completion,
+                        window.view.repository.coordinator.key(),
+                        &key,
+                    ) {
+                        window
+                            .view
+                            .repository
+                            .coordinator
+                            .request_refresh(completion.refresh);
+                        window.dispatch_repository_refresh(cx);
+                        match result {
+                        Ok(muxy_api::repository::RepositoryAiWorkflowOutcome::Committed {
+                            ..
+                        }) => window.feedback(
+                            "Repository AI Action Complete",
+                            "Changes were committed and pushed.",
+                            crate::toast::ToastTone::Success,
                             cx,
-                        );
+                        ),
+                        Ok(muxy_api::repository::RepositoryAiWorkflowOutcome::PullRequestCreated(
+                            _,
+                        )) => window.feedback(
+                            "Repository AI Action Complete",
+                            "The pull request was created.",
+                            crate::toast::ToastTone::Success,
+                            cx,
+                        ),
+                        Err(error) => window.feedback(
+                            "Repository AI Action Failed",
+                            error.to_string(),
+                            crate::toast::ToastTone::Error,
+                            cx,
+                        ),
                     }
-                }
-                cx.notify();
-            });
+                    }
+                    cx.notify();
+                });
         })
         .detach();
         cx.notify();
@@ -687,9 +727,10 @@ impl MainWindow {
                 .await;
             if let Err(error) = result {
                 let _ = window.update(cx, |window, cx| {
-                    window.alert(
-                        "Could Not Open Pull Request".to_owned(),
+                    window.feedback(
+                        "Could Not Open Pull Request",
                         error.to_string(),
+                        crate::toast::ToastTone::Error,
                         cx,
                     );
                 });
@@ -1671,6 +1712,9 @@ impl MainWindow {
         ) {
             self.view.pending_focus = Some(self.view.workspace_focus.clone());
         }
+        if matches!(self.view.overlay, Overlay::Notifications { .. }) {
+            self.view.pending_focus = Some(self.view.workspace_focus.clone());
+        }
         self.view.subscriptions.clear();
         self.view.overlay = Overlay::None;
         cx.notify();
@@ -1684,7 +1728,7 @@ impl MainWindow {
             | Overlay::Symbols { anchor, .. }
             | Overlay::Colors { anchor, .. }
             | Overlay::TabColors { anchor, .. } => *anchor,
-            Overlay::Repository { anchor, .. } => anchor.origin,
+            Overlay::Repository { anchor, .. } | Overlay::Notifications { anchor } => anchor.origin,
             Overlay::TabRename { bounds, .. } => bounds.origin,
             Overlay::None
             | Overlay::Picker(_)
@@ -1824,12 +1868,76 @@ impl MainWindow {
         let subscription = cx.subscribe(&modal, |window: &mut Self, _, event, cx| match event {
             settings::SettingsEvent::Dismiss => window.dismiss_overlay(cx),
             settings::SettingsEvent::Applied(effect) => window.apply_settings(*effect, cx),
+            settings::SettingsEvent::SetDesktopNotifications(enabled) => {
+                window.set_desktop_notifications(*enabled, cx)
+            }
+            settings::SettingsEvent::PreviewNotificationSound(name) => {
+                window.preview_notification_sound(name)
+            }
         });
 
         window.focus(&modal.focus_handle(cx));
         self.view.subscriptions = vec![subscription];
         self.view.overlay = Overlay::Settings(modal);
         cx.notify();
+    }
+
+    fn set_desktop_notifications(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if !enabled {
+            self.notification_coordinator.cancel_desktop_authorization();
+            muxy_core::prefs::Prefs::store_settings_value(
+                "muxy.notifications.desktopEnabled",
+                serde_json::Value::Bool(false),
+            );
+            self.finish_desktop_authorization_modal(cx);
+            return;
+        }
+        let Some((generation, authorization)) =
+            self.notification_coordinator.begin_desktop_authorization()
+        else {
+            return;
+        };
+        let task = cx.spawn(async move |window, cx| {
+            let result = authorization
+                .recv()
+                .await
+                .unwrap_or(crate::notifications::desktop::AuthorizationResult::Failed);
+            let _ = window.update(cx, |window, cx| {
+                let Some(enabled) = window
+                    .notification_coordinator
+                    .complete_desktop_authorization(generation, result)
+                else {
+                    return;
+                };
+                muxy_core::prefs::Prefs::store_settings_value(
+                    "muxy.notifications.desktopEnabled",
+                    serde_json::Value::Bool(enabled),
+                );
+                window.finish_desktop_authorization_modal(cx);
+                if !enabled {
+                    window.feedback(
+                        "Desktop Notifications Unavailable",
+                        desktop_authorization_failure(result),
+                        crate::toast::ToastTone::Error,
+                        cx,
+                    );
+                }
+            });
+        });
+        self.notification_coordinator.set_authorization_task(task);
+    }
+
+    fn finish_desktop_authorization_modal(&mut self, cx: &mut Context<Self>) {
+        if let Overlay::Settings(modal) = &self.view.overlay {
+            modal.update(cx, |modal, cx| {
+                modal.set_desktop_authorization_pending(false, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    fn preview_notification_sound(&mut self, name: &str) {
+        self.notification_coordinator.play_sound(name);
     }
 
     pub(crate) fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1883,9 +1991,10 @@ impl MainWindow {
             return;
         };
         if project.is_home() || project.is_remote() || !project.is_git_repo {
-            self.alert(
-                "New Worktree".into(),
-                "Worktrees require an existing local Git project.".into(),
+            self.feedback(
+                "New Worktree",
+                "Worktrees require an existing local Git project.",
+                crate::toast::ToastTone::Warning,
                 cx,
             );
             return;

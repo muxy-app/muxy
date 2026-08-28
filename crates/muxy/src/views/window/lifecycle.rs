@@ -253,7 +253,12 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) {
         if let Some(error) = native_refresh_error(responder.is_some(), reply) {
-            self.alert("Refresh Worktrees".into(), error.to_owned(), cx);
+            self.feedback(
+                "Refresh Worktrees",
+                error,
+                crate::toast::ToastTone::Error,
+                cx,
+            );
         }
     }
 
@@ -378,9 +383,10 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) {
         if self.state.project_operations.is_busy(&project_id) {
-            self.alert(
-                "Remove Worktree".into(),
-                "Another worktree operation is still running.".into(),
+            self.feedback(
+                "Remove Worktree",
+                "Another worktree operation is still running.",
+                crate::toast::ToastTone::Warning,
                 cx,
             );
             return;
@@ -397,9 +403,10 @@ impl MainWindow {
             return;
         };
         if worktree.is_primary {
-            self.alert(
-                "Remove Worktree".into(),
-                "The primary worktree cannot be removed.".into(),
+            self.feedback(
+                "Remove Worktree",
+                "The primary worktree cannot be removed.",
+                crate::toast::ToastTone::Warning,
                 cx,
             );
             return;
@@ -436,7 +443,12 @@ impl MainWindow {
                         Ok(inspection) => inspection,
                         Err(error) => {
                             window.view.worktrees.clear_removal();
-                            window.alert("Remove Worktree".into(), error.to_string(), cx);
+                            window.feedback(
+                                "Remove Worktree",
+                                error.to_string(),
+                                crate::toast::ToastTone::Error,
+                                cx,
+                            );
                             return None;
                         }
                     };
@@ -537,9 +549,10 @@ impl MainWindow {
         {
             Ok(token) => token,
             Err(BeginOperationError::Busy(_)) => {
-                self.alert(
-                    "Remove Worktree".into(),
-                    "Another worktree operation is still running.".into(),
+                self.feedback(
+                    "Remove Worktree",
+                    "Another worktree operation is still running.",
+                    crate::toast::ToastTone::Warning,
                     cx,
                 );
                 return;
@@ -571,16 +584,22 @@ impl MainWindow {
                             }
                         }
                         if !effects.warnings.is_empty() {
-                            window.alert(
-                                "Worktree Removed".into(),
+                            window.feedback(
+                                "Worktree Removed",
                                 native_removal_warning(&effects.warnings),
+                                crate::toast::ToastTone::Warning,
                                 cx,
                             );
                         }
                         window.sync_watchers();
                     }
                     Err(error) => {
-                        window.alert("Remove Worktree".into(), error.to_string(), cx);
+                        window.feedback(
+                            "Remove Worktree",
+                            error.to_string(),
+                            crate::toast::ToastTone::Error,
+                            cx,
+                        );
                     }
                 }
                 let schedule_fresh_probe = window
@@ -660,9 +679,10 @@ impl MainWindow {
                         window.view.overlay = Overlay::None;
                         window.sync_watchers();
                         if !effects.warnings.is_empty() {
-                            window.alert(
-                                "Worktree Created".into(),
+                            window.feedback(
+                                "Worktree Created",
                                 native_creation_warning(&effects.warnings),
+                                crate::toast::ToastTone::Warning,
                                 cx,
                             );
                         }

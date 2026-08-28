@@ -134,6 +134,10 @@ printf '==> Checking P4 repository ownership\n'
     printf 'error: P4 verification script must be executable\n' >&2
     exit 1
 }
+[[ -x scripts/verify-p5-notifications.sh ]] || {
+    printf 'error: P5 verification script must be executable\n' >&2
+    exit 1
+}
 provider_catalog_owner='crates/muxy-core/src/repository_ai.rs'
 provider_catalog_matches="$(rg -n 'ProviderDescriptor\s*\{' crates/ --glob '*.rs' \
     | rg -v "^${provider_catalog_owner}:" || true)"
@@ -203,6 +207,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 
     printf '==> Checking P4 VCS verification guards\n'
     "$SCRIPT_DIR/verify-p4-vcs.sh" --self-test
+
+    printf '==> Checking P5 notification verification guards\n'
+    "$SCRIPT_DIR/verify-p5-notifications.sh" --self-test
 
     printf '==> Building debug application bundle\n'
     "$SCRIPT_DIR/build-app.sh" debug

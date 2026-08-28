@@ -124,13 +124,20 @@ impl Default for IngressQueues {
 }
 
 impl IngressQueues {
-    pub fn push_legacy(&mut self, ingress: LegacyNotificationIngress) {
-        self.legacy_notifications.push(ingress.into());
+    pub fn push_legacy(&mut self, ingress: LegacyNotificationIngress) -> LegacyNotificationRecord {
+        let record = LegacyNotificationRecord::from(ingress);
+        self.legacy_notifications.push(record.clone());
+        record
     }
 
-    pub fn push_agent_hook(&mut self, event: AgentHookEvent, resolution: AgentHookResolution) {
-        self.agent_hooks
-            .push(AgentHookRecord::new(event, resolution));
+    pub fn push_agent_hook(
+        &mut self,
+        event: AgentHookEvent,
+        resolution: AgentHookResolution,
+    ) -> AgentHookRecord {
+        let record = AgentHookRecord::new(event, resolution);
+        self.agent_hooks.push(record.clone());
+        record
     }
 
     pub fn push_extension_event(&mut self, event: ExtensionLocalEventIngress) {
@@ -178,6 +185,31 @@ mod tests {
         assert_eq!(record.sender_extension_id, None);
         assert_eq!(record.title, "Title 7");
         assert_eq!(record.body, "Body 7");
+    }
+
+    #[test]
+    fn notifications_ingress_returns_only_the_current_retained_record_without_queue_replay() {
+        let mut queues = IngressQueues::default();
+        let first = queues.push_legacy(notification(1));
+        let second = queues.push_legacy(notification(2));
+        assert_eq!(first.raw_pane_id.as_deref(), Some("PANE-1"));
+        assert_eq!(second.raw_pane_id.as_deref(), Some("PANE-2"));
+        assert_eq!(queues.legacy_notifications.records.len(), 2);
+        assert_eq!(
+            queues
+                .legacy_notifications
+                .records
+                .back()
+                .unwrap()
+                .raw_pane_id
+                .as_deref(),
+            second.raw_pane_id.as_deref()
+        );
+
+        let current = queues.push_agent_hook(hook(3), AgentHookResolution::Test);
+        assert_eq!(current.id.as_deref(), Some("event-3"));
+        assert_eq!(queues.agent_hooks.records.len(), 1);
+        assert!(queues.extension_events.records.is_empty());
     }
 
     #[test]

@@ -108,9 +108,18 @@ impl MainWindow {
                                 )));
                                 return;
                             }
+                            let active_window = self.window_handle.downcast::<MainWindow>();
                             cx.notify();
                             cx.spawn(async move |window, cx| {
                                 for _ in 0..40 {
+                                    if let Some(active_window) = active_window {
+                                        let _ = active_window.update(
+                                            cx,
+                                            |window, native_window, cx| {
+                                                window.reconcile_terminals(native_window, cx);
+                                            },
+                                        );
+                                    }
                                     let reply = window
                                         .update(cx, |window, cx| {
                                             let reply = panes::perform_surface(window, &command);
@@ -171,7 +180,17 @@ impl MainWindow {
                 _ => {}
             },
             IncomingRequest::LegacyNotification(notification) => {
-                self.state.socket_ingress.push_legacy(notification);
+                let record = self.state.socket_ingress.push_legacy(notification);
+                let timestamp = muxy_core::store::reference_now();
+                let resolved = crate::notifications::resolve_legacy_notification(
+                    &record,
+                    timestamp,
+                    |pane_id| self.state.notification_target_for_pane(pane_id),
+                    || self.state.active_first_terminal_notification_target(),
+                );
+                if let Some(resolved) = resolved {
+                    self.submit_notification(resolved, false, cx);
+                }
             }
             IncomingRequest::AgentHook(event) => {
                 let resolution = resolve_agent_hook(&event, |pid| {
@@ -179,7 +198,17 @@ impl MainWindow {
                         .surfaces
                         .panes_matching_foreground_pid(pid)
                 });
-                self.state.socket_ingress.push_agent_hook(event, resolution);
+                let record = self.state.socket_ingress.push_agent_hook(event, resolution);
+                let timestamp = muxy_core::store::reference_now();
+                let resolved = crate::notifications::resolve_agent_hook_notification(
+                    &record,
+                    timestamp,
+                    |pane_id| self.state.notification_target_for_pane(pane_id),
+                    || self.state.active_first_terminal_notification_target(),
+                );
+                if let Some(resolved) = resolved {
+                    self.submit_notification(resolved, false, cx);
+                }
             }
             IncomingRequest::ExtensionLocalEvent(event) => {
                 self.state.socket_ingress.push_extension_event(event);

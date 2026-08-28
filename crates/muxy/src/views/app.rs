@@ -56,7 +56,9 @@ use crate::terminal::TerminalSurfaces;
 use crate::views::overlay::Overlay;
 use crate::views::window::MainWindow;
 use crate::views::window::menu_bar;
-use crate::views::{omnibox, overlay, sidebar, status_bar, titlebar, welcome, workspace_view};
+use crate::views::{
+    omnibox, overlay, sidebar, status_bar, titlebar, toast, welcome, workspace_view,
+};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Bounds, Context, Entity, FocusHandle, InteractiveElement, IntoElement, MouseButton,
@@ -89,6 +91,7 @@ pub(crate) struct AppView<'a> {
     pub drag: Option<(&'a str, f64)>,
     pub now: Duration,
     pub overlay: &'a Overlay,
+    pub toast: Option<(&'a crate::toast::ToastContent, u64)>,
     pub drop_highlight: Option<(Bounds<Pixels>, muxy_core::workspace::DropZone)>,
     pub focused_working_directory: Option<String>,
     pub expanded_worktree_projects: &'a HashSet<String>,
@@ -116,6 +119,7 @@ pub(crate) fn render(
         drag,
         now,
         overlay,
+        toast: active_toast,
         drop_highlight,
         focused_working_directory,
         expanded_worktree_projects,
@@ -162,6 +166,7 @@ pub(crate) fn render(
         reveal: scrollbar_reveal,
         attention: terminal_attention,
         bell_flashes,
+        notifications: &state.notification_store,
         drag,
         now,
     };
@@ -599,6 +604,22 @@ pub(crate) fn render(
             repository_mutation_busy,
             menu_focus,
             window,
+            cx,
+        ));
+    }
+
+    if let Some((content, generation)) = active_toast {
+        let position =
+            crate::toast::ToastPosition::from_setting(&muxy_core::prefs::settings::string_value(
+                "muxy.notifications.toastPosition",
+                "Top Center",
+            ));
+        columns = columns.child(toast::layer(
+            content,
+            generation,
+            position,
+            &state.theme,
+            state.metrics,
             cx,
         ));
     }

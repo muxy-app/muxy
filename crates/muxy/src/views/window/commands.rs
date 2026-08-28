@@ -222,7 +222,7 @@ impl MainWindow {
             if let Err(error) = result {
                 let _ = window.update(cx, |window, cx| {
                     let (title, message) = crate::views::status_bar::reveal_failure(&path, error);
-                    window.alert(title, message, cx);
+                    window.feedback(title, message, crate::toast::ToastTone::Error, cx);
                 });
             }
         })
@@ -264,17 +264,19 @@ impl MainWindow {
         };
         let worktree_path = self.state.active_worktree_path(&project);
         let Some(config) = muxy_api::layouts::load(path) else {
-            self.alert(
-                "Apply Layout".to_owned(),
-                "Muxy could not read this layout file.".to_owned(),
+            self.feedback(
+                "Apply Layout",
+                "Muxy could not read this layout file.",
+                crate::toast::ToastTone::Error,
                 cx,
             );
             return;
         };
         let Some(built) = muxy_api::layouts::build(&config, &worktree_path) else {
-            self.alert(
-                "Apply Layout".to_owned(),
-                "This layout has no panes to open.".to_owned(),
+            self.feedback(
+                "Apply Layout",
+                "This layout has no panes to open.",
+                crate::toast::ToastTone::Error,
                 cx,
             );
             return;

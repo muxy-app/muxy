@@ -1,5 +1,17 @@
 use super::*;
 
+fn desktop_notification_title(title: String) -> String {
+    if title.is_empty() {
+        "Command executed!".to_owned()
+    } else {
+        title
+    }
+}
+
+fn desktop_notification_is_sound_only(window_active: bool, target_focused: bool) -> bool {
+    window_active && target_focused
+}
+
 pub(crate) struct TerminalRuntime {
     pub(crate) surfaces: TerminalSurfaces,
     pub(super) _tasks: Vec<Task<()>>,
@@ -24,6 +36,27 @@ impl MainWindow {
             return;
         };
         match signal {
+            SurfaceSignal::DesktopNotification { title, body } => {
+                let Some(target) = self.state.notification_target_for_pane(&tab_id) else {
+                    return;
+                };
+                let focused_osc = desktop_notification_is_sound_only(
+                    self.view.window_active,
+                    self.state.notification_target_is_focused(&target),
+                );
+                self.submit_notification(
+                    crate::notifications::ResolvedNotificationEvent {
+                        target,
+                        source: muxy_core::notifications::NotificationSource::Osc,
+                        origin: crate::notifications::NotificationOrigin::TerminalOsc,
+                        title: desktop_notification_title(title),
+                        body,
+                        timestamp: muxy_core::store::reference_now(),
+                    },
+                    focused_osc,
+                    cx,
+                );
+            }
             SurfaceSignal::Exited => {
                 if self
                     .terminal_runtime
@@ -167,7 +200,7 @@ impl MainWindow {
         }
     }
 
-    pub(super) fn reconcile_terminals(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn reconcile_terminals(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let visible: Vec<String> = self
             .state
             .active_tab_workspace()
@@ -219,9 +252,10 @@ impl MainWindow {
             self.view.terminal.overlay_was_open = overlay_open;
         }
 
+        self.view.window_active = window.is_window_active();
         self.terminal_runtime
             .surfaces
-            .set_window_active(window.is_window_active());
+            .set_window_active(self.view.window_active);
 
         let focused = if overlay_open {
             None
@@ -623,5 +657,24 @@ impl MainWindow {
             .working_directory
             .as_ref()
             .map(std::path::PathBuf::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_notification_title_default_and_focus_policy_are_exact() {
+        assert_eq!(
+            desktop_notification_title(String::new()),
+            "Command executed!"
+        );
+        assert_eq!(desktop_notification_title("  ".to_owned()), "  ",);
+        assert_eq!(desktop_notification_title("Done".to_owned()), "Done");
+        assert!(desktop_notification_is_sound_only(true, true));
+        assert!(!desktop_notification_is_sound_only(true, false));
+        assert!(!desktop_notification_is_sound_only(false, true));
+        assert!(!desktop_notification_is_sound_only(false, false));
     }
 }

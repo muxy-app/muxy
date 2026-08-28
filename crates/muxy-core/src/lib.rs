@@ -2,6 +2,7 @@ pub mod environment;
 pub mod fold;
 pub mod migration;
 pub mod navigation;
+pub mod notifications;
 pub mod prefs;
 pub mod repository_ai;
 pub mod settings_catalog;

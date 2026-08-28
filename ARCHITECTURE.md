@@ -34,10 +34,10 @@ flowchart TD
 
 | Crate | What lives there | Depends on GPUI? | macOS-only code? |
 |---|---|---|---|
-| `muxy` | app entry, `AppState`, all views, commands, keymap, terminal glue | yes | terminal backend |
+| `muxy` | app entry, `AppState`, all views, commands, keymap, terminal glue, notification coordination and platform delivery | yes | terminal backend, UserNotifications, NSSound |
 | `muxy-api` | git, worktree lifecycle/hooks/locations, bounded subprocesses, project "truth", IDE detection, layouts, yaml, fs watcher, picker logic | no | Unix process-group edge only |
 | `muxy-proto` | portable wire types, strict codecs, framing, and transport policy | no | Unix transport edge only |
-| `muxy-core` | prefs, settings catalog, shortcuts, navigation history, stores, workspace/tab tree model | no | migration-only user-defaults access |
+| `muxy-core` | prefs, settings catalog, shortcuts, navigation history, notification model/store/coalescing, stores, workspace/tab tree model | no | migration-only user-defaults access |
 | `muxy-terminal` | backend trait, surface signals, search, scrollbar, confirmation | no | ghostty impl |
 | `muxy-ui` | theme, icons, components, controls, text input, scrollbar | yes | SF Symbols |
 | `ghostty-host` | runtime, surface, config, input, mouse — safe API over FFI | no | yes |
@@ -85,6 +85,33 @@ flowchart LR
 
 Events flow back asynchronously: libghostty callbacks → `ghostty-host` `RuntimeEvent` channel → `muxy::terminal::TerminalEvents` → GPUI views.
 
+## Notification stack
+
+```mermaid
+flowchart LR
+    legacy["legacy notification socket"] --> typed["typed P2 ingress"]
+    hook["Agent Hook v3"] --> typed
+    osc["Ghostty OSC 9 / 777"] --> host["ghostty-host owned action"]
+    host --> signal["muxy-terminal transient signal"]
+    typed --> resolve["app target resolution"]
+    signal --> resolve
+    resolve --> coordinator["MainWindow notification coordinator"]
+    coordinator --> store["muxy-core NotificationStore"]
+    coordinator --> toast["GPUI toast"]
+    coordinator --> desktop["cfg-gated UserNotifications"]
+    coordinator --> sound["cfg-gated NSSound"]
+    store --> panel["panel + unread presentation"]
+    panel --> navigation["shared live/stale navigation"]
+    toast --> navigation
+    desktop --> navigation
+```
+
+`muxy-core` owns the portable record shape, tolerant capped store, unread queries, atomic persistence, and two-second desktop-only hook/OSC pairing. It has no GPUI or platform dependency. `ghostty-host` copies Ghostty callback data into an owned action, and `muxy-terminal` exposes only a backend-neutral transient signal. Target resolution finishes in the app before the coordinator mutates the store or invokes a presentation or platform edge.
+
+`MainWindow` owns notification coordination, the latest-replacing three-second toast, the two-second save debounce, native response pumping, and both final flush paths. `AppState` owns `NotificationStore`. The store writes a private top-level array to the selected profile's `notifications.json`, retains at most 200 newest records, and marks loaded history read at startup without importing the retained Swift file. Closing the main window and quitting the app both synchronously flush dirty history.
+
+macOS desktop delivery and sound playback are narrow services under `muxy::notifications`; unsupported platforms expose unavailable or no-op behavior. Ordinary desktop delivery never prompts for permission. Enabling the desktop setting owns the authorization request. Views render records and emit remove, clear, navigation, and settings intents; they do not persist history, schedule native requests, play sounds, or decide ingress policy.
+
 ## Workspace / tab model (muxy-core)
 
 ```mermaid
@@ -130,11 +157,13 @@ flowchart LR
     subgraph release["Release: ~/.muxy"]
         RF["stores + ghostty.conf"]
         RP["preferences.json"]
+        RN["notifications.json"]
         RS["swift-profile-migration.json"]
     end
     subgraph debug["Debug: ~/.muxy-dev"]
         DF["stores + ghostty.conf"]
         DP["preferences.json"]
+        DN["notifications.json"]
     end
     PY["project .muxy/layouts/*.yml"]
     GIT["git CLI\n(worktrees, status)"]
@@ -271,7 +300,7 @@ flowchart TD
     main --> win["views::window\nrender, menus, orchestration"]
     win --> wsv["workspace_view + sidebar\n+ titlebar + status bar"]
     win --> term2["window::terminal\nsurface hosting"]
-    win --> ov["overlays: omnibox, project picker,\nsettings, shortcut editor, switcher"]
+    win --> ov["overlays: omnibox, project picker,\nnotifications, settings, shortcut editor, switcher"]
     cmd["command.rs + keymap.rs"] --> win
     ov -- "picker logic" --> papi["muxy-api::picker\n(navigator, search, session)"]
     wsv -- reads/mutates --> state

@@ -15,6 +15,10 @@ use muxy_ui::icon::Icon;
 
 use crate::views::window::MainWindow;
 
+fn worktree_unread_visible(enabled: bool, unread: usize) -> bool {
+    enabled && unread > 0
+}
+
 pub fn sidebar(
     state: &AppState,
     layout: AppLayout,
@@ -85,10 +89,11 @@ fn project_list(
         let has_worktrees = project.has_worktree_ui() && !worktrees.is_empty();
         let worktrees_expanded =
             wide && has_worktrees && expanded_worktree_projects.contains(&project.id);
+        let project_unread = state.notification_store.unread_project(&project.id) > 0;
         let row = if wide {
-            expanded_row(state, project, worktrees_expanded)
+            expanded_row(state, project, worktrees_expanded, project_unread)
         } else {
-            collapsed_row(state, project)
+            collapsed_row(state, project, project_unread)
         };
         let menu_id = id.clone();
         let command = worktree_header_command(&id, state.is_active(project), has_worktrees);
@@ -129,6 +134,15 @@ fn project_list(
                 let worktree_id = model.id.clone();
                 let menu_project_id = project_id.clone();
                 let menu_worktree_id = worktree_id.clone();
+                let unread = worktree_unread_visible(
+                    muxy_core::prefs::settings::bool_value(
+                        "muxy.worktrees.showUnreadIndicator",
+                        true,
+                    ),
+                    state
+                        .notification_store
+                        .unread_worktree(&project.id, &model.id),
+                );
                 nested = nested.child(
                     div()
                         .id(gpui::ElementId::Name(SharedString::from(format!(
@@ -152,7 +166,7 @@ fn project_list(
                                 },
                             ),
                         )
-                        .child(worktree_row(state, &model)),
+                        .child(worktree_row(state, &model, unread)),
                 );
             }
             let project_id = project.id.clone();
@@ -307,4 +321,17 @@ fn add_project_button(
                 .child(SharedString::from("Add Project")),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unread_worktree_indicator_honors_preference_and_count() {
+        assert!(worktree_unread_visible(true, 1));
+        assert!(worktree_unread_visible(true, 12));
+        assert!(!worktree_unread_visible(true, 0));
+        assert!(!worktree_unread_visible(false, 12));
+    }
 }

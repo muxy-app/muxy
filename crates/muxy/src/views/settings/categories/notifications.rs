@@ -13,13 +13,7 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
         true,
         vec![
             toggle_row(style, "Toast", "muxy.notifications.toastEnabled", true, cx),
-            toggle_row(
-                style,
-                "Desktop notifications",
-                "muxy.notifications.desktopEnabled",
-                false,
-                cx,
-            ),
+            desktop_notifications_row(modal, cx),
         ],
     ));
 
@@ -29,17 +23,7 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
         "Sound",
         None,
         true,
-        vec![picker_row(
-            modal,
-            "Sound",
-            "muxy.notifications.sound",
-            "Funk",
-            settings::NOTIFICATION_SOUNDS
-                .iter()
-                .map(|name| Choice::new(*name, *name))
-                .collect(),
-            cx,
-        )],
+        vec![notification_sound_row(modal, cx)],
     ));
 
     sections.extend(visible(
@@ -75,6 +59,56 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
     ));
 
     sections
+}
+
+fn desktop_notifications_row(modal: &SettingsModal, cx: &mut Context<SettingsModal>) -> AnyElement {
+    let style = modal.style();
+    let value = modal.desktop_authorization_pending()
+        || settings::bool_value("muxy.notifications.desktopEnabled", false);
+    controls::row(
+        style,
+        "Desktop notifications",
+        controls::toggle(
+            style,
+            "muxy.notifications.desktopEnabled",
+            value,
+            cx.listener(|modal: &mut SettingsModal, _, _, cx| {
+                modal.request_desktop_notifications(cx);
+            }),
+        ),
+    )
+}
+
+fn notification_sound_row(modal: &SettingsModal, cx: &mut Context<SettingsModal>) -> AnyElement {
+    let key = "muxy.notifications.sound";
+    let choices = settings::NOTIFICATION_SOUNDS
+        .iter()
+        .map(|name| Choice::new(*name, *name))
+        .collect::<Vec<_>>();
+    let selected = settings::string_value(key, "Funk");
+    let popover = modal.picker(key).cloned();
+    let toggle_choices = choices.clone();
+    let toggle_selected = selected.clone();
+    controls::row(
+        modal.style(),
+        "Sound",
+        controls::picker(
+            modal.style(),
+            key,
+            choices,
+            &selected,
+            popover,
+            cx.listener(move |modal: &mut SettingsModal, _, _, cx| {
+                modal.toggle_picker(
+                    key,
+                    toggle_choices.clone(),
+                    toggle_selected.clone(),
+                    SettingsPickerTarget::NotificationSound,
+                    cx,
+                );
+            }),
+        ),
+    )
 }
 
 fn provider_row(
