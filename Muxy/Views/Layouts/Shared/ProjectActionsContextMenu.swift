@@ -1,6 +1,22 @@
 import SwiftUI
 
 enum ProjectActionsContextMenuPolicy {
+    struct Context {
+        let isGitRepo: Bool
+        let isCheckingGitRepo: Bool
+        let worktreeCount: Int
+        let supportsSwitchWorktree: Bool
+        let hasLocalWorkspaces: Bool
+    }
+
+    enum Feature: Hashable {
+        case pin
+        case worktreeActions
+        case loadingWorktrees
+        case switchWorktree
+        case workspaceMembership
+    }
+
     static func showsPin(isHome: Bool) -> Bool {
         !isHome
     }
@@ -19,6 +35,36 @@ enum ProjectActionsContextMenuPolicy {
         supportsSwitchWorktree: Bool
     ) -> Bool {
         worktreesEnabled && worktreeCount > 1 && supportsSwitchWorktree
+    }
+
+    static func features(
+        for project: Project,
+        context: Context
+    ) -> Set<Feature> {
+        var features: Set<Feature> = []
+        if showsPin(isHome: project.isHome) {
+            features.insert(.pin)
+        }
+        if showsWorktreeActions(isGitRepo: context.isGitRepo) {
+            features.insert(.worktreeActions)
+        }
+        if showsLoadingWorktrees(
+            isGitRepo: context.isGitRepo,
+            isCheckingGitRepo: context.isCheckingGitRepo
+        ) {
+            features.insert(.loadingWorktrees)
+        }
+        if features.contains(.worktreeActions), showsSwitchWorktree(
+            worktreesEnabled: project.worktreesEnabled,
+            worktreeCount: context.worktreeCount,
+            supportsSwitchWorktree: context.supportsSwitchWorktree
+        ) {
+            features.insert(.switchWorktree)
+        }
+        if project.supportsLocalWorkspaceMembership, context.hasLocalWorkspaces {
+            features.insert(.workspaceMembership)
+        }
+        return features
     }
 }
 
@@ -40,12 +86,21 @@ struct ProjectActionsContextMenu: View {
 
     @Environment(ProjectGroupStore.self) private var projectGroupStore
 
-    private var canMoveToWorkspace: Bool {
-        !project.isRemote && projectGroupStore.groups.contains { $0.type == .local }
+    private var features: Set<ProjectActionsContextMenuPolicy.Feature> {
+        ProjectActionsContextMenuPolicy.features(
+            for: project,
+            context: ProjectActionsContextMenuPolicy.Context(
+                isGitRepo: isGitRepo,
+                isCheckingGitRepo: isCheckingGitRepo,
+                worktreeCount: worktreeCount,
+                supportsSwitchWorktree: onSwitchWorktree != nil,
+                hasLocalWorkspaces: projectGroupStore.groups.contains { $0.type == .local }
+            )
+        )
     }
 
     var body: some View {
-        if ProjectActionsContextMenuPolicy.showsPin(isHome: project.isHome) {
+        if features.contains(.pin) {
             Button(project.isPinned ? L10n.string("Unpin") : L10n.string("Pin")) {
                 editor.setPinned(project, to: !project.isPinned)
             }
@@ -66,7 +121,7 @@ struct ProjectActionsContextMenu: View {
         Divider()
         Button(L10n.string("Rename Project"), action: onRename)
         worktreeActions
-        if canMoveToWorkspace {
+        if features.contains(.workspaceMembership) {
             Divider()
             ProjectGroupMembershipMenu(project: project)
         }
@@ -80,24 +135,17 @@ struct ProjectActionsContextMenu: View {
 
     @ViewBuilder
     private var worktreeActions: some View {
-        if ProjectActionsContextMenuPolicy.showsWorktreeActions(isGitRepo: isGitRepo) {
+        if features.contains(.worktreeActions) {
             Divider()
             Toggle(L10n.string("Worktrees"), isOn: worktreesEnabledBinding)
             if project.worktreesEnabled {
                 Button(L10n.string("Refresh Worktrees"), action: onRefreshWorktrees)
                 Button(L10n.string("New Worktree…"), action: onCreateWorktree)
-                if ProjectActionsContextMenuPolicy.showsSwitchWorktree(
-                    worktreesEnabled: project.worktreesEnabled,
-                    worktreeCount: worktreeCount,
-                    supportsSwitchWorktree: onSwitchWorktree != nil
-                ), let onSwitchWorktree {
+                if features.contains(.switchWorktree), let onSwitchWorktree {
                     Button(L10n.string("Switch Worktree…"), action: onSwitchWorktree)
                 }
             }
-        } else if ProjectActionsContextMenuPolicy.showsLoadingWorktrees(
-            isGitRepo: isGitRepo,
-            isCheckingGitRepo: isCheckingGitRepo
-        ) {
+        } else if features.contains(.loadingWorktrees) {
             Divider()
             Button(L10n.string("Loading Worktrees…")) {}
                 .disabled(true)

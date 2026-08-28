@@ -109,6 +109,9 @@ muxy attach-project "My App" --workspace Work
 muxy detach-project "My App"
 ```
 
+Local and device-backed remote projects can join local workspaces. Projects owned by an SSH workspace cannot be
+attached to a local workspace.
+
 ### Workspaces
 
 List workspaces:

@@ -1102,8 +1102,8 @@ enum MuxyAPI {
             else {
                 return .failure(.projectNotFound(projectIdentifier))
             }
-            guard project.id != Project.homeID, !project.isRemote else {
-                return .failure(.invalidArguments("the home and remote projects cannot be attached to a workspace"))
+            guard project.supportsLocalWorkspaceMembership else {
+                return .failure(.invalidArguments("home and SSH workspace projects cannot be attached to a workspace"))
             }
             guard let workspace = resolveGroup(workspaceIdentifier, in: projectGroupStore.groups) else {
                 return .failure(.invalidArguments("workspace not found '\(workspaceIdentifier)'"))
@@ -1128,8 +1128,8 @@ enum MuxyAPI {
             else {
                 return .failure(.projectNotFound(projectIdentifier))
             }
-            guard project.id != Project.homeID, !project.isRemote else {
-                return .failure(.invalidArguments("the home and remote projects cannot be detached from a workspace"))
+            guard project.supportsLocalWorkspaceMembership else {
+                return .failure(.invalidArguments("home and SSH workspace projects cannot be detached from a workspace"))
             }
             projectGroupStore.removeProjectFromAllGroups(projectID: project.id)
             return .success(())

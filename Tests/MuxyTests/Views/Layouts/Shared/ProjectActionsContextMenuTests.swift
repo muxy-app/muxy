@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import Muxy
@@ -46,5 +47,81 @@ struct ProjectActionsContextMenuPolicyTests {
             worktreeCount: 2,
             supportsSwitchWorktree: true
         ))
+    }
+
+    @Test("device-backed remote projects have local project feature parity")
+    func deviceBackedRemoteProjectFeatureParity() {
+        var localProject = Project(name: "Local", path: "/code/local")
+        localProject.worktreesEnabled = true
+        var remoteProject = Project(
+            name: "Remote",
+            path: "~/code/remote",
+            remoteDeviceID: UUID()
+        )
+        remoteProject.worktreesEnabled = true
+
+        let localFeatures = ProjectActionsContextMenuPolicy.features(
+            for: localProject,
+            context: parityContext
+        )
+        let remoteFeatures = ProjectActionsContextMenuPolicy.features(
+            for: remoteProject,
+            context: parityContext
+        )
+
+        #expect(localFeatures == remoteFeatures)
+        #expect(localFeatures.contains(.workspaceMembership))
+    }
+
+    @Test("SSH workspace projects do not expose local workspace membership")
+    func sshWorkspaceProjectMembership() {
+        let project = Project(
+            name: "Remote",
+            path: "~/code/remote",
+            remoteWorkspaceID: UUID()
+        )
+
+        let features = ProjectActionsContextMenuPolicy.features(
+            for: project,
+            context: ProjectActionsContextMenuPolicy.Context(
+                isGitRepo: true,
+                isCheckingGitRepo: false,
+                worktreeCount: 1,
+                supportsSwitchWorktree: true,
+                hasLocalWorkspaces: true
+            )
+        )
+
+        #expect(!features.contains(.workspaceMembership))
+    }
+
+    @Test("non-Git projects do not expose switch worktree")
+    func nonGitProjectSwitchWorktree() {
+        var project = Project(name: "Folder", path: "/code/folder")
+        project.worktreesEnabled = true
+
+        let features = ProjectActionsContextMenuPolicy.features(
+            for: project,
+            context: ProjectActionsContextMenuPolicy.Context(
+                isGitRepo: false,
+                isCheckingGitRepo: false,
+                worktreeCount: 2,
+                supportsSwitchWorktree: true,
+                hasLocalWorkspaces: false
+            )
+        )
+
+        #expect(!features.contains(.worktreeActions))
+        #expect(!features.contains(.switchWorktree))
+    }
+
+    private var parityContext: ProjectActionsContextMenuPolicy.Context {
+        ProjectActionsContextMenuPolicy.Context(
+            isGitRepo: true,
+            isCheckingGitRepo: false,
+            worktreeCount: 2,
+            supportsSwitchWorktree: true,
+            hasLocalWorkspaces: true
+        )
     }
 }

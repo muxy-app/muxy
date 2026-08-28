@@ -78,6 +78,10 @@ struct Project: Identifiable, Codable, Hashable {
         guard let remoteWorkspaceID else { return false }
         return id == ProjectGroup.remoteHomeID(for: remoteWorkspaceID)
     }
+
+    var supportsLocalWorkspaceMembership: Bool {
+        !isHome && remoteWorkspaceID == nil
+    }
 }
 
 extension Project {

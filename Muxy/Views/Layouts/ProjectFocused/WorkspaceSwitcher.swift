@@ -389,7 +389,7 @@ struct ProjectGroupMembershipMenu: View {
     }
 
     var body: some View {
-        if !project.isRemote, !localGroups.isEmpty {
+        if project.supportsLocalWorkspaceMembership, !localGroups.isEmpty {
             Menu(L10n.string("Move to Workspace")) {
                 ForEach(localGroups) { group in
                     let isInGroup = group.projectIDs.contains(project.id)
