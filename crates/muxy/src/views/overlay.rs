@@ -56,19 +56,11 @@ pub enum Overlay {
     },
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RepositoryAiAction {
-    Commit,
-    CreatePullRequest,
-}
-
-#[allow(dead_code)]
 pub enum RepositoryPopoverKind {
     Branch(Box<crate::views::repository::branch::BranchPopover>),
     Changes(Box<crate::views::repository::changes::ChangesPopover>),
     PullRequest(Box<crate::views::repository::pull_request::PullRequestPopover>),
-    Ai(RepositoryAiAction),
+    Ai(Box<crate::views::repository::ai::RepositoryAiPopover>),
 }
 
 impl Overlay {
@@ -345,9 +337,7 @@ pub fn layer(
             kind: RepositoryPopoverKind::PullRequest(popover),
             anchor,
         } => {
-            let presentation = popover.panel.read(cx).presentation();
-            let policy =
-                crate::views::repository::pull_request::pull_request_overlay_policy(&presentation);
+            let policy = popover.panel.read(cx).overlay_policy();
             let size = gpui::size(
                 state.metrics.scaled(policy.target_width),
                 state.metrics.scaled(policy.target_height),
@@ -363,7 +353,29 @@ pub fn layer(
             );
             crate::views::repository::pull_request::render(popover, gpui::Bounds { origin, size })
         }
-        Overlay::Repository { .. } => return div().into_any_element(),
+        Overlay::Repository {
+            kind: RepositoryPopoverKind::Ai(popover),
+            anchor,
+        } => {
+            if repository_state.key.as_ref() != Some(&popover.key(cx)) {
+                return div().into_any_element();
+            }
+            let logical_size = popover.size(cx);
+            let size = gpui::size(
+                state.metrics.scaled(logical_size.0),
+                state.metrics.scaled(logical_size.1),
+            );
+            let origin = clamp(
+                gpui::point(
+                    anchor.origin.x,
+                    anchor.origin.y - size.height - state.metrics.spacing2(),
+                ),
+                size,
+                viewport,
+                state,
+            );
+            popover.render(origin)
+        }
     };
 
     let backdrop = matches!(

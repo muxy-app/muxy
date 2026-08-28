@@ -465,8 +465,8 @@ impl PullRequestPanel {
         }
     }
 
-    pub(crate) fn presentation(&self) -> PullRequestPresentation {
-        self.presentation.clone()
+    pub(crate) fn overlay_policy(&self) -> PullRequestOverlayPolicy {
+        pull_request_overlay_policy(&self.presentation, self.confirmation.pending().is_some())
     }
 
     pub(crate) fn sync(
@@ -865,6 +865,7 @@ impl Render for PullRequestPanel {
             (self.presentation.merge.help.clone(), self.theme.fg_dim)
         };
 
+        let policy = self.overlay_policy();
         let content = div()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus)
@@ -872,8 +873,8 @@ impl Render for PullRequestPanel {
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .flex()
             .flex_col()
-            .p(self.metrics.spacing5())
-            .gap(self.metrics.spacing4())
+            .p(self.metrics.spacing4())
+            .gap(self.metrics.spacing3())
             .child(
                 div()
                     .flex()
@@ -929,8 +930,8 @@ impl Render for PullRequestPanel {
         PopoverSurface::new(
             self.theme.clone(),
             self.metrics,
-            pull_request_overlay_policy(&self.presentation).target_width,
-            pull_request_overlay_policy(&self.presentation).target_height,
+            policy.target_width,
+            policy.target_height,
             content,
         )
     }
@@ -952,14 +953,21 @@ pub(crate) struct PullRequestOverlayPolicy {
 
 pub(crate) fn pull_request_overlay_policy(
     presentation: &PullRequestPresentation,
+    confirmation_pending: bool,
 ) -> PullRequestOverlayPolicy {
+    let detail_rows = 1
+        + usize::from(presentation.mergeability.is_some())
+        + usize::from(presentation.checks.is_some())
+        + usize::from(presentation.local_changes.is_some());
+    let action_rows = 1
+        + usize::from(presentation.update.is_some())
+        + if presentation.close.enabled { 3 } else { 0 }
+        + usize::from(confirmation_pending);
+    let details_height = detail_rows as f32 * 20.0 + detail_rows.saturating_sub(1) as f32 * 2.0;
+    let actions_height = action_rows as f32 * 24.0 + action_rows.saturating_sub(1) as f32 * 4.0;
     PullRequestOverlayPolicy {
         target_width: 300.0,
-        target_height: if presentation.close.enabled {
-            352.0
-        } else {
-            236.0
-        },
+        target_height: 16.0 + 24.0 + details_height + 1.0 + actions_height + 20.0 + 24.0,
     }
 }
 
@@ -1309,13 +1317,29 @@ mod tests {
     #[test]
     fn overlay_policy_stays_compact_for_open_and_closed_pull_requests() {
         let open = present_pull_request(&info(), &summary());
-        assert_eq!(pull_request_overlay_policy(&open).target_width, 300.0);
-        assert_eq!(pull_request_overlay_policy(&open).target_height, 352.0);
+        assert_eq!(
+            pull_request_overlay_policy(&open, false).target_width,
+            300.0
+        );
+        assert_eq!(
+            pull_request_overlay_policy(&open, false).target_height,
+            257.0
+        );
+        assert_eq!(
+            pull_request_overlay_policy(&open, true).target_height,
+            285.0
+        );
 
         let mut closed_info = info();
         closed_info.state = PullRequestState::Closed;
         let closed = present_pull_request(&closed_info, &summary());
-        assert_eq!(pull_request_overlay_policy(&closed).target_width, 300.0);
-        assert_eq!(pull_request_overlay_policy(&closed).target_height, 236.0);
+        assert_eq!(
+            pull_request_overlay_policy(&closed, false).target_width,
+            300.0
+        );
+        assert_eq!(
+            pull_request_overlay_policy(&closed, false).target_height,
+            173.0
+        );
     }
 }

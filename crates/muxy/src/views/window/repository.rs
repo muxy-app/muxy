@@ -155,7 +155,12 @@ impl MainWindow {
                         window.view.repository.coordinator.state_mut().summary =
                             LoadState::Ready(summary);
                         let current = window.current_pull_request_identity();
-                        if previous != current {
+                        let refresh_pull_request = summary_requires_pull_request_refresh(
+                            previous.as_ref(),
+                            current.as_ref(),
+                            &window.view.repository.coordinator.state().pull_request,
+                        );
+                        if refresh_pull_request {
                             match &current {
                                 Some(identity) => {
                                     window.view.repository.coordinator.invalidate_pull_request(
@@ -177,7 +182,14 @@ impl MainWindow {
                             }
                         }
                         window.install_repository_watcher(identity, cx);
-                        window.request_current_pull_request(cx);
+                        if refresh_pull_request
+                            || matches!(
+                                window.view.repository.coordinator.state().pull_request,
+                                PullRequestLoadState::Idle
+                            )
+                        {
+                            window.request_current_pull_request(cx);
+                        }
                         window.dispatch_repository_refresh(cx);
                         window.sync_pull_request_popover(cx);
                     }
@@ -311,7 +323,12 @@ impl MainWindow {
         else {
             return;
         };
-        self.view.repository.coordinator.state_mut().pull_request = PullRequestLoadState::Loading;
+        self.view
+            .repository
+            .coordinator
+            .state_mut()
+            .pull_request
+            .begin_refresh();
         let path = self
             .view
             .repository
@@ -403,6 +420,7 @@ impl MainWindow {
                 if window.view.repository.coordinator.finish_read(&token, None) {
                     window.view.repository.coordinator.state_mut().providers =
                         LoadState::Ready(inventory);
+                    window.sync_repository_ai_provider_picker(cx);
                     cx.notify();
                 }
             });
@@ -552,7 +570,7 @@ impl MainWindow {
                     .view
                     .repository
                     .coordinator
-                    .request_refresh(RepositoryRefreshSet::all());
+                    .request_refresh(stash_completion_refresh());
                 window.dispatch_repository_refresh(cx);
                 window.sync_repository_picker(cx);
             });
@@ -1229,6 +1247,14 @@ fn pull_request_completion_refreshes(
     current.then_some((completion, planned))
 }
 
+fn summary_requires_pull_request_refresh(
+    previous: Option<&PullRequestReadIdentity>,
+    current: Option<&PullRequestReadIdentity>,
+    state: &PullRequestLoadState,
+) -> bool {
+    previous != current || matches!(state, PullRequestLoadState::Idle)
+}
+
 fn execute_pull_request_mutation(
     service: RepositoryService,
     plan: crate::views::repository::pull_request::PullRequestMutationPlan,
@@ -1468,6 +1494,10 @@ fn branch_execution_error(message: &str, effect: MutationEffect) -> BranchMutati
     }
 }
 
+fn stash_completion_refresh() -> RepositoryRefreshSet {
+    RepositoryRefreshSet::summary_and_changes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1479,7 +1509,7 @@ mod tests {
     };
 
     #[test]
-    fn phase_eight_wires_pull_request_actions_without_rendering_ai_controls() {
+    fn phase_ten_wires_pull_request_and_ai_controls_without_later_phase_scope() {
         let status_bar = include_str!("../status_bar.rs");
         let overlays = include_str!("overlays.rs");
         let changes = include_str!("../repository/changes.rs");
@@ -1487,8 +1517,11 @@ mod tests {
         assert!(status_bar.contains("\"status-branch\""));
         assert!(status_bar.contains("\"status-changes\""));
         assert!(status_bar.contains("\"status-pull-request\""));
-        assert!(!status_bar.contains(".id(\"status-commit-ai\")"));
-        assert!(!status_bar.contains(".id(\"status-create-pr-ai\")"));
+        assert!(status_bar.contains("\"status-commit-ai\""));
+        assert!(status_bar.contains("\"status-create-pr-ai\""));
+        assert!(overlays.contains("ai_commit_and_push"));
+        assert!(overlays.contains("ai_create_pull_request"));
+        assert!(overlays.contains("Could Not Save Project Prompt"));
         assert!(!status_bar.contains(".id(\"status-repository-unavailable\")"));
         assert!(overlays.contains("request_worktree_removal_inspection"));
         assert!(!overlays.contains("remove_worktree(&"));
@@ -1559,6 +1592,40 @@ mod tests {
         assert!(!actual_completion.contains(RepositoryReadKind::PullRequest));
         assert!(actual_planned.contains(RepositoryReadKind::PullRequest));
         assert!(!actual_planned.contains(RepositoryReadKind::Summary));
+    }
+
+    #[test]
+    fn unchanged_summary_never_refreshes_resolved_pull_request_state() {
+        let identity = PullRequestReadIdentity::new("topic", "a".repeat(40));
+        assert!(!summary_requires_pull_request_refresh(
+            Some(&identity),
+            Some(&identity),
+            &PullRequestLoadState::NoPullRequest,
+        ));
+        assert!(!summary_requires_pull_request_refresh(
+            Some(&identity),
+            Some(&identity),
+            &PullRequestLoadState::Unavailable("offline".to_owned()),
+        ));
+        assert!(summary_requires_pull_request_refresh(
+            Some(&identity),
+            Some(&identity),
+            &PullRequestLoadState::Idle,
+        ));
+        assert!(summary_requires_pull_request_refresh(
+            Some(&identity),
+            Some(&PullRequestReadIdentity::new("other", "b".repeat(40))),
+            &PullRequestLoadState::NoPullRequest,
+        ));
+    }
+
+    #[test]
+    fn stash_completion_does_not_refresh_pull_request_state() {
+        let refresh = stash_completion_refresh();
+        assert!(refresh.contains(RepositoryReadKind::Summary));
+        assert!(refresh.contains(RepositoryReadKind::Changes));
+        assert!(!refresh.contains(RepositoryReadKind::PullRequest));
+        assert!(!refresh.contains(RepositoryReadKind::Providers));
     }
 
     #[test]

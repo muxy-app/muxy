@@ -3,6 +3,7 @@ use muxy_api::repository::{
     PullRequestChecksStatus, PullRequestMergeState, PullRequestMergeable, PullRequestState,
     RepositorySummary,
 };
+use muxy_core::repository_ai::{RepositoryAiAction, RepositoryAiPreferences};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RepositoryControlKind {
@@ -31,7 +32,11 @@ pub(crate) struct RepositoryControl {
     pub tone: RepositoryControlTone,
 }
 
-pub(crate) fn repository_controls(state: &RepositoryState) -> Vec<RepositoryControl> {
+pub(crate) fn repository_controls(
+    state: &RepositoryState,
+    preferences: &RepositoryAiPreferences,
+    mutation_busy: bool,
+) -> Vec<RepositoryControl> {
     if state.key.is_none() {
         return Vec::new();
     }
@@ -48,7 +53,7 @@ pub(crate) fn repository_controls(state: &RepositoryState) -> Vec<RepositoryCont
         LoadState::Idle | LoadState::Loading => None,
     };
     let mut controls = match summary {
-        Some(summary) => ready_controls(summary),
+        Some(summary) => ready_controls(summary, state, preferences, mutation_busy),
         None => vec![
             control(
                 RepositoryControlKind::Branch,
@@ -83,24 +88,39 @@ pub(crate) fn repository_controls(state: &RepositoryState) -> Vec<RepositoryCont
             "Loading pull request",
             false,
         ),
-        PullRequestLoadState::NoPullRequest => control(
-            RepositoryControlKind::CreatePullRequestAi,
-            "Create PR",
-            "Create a pull request with AI",
-            summary.is_some(),
-        ),
+        PullRequestLoadState::NoPullRequest => {
+            let (enabled, tooltip) = ai_action_enabled(
+                state,
+                preferences,
+                summary,
+                mutation_busy,
+                RepositoryAiAction::CreatePullRequest,
+            );
+            control(
+                RepositoryControlKind::CreatePullRequestAi,
+                if state.ai
+                    == super::RepositoryAiRunState::Running(RepositoryAiAction::CreatePullRequest)
+                {
+                    "Creating PR…"
+                } else {
+                    "Create PR"
+                },
+                tooltip,
+                enabled,
+            )
+        }
         PullRequestLoadState::Unavailable(error) => control_with_tone(
             RepositoryControlKind::PullRequest,
             "Retry PR",
             error,
-            true,
+            !mutation_busy,
             RepositoryControlTone::Danger,
         ),
         PullRequestLoadState::Found { info, .. } => control_with_tone(
             RepositoryControlKind::PullRequest,
             format!("#{}", info.number),
             format!("Pull request #{}", info.number),
-            true,
+            !mutation_busy,
             pull_request_tone(info),
         ),
     });
@@ -131,7 +151,12 @@ fn pull_request_tone(info: &muxy_api::repository::PullRequestInfo) -> Repository
     }
 }
 
-fn ready_controls(summary: &RepositorySummary) -> Vec<RepositoryControl> {
+fn ready_controls(
+    summary: &RepositorySummary,
+    state: &RepositoryState,
+    preferences: &RepositoryAiPreferences,
+    mutation_busy: bool,
+) -> Vec<RepositoryControl> {
     let branch_tooltip = if summary.is_detached {
         "Detached HEAD".to_owned()
     } else if let Some(upstream) = &summary.upstream {
@@ -159,13 +184,13 @@ fn ready_controls(summary: &RepositorySummary) -> Vec<RepositoryControl> {
             RepositoryControlKind::Branch,
             summary.display_branch(),
             branch_tooltip,
-            true,
+            !mutation_busy,
         ),
         control_with_tone(
             RepositoryControlKind::Changes,
             changes_label,
             changes_tooltip,
-            true,
+            !mutation_busy,
             if summary.conflicted_count > 0 {
                 RepositoryControlTone::Danger
             } else if summary.is_dirty() {
@@ -174,13 +199,66 @@ fn ready_controls(summary: &RepositorySummary) -> Vec<RepositoryControl> {
                 RepositoryControlTone::Clean
             },
         ),
-        control(
-            RepositoryControlKind::CommitAi,
-            "Commit",
-            "Create a commit with AI",
-            summary.is_dirty(),
-        ),
+        {
+            let (enabled, tooltip) = ai_action_enabled(
+                state,
+                preferences,
+                Some(summary),
+                mutation_busy,
+                RepositoryAiAction::Commit,
+            );
+            control(
+                RepositoryControlKind::CommitAi,
+                if state.ai == super::RepositoryAiRunState::Running(RepositoryAiAction::Commit) {
+                    "Committing…"
+                } else {
+                    "Commit"
+                },
+                tooltip,
+                enabled,
+            )
+        },
     ]
+}
+
+fn ai_action_enabled(
+    state: &RepositoryState,
+    preferences: &RepositoryAiPreferences,
+    summary: Option<&RepositorySummary>,
+    mutation_busy: bool,
+    action: RepositoryAiAction,
+) -> (bool, String) {
+    if state.ai == super::RepositoryAiRunState::Running(action) {
+        return (true, "Cancel the running repository AI workflow".to_owned());
+    }
+    if mutation_busy || !matches!(state.ai, super::RepositoryAiRunState::Idle) {
+        return (false, "Another repository operation is running".to_owned());
+    }
+    let Some(summary) = summary else {
+        return (false, "Repository is loading".to_owned());
+    };
+    if summary.is_detached || summary.branch.is_empty() {
+        return (false, "Repository AI actions require a branch".to_owned());
+    }
+    if !summary.is_dirty() {
+        return (false, "There are no changes to commit".to_owned());
+    }
+    match &state.providers {
+        LoadState::Ready(inventory) => match inventory.resolve_action(preferences, action) {
+            Ok(provider) => (
+                true,
+                format!(
+                    "Use {} for this repository action",
+                    provider.descriptor.display_name
+                ),
+            ),
+            Err(error) => (false, error.to_string()),
+        },
+        LoadState::Error(error) => (false, error.clone()),
+        LoadState::Idle | LoadState::Loading => {
+            (false, "Finding installed AI providers".to_owned())
+        }
+    }
 }
 
 fn control(
@@ -225,6 +303,16 @@ mod tests {
     };
     use std::path::PathBuf;
 
+    fn control_of(
+        controls: &[RepositoryControl],
+        kind: RepositoryControlKind,
+    ) -> &RepositoryControl {
+        controls
+            .iter()
+            .find(|control| control.kind == kind)
+            .unwrap()
+    }
+
     fn state() -> RepositoryState {
         RepositoryState {
             key: Some(RepositoryKey {
@@ -234,6 +322,10 @@ mod tests {
             }),
             ..RepositoryState::default()
         }
+    }
+
+    fn controls(state: &RepositoryState) -> Vec<RepositoryControl> {
+        repository_controls(state, &RepositoryAiPreferences::default(), false)
     }
 
     fn summary(branch: &str, head: RepositoryHead) -> RepositorySummary {
@@ -256,7 +348,7 @@ mod tests {
     fn repository_presentation_models_loading_clean_dirty_detached_and_unborn() {
         let mut repository = state();
         repository.summary = LoadState::Loading;
-        let loading = repository_controls(&repository);
+        let loading = controls(&repository);
         assert_eq!(loading[0].kind, RepositoryControlKind::Branch);
         assert_eq!(loading[0].label, "Branch");
 
@@ -264,7 +356,7 @@ mod tests {
             "main",
             RepositoryHead::Commit("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned()),
         ));
-        let clean = repository_controls(&repository);
+        let clean = controls(&repository);
         assert_eq!(clean[0].label, "main");
         assert_eq!(clean[1].label, "Clean");
         assert_eq!(clean[1].tone, RepositoryControlTone::Clean);
@@ -279,7 +371,7 @@ mod tests {
         current_summary.ahead = 2;
         current_summary.behind = 3;
         current_summary.upstream = Some("origin/main".to_owned());
-        let dirty = repository_controls(&repository);
+        let dirty = controls(&repository);
         assert_eq!(dirty[1].label, "4 Changes");
         assert_eq!(dirty[1].tone, RepositoryControlTone::Dirty);
         assert!(dirty[0].tooltip.contains("2 ahead"));
@@ -289,27 +381,24 @@ mod tests {
             panic!("summary")
         };
         current_summary.conflicted_count = 1;
-        assert_eq!(
-            repository_controls(&repository)[1].tone,
-            RepositoryControlTone::Danger
-        );
+        assert_eq!(controls(&repository)[1].tone, RepositoryControlTone::Danger);
 
         let LoadState::Ready(current_summary) = &mut repository.summary else {
             panic!("summary")
         };
         current_summary.is_detached = true;
-        let detached = repository_controls(&repository);
+        let detached = controls(&repository);
         assert_eq!(detached[0].label, "Detached aaaaaaa");
 
         repository.summary = LoadState::Ready(summary("topic", RepositoryHead::Unborn));
-        assert_eq!(repository_controls(&repository)[0].label, "topic");
+        assert_eq!(controls(&repository)[0].label, "topic");
     }
 
     #[test]
     fn repository_presentation_models_errors_and_every_pull_request_state() {
         let mut repository = state();
         repository.summary = LoadState::Error("failed".to_owned());
-        let failed = repository_controls(&repository);
+        let failed = controls(&repository);
         assert_eq!(failed.len(), 1);
         assert_eq!(failed[0].kind, RepositoryControlKind::RepositoryUnavailable);
         assert!(!failed[0].enabled);
@@ -317,7 +406,7 @@ mod tests {
         repository.summary = LoadState::Ready(summary("main", RepositoryHead::Unborn));
         repository.pull_request = PullRequestLoadState::Loading;
         assert!(
-            repository_controls(&repository)
+            controls(&repository)
                 .iter()
                 .any(|control| control.kind == RepositoryControlKind::PullRequest
                     && !control.enabled)
@@ -325,13 +414,13 @@ mod tests {
 
         repository.pull_request = PullRequestLoadState::NoPullRequest;
         assert!(
-            repository_controls(&repository)
+            controls(&repository)
                 .iter()
                 .any(|control| control.kind == RepositoryControlKind::CreatePullRequestAi)
         );
 
         repository.pull_request = PullRequestLoadState::Unavailable("login required".to_owned());
-        let unavailable = repository_controls(&repository);
+        let unavailable = controls(&repository);
         let unavailable = unavailable
             .iter()
             .find(|control| control.kind == RepositoryControlKind::PullRequest)
@@ -365,7 +454,7 @@ mod tests {
             }),
             resolved: None,
         };
-        let found = repository_controls(&repository);
+        let found = controls(&repository);
         let found = found
             .iter()
             .find(|control| control.kind == RepositoryControlKind::PullRequest)
@@ -374,6 +463,94 @@ mod tests {
         assert_eq!(found.tone, RepositoryControlTone::Clean);
 
         repository.key = None;
-        assert!(repository_controls(&repository).is_empty());
+        assert!(controls(&repository).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repository_ai_availability_tracks_truthful_repository_provider_and_run_state() {
+        use muxy_api::execution_environment::ExecutionEnvironment;
+        use std::ffi::OsString;
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let bin = temp.path().join(".local/bin");
+        fs::create_dir_all(&bin).unwrap();
+        let executable = bin.join("codex");
+        fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        let environment =
+            ExecutionEnvironment::fallback([(OsString::from("PATH"), OsString::new())]);
+        let inventory =
+            muxy_api::repository::ProviderInventory::discover(&environment, temp.path(), false);
+        let mut repository = state();
+        repository.summary =
+            LoadState::Ready(summary("topic", RepositoryHead::Commit("a".repeat(40))));
+        repository.pull_request = PullRequestLoadState::NoPullRequest;
+        repository.providers = LoadState::Ready(inventory);
+        let mut preferences = RepositoryAiPreferences::default();
+        preferences.commit.provider = "codex".to_owned();
+        preferences.create_pull_request.provider = "codex".to_owned();
+
+        let clean = repository_controls(&repository, &preferences, false);
+        assert!(!control_of(&clean, RepositoryControlKind::CommitAi).enabled);
+        assert!(!control_of(&clean, RepositoryControlKind::CreatePullRequestAi).enabled);
+
+        let LoadState::Ready(summary) = &mut repository.summary else {
+            panic!("summary")
+        };
+        summary.changed_count = 1;
+        summary.unstaged_count = 1;
+        let available = repository_controls(&repository, &preferences, false);
+        assert!(control_of(&available, RepositoryControlKind::CommitAi).enabled);
+        assert!(control_of(&available, RepositoryControlKind::CreatePullRequestAi).enabled);
+
+        preferences.commit.provider = "claude".to_owned();
+        let missing = repository_controls(&repository, &preferences, false);
+        let commit = control_of(&missing, RepositoryControlKind::CommitAi);
+        assert!(!commit.enabled);
+        assert!(commit.tooltip.contains("not installed"));
+        assert!(control_of(&missing, RepositoryControlKind::CreatePullRequestAi).enabled);
+
+        preferences.commit.provider = "codex".to_owned();
+        let busy = repository_controls(&repository, &preferences, true);
+        for kind in [
+            RepositoryControlKind::Branch,
+            RepositoryControlKind::Changes,
+            RepositoryControlKind::CommitAi,
+            RepositoryControlKind::CreatePullRequestAi,
+        ] {
+            assert!(!control_of(&busy, kind).enabled);
+        }
+
+        repository.ai =
+            crate::repository::RepositoryAiRunState::Running(RepositoryAiAction::Commit);
+        let running = repository_controls(&repository, &preferences, true);
+        assert_eq!(
+            control_of(&running, RepositoryControlKind::CommitAi).label,
+            "Committing…"
+        );
+        assert!(control_of(&running, RepositoryControlKind::CommitAi).enabled);
+        assert!(!control_of(&running, RepositoryControlKind::Branch).enabled);
+
+        repository.ai = crate::repository::RepositoryAiRunState::Idle;
+        let LoadState::Ready(summary) = &mut repository.summary else {
+            panic!("summary")
+        };
+        summary.is_detached = true;
+        let detached = repository_controls(&repository, &preferences, false);
+        assert!(!control_of(&detached, RepositoryControlKind::CommitAi).enabled);
+        assert!(!control_of(&detached, RepositoryControlKind::CreatePullRequestAi).enabled);
+
+        repository.summary = LoadState::Loading;
+        repository.pull_request = PullRequestLoadState::Loading;
+        let loading = repository_controls(&repository, &preferences, false);
+        assert!(!control_of(&loading, RepositoryControlKind::CommitAi).enabled);
+        assert!(
+            loading
+                .iter()
+                .all(|control| control.kind != RepositoryControlKind::CreatePullRequestAi)
+        );
     }
 }

@@ -194,6 +194,14 @@ pub(crate) enum PullRequestLoadState {
     },
 }
 
+impl PullRequestLoadState {
+    pub(crate) fn begin_refresh(&mut self) {
+        if matches!(self, Self::Idle) {
+            *self = Self::Loading;
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct RepositoryState {
     pub key: Option<RepositoryKey>,
@@ -206,7 +214,6 @@ pub(crate) struct RepositoryState {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-#[allow(dead_code)]
 pub(crate) enum RepositoryAiRunState {
     #[default]
     Idle,
@@ -229,7 +236,6 @@ impl RepositoryReadToken {
     }
 }
 
-#[allow(dead_code)]
 struct MutationRequest {
     request_id: u64,
     cancellation: CancellationSignal,
@@ -237,7 +243,6 @@ struct MutationRequest {
     current_identity: bool,
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MutationCompletion {
     pub effect: MutationEffect,
@@ -311,7 +316,7 @@ impl RepositoryCoordinator {
         kind: RepositoryReadKind,
         pull_request_identity: Option<PullRequestReadIdentity>,
     ) -> Option<RepositoryReadToken> {
-        if self.closed || self.mutation.is_some() {
+        if self.closed || self.current_mutation_blocks_reads() {
             return None;
         }
         let key = self.key.clone()?;
@@ -402,7 +407,9 @@ impl RepositoryCoordinator {
     }
 
     pub(crate) fn take_debounced_refresh(&mut self, now: Instant) -> RepositoryRefreshSet {
-        if self.mutation.is_some() || self.debounce_deadline.is_none_or(|deadline| now < deadline) {
+        if self.current_mutation_blocks_reads()
+            || self.debounce_deadline.is_none_or(|deadline| now < deadline)
+        {
             return RepositoryRefreshSet::empty();
         }
         self.debounce_deadline = None;
@@ -416,7 +423,7 @@ impl RepositoryCoordinator {
     }
 
     pub(crate) fn take_refresh(&mut self) -> RepositoryRefreshSet {
-        if self.mutation.is_some() {
+        if self.current_mutation_blocks_reads() {
             RepositoryRefreshSet::empty()
         } else {
             std::mem::take(&mut self.pending_refresh)
@@ -440,7 +447,6 @@ impl RepositoryCoordinator {
         }
     }
 
-    #[allow(dead_code)]
     pub fn begin_mutation(
         &mut self,
         request_id: u64,
@@ -460,7 +466,6 @@ impl RepositoryCoordinator {
         Some((cancellation, boundary))
     }
 
-    #[allow(dead_code)]
     pub(crate) fn begin_ai_mutation(
         &mut self,
         request_id: u64,
@@ -471,7 +476,6 @@ impl RepositoryCoordinator {
         Some(control)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn begin_ai_operation(
         &mut self,
         operations: &mut crate::project_operations::ProjectOperations,
@@ -504,7 +508,7 @@ impl RepositoryCoordinator {
         ))
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn mark_irreversible(&mut self, request_id: u64) -> Option<()> {
         let mutation = self.mutation.as_mut()?;
         if mutation.request_id != request_id {
@@ -513,7 +517,6 @@ impl RepositoryCoordinator {
         mutation.boundary.begin_irreversible().then_some(())
     }
 
-    #[allow(dead_code)]
     pub fn finish_mutation(
         &mut self,
         request_id: u64,
@@ -523,27 +526,36 @@ impl RepositoryCoordinator {
             return None;
         }
         let mutation = self.mutation.take()?;
+        let refresh = if mutation.current_identity {
+            std::mem::take(&mut self.pending_refresh)
+        } else {
+            RepositoryRefreshSet::empty()
+        };
         Some(MutationCompletion {
             effect,
             current_identity: mutation.current_identity && !self.closed,
-            refresh: std::mem::take(&mut self.pending_refresh),
+            refresh,
         })
     }
 
-    #[allow(dead_code)]
     pub(crate) fn finish_ai_mutation(
         &mut self,
         request_id: u64,
         effect: MutationEffect,
     ) -> Option<MutationCompletion> {
-        self.pending_refresh
-            .union(RepositoryRefreshSet::repository_truth());
+        let mutation = self
+            .mutation
+            .as_ref()
+            .filter(|mutation| mutation.request_id == request_id)?;
+        if mutation.current_identity {
+            self.pending_refresh
+                .union(RepositoryRefreshSet::repository_truth());
+        }
         let completion = self.finish_mutation(request_id, effect)?;
         self.state.ai = RepositoryAiRunState::Idle;
         Some(completion)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn finish_ai_operation(
         &mut self,
         operations: &mut crate::project_operations::ProjectOperations,
@@ -553,6 +565,19 @@ impl RepositoryCoordinator {
         let completion = self.finish_ai_mutation(token.request_id(), effect);
         let operation_finished = operations.finish_operation(token).is_ok();
         operation_finished.then_some(completion).flatten()
+    }
+
+    pub(crate) fn cancel_ai_operation(&mut self) -> bool {
+        if !matches!(self.state.ai, RepositoryAiRunState::Running(_)) {
+            return false;
+        }
+        let Some(mutation) = &self.mutation else {
+            return false;
+        };
+        if mutation.boundary.cancel_for_identity_change() {
+            mutation.cancellation.cancel();
+        }
+        true
     }
 
     pub(crate) fn close(&mut self) {
@@ -576,6 +601,12 @@ impl RepositoryCoordinator {
             read.cancellation.cancel();
         }
         self.reads.clear();
+    }
+
+    fn current_mutation_blocks_reads(&self) -> bool {
+        self.mutation
+            .as_ref()
+            .is_some_and(|mutation| mutation.current_identity)
     }
 
     fn cancel_reads_of_kind(&mut self, kind: RepositoryReadKind) {
@@ -640,6 +671,24 @@ mod tests {
         coordinator.environment_upgraded(2);
         assert!(coordinator.revisions().all_newer_than(before));
         assert_eq!(coordinator.environment_revision(), 2);
+    }
+
+    #[test]
+    fn pull_request_refresh_preserves_last_verified_presentation() {
+        let mut state = PullRequestLoadState::Idle;
+        state.begin_refresh();
+        assert_eq!(state, PullRequestLoadState::Loading);
+
+        state = PullRequestLoadState::NoPullRequest;
+        state.begin_refresh();
+        assert_eq!(state, PullRequestLoadState::NoPullRequest);
+
+        state = PullRequestLoadState::Unavailable("offline".to_owned());
+        state.begin_refresh();
+        assert_eq!(
+            state,
+            PullRequestLoadState::Unavailable("offline".to_owned())
+        );
     }
 
     #[test]
@@ -820,6 +869,73 @@ mod tests {
                 )
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn ai_cancellation_respects_mutation_boundary_and_completion_is_exactly_once() {
+        let mut coordinator = RepositoryCoordinator::default();
+        let mut operations = crate::project_operations::ProjectOperations::default();
+        coordinator.activate(Some(key("one", "primary")));
+        let (token, workflow) = coordinator
+            .begin_ai_operation(&mut operations, "one", RepositoryAiAction::Commit)
+            .unwrap();
+        assert!(coordinator.cancel_ai_operation());
+        assert!(workflow.cancellation().is_cancelled());
+        assert!(
+            coordinator
+                .finish_ai_operation(&mut operations, &token, MutationEffect::NoMutation)
+                .is_some()
+        );
+        assert!(
+            coordinator
+                .finish_ai_operation(&mut operations, &token, MutationEffect::NoMutation)
+                .is_none()
+        );
+        assert_eq!(coordinator.active_request_count(), 0);
+        assert!(!operations.is_busy("one"));
+
+        let (cancellation, boundary) = coordinator
+            .begin_ai_mutation(99, RepositoryAiAction::CreatePullRequest)
+            .unwrap();
+        assert!(boundary.begin_irreversible());
+        assert!(coordinator.cancel_ai_operation());
+        assert!(!cancellation.is_cancelled());
+        assert!(
+            coordinator
+                .finish_ai_mutation(99, MutationEffect::Uncertain)
+                .is_some()
+        );
+        assert_eq!(coordinator.state().ai, RepositoryAiRunState::Idle);
+    }
+
+    #[test]
+    fn stale_irreversible_mutation_never_blocks_or_consumes_new_identity_refreshes() {
+        let mut coordinator = RepositoryCoordinator::default();
+        coordinator.activate(Some(key("one", "primary")));
+        let (_, boundary) = coordinator.begin_mutation(41).unwrap();
+        assert!(boundary.begin_irreversible());
+
+        coordinator.activate(Some(key("two", "primary")));
+        coordinator.request_refresh(RepositoryRefreshSet::all());
+        let refresh = coordinator.take_refresh();
+        for kind in RepositoryReadKind::ALL {
+            assert!(refresh.contains(kind));
+        }
+        let read = coordinator
+            .begin_read(RepositoryReadKind::Summary, None)
+            .unwrap();
+        assert_eq!(read.key.project_id, "two");
+
+        coordinator.request_refresh(RepositoryRefreshSet::all());
+        let completion = coordinator
+            .finish_mutation(41, MutationEffect::Uncertain)
+            .unwrap();
+        assert!(!completion.current_identity);
+        assert!(completion.refresh.is_empty());
+        let retained = coordinator.take_refresh();
+        for kind in RepositoryReadKind::ALL {
+            assert!(retained.contains(kind));
+        }
     }
 }
 #[test]

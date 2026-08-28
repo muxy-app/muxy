@@ -145,9 +145,9 @@ fn present_row(
     let path = file.display_path().into_owned();
     let subtitle = match file.display_old_path() {
         Some(old) if old.as_ref() != path => {
-            format!("{} → {} · {}", old, path, status_label(file, side))
+            format!("{} → {}", old, status_description(file, side))
         }
-        _ => status_label(file, side).to_owned(),
+        _ => status_description(file, side).to_owned(),
     };
     PresentedChangeRow {
         key: ChangeRowKey {
@@ -161,6 +161,29 @@ fn present_row(
         can_stage: matches!(side, ChangeSide::Conflict | ChangeSide::Unstaged),
         can_unstage: side == ChangeSide::Staged,
         can_discard: side == ChangeSide::Unstaged && !file.is_conflicted,
+    }
+}
+
+fn status_description(file: &ChangedFile, side: ChangeSide) -> &'static str {
+    if file.is_conflicted || side == ChangeSide::Conflict {
+        return "Conflict";
+    }
+    if file.is_untracked {
+        return "Untracked";
+    }
+    let status = match side {
+        ChangeSide::Staged => file.x_status,
+        ChangeSide::Unstaged => file.y_status,
+        ChangeSide::Conflict => b'U',
+    };
+    match status {
+        b'A' => "Added",
+        b'D' => "Deleted",
+        b'R' => "Renamed",
+        b'C' => "Copied",
+        b'T' => "Type changed",
+        b'M' => "Modified",
+        _ => "Changed",
     }
 }
 
@@ -458,8 +481,8 @@ pub(crate) struct ChangesOverlayPolicy {
 
 pub(crate) fn changes_overlay_policy() -> ChangesOverlayPolicy {
     ChangesOverlayPolicy {
-        target_width: 360.0,
-        target_height: 380.0,
+        target_width: 400.0,
+        target_height: 360.0,
     }
 }
 
@@ -492,40 +515,46 @@ pub(crate) fn sync_picker(
         popover.discard.retain(&changes.files);
     }
     let mut items = Vec::new();
-    if !presentation.summary.is_empty() {
-        items.push(CommandPopoverItem::section(presentation.summary.clone()));
-    }
     for section in &presentation.sections {
         items.push(CommandPopoverItem::section(section.label));
         for presented in &section.rows {
             let mut row = CommandPopoverRow::new(row_id(&presented.key), presented.title.clone());
             row.subtitle = Some(presented.subtitle.clone().into());
             row.trailing = Some(presented.trailing.clone().into());
-            row.leading = Some(CommandPopoverLeading::Icon(Icon::Code));
+            row.leading = Some(CommandPopoverLeading::Text(
+                status_label(&presented.file, presented.key.side).into(),
+            ));
             row.selected = popover.selection.contains(&presented.key);
             row.disabled = mutation_busy;
             if !mutation_busy {
                 if presented.can_stage {
-                    row.actions.push(CommandPopoverAction::new(
-                        "stage",
-                        if presented.key.side == ChangeSide::Conflict {
-                            "Mark Resolved"
-                        } else {
-                            "Stage"
-                        },
-                    ));
+                    row.actions.push(
+                        CommandPopoverAction::new(
+                            "stage",
+                            if presented.key.side == ChangeSide::Conflict {
+                                "Mark Resolved"
+                            } else {
+                                "Stage"
+                            },
+                        )
+                        .icon(CommandPopoverLeading::Icon(Icon::Plus)),
+                    );
                 }
                 if presented.can_unstage {
-                    row.actions
-                        .push(CommandPopoverAction::new("unstage", "Unstage"));
+                    row.actions.push(
+                        CommandPopoverAction::new("unstage", "Unstage")
+                            .icon(CommandPopoverLeading::Icon(Icon::X)),
+                    );
                 }
                 if presented.file.is_untracked
                     && !popover
                         .line_counts
                         .contains_key(&presented.file.stable_id())
                 {
-                    row.actions
-                        .push(CommandPopoverAction::new("stats", "Count lines"));
+                    row.actions.push(
+                        CommandPopoverAction::new("stats", "Count lines")
+                            .icon(CommandPopoverLeading::Icon(Icon::Eye)),
+                    );
                 }
                 if presented.can_discard {
                     row.actions.push(
@@ -609,6 +638,10 @@ pub(crate) fn sync_picker(
         });
     popover.picker.update(cx, |picker, cx| {
         picker.set_items(items, cx);
+        picker.set_header_detail(
+            (!presentation.summary.is_empty()).then_some(presentation.summary.clone()),
+            cx,
+        );
         picker.set_footer_actions(footer, cx);
         picker.set_status(status, cx);
     });
@@ -777,7 +810,7 @@ mod tests {
         assert!(!presentation.sections[0].rows[0].can_discard);
         assert!(presentation.sections[0].rows[0].can_stage);
         assert!(!presentation.sections[0].rows[0].can_unstage);
-        assert!(presentation.sections[0].rows[0].subtitle.contains("UU"));
+        assert_eq!(presentation.sections[0].rows[0].subtitle, "Conflict");
         assert!(presentation.summary.starts_with("4 files ·"));
     }
 
@@ -799,7 +832,10 @@ mod tests {
         });
         let filtered = present_changes(&changes, "old name", &HashMap::new());
         assert_eq!(filtered.sections[0].rows[0].trailing, "Binary");
-        assert!(filtered.sections[0].rows[0].subtitle.contains('→'));
+        assert_eq!(
+            filtered.sections[0].rows[0].subtitle,
+            "old name.rs → Renamed"
+        );
         let mut counts = HashMap::new();
         counts.insert(untracked.stable_id(), UntrackedLineCount::Known(12));
         let counted = present_changes(&changes, "notes", &counts);
@@ -824,9 +860,9 @@ mod tests {
             .flat_map(|section| &section.rows)
             .collect::<Vec<_>>();
         let copied = rows.iter().find(|row| row.title == "copy.rs").unwrap();
-        assert!(copied.subtitle.contains("source.rs → copy.rs · C"));
+        assert_eq!(copied.subtitle, "source.rs → Copied");
         let typed = rows.iter().find(|row| row.title == "typed.rs").unwrap();
-        assert_eq!(typed.subtitle, "T");
+        assert_eq!(typed.subtitle, "Type changed");
         let unknown = rows.iter().find(|row| row.title == "unknown.rs").unwrap();
         assert_eq!(unknown.trailing, "Unknown");
     }
@@ -941,8 +977,8 @@ mod tests {
         assert_eq!(
             changes_overlay_policy(),
             ChangesOverlayPolicy {
-                target_width: 360.0,
-                target_height: 380.0,
+                target_width: 400.0,
+                target_height: 360.0,
             }
         );
     }

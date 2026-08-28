@@ -249,6 +249,13 @@ impl RepositoryAiPreferences {
         }
     }
 
+    pub fn action_mut(&mut self, action: RepositoryAiAction) -> &mut RepositoryAiActionPreferences {
+        match action {
+            RepositoryAiAction::Commit => &mut self.commit,
+            RepositoryAiAction::CreatePullRequest => &mut self.create_pull_request,
+        }
+    }
+
     pub fn resolved_prompt(
         &self,
         action: RepositoryAiAction,

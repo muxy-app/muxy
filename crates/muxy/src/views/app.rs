@@ -195,10 +195,21 @@ pub(crate) fn render(
         .child(content);
 
     if state.prefs.show_status_bar {
+        let repository_ai_menu_available = !repository_mutation_busy
+            && matches!(
+                repository_state.ai,
+                crate::repository::RepositoryAiRunState::Idle
+            )
+            && matches!(
+                repository_state.providers,
+                crate::repository::LoadState::Ready(_)
+            );
         main_column = main_column.child(status_bar::status_bar(
             state,
             focused_working_directory.as_deref(),
             repository_controls,
+            repository_mutation_busy,
+            repository_ai_menu_available,
             cx,
         ));
     }

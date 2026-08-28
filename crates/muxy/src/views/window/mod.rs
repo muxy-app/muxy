@@ -48,6 +48,7 @@ pub fn key_bindings() -> Vec<gpui::KeyBinding> {
     bindings.extend(omnibox::view::key_bindings());
     bindings.extend(settings::key_bindings());
     bindings.extend(crate::views::repository::pull_request::key_bindings());
+    bindings.extend(crate::views::repository::ai::key_bindings());
     bindings.push(gpui::KeyBinding::new(
         "shift-enter",
         crate::views::app::SearchPrevious,

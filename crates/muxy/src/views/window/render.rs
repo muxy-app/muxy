@@ -52,13 +52,16 @@ impl Render for MainWindow {
             self.view.workspace.split_bounds.clear();
         }
         let focused_working_directory = self.focused_working_directory();
-        let repository_controls =
-            crate::repository::repository_controls(self.view.repository.coordinator.state());
         let repository_state = self.view.repository.coordinator.state();
         let repository_mutation_busy = repository_state
             .key
             .as_ref()
             .is_some_and(|key| self.state.project_operations.is_mutating(&key.project_id));
+        let repository_controls = crate::repository::repository_controls(
+            repository_state,
+            &self.state.prefs.repository_ai,
+            repository_mutation_busy,
+        );
         let drop_highlight = self.workspace_drop_highlight();
         let drag = self
             .view

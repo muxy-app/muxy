@@ -1,13 +1,14 @@
 use crate::components::{IconGlyph, SymbolGlyph};
 use crate::icon::Icon;
+use crate::scrollbar::{MINIMUM_THUMB_LENGTH, ThumbGeometry};
 use crate::text_input::{self, InputEvent, InputStyle, TextInput};
 use crate::theme::{Metrics, Theme};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
-    Hsla, InteractiveElement, IntoElement, KeyBinding, ListAlignment, ListState, ParentElement,
-    Render, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, actions, div,
-    px,
+    Hsla, InteractiveElement, IntoElement, KeyBinding, ListAlignment, ListOffset, ListState,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, Window, actions, div, px,
 };
 use std::collections::HashMap;
 
@@ -175,6 +176,42 @@ fn content_height(
     tabs + layout.header_height + body + footer + border
 }
 
+fn scrollbar_item_heights(
+    layout: CommandPopoverLayout,
+    scale: f32,
+    items: &[CommandPopoverItem],
+    detail_line_count: Option<usize>,
+) -> Vec<f32> {
+    if let Some(line_count) = detail_line_count {
+        return vec![20.0 * scale; line_count];
+    }
+    items
+        .iter()
+        .map(|item| layout.item_height(item) * scale)
+        .collect()
+}
+
+fn scrollbar_offset(heights: &[f32], offset: ListOffset) -> f32 {
+    heights.iter().take(offset.item_ix).sum::<f32>() + f32::from(offset.offset_in_item)
+}
+
+fn scrollbar_list_offset(heights: &[f32], target: f32) -> ListOffset {
+    let mut remaining = target.max(0.0);
+    for (item_ix, height) in heights.iter().copied().enumerate() {
+        if remaining < height {
+            return ListOffset {
+                item_ix,
+                offset_in_item: px(remaining),
+            };
+        }
+        remaining -= height;
+    }
+    ListOffset {
+        item_ix: heights.len(),
+        offset_in_item: px(0.0),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CommandPopoverGeometry {
     pub width: f32,
@@ -257,6 +294,8 @@ impl CommandPopoverMetrics {
 pub enum CommandPopoverLeading {
     Icon(Icon),
     Symbol(SharedString),
+    Text(SharedString),
+    Asset(SharedString),
     Swatch(Hsla),
 }
 
@@ -671,8 +710,10 @@ pub struct CommandPopover {
     theme: Theme,
     metrics: Metrics,
     focused: bool,
+    header_detail: Option<SharedString>,
     detail: Option<(SharedString, Vec<SharedString>)>,
     confirmation_message: Option<SharedString>,
+    scrollbar_drag: Option<Pixels>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -726,8 +767,10 @@ impl CommandPopover {
             theme,
             metrics,
             focused: false,
+            header_detail: None,
             detail: None,
             confirmation_message: None,
+            scrollbar_drag: None,
             _subscriptions: vec![subscription],
         }
     }
@@ -774,6 +817,15 @@ impl CommandPopover {
         cx: &mut Context<Self>,
     ) {
         self.config.footer_actions = actions;
+        cx.notify();
+    }
+
+    pub fn set_header_detail(
+        &mut self,
+        detail: Option<impl Into<SharedString>>,
+        cx: &mut Context<Self>,
+    ) {
+        self.header_detail = detail.map(Into::into);
         cx.notify();
     }
 
@@ -983,6 +1035,17 @@ impl CommandPopover {
                     .into_any_element()
                 }
             }
+            CommandPopoverLeading::Text(text) => div()
+                .w(metrics.icon_md())
+                .flex_none()
+                .text_size(metrics.font_caption())
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color)
+                .child(text.clone())
+                .into_any_element(),
+            CommandPopoverLeading::Asset(path) => gpui::img(path.clone())
+                .size(metrics.icon_md())
+                .into_any_element(),
             CommandPopoverLeading::Swatch(color) => div()
                 .size(metrics.icon_md())
                 .rounded(metrics.radius_sm())
@@ -1488,6 +1551,148 @@ impl CommandPopover {
         footer = footer.child(actions);
         Some(footer.into_any_element())
     }
+
+    fn scrollbar_geometry(&self) -> Option<CommandPopoverScrollbarGeometry> {
+        let viewport = self.scroll.viewport_bounds();
+        let visible = f64::from(viewport.size.height);
+        let layout = CommandPopoverLayout::resolve(self.config.presentation, self.config.density);
+        let scale = f32::from(self.metrics.scaled(1.0));
+        let heights = scrollbar_item_heights(
+            layout,
+            scale,
+            self.state.items(),
+            self.detail.as_ref().map(|(_, lines)| lines.len()),
+        );
+        let vertical_inset = if self.detail.is_none() {
+            f32::from(self.metrics.scaled(layout.list_vertical_inset)) * 2.0
+        } else {
+            0.0
+        };
+        let content = heights.iter().sum::<f32>() + vertical_inset;
+        let maximum = f64::from((content - f32::from(viewport.size.height)).max(0.0));
+        let inset = f64::from(self.metrics.spacing2());
+        let track = (visible - inset * 2.0).max(0.0);
+        let offset = f64::from(
+            scrollbar_offset(&heights, self.scroll.logical_scroll_top()).clamp(0.0, maximum as f32),
+        );
+        let thumb = ThumbGeometry::from_lengths(
+            visible + maximum,
+            visible,
+            offset,
+            track,
+            MINIMUM_THUMB_LENGTH,
+        )?;
+        Some(CommandPopoverScrollbarGeometry {
+            track_origin: viewport.origin.y + self.metrics.spacing2(),
+            track_length: px(track as f32),
+            thumb_origin: px(thumb.origin as f32),
+            thumb_length: px(thumb.length as f32),
+            maximum_offset: px(maximum as f32),
+        })
+    }
+
+    fn begin_scrollbar_drag(
+        &mut self,
+        event: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(geometry) = self.scrollbar_geometry() else {
+            return;
+        };
+        let thumb_top = geometry.track_origin + geometry.thumb_origin;
+        let thumb_bottom = thumb_top + geometry.thumb_length;
+        let grab = if event.position.y >= thumb_top && event.position.y <= thumb_bottom {
+            event.position.y - thumb_top
+        } else {
+            geometry.thumb_length / 2.0
+        };
+        self.scroll.scrollbar_drag_started();
+        self.scrollbar_drag = Some(grab);
+        self.drag_scrollbar_to(event.position.y, geometry);
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    fn drag_scrollbar(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if !event.dragging() || self.scrollbar_drag.is_none() {
+            return;
+        }
+        let Some(geometry) = self.scrollbar_geometry() else {
+            return;
+        };
+        self.drag_scrollbar_to(event.position.y, geometry);
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    fn drag_scrollbar_to(&self, pointer_y: Pixels, geometry: CommandPopoverScrollbarGeometry) {
+        let travel = geometry.track_length - geometry.thumb_length;
+        if travel <= px(0.0) {
+            return;
+        }
+        let grab = self.scrollbar_drag.unwrap_or(geometry.thumb_length / 2.0);
+        let origin = (pointer_y - geometry.track_origin - grab).clamp(px(0.0), travel);
+        let offset = geometry.maximum_offset * (origin / travel);
+        let layout = CommandPopoverLayout::resolve(self.config.presentation, self.config.density);
+        let heights = scrollbar_item_heights(
+            layout,
+            f32::from(self.metrics.scaled(1.0)),
+            self.state.items(),
+            self.detail.as_ref().map(|(_, lines)| lines.len()),
+        );
+        self.scroll
+            .scroll_to(scrollbar_list_offset(&heights, f32::from(offset)));
+    }
+
+    fn end_scrollbar_drag(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.scrollbar_drag.take().is_some() {
+            self.scroll.scrollbar_drag_ended();
+            cx.notify();
+        }
+    }
+
+    fn render_scrollbar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let geometry = self.scrollbar_geometry()?;
+        let dragging = self.scrollbar_drag.is_some();
+        Some(
+            div()
+                .id("command-popover-scrollbar")
+                .absolute()
+                .right(self.metrics.spacing1())
+                .top(self.metrics.spacing2())
+                .w(self.metrics.scaled(8.0))
+                .h(geometry.track_length)
+                .cursor_pointer()
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(Self::begin_scrollbar_drag),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .right(self.metrics.spacing1())
+                        .top(geometry.thumb_origin)
+                        .w(self.metrics.scaled(if dragging { 5.0 } else { 4.0 }))
+                        .h(geometry.thumb_length)
+                        .rounded(self.metrics.radius_sm())
+                        .bg(self
+                            .theme
+                            .fg_muted
+                            .opacity(if dragging { 0.72 } else { 0.46 })),
+                )
+                .into_any_element(),
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+struct CommandPopoverScrollbarGeometry {
+    track_origin: Pixels,
+    track_length: Pixels,
+    thumb_origin: Pixels,
+    thumb_length: Pixels,
+    maximum_offset: Pixels,
 }
 
 impl Render for CommandPopover {
@@ -1542,6 +1747,15 @@ impl Render for CommandPopover {
             .on_action(cx.listener(Self::tab_pressed))
             .on_action(cx.listener(Self::navigate_back))
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_mouse_move(cx.listener(Self::drag_scrollbar))
+            .on_mouse_up(
+                gpui::MouseButton::Left,
+                cx.listener(Self::end_scrollbar_drag),
+            )
+            .on_mouse_up_out(
+                gpui::MouseButton::Left,
+                cx.listener(Self::end_scrollbar_drag),
+            )
             .occlude()
             .flex()
             .flex_col()
@@ -1607,6 +1821,7 @@ impl Render for CommandPopover {
         } else {
             let has_inline_tabs = self.config.tabs.len() > 1 && layout.inline_tabs;
             let inline_tabs = has_inline_tabs.then(|| self.render_tab_strip(cx));
+            let header_detail = self.header_detail.clone();
             panel.child(
                 div()
                     .h(self.metrics.scaled(layout.header_height))
@@ -1636,6 +1851,15 @@ impl Render for CommandPopover {
                             })
                             .child(self.input.clone()),
                     )
+                    .when_some(header_detail, |element, detail| {
+                        element.child(
+                            div()
+                                .flex_none()
+                                .text_size(self.metrics.font_caption())
+                                .text_color(self.theme.fg_muted)
+                                .child(detail),
+                        )
+                    })
                     .when_some(inline_tabs, |element, tabs| element.child(tabs)),
             )
         };
@@ -1650,11 +1874,22 @@ impl Render for CommandPopover {
             }),
         )
         .w_full()
+        .pr(self.metrics.spacing5())
         .flex_grow()
         .min_h(px(0.0))
         .when(self.detail.is_none(), |element| {
             element.py(self.metrics.scaled(layout.list_vertical_inset))
         });
+        let list = div()
+            .relative()
+            .min_h(px(0.0))
+            .flex_grow()
+            .flex()
+            .flex_col()
+            .child(list)
+            .when_some(self.render_scrollbar(cx), |element, scrollbar| {
+                element.child(scrollbar)
+            });
         panel = match (self.detail.is_some(), self.state.status()) {
             (true, _) => panel.child(list),
             (false, CommandPopoverStatus::Ready) if self.state.item_count() > 0 => {
@@ -1952,5 +2187,33 @@ mod tests {
         assert_eq!(source.matches(&virtual_list_call).count(), 1);
         assert!(!source.contains(&uniform_list_call));
         assert!(!source.contains(&eager_scroll));
+    }
+
+    #[test]
+    fn virtual_list_exposes_one_draggable_scrollbar() {
+        let source = include_str!("command_popover.rs");
+        assert_eq!(source.matches("command-popover-scrollbar\"").count(), 1);
+        assert!(source.contains("scrollbar_drag_started"));
+        assert!(source.contains("scroll_to(scrollbar_list_offset"));
+        assert!(source.contains("scrollbar_drag_ended"));
+    }
+
+    #[test]
+    fn scrollbar_maps_the_full_unmeasured_logical_list() {
+        let layout = CommandPopoverLayout::resolve(
+            CommandPopoverPresentation::Popover,
+            CommandPopoverDensity::Compact,
+        );
+        let mut items = vec![CommandPopoverItem::section("Providers")];
+        items.extend((0..20).map(|index| CommandPopoverItem::row(index.to_string())));
+        let heights = scrollbar_item_heights(layout, 1.0, &items, None);
+        let content = heights.iter().sum::<f32>();
+        let visible = 160.0;
+        let target = content - visible;
+        let offset = scrollbar_list_offset(&heights, target);
+
+        assert!(offset.item_ix >= 15);
+        assert_eq!(scrollbar_offset(&heights, offset), target);
+        assert_eq!(scrollbar_offset(&heights, offset) + visible, content);
     }
 }

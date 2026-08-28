@@ -754,12 +754,19 @@ fn append_redacted_diff_block(output: &mut String, block: &[&str]) {
 }
 
 #[derive(Clone, Debug)]
+pub struct RepositoryAiExpectedContext {
+    pub branch: String,
+    pub head: RepositoryHead,
+}
+
+#[derive(Clone, Debug)]
 pub struct RepositoryAiWorkflowRequest {
     pub preferences: RepositoryAiPreferences,
     pub project_prompt: Option<String>,
     pub additional_prompt: Option<String>,
     pub home: PathBuf,
     pub normal_local_profile: bool,
+    pub expected_context: Option<RepositoryAiExpectedContext>,
 }
 
 #[derive(Clone, Debug)]
@@ -866,6 +873,8 @@ impl RepositoryService {
         let summary = self
             .summary(repository)
             .map_err(|error| workflow_error(completed, error))?;
+        validate_expected_context(&summary, request.expected_context.as_ref())
+            .map_err(|message| workflow_message(completed, message))?;
         if !summary.is_dirty() {
             return Err(workflow_message(
                 completed,
@@ -979,6 +988,8 @@ impl RepositoryService {
         let summary = self
             .summary(repository)
             .map_err(|error| workflow_error(completed, error))?;
+        validate_expected_context(&summary, request.expected_context.as_ref())
+            .map_err(|message| workflow_message(completed, message))?;
         if !summary.is_dirty() {
             return Err(workflow_message(
                 completed,
@@ -1241,6 +1252,18 @@ impl RepositoryService {
     }
 }
 
+fn validate_expected_context(
+    summary: &super::RepositorySummary,
+    expected: Option<&RepositoryAiExpectedContext>,
+) -> Result<(), &'static str> {
+    if expected
+        .is_some_and(|expected| summary.branch != expected.branch || summary.head != expected.head)
+    {
+        return Err("Repository context changed after confirmation");
+    }
+    Ok(())
+}
+
 fn workflow_error(
     completed: RepositoryAiCompletedBoundary,
     error: impl std::fmt::Display,
@@ -1276,6 +1299,34 @@ mod tests {
         let mut permissions = fs::metadata(path).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(path, permissions).unwrap();
+    }
+
+    #[test]
+    fn confirmed_repository_context_rejects_branch_or_head_drift() {
+        let summary = super::super::RepositorySummary {
+            branch: "topic".to_owned(),
+            head: RepositoryHead::Commit("a".repeat(40)),
+            is_detached: false,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            changed_count: 1,
+            staged_count: 0,
+            unstaged_count: 1,
+            untracked_count: 0,
+            conflicted_count: 0,
+        };
+        let expected = RepositoryAiExpectedContext {
+            branch: "topic".to_owned(),
+            head: RepositoryHead::Commit("a".repeat(40)),
+        };
+        assert_eq!(validate_expected_context(&summary, Some(&expected)), Ok(()));
+        let mut wrong_branch = expected.clone();
+        wrong_branch.branch = "other".to_owned();
+        assert!(validate_expected_context(&summary, Some(&wrong_branch)).is_err());
+        let mut wrong_head = expected;
+        wrong_head.head = RepositoryHead::Commit("b".repeat(40));
+        assert!(validate_expected_context(&summary, Some(&wrong_head)).is_err());
     }
 
     #[cfg(unix)]
@@ -1393,6 +1444,7 @@ mod tests {
                 additional_prompt: None,
                 home: home.clone(),
                 normal_local_profile: false,
+                expected_context: None,
             };
             Self {
                 _temp: temp,

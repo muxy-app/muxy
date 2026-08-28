@@ -1,6 +1,551 @@
 use super::*;
 
+fn repository_ai_workflow_effect(
+    result: &Result<
+        muxy_api::repository::RepositoryAiWorkflowOutcome,
+        muxy_api::repository::RepositoryAiWorkflowError,
+    >,
+) -> muxy_api::repository::MutationEffect {
+    use muxy_api::repository::{
+        MutationEffect, RepositoryAiCompletedBoundary, RepositoryAiWorkflowOutcome,
+    };
+    match result {
+        Ok(RepositoryAiWorkflowOutcome::Committed { .. })
+        | Ok(RepositoryAiWorkflowOutcome::PullRequestCreated(_)) => MutationEffect::Uncertain,
+        Err(error) => match error.completed {
+            RepositoryAiCompletedBoundary::None => MutationEffect::NoMutation,
+            RepositoryAiCompletedBoundary::Staged => MutationEffect::PartialSuccess {
+                completed: "staging changes",
+            },
+            RepositoryAiCompletedBoundary::BranchCreated => MutationEffect::PartialSuccess {
+                completed: "branch creation",
+            },
+            RepositoryAiCompletedBoundary::Committed => MutationEffect::PartialSuccess {
+                completed: "commit creation",
+            },
+            RepositoryAiCompletedBoundary::Pushed => {
+                MutationEffect::PartialSuccess { completed: "push" }
+            }
+            RepositoryAiCompletedBoundary::PullRequestCreated => MutationEffect::PartialSuccess {
+                completed: "pull request creation",
+            },
+        },
+    }
+}
+
+fn current_repository_ai_completion(
+    completion: Option<crate::repository::MutationCompletion>,
+    current_key: Option<&crate::repository::RepositoryKey>,
+    expected_key: &crate::repository::RepositoryKey,
+) -> Option<crate::repository::MutationCompletion> {
+    completion.filter(|completion| completion.current_identity && current_key == Some(expected_key))
+}
+
+fn repository_ai_confirmation_is_current(
+    identity: &crate::views::repository::ai::RepositoryAiConfirmationIdentity,
+    current_key: Option<&crate::repository::RepositoryKey>,
+    summary: &crate::repository::LoadState<muxy_api::repository::RepositorySummary>,
+) -> bool {
+    let crate::repository::LoadState::Ready(summary) = summary else {
+        return false;
+    };
+    current_key == Some(&identity.key)
+        && !summary.is_detached
+        && summary.branch == identity.branch
+        && summary.head == identity.head
+}
+
 impl MainWindow {
+    pub(crate) fn open_commit_ai_confirmation(
+        &mut self,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_repository_ai_confirmation(
+            muxy_core::repository_ai::RepositoryAiAction::Commit,
+            anchor,
+            window,
+            cx,
+        );
+    }
+
+    pub(crate) fn open_create_pr_ai_confirmation(
+        &mut self,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_repository_ai_confirmation(
+            muxy_core::repository_ai::RepositoryAiAction::CreatePullRequest,
+            anchor,
+            window,
+            cx,
+        );
+    }
+
+    pub(crate) fn open_commit_ai_provider_menu(
+        &mut self,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_repository_ai_provider_menu(
+            muxy_core::repository_ai::RepositoryAiAction::Commit,
+            anchor,
+            window,
+            cx,
+        );
+    }
+
+    pub(crate) fn open_create_pr_ai_provider_menu(
+        &mut self,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_repository_ai_provider_menu(
+            muxy_core::repository_ai::RepositoryAiAction::CreatePullRequest,
+            anchor,
+            window,
+            cx,
+        );
+    }
+
+    fn open_repository_ai_confirmation(
+        &mut self,
+        action: muxy_core::repository_ai::RepositoryAiAction,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.view.repository.coordinator.state().ai
+            == crate::repository::RepositoryAiRunState::Running(action)
+        {
+            self.view.repository.coordinator.cancel_ai_operation();
+            cx.notify();
+            return;
+        }
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            return;
+        };
+        let crate::repository::LoadState::Ready(inventory) =
+            &self.view.repository.coordinator.state().providers
+        else {
+            return;
+        };
+        let provider = match inventory.resolve_action(&self.state.prefs.repository_ai, action) {
+            Ok(provider) => provider.descriptor.display_name.to_owned(),
+            Err(error) => {
+                self.alert("AI Provider Unavailable".to_owned(), error.to_string(), cx);
+                return;
+            }
+        };
+        let (branch, head) = match &self.view.repository.coordinator.state().summary {
+            crate::repository::LoadState::Ready(summary) if !summary.is_detached => {
+                (summary.branch.clone(), summary.head.clone())
+            }
+            _ => return,
+        };
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        let panel = cx.new(|cx| {
+            crate::views::repository::ai::RepositoryAiPanel::confirmation(
+                crate::views::repository::ai::RepositoryAiConfirmationIdentity {
+                    key,
+                    branch,
+                    head,
+                },
+                action,
+                provider,
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let subscription = cx.subscribe(&panel, |window: &mut Self, _, event, cx| {
+            window.handle_repository_ai_panel_event(event, cx);
+        });
+        window.focus(&panel.focus_handle(cx));
+        self.view.subscriptions = vec![subscription];
+        self.view.overlay = Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Ai(Box::new(
+                crate::views::repository::ai::RepositoryAiPopover::Panel(panel),
+            )),
+            anchor,
+        };
+        cx.notify();
+    }
+
+    fn open_repository_ai_provider_menu(
+        &mut self,
+        action: muxy_core::repository_ai::RepositoryAiAction,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            return;
+        };
+        let crate::repository::LoadState::Ready(inventory) =
+            self.view.repository.coordinator.state().providers.clone()
+        else {
+            return;
+        };
+        let configured = self
+            .state
+            .prefs
+            .repository_ai
+            .action(action)
+            .provider
+            .clone();
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        let provider_size = crate::views::repository::ai::provider_popover_size();
+        let picker = cx.new(|cx| {
+            muxy_ui::command_popover::CommandPopover::new(
+                muxy_ui::command_popover::CommandPopoverConfig {
+                    id: "repository-ai-provider-picker".into(),
+                    presentation: muxy_ui::command_popover::CommandPopoverPresentation::Popover,
+                    density: muxy_ui::command_popover::CommandPopoverDensity::Compact,
+                    tabs: vec![muxy_ui::command_popover::CommandPopoverTab::new(
+                        "providers",
+                        "Providers",
+                    )],
+                    placeholder: "Search providers…".into(),
+                    footer_actions: if action
+                        == muxy_core::repository_ai::RepositoryAiAction::CreatePullRequest
+                    {
+                        vec![muxy_ui::command_popover::CommandPopoverAction::new(
+                            "edit-project-prompt",
+                            "Project Prompt",
+                        )]
+                    } else {
+                        Vec::new()
+                    },
+                    footer_hints: Vec::new(),
+                    width: Some(provider_size.0),
+                    height: Some(provider_size.1),
+                    max_height: None,
+                    completion_on_tab: false,
+                    confirm_on_click: true,
+                },
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        crate::views::repository::ai::sync_provider_picker(
+            &picker,
+            &configured,
+            &inventory,
+            "",
+            cx,
+        );
+        let subscription = cx.subscribe(&picker, move |window: &mut Self, picker, event, cx| {
+            window.handle_repository_ai_provider_event(action, &picker, event, cx);
+        });
+        window.focus(&picker.focus_handle(cx));
+        self.view.subscriptions = vec![subscription];
+        self.view.overlay = Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Ai(Box::new(
+                crate::views::repository::ai::RepositoryAiPopover::Provider {
+                    key,
+                    action,
+                    picker,
+                },
+            )),
+            anchor,
+        };
+        cx.notify();
+    }
+
+    fn handle_repository_ai_provider_event(
+        &mut self,
+        action: muxy_core::repository_ai::RepositoryAiAction,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        event: &muxy_ui::command_popover::CommandPopoverEvent,
+        cx: &mut Context<Self>,
+    ) {
+        use muxy_ui::command_popover::CommandPopoverEvent;
+        match event {
+            CommandPopoverEvent::QueryChanged { query, .. } => {
+                let configured = self
+                    .state
+                    .prefs
+                    .repository_ai
+                    .action(action)
+                    .provider
+                    .clone();
+                if let crate::repository::LoadState::Ready(inventory) =
+                    &self.view.repository.coordinator.state().providers
+                {
+                    crate::views::repository::ai::sync_provider_picker(
+                        picker,
+                        &configured,
+                        inventory,
+                        query,
+                        cx,
+                    );
+                }
+            }
+            CommandPopoverEvent::Confirmed(selection)
+            | CommandPopoverEvent::SecondaryConfirmed(selection) => {
+                let Some(provider) = selection.id.strip_prefix("provider:") else {
+                    return;
+                };
+                let provider = if provider == "auto" { "" } else { provider };
+                muxy_core::prefs::Prefs::store_settings_value(
+                    action.provider_key(),
+                    serde_json::Value::String(provider.to_owned()),
+                );
+                self.state.prefs.repository_ai.action_mut(action).provider = provider.to_owned();
+                self.dismiss_overlay(cx);
+            }
+            CommandPopoverEvent::FooterAction(action_id)
+                if action_id.as_ref() == "edit-project-prompt" =>
+            {
+                let anchor = match &self.view.overlay {
+                    Overlay::Repository { anchor, .. } => *anchor,
+                    _ => return,
+                };
+                self.open_project_pull_request_prompt(anchor, cx);
+            }
+            CommandPopoverEvent::Dismissed => self.dismiss_overlay(cx),
+            _ => {}
+        }
+    }
+
+    pub(super) fn sync_repository_ai_provider_picker(&mut self, cx: &mut Context<Self>) {
+        let Some((action, picker)) = (match &self.view.overlay {
+            Overlay::Repository {
+                kind: crate::views::overlay::RepositoryPopoverKind::Ai(popover),
+                ..
+            } => match popover.as_ref() {
+                crate::views::repository::ai::RepositoryAiPopover::Provider {
+                    action,
+                    picker,
+                    ..
+                } => Some((*action, picker.clone())),
+                crate::views::repository::ai::RepositoryAiPopover::Panel(_) => None,
+            },
+            _ => None,
+        }) else {
+            return;
+        };
+        let configured = self
+            .state
+            .prefs
+            .repository_ai
+            .action(action)
+            .provider
+            .clone();
+        let query = picker.read(cx).query().to_owned();
+        if let crate::repository::LoadState::Ready(inventory) =
+            &self.view.repository.coordinator.state().providers
+        {
+            crate::views::repository::ai::sync_provider_picker(
+                &picker,
+                &configured,
+                inventory,
+                &query,
+                cx,
+            );
+        }
+    }
+
+    fn open_project_pull_request_prompt(&mut self, anchor: Bounds<Pixels>, cx: &mut Context<Self>) {
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            return;
+        };
+        let project_prompt = self
+            .state
+            .workspace
+            .project(&key.project_id)
+            .and_then(|project| project.pull_request_prompt.clone());
+        let preferences = &self.state.prefs.repository_ai.create_pull_request;
+        let fallback = muxy_core::repository_ai::normalized_prompt(Some(&preferences.prompt))
+            .unwrap_or(muxy_core::repository_ai::CREATE_PULL_REQUEST_PROMPT)
+            .to_owned();
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        let panel = cx.new(|cx| {
+            crate::views::repository::ai::RepositoryAiPanel::project_prompt(
+                key,
+                project_prompt,
+                fallback,
+                theme,
+                metrics,
+                cx,
+            )
+        });
+        let subscription = cx.subscribe(&panel, |window: &mut Self, _, event, cx| {
+            window.handle_repository_ai_panel_event(event, cx);
+        });
+        self.view.subscriptions = vec![subscription];
+        self.view.overlay = Overlay::Repository {
+            kind: crate::views::overlay::RepositoryPopoverKind::Ai(Box::new(
+                crate::views::repository::ai::RepositoryAiPopover::Panel(panel),
+            )),
+            anchor,
+        };
+        cx.notify();
+    }
+
+    fn handle_repository_ai_panel_event(
+        &mut self,
+        event: &crate::views::repository::ai::RepositoryAiPanelEvent,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::views::repository::ai::RepositoryAiPanelEvent;
+        match event {
+            RepositoryAiPanelEvent::Dismiss => self.dismiss_overlay(cx),
+            RepositoryAiPanelEvent::SaveProjectPrompt(prompt) => {
+                self.persist_project_pull_request_prompt(Some(prompt), cx)
+            }
+            RepositoryAiPanelEvent::UseGlobalPrompt => {
+                self.persist_project_pull_request_prompt(None, cx)
+            }
+            RepositoryAiPanelEvent::Confirm {
+                action,
+                identity,
+                additional_prompt,
+            } => self.start_repository_ai_workflow(
+                *action,
+                identity.clone(),
+                additional_prompt.clone(),
+                cx,
+            ),
+        }
+    }
+
+    fn persist_project_pull_request_prompt(
+        &mut self,
+        prompt: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(key) = self.view.repository.coordinator.key().cloned() else {
+            return;
+        };
+        if self
+            .state
+            .workspace
+            .set_pull_request_prompt(&key.project_id, prompt)
+        {
+            self.dismiss_overlay(cx);
+        } else {
+            self.alert(
+                "Could Not Save Project Prompt".to_owned(),
+                "Muxy could not persist the project pull request prompt.".to_owned(),
+                cx,
+            );
+        }
+    }
+
+    fn start_repository_ai_workflow(
+        &mut self,
+        action: muxy_core::repository_ai::RepositoryAiAction,
+        identity: crate::views::repository::ai::RepositoryAiConfirmationIdentity,
+        additional_prompt: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if !repository_ai_confirmation_is_current(
+            &identity,
+            self.view.repository.coordinator.key(),
+            &self.view.repository.coordinator.state().summary,
+        ) {
+            self.dismiss_overlay(cx);
+            self.alert(
+                "Repository Context Changed".to_owned(),
+                "The branch or commit changed after confirmation. Review the action and try again."
+                    .to_owned(),
+                cx,
+            );
+            return;
+        }
+        let key = identity.key.clone();
+        let project_prompt = self
+            .state
+            .workspace
+            .project(&key.project_id)
+            .and_then(|project| project.pull_request_prompt.clone());
+        let request = muxy_api::repository::RepositoryAiWorkflowRequest {
+            preferences: self.state.prefs.repository_ai.clone(),
+            project_prompt,
+            additional_prompt,
+            home: muxy_core::prefs::home_dir(),
+            normal_local_profile: true,
+            expected_context: Some(muxy_api::repository::RepositoryAiExpectedContext {
+                branch: identity.branch,
+                head: identity.head,
+            }),
+        };
+        let acquisition = self.view.repository.coordinator.begin_ai_operation(
+            &mut self.state.project_operations,
+            &key.project_id,
+            action,
+        );
+        let (token, control) = match acquisition {
+            Ok(acquisition) => acquisition,
+            Err(error) => {
+                self.alert(
+                    "Repository Action Unavailable".to_owned(),
+                    error.to_owned(),
+                    cx,
+                );
+                return;
+            }
+        };
+        self.dismiss_overlay(cx);
+        let service = self.repository_service();
+        let path = key.normalized_path.clone();
+        cx.spawn(async move |window, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    match action {
+                        muxy_core::repository_ai::RepositoryAiAction::Commit => {
+                            service.ai_commit_and_push(&path, &request, &control)
+                        }
+                        muxy_core::repository_ai::RepositoryAiAction::CreatePullRequest => {
+                            service.ai_create_pull_request(&path, &request, &control)
+                        }
+                    }
+                })
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                let effect = repository_ai_workflow_effect(&result);
+                let completion = window.view.repository.coordinator.finish_ai_operation(
+                    &mut window.state.project_operations,
+                    &token,
+                    effect,
+                );
+                if let Some(completion) = current_repository_ai_completion(
+                    completion,
+                    window.view.repository.coordinator.key(),
+                    &key,
+                ) {
+                    window
+                        .view
+                        .repository
+                        .coordinator
+                        .request_refresh(completion.refresh);
+                    window.dispatch_repository_refresh(cx);
+                    if let Err(error) = result {
+                        window.alert(
+                            "Repository AI Action Failed".to_owned(),
+                            error.to_string(),
+                            cx,
+                        );
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     pub(crate) fn open_pull_request_popover(
         &mut self,
         anchor: Bounds<Pixels>,
@@ -2365,6 +2910,125 @@ fn app_layout_menu_items() -> Vec<Item> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repository_ai_outcomes_preserve_exact_partial_effect_boundaries() {
+        use muxy_api::repository::{
+            MutationEffect, RepositoryAiCompletedBoundary, RepositoryAiWorkflowError,
+            RepositoryAiWorkflowOutcome,
+        };
+
+        assert_eq!(
+            repository_ai_workflow_effect(&Ok(RepositoryAiWorkflowOutcome::Committed {
+                head_oid: "a".repeat(40),
+            })),
+            MutationEffect::Uncertain
+        );
+        let cases = [
+            (RepositoryAiCompletedBoundary::None, None),
+            (
+                RepositoryAiCompletedBoundary::Staged,
+                Some("staging changes"),
+            ),
+            (
+                RepositoryAiCompletedBoundary::BranchCreated,
+                Some("branch creation"),
+            ),
+            (
+                RepositoryAiCompletedBoundary::Committed,
+                Some("commit creation"),
+            ),
+            (RepositoryAiCompletedBoundary::Pushed, Some("push")),
+            (
+                RepositoryAiCompletedBoundary::PullRequestCreated,
+                Some("pull request creation"),
+            ),
+        ];
+        for (completed, expected) in cases {
+            let effect = repository_ai_workflow_effect(&Err(RepositoryAiWorkflowError {
+                completed,
+                message: "failed".to_owned(),
+            }));
+            match expected {
+                None => assert_eq!(effect, MutationEffect::NoMutation),
+                Some(expected) => assert_eq!(
+                    effect,
+                    MutationEffect::PartialSuccess {
+                        completed: expected
+                    }
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn stale_repository_ai_completion_cannot_refresh_or_alert_the_new_context() {
+        let key = crate::repository::RepositoryKey {
+            project_id: "one".to_owned(),
+            worktree_id: "primary".to_owned(),
+            normalized_path: std::path::PathBuf::from("/one"),
+        };
+        let other = crate::repository::RepositoryKey {
+            project_id: "two".to_owned(),
+            worktree_id: "primary".to_owned(),
+            normalized_path: std::path::PathBuf::from("/two"),
+        };
+        let completion = || crate::repository::MutationCompletion {
+            effect: muxy_api::repository::MutationEffect::Uncertain,
+            current_identity: true,
+            refresh: crate::repository::RepositoryRefreshSet::repository_truth(),
+        };
+        assert!(current_repository_ai_completion(Some(completion()), Some(&key), &key).is_some());
+        assert!(current_repository_ai_completion(Some(completion()), Some(&other), &key).is_none());
+        let mut stale = completion();
+        stale.current_identity = false;
+        assert!(current_repository_ai_completion(Some(stale), Some(&key), &key).is_none());
+    }
+
+    #[test]
+    fn repository_ai_confirmation_rejects_key_branch_and_head_drift() {
+        let key = crate::repository::RepositoryKey {
+            project_id: "one".to_owned(),
+            worktree_id: "primary".to_owned(),
+            normalized_path: std::path::PathBuf::from("/one"),
+        };
+        let identity = crate::views::repository::ai::RepositoryAiConfirmationIdentity {
+            key: key.clone(),
+            branch: "topic".to_owned(),
+            head: muxy_api::repository::RepositoryHead::Commit("a".repeat(40)),
+        };
+        let mut summary = muxy_api::repository::RepositorySummary {
+            branch: "topic".to_owned(),
+            head: muxy_api::repository::RepositoryHead::Commit("a".repeat(40)),
+            is_detached: false,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            changed_count: 1,
+            staged_count: 0,
+            unstaged_count: 1,
+            untracked_count: 0,
+            conflicted_count: 0,
+        };
+        assert!(repository_ai_confirmation_is_current(
+            &identity,
+            Some(&key),
+            &crate::repository::LoadState::Ready(summary.clone())
+        ));
+        summary.branch = "other".to_owned();
+        assert!(!repository_ai_confirmation_is_current(
+            &identity,
+            Some(&key),
+            &crate::repository::LoadState::Ready(summary.clone())
+        ));
+        summary.branch = "topic".to_owned();
+        summary.head = muxy_api::repository::RepositoryHead::Commit("b".repeat(40));
+        assert!(!repository_ai_confirmation_is_current(
+            &identity,
+            Some(&key),
+            &crate::repository::LoadState::Ready(summary)
+        ));
+    }
 
     #[test]
     fn chrome_app_layout_menu_matches_supported_sidebar_layouts() {
