@@ -9,7 +9,7 @@ use crate::quick_terminal::shortcut_service::{
 use crate::quick_terminal::view::{AccessibilityNode, AccessibilityRole};
 use crate::quick_terminal::{ShortcutCapture, ShortcutRecordingEvent};
 use block2::RcBlock;
-use gpui::Window;
+use gpui::{Window, px, size};
 use muxy_core::quick_terminal::geometry::{Point, Rect};
 use muxy_core::quick_terminal::{DoubleShiftDetector, DoubleShiftInput, QuickTerminalShortcut};
 use muxy_core::shortcuts::{COMMAND, CONTROL, KeyCombo, OPTION, SHIFT};
@@ -17,7 +17,7 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Bool, ClassBuilder, ProtocolObject, Sel};
 use objc2_app_kit::{
     NSAccessibility, NSAccessibilityButtonRole, NSAccessibilityElement, NSAccessibilityGroupRole,
-    NSAccessibilityPostNotification, NSAccessibilitySliderRole, NSAccessibilityStaticTextRole,
+    NSAccessibilityPostNotification, NSAccessibilityStaticTextRole,
     NSAccessibilityValueChangedNotification, NSApplication, NSApplicationActivationOptions,
     NSApplicationDidChangeScreenParametersNotification, NSColor, NSEvent, NSEventMask,
     NSEventModifierFlags, NSEventType, NSRunningApplication, NSScreen, NSStatusWindowLevel,
@@ -36,7 +36,7 @@ use objc2_foundation::{
     MainThreadMarker, NSArray, NSNotification, NSNotificationCenter, NSObjectProtocol,
     NSOperationQueue, NSPoint, NSRect, NSSize, NSString,
 };
-use objc2_quartz_core::{CALayer, CATransaction, kCACornerCurveContinuous};
+use objc2_quartz_core::{CACornerMask, CALayer, CATransaction, kCACornerCurveContinuous};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::ffi::c_void;
 use std::ptr::NonNull;
@@ -340,6 +340,7 @@ impl PanelAdapter {
         let reveal_mask = CALayer::layer();
         reveal_mask.setBackgroundColor(Some(&NSColor::whiteColor().CGColor()));
         reveal_mask.setCornerCurve(unsafe { kCACornerCurveContinuous });
+        reveal_mask.setMaskedCorners(all_mask_corners());
         set_mask_frame(
             &reveal_mask,
             NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
@@ -375,6 +376,7 @@ impl PanelAdapter {
     pub fn prepare(
         &mut self,
         configuration: QuickTerminalConfiguration,
+        window: &mut Window,
     ) -> Result<PanelTelemetry, String> {
         let mtm = MainThreadMarker::new()
             .ok_or_else(|| "Quick Terminal geometry requires the main thread".to_owned())?;
@@ -454,7 +456,11 @@ impl PanelAdapter {
         self.target_frame = Some(target_frame);
         self.collapsed_mask_frame = Some(rect_to_ns(collapsed));
         self.collapsed_mask_radius = collapsed_radius;
-        self.window.setFrame_display(target_frame, true);
+        let target_size = size(px(frame.size.width as f32), px(frame.size.height as f32));
+        if window.viewport_size() != target_size {
+            window.resize(target_size);
+        }
+        self.apply_target_origin();
         if !self.window.isVisible() {
             set_mask_frame(
                 &self.reveal_mask,
@@ -473,6 +479,12 @@ impl PanelAdapter {
         };
         self.telemetry = Some(telemetry.clone());
         Ok(telemetry)
+    }
+
+    pub fn apply_target_origin(&self) {
+        if let Some(frame) = self.target_frame {
+            self.window.setFrameOrigin(frame.origin);
+        }
     }
 
     pub fn show(&mut self, duration: std::time::Duration) {
@@ -500,6 +512,7 @@ impl PanelAdapter {
         self.mask_host.displayIfNeeded();
         CATransaction::flush();
         if self.target_frame.is_some() {
+            self.reveal_mask.setMaskedCorners(bottom_mask_corners());
             set_mask_frame(
                 &self.reveal_mask,
                 self.mask_host.bounds(),
@@ -526,6 +539,7 @@ impl PanelAdapter {
         let should_restore =
             crate::quick_terminal::panel::restore_focus(restores_focus, self.window.isKeyWindow());
         self.window.orderOut(None);
+        self.reveal_mask.setMaskedCorners(all_mask_corners());
         if should_restore {
             if let Some(snapshot) = self.focus_snapshot.take() {
                 snapshot.restore();
@@ -558,7 +572,6 @@ impl PanelAdapter {
                         AccessibilityRole::Group => NSAccessibilityGroupRole,
                         AccessibilityRole::Status => NSAccessibilityStaticTextRole,
                         AccessibilityRole::Button => NSAccessibilityButtonRole,
-                        AccessibilityRole::Slider => NSAccessibilitySliderRole,
                     }
                 };
                 let element = unsafe {
@@ -690,6 +703,17 @@ fn rect_to_ns(rect: Rect) -> NSRect {
         NSPoint::new(rect.origin.x, rect.origin.y),
         NSSize::new(rect.size.width, rect.size.height),
     )
+}
+
+fn all_mask_corners() -> CACornerMask {
+    CACornerMask::LayerMinXMinYCorner
+        | CACornerMask::LayerMaxXMinYCorner
+        | CACornerMask::LayerMinXMaxYCorner
+        | CACornerMask::LayerMaxXMaxYCorner
+}
+
+fn bottom_mask_corners() -> CACornerMask {
+    CACornerMask::LayerMinXMinYCorner | CACornerMask::LayerMaxXMinYCorner
 }
 
 fn set_mask_frame(

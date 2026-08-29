@@ -5,11 +5,10 @@ use crate::terminal::{ConfirmationId, ConfirmationKind};
 use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, App, BorrowAppContext, Context, FontWeight, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Pixels, Render, StatefulInteractiveElement, Styled, Subscription,
-    Window, div, px,
+    MouseButton, ParentElement, Render, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, px,
 };
 use muxy_ui::components::IconButton;
-use muxy_ui::controls::{self, Style};
 use muxy_ui::icon::Icon;
 use muxy_ui::theme::{Metrics, Theme};
 use std::cell::RefCell;
@@ -25,10 +24,7 @@ pub type QuickTerminalSurfaceSlot = Rc<RefCell<Option<QuickTerminalSurface>>>;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BridgeAction {
     Close,
-    ToggleQuickSettings,
     ToggleShortcutSettings,
-    SetQuickSetting { setting: QuickSetting, value: i64 },
-    Reset,
     OpenSettings,
     ResolveConfirmation { id: ConfirmationId, approved: bool },
 }
@@ -40,19 +36,10 @@ pub struct ConfirmationPrompt {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum QuickSetting {
-    Width,
-    Height,
-    Transparency,
-    Blur,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccessibilityRole {
     Group,
     Status,
     Button,
-    Slider,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,14 +52,7 @@ pub struct AccessibilityNode {
     pub announces_changes: bool,
 }
 
-pub fn bridge_accessibility_model(
-    status: &str,
-    shortcut: &str,
-    width: i64,
-    height: i64,
-    transparency: i64,
-    blur: i64,
-) -> Vec<AccessibilityNode> {
+pub fn bridge_accessibility_model(status: &str, shortcut: &str) -> Vec<AccessibilityNode> {
     let definitions = [
         (
             "quick-terminal",
@@ -96,49 +76,7 @@ pub fn bridge_accessibility_model(
             false,
         ),
         (
-            "quick-terminal-quick-settings",
-            AccessibilityRole::Button,
-            "Quick settings",
-            "Collapsed".to_owned(),
-            false,
-        ),
-        (
-            "quick-terminal-width",
-            AccessibilityRole::Slider,
-            "Width",
-            format!("{width} points"),
-            false,
-        ),
-        (
-            "quick-terminal-height",
-            AccessibilityRole::Slider,
-            "Height",
-            format!("{height} points"),
-            false,
-        ),
-        (
-            "quick-terminal-transparency",
-            AccessibilityRole::Slider,
-            "Transparency",
-            format!("{transparency} percent"),
-            false,
-        ),
-        (
-            "quick-terminal-blur",
-            AccessibilityRole::Slider,
-            "Blur",
-            format!("{blur} percent"),
-            false,
-        ),
-        (
-            "quick-terminal-reset",
-            AccessibilityRole::Button,
-            "Reset Quick Terminal",
-            "Default size and appearance".to_owned(),
-            false,
-        ),
-        (
-            "quick-terminal-open-settings",
+            "quick-terminal-settings",
             AccessibilityRole::Button,
             "Open Quick Terminal settings",
             "Opens Settings".to_owned(),
@@ -185,13 +123,17 @@ pub struct QuickTerminalView {
     panel: Result<PanelAdapter, String>,
     surface: QuickTerminalSurfaceSlot,
     model: QuickTerminalViewModel,
-    quick_settings_visible: bool,
     visible: bool,
     _activation_subscription: Subscription,
+    _bounds_subscription: Subscription,
 }
 
 fn hide_for_activation_change(visible: bool, active: bool) -> bool {
     visible && !active
+}
+
+fn set_window_appearance(window: &mut Window, appearance: EffectiveAppearance) {
+    window.set_background_appearance(appearance.background);
 }
 
 impl QuickTerminalView {
@@ -201,7 +143,7 @@ impl QuickTerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        window.set_background_appearance(model.appearance.background);
+        set_window_appearance(window, model.appearance);
         let activation_subscription = cx.observe_window_activation(window, |view, window, cx| {
             if hide_for_activation_change(view.visible, window.is_window_active()) {
                 view.visible = false;
@@ -213,29 +155,31 @@ impl QuickTerminalView {
                 .detach();
             }
         });
+        #[cfg(target_os = "macos")]
+        let panel = PanelAdapter::configure(window);
+        let bounds_subscription = cx.observe_window_bounds(window, |view, _, _| {
+            #[cfg(target_os = "macos")]
+            if let Ok(panel) = &view.panel {
+                panel.apply_target_origin();
+            }
+        });
         Self {
             #[cfg(target_os = "macos")]
-            panel: PanelAdapter::configure(window),
+            panel,
             surface,
             model,
-            quick_settings_visible: false,
             visible: false,
             _activation_subscription: activation_subscription,
+            _bounds_subscription: bounds_subscription,
         }
     }
 
     pub fn update_model(&mut self, model: QuickTerminalViewModel, window: &mut Window) {
-        window.set_background_appearance(model.appearance.background);
+        set_window_appearance(window, model.appearance);
         #[cfg(target_os = "macos")]
         if let Ok(panel) = &mut self.panel {
-            panel.install_accessibility(&bridge_accessibility_model(
-                &model.status,
-                &model.shortcut,
-                model.configuration.width,
-                model.configuration.height,
-                model.configuration.transparency,
-                model.configuration.blur,
-            ));
+            panel
+                .install_accessibility(&bridge_accessibility_model(&model.status, &model.shortcut));
         }
         self.model = model;
     }
@@ -249,15 +193,15 @@ impl QuickTerminalView {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn prepare(&mut self) -> Result<PanelTelemetry, String> {
+    pub fn prepare(&mut self, window: &mut Window) -> Result<PanelTelemetry, String> {
         self.panel
             .as_mut()
             .map_err(|error| error.clone())?
-            .prepare(self.model.configuration)
+            .prepare(self.model.configuration, window)
     }
 
     #[cfg(not(target_os = "macos"))]
-    pub fn prepare(&mut self) -> Result<(), String> {
+    pub fn prepare(&mut self, _window: &mut Window) -> Result<(), String> {
         Err("Quick Terminal panels are unavailable on this platform".to_owned())
     }
 
@@ -287,7 +231,6 @@ impl QuickTerminalView {
 
     pub fn begin_hide(&mut self, _duration: Duration, _window: &mut Window) {
         self.visible = false;
-        self.quick_settings_visible = false;
         #[cfg(target_os = "macos")]
         if let Ok(panel) = &mut self.panel {
             panel.begin_hide(_duration);
@@ -299,10 +242,6 @@ impl QuickTerminalView {
         if let Ok(panel) = &mut self.panel {
             panel.finish_hide(_restores_focus);
         }
-    }
-
-    pub fn toggle_quick_settings(&mut self) {
-        self.quick_settings_visible = !self.quick_settings_visible;
     }
 
     pub fn is_visible(&self) -> bool {
@@ -343,10 +282,8 @@ impl Render for QuickTerminalView {
         let bridge_control = gpui::hsla(0.0, 0.0, 1.0, 0.1);
         let bridge_border = gpui::hsla(0.0, 0.0, 1.0, 0.14);
         let ready = gpui::hsla(0.39, 0.78, 0.52, 1.0);
-        let configuration = self.model.configuration;
         let theme = self.model.theme.clone();
         let metrics = self.model.metrics;
-        let quick_settings = self.quick_settings_visible;
         let confirmation = self.model.confirmation;
         div()
             .key_context(crate::quick_terminal::KEY_CONTEXT)
@@ -355,8 +292,10 @@ impl Render for QuickTerminalView {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .rounded(px(20.0))
-            .border_1()
+            .rounded_b(px(20.0))
+            .border_l_1()
+            .border_r_1()
+            .border_b_1()
             .border_color(bridge_border)
             .child(
                 div()
@@ -396,16 +335,16 @@ impl Render for QuickTerminalView {
                     ))
                     .child(
                         IconButton::new(
-                            "quick-terminal-quick-settings",
+                            "quick-terminal-settings",
                             Icon::Settings,
                             metrics.icon_sm(),
                             metrics.control_medium(),
                             bridge_muted,
                             bridge_foreground,
                         )
-                        .tooltip("Quick settings", theme.raised(), theme.fg, theme.border)
+                        .tooltip("Settings", theme.raised(), theme.fg, theme.border)
                         .on_click(|_, _, cx| {
-                            dispatch_bridge_action(BridgeAction::ToggleQuickSettings, cx)
+                            dispatch_bridge_action(BridgeAction::OpenSettings, cx)
                         }),
                     )
                     .child(
@@ -422,89 +361,6 @@ impl Render for QuickTerminalView {
                     ),
             )
             .child(div().flex_1().overflow_hidden().children(terminal))
-            .when(quick_settings, |panel| {
-                panel.child(
-                    div()
-                        .absolute()
-                        .top(px(42.0))
-                        .right(px(10.0))
-                        .w(px(400.0))
-                        .px(px(16.0))
-                        .py(px(14.0))
-                        .flex()
-                        .flex_col()
-                        .gap(px(14.0))
-                        .rounded(px(14.0))
-                        .border_1()
-                        .border_color(bridge_border)
-                        .bg(gpui::hsla(0.0, 0.0, 0.0, 0.96))
-                        .shadow_lg()
-                        .text_size(px(11.0))
-                        .text_color(bridge_muted)
-                        .child(
-                            div()
-                                .text_size(px(14.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(bridge_foreground)
-                                .child("Quick Terminal"),
-                        )
-                        .child(quick_setting_slider(
-                            "Transparency",
-                            format!("{}%", configuration.transparency),
-                            configuration.transparency,
-                            QuickSetting::Transparency,
-                            &theme,
-                            metrics,
-                        ))
-                        .child(quick_setting_slider(
-                            "Vibrancy",
-                            format!("{}%", configuration.blur),
-                            configuration.blur,
-                            QuickSetting::Blur,
-                            &theme,
-                            metrics,
-                        ))
-                        .child(quick_setting_slider(
-                            "Width",
-                            configuration.width.to_string(),
-                            configuration.width,
-                            QuickSetting::Width,
-                            &theme,
-                            metrics,
-                        ))
-                        .child(quick_setting_slider(
-                            "Height",
-                            configuration.height.to_string(),
-                            configuration.height,
-                            QuickSetting::Height,
-                            &theme,
-                            metrics,
-                        ))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .pt(px(12.0))
-                                .child(bridge_text_button(
-                                    "quick-terminal-reset",
-                                    "Reset",
-                                    BridgeAction::Reset,
-                                    &theme,
-                                    metrics,
-                                    px(92.0),
-                                ))
-                                .child(bridge_text_button(
-                                    "quick-terminal-open-settings",
-                                    "Open Settings...",
-                                    BridgeAction::OpenSettings,
-                                    &theme,
-                                    metrics,
-                                    px(150.0),
-                                )),
-                        ),
-                )
-            })
             .when_some(confirmation, |panel, prompt| {
                 panel.child(confirmation_dialog(
                     prompt,
@@ -682,93 +538,12 @@ fn bridge_header_button(
         .into_any_element()
 }
 
-fn quick_setting_range(setting: QuickSetting) -> (i64, i64) {
-    match setting {
-        QuickSetting::Width => (480, 1200),
-        QuickSetting::Height => (280, 800),
-        QuickSetting::Transparency => (0, 55),
-        QuickSetting::Blur => (0, 100),
-    }
-}
-
-fn quick_setting_slider(
-    label: &'static str,
-    readout: impl Into<String>,
-    value: i64,
-    setting: QuickSetting,
-    theme: &Theme,
-    metrics: Metrics,
-) -> AnyElement {
-    let foreground = gpui::hsla(0.0, 0.0, 1.0, 1.0);
-    let muted = gpui::hsla(0.0, 0.0, 1.0, 0.58);
-    let (minimum, maximum) = quick_setting_range(setting);
-    let id = match setting {
-        QuickSetting::Width => "quick-terminal-width",
-        QuickSetting::Height => "quick-terminal-height",
-        QuickSetting::Transparency => "quick-terminal-transparency",
-        QuickSetting::Blur => "quick-terminal-vibrancy",
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap(px(8.0))
-        .child(div().w(px(82.0)).text_color(muted).child(label))
-        .child(controls::slider(
-            Style {
-                theme,
-                metrics: &metrics,
-            },
-            id,
-            value as f32,
-            (minimum as f32, maximum as f32),
-            move |grab, _, cx| {
-                let fraction = controls::fraction_at(grab.bounds, grab.position);
-                let value = (minimum as f32 + fraction * (maximum - minimum) as f32).round() as i64;
-                dispatch_bridge_action(BridgeAction::SetQuickSetting { setting, value }, cx);
-            },
-        ))
-        .child(
-            div()
-                .w(px(48.0))
-                .flex()
-                .justify_end()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(foreground)
-                .child(readout.into()),
-        )
-        .into_any_element()
-}
-
-fn bridge_text_button(
-    id: &'static str,
-    label: impl Into<String>,
-    action: BridgeAction,
-    theme: &Theme,
-    metrics: Metrics,
-    width: Pixels,
-) -> AnyElement {
-    div()
-        .id(id)
-        .w(width)
-        .h(metrics.control_small())
-        .px(px(7.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(metrics.radius_sm())
-        .cursor_pointer()
-        .bg(theme.raised())
-        .text_size(metrics.font_footnote())
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(theme.fg_muted)
-        .hover(|style| style.bg(theme.hover).text_color(theme.fg))
-        .on_click(move |_, _, cx| dispatch_bridge_action(action, cx))
-        .child(label.into())
-        .into_any_element()
-}
-
 fn dispatch_bridge_action(action: BridgeAction, cx: &mut App) {
-    cx.update_global::<QuickTerminalRuntime, _>(|runtime, cx| runtime.bridge_action(action, cx));
+    cx.defer(move |cx| {
+        cx.update_global::<QuickTerminalRuntime, _>(|runtime, cx| {
+            runtime.bridge_action(action, cx)
+        });
+    });
 }
 
 #[cfg(test)]
@@ -778,7 +553,7 @@ mod tests {
 
     #[test]
     fn quick_terminal_view_accessibility_model_is_complete_unique_and_ordered() {
-        let nodes = bridge_accessibility_model("Shell exited", "Double Shift", 720, 430, 18, 70);
+        let nodes = bridge_accessibility_model("Shell exited", "Double Shift");
         assert_eq!(
             nodes.first().map(|node| node.role),
             Some(AccessibilityRole::Group)
@@ -791,14 +566,8 @@ mod tests {
         for label in [
             "Quick Terminal status",
             "Quick Terminal shortcut",
-            "Quick settings",
-            "Reset Quick Terminal",
             "Open Quick Terminal settings",
             "Close Quick Terminal",
-            "Width",
-            "Height",
-            "Transparency",
-            "Blur",
         ] {
             assert!(nodes.iter().any(|node| node.label == label));
         }
@@ -814,8 +583,6 @@ mod tests {
                 .all(|pair| pair[0].focus_order < pair[1].focus_order)
         );
         assert!(nodes.iter().any(|node| node.value == "Shell exited"));
-        assert!(nodes.iter().any(|node| node.value == "720 points"));
-        assert!(nodes.iter().any(|node| node.value == "18 percent"));
     }
 
     #[test]
@@ -823,29 +590,11 @@ mod tests {
         assert_eq!(
             [
                 BridgeAction::Close,
-                BridgeAction::ToggleQuickSettings,
                 BridgeAction::ToggleShortcutSettings,
-                BridgeAction::SetQuickSetting {
-                    setting: QuickSetting::Transparency,
-                    value: 55,
-                },
-                BridgeAction::SetQuickSetting {
-                    setting: QuickSetting::Blur,
-                    value: 100,
-                },
-                BridgeAction::SetQuickSetting {
-                    setting: QuickSetting::Width,
-                    value: 960,
-                },
-                BridgeAction::SetQuickSetting {
-                    setting: QuickSetting::Height,
-                    value: 558,
-                },
-                BridgeAction::Reset,
                 BridgeAction::OpenSettings,
             ]
             .len(),
-            9
+            3
         );
     }
 
@@ -854,13 +603,5 @@ mod tests {
         assert!(hide_for_activation_change(true, false));
         assert!(!hide_for_activation_change(true, true));
         assert!(!hide_for_activation_change(false, false));
-    }
-
-    #[test]
-    fn quick_terminal_slider_ranges_match_persisted_bounds() {
-        assert_eq!(quick_setting_range(QuickSetting::Transparency), (0, 55));
-        assert_eq!(quick_setting_range(QuickSetting::Blur), (0, 100));
-        assert_eq!(quick_setting_range(QuickSetting::Width), (480, 1200));
-        assert_eq!(quick_setting_range(QuickSetting::Height), (280, 800));
     }
 }

@@ -1102,9 +1102,14 @@ impl SettingsModal {
     pub fn write(&mut self, key: &str, value: Value, cx: &mut Context<Self>) {
         self.close_picker(cx);
         if key.starts_with("muxy.quickTerminal.") {
-            let result = cx.update_global::<QuickTerminalRuntime, _>(|runtime, cx| {
-                runtime.apply_live_setting(key, value, cx)
-            });
+            let result = if key == "muxy.quickTerminal.enabled" {
+                cx.update_global::<QuickTerminalRuntime, _>(|runtime, cx| {
+                    runtime.apply_enabled_setting(value, cx)
+                })
+            } else {
+                settings::try_set(key, value)
+                    .map_err(|error| format!("failed to persist {key}: {error}"))
+            };
             match result {
                 Ok(()) => {
                     self.errors.remove(key);
@@ -1138,7 +1143,7 @@ impl SettingsModal {
             .collect()
     }
 
-    fn select(&mut self, category: Category, cx: &mut Context<Self>) {
+    pub(crate) fn select_category(&mut self, category: Category, cx: &mut Context<Self>) {
         let category = normalized_category(category);
         self.route = category;
         self.close_picker(cx);
@@ -1381,7 +1386,7 @@ impl SettingsModal {
                     )),
             )
             .child(labels)
-            .on_click(cx.listener(move |modal, _, _, cx| modal.select(category, cx)))
+            .on_click(cx.listener(move |modal, _, _, cx| modal.select_category(category, cx)))
             .into_any_element()
     }
 

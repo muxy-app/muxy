@@ -218,7 +218,9 @@ panel_policy_source_checks() {
     rg -q 'on_window_should_close' crates/muxy/src/quick_terminal/runtime.rs || fail "native Quick Terminal close dispatch is missing"
     rg -q 'release_panel_and_surface' crates/muxy/src/quick_terminal/runtime.rs || fail "Quick Terminal destructive close does not release the surface"
     rg -q 'BridgeAction::OpenSettings' crates/muxy/src/quick_terminal/view.rs || fail "Quick Terminal Open Settings control is missing"
-    rg -q 'BridgeAction::SetQuickSetting' crates/muxy/src/quick_terminal/view.rs || fail "Quick Terminal panel sliders are not actionable"
+    rg -q 'open_quick_terminal_settings' crates/muxy/src/quick_terminal/runtime.rs || fail "Quick Terminal gear does not open its Settings category"
+    ! rg -n 'ToggleQuickSettings|SetQuickSetting|quick_settings_visible' crates/muxy/src/quick_terminal || fail "removed Quick Terminal floating settings controls remain"
+    rg -q 'self\.configuration = QuickTerminalConfiguration::load\(\)' crates/muxy/src/quick_terminal/runtime.rs || fail "Quick Terminal does not reload deferred settings before opening"
     rg -q 'try_set_many' crates/muxy/src/quick_terminal/runtime.rs || fail "Quick Terminal Reset is not transactional"
     rg -q 'destroy_disabled_runtime' crates/muxy/src/quick_terminal/runtime.rs || fail "Quick Terminal disable teardown is missing"
     ! rg -n 'KeyBinding::new\([^\n]*escape|Dismiss.*Escape' crates/muxy/src/quick_terminal || fail "Quick Terminal intercepts Escape"
@@ -818,7 +820,7 @@ run_staged_panel_lifecycle() {
     [[ "$(spike_status_raw "$status_file" storedTransparency)" == 22 ]] || fail "stored transparency was not loaded"
     [[ "$(spike_status_raw "$status_file" storedBlur)" == 80 ]] || fail "stored blur was not loaded"
     [[ "$(spike_status_raw "$status_file" appearance)" == blurred ]] || fail "nonzero transparency and blur did not select blurred appearance"
-    [[ "$(spike_status_raw "$status_file" accessibilityNodeCount)" == 12 ]] || fail "native accessibility model was incomplete"
+    [[ "$(spike_status_raw "$status_file" accessibilityNodeCount)" == 5 ]] || fail "native accessibility model was incomplete"
     [[ -n "$(spike_status_raw "$status_file" screenName)" ]] || fail "pointer display telemetry was missing"
     width="$(spike_status_raw "$status_file" frame.width)"
     height="$(spike_status_raw "$status_file" frame.height)"
@@ -1032,20 +1034,31 @@ run_staged_live_settings() {
 
     send_spike_control "$status_file" "$control_file" "$app_pid" 100 \
         '{"id":100,"command":"setWidth","text":"840"}'
-    [[ "$(spike_status_raw "$status_file" configuredWidth)" == 840 ]] || fail "ordinary settings path did not update panel width live"
+    [[ "$(spike_status_raw "$status_file" configuredWidth)" == 720 ]] || fail "ordinary settings path changed the visible panel width"
     rg -q '^  "muxy\.quickTerminal\.width" : 840,$' "$app_support/settings.json" || fail "ordinary settings path did not persist panel width"
     [[ "$(spike_status_raw "$status_file" panelGeneration)" == "$panel_generation" ]] || fail "ordinary settings path replaced the panel"
     [[ "$(spike_status_raw "$status_file" surfaceGeneration)" == "$surface_generation" ]] || fail "ordinary settings path replaced the terminal surface"
 
     send_spike_control "$status_file" "$control_file" "$app_pid" 110 \
         '{"id":110,"command":"applyJson","text":"{\"muxy.quickTerminal.enabled\":true,\"muxy.quickTerminal.width\":840,\"muxy.quickTerminal.height\":500,\"muxy.quickTerminal.transparency\":28,\"muxy.quickTerminal.blur\":90,\"shortcuts.quickTerminal\":{\"type\":\"unassigned\"}}"}'
-    [[ "$(spike_status_raw "$status_file" configuredHeight)" == 500 ]] || fail "JSON settings path did not update panel height live"
-    [[ "$(spike_status_raw "$status_file" storedTransparency)" == 28 ]] || fail "JSON settings path did not update transparency live"
-    [[ "$(spike_status_raw "$status_file" storedBlur)" == 90 ]] || fail "JSON settings path did not update blur live"
+    [[ "$(spike_status_raw "$status_file" configuredHeight)" == 430 ]] || fail "JSON settings path changed the visible panel height"
+    [[ "$(spike_status_raw "$status_file" storedTransparency)" == 18 ]] || fail "JSON settings path changed visible transparency"
+    [[ "$(spike_status_raw "$status_file" storedBlur)" == 70 ]] || fail "JSON settings path changed visible blur"
     [[ "$(spike_status_raw "$status_file" shortcut)" == Unassigned ]] || fail "JSON settings path did not publish the shortcut transaction"
     [[ "$(spike_status_raw "$status_file" panelGeneration)" == "$panel_generation" ]] || fail "JSON settings path replaced the panel"
     [[ "$(spike_status_raw "$status_file" surfaceGeneration)" == "$surface_generation" ]] || fail "JSON settings path replaced the terminal surface"
-    [[ "$(spike_status_raw "$status_file" foregroundPid)" == "$shell_pid" ]] || fail "live settings replaced the retained shell"
+    [[ "$(spike_status_raw "$status_file" foregroundPid)" == "$shell_pid" ]] || fail "settings persistence replaced the retained shell"
+
+    send_spike_control "$status_file" "$control_file" "$app_pid" 115 '{"id":115,"command":"hide"}'
+    wait_for_spike_value "$status_file" "$control_file" "$app_pid" 116 nativeVisible false
+    send_spike_control "$status_file" "$control_file" "$app_pid" 117 '{"id":117,"command":"show"}'
+    [[ "$(spike_status_raw "$status_file" configuredWidth)" == 840 ]] || fail "next opening did not apply the persisted width"
+    [[ "$(spike_status_raw "$status_file" configuredHeight)" == 500 ]] || fail "next opening did not apply the persisted height"
+    [[ "$(spike_status_raw "$status_file" storedTransparency)" == 28 ]] || fail "next opening did not apply persisted transparency"
+    [[ "$(spike_status_raw "$status_file" storedBlur)" == 90 ]] || fail "next opening did not apply persisted blur"
+    [[ "$(spike_status_raw "$status_file" panelGeneration)" == "$panel_generation" ]] || fail "next opening replaced the panel"
+    [[ "$(spike_status_raw "$status_file" surfaceGeneration)" == "$surface_generation" ]] || fail "next opening replaced the terminal surface"
+    [[ "$(spike_status_raw "$status_file" foregroundPid)" == "$shell_pid" ]] || fail "next opening replaced the retained shell"
 
     before_settings="$(shasum -a 256 "$app_support/settings.json")"
     before_shortcut="$(shasum -a 256 "$app_support/quick-terminal-shortcut.json")"
@@ -1057,24 +1070,31 @@ run_staged_live_settings() {
     [[ "$(spike_status_raw "$status_file" shortcut)" == Unassigned ]] || fail "rejected JSON conflict changed the active shortcut"
 
     send_spike_control "$status_file" "$control_file" "$app_pid" 125 '{"id":125,"command":"reset"}'
-    [[ "$(spike_status_raw "$status_file" configuredWidth)" == 720 ]] || fail "panel Reset did not restore width live"
-    [[ "$(spike_status_raw "$status_file" configuredHeight)" == 430 ]] || fail "panel Reset did not restore height live"
-    [[ "$(spike_status_raw "$status_file" storedTransparency)" == 18 ]] || fail "panel Reset did not restore transparency live"
-    [[ "$(spike_status_raw "$status_file" storedBlur)" == 70 ]] || fail "panel Reset did not restore blur live"
-    [[ "$(spike_status_raw "$status_file" panelGeneration)" == "$panel_generation" ]] || fail "panel Reset replaced the panel"
-    [[ "$(spike_status_raw "$status_file" surfaceGeneration)" == "$surface_generation" ]] || fail "panel Reset replaced the terminal surface"
-    rg -q '^  "muxy\.quickTerminal\.width" : 720,$' "$app_support/settings.json" || fail "panel Reset did not persist defaults"
+    [[ "$(spike_status_raw "$status_file" configuredWidth)" == 840 ]] || fail "Reset changed the visible panel width"
+    [[ "$(spike_status_raw "$status_file" configuredHeight)" == 500 ]] || fail "Reset changed the visible panel height"
+    [[ "$(spike_status_raw "$status_file" storedTransparency)" == 28 ]] || fail "Reset changed visible transparency"
+    [[ "$(spike_status_raw "$status_file" storedBlur)" == 90 ]] || fail "Reset changed visible blur"
+    rg -q '^  "muxy\.quickTerminal\.width" : 720,$' "$app_support/settings.json" || fail "Reset did not persist defaults"
+    send_spike_control "$status_file" "$control_file" "$app_pid" 126 '{"id":126,"command":"hide"}'
+    wait_for_spike_value "$status_file" "$control_file" "$app_pid" 127 nativeVisible false
+    send_spike_control "$status_file" "$control_file" "$app_pid" 128 '{"id":128,"command":"show"}'
+    [[ "$(spike_status_raw "$status_file" configuredWidth)" == 720 ]] || fail "next opening did not apply the reset width"
+    [[ "$(spike_status_raw "$status_file" configuredHeight)" == 430 ]] || fail "next opening did not apply the reset height"
+    [[ "$(spike_status_raw "$status_file" storedTransparency)" == 18 ]] || fail "next opening did not apply reset transparency"
+    [[ "$(spike_status_raw "$status_file" storedBlur)" == 70 ]] || fail "next opening did not apply reset blur"
+    [[ "$(spike_status_raw "$status_file" panelGeneration)" == "$panel_generation" ]] || fail "Reset reopening replaced the panel"
+    [[ "$(spike_status_raw "$status_file" surfaceGeneration)" == "$surface_generation" ]] || fail "Reset reopening replaced the terminal surface"
 
-    send_spike_control "$status_file" "$control_file" "$app_pid" 126 \
-        '{"id":126,"command":"sendLine","text":"sleep 300 & echo QT_PHASE6_LIVE_TREE_READY"}'
-    wait_for_spike_screen "$status_file" "$control_file" "$app_pid" 127 QT_PHASE6_LIVE_TREE_READY
+    send_spike_control "$status_file" "$control_file" "$app_pid" 130 \
+        '{"id":130,"command":"sendLine","text":"sleep 300 & echo QT_PHASE6_LIVE_TREE_READY"}'
+    wait_for_spike_screen "$status_file" "$control_file" "$app_pid" 131 QT_PHASE6_LIVE_TREE_READY
     for _ in $(jot 100); do
         [[ "$(wc -l < "$shell_identities" | tr -d ' ')" -ge 2 ]] && break
         sleep 0.01
     done
     [[ "$(wc -l < "$shell_identities" | tr -d ' ')" -ge 2 ]] || fail "live-settings fixture did not create a descendant process"
 
-    send_spike_control "$status_file" "$control_file" "$app_pid" 130 '{"id":130,"command":"quit"}'
+    send_spike_control "$status_file" "$control_file" "$app_pid" 140 '{"id":140,"command":"quit"}'
     for _ in $(jot 400); do
         ! kill -0 "$app_pid" 2>/dev/null && break
         sleep 0.05

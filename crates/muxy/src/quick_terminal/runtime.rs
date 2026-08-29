@@ -6,7 +6,7 @@ use super::panel::{
 use super::platform::SystemMutation;
 use super::session::{QuickTerminalSession, QuickTerminalSessionHandle};
 use super::view::{
-    BridgeAction, ConfirmationPrompt, QuickSetting, QuickTerminalSurface, QuickTerminalSurfaceSlot,
+    BridgeAction, ConfirmationPrompt, QuickTerminalSurface, QuickTerminalSurfaceSlot,
     QuickTerminalView, QuickTerminalViewModel,
 };
 use crate::terminal::surfaces::StandaloneLaunchContext;
@@ -356,8 +356,8 @@ impl QuickTerminalRuntime {
             return;
         };
         let result = panel
-            .update(cx, |view, _, cx| {
-                let telemetry = view.prepare();
+            .update(cx, |view, window, cx| {
+                let telemetry = view.prepare(window);
                 cx.notify();
                 telemetry
             })
@@ -387,31 +387,27 @@ impl QuickTerminalRuntime {
         Ok(())
     }
 
-    pub fn apply_live_setting(
+    pub fn apply_enabled_setting(
         &mut self,
-        key: &str,
         value: serde_json::Value,
         cx: &mut App,
     ) -> Result<(), String> {
-        let previous = quick_terminal_setting_value(self.configuration, key)
-            .ok_or_else(|| format!("unsupported Quick Terminal setting {key}"))?;
+        let key = "muxy.quickTerminal.enabled";
+        let previous = self.configuration.enabled;
         muxy_core::prefs::settings::try_set(key, value)
             .map_err(|error| format!("failed to persist {key}: {error}"))?;
-        let next = QuickTerminalConfiguration::load();
-        if key == "muxy.quickTerminal.enabled"
-            && let Err(error) = self.shortcuts.set_enabled(next.enabled)
-        {
-            let _ = muxy_core::prefs::settings::try_set(key, previous);
+        let enabled = QuickTerminalConfiguration::load().enabled;
+        if let Err(error) = self.shortcuts.set_enabled(enabled) {
+            let _ = muxy_core::prefs::settings::try_set(key, serde_json::json!(previous));
             return Err(error.to_string());
         }
-        self.configuration = next;
-        if self.configuration.enabled {
+        self.configuration.enabled = enabled;
+        if enabled {
             self.status = "Ready".to_owned();
+            self.refresh_view(cx);
         } else {
             self.destroy_disabled_runtime(cx);
-            return Ok(());
         }
-        self.apply_live_configuration(cx);
         Ok(())
     }
 
@@ -432,26 +428,15 @@ impl QuickTerminalRuntime {
             enabled,
         )
         .map_err(|error| error.to_string())?;
-        let next = QuickTerminalConfiguration::load();
-        self.configuration = next;
-        if self.configuration.enabled {
+        let enabled = QuickTerminalConfiguration::load().enabled;
+        self.configuration.enabled = enabled;
+        if enabled {
             self.status = "Settings applied".to_owned();
-            self.apply_live_configuration(cx);
+            self.refresh_view(cx);
         } else {
             self.destroy_disabled_runtime(cx);
         }
         Ok(())
-    }
-
-    fn apply_live_configuration(&mut self, cx: &mut App) {
-        self.session.reload(|_| self.terminal.reload_config());
-        self.refresh_view(cx);
-        if let Some(panel) = self.panel {
-            let _ = panel.update(cx, |view, _, cx| {
-                let _ = view.prepare();
-                cx.notify();
-            });
-        }
     }
 
     pub fn run_staged_spike(&mut self, cx: &mut App) {
@@ -505,26 +490,9 @@ impl QuickTerminalRuntime {
     pub fn bridge_action(&mut self, action: BridgeAction, cx: &mut App) {
         match action {
             BridgeAction::Close => self.hide(cx),
-            BridgeAction::ToggleQuickSettings => {
-                if let Some(panel) = self.panel {
-                    let _ = panel.update(cx, |view, _, cx| {
-                        view.toggle_quick_settings();
-                        cx.notify();
-                    });
-                }
-            }
             BridgeAction::ToggleShortcutSettings | BridgeAction::OpenSettings => {
                 self.hide_with_focus(false, cx);
                 self.open_settings(cx);
-            }
-            BridgeAction::SetQuickSetting { setting, value } => {
-                self.set_quick_setting(setting, value, cx);
-            }
-            BridgeAction::Reset => {
-                if let Err(error) = self.reset_configuration(cx) {
-                    self.status = error;
-                    self.refresh_view(cx);
-                }
             }
             BridgeAction::ResolveConfirmation { id, approved } => {
                 self.resolve_confirmation(id, approved, cx)
@@ -536,13 +504,18 @@ impl QuickTerminalRuntime {
         if self.terminated {
             return Err("Quick Terminal runtime is terminated".to_owned());
         }
+        if self.visible {
+            return Ok(());
+        }
+        self.configuration = QuickTerminalConfiguration::load();
         if !self.configuration.enabled {
             return Err("Quick Terminal is disabled".to_owned());
         }
         self.ensure_panel(cx)?;
+        self.refresh_view(cx);
         let panel = self.panel.expect("panel was created");
         panel
-            .update(cx, |view, _, _| view.prepare())
+            .update(cx, |view, window, _| view.prepare(window))
             .map_err(|error| format!("failed to prepare Quick Terminal panel: {error}"))??;
         let launch = StandaloneLaunchContext::new(muxy_core::prefs::home_dir(), &self.socket_path);
         let generation = panel
@@ -809,7 +782,7 @@ impl QuickTerminalRuntime {
         if main_window
             .update(cx, |main_window, window, cx| {
                 window.activate_window();
-                main_window.open_settings(window, cx);
+                main_window.open_quick_terminal_settings(window, cx);
             })
             .is_err()
         {
@@ -818,19 +791,7 @@ impl QuickTerminalRuntime {
         }
     }
 
-    fn set_quick_setting(&mut self, setting: QuickSetting, value: i64, cx: &mut App) {
-        let (key, value) = normalized_quick_setting(self.configuration, setting, value);
-        self.persist_quick_setting(key, value, cx);
-    }
-
-    fn persist_quick_setting(&mut self, key: &'static str, value: i64, cx: &mut App) {
-        if let Err(error) = self.apply_live_setting(key, serde_json::json!(value), cx) {
-            self.status = error;
-            self.refresh_view(cx);
-        }
-    }
-
-    fn reset_configuration(&mut self, cx: &mut App) -> Result<(), String> {
+    fn reset_configuration(&mut self, _cx: &mut App) -> Result<(), String> {
         let defaults = QuickTerminalConfiguration::default();
         muxy_core::prefs::settings::try_set_many(&[
             (
@@ -848,12 +809,6 @@ impl QuickTerminalRuntime {
             ("muxy.quickTerminal.blur", serde_json::json!(defaults.blur)),
         ])
         .map_err(|error| format!("Failed to reset Quick Terminal settings: {error}"))?;
-        self.configuration = QuickTerminalConfiguration {
-            enabled: self.configuration.enabled,
-            ..defaults
-        };
-        self.status = "Quick Terminal settings reset".to_owned();
-        self.apply_live_configuration(cx);
         Ok(())
     }
 
@@ -1129,7 +1084,9 @@ impl QuickTerminalRuntime {
                 .and_then(|value| value.parse::<u64>().ok())
                 .map(serde_json::Value::from)
                 .ok_or_else(|| "setWidth requires an integer".to_owned())
-                .and_then(|value| self.apply_live_setting("muxy.quickTerminal.width", value, cx)),
+                .and_then(|value| {
+                    persist_quick_terminal_setting("muxy.quickTerminal.width", value)
+                }),
             "setTransparency" => control
                 .text
                 .as_deref()
@@ -1137,7 +1094,7 @@ impl QuickTerminalRuntime {
                 .map(serde_json::Value::from)
                 .ok_or_else(|| "setTransparency requires an integer".to_owned())
                 .and_then(|value| {
-                    self.apply_live_setting("muxy.quickTerminal.transparency", value, cx)
+                    persist_quick_terminal_setting("muxy.quickTerminal.transparency", value)
                 }),
             "applyJson" => control
                 .text
@@ -1169,12 +1126,8 @@ impl QuickTerminalRuntime {
                 self.hide(cx);
                 self.show(cx)
             }),
-            "disable" => {
-                self.apply_live_setting("muxy.quickTerminal.enabled", serde_json::json!(false), cx)
-            }
-            "enable" => {
-                self.apply_live_setting("muxy.quickTerminal.enabled", serde_json::json!(true), cx)
-            }
+            "disable" => self.apply_enabled_setting(serde_json::json!(false), cx),
+            "enable" => self.apply_enabled_setting(serde_json::json!(true), cx),
             "reset" => self.reset_configuration(cx),
             "requestInputMonitoring" => {
                 self.shortcuts.request_input_monitoring_access();
@@ -1354,7 +1307,7 @@ impl QuickTerminalRuntime {
                     "reduceMotion": self.accessibility.reduce_motion,
                     "reduceTransparency": self.accessibility.reduce_transparency,
                     "increaseContrast": self.accessibility.increase_contrast,
-                    "accessibilityNodeCount": 12,
+                    "accessibilityNodeCount": 5,
                     "screenIndex": telemetry.as_ref().map(|value| value.screen_index),
                     "screenName": telemetry.as_ref().map(|value| value.screen_name.clone()),
                     "activeSpaceIntent": telemetry.as_ref().is_some_and(|value| value.active_space_intent),
@@ -1435,51 +1388,9 @@ fn refreshed_keyboard_layout_shortcut(
         .filter(|shortcut| shortcut != current)
 }
 
-fn normalized_quick_setting(
-    mut configuration: QuickTerminalConfiguration,
-    setting: QuickSetting,
-    value: i64,
-) -> (&'static str, i64) {
-    let key = match setting {
-        QuickSetting::Width => {
-            configuration.width = value;
-            "muxy.quickTerminal.width"
-        }
-        QuickSetting::Height => {
-            configuration.height = value;
-            "muxy.quickTerminal.height"
-        }
-        QuickSetting::Transparency => {
-            configuration.transparency = value;
-            "muxy.quickTerminal.transparency"
-        }
-        QuickSetting::Blur => {
-            configuration.blur = value;
-            "muxy.quickTerminal.blur"
-        }
-    };
-    let configuration = configuration.normalized();
-    let value = match setting {
-        QuickSetting::Width => configuration.width,
-        QuickSetting::Height => configuration.height,
-        QuickSetting::Transparency => configuration.transparency,
-        QuickSetting::Blur => configuration.blur,
-    };
-    (key, value)
-}
-
-fn quick_terminal_setting_value(
-    configuration: QuickTerminalConfiguration,
-    key: &str,
-) -> Option<serde_json::Value> {
-    match key {
-        "muxy.quickTerminal.enabled" => Some(serde_json::json!(configuration.enabled)),
-        "muxy.quickTerminal.width" => Some(serde_json::json!(configuration.width)),
-        "muxy.quickTerminal.height" => Some(serde_json::json!(configuration.height)),
-        "muxy.quickTerminal.transparency" => Some(serde_json::json!(configuration.transparency)),
-        "muxy.quickTerminal.blur" => Some(serde_json::json!(configuration.blur)),
-        _ => None,
-    }
+fn persist_quick_terminal_setting(key: &str, value: serde_json::Value) -> Result<(), String> {
+    muxy_core::prefs::settings::try_set(key, value)
+        .map_err(|error| format!("failed to persist {key}: {error}"))
 }
 
 fn terminal_backdrop(theme: &Theme, appearance: super::panel::EffectiveAppearance) -> gpui::Rgba {
@@ -1502,11 +1413,8 @@ fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
 mod tests {
     use super::{
         ConfirmationPrompt, PendingConfirmations, SHUTDOWN_ORDER, STAGED_SPIKE_ENV, ShutdownStep,
-        next_panel_generation, normalized_quick_setting, refreshed_keyboard_layout_shortcut,
-        surface_process_identity,
+        next_panel_generation, refreshed_keyboard_layout_shortcut, surface_process_identity,
     };
-    use crate::quick_terminal::panel::QuickTerminalConfiguration;
-    use crate::quick_terminal::view::QuickSetting;
     use crate::terminal::ConfirmationKind;
     use muxy_core::quick_terminal::QuickTerminalShortcut;
     use muxy_core::shortcuts::{COMMAND, KeyCombo};
@@ -1548,27 +1456,6 @@ mod tests {
             current.registration_identity()
         );
         assert!(refreshed_keyboard_layout_shortcut(&current, |_| None).is_none());
-    }
-
-    #[test]
-    fn quick_terminal_panel_slider_values_use_live_keys_and_bounds() {
-        let defaults = QuickTerminalConfiguration::default();
-        assert_eq!(
-            normalized_quick_setting(defaults, QuickSetting::Width, 960),
-            ("muxy.quickTerminal.width", 960)
-        );
-        assert_eq!(
-            normalized_quick_setting(defaults, QuickSetting::Height, 558),
-            ("muxy.quickTerminal.height", 558)
-        );
-        assert_eq!(
-            normalized_quick_setting(defaults, QuickSetting::Transparency, 100),
-            ("muxy.quickTerminal.transparency", 55)
-        );
-        assert_eq!(
-            normalized_quick_setting(defaults, QuickSetting::Blur, -100),
-            ("muxy.quickTerminal.blur", 0)
-        );
     }
 
     #[test]
