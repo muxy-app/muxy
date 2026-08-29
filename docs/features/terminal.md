@@ -52,7 +52,7 @@ Remote SSH panes and the quick terminal are never backed by a background session
 
 Assign Double Shift or a conventional global shortcut to open the quick terminal from anywhere. On a display with a camera cutout, it expands out of the cutout like a dynamic island. It always starts in your home directory and keeps the same shell, working directory, and history while hidden.
 
-Dismiss it with the assigned shortcut or the close button. Those paths hide the panel and retain its shell. `Cmd+W` closes the Quick Terminal and releases its surface; the next shortcut trigger starts a fresh shell. Moving the pointer, clicking another app, and pressing Escape do not close it, so Escape reaches the terminal for `vim`, `less`, and other full-screen programs. On a display without a camera cutout, the terminal opens at the same top-center position.
+Dismiss it with the assigned shortcut, the close button, or a click outside the panel. Those paths hide the panel and retain its shell. `Cmd+W` closes the Quick Terminal and releases its surface; the next shortcut trigger starts a fresh shell. Moving the pointer and pressing Escape do not close it, so Escape reaches the terminal for `vim`, `less`, and other full-screen programs. On a display without a camera cutout, the terminal opens at the same top-center position.
 
 Quick Terminal has no shortcut assigned by default. Open **Settings → Quick Terminal** to choose one. System-wide Double Shift requires **System Settings → Privacy & Security → Input Monitoring**; conventional global shortcuts do not.
 

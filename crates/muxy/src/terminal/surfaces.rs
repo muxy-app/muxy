@@ -127,6 +127,16 @@ impl StandaloneTerminal {
     }
 
     #[cfg(target_os = "macos")]
+    pub fn shortcuts(&self) -> Option<async_channel::Receiver<()>> {
+        Some(self.backend.standalone_shortcut_receiver())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn shortcuts(&self) -> Option<async_channel::Receiver<()>> {
+        None
+    }
+
+    #[cfg(target_os = "macos")]
     pub fn route(
         &mut self,
         event: crate::terminal::TerminalEvent,

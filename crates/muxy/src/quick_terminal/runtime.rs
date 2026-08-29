@@ -161,6 +161,7 @@ pub struct QuickTerminalRuntime {
     trigger_task: Option<Task<()>>,
     wakeup_task: Option<Task<()>>,
     event_task: Option<Task<()>>,
+    terminal_shortcut_task: Option<Task<()>>,
     system_observers: Option<super::platform::SystemObservers>,
     system_task: Option<Task<()>>,
     staged_control_task: Option<Task<()>>,
@@ -214,6 +215,7 @@ impl QuickTerminalRuntime {
             trigger_task: None,
             wakeup_task: None,
             event_task: None,
+            terminal_shortcut_task: None,
             system_observers: None,
             system_task: None,
             staged_control_task: None,
@@ -515,13 +517,8 @@ impl QuickTerminalRuntime {
                 self.hide_with_focus(false, cx);
                 self.open_settings(cx);
             }
-            BridgeAction::RequestInputMonitoring => {
-                self.shortcuts.request_input_monitoring_access();
-                self.status = self.shortcuts.monitoring_label();
-                self.refresh_view(cx);
-            }
-            BridgeAction::AdjustQuickSetting { setting, delta } => {
-                self.adjust_quick_setting(setting, delta, cx);
+            BridgeAction::SetQuickSetting { setting, value } => {
+                self.set_quick_setting(setting, value, cx);
             }
             BridgeAction::Reset => {
                 if let Err(error) = self.reset_configuration(cx) {
@@ -588,8 +585,14 @@ impl QuickTerminalRuntime {
         self.hide_with_focus(true, cx);
     }
 
+    pub fn hide_from_outside_click(&mut self, cx: &mut App) {
+        if self.visible {
+            self.hide_with_focus(false, cx);
+        }
+    }
+
     pub fn close_surface(&mut self, cx: &mut App) {
-        if self.destructive_close_pending {
+        if !self.visible || self.destructive_close_pending {
             return;
         }
         if !self.session.request_close() {
@@ -647,6 +650,7 @@ impl QuickTerminalRuntime {
         self.deny_pending_confirmations();
         self.wakeup_task.take();
         self.event_task.take();
+        self.terminal_shortcut_task.take();
         self.staged_control_task.take();
         self.terminal.set_window_active(false);
         self.session.terminate();
@@ -704,7 +708,6 @@ impl QuickTerminalRuntime {
             metrics,
             status: self.status.clone(),
             shortcut: self.shortcuts.shortcut_label(),
-            monitoring: self.shortcuts.monitoring_label(),
             confirmation: self.confirmations.active(),
         };
         let panel = cx
@@ -782,7 +785,6 @@ impl QuickTerminalRuntime {
         let metrics = self.metrics;
         let status = self.status.clone();
         let shortcut = self.shortcuts.shortcut_label();
-        let monitoring = self.shortcuts.monitoring_label();
         let model = QuickTerminalViewModel {
             configuration,
             appearance,
@@ -790,7 +792,6 @@ impl QuickTerminalRuntime {
             metrics,
             status,
             shortcut,
-            monitoring,
             confirmation: self.confirmations.active(),
         };
         let _ = panel.update(cx, |view, window, cx| {
@@ -817,8 +818,12 @@ impl QuickTerminalRuntime {
         }
     }
 
-    fn adjust_quick_setting(&mut self, setting: QuickSetting, delta: i64, cx: &mut App) {
-        let (key, value) = adjusted_quick_setting(self.configuration, setting, delta);
+    fn set_quick_setting(&mut self, setting: QuickSetting, value: i64, cx: &mut App) {
+        let (key, value) = normalized_quick_setting(self.configuration, setting, value);
+        self.persist_quick_setting(key, value, cx);
+    }
+
+    fn persist_quick_setting(&mut self, key: &'static str, value: i64, cx: &mut App) {
         if let Err(error) = self.apply_live_setting(key, serde_json::json!(value), cx) {
             self.status = error;
             self.refresh_view(cx);
@@ -863,6 +868,7 @@ impl QuickTerminalRuntime {
         self.deny_pending_confirmations();
         self.wakeup_task.take();
         self.event_task.take();
+        self.terminal_shortcut_task.take();
         self.terminal.set_window_active(false);
         self.session.terminate();
         self.view_surface.replace(None);
@@ -908,6 +914,18 @@ impl QuickTerminalRuntime {
                                 runtime.handle_terminal_signal(signal, cx);
                             }
                         })
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            }));
+        }
+        if let Some(shortcuts) = self.terminal.shortcuts() {
+            self.terminal_shortcut_task = Some(cx.spawn(async move |cx| {
+                while shortcuts.recv().await.is_ok() {
+                    if cx
+                        .update_global::<Self, _>(|runtime, cx| runtime.close_surface(cx))
                         .is_err()
                     {
                         return;
@@ -1417,36 +1435,35 @@ fn refreshed_keyboard_layout_shortcut(
         .filter(|shortcut| shortcut != current)
 }
 
-fn adjusted_quick_setting(
-    configuration: QuickTerminalConfiguration,
+fn normalized_quick_setting(
+    mut configuration: QuickTerminalConfiguration,
     setting: QuickSetting,
-    delta: i64,
+    value: i64,
 ) -> (&'static str, i64) {
-    let (key, current, step) = match setting {
-        QuickSetting::Width => ("muxy.quickTerminal.width", configuration.width, 40),
-        QuickSetting::Height => ("muxy.quickTerminal.height", configuration.height, 20),
-        QuickSetting::Transparency => (
-            "muxy.quickTerminal.transparency",
-            configuration.transparency,
-            5,
-        ),
-        QuickSetting::Blur => ("muxy.quickTerminal.blur", configuration.blur, 10),
-    };
-    let mut next = configuration;
-    match setting {
-        QuickSetting::Width => next.width = current.saturating_add(delta.saturating_mul(step)),
-        QuickSetting::Height => next.height = current.saturating_add(delta.saturating_mul(step)),
-        QuickSetting::Transparency => {
-            next.transparency = current.saturating_add(delta.saturating_mul(step));
+    let key = match setting {
+        QuickSetting::Width => {
+            configuration.width = value;
+            "muxy.quickTerminal.width"
         }
-        QuickSetting::Blur => next.blur = current.saturating_add(delta.saturating_mul(step)),
-    }
-    let next = next.normalized();
+        QuickSetting::Height => {
+            configuration.height = value;
+            "muxy.quickTerminal.height"
+        }
+        QuickSetting::Transparency => {
+            configuration.transparency = value;
+            "muxy.quickTerminal.transparency"
+        }
+        QuickSetting::Blur => {
+            configuration.blur = value;
+            "muxy.quickTerminal.blur"
+        }
+    };
+    let configuration = configuration.normalized();
     let value = match setting {
-        QuickSetting::Width => next.width,
-        QuickSetting::Height => next.height,
-        QuickSetting::Transparency => next.transparency,
-        QuickSetting::Blur => next.blur,
+        QuickSetting::Width => configuration.width,
+        QuickSetting::Height => configuration.height,
+        QuickSetting::Transparency => configuration.transparency,
+        QuickSetting::Blur => configuration.blur,
     };
     (key, value)
 }
@@ -1485,7 +1502,7 @@ fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
 mod tests {
     use super::{
         ConfirmationPrompt, PendingConfirmations, SHUTDOWN_ORDER, STAGED_SPIKE_ENV, ShutdownStep,
-        adjusted_quick_setting, next_panel_generation, refreshed_keyboard_layout_shortcut,
+        next_panel_generation, normalized_quick_setting, refreshed_keyboard_layout_shortcut,
         surface_process_identity,
     };
     use crate::quick_terminal::panel::QuickTerminalConfiguration;
@@ -1534,22 +1551,22 @@ mod tests {
     }
 
     #[test]
-    fn quick_terminal_panel_adjustments_use_live_keys_steps_and_bounds() {
+    fn quick_terminal_panel_slider_values_use_live_keys_and_bounds() {
         let defaults = QuickTerminalConfiguration::default();
         assert_eq!(
-            adjusted_quick_setting(defaults, QuickSetting::Width, 1),
-            ("muxy.quickTerminal.width", 760)
+            normalized_quick_setting(defaults, QuickSetting::Width, 960),
+            ("muxy.quickTerminal.width", 960)
         );
         assert_eq!(
-            adjusted_quick_setting(defaults, QuickSetting::Height, -1),
-            ("muxy.quickTerminal.height", 410)
+            normalized_quick_setting(defaults, QuickSetting::Height, 558),
+            ("muxy.quickTerminal.height", 558)
         );
         assert_eq!(
-            adjusted_quick_setting(defaults, QuickSetting::Transparency, 100),
+            normalized_quick_setting(defaults, QuickSetting::Transparency, 100),
             ("muxy.quickTerminal.transparency", 55)
         );
         assert_eq!(
-            adjusted_quick_setting(defaults, QuickSetting::Blur, -100),
+            normalized_quick_setting(defaults, QuickSetting::Blur, -100),
             ("muxy.quickTerminal.blur", 0)
         );
     }

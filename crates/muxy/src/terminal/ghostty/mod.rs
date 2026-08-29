@@ -235,6 +235,8 @@ pub struct GhosttyBackend {
     transparent_surface: bool,
     navigation_events: async_channel::Sender<muxy_core::navigation::Direction>,
     navigation_event_receiver: Receiver<muxy_core::navigation::Direction>,
+    standalone_shortcuts: async_channel::Sender<()>,
+    standalone_shortcut_receiver: Receiver<()>,
 }
 
 impl Default for GhosttyBackend {
@@ -250,6 +252,7 @@ fn standalone_shortcut_combos() -> Vec<KeyCombo> {
 impl GhosttyBackend {
     pub fn new() -> Self {
         let (navigation_events, navigation_event_receiver) = async_channel::bounded(32);
+        let (standalone_shortcuts, standalone_shortcut_receiver) = async_channel::bounded(8);
         Self {
             app: None,
             compositor: None,
@@ -263,6 +266,8 @@ impl GhosttyBackend {
             transparent_surface: false,
             navigation_events,
             navigation_event_receiver,
+            standalone_shortcuts,
+            standalone_shortcut_receiver,
         }
     }
 
@@ -352,6 +357,10 @@ impl GhosttyBackend {
 
     pub fn event_receiver(&self) -> Option<Receiver<RuntimeEvent>> {
         self.app.as_ref().map(GhosttyApp::event_receiver)
+    }
+
+    pub fn standalone_shortcut_receiver(&self) -> Receiver<()> {
+        self.standalone_shortcut_receiver.clone()
     }
 
     pub fn navigation_event_receiver(&self) -> Receiver<muxy_core::navigation::Direction> {
@@ -682,16 +691,25 @@ impl GhosttyBackend {
         );
         let host_events = host.event_receiver();
         let navigation_events = self.navigation_events.clone();
+        let standalone_shortcuts = self.standalone_shortcuts.clone();
         let routes_navigation = matches!(identity, SurfaceIdentity::Workspace(_));
         let task = cx.background_spawn(async move {
             while let Ok(event) = host_events.recv().await {
+                if event == HostViewEvent::AppShortcut {
+                    if !routes_navigation && standalone_shortcuts.send(()).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 if !routes_navigation {
                     continue;
                 }
                 let direction = match event {
                     HostViewEvent::NavigateBack => muxy_core::navigation::Direction::Back,
                     HostViewEvent::NavigateForward => muxy_core::navigation::Direction::Forward,
-                    HostViewEvent::ContextMenu(_) | HostViewEvent::Appearance(_) => continue,
+                    HostViewEvent::ContextMenu(_)
+                    | HostViewEvent::Appearance(_)
+                    | HostViewEvent::AppShortcut => continue,
                 };
                 if navigation_events.send(direction).await.is_err() {
                     return;

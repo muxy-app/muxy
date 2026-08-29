@@ -61,6 +61,7 @@ pub struct HostViewPoint {
 pub enum HostViewEvent {
     ContextMenu(HostViewPoint),
     Appearance(ColorScheme),
+    AppShortcut,
     NavigateBack,
     NavigateForward,
 }
@@ -582,11 +583,10 @@ impl GhosttyHostView {
         if !self.is_app_shortcut(event) {
             return false;
         }
-        let view = self.ivars().app_view.borrow().clone();
-        let Some(view) = view else {
-            return false;
-        };
-        let _: () = unsafe { msg_send![&*view, keyDown: event] };
+        let _ = self.ivars().events.try_send(HostViewEvent::AppShortcut);
+        if let Some(view) = self.ivars().app_view.borrow().clone() {
+            let _: () = unsafe { msg_send![&*view, keyDown: event] };
+        }
         true
     }
 
