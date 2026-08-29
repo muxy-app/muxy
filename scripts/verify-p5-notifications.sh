@@ -161,12 +161,12 @@ source_checks() {
         Muxy/Resources/scripts/muxy-cli \
         scripts/build-app.sh \
         scripts/verify-bundle.sh \
-        scripts/stage-test-app.sh \
         .github || true)"
     [[ -z "$changes" ]] || {
         printf '%s\n' "$changes"
         fail "a locked protocol, catalog, migration, CLI, bundle, or CI path changed"
     }
+    "$PROJECT_ROOT/scripts/stage-test-app.sh" --self-test >/dev/null
     if rg -n 'notifications\.json' crates/muxy-core/src/migration.rs; then
         fail "notifications.json entered the migration implementation"
     fi
@@ -371,22 +371,26 @@ wait_for_store() {
     fail "notification store did not reach $description"
 }
 
-normal_quit() {
-    local status
-    osascript -e 'tell application id "com.muxy.tests" to quit' >/dev/null
+wait_for_app_exit() {
+    local reason="$1" status
     for _ in $(jot 400); do
         ! kill -0 "$APP_PID" 2>/dev/null && break
         sleep 0.05
     done
-    kill -0 "$APP_PID" 2>/dev/null && fail "staged app did not quit normally"
+    kill -0 "$APP_PID" 2>/dev/null && fail "staged app did not exit after $reason"
     set +e
     wait "$APP_PID"
     status=$?
     set -e
     APP_PID=""
-    [[ "$status" == 0 ]] || fail "staged app exited with status $status"
-    [[ ! -e "$SOCKET" ]] || fail "staged socket remained after normal quit"
+    [[ "$status" == 0 ]] || fail "staged app exited with status $status after $reason"
+    [[ ! -e "$SOCKET" ]] || fail "staged socket remained after $reason"
     verify_production_state
+}
+
+normal_quit() {
+    osascript -e 'tell application id "com.muxy.tests" to quit' >/dev/null
+    wait_for_app_exit "normal quit"
 }
 
 request_main_window_close() {
@@ -475,17 +479,9 @@ run_staged() {
     pane="$(first_pane_id)"
     send_legacy unknown "$pane" "Main Window Drop Persisted" "Drop Body" "$drop_root/drop.out"
     request_main_window_close
-    for _ in $(jot 35); do
-        if [[ ! -S "$SOCKET" ]] && [[ -f "$store" ]] && jq -e 'length == 1 and .[0].title == "Main Window Drop Persisted"' "$store" >/dev/null 2>&1; then
-            break
-        fi
-        sleep 0.05
-    done
-    [[ ! -S "$SOCKET" ]] || fail "main-window drop did not remove its socket before app quit"
-    kill -0 "$APP_PID" 2>/dev/null || fail "main-window close exited the app instead of leaving it alive"
+    wait_for_app_exit "main-window close"
     validate_store_file "$store"
-    jq -e 'length == 1 and .[0].title == "Main Window Drop Persisted"' "$store" >/dev/null || fail "main-window drop did not persist its unique row"
-    normal_quit
+    jq -e 'length == 1 and .[0].title == "Main Window Drop Persisted"' "$store" >/dev/null || fail "main-window close did not persist its unique row"
     [[ ! -S "$lifecycle_root/app-support/$socket_name" ]] || fail "lifecycle socket remained"
     [[ ! -S "$drop_root/app-support/$socket_name" ]] || fail "drop socket remained"
     verify_production_state

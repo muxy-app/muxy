@@ -67,19 +67,28 @@ struct NativeBackdrop {
 }
 
 impl NativeBackdrop {
-    fn new(red: f64, green: f64, blue: f64) -> Self {
+    fn new(red: f64, green: f64, blue: f64, alpha: f64) -> Self {
         Self {
             red,
             green,
             blue,
-            alpha: 1.0,
+            alpha,
         }
+    }
+
+    fn is_opaque(self) -> bool {
+        self.alpha >= 1.0
     }
 }
 
 impl From<Rgba> for NativeBackdrop {
     fn from(color: Rgba) -> Self {
-        Self::new(color.r.into(), color.g.into(), color.b.into())
+        Self::new(
+            color.r.into(),
+            color.g.into(),
+            color.b.into(),
+            color.a.into(),
+        )
     }
 }
 
@@ -102,7 +111,7 @@ define_class!(
 
         #[unsafe(method(isOpaque))]
         fn is_opaque(&self) -> bool {
-            true
+            self.ivars().backdrop.get().is_opaque()
         }
 
         #[unsafe(method(drawRect:))]
@@ -762,12 +771,15 @@ mod tests {
     }
 
     #[test]
-    fn native_container_backdrop_is_opaque() {
-        let backdrop = NativeBackdrop::new(0.1, 0.2, 0.3);
+    fn native_container_backdrop_preserves_opacity() {
+        let opaque = NativeBackdrop::new(0.1, 0.2, 0.3, 1.0);
+        let transparent = NativeBackdrop::new(0.1, 0.2, 0.3, 0.0);
 
-        assert_eq!(backdrop.red, 0.1);
-        assert_eq!(backdrop.green, 0.2);
-        assert_eq!(backdrop.blue, 0.3);
-        assert_eq!(backdrop.alpha, 1.0);
+        assert_eq!(opaque.red, 0.1);
+        assert_eq!(opaque.green, 0.2);
+        assert_eq!(opaque.blue, 0.3);
+        assert_eq!(opaque.alpha, 1.0);
+        assert!(opaque.is_opaque());
+        assert!(!transparent.is_opaque());
     }
 }

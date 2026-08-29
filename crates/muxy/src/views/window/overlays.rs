@@ -1861,10 +1861,30 @@ impl MainWindow {
     }
 
     pub(crate) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_settings_category(None, window, cx);
+    }
+
+    pub(crate) fn open_quick_terminal_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_settings_category(Some(settings::Category::QuickTerminal), window, cx);
+    }
+
+    fn open_settings_category(
+        &mut self,
+        category: Option<settings::Category>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let theme = self.state.theme.clone();
         let metrics = self.state.metrics;
         let appearance = self.state.appearance;
         let modal = cx.new(|cx| settings::SettingsModal::new(theme, metrics, appearance, cx));
+        if let Some(category) = category {
+            modal.update(cx, |modal, cx| modal.select_category(category, cx));
+        }
         let subscription = cx.subscribe(&modal, |window: &mut Self, _, event, cx| match event {
             settings::SettingsEvent::Dismiss => window.dismiss_overlay(cx),
             settings::SettingsEvent::Applied(effect) => window.apply_settings(*effect, cx),

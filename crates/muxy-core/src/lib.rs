@@ -4,6 +4,7 @@ pub mod migration;
 pub mod navigation;
 pub mod notifications;
 pub mod prefs;
+pub mod quick_terminal;
 pub mod repository_ai;
 pub mod settings_catalog;
 pub mod shortcuts;

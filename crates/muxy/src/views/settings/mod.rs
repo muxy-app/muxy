@@ -8,13 +8,15 @@ pub use muxy_core::settings_catalog::Category;
 use muxy_core::settings_catalog;
 use muxy_ui::controls;
 
+use crate::quick_terminal::runtime::QuickTerminalRuntime;
 use crate::views::shortcut_editor::{ShortcutEditor, ShortcutEditorEvent};
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, App, AppContext, Bounds, Context, Entity, EventEmitter, FocusHandle, Focusable,
-    FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, MouseButton,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window, actions, div, px,
+    AnyElement, App, AppContext, BorrowAppContext, Bounds, Context, Entity, EventEmitter,
+    FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    KeyDownEvent, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Render,
+    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, actions,
+    div, px,
 };
 use muxy_core::prefs::{Prefs, settings};
 use muxy_core::shortcuts::{KeyCombo, ShortcutMap};
@@ -39,6 +41,18 @@ const HEADER_HEIGHT: f32 = 56.0;
 const ROUTE_KEY: &str = "muxy.settings.selectedRoute";
 
 pub const KEY_CONTEXT: &str = "Settings";
+
+pub fn category_supported(category: Category) -> bool {
+    cfg!(target_os = "macos") || category != Category::QuickTerminal
+}
+
+fn normalized_category(category: Category) -> Category {
+    if category_supported(category) {
+        category
+    } else {
+        Category::General
+    }
+}
 
 actions!(settings, [Dismiss]);
 
@@ -152,6 +166,8 @@ pub struct SettingsModal {
     command_conflict: Option<String>,
     delete_all_countdown: Option<u8>,
     desktop_authorization_pending: bool,
+    quick_terminal_recording: Option<crate::quick_terminal::ShortcutRecording>,
+    quick_terminal_recording_generation: u64,
     errors: HashMap<String, String>,
     json_error: Option<String>,
     json_status: Option<String>,
@@ -194,8 +210,10 @@ impl SettingsModal {
             }
         });
 
-        let route = Category::parse_route(&settings::string_value(ROUTE_KEY, "builtin.general"))
-            .unwrap_or(Category::General);
+        let route = normalized_category(
+            Category::parse_route(&settings::string_value(ROUTE_KEY, "builtin.general"))
+                .unwrap_or(Category::General),
+        );
 
         Self {
             route,
@@ -221,6 +239,8 @@ impl SettingsModal {
             command_conflict: None,
             delete_all_countdown: None,
             desktop_authorization_pending: false,
+            quick_terminal_recording: None,
+            quick_terminal_recording_generation: 0,
             errors: HashMap::new(),
             json_error: None,
             json_status: None,
@@ -375,13 +395,35 @@ impl SettingsModal {
         let subscription =
             cx.subscribe(&editor, |modal: &mut Self, editor, event, cx| match event {
                 ShortcutEditorEvent::Save { action, combo } => {
+                    if let Err(error) = modal.validate_quick_terminal_reverse_conflict(combo, cx) {
+                        let bindings = modal.binding_list();
+                        editor.update(cx, |editor, cx| {
+                            editor.apply(bindings, cx);
+                            editor.set_external_error(Some(error), cx);
+                        });
+                        return;
+                    }
                     modal.shortcuts.set(*action, combo.clone());
+                    editor.update(cx, |editor, cx| editor.set_external_error(None, cx));
                     modal.persist_shortcuts(cx);
                 }
                 ShortcutEditorEvent::ResetAll => {
-                    modal.shortcuts.reset_to_defaults();
+                    let mut replacement = modal.shortcuts.clone();
+                    replacement.reset_to_defaults();
+                    if let Err(error) = modal.validate_shortcut_map(&replacement, cx) {
+                        let bindings = modal.binding_list();
+                        editor.update(cx, |editor, cx| {
+                            editor.apply(bindings, cx);
+                            editor.set_external_error(Some(error), cx);
+                        });
+                        return;
+                    }
+                    modal.shortcuts = replacement;
                     let bindings = modal.binding_list();
-                    editor.update(cx, |editor, cx| editor.apply(bindings, cx));
+                    editor.update(cx, |editor, cx| {
+                        editor.apply(bindings, cx);
+                        editor.set_external_error(None, cx);
+                    });
                     modal.persist_shortcuts(cx);
                 }
                 ShortcutEditorEvent::Dismiss => cx.emit(SettingsEvent::Dismiss),
@@ -403,10 +445,17 @@ impl SettingsModal {
             self.shortcuts = ShortcutMap::load();
             let bindings = self.binding_list();
             if let Some(editor) = self.editor.clone() {
-                editor.update(cx, |editor, cx| editor.apply(bindings, cx));
+                let message = format!("Failed to save app shortcuts: {error}");
+                editor.update(cx, |editor, cx| {
+                    editor.apply(bindings, cx);
+                    editor.set_external_error(Some(message), cx);
+                });
             }
             cx.notify();
             return;
+        }
+        if let Some(editor) = self.editor.clone() {
+            editor.update(cx, |editor, cx| editor.set_external_error(None, cx));
         }
         cx.emit(SettingsEvent::Applied(Effect::Shortcuts));
         cx.notify();
@@ -434,6 +483,131 @@ impl SettingsModal {
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         self.close_picker(cx);
         cx.notify();
+    }
+
+    pub fn request_quick_terminal_input_monitoring(&mut self, cx: &mut Context<Self>) {
+        cx.update_global::<QuickTerminalRuntime, _>(|runtime, cx| {
+            runtime.request_input_monitoring(cx)
+        });
+        cx.notify();
+    }
+
+    pub fn is_recording_quick_terminal_shortcut(&self) -> bool {
+        self.quick_terminal_recording.is_some()
+    }
+
+    pub fn toggle_quick_terminal_recording(&mut self, cx: &mut Context<Self>) {
+        self.quick_terminal_recording_generation =
+            self.quick_terminal_recording_generation.wrapping_add(1);
+        if self.quick_terminal_recording.take().is_some() {
+            self.errors.remove("quick-terminal-shortcut");
+            cx.notify();
+            return;
+        }
+        let generation = self.quick_terminal_recording_generation;
+        let (recording, events) = match crate::quick_terminal::start_shortcut_recording() {
+            Ok(recording) => recording,
+            Err(error) => {
+                self.errors
+                    .insert("quick-terminal-shortcut".to_owned(), error);
+                cx.notify();
+                return;
+            }
+        };
+        self.quick_terminal_recording = Some(recording);
+        self.errors.insert(
+            "quick-terminal-shortcut".to_owned(),
+            "Press Command, Control, or Option with a key. Press Escape to cancel.".to_owned(),
+        );
+        cx.spawn(async move |modal, cx| {
+            while let Ok(event) = events.recv().await {
+                let stop = modal
+                    .update(
+                        cx,
+                        |modal, cx| match crate::quick_terminal::shortcut_recording_action(
+                            modal.quick_terminal_recording_generation,
+                            generation,
+                            event,
+                        ) {
+                            crate::quick_terminal::ShortcutRecordingAction::Ignore => true,
+                            crate::quick_terminal::ShortcutRecordingAction::Capture(capture) => {
+                                modal.set_quick_terminal_shortcut(
+                                    muxy_core::quick_terminal::QuickTerminalShortcut::KeyCombo {
+                                        key_combo: capture.combo,
+                                        virtual_key_code: capture.virtual_key_code,
+                                    },
+                                    cx,
+                                );
+                                if modal.error("quick-terminal-shortcut").is_none() {
+                                    modal.quick_terminal_recording = None;
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            crate::quick_terminal::ShortcutRecordingAction::Cancel => {
+                                modal.quick_terminal_recording = None;
+                                modal.errors.remove("quick-terminal-shortcut");
+                                cx.notify();
+                                true
+                            }
+                            crate::quick_terminal::ShortcutRecordingAction::Reject(error) => {
+                                modal
+                                    .errors
+                                    .insert("quick-terminal-shortcut".to_owned(), error);
+                                cx.notify();
+                                false
+                            }
+                        },
+                    )
+                    .unwrap_or(true);
+                if stop {
+                    return;
+                }
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub fn set_quick_terminal_shortcut(
+        &mut self,
+        shortcut: muxy_core::quick_terminal::QuickTerminalShortcut,
+        cx: &mut Context<Self>,
+    ) {
+        let result = cx.update_global::<QuickTerminalRuntime, _>(|runtime, cx| {
+            runtime.apply_shortcut_setting(shortcut, cx)
+        });
+        match result {
+            Ok(()) => {
+                self.errors.remove("quick-terminal-shortcut");
+            }
+            Err(error) => {
+                self.errors
+                    .insert("quick-terminal-shortcut".to_owned(), error);
+            }
+        }
+        cx.notify();
+    }
+
+    fn validate_quick_terminal_reverse_conflict(
+        &self,
+        combo: &KeyCombo,
+        cx: &Context<Self>,
+    ) -> Result<(), String> {
+        cx.global::<QuickTerminalRuntime>()
+            .validate_reverse_conflict(combo)
+    }
+
+    fn validate_shortcut_map(
+        &self,
+        shortcuts: &ShortcutMap,
+        cx: &Context<Self>,
+    ) -> Result<(), String> {
+        for action in muxy_core::shortcuts::modelled_actions() {
+            self.validate_quick_terminal_reverse_conflict(shortcuts.combo(action), cx)?;
+        }
+        Ok(())
     }
 
     pub fn error(&self, key: &str) -> Option<&str> {
@@ -508,7 +682,10 @@ impl SettingsModal {
 
     pub fn apply_json(&mut self, cx: &mut Context<Self>) {
         let text = self.field_text(json_editor::EDITOR_FIELD, cx);
-        match settings::save_user_text(&text) {
+        let result = cx.update_global::<QuickTerminalRuntime, _>(|runtime, cx| {
+            runtime.apply_json_settings(&text, cx)
+        });
+        match result {
             Ok(()) => {
                 self.json_error = None;
                 self.json_status = Some("Settings applied".to_owned());
@@ -522,7 +699,7 @@ impl SettingsModal {
             }
             Err(error) => {
                 self.json_status = None;
-                self.json_error = Some(error.to_string());
+                self.json_error = Some(error);
             }
         }
         cx.notify();
@@ -559,19 +736,35 @@ impl SettingsModal {
         cx.notify();
     }
 
-    pub fn persist_commands(&mut self, cx: &mut Context<Self>) {
+    pub fn persist_commands(&mut self, cx: &mut Context<Self>) -> bool {
         if let Err(error) = self.commands.save() {
             log::warn!("failed to write command-shortcuts.json: {error}");
+            self.commands = CommandShortcuts::load();
+            self.command_conflict = Some(format!("Failed to save command shortcuts: {error}"));
+            cx.notify();
+            return false;
         }
         cx.emit(SettingsEvent::Applied(Effect::CommandShortcuts));
         cx.notify();
+        true
     }
 
     pub fn add_command(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let id = self.commands.add();
+        let forbidden = cx
+            .global::<QuickTerminalRuntime>()
+            .settings_state()
+            .shortcut
+            .key_combo()
+            .cloned()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let id = self.commands.add_avoiding(&forbidden);
         self.added_command = Some(id.clone());
-        self.persist_commands(cx);
-        self.arm_command(&id, window, cx);
+        if self.persist_commands(cx) {
+            self.arm_command(&id, window, cx);
+        } else {
+            self.added_command = None;
+        }
     }
 
     pub fn remove_command(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -637,9 +830,17 @@ impl SettingsModal {
         let Some(combo) = crate::views::shortcut_editor::capture(event, requires_modifier) else {
             return;
         };
-        self.armed_command = None;
-        self.added_command = None;
+        if let Err(error) = self.validate_quick_terminal_reverse_conflict(&combo, cx) {
+            self.command_conflict = Some(format!(
+                "{error} — press a different shortcut or Esc to cancel"
+            ));
+            cx.notify();
+            return;
+        }
         if target == "prefix" {
+            self.armed_command = None;
+            self.added_command = None;
+            self.command_conflict = None;
             self.commands.set_prefix_combo(combo);
             self.persist_commands(cx);
             return;
@@ -652,6 +853,8 @@ impl SettingsModal {
             cx.notify();
             return;
         }
+        self.armed_command = None;
+        self.added_command = None;
         self.command_conflict = None;
         self.commands.set_combo(&target, combo);
         self.persist_commands(cx);
@@ -898,6 +1101,26 @@ impl SettingsModal {
 
     pub fn write(&mut self, key: &str, value: Value, cx: &mut Context<Self>) {
         self.close_picker(cx);
+        if key.starts_with("muxy.quickTerminal.") {
+            let result = if key == "muxy.quickTerminal.enabled" {
+                cx.update_global::<QuickTerminalRuntime, _>(|runtime, cx| {
+                    runtime.apply_enabled_setting(value, cx)
+                })
+            } else {
+                settings::try_set(key, value)
+                    .map_err(|error| format!("failed to persist {key}: {error}"))
+            };
+            match result {
+                Ok(()) => {
+                    self.errors.remove(key);
+                }
+                Err(error) => {
+                    self.errors.insert(key.to_owned(), error);
+                }
+            }
+            cx.notify();
+            return;
+        }
         Prefs::store_settings_value(key, value);
         if CHROME_KEYS.contains(&key) {
             cx.emit(SettingsEvent::Applied(Effect::Chrome));
@@ -915,11 +1138,13 @@ impl SettingsModal {
     fn visible_categories(&self) -> Vec<Category> {
         Category::ALL
             .into_iter()
+            .filter(|category| category_supported(*category))
             .filter(|category| settings_catalog::category_matches(*category, &self.query))
             .collect()
     }
 
-    fn select(&mut self, category: Category, cx: &mut Context<Self>) {
+    pub(crate) fn select_category(&mut self, category: Category, cx: &mut Context<Self>) {
+        let category = normalized_category(category);
         self.route = category;
         self.close_picker(cx);
         Prefs::store_default(ROUTE_KEY, Some(&category.route()));
@@ -1161,7 +1386,7 @@ impl SettingsModal {
                     )),
             )
             .child(labels)
-            .on_click(cx.listener(move |modal, _, _, cx| modal.select(category, cx)))
+            .on_click(cx.listener(move |modal, _, _, cx| modal.select_category(category, cx)))
             .into_any_element()
     }
 
@@ -1362,6 +1587,23 @@ mod tests {
         }
         assert_eq!(notification_sound_event("unknown"), None);
         assert_eq!(notification_sound_event(""), None);
+    }
+
+    #[test]
+    fn quick_terminal_settings_category_matches_platform_support() {
+        assert_eq!(
+            category_supported(Category::QuickTerminal),
+            cfg!(target_os = "macos")
+        );
+        assert_eq!(
+            normalized_category(Category::QuickTerminal),
+            if cfg!(target_os = "macos") {
+                Category::QuickTerminal
+            } else {
+                Category::General
+            }
+        );
+        assert!(category_supported(Category::General));
     }
 
     #[test]

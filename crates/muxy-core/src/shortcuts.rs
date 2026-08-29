@@ -8,6 +8,119 @@ pub const SHIFT: u64 = 1 << 17;
 pub const CONTROL: u64 = 1 << 18;
 pub const OPTION: u64 = 1 << 19;
 pub const COMMAND: u64 = 1 << 20;
+pub const SUPPORTED_MODIFIER_MASK: u64 = SHIFT | CONTROL | OPTION | COMMAND;
+pub const CONVENTIONAL_MODIFIER_MASK: u64 = CONTROL | OPTION | COMMAND;
+
+pub fn canonical_modifiers(modifiers: u64) -> u64 {
+    modifiers & SUPPORTED_MODIFIER_MASK
+}
+
+pub fn canonical_key(key: &str) -> String {
+    let lower = key.to_lowercase();
+    match lower.as_str() {
+        " " => "space".to_owned(),
+        "left" => "leftarrow".to_owned(),
+        "right" => "rightarrow".to_owned(),
+        "up" => "uparrow".to_owned(),
+        "down" => "downarrow".to_owned(),
+        "enter" => "return".to_owned(),
+        "\u{f702}" => "leftarrow".to_owned(),
+        "\u{f703}" => "rightarrow".to_owned(),
+        "\u{f700}" => "uparrow".to_owned(),
+        "\u{f701}" => "downarrow".to_owned(),
+        _ => lower,
+    }
+}
+
+pub fn supported_shortcut_key(key: &str) -> bool {
+    matches!(
+        key,
+        "leftarrow" | "rightarrow" | "uparrow" | "downarrow" | "tab" | "return" | "space"
+    ) || {
+        let mut characters = key.chars();
+        characters.next().is_some() && characters.next().is_none()
+    }
+}
+
+pub fn legacy_key_for_virtual_key_code(code: u16) -> Option<&'static str> {
+    Some(match code {
+        0 => "a",
+        1 => "s",
+        2 => "d",
+        3 => "f",
+        4 => "h",
+        5 => "g",
+        6 => "z",
+        7 => "x",
+        8 => "c",
+        9 => "v",
+        11 => "b",
+        12 => "q",
+        13 => "w",
+        14 => "e",
+        15 => "r",
+        16 => "y",
+        17 => "t",
+        18 => "1",
+        19 => "2",
+        20 => "3",
+        21 => "4",
+        22 => "6",
+        23 => "5",
+        24 => "=",
+        25 => "9",
+        26 => "7",
+        27 => "-",
+        28 => "8",
+        29 => "0",
+        30 => "]",
+        31 => "o",
+        32 => "u",
+        33 => "[",
+        34 => "i",
+        35 => "p",
+        36 | 76 => "return",
+        37 => "l",
+        38 => "j",
+        39 => "'",
+        40 => "k",
+        41 => ";",
+        42 => "\\",
+        43 => ",",
+        44 => "/",
+        45 => "n",
+        46 => "m",
+        47 | 65 => ".",
+        49 => "space",
+        50 => "`",
+        67 => "*",
+        69 => "+",
+        75 => "/",
+        78 => "-",
+        81 => "=",
+        82 => "0",
+        83 => "1",
+        84 => "2",
+        85 => "3",
+        86 => "4",
+        87 => "5",
+        88 => "6",
+        89 => "7",
+        91 => "8",
+        92 => "9",
+        123 => "leftarrow",
+        124 => "rightarrow",
+        125 => "downarrow",
+        126 => "uparrow",
+        48 => "tab",
+        _ => return None,
+    })
+}
+
+pub fn legacy_virtual_key_code(key: &str) -> Option<u16> {
+    let key = canonical_key(key);
+    (0..=127).find(|code| legacy_key_for_virtual_key_code(*code) == Some(key.as_str()))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -206,6 +319,29 @@ impl KeyCombo {
         !self.key.is_empty()
     }
 
+    pub fn canonicalized(&self) -> Self {
+        Self {
+            key: canonical_key(&self.key),
+            modifiers: canonical_modifiers(self.modifiers),
+        }
+    }
+
+    pub fn is_canonical(&self) -> bool {
+        self.key == canonical_key(&self.key)
+            && self.modifiers == canonical_modifiers(self.modifiers)
+    }
+
+    pub fn has_conventional_modifier(&self) -> bool {
+        self.modifiers & CONVENTIONAL_MODIFIER_MASK != 0
+    }
+
+    pub fn is_supported_shortcut(&self) -> bool {
+        self.is_assigned()
+            && self.is_canonical()
+            && self.has_conventional_modifier()
+            && supported_shortcut_key(&self.key)
+    }
+
     pub fn keystroke(&self) -> Option<String> {
         if !self.is_assigned() {
             return None;
@@ -239,8 +375,9 @@ impl KeyCombo {
     }
 
     pub fn conflicts_with(&self, other: &Self) -> bool {
-        self.keystroke()
-            .zip(other.keystroke())
+        self.canonicalized()
+            .keystroke()
+            .zip(other.canonicalized().keystroke())
             .is_some_and(|(left, right)| left == right)
     }
 
@@ -283,7 +420,7 @@ struct StoredBinding {
     combo: KeyCombo,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShortcutMap {
     bindings: HashMap<ShortcutAction, KeyCombo>,
     unknown: Vec<serde_json::Value>,
@@ -345,6 +482,28 @@ impl ShortcutMap {
         Self { bindings, unknown }
     }
 
+    pub fn from_mirror_object(
+        object: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Self, serde_json::Error> {
+        let mut bindings = HashMap::new();
+        let mut unknown = Vec::new();
+        for (name, value) in object {
+            let action =
+                serde_json::from_value::<ShortcutAction>(serde_json::Value::String(name.clone()));
+            let combo = serde_json::from_value::<KeyCombo>(value.clone())?;
+            match action {
+                Ok(action) => {
+                    bindings.insert(action, combo);
+                }
+                Err(_) => unknown.push(serde_json::json!({
+                    "action": name,
+                    "combo": combo,
+                })),
+            }
+        }
+        Ok(Self::merge_with_unknown(bindings, unknown))
+    }
+
     pub fn set(&mut self, action: ShortcutAction, combo: KeyCombo) {
         self.bindings.insert(action, combo);
     }
@@ -359,7 +518,7 @@ impl ShortcutMap {
         Ok(())
     }
 
-    fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
+    pub(crate) fn save_to(&self, path: &std::path::Path) -> std::io::Result<()> {
         let mut entries: Vec<serde_json::Value> = Vec::new();
         for (action, _) in defaults() {
             let stored = StoredBinding {

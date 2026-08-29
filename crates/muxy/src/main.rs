@@ -7,6 +7,7 @@ mod native_compositor;
 pub mod notifications;
 mod platform;
 mod project_operations;
+pub mod quick_terminal;
 mod repository;
 mod resources;
 mod socket;
@@ -17,11 +18,11 @@ pub mod toast;
 mod views;
 
 use assets::Assets;
-use gpui::AppContext;
 use gpui::{
     App, Application, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds,
     WindowKind, WindowOptions, point, px, size,
 };
+use gpui::{AppContext, BorrowAppContext};
 use state::AppState;
 use views::window::MainWindow;
 
@@ -39,6 +40,11 @@ fn register_app_actions(cx: &mut App) {
     });
     cx.on_action(|_: &menu_bar::OpenDiscord, cx: &mut App| cx.open_url(menu_bar::DISCORD_URL));
     cx.on_action(|_: &menu_bar::ReportIssue, cx: &mut App| cx.open_url(menu_bar::ISSUES_URL));
+    cx.on_action(|_: &quick_terminal::CloseSurface, cx: &mut App| {
+        cx.update_global::<quick_terminal::runtime::QuickTerminalRuntime, _>(|runtime, cx| {
+            runtime.close_surface(cx);
+        });
+    });
 }
 
 const BASELINE_TITLE_BAR_HEIGHT: f32 = 32.0;
@@ -57,6 +63,7 @@ fn main() {
     #[cfg(target_os = "macos")]
     terminal::install_development_cli_environment(mode, &socket_path)
         .unwrap_or_else(|error| panic!("failed to install development CLI environment: {error}"));
+    let quick_terminal_socket_path = socket_path.clone();
     let socket = socket::runtime::start(socket_path)
         .unwrap_or_else(|error| panic!("failed to start socket server: {error}"));
     let execution_environment = git::environment_source();
@@ -67,6 +74,13 @@ fn main() {
             cx.bind_keys(views::window::key_bindings());
             register_app_actions(cx);
 
+            let mut quick_terminal = quick_terminal::runtime::QuickTerminalRuntime::load(
+                mode,
+                quick_terminal_socket_path,
+            );
+            quick_terminal.start(cx);
+            cx.set_global(quick_terminal);
+
             let desktop_notifications =
                 notifications::desktop::DesktopNotificationService::prepare();
             let state = AppState::load(cx);
@@ -74,6 +88,9 @@ fn main() {
             cx.bind_keys(keymap::key_bindings(&state.shortcuts));
             cx.bind_keys(keymap::command_bindings(&state.command_shortcuts));
             let metrics = state.metrics;
+            let quick_terminal_theme = state.theme.clone();
+            let quick_terminal_appearance = state.appearance;
+            let quick_terminal_metrics = state.metrics;
             let title_bar_height = f32::from(metrics.title_bar_height());
             let extra_vertical_space = title_bar_height - BASELINE_TITLE_BAR_HEIGHT;
             let from_bottom =
@@ -94,20 +111,35 @@ fn main() {
                 ..Default::default()
             };
 
-            cx.open_window(options, move |window, cx| {
-                cx.new(|cx| {
-                    MainWindow::new(
-                        state,
-                        socket,
-                        mode,
-                        execution_environment,
-                        desktop_notifications,
-                        window,
-                        cx,
-                    )
+            let main_window = cx
+                .open_window(options, move |window, cx| {
+                    window.on_window_should_close(cx, |_, cx| {
+                        cx.quit();
+                        true
+                    });
+                    cx.new(|cx| {
+                        MainWindow::new(
+                            state,
+                            socket,
+                            mode,
+                            execution_environment,
+                            desktop_notifications,
+                            window,
+                            cx,
+                        )
+                    })
                 })
-            })
-            .expect("failed to open window");
+                .expect("failed to open window");
+            cx.update_global::<quick_terminal::runtime::QuickTerminalRuntime, _>(|runtime, cx| {
+                runtime.register_main_window(
+                    main_window,
+                    quick_terminal_theme,
+                    quick_terminal_appearance,
+                    quick_terminal_metrics,
+                    cx,
+                );
+                runtime.run_staged_spike(cx);
+            });
             cx.activate(true);
         });
 }

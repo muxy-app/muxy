@@ -37,10 +37,19 @@ fn update_in(text: &str, key: &str, value: &str) -> String {
     lines.join("\n")
 }
 
-fn update_value_at(target: &Path, source: &Path, key: &str, value: &str) {
+fn try_update_value_at(
+    target: &Path,
+    source: &Path,
+    key: &str,
+    value: &str,
+) -> std::io::Result<()> {
     seed_into(target, source);
     let contents = update_in(&read(target), key, value);
-    if let Err(error) = crate::store::write_private(target, contents.as_bytes()) {
+    crate::store::write_private(target, contents.as_bytes())
+}
+
+fn update_value_at(target: &Path, source: &Path, key: &str, value: &str) {
+    if let Err(error) = try_update_value_at(target, source, key, value) {
         log::warn!("failed to write {}: {error}", target.display());
     }
 }
@@ -60,6 +69,15 @@ pub fn set_theme(dark: &str, light: &str) {
         "theme",
         &format!("dark:\"{}\",light:\"{}\"", sanitize(dark), sanitize(light)),
     );
+}
+
+pub fn try_set_theme(dark: &str, light: &str) -> std::io::Result<()> {
+    try_update_value_at(
+        &path(),
+        &system_config_path(),
+        "theme",
+        &format!("dark:\"{}\",light:\"{}\"", sanitize(dark), sanitize(light)),
+    )
 }
 
 fn read(path: &Path) -> String {

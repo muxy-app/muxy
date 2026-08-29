@@ -45,6 +45,10 @@ fn update(key: &str, value: Option<Value>) {
     }
 }
 
+fn try_update(key: &str, value: Option<Value>) -> std::io::Result<()> {
+    update_at(&path(), key, value)
+}
+
 fn update_at(path: &Path, key: &str, value: Option<Value>) -> std::io::Result<()> {
     let mut values = read_map(path)?;
     match value {
@@ -58,22 +62,27 @@ fn update_at(path: &Path, key: &str, value: Option<Value>) -> std::io::Result<()
     write_map(path, &values)
 }
 
-pub fn store_bool(key: &str, value: bool) {
-    update(key, Some(Value::Bool(value)));
+pub fn try_store_bool(key: &str, value: bool) -> std::io::Result<()> {
+    try_update(key, Some(Value::Bool(value)))
 }
 
 pub fn store_string(key: &str, value: Option<&str>) {
     update(key, value.map(|value| Value::String(value.to_owned())));
 }
 
-pub fn store_i64(key: &str, value: i64) {
-    update(key, Some(Value::Number(Number::from(value))));
+pub fn try_store_string(key: &str, value: Option<&str>) -> std::io::Result<()> {
+    try_update(key, value.map(|value| Value::String(value.to_owned())))
 }
 
-pub fn store_f64(key: &str, value: f64) {
-    if let Some(value) = Number::from_f64(value) {
-        update(key, Some(Value::Number(value)));
-    }
+pub fn try_store_i64(key: &str, value: i64) -> std::io::Result<()> {
+    try_update(key, Some(Value::Number(Number::from(value))))
+}
+
+pub fn try_store_f64(key: &str, value: f64) -> std::io::Result<()> {
+    let value = Number::from_f64(value).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "finite number required")
+    })?;
+    try_update(key, Some(Value::Number(value)))
 }
 
 pub fn store_dictionary(key: &str, value: &HashMap<String, String>) {
@@ -92,8 +101,8 @@ pub fn try_store_dictionary(key: &str, value: &HashMap<String, String>) -> std::
     update_at(&path(), key, Some(Value::Object(value)))
 }
 
-pub fn remove(key: &str) {
-    update(key, None);
+pub fn try_remove(key: &str) -> std::io::Result<()> {
+    try_update(key, None)
 }
 
 pub fn read_bool(key: &str) -> Option<bool> {

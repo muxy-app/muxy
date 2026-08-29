@@ -1,4 +1,6 @@
-use crate::components::{IconGlyph, SymbolGlyph};
+use crate::components::IconGlyph;
+#[cfg(target_os = "macos")]
+use crate::components::SymbolGlyph;
 use crate::icon::Icon;
 use crate::scrollbar::{MINIMUM_THUMB_LENGTH, ThumbGeometry};
 use crate::text_input::{self, InputEvent, InputStyle, TextInput};

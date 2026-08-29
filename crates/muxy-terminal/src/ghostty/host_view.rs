@@ -61,6 +61,7 @@ pub struct HostViewPoint {
 pub enum HostViewEvent {
     ContextMenu(HostViewPoint),
     Appearance(ColorScheme),
+    AppShortcut,
     NavigateBack,
     NavigateForward,
 }
@@ -103,6 +104,7 @@ pub struct HostIvars {
     cursor_hidden: Cell<bool>,
     cursor: RefCell<Retained<NSCursor>>,
     color_scheme: Cell<ColorScheme>,
+    color_scheme_override: Cell<Option<ColorScheme>>,
     shortcut_gate: RefCell<Option<Rc<ShortcutGate>>>,
     app_view: RefCell<Option<Retained<NSView>>>,
     scrollbar: RefCell<Option<NativeScrollbar>>,
@@ -135,6 +137,7 @@ impl Default for HostIvars {
             cursor_hidden: Cell::new(false),
             cursor: RefCell::new(NSCursor::arrowCursor()),
             color_scheme: Cell::new(ColorScheme::Light),
+            color_scheme_override: Cell::new(None),
             shortcut_gate: RefCell::new(None),
             app_view: RefCell::new(None),
             scrollbar: RefCell::new(None),
@@ -582,11 +585,10 @@ impl GhosttyHostView {
         if !self.is_app_shortcut(event) {
             return false;
         }
-        let view = self.ivars().app_view.borrow().clone();
-        let Some(view) = view else {
-            return false;
-        };
-        let _: () = unsafe { msg_send![&*view, keyDown: event] };
+        let _ = self.ivars().events.try_send(HostViewEvent::AppShortcut);
+        if let Some(view) = self.ivars().app_view.borrow().clone() {
+            let _: () = unsafe { msg_send![&*view, keyDown: event] };
+        }
         true
     }
 
@@ -737,6 +739,11 @@ impl GhosttyHostView {
 
     pub fn color_scheme(&self) -> ColorScheme {
         self.ivars().color_scheme.get()
+    }
+
+    pub fn set_color_scheme_override(&self, scheme: Option<ColorScheme>) {
+        self.ivars().color_scheme_override.set(scheme);
+        self.sync_color_scheme(false);
     }
 
     pub fn request_close(&self) {
@@ -1500,15 +1507,17 @@ impl GhosttyHostView {
     fn sync_color_scheme(&self, emit: bool) {
         let (dark_aqua, aqua) = unsafe { (NSAppearanceNameDarkAqua, NSAppearanceNameAqua) };
         let names: Retained<NSArray<NSAppearanceName>> = NSArray::from_slice(&[dark_aqua, aqua]);
-        let scheme = if self
-            .effectiveAppearance()
-            .bestMatchFromAppearancesWithNames(&names)
-            .is_some_and(|name| name.to_string() == dark_aqua.to_string())
-        {
-            ColorScheme::Dark
-        } else {
-            ColorScheme::Light
-        };
+        let scheme = self.ivars().color_scheme_override.get().unwrap_or_else(|| {
+            if self
+                .effectiveAppearance()
+                .bestMatchFromAppearancesWithNames(&names)
+                .is_some_and(|name| name.to_string() == dark_aqua.to_string())
+            {
+                ColorScheme::Dark
+            } else {
+                ColorScheme::Light
+            }
+        });
         let changed = self.ivars().color_scheme.replace(scheme) != scheme;
         if let Some(app) = self.ivars().app.borrow().as_ref() {
             app.set_color_scheme(self.color_scheme());

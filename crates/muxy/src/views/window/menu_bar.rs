@@ -37,8 +37,13 @@ pub const DISCORD_URL: &str = "https://discord.gg/4eMXAmJQ2n";
 pub const ISSUES_URL: &str = "https://github.com/muxy-app/muxy/issues";
 
 pub fn key_bindings() -> Vec<gpui::KeyBinding> {
+    let settings_shortcut = if cfg!(target_os = "linux") {
+        "alt-,"
+    } else {
+        "cmd-,"
+    };
     vec![
-        gpui::KeyBinding::new("cmd-,", OpenSettings, None),
+        gpui::KeyBinding::new(settings_shortcut, OpenSettings, None),
         gpui::KeyBinding::new("cmd-h", HideApp, None),
         gpui::KeyBinding::new("alt-cmd-h", HideOthers, None),
         gpui::KeyBinding::new("cmd-q", Quit, None),

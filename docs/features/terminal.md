@@ -50,19 +50,19 @@ Remote SSH panes and the quick terminal are never backed by a background session
 
 ## Quick terminal
 
-Assign Double Shift or a conventional global shortcut to open the quick terminal from anywhere. On a display with a camera cutout, it expands out of the cutout like a dynamic island. It always starts in your home directory and keeps the same shell, working directory, and history while hidden.
+Assign Double Shift or a conventional global shortcut to open the quick terminal from anywhere. It opens centered near the top of the pointer's current display with a small gap below the usable screen edge. It always starts in your home directory and keeps the same shell, working directory, and history while hidden.
 
-Dismiss it with the assigned shortcut or the close button. Moving the pointer, clicking another app, and pressing Escape do not close it, so Escape reaches the terminal for `vim`, `less`, and other full-screen programs. On a display without a camera cutout, the terminal opens at the same top-center position.
+Dismiss it with the assigned shortcut, the close button, or a click outside the panel. Those paths hide the panel and retain its shell. `Cmd+W` closes the Quick Terminal and releases its surface; the next shortcut trigger starts a fresh shell. Moving the pointer and pressing Escape do not close it, so Escape reaches the terminal for `vim`, `less`, and other full-screen programs.
 
 Quick Terminal has no shortcut assigned by default. Open **Settings → Quick Terminal** to choose one. System-wide Double Shift requires **System Settings → Privacy & Security → Input Monitoring**; conventional global shortcuts do not.
 
-The same settings section can disable Quick Terminal entirely and controls the terminal width, height, transparency, and background vibrancy. Disabling it stops the shortcut listener, closes an open panel, and releases its shell. The shortcut and appearance settings remain saved; enabling it again starts a fresh shell. The in-place gear button provides the size and appearance controls while the terminal is running. Sizes are stored in points, constrained to 480–1200 wide and 280–800 high, and automatically reduced when the active display is smaller. Transparency ranges from 0–55%, and vibrancy uses a continuous 0–100% native material intensity.
+The same settings section can disable Quick Terminal entirely and controls the terminal width, height, transparency, and background vibrancy. Disabling it stops the shortcut listener, closes an open panel, and releases its shell. The shortcut and appearance settings remain saved; enabling it again starts a fresh shell. The gear button hides Quick Terminal and opens that settings section. Sizes are stored in points, constrained to 480–1200 wide and 280–800 high, and automatically reduced when the active display is smaller. Saved size and appearance changes apply the next time Quick Terminal opens.
 
-Vibrancy controls how much of the native macOS material participates in the background composition. It does not set a custom blur radius, which AppKit does not expose for system materials.
+Transparency continuously controls the terminal background tint from 0–55%. The vibrancy value is stored from 0–100%, but the current window-level renderer maps it to two states: 0 disables blur, while any nonzero value enables the same native blurred background. It is not a custom blur radius or a continuous material-strength control.
 
-Transparency and vibrancy apply only to the terminal workspace while preserving the active Ghostty theme. The cutout bridge and its controls stay solid for readability, and the main window follows the separate **Settings → Interface → Appearance** controls. Muxy uses an opaque, unblurred fallback when macOS Reduce Transparency or Increase Contrast is enabled.
+The panel and terminal surface are prepared at their final display-constrained size before they become visible. Show and hide reveal that fixed viewport through a rounded clipping animation instead of resizing the terminal during presentation. The tint is composited below Ghostty, preserving terminal glyph contrast. The bridge and controls follow the active terminal theme, while a native rounded window shadow provides the outer frame. Quick Terminal uses the separately configured light and dark terminal themes, updates a visible retained surface when the active theme changes, and switches live with macOS appearance. Muxy uses an opaque, unblurred fallback when macOS Reduce Transparency or Increase Contrast is enabled.
 
-The quick terminal is available while Muxy is running. Closing Muxy's main window still follows the existing quit behavior.
+The quick terminal is available only on macOS while Muxy is running. Closing Muxy's main window quits the app and shuts down its shortcut listener, panel, and shell. Linux keeps the portable settings format but does not expose a Quick Terminal settings category or runtime.
 
 ## App transparency
 
@@ -251,7 +251,7 @@ The Agents Focused layout keeps the normal top-level tab strip in the title bar 
 
 Muxy accepts the pinned Ghostty build's OSC 9 and OSC 777 desktop-notification actions. OSC 9 supplies a body and uses `Command executed!` when no title is present. OSC 777 supplies its title and body. The callback payload is copied immediately and routed as a transient terminal signal, so notification text never enters persisted terminal metadata.
 
-When Muxy is active and the event targets the exact visible pane, an OSC notification is sound-only. It does not create history, unread state, a toast, or a macOS notification. Every other accepted OSC notification enters the shared newest-first history, which retains at most 200 records in the selected profile's private `notifications.json`.
+When Muxy is active and the event targets the exact visible workspace pane, an OSC notification is sound-only. It does not create history, unread state, a toast, or a macOS notification. Every other accepted workspace-terminal OSC notification enters the shared newest-first history, which retains at most 200 records in the selected profile's private `notifications.json`. Quick Terminal has no workspace navigation target, so its accepted OSC notifications use transient toast, sound, and optional macOS delivery without creating history or unread state. Opening one activates Muxy without attempting workspace navigation.
 
 The sidebar footer bell opens a 320 by 400 notification panel above its anchor. Rows show source, title, body, relative time, and unread state. Rows can be opened or removed, and the full history can be cleared. Live rows navigate by stable project, worktree, root-tab, area, and pane IDs. The stored worktree path is context data and does not override those IDs. A stale row recreates nothing but is still marked read. Loaded history remains available after restart and is marked read when the main window starts.
 

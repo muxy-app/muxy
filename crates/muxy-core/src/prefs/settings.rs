@@ -1,8 +1,8 @@
 use super::defaults;
 use crate::environment::{MobileSettingsKeys, MobileSettingsPolicy};
+use crate::quick_terminal::shortcut::QuickTerminalShortcut;
 use crate::repository_ai::{COMMIT_PROMPT, CREATE_PULL_REQUEST_PROMPT, PROVIDERS};
 use serde_json::{Map, Number, Value};
-use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
 pub const MOBILE_POLICY: MobileSettingsPolicy = MobileSettingsPolicy::new(crate::build_mode!());
@@ -228,10 +228,64 @@ const fn int_ranges(mode: crate::environment::BuildMode) -> [(&'static str, i64,
     ]
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettingsProposal {
+    pub document: Map<String, Value>,
+    pub settings: Vec<(String, Value)>,
+    pub app_shortcuts: Option<crate::shortcuts::ShortcutMap>,
+    pub custom_commands: Option<crate::store::CommandShortcuts>,
+    pub quick_terminal_shortcut: Option<QuickTerminalShortcut>,
+}
+
+impl SettingsProposal {
+    pub fn parse(text: &str) -> Result<Self, SettingsError> {
+        Self::parse_for(crate::build_mode!(), text, read_object(&path()).as_ref())
+    }
+
+    fn parse_for(
+        mode: crate::environment::BuildMode,
+        text: &str,
+        existing: Option<&Map<String, Value>>,
+    ) -> Result<Self, SettingsError> {
+        let root: Value =
+            serde_json::from_str(text).map_err(|_| SettingsError::TopLevelObjectRequired)?;
+        let Value::Object(mut document) = root else {
+            return Err(SettingsError::TopLevelObjectRequired);
+        };
+        preserve_inactive_mobile_values(mode, existing, &mut document);
+        let app_shortcuts = document
+            .get("shortcuts.app")
+            .map(parse_app_shortcuts)
+            .transpose()?;
+        let custom_commands = document
+            .get("shortcuts.customCommands")
+            .map(parse_custom_commands)
+            .transpose()?;
+        let quick_terminal_shortcut = document
+            .get("shortcuts.quickTerminal")
+            .map(parse_quick_terminal_shortcut)
+            .transpose()?;
+        if let Some(shortcut) = &quick_terminal_shortcut {
+            let value = serde_json::to_value(shortcut)
+                .map_err(|_| SettingsError::InvalidValue("shortcuts.quickTerminal".to_owned()))?;
+            document.insert("shortcuts.quickTerminal".to_owned(), value);
+        }
+        let settings = validate(mode, &document)?;
+        Ok(Self {
+            document,
+            settings,
+            app_shortcuts,
+            custom_commands,
+            quick_terminal_shortcut,
+        })
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SettingsError {
     TopLevelObjectRequired,
     InvalidValue(String),
+    Persistence(String),
 }
 
 impl std::fmt::Display for SettingsError {
@@ -239,12 +293,16 @@ impl std::fmt::Display for SettingsError {
         match self {
             Self::TopLevelObjectRequired => write!(formatter, "Settings JSON must be an object."),
             Self::InvalidValue(key) => write!(formatter, "Invalid JSON value for \"{key}\"."),
+            Self::Persistence(message) => {
+                write!(formatter, "Failed to persist settings: {message}")
+            }
         }
     }
 }
 
-thread_local! {
-    static SUPPRESS_SYNC: Cell<bool> = const { Cell::new(false) };
+#[derive(Clone, Copy)]
+struct ApplyContext {
+    sync_after: bool,
 }
 
 fn path() -> PathBuf {
@@ -312,29 +370,39 @@ fn approved_devices_path() -> PathBuf {
     super::app_support_dir().join("approved-devices.json")
 }
 
-pub fn quick_terminal_kind() -> String {
-    read_quick_terminal_shortcut()
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("unassigned")
-        .to_owned()
+pub fn quick_terminal_shortcut() -> QuickTerminalShortcut {
+    load_quick_terminal_shortcut_with(|code| {
+        crate::shortcuts::legacy_key_for_virtual_key_code(code).map(str::to_owned)
+    })
+}
+
+pub fn load_quick_terminal_shortcut_with(
+    key_resolver: impl FnMut(u16) -> Option<String>,
+) -> QuickTerminalShortcut {
+    crate::quick_terminal::shortcut::load_from(&quick_terminal_shortcut_path(), key_resolver)
 }
 
 fn read_quick_terminal_shortcut() -> Value {
-    super::read_json(&quick_terminal_shortcut_path())
-        .unwrap_or_else(|| serde_json::json!({ "type": "unassigned" }))
+    serde_json::to_value(quick_terminal_shortcut())
+        .unwrap_or_else(|_| serde_json::json!({ "type": "unassigned" }))
 }
 
-pub fn set_quick_terminal_shortcut(kind: &str) {
-    let mut root = Map::new();
-    root.insert("type".to_owned(), Value::String(kind.to_owned()));
-    let contents = to_foundation_json(&Value::Object(root), true, false);
-    let path = quick_terminal_shortcut_path();
-    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
-        log::warn!("failed to write {}: {error}", path.display());
-        return;
+pub fn set_quick_terminal_shortcut(shortcut: &QuickTerminalShortcut) -> std::io::Result<()> {
+    transactional_settings_write(|| {
+        try_set_quick_terminal_shortcut(shortcut, ApplyContext { sync_after: false })?;
+        try_sync()
+    })
+}
+
+fn try_set_quick_terminal_shortcut(
+    shortcut: &QuickTerminalShortcut,
+    context: ApplyContext,
+) -> std::io::Result<()> {
+    crate::quick_terminal::shortcut::save_to(&quick_terminal_shortcut_path(), shortcut)?;
+    if context.sync_after {
+        try_sync()?;
     }
-    sync();
+    Ok(())
 }
 
 fn read_ai_providers(existing: Option<&Value>) -> Value {
@@ -394,6 +462,15 @@ pub fn editor_setting(name: &str, default: Value) -> Value {
 }
 
 pub fn set_editor_setting(name: &str, value: Value) {
+    if let Err(error) = try_set_editor_setting(name, value, ApplyContext { sync_after: true }) {
+        log::warn!(
+            "failed to write {}: {error}",
+            editor_settings_path().display()
+        );
+    }
+}
+
+fn try_set_editor_setting(name: &str, value: Value, context: ApplyContext) -> std::io::Result<()> {
     let path = editor_settings_path();
     let mut root = match super::read_json(&path) {
         Some(Value::Object(map)) => map,
@@ -401,11 +478,11 @@ pub fn set_editor_setting(name: &str, value: Value) {
     };
     root.insert(name.to_owned(), value);
     let contents = to_foundation_json(&Value::Object(root), true, false);
-    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
-        log::warn!("failed to write {}: {error}", path.display());
-        return;
+    crate::store::write_private(&path, contents.as_bytes())?;
+    if context.sync_after {
+        try_sync()?;
     }
-    sync();
+    Ok(())
 }
 
 fn read_ui_scale() -> String {
@@ -461,40 +538,77 @@ pub fn f64_value(key: &str, default: f64) -> f64 {
 }
 
 pub fn set_ui_scale(preset: crate::prefs::ScalePreset) {
+    if let Err(error) = try_set_ui_scale(preset, ApplyContext { sync_after: true }) {
+        log::warn!("failed to write {}: {error}", ui_scale_path().display());
+    }
+}
+
+fn try_set_ui_scale(
+    preset: crate::prefs::ScalePreset,
+    context: ApplyContext,
+) -> std::io::Result<()> {
     let mut root = Map::new();
     root.insert("preset".to_owned(), Value::String(preset.raw().to_owned()));
     let contents = to_foundation_json(&Value::Object(root), true, false);
-    let path = ui_scale_path();
-    if let Err(error) = crate::store::write_private(&path, contents.as_bytes()) {
-        log::warn!("failed to write {}: {error}", path.display());
-        return;
+    crate::store::write_private(&ui_scale_path(), contents.as_bytes())?;
+    if context.sync_after {
+        try_sync()?;
     }
-    sync();
+    Ok(())
 }
 
 pub fn set(key: &str, value: Value) {
-    match &value {
-        Value::Bool(value) => defaults::store_bool(key, *value),
-        Value::String(value) => defaults::store_string(key, Some(value)),
-        Value::Number(number) => match number.as_i64() {
-            Some(value) => defaults::store_i64(key, value),
-            None => {
-                if let Some(value) = number.as_f64() {
-                    defaults::store_f64(key, value);
-                }
-            }
-        },
-        Value::Null => defaults::remove(key),
-        _ => return,
+    if let Err(error) = try_set(key, value) {
+        log::warn!("failed to update {key}: {error}");
     }
-    sync();
+}
+
+pub fn try_set(key: &str, value: Value) -> std::io::Result<()> {
+    try_set_many(&[(key, value)])
+}
+
+pub fn try_set_many(settings: &[(&str, Value)]) -> std::io::Result<()> {
+    transactional_settings_write(|| {
+        for (key, value) in settings {
+            try_set_with_context(key, value, ApplyContext { sync_after: false })?;
+        }
+        try_sync()
+    })
+}
+
+fn try_set_with_context(key: &str, value: &Value, context: ApplyContext) -> std::io::Result<()> {
+    match value {
+        Value::Bool(value) => defaults::try_store_bool(key, *value)?,
+        Value::String(value) => defaults::try_store_string(key, Some(value))?,
+        Value::Number(number) => match number.as_i64() {
+            Some(value) => defaults::try_store_i64(key, value)?,
+            None => defaults::try_store_f64(
+                key,
+                number.as_f64().ok_or_else(|| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "finite number required")
+                })?,
+            )?,
+        },
+        Value::Null => defaults::try_remove(key)?,
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "scalar setting required",
+            ));
+        }
+    }
+    if context.sync_after {
+        try_sync()?;
+    }
+    Ok(())
 }
 
 pub fn sync() {
-    if SUPPRESS_SYNC.get() {
-        return;
-    }
     sync_at(&path(), crate::build_mode!());
+}
+
+pub fn try_sync() -> std::io::Result<()> {
+    try_sync_at_with(&path(), crate::build_mode!(), read_entry).map(|_| ())
 }
 
 fn sync_at(path: &Path, mode: crate::environment::BuildMode) -> bool {
@@ -504,18 +618,35 @@ fn sync_at(path: &Path, mode: crate::environment::BuildMode) -> bool {
 fn sync_at_with(
     path: &Path,
     mode: crate::environment::BuildMode,
-    mut resolve: impl FnMut(&Entry, Option<&Value>) -> Option<Value>,
+    resolve: impl FnMut(&Entry, Option<&Value>) -> Option<Value>,
 ) -> bool {
-    let existing = std::fs::read_to_string(path).ok();
+    match try_sync_at_with(path, mode, resolve) {
+        Ok(changed) => changed,
+        Err(error) => {
+            log::warn!("failed to sync {}: {error}", path.display());
+            false
+        }
+    }
+}
+
+fn try_sync_at_with(
+    path: &Path,
+    mode: crate::environment::BuildMode,
+    mut resolve: impl FnMut(&Entry, Option<&Value>) -> Option<Value>,
+) -> std::io::Result<bool> {
+    let existing = match std::fs::read_to_string(path) {
+        Ok(contents) => Some(contents),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
     let mut root = match &existing {
         Some(contents) => match serde_json::from_str::<Value>(contents) {
             Ok(Value::Object(map)) => map,
             _ => {
-                log::warn!(
-                    "settings.json does not parse as an object; leaving it untouched: {}",
-                    path.display()
-                );
-                return false;
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "settings.json does not parse as an object",
+                ));
             }
         },
         None => Map::new(),
@@ -533,15 +664,12 @@ fn sync_at_with(
     }
 
     if !changed {
-        return false;
+        return Ok(false);
     }
 
     let contents = to_foundation_json(&Value::Object(root), false, true);
-    if let Err(error) = crate::store::write_private(path, contents.as_bytes()) {
-        log::warn!("failed to write {}: {error}", path.display());
-        return false;
-    }
-    true
+    crate::store::write_private(path, contents.as_bytes())?;
+    Ok(true)
 }
 
 fn equal(left: &Value, right: &Value) -> bool {
@@ -675,35 +803,229 @@ fn reset_user_file_at(
 }
 
 pub fn save_user_text(text: &str) -> Result<(), SettingsError> {
-    SUPPRESS_SYNC.set(true);
-    let result = save_user_text_at(&path(), crate::build_mode!(), text, apply_value);
-    SUPPRESS_SYNC.set(false);
-    if result.is_ok() {
-        sync();
-    }
-    result
+    let proposal = SettingsProposal::parse(text)?;
+    commit_proposal(proposal)
 }
 
+pub fn commit_proposal(proposal: SettingsProposal) -> Result<(), SettingsError> {
+    let snapshots = SettingsFileSnapshots::capture().map_err(persistence_error)?;
+    if let Err(error) = commit_proposal_inner(&proposal) {
+        if let Err(restore_error) = snapshots.restore() {
+            return Err(SettingsError::Persistence(format!(
+                "{error}; rollback failed: {restore_error}"
+            )));
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn commit_proposal_inner(proposal: &SettingsProposal) -> Result<(), SettingsError> {
+    if let Some(shortcut) = &proposal.quick_terminal_shortcut {
+        crate::quick_terminal::shortcut::save_to(&quick_terminal_shortcut_path(), shortcut)
+            .map_err(persistence_error)?;
+        inject_settings_failure("quick-terminal-shortcut")?;
+    }
+    if let Some(shortcuts) = &proposal.app_shortcuts {
+        shortcuts
+            .save_to(&super::app_support_dir().join("keybindings.json"))
+            .map_err(persistence_error)?;
+        inject_settings_failure("app-shortcuts")?;
+    }
+    if let Some(commands) = &proposal.custom_commands {
+        commands
+            .save_to(&super::app_support_dir().join("command-shortcuts.json"))
+            .map_err(persistence_error)?;
+        inject_settings_failure("custom-commands")?;
+    }
+    for (key, value) in &proposal.settings {
+        let Some(entry) = mirror(crate::build_mode!())
+            .into_iter()
+            .find(|entry| entry.key == key)
+        else {
+            continue;
+        };
+        if matches!(
+            entry.source,
+            Source::ShortcutsApp | Source::QuickTerminalShortcut | Source::CustomCommands
+        ) {
+            continue;
+        }
+        apply_transactional_entry(entry, value)
+            .map_err(|error| SettingsError::Persistence(format!("{}: {error}", entry.key)))?;
+        inject_settings_failure(entry.key)?;
+    }
+    write_settings_document(&path(), proposal.document.clone()).map_err(persistence_error)?;
+    inject_settings_failure("settings-mirror")
+}
+
+#[cfg(test)]
+fn inject_settings_failure(boundary: &str) -> Result<(), SettingsError> {
+    if std::env::var("MUXY_TEST_P6_SETTINGS_FAILURE_BOUNDARY").as_deref() == Ok(boundary) {
+        Err(SettingsError::Persistence(format!(
+            "forced failure after {boundary}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(test))]
+fn inject_settings_failure(_: &str) -> Result<(), SettingsError> {
+    Ok(())
+}
+
+fn apply_transactional_entry(entry: Entry, value: &Value) -> std::io::Result<()> {
+    match entry.source {
+        Source::Defaults(_) => {
+            try_set_with_context(entry.key, value, ApplyContext { sync_after: false })
+        }
+        Source::UiScale => apply_value(entry.key, value, ApplyContext { sync_after: false }),
+        Source::ThemeDark | Source::ThemeLight => {
+            if value.is_null() {
+                return Ok(());
+            }
+            let name = value.as_str().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "theme name required")
+            })?;
+            let (dark, light) = crate::store::ghostty_conf::theme_selection();
+            if matches!(entry.source, Source::ThemeDark) {
+                crate::store::ghostty_conf::try_set_theme(
+                    name,
+                    &light.unwrap_or_else(|| name.to_owned()),
+                )
+            } else {
+                crate::store::ghostty_conf::try_set_theme(
+                    &dark.unwrap_or_else(|| name.to_owned()),
+                    name,
+                )
+            }
+        }
+        Source::EditorSetting(name, _) => {
+            try_set_editor_setting(name, value.clone(), ApplyContext { sync_after: false })
+        }
+        Source::AiProviders => {
+            let Some(providers) = value.as_object() else {
+                return Ok(());
+            };
+            for (provider, enabled) in providers {
+                defaults::try_store_bool(
+                    &provider_key(provider),
+                    enabled.as_bool().ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "provider state required",
+                        )
+                    })?,
+                )?;
+            }
+            Ok(())
+        }
+        Source::ApprovedDevices => {
+            if value.is_null() {
+                return Ok(());
+            }
+            let contents = to_foundation_json(value, true, false);
+            crate::store::write_private(&approved_devices_path(), contents.as_bytes())
+        }
+        Source::ShortcutsApp | Source::QuickTerminalShortcut | Source::CustomCommands => Ok(()),
+    }
+}
+
+fn persistence_error(error: std::io::Error) -> SettingsError {
+    SettingsError::Persistence(error.to_string())
+}
+
+struct SettingsFileSnapshot {
+    path: PathBuf,
+    contents: Option<Vec<u8>>,
+}
+
+struct SettingsFileSnapshots(Vec<SettingsFileSnapshot>);
+
+impl SettingsFileSnapshots {
+    fn capture() -> std::io::Result<Self> {
+        let root = super::app_support_dir();
+        Self::capture_paths([
+            path(),
+            root.join("preferences.json"),
+            ui_scale_path(),
+            editor_settings_path(),
+            quick_terminal_shortcut_path(),
+            root.join("keybindings.json"),
+            root.join("command-shortcuts.json"),
+            crate::store::ghostty_conf::path(),
+            approved_devices_path(),
+        ])
+    }
+
+    fn capture_paths(paths: impl IntoIterator<Item = PathBuf>) -> std::io::Result<Self> {
+        paths
+            .into_iter()
+            .map(|path| {
+                let contents = match std::fs::read(&path) {
+                    Ok(contents) => Some(contents),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error),
+                };
+                Ok(SettingsFileSnapshot { path, contents })
+            })
+            .collect::<std::io::Result<Vec<_>>>()
+            .map(Self)
+    }
+
+    fn restore(self) -> std::io::Result<()> {
+        for snapshot in self.0 {
+            match snapshot.contents {
+                Some(contents) => crate::store::write_private(&snapshot.path, &contents)?,
+                None => match std::fs::remove_file(&snapshot.path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+fn transactional_settings_write(
+    operation: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    transactional_settings_write_with(SettingsFileSnapshots::capture()?, operation)
+}
+
+fn transactional_settings_write_with(
+    snapshots: SettingsFileSnapshots,
+    operation: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    if let Err(error) = operation() {
+        if let Err(restore_error) = snapshots.restore() {
+            return Err(std::io::Error::other(format!(
+                "{error}; rollback failed: {restore_error}"
+            )));
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 fn save_user_text_at(
     path: &Path,
     mode: crate::environment::BuildMode,
     text: &str,
-    mut apply: impl FnMut(&str, &Value),
+    mut apply: impl FnMut(&str, &Value) -> Result<(), SettingsError>,
 ) -> Result<(), SettingsError> {
-    let root: Value =
-        serde_json::from_str(text).map_err(|_| SettingsError::TopLevelObjectRequired)?;
-    let Value::Object(mut document) = root else {
-        return Err(SettingsError::TopLevelObjectRequired);
-    };
     let existing = read_object(path);
-    preserve_inactive_mobile_values(mode, existing.as_ref(), &mut document);
-    let settings = validate(mode, &document)?;
-    write_settings_document(path, document)
-        .map_err(|_| SettingsError::InvalidValue("settings.json".to_owned()))?;
+    let SettingsProposal {
+        document, settings, ..
+    } = SettingsProposal::parse_for(mode, text, existing.as_ref())?;
     for (key, value) in &settings {
-        apply(key, value);
+        apply(key, value)?;
     }
-    Ok(())
+    write_settings_document(path, document)
+        .map_err(|error| SettingsError::Persistence(format!("{}: {error}", path.display())))
 }
 
 fn read_object(path: &Path) -> Option<Map<String, Value>> {
@@ -750,6 +1072,38 @@ fn validate(
         settings.push((entry.key.to_owned(), value.clone()));
     }
     Ok(settings)
+}
+
+fn parse_app_shortcuts(value: &Value) -> Result<crate::shortcuts::ShortcutMap, SettingsError> {
+    if value.is_null() {
+        let mut shortcuts = crate::shortcuts::ShortcutMap::load();
+        shortcuts.reset_to_defaults();
+        return Ok(shortcuts);
+    }
+    let object = value
+        .as_object()
+        .ok_or_else(|| SettingsError::InvalidValue("shortcuts.app".to_owned()))?;
+    crate::shortcuts::ShortcutMap::from_mirror_object(object)
+        .map_err(|_| SettingsError::InvalidValue("shortcuts.app".to_owned()))
+}
+
+fn parse_custom_commands(value: &Value) -> Result<crate::store::CommandShortcuts, SettingsError> {
+    crate::store::CommandShortcuts::from_mirror_value(value)
+        .map_err(|_| SettingsError::InvalidValue("shortcuts.customCommands".to_owned()))
+}
+
+fn parse_quick_terminal_shortcut(value: &Value) -> Result<QuickTerminalShortcut, SettingsError> {
+    if value.is_null() {
+        return Ok(QuickTerminalShortcut::Unassigned);
+    }
+    serde_json::from_value::<QuickTerminalShortcut>(value.clone())
+        .ok()
+        .and_then(|shortcut| {
+            shortcut.canonicalized(|code| {
+                crate::shortcuts::legacy_key_for_virtual_key_code(code).map(str::to_owned)
+            })
+        })
+        .ok_or_else(|| SettingsError::InvalidValue("shortcuts.quickTerminal".to_owned()))
 }
 
 fn validate_value_for(
@@ -819,7 +1173,7 @@ fn validate_value_for(
             }
             Ok(())
         }
-        Source::QuickTerminalShortcut => value.as_object().map(|_| ()).ok_or_else(invalid),
+        Source::QuickTerminalShortcut => parse_quick_terminal_shortcut(value).map(|_| ()),
         Source::ApprovedDevices => value.as_array().map(|_| ()).ok_or_else(invalid),
     }
 }
@@ -851,14 +1205,24 @@ fn validate_range(mode: crate::environment::BuildMode, key: &str, value: f64) ->
     (value >= *low as f64 && value <= *high as f64).then_some(())
 }
 
-fn apply_value(key: &str, value: &Value) {
+fn apply_value(key: &str, value: &Value, context: ApplyContext) -> std::io::Result<()> {
     match key {
         "muxy.ui.scale" => {
-            let Some(raw) = value.as_str() else { return };
-            set_ui_scale(crate::prefs::ScalePreset::parse(raw));
+            if value.is_null() {
+                return Ok(());
+            }
+            let raw = value.as_str().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "scale preset required")
+            })?;
+            try_set_ui_scale(crate::prefs::ScalePreset::parse(raw), context)
         }
         "muxy.theme.dark" | "muxy.theme.light" => {
-            let Some(name) = value.as_str() else { return };
+            if value.is_null() {
+                return Ok(());
+            }
+            let name = value.as_str().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "theme name required")
+            })?;
             let (dark, light) = crate::store::ghostty_conf::theme_selection();
             if key == "muxy.theme.dark" {
                 crate::store::ghostty_conf::set_theme(
@@ -871,8 +1235,16 @@ fn apply_value(key: &str, value: &Value) {
                     name,
                 );
             }
+            Ok(())
         }
-        _ => set(key, value.clone()),
+        "shortcuts.quickTerminal" => {
+            let shortcut = parse_quick_terminal_shortcut(value).map_err(|error| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
+            })?;
+            try_set_quick_terminal_shortcut(&shortcut, context)
+        }
+        _ if value.is_object() || value.is_array() => Ok(()),
+        _ => try_set_with_context(key, value, context),
     }
 }
 
@@ -1165,7 +1537,10 @@ mod tests {
                     &path,
                     mode,
                     &serde_json::to_string(&Value::Object(submitted)).unwrap(),
-                    |key, value| applied.push((key.to_owned(), value.clone())),
+                    |key, value| {
+                        applied.push((key.to_owned(), value.clone()));
+                        Ok(())
+                    },
                 )
                 .unwrap();
                 let saved = super::read_object(&path).unwrap();
@@ -1200,7 +1575,10 @@ mod tests {
                 &path,
                 mode,
                 &serde_json::to_string(&Value::Object(submitted)).unwrap(),
-                |key, value| applied.push((key.to_owned(), value.clone())),
+                |key, value| {
+                    applied.push((key.to_owned(), value.clone()));
+                    Ok(())
+                },
             )
             .unwrap();
             let saved = super::read_object(&path).unwrap();
@@ -1572,6 +1950,143 @@ mod tests {
     }
 
     #[test]
+    fn quick_terminal_settings_proposal_is_typed_and_validated() {
+        let valid = json!({
+            "shortcuts.quickTerminal": {
+                "type": "keyCombo",
+                "keyCombo": { "key": "space", "modifiers": crate::shortcuts::COMMAND }
+            }
+        });
+        let proposal = super::SettingsProposal::parse_for(
+            crate::build_mode!(),
+            &serde_json::to_string(&valid).unwrap(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            proposal
+                .quick_terminal_shortcut
+                .as_ref()
+                .unwrap()
+                .registration_identity()
+                .unwrap()
+                .virtual_key_code,
+            49
+        );
+        assert_eq!(
+            proposal.document["shortcuts.quickTerminal"]["virtualKeyCode"],
+            49
+        );
+        for invalid in [
+            json!({ "shortcuts.quickTerminal": {} }),
+            json!({ "shortcuts.quickTerminal": { "type": "unknown" } }),
+            json!({
+                "shortcuts.quickTerminal": {
+                    "type": "keyCombo",
+                    "keyCombo": { "key": "space", "modifiers": crate::shortcuts::SHIFT },
+                    "virtualKeyCode": 49
+                }
+            }),
+        ] {
+            assert!(
+                super::SettingsProposal::parse_for(
+                    crate::build_mode!(),
+                    &serde_json::to_string(&invalid).unwrap(),
+                    None,
+                )
+                .is_err()
+            );
+        }
+        let reset = super::SettingsProposal::parse_for(
+            crate::build_mode!(),
+            r#"{"shortcuts.quickTerminal":null}"#,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            reset.quick_terminal_shortcut,
+            Some(crate::quick_terminal::QuickTerminalShortcut::Unassigned)
+        );
+    }
+
+    #[test]
+    fn quick_terminal_settings_proposal_parses_app_shortcuts_and_custom_commands() {
+        let proposal = super::SettingsProposal::parse_for(
+            crate::build_mode!(),
+            &serde_json::to_string(&json!({
+                "shortcuts.app": {
+                    "openProject": { "key": "o", "modifiers": crate::shortcuts::COMMAND },
+                    "futureAction": { "key": "f", "modifiers": crate::shortcuts::COMMAND }
+                },
+                "shortcuts.customCommands": {
+                    "prefixCombo": { "key": "g", "modifiers": crate::shortcuts::COMMAND },
+                    "shortcuts": [{
+                        "id": "build",
+                        "name": "Build",
+                        "command": "cargo build",
+                        "combo": { "key": "b", "modifiers": crate::shortcuts::COMMAND }
+                    }]
+                }
+            }))
+            .unwrap(),
+            None,
+        )
+        .unwrap();
+        let shortcuts = proposal.app_shortcuts.unwrap();
+        assert_eq!(
+            shortcuts.mirror_object()["futureAction"],
+            json!({ "key": "f", "modifiers": crate::shortcuts::COMMAND })
+        );
+        let commands = proposal.custom_commands.unwrap();
+        assert_eq!(
+            commands.prefix_combo,
+            crate::shortcuts::KeyCombo::new("g", crate::shortcuts::COMMAND)
+        );
+        assert_eq!(commands.shortcuts.len(), 1);
+        assert_eq!(commands.shortcuts[0].id, "build");
+    }
+
+    #[test]
+    fn quick_terminal_direct_writes_restore_sources_when_the_mirror_is_invalid() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("quick-terminal-shortcut.json");
+        let mirror = directory.path().join("settings.json");
+        std::fs::write(&source, b"held-shortcut").unwrap();
+        std::fs::write(&mirror, b"invalid-settings").unwrap();
+        let snapshots =
+            super::SettingsFileSnapshots::capture_paths([source.clone(), mirror.clone()]).unwrap();
+        let result = super::transactional_settings_write_with(snapshots, || {
+            crate::store::write_private(&source, b"replacement")?;
+            super::try_sync_at_with(&mirror, crate::build_mode!(), |entry, _| {
+                Some(super::default_entry_value(entry))
+            })
+            .map(|_| ())
+        });
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(std::fs::read(&source).unwrap(), b"held-shortcut");
+        assert_eq!(std::fs::read(&mirror).unwrap(), b"invalid-settings");
+    }
+
+    #[test]
+    fn quick_terminal_settings_persistence_errors_leave_the_document_unchanged() {
+        let (_directory, path) = sync_fixture(r#"{"muxy.showStatusBar":true}"#);
+        let result = super::save_user_text_at(
+            &path,
+            crate::build_mode!(),
+            r#"{"muxy.showStatusBar":false}"#,
+            |_, _| Err(super::SettingsError::Persistence("blocked".to_owned())),
+        );
+        assert_eq!(
+            result,
+            Err(super::SettingsError::Persistence("blocked".to_owned()))
+        );
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            r#"{"muxy.showStatusBar":true}"#
+        );
+    }
+
+    #[test]
     fn an_unknown_key_is_skipped_rather_than_rejected() {
         let mut document = serde_json::Map::new();
         document.insert("zzz.unknown".to_owned(), json!(1));
@@ -1579,6 +2094,72 @@ mod tests {
         let settings = super::validate(crate::build_mode!(), &document).expect("valid");
         assert_eq!(settings.len(), 1);
         assert_eq!(settings[0].0, "muxy.showStatusBar");
+    }
+
+    #[test]
+    fn quick_terminal_settings_injected_commit_failure_restores_exact_files() {
+        let Ok(boundary) = std::env::var("MUXY_TEST_P6_SETTINGS_FAILURE_BOUNDARY") else {
+            return;
+        };
+        let root = crate::prefs::app_support_dir();
+        std::fs::create_dir_all(&root).unwrap();
+        let fixtures = [
+            ("settings.json", b"{\"held\":1}".as_slice()),
+            ("preferences.json", b"{\"held\":2}".as_slice()),
+            ("ui-scale.json", b"\"regular\"".as_slice()),
+            ("editor-settings.json", b"{\"held\":3}".as_slice()),
+            (
+                "quick-terminal-shortcut.json",
+                b"{\"type\":\"unassigned\"}".as_slice(),
+            ),
+            ("keybindings.json", b"[]".as_slice()),
+            (
+                "command-shortcuts.json",
+                b"{\"prefixCombo\":{\"key\":\"g\",\"modifiers\":1048576},\"shortcuts\":[]}"
+                    .as_slice(),
+            ),
+            ("ghostty.conf", b"theme = Old,Old\n".as_slice()),
+            ("approved-devices.json", b"[]".as_slice()),
+        ];
+        for (name, contents) in fixtures {
+            std::fs::write(root.join(name), contents).unwrap();
+        }
+        let before: Vec<_> = fixtures
+            .iter()
+            .map(|(name, _)| ((*name).to_owned(), std::fs::read(root.join(name)).unwrap()))
+            .collect();
+        let proposal = super::SettingsProposal::parse_for(
+            crate::build_mode!(),
+            &serde_json::to_string(&json!({
+                "muxy.quickTerminal.enabled": false,
+                "muxy.quickTerminal.width": 900,
+                "muxy.ui.scale": "large",
+                "muxy.theme.dark": "Muxy",
+                "editor.richInputFontFamily": "SF Mono",
+                "shortcuts.app": {
+                    "openProject": { "key": "o", "modifiers": crate::shortcuts::COMMAND }
+                },
+                "shortcuts.quickTerminal": { "type": "doubleShift" },
+                "shortcuts.customCommands": {
+                    "prefixCombo": { "key": "g", "modifiers": crate::shortcuts::COMMAND },
+                    "shortcuts": []
+                },
+                "ai.providers": { "claude": false },
+                "mobile.approvedDevices": [{ "id": "fixture" }]
+            }))
+            .unwrap(),
+            None,
+        )
+        .unwrap();
+        let error = super::commit_proposal(proposal).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("forced failure after {boundary}"))
+        );
+        for (name, contents) in before {
+            assert_eq!(std::fs::read(root.join(&name)).unwrap(), contents, "{name}");
+        }
     }
 
     #[test]
