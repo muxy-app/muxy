@@ -54,6 +54,13 @@ fn load_notification_store_from(path: impl Into<std::path::PathBuf>) -> Notifica
     store
 }
 
+pub(crate) fn appearance_for_window(appearance: WindowAppearance) -> Appearance {
+    match appearance {
+        WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
+        _ => Appearance::Dark,
+    }
+}
+
 pub struct AppState {
     pub prefs: Prefs,
     pub theme: Theme,
@@ -76,10 +83,7 @@ pub struct AppState {
 impl AppState {
     pub fn load(cx: &App) -> Self {
         let mut prefs = Prefs::load();
-        let appearance = match cx.window_appearance() {
-            WindowAppearance::Light | WindowAppearance::VibrantLight => Appearance::Light,
-            _ => Appearance::Dark,
-        };
+        let appearance = appearance_for_window(cx.window_appearance());
         let theme = match appearance {
             Appearance::Light => crate::themes::load(&prefs.light_theme, "Muxy Light"),
             Appearance::Dark => crate::themes::load(&prefs.dark_theme, "Muxy"),
@@ -960,6 +964,22 @@ mod tests {
     use muxy_core::navigation::{Direction, NavigationEntry, NavigationHistory};
     use muxy_core::store::worktrees;
     use muxy_ui::theme::ColorScheme;
+
+    #[test]
+    fn window_appearance_selects_the_matching_light_or_dark_theme() {
+        assert_eq!(
+            appearance_for_window(gpui::WindowAppearance::Light),
+            muxy_ui::theme::Appearance::Light
+        );
+        assert_eq!(
+            appearance_for_window(gpui::WindowAppearance::VibrantLight),
+            muxy_ui::theme::Appearance::Light
+        );
+        assert_eq!(
+            appearance_for_window(gpui::WindowAppearance::Dark),
+            muxy_ui::theme::Appearance::Dark
+        );
+    }
 
     #[test]
     fn remove_worktree_contract_requires_post_disk_exact_cleanup_effects() {

@@ -12,6 +12,7 @@ use super::view::{
 use crate::terminal::surfaces::StandaloneLaunchContext;
 use crate::terminal::{
     ConfirmationId, ConfirmationKind, StandaloneTerminal, SurfaceAction, SurfaceSignal,
+    TerminalColorScheme,
 };
 use crate::views::window::MainWindow;
 use gpui::{App, BorrowAppContext, Global, Subscription, Task, WindowHandle};
@@ -22,7 +23,7 @@ use muxy_core::quick_terminal::QuickTerminalShortcut;
 use muxy_core::quick_terminal::presentation::PresentationTransition;
 use muxy_core::shortcuts::{KeyCombo, ShortcutMap};
 use muxy_core::store::CommandShortcuts;
-use muxy_ui::theme::{Metrics, Theme};
+use muxy_ui::theme::{Appearance, Metrics, Theme};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -269,19 +270,30 @@ impl QuickTerminalRuntime {
         &mut self,
         main_window: WindowHandle<MainWindow>,
         theme: Theme,
+        appearance: Appearance,
         metrics: Metrics,
         cx: &mut App,
     ) {
         self.main_window = Some(main_window);
         self.theme = Some(theme);
         self.metrics = metrics;
+        self.terminal
+            .set_color_scheme(terminal_color_scheme(appearance));
         self.refresh_view(cx);
     }
 
-    pub fn update_appearance(&mut self, theme: Theme, metrics: Metrics, cx: &mut App) {
+    pub fn update_appearance(
+        &mut self,
+        theme: Theme,
+        appearance: Appearance,
+        metrics: Metrics,
+        cx: &mut App,
+    ) {
         self.theme = Some(theme);
         self.metrics = metrics;
-        self.session.reload(|_| self.terminal.reload_config());
+        self.terminal.reload_config();
+        self.terminal
+            .set_color_scheme(terminal_color_scheme(appearance));
         self.refresh_view(cx);
     }
 
@@ -937,9 +949,10 @@ impl QuickTerminalRuntime {
         let Some(main_window) = self.main_window else {
             return;
         };
+        let focused_osc = self.visible;
         if main_window
             .update(cx, |main_window, _, cx| {
-                main_window.submit_quick_terminal_notification(title, body, cx);
+                main_window.submit_quick_terminal_notification(title, body, focused_osc, cx);
             })
             .is_ok()
         {
@@ -1393,6 +1406,13 @@ fn persist_quick_terminal_setting(key: &str, value: serde_json::Value) -> Result
         .map_err(|error| format!("failed to persist {key}: {error}"))
 }
 
+fn terminal_color_scheme(appearance: Appearance) -> TerminalColorScheme {
+    match appearance {
+        Appearance::Light => TerminalColorScheme::Light,
+        Appearance::Dark => TerminalColorScheme::Dark,
+    }
+}
+
 fn terminal_backdrop(theme: &Theme, appearance: super::panel::EffectiveAppearance) -> gpui::Rgba {
     let mut tint = theme.bg;
     tint.a = f32::from(appearance.tint_alpha_percent) / 100.0;
@@ -1414,8 +1434,9 @@ mod tests {
     use super::{
         ConfirmationPrompt, PendingConfirmations, SHUTDOWN_ORDER, STAGED_SPIKE_ENV, ShutdownStep,
         next_panel_generation, refreshed_keyboard_layout_shortcut, surface_process_identity,
+        terminal_color_scheme,
     };
-    use crate::terminal::ConfirmationKind;
+    use crate::terminal::{ConfirmationKind, TerminalColorScheme};
     use muxy_core::quick_terminal::QuickTerminalShortcut;
     use muxy_core::shortcuts::{COMMAND, KeyCombo};
     use muxy_terminal::confirmation::ConfirmationQueue;
@@ -1423,6 +1444,18 @@ mod tests {
     #[test]
     fn quick_terminal_window_staged_spike_has_an_isolated_name() {
         assert_eq!(STAGED_SPIKE_ENV, "MUXY_TEST_P6_SPIKE_CASE");
+    }
+
+    #[test]
+    fn quick_terminal_maps_the_active_app_appearance_to_ghostty() {
+        assert_eq!(
+            terminal_color_scheme(muxy_ui::theme::Appearance::Light),
+            TerminalColorScheme::Light
+        );
+        assert_eq!(
+            terminal_color_scheme(muxy_ui::theme::Appearance::Dark),
+            TerminalColorScheme::Dark
+        );
     }
 
     #[test]

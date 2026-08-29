@@ -169,6 +169,10 @@ impl StandaloneTerminal {
         self.backend.set_backdrop(backdrop);
     }
 
+    pub fn set_color_scheme(&mut self, scheme: crate::terminal::TerminalColorScheme) {
+        self.backend.set_color_scheme(scheme);
+    }
+
     pub fn set_window_active(&self, active: bool) {
         self.backend.set_window_active(active);
     }

@@ -512,7 +512,7 @@ impl PanelAdapter {
         self.mask_host.displayIfNeeded();
         CATransaction::flush();
         if self.target_frame.is_some() {
-            self.reveal_mask.setMaskedCorners(bottom_mask_corners());
+            self.reveal_mask.setMaskedCorners(all_mask_corners());
             set_mask_frame(
                 &self.reveal_mask,
                 self.mask_host.bounds(),
@@ -520,6 +520,7 @@ impl PanelAdapter {
                 true,
                 duration,
             );
+            self.window.invalidateShadow();
         }
     }
 
@@ -710,10 +711,6 @@ fn all_mask_corners() -> CACornerMask {
         | CACornerMask::LayerMaxXMinYCorner
         | CACornerMask::LayerMinXMaxYCorner
         | CACornerMask::LayerMaxXMaxYCorner
-}
-
-fn bottom_mask_corners() -> CACornerMask {
-    CACornerMask::LayerMinXMinYCorner | CACornerMask::LayerMaxXMinYCorner
 }
 
 fn set_mask_frame(

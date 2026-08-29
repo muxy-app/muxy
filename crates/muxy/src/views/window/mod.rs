@@ -236,6 +236,17 @@ impl MainWindow {
                 }
             },
         ));
+        main_window.view.appearance_subscription = Some(cx.observe_window_appearance(
+            window,
+            |window, app_window, cx| {
+                let appearance = crate::state::appearance_for_window(app_window.appearance());
+                if window.state.appearance == appearance {
+                    return;
+                }
+                window.state.appearance = appearance;
+                window.apply_theme_setting(cx);
+            },
+        ));
         if let Some(request_path) = staged_close_request_path() {
             let window_handle = main_window.window_handle;
             cx.spawn(async move |_, cx| {

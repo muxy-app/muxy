@@ -276,13 +276,14 @@ impl Render for QuickTerminalView {
             .map(|surface| surface.borrow().element(self.visible));
         let status = self.model.status.clone();
         let shortcut = self.model.shortcut.clone();
-        let bridge_background = gpui::hsla(0.0, 0.0, 0.0, 1.0);
-        let bridge_foreground = gpui::hsla(0.0, 0.0, 1.0, 1.0);
-        let bridge_muted = gpui::hsla(0.0, 0.0, 1.0, 0.58);
-        let bridge_control = gpui::hsla(0.0, 0.0, 1.0, 0.1);
-        let bridge_border = gpui::hsla(0.0, 0.0, 1.0, 0.14);
-        let ready = gpui::hsla(0.39, 0.78, 0.52, 1.0);
         let theme = self.model.theme.clone();
+        let mut bridge_background = theme.bg;
+        bridge_background.a = f32::from(self.model.appearance.tint_alpha_percent) / 100.0;
+        let bridge_foreground = theme.fg;
+        let bridge_muted = theme.fg_alpha(0.58);
+        let bridge_control = theme.fg_alpha(0.1);
+        let bridge_border = theme.border_solid();
+        let ready = gpui::hsla(0.39, 0.78, 0.52, 1.0);
         let metrics = self.model.metrics;
         let confirmation = self.model.confirmation;
         div()
@@ -292,11 +293,7 @@ impl Render for QuickTerminalView {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .rounded_b(px(20.0))
-            .border_l_1()
-            .border_r_1()
-            .border_b_1()
-            .border_color(bridge_border)
+            .rounded(px(20.0))
             .child(
                 div()
                     .h(px(34.0))

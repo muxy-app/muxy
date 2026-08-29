@@ -59,6 +59,8 @@ impl UnsupportedBackend {
 
     pub fn set_backdrop(&self, _backdrop: gpui::Rgba) {}
 
+    pub fn set_color_scheme(&mut self, _scheme: crate::terminal::TerminalColorScheme) {}
+
     pub fn tick(&self) {}
 
     pub fn reload_config(&mut self) {}

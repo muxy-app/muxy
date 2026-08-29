@@ -161,8 +161,11 @@ pub fn resolve_panel_geometry(
     let screen = *request.screens.get(index)?;
     let visible = *request.visible_frames.get(index)?;
     let frame = panel_frame(screen, visible, request.preferred_size);
-    let collapsed = request
-        .auxiliary_widths
+    let panel_top = frame.origin.y + frame.size.height;
+    let screen_top = screen.origin.y + screen.size.height;
+    let collapsed = ((panel_top - screen_top).abs() < f64::EPSILON)
+        .then_some(request.auxiliary_widths)
+        .flatten()
         .and_then(|(left, right)| {
             cutout_rect(screen, request.safe_area_top, Some(left), Some(right))
         })
@@ -249,8 +252,8 @@ mod tests {
         })
         .unwrap();
         assert_eq!(index, 1);
-        assert_eq!(frame, Rect::new(120.0, 0.0, 960.0, 800.0));
-        assert_eq!(collapsed, Some(Rect::new(400.0, 760.0, 160.0, 40.0)));
+        assert_eq!(frame, Rect::new(120.0, 20.0, 960.0, 728.0));
+        assert_eq!(collapsed, None);
         assert!(capture_focus(false, true));
         assert!(restore_focus(true, true));
         assert!(!restore_focus(true, false));

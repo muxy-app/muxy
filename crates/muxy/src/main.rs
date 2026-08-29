@@ -89,6 +89,7 @@ fn main() {
             cx.bind_keys(keymap::command_bindings(&state.command_shortcuts));
             let metrics = state.metrics;
             let quick_terminal_theme = state.theme.clone();
+            let quick_terminal_appearance = state.appearance;
             let quick_terminal_metrics = state.metrics;
             let title_bar_height = f32::from(metrics.title_bar_height());
             let extra_vertical_space = title_bar_height - BASELINE_TITLE_BAR_HEIGHT;
@@ -133,6 +134,7 @@ fn main() {
                 runtime.register_main_window(
                     main_window,
                     quick_terminal_theme,
+                    quick_terminal_appearance,
                     quick_terminal_metrics,
                     cx,
                 );

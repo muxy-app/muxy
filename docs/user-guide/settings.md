@@ -177,7 +177,7 @@ The setting is stored as `muxy.terminalPersistentSession.enabled` in `settings.j
 
 ## Quick terminal
 
-The assigned shortcut is the only way to open the quick terminal. Trigger it again, use the panel's close button, or click outside the panel to hide it while retaining its shell. Use `Cmd+W` to close the panel and release the surface; the next trigger starts a fresh shell. On a display with a camera cutout, the terminal expands out of it like a dynamic island. Open **Quick Terminal** in Settings to configure its shortcut, size, and appearance:
+The assigned shortcut is the only way to open the quick terminal. Trigger it again, use the panel's close button, or click outside the panel to hide it while retaining its shell. Use `Cmd+W` to close the panel and release the surface; the next trigger starts a fresh shell. The panel opens centered near the top of the pointer's current display with a small gap below the usable screen edge. Open **Quick Terminal** in Settings to configure its shortcut, size, and appearance:
 
 - **Enable Quick Terminal** controls the entire feature. Turning it off stops the shortcut listener, closes the panel, and releases its shell while preserving its settings.
 - No shortcut is assigned by default.
@@ -185,9 +185,9 @@ The assigned shortcut is the only way to open the quick terminal. Trigger it aga
 - **Option Space** or another recorded key combination is registered as a conventional global shortcut without Input Monitoring.
 - **Width** and **Height** set the panel size in points. Saved changes apply the next time Quick Terminal opens, and smaller displays automatically reduce the configured size.
 - **Terminal transparency** controls how much of the desktop shows through the terminal background tint from 0–55% on the next opening.
-- **Background vibrancy** stores a value from 0–100%. A value of 0 disables window blur; any nonzero value enables the same native window-level blur on the next opening. The cutout bridge remains solid.
+- **Background vibrancy** stores a value from 0–100%. A value of 0 disables window blur; any nonzero value enables the same native window-level blur on the next opening.
 
-The vibrancy value is not a custom blur radius or a continuous material-strength control. Before each opening, the hidden panel and terminal surface are prepared at the final display-constrained size. Show and hide then use a clipping reveal instead of resizing the terminal viewport during the animation.
+The vibrancy value is not a custom blur radius or a continuous material-strength control. Before each opening, the hidden panel and terminal surface are prepared at the final display-constrained size. Show and hide then use a clipping reveal instead of resizing the terminal viewport during the animation. The bridge and controls use the active terminal theme. Quick Terminal follows the separately configured light and dark terminal themes, applies changes to its retained surface, and switches live when macOS appearance changes.
 
 The gear button hides Quick Terminal and opens the main app Settings directly on the Quick Terminal category. Size and appearance changes are persisted without modifying the currently visible panel and are loaded on its next opening. The shortcut is also available from the shortcut control in the quick terminal. The feature toggle is stored as `muxy.quickTerminal.enabled` in `settings.json`. The shortcut is stored as `shortcuts.quickTerminal` using `{"type":"unassigned"}`, `{"type":"doubleShift"}`, or `{"type":"keyCombo","keyCombo":{"key":"space","modifiers":...},"virtualKeyCode":49}`. Panel dimensions are stored as `muxy.quickTerminal.width` and `muxy.quickTerminal.height`. Appearance settings use `muxy.quickTerminal.transparency` as an integer percentage from 0–55 and `muxy.quickTerminal.blur` as a stored integer from 0–100 with the binary mapping described above.
 

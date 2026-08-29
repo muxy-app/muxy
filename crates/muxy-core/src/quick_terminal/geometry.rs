@@ -32,11 +32,13 @@ impl Rect {
     }
 }
 
+pub const PANEL_TOP_GAP: f64 = 12.0;
+
 pub fn panel_frame(screen: Rect, visible: Rect, preferred: Size) -> Rect {
     if screen.size.width <= 0.0
         || screen.size.height <= 0.0
         || visible.size.width <= 0.0
-        || visible.size.height <= 0.0
+        || visible.size.height <= PANEL_TOP_GAP
         || preferred.width <= 0.0
         || preferred.height <= 0.0
     {
@@ -44,14 +46,14 @@ pub fn panel_frame(screen: Rect, visible: Rect, preferred: Size) -> Rect {
     }
     let size = Size {
         width: preferred.width.min(visible.size.width),
-        height: preferred.height.min(screen.size.height),
+        height: preferred.height.min(visible.size.height - PANEL_TOP_GAP),
     };
     let centered_x = screen.origin.x + screen.size.width / 2.0 - size.width / 2.0;
     let minimum_x = visible.origin.x;
     let maximum_x = minimum_x.max(visible.origin.x + visible.size.width - size.width);
     Rect::new(
         centered_x.clamp(minimum_x, maximum_x),
-        screen.origin.y + screen.size.height - size.height,
+        visible.origin.y + visible.size.height - PANEL_TOP_GAP - size.height,
         size.width,
         size.height,
     )
@@ -114,7 +116,7 @@ mod tests {
     };
 
     #[test]
-    fn quick_terminal_geometry_centers_clamps_and_uses_the_physical_top() {
+    fn quick_terminal_geometry_centers_clamps_and_insets_from_the_visible_top() {
         let screen = Rect::new(100.0, 50.0, 1200.0, 900.0);
         let visible = Rect::new(140.0, 80.0, 1100.0, 820.0);
         assert_eq!(
@@ -126,7 +128,7 @@ mod tests {
                     height: 430.0,
                 },
             ),
-            Rect::new(340.0, 520.0, 720.0, 430.0)
+            Rect::new(340.0, 458.0, 720.0, 430.0)
         );
         assert_eq!(
             panel_frame(
@@ -137,7 +139,7 @@ mod tests {
                     height: 1000.0,
                 },
             ),
-            Rect::new(140.0, 50.0, 1100.0, 900.0)
+            Rect::new(140.0, 80.0, 1100.0, 808.0)
         );
         assert_eq!(
             panel_frame(

@@ -31,6 +31,7 @@ impl MainWindow {
         &mut self,
         title: String,
         body: String,
+        focused_osc: bool,
         cx: &mut Context<Self>,
     ) {
         self.submit_notification(
@@ -42,7 +43,7 @@ impl MainWindow {
                 body,
                 timestamp: muxy_core::store::reference_now(),
             },
-            false,
+            focused_osc,
             cx,
         );
     }

@@ -13,6 +13,12 @@ pub use muxy_terminal::confirmation::{ConfirmationId, ConfirmationKind};
 pub use muxy_terminal::search::{SearchDispatch, dispatch_for_query, match_display};
 pub use surfaces::{StandaloneTerminal, TerminalSurfaces};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TerminalColorScheme {
+    Light,
+    Dark,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SurfaceIdentity {
     Workspace(muxy_core::workspace::TabId),

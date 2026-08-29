@@ -1,11 +1,11 @@
 use crate::native_compositor::{NativeViewCompositor, NativeViewRegistration};
 use crate::resources::AppResources;
 use crate::terminal::surfaces::{AppSurfaceHandle, PaneLaunchContext, StandaloneLaunchContext};
-use crate::terminal::{RoutedTerminalEvent, SurfaceIdentity};
+use crate::terminal::{RoutedTerminalEvent, SurfaceIdentity, TerminalColorScheme};
 use async_channel::Receiver;
 use ghostty_host::{
     Action as RuntimeAction, ActionTarget, ClipboardContent, ClipboardLocation, ClipboardRequest,
-    ClipboardRequestToken, ColorKind, ConfigPaths, GhosttyApp, GhosttyConfig,
+    ClipboardRequestToken, ColorKind, ColorScheme, ConfigPaths, GhosttyApp, GhosttyConfig,
     Modifiers as RuntimeModifiers, MouseButton as RuntimeMouseButton,
     MouseButtonState as RuntimeMouseButtonState, MouseShape as RuntimeMouseShape, MouseVisibility,
     ProgressState, RuntimeEvent, SurfaceContext, SurfaceEnvironmentVariable, SurfaceOptions,
@@ -233,6 +233,7 @@ pub struct GhosttyBackend {
     gate: Rc<ShortcutGate>,
     launch_environment: Vec<SurfaceEnvironmentVariable>,
     transparent_surface: bool,
+    color_scheme: Option<TerminalColorScheme>,
     navigation_events: async_channel::Sender<muxy_core::navigation::Direction>,
     navigation_event_receiver: Receiver<muxy_core::navigation::Direction>,
     standalone_shortcuts: async_channel::Sender<()>,
@@ -247,6 +248,13 @@ impl Default for GhosttyBackend {
 
 fn standalone_shortcut_combos() -> Vec<KeyCombo> {
     vec![KeyCombo::new("w", COMMAND)]
+}
+
+fn ghostty_color_scheme(scheme: TerminalColorScheme) -> ColorScheme {
+    match scheme {
+        TerminalColorScheme::Light => ColorScheme::Light,
+        TerminalColorScheme::Dark => ColorScheme::Dark,
+    }
 }
 
 impl GhosttyBackend {
@@ -264,6 +272,7 @@ impl GhosttyBackend {
             gate: Rc::new(ShortcutGate::new(Vec::new())),
             launch_environment: Vec::new(),
             transparent_surface: false,
+            color_scheme: None,
             navigation_events,
             navigation_event_receiver,
             standalone_shortcuts,
@@ -324,6 +333,9 @@ impl GhosttyBackend {
             load_config(&resources, transparent_surface).map_err(|error| error.to_string())?;
         let owned = config.try_clone().map_err(|error| error.to_string())?;
         let app = GhosttyApp::new(owned).map_err(|error| error.to_string())?;
+        if let Some(scheme) = self.color_scheme {
+            app.set_color_scheme(ghostty_color_scheme(scheme));
+        }
         let compositor =
             NativeViewCompositor::new(window, backdrop).map_err(|error| error.to_string())?;
 
@@ -348,6 +360,17 @@ impl GhosttyBackend {
     pub fn set_backdrop(&self, backdrop: gpui::Rgba) {
         if let Some(compositor) = &self.compositor {
             compositor.set_backdrop(backdrop);
+        }
+    }
+
+    pub fn set_color_scheme(&mut self, scheme: TerminalColorScheme) {
+        self.color_scheme = Some(scheme);
+        let scheme = ghostty_color_scheme(scheme);
+        if let Some(app) = &self.app {
+            app.set_color_scheme(scheme);
+        }
+        for surface in self.surfaces.borrow().values() {
+            surface.host.set_color_scheme_override(Some(scheme));
         }
     }
 
@@ -652,6 +675,9 @@ impl GhosttyBackend {
         let app = self.app.as_ref()?;
         let compositor = self.compositor.as_ref()?;
         let host = GhosttyHostView::new(mtm);
+        if let Some(scheme) = self.color_scheme {
+            host.set_color_scheme_override(Some(ghostty_color_scheme(scheme)));
+        }
         let native_view: &NSView = &host;
         let registration = compositor.register(native_view, 0).ok()?;
         registration.sync_frame(Bounds {
@@ -1233,6 +1259,15 @@ mod tests {
             standalone_shortcut_combos(),
             vec![KeyCombo::new("w", COMMAND)]
         );
+    }
+
+    #[test]
+    fn quick_terminal_backend_retains_its_explicit_color_scheme_before_attachment() {
+        let mut backend = GhosttyBackend::new();
+        backend.set_color_scheme(TerminalColorScheme::Dark);
+        assert_eq!(backend.color_scheme, Some(TerminalColorScheme::Dark));
+        backend.set_color_scheme(TerminalColorScheme::Light);
+        assert_eq!(backend.color_scheme, Some(TerminalColorScheme::Light));
     }
 
     #[test]
