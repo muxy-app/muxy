@@ -81,7 +81,7 @@ flowchart TD
 | Titlebar buttons, welcome New Tab, sort, nav arrows, misc inert settings actions | ❌ inert |
 | Git UI (changes/branch/PR popovers, commit/push/pull, gh, AI commit/PR text) | ❌ missing |
 | Notifications (toast/panel/desktop/sounds/navigation, OSC 9/777) | ❌ missing |
-| Quick Terminal (global hotkey, panel) | ❌ settings only |
+| Quick Terminal (global hotkey, panel) | ⚠️ implemented; manual native acceptance pending |
 | Composer / rich input (+ drafts, attachments, broadcast) | ❌ settings only |
 | Idle terminal offline freeing + process-tree resource monitor | ❌ settings only |
 | Persistent sessions (`muxy-session` daemon + attach + UI) | ❌ missing |
@@ -179,7 +179,7 @@ Wire every inert control that has a backing feature: titlebar split/new-tab butt
 **P5 — Notifications. COMPLETE.** OSC 9/777 + socket sources (hook source already flows via P2's server; extensions later) into one store: toast (4 positions), panel with read state, macOS UserNotifications when backgrounded, 14 named system sounds + None (via `NSSound(named:)`, nothing bundled), 2-s coalescing, click-to-navigate, `notifications.json` cap 200.
 
 *Acceptance: complete.* Portable capped history, typed socket/hook and OSC ingress, delivery/coalescing policy, toast and panel presentation, unread synchronization, stable-ID navigation, target-gated UserNotifications/NSSound edges, persistence lifecycle, Linux core portability, CLI compatibility, and isolated debug/release lifecycle verification are green. Native authorization/banner/click behavior, sound audibility, and rendered visual/accessibility acceptance remain user-owned.
-**P6 — Quick Terminal.** Global hotkey (Carbon `RegisterEventHotKey` + double-Shift with Input Monitoring), slide-out panel window, persistent home shell, size/transparency/blur settings, `quick-terminal-shortcut.json` conflict validation.
+**P6 — Quick Terminal. IMPLEMENTED; MANUAL NATIVE ACCEPTANCE PENDING.** Global hotkey (Carbon `RegisterEventHotKey` + double-Shift with Input Monitoring), slide-out panel window, persistent home shell, size/transparency/blur settings, `quick-terminal-shortcut.json` conflict validation.
 **P7 — Composer.** `⌘I` panel (dock right/bottom, resizable, pinnable) + floating mode, multiline editor (muxy-ui text_input base), image/file attachments (`RichInputImages/` + orphan sweep), broadcast to panes, per-worktree drafts (`rich-input-drafts.json`), transactional submit, editor-settings fonts. Drag-and-drop of files/paths (composer + terminal + sidebar, `DroppedPathsParser` semantics) lands here.
 **P8 — Terminal memory features.**
 (a) Idle offline freeing — corrected semantics: there is **no detach API in libghostty**; 1.x does `ghostty_surface_free` + full recreate, scrollback is lost unless the pane is persistent-session-backed, and the startup command is not re-run on wake. Idle detection needs `sysctl(KERN_PROC_TTY)` foreground-pid resolution. Plus the **process-tree** resource monitor (`proc_pid_rusage`) + status-bar CPU/RAM widget.

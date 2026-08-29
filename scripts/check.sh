@@ -138,6 +138,14 @@ printf '==> Checking P4 repository ownership\n'
     printf 'error: P5 verification script must be executable\n' >&2
     exit 1
 }
+[[ -x scripts/stage-test-app.sh ]] || {
+    printf 'error: staging script must be executable\n' >&2
+    exit 1
+}
+[[ -x scripts/verify-p6-quick-terminal.sh ]] || {
+    printf 'error: P6 verification script must be executable\n' >&2
+    exit 1
+}
 provider_catalog_owner='crates/muxy-core/src/repository_ai.rs'
 provider_catalog_matches="$(rg -n 'ProviderDescriptor\s*\{' crates/ --glob '*.rs' \
     | rg -v "^${provider_catalog_owner}:" || true)"
@@ -189,6 +197,15 @@ if rg -n 'objc2|ghostty_host|ghostty_sys|NativeView|NSView' \
     exit 1
 fi
 
+printf '==> Checking P6 portable Quick Terminal ownership\n'
+"$SCRIPT_DIR/verify-p6-quick-terminal.sh" --fixture portable
+
+printf '==> Checking P6 shortcut service ownership\n'
+"$SCRIPT_DIR/verify-p6-quick-terminal.sh" --fixture shortcut-service
+
+printf '==> Checking P6 integrated ownership and scope\n'
+"$SCRIPT_DIR/verify-p6-quick-terminal.sh" --fixture guardrails
+
 printf '==> Checking Rust formatting\n'
 cargo fmt --all -- --check
 
@@ -202,6 +219,12 @@ printf '==> Running tests\n'
 cargo test --workspace --all-targets --all-features --locked --offline
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
+    printf '==> Checking staging safety guards\n'
+    "$SCRIPT_DIR/stage-test-app.sh" --self-test
+
+    printf '==> Checking P6 Quick Terminal verification guards\n'
+    "$SCRIPT_DIR/verify-p6-quick-terminal.sh" --self-test
+
     printf '==> Checking staged migration safety guards\n'
     "$SCRIPT_DIR/verify-p2-5-migration.sh" --self-test
 

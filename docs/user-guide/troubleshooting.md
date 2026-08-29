@@ -24,17 +24,19 @@ log show --predicate 'subsystem == "app.muxy"' --last 10m --info --debug
 
 ## Double Shift doesn't open the quick terminal
 
-- Open **Settings → Quick Terminal** and make sure **Enable Quick Terminal** is on.
-- Open **Settings → Quick Terminal** and check the Input Monitoring status.
-- Enable Muxy under **System Settings → Privacy & Security → Input Monitoring**, then bring Muxy to the foreground so it can retry the listener.
-- If access remains unavailable, assign a conventional global shortcut such as Option Space. Conventional shortcuts do not require Input Monitoring.
+- Open **Settings → Quick Terminal** and make sure **Enable Quick Terminal** is on and a shortcut is assigned.
+- Check the status shown below the shortcut. **Local only** means Double Shift works while Muxy is active but Input Monitoring is not available for other apps. **System-wide** means the global monitor is active. **Inactive**, **Unavailable**, or an error message means the listener is not active as requested.
+- Choose **Enable Input Monitoring**, then enable Muxy under **System Settings → Privacy & Security → Input Monitoring**. Bring Muxy to the foreground afterward so it refreshes the grant without showing another prompt.
+- If access is denied or revoked, local Double Shift remains available while Muxy is active. Assign a conventional global shortcut such as Option Space for system-wide use without Input Monitoring.
 - Double Shift is intentionally ignored while another key or modifier is involved, which prevents normal capital-letter typing from opening the terminal.
+- Quick Terminal is not available on Linux, so its settings category and panel are intentionally absent there.
 
 ## The quick terminal is not transparent or blurred
 
 - Open **Settings → Quick Terminal** and set Terminal transparency above 0%.
-- Raise Background vibrancy above 0% for a progressively stronger native material effect. At 0%, the wallpaper remains sharp.
+- Set Background vibrancy above 0% to enable the native blurred window state. All nonzero values currently select the same blur mode; the slider does not progressively strengthen the material.
 - macOS Reduce Transparency and Increase Contrast intentionally force an opaque, unblurred terminal. Check both under **System Settings → Accessibility → Display**.
+- If terminal text looks washed out, reload the Ghostty configuration and confirm the problem is not caused by its selected theme. Muxy places its transparency tint below Ghostty rather than fading terminal glyphs.
 
 ## "muxy" CLI not found
 

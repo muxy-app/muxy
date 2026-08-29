@@ -46,6 +46,7 @@ pub struct ShortcutEditor {
     bindings: Vec<(ShortcutAction, KeyCombo)>,
     armed: Option<ShortcutAction>,
     conflict: Option<(ShortcutAction, ShortcutAction)>,
+    external_error: Option<String>,
     search: Entity<TextInput>,
     query: String,
     focus_handle: FocusHandle,
@@ -90,6 +91,7 @@ impl ShortcutEditor {
             bindings,
             armed: None,
             conflict: None,
+            external_error: None,
             search,
             query,
             focus_handle: cx.focus_handle(),
@@ -129,6 +131,11 @@ impl ShortcutEditor {
         cx.notify();
     }
 
+    pub fn set_external_error(&mut self, error: Option<String>, cx: &mut Context<Self>) {
+        self.external_error = error;
+        cx.notify();
+    }
+
     fn combo(&self, action: ShortcutAction) -> KeyCombo {
         self.bindings
             .iter()
@@ -138,6 +145,7 @@ impl ShortcutEditor {
     }
 
     fn commit(&mut self, action: ShortcutAction, combo: KeyCombo, cx: &mut Context<Self>) {
+        self.external_error = None;
         let saved = combo.clone();
         if let Err(other) = replace_binding(&mut self.bindings, action, combo) {
             self.conflict = Some((action, other));
@@ -452,6 +460,16 @@ impl Render for ShortcutEditor {
             .flex_grow()
             .min_h(px(0.0))
             .child(self.header_bar(cx))
+            .when_some(self.external_error.clone(), |element, error| {
+                element.child(
+                    div()
+                        .px(self.metrics.spacing6())
+                        .py(self.metrics.spacing2())
+                        .text_size(self.metrics.font_footnote())
+                        .text_color(theme.danger)
+                        .child(SharedString::from(error)),
+                )
+            })
             .child(div().h(px(1.0)).flex_none().bg(theme.border))
             .child(self.rows(cx))
     }

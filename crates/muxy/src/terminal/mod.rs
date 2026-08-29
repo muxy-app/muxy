@@ -11,7 +11,28 @@ pub use muxy_terminal::backend::{
 };
 pub use muxy_terminal::confirmation::{ConfirmationId, ConfirmationKind};
 pub use muxy_terminal::search::{SearchDispatch, dispatch_for_query, match_display};
-pub use surfaces::TerminalSurfaces;
+pub use surfaces::{StandaloneTerminal, TerminalSurfaces};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SurfaceIdentity {
+    Workspace(muxy_core::workspace::TabId),
+    Standalone,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum RoutedTerminalEvent {
+    Workspace(muxy_core::workspace::TabId, SurfaceSignal),
+    Standalone(SurfaceSignal),
+}
+
+impl SurfaceIdentity {
+    pub(crate) fn route(&self, signal: SurfaceSignal) -> RoutedTerminalEvent {
+        match self {
+            Self::Workspace(tab_id) => RoutedTerminalEvent::Workspace(tab_id.clone(), signal),
+            Self::Standalone => RoutedTerminalEvent::Standalone(signal),
+        }
+    }
+}
 
 #[cfg(target_os = "macos")]
 pub use ghostty::GhosttyBackend as Backend;

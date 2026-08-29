@@ -1,6 +1,7 @@
 use crate::native_compositor::{NativeViewCompositor, NativeViewRegistration};
 use crate::resources::AppResources;
-use crate::terminal::surfaces::{AppSurfaceHandle, PaneLaunchContext};
+use crate::terminal::surfaces::{AppSurfaceHandle, PaneLaunchContext, StandaloneLaunchContext};
+use crate::terminal::{RoutedTerminalEvent, SurfaceIdentity};
 use async_channel::Receiver;
 use ghostty_host::{
     Action as RuntimeAction, ActionTarget, ClipboardContent, ClipboardLocation, ClipboardRequest,
@@ -14,7 +15,7 @@ use gpui::{
     AnyElement, App, AppContext, Bounds, IntoElement, Styled, Task, Window, div, point, px,
 };
 use muxy_core::environment::BuildMode;
-use muxy_core::shortcuts::KeyCombo;
+use muxy_core::shortcuts::{COMMAND, KeyCombo};
 use muxy_core::workspace::TabId;
 use muxy_terminal::backend::{
     LaunchCommand, PointerButton, PointerInput, PointerModifiers, SearchTotals, ShortcutGate,
@@ -40,7 +41,7 @@ use objc2_app_kit::{NSBeep, NSView};
 use objc2_foundation::MainThreadMarker;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
@@ -123,17 +124,7 @@ fn apply_pane_context(
     mut environment: Vec<SurfaceEnvironmentVariable>,
     context: &PaneLaunchContext,
 ) -> Vec<SurfaceEnvironmentVariable> {
-    environment.retain(|variable| {
-        !matches!(
-            variable.key.as_str(),
-            "MUXY_PANE_ID"
-                | "MUXY_PROJECT_ID"
-                | "MUXY_WORKTREE_ID"
-                | "MUXY_SOCKET_PATH"
-                | "MUXY_HOOK_BIN"
-                | "MUXY_HOOK_SCRIPT"
-        )
-    });
+    scrub_muxy_context(&mut environment);
     environment.extend(
         context
             .environment()
@@ -142,8 +133,69 @@ fn apply_pane_context(
     environment
 }
 
+fn apply_standalone_context(
+    mut environment: Vec<SurfaceEnvironmentVariable>,
+    context: &StandaloneLaunchContext,
+) -> Vec<SurfaceEnvironmentVariable> {
+    scrub_muxy_context(&mut environment);
+    environment.push(SurfaceEnvironmentVariable::new(
+        "MUXY_SOCKET_PATH",
+        context.socket_path(),
+    ));
+    environment
+}
+
+const MUXY_CONTEXT_KEYS: [&str; 6] = [
+    "MUXY_PANE_ID",
+    "MUXY_PROJECT_ID",
+    "MUXY_WORKTREE_ID",
+    "MUXY_SOCKET_PATH",
+    "MUXY_HOOK_BIN",
+    "MUXY_HOOK_SCRIPT",
+];
+
+fn scrub_muxy_context(environment: &mut Vec<SurfaceEnvironmentVariable>) {
+    environment.retain(|variable| !MUXY_CONTEXT_KEYS.contains(&variable.key.as_str()));
+}
+
+struct ProcessEnvironmentGuard {
+    values: Vec<(&'static str, Option<OsString>)>,
+}
+
+impl ProcessEnvironmentGuard {
+    fn standalone(socket_path: &str) -> Self {
+        let values = MUXY_CONTEXT_KEYS
+            .into_iter()
+            .map(|key| (key, std::env::var_os(key)))
+            .collect();
+        for key in MUXY_CONTEXT_KEYS {
+            unsafe { std::env::remove_var(key) };
+        }
+        unsafe { std::env::set_var("MUXY_SOCKET_PATH", socket_path) };
+        Self { values }
+    }
+}
+
+impl Drop for ProcessEnvironmentGuard {
+    fn drop(&mut self) {
+        for (key, value) in &self.values {
+            match value {
+                Some(value) => unsafe { std::env::set_var(key, value) },
+                None => unsafe { std::env::remove_var(key) },
+            }
+        }
+    }
+}
+
+fn with_standalone_process_environment<T>(socket_path: &str, operation: impl FnOnce() -> T) -> T {
+    let guard = ProcessEnvironmentGuard::standalone(socket_path);
+    let result = operation();
+    drop(guard);
+    result
+}
+
 struct PendingConfirmation {
-    tab_id: TabId,
+    identity: SurfaceIdentity,
     payload: ConfirmationPayload,
 }
 
@@ -157,9 +209,17 @@ enum ConfirmationPayload {
 }
 
 struct RoutedSurface {
-    tab_id: TabId,
+    identity: SurfaceIdentity,
     state: SharedState,
     host: Retained<GhosttyHostView>,
+}
+
+struct SurfaceSpawn {
+    identity: SurfaceIdentity,
+    working_directory: PathBuf,
+    command: Option<String>,
+    environment: Vec<SurfaceEnvironmentVariable>,
+    standalone_socket_path: Option<String>,
 }
 
 pub struct GhosttyBackend {
@@ -172,6 +232,7 @@ pub struct GhosttyBackend {
     confirmations: SharedConfirmations,
     gate: Rc<ShortcutGate>,
     launch_environment: Vec<SurfaceEnvironmentVariable>,
+    transparent_surface: bool,
     navigation_events: async_channel::Sender<muxy_core::navigation::Direction>,
     navigation_event_receiver: Receiver<muxy_core::navigation::Direction>,
 }
@@ -180,6 +241,10 @@ impl Default for GhosttyBackend {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn standalone_shortcut_combos() -> Vec<KeyCombo> {
+    vec![KeyCombo::new("w", COMMAND)]
 }
 
 impl GhosttyBackend {
@@ -195,6 +260,7 @@ impl GhosttyBackend {
             confirmations: Rc::new(RefCell::new(ConfirmationQueue::new())),
             gate: Rc::new(ShortcutGate::new(Vec::new())),
             launch_environment: Vec::new(),
+            transparent_surface: false,
             navigation_events,
             navigation_event_receiver,
         }
@@ -206,6 +272,34 @@ impl GhosttyBackend {
         mode: BuildMode,
         socket_path: &Path,
         backdrop: gpui::Rgba,
+        window: &mut Window,
+    ) -> Result<(), String> {
+        self.attach_with(combos, mode, socket_path, backdrop, false, window)
+    }
+
+    pub fn attach_standalone(
+        &mut self,
+        mode: BuildMode,
+        socket_path: &Path,
+        window: &mut Window,
+    ) -> Result<(), String> {
+        self.attach_with(
+            standalone_shortcut_combos(),
+            mode,
+            socket_path,
+            gpui::transparent_black().into(),
+            true,
+            window,
+        )
+    }
+
+    fn attach_with(
+        &mut self,
+        combos: Vec<KeyCombo>,
+        mode: BuildMode,
+        socket_path: &Path,
+        backdrop: gpui::Rgba,
+        transparent_surface: bool,
         window: &mut Window,
     ) -> Result<(), String> {
         if self.app.is_some() {
@@ -221,7 +315,8 @@ impl GhosttyBackend {
             std::env::var_os("PATH").as_deref(),
         )?;
         unsafe { std::env::set_var("GHOSTTY_RESOURCES_DIR", &resources.ghostty) };
-        let (config, cjk_overlay) = load_config(&resources).map_err(|error| error.to_string())?;
+        let (config, cjk_overlay) =
+            load_config(&resources, transparent_surface).map_err(|error| error.to_string())?;
         let owned = config.try_clone().map_err(|error| error.to_string())?;
         let app = GhosttyApp::new(owned).map_err(|error| error.to_string())?;
         let compositor =
@@ -234,6 +329,7 @@ impl GhosttyBackend {
         self.config = Some(config);
         self.cjk_overlay = cjk_overlay;
         self.launch_environment = launch_environment;
+        self.transparent_surface = transparent_surface;
         Ok(())
     }
 
@@ -272,7 +368,7 @@ impl GhosttyBackend {
         let Some(resources) = &self.resources else {
             return;
         };
-        let (config, cjk_overlay) = match load_config(resources) {
+        let (config, cjk_overlay) = match load_config(resources, self.transparent_surface) {
             Ok(loaded) => loaded,
             Err(error) => {
                 log::error!("Ghostty config reload failed; preserving prior config: {error}");
@@ -295,7 +391,10 @@ impl GhosttyBackend {
     pub fn active_confirmation(&self) -> Option<(TabId, ConfirmationId, ConfirmationKind)> {
         let confirmations = self.confirmations.borrow();
         let request = confirmations.active()?;
-        Some((request.payload.tab_id.clone(), request.id, request.kind))
+        let SurfaceIdentity::Workspace(tab_id) = &request.payload.identity else {
+            return None;
+        };
+        Some((tab_id.clone(), request.id, request.kind))
     }
 
     pub fn set_overlay_active(&self, active: bool) {
@@ -307,7 +406,7 @@ impl GhosttyBackend {
         }
     }
 
-    pub fn route(&mut self, event: RuntimeEvent, cx: &mut App) -> Option<(TabId, SurfaceSignal)> {
+    pub fn route(&mut self, event: RuntimeEvent, cx: &mut App) -> Option<RoutedTerminalEvent> {
         match event {
             RuntimeEvent::Action(action) => self.route_action(action, cx),
             RuntimeEvent::ClipboardRead {
@@ -339,11 +438,11 @@ impl GhosttyBackend {
                 let id = self.confirmations.borrow_mut().enqueue(
                     kind,
                     PendingConfirmation {
-                        tab_id: surface.tab_id.clone(),
+                        identity: surface.identity.clone(),
                         payload: ConfirmationPayload::ClipboardRead { token, content },
                     },
                 );
-                Some((surface.tab_id.clone(), SurfaceSignal::Confirm { id, kind }))
+                Some(surface.identity.route(SurfaceSignal::Confirm { id, kind }))
             }
             RuntimeEvent::ClipboardWrite {
                 surface_id,
@@ -368,11 +467,11 @@ impl GhosttyBackend {
                 let id = self.confirmations.borrow_mut().enqueue(
                     kind,
                     PendingConfirmation {
-                        tab_id: surface.tab_id.clone(),
+                        identity: surface.identity.clone(),
                         payload: ConfirmationPayload::ClipboardWrite(text),
                     },
                 );
-                Some((surface.tab_id.clone(), SurfaceSignal::Confirm { id, kind }))
+                Some(surface.identity.route(SurfaceSignal::Confirm { id, kind }))
             }
             RuntimeEvent::Close {
                 surface_id,
@@ -381,17 +480,17 @@ impl GhosttyBackend {
                 let surfaces = self.surfaces.borrow();
                 let surface = surfaces.get(&surface_id.get())?;
                 if matches!(process, SurfaceProcessState::Exited) {
-                    return Some((surface.tab_id.clone(), SurfaceSignal::Exited));
+                    return Some(surface.identity.route(SurfaceSignal::Exited));
                 }
                 let kind = ConfirmationKind::ActiveProcessClose;
                 let id = self.confirmations.borrow_mut().enqueue(
                     kind,
                     PendingConfirmation {
-                        tab_id: surface.tab_id.clone(),
+                        identity: surface.identity.clone(),
                         payload: ConfirmationPayload::ActiveProcessClose,
                     },
                 );
-                Some((surface.tab_id.clone(), SurfaceSignal::Confirm { id, kind }))
+                Some(surface.identity.route(SurfaceSignal::Confirm { id, kind }))
             }
         }
     }
@@ -400,7 +499,7 @@ impl GhosttyBackend {
         &mut self,
         event: ghostty_host::ActionEvent,
         cx: &mut App,
-    ) -> Option<(TabId, SurfaceSignal)> {
+    ) -> Option<RoutedTerminalEvent> {
         if matches!(&event.action, RuntimeAction::ReloadConfig { .. }) {
             self.reload_config();
             return None;
@@ -413,7 +512,7 @@ impl GhosttyBackend {
                 |surface_id| {
                     surfaces
                         .get(&surface_id)
-                        .map(|surface| surface.tab_id.clone())
+                        .map(|surface| surface.identity.clone())
                 },
             );
         }
@@ -456,7 +555,7 @@ impl GhosttyBackend {
             _ => {}
         }
         let metadata = metadata_of(&surface.state.borrow());
-        Some((surface.tab_id.clone(), SurfaceSignal::Metadata(metadata)))
+        Some(surface.identity.route(SurfaceSignal::Metadata(metadata)))
     }
 
     pub fn spawn(
@@ -468,21 +567,50 @@ impl GhosttyBackend {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<Box<dyn AppSurfaceHandle>> {
-        let mtm = MainThreadMarker::new()?;
-        let app = self.app.as_ref()?;
-        let compositor = self.compositor.as_ref()?;
+        let (environment, launch) = self.surface_environment(command)?;
+        let environment = apply_pane_context(environment, context);
+        self.spawn_surface(
+            SurfaceSpawn {
+                identity: SurfaceIdentity::Workspace(tab_id.clone()),
+                working_directory: directory,
+                command: launch,
+                environment,
+                standalone_socket_path: None,
+            },
+            window,
+            cx,
+        )
+    }
+
+    pub fn spawn_standalone(
+        &mut self,
+        context: &StandaloneLaunchContext,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Result<Box<dyn AppSurfaceHandle>, String> {
+        let (environment, launch) = self
+            .surface_environment(None)
+            .ok_or_else(|| "standalone terminal backend is not attached".to_owned())?;
+        let environment = apply_standalone_context(environment, context);
+        self.spawn_surface(
+            SurfaceSpawn {
+                identity: SurfaceIdentity::Standalone,
+                working_directory: context.working_directory().to_path_buf(),
+                command: launch,
+                environment,
+                standalone_socket_path: Some(context.socket_path().to_owned()),
+            },
+            window,
+            cx,
+        )
+        .ok_or_else(|| "failed to create the standalone Ghostty surface".to_owned())
+    }
+
+    fn surface_environment(
+        &self,
+        command: Option<LaunchCommand>,
+    ) -> Option<(Vec<SurfaceEnvironmentVariable>, Option<String>)> {
         let resources = self.resources.as_ref()?;
-
-        let host = GhosttyHostView::new(mtm);
-        let native_view: &NSView = &host;
-        let registration = compositor.register(native_view, 0).ok()?;
-        registration.sync_frame(Bounds {
-            origin: point(px(0.0), px(0.0)),
-            size: window.viewport_size(),
-        });
-
-        let scheme = host.color_scheme();
-        app.set_color_scheme(scheme);
         let mut environment = self.launch_environment.clone();
         environment.push(SurfaceEnvironmentVariable::new(
             "TERMINFO_DIRS",
@@ -495,15 +623,47 @@ impl GhosttyBackend {
             ));
             startup_shell_command(&user_shell(), command.keeps_shell_open)
         });
-        let environment = apply_pane_context(environment, context);
+        Some((environment, launch))
+    }
+
+    fn spawn_surface(
+        &mut self,
+        spawn: SurfaceSpawn,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<Box<dyn AppSurfaceHandle>> {
+        let SurfaceSpawn {
+            identity,
+            working_directory,
+            command,
+            environment,
+            standalone_socket_path,
+        } = spawn;
+        let mtm = MainThreadMarker::new()?;
+        let app = self.app.as_ref()?;
+        let compositor = self.compositor.as_ref()?;
+        let host = GhosttyHostView::new(mtm);
+        let native_view: &NSView = &host;
+        let registration = compositor.register(native_view, 0).ok()?;
+        registration.sync_frame(Bounds {
+            origin: point(px(0.0), px(0.0)),
+            size: window.viewport_size(),
+        });
+        let scheme = host.color_scheme();
+        app.set_color_scheme(scheme);
         let options = SurfaceOptions {
             context: SurfaceContext::Window,
-            working_directory: directory,
-            command: launch,
+            working_directory,
+            command,
             environment,
             ..SurfaceOptions::default()
         };
-        let surface_id = host.attach_surface(app, options).ok()?;
+        let attach = || host.attach_surface(app, options);
+        let surface_id = match standalone_socket_path.as_deref() {
+            Some(socket_path) => with_standalone_process_environment(socket_path, attach),
+            None => attach(),
+        }
+        .ok()?;
         host.set_window_active(window.is_window_active());
         host.set_shortcut_gate(self.gate.clone());
         host.set_app_view(compositor.gpui_view());
@@ -511,21 +671,23 @@ impl GhosttyBackend {
             host.update_config(config);
         }
         apply_background_blur(app, &host);
-
         let shared = Rc::new(RefCell::new(TerminalSurfaceState::new(surface_id.get())));
         self.surfaces.borrow_mut().insert(
             surface_id.get(),
             RoutedSurface {
-                tab_id: tab_id.clone(),
+                identity: identity.clone(),
                 state: shared.clone(),
                 host: host.clone(),
             },
         );
-
         let host_events = host.event_receiver();
         let navigation_events = self.navigation_events.clone();
+        let routes_navigation = matches!(identity, SurfaceIdentity::Workspace(_));
         let task = cx.background_spawn(async move {
             while let Ok(event) = host_events.recv().await {
+                if !routes_navigation {
+                    continue;
+                }
                 let direction = match event {
                     HostViewEvent::NavigateBack => muxy_core::navigation::Direction::Back,
                     HostViewEvent::NavigateForward => muxy_core::navigation::Direction::Forward,
@@ -536,11 +698,10 @@ impl GhosttyBackend {
                 }
             }
         });
-
         Some(Box::new(GhosttySurfaceHandle {
             registration,
             host,
-            tab_id: tab_id.clone(),
+            identity,
             surface_id: surface_id.get(),
             metadata: SurfaceMetadata::default(),
             state: shared,
@@ -554,7 +715,7 @@ impl GhosttyBackend {
 pub struct GhosttySurfaceHandle {
     registration: NativeViewRegistration,
     host: Retained<GhosttyHostView>,
-    tab_id: TabId,
+    identity: SurfaceIdentity,
     surface_id: u64,
     metadata: SurfaceMetadata,
     state: SharedState,
@@ -566,10 +727,10 @@ pub struct GhosttySurfaceHandle {
 impl Drop for GhosttySurfaceHandle {
     fn drop(&mut self) {
         self.surfaces.borrow_mut().remove(&self.surface_id);
-        let tab_id = self.tab_id.clone();
+        let identity = self.identity.clone();
         self.confirmations
             .borrow_mut()
-            .discard(|request| request.payload.tab_id == tab_id);
+            .discard(|request| request.payload.identity == identity);
     }
 }
 
@@ -786,6 +947,7 @@ impl GhosttySurfaceHandle {
 
 fn load_config(
     resources: &AppResources,
+    transparent_surface: bool,
 ) -> Result<(GhosttyConfig, Option<TemporaryConfigFile>), ghostty_host::ConfigError> {
     let paths = ConfigPaths::new(&resources.defaults_config)
         .with_user_override(Some(muxy_core::store::ghostty_conf::path()));
@@ -804,6 +966,11 @@ fn load_config(
     });
     let paths = paths.with_generated_overlay(overlay.as_ref().map(|file| file.path().to_owned()));
     let config = GhosttyConfig::load(paths)?;
+    let config = if transparent_surface {
+        config.with_overlay_file(&resources.transparent_surface_config)?
+    } else {
+        config
+    };
     for diagnostic in config.diagnostics() {
         log::warn!("Ghostty config: {diagnostic}");
     }
@@ -938,22 +1105,20 @@ fn terminal_mouse_shape(shape: RuntimeMouseShape) -> MouseShape {
 fn route_desktop_notification(
     target: RuntimeTarget,
     action: &RuntimeAction,
-    tab_for_surface: impl Fn(u64) -> Option<TabId>,
-) -> Option<(TabId, SurfaceSignal)> {
+    identity_for_surface: impl Fn(u64) -> Option<SurfaceIdentity>,
+) -> Option<RoutedTerminalEvent> {
     let RuntimeTarget::Surface(Some(surface_id)) = target else {
         return None;
     };
     let RuntimeAction::DesktopNotification(notification) = action else {
         return None;
     };
-    let tab_id = tab_for_surface(surface_id)?;
-    Some((
-        tab_id,
-        SurfaceSignal::DesktopNotification {
+    Some(
+        identity_for_surface(surface_id)?.route(SurfaceSignal::DesktopNotification {
             title: notification.title.clone(),
             body: notification.body.clone(),
-        },
-    ))
+        }),
+    )
 }
 
 fn terminal_state_action(action: &RuntimeAction) -> TerminalStateAction {
@@ -1045,6 +1210,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn quick_terminal_standalone_surface_reserves_command_w_for_the_app() {
+        assert_eq!(
+            standalone_shortcut_combos(),
+            vec![KeyCombo::new("w", COMMAND)]
+        );
+    }
+
+    #[test]
     fn desktop_notification_routes_only_exact_live_surface_targets_without_metadata() {
         let action = RuntimeAction::DesktopNotification(ghostty_host::DesktopNotification {
             title: "Done".to_owned(),
@@ -1052,12 +1225,23 @@ mod tests {
         });
         let routed =
             route_desktop_notification(RuntimeTarget::Surface(Some(7)), &action, |surface_id| {
-                (surface_id == 7).then(|| "PANE".to_owned())
+                (surface_id == 7).then(|| SurfaceIdentity::Workspace("PANE".to_owned()))
             });
         assert_eq!(
             routed,
-            Some((
+            Some(RoutedTerminalEvent::Workspace(
                 "PANE".to_owned(),
+                SurfaceSignal::DesktopNotification {
+                    title: "Done".to_owned(),
+                    body: "Ready".to_owned(),
+                }
+            ))
+        );
+        assert_eq!(
+            route_desktop_notification(RuntimeTarget::Surface(Some(7)), &action, |_| {
+                Some(SurfaceIdentity::Standalone)
+            }),
+            Some(RoutedTerminalEvent::Standalone(
                 SurfaceSignal::DesktopNotification {
                     title: "Done".to_owned(),
                     body: "Ready".to_owned(),
@@ -1072,7 +1256,7 @@ mod tests {
         ] {
             assert!(
                 route_desktop_notification(target, &action, |surface_id| {
-                    (surface_id == 7).then(|| "PANE".to_owned())
+                    (surface_id == 7).then(|| SurfaceIdentity::Workspace("PANE".to_owned()))
                 })
                 .is_none()
             );
@@ -1081,7 +1265,7 @@ mod tests {
             route_desktop_notification(
                 RuntimeTarget::Surface(Some(7)),
                 &RuntimeAction::Bell,
-                |_| Some("PANE".to_owned())
+                |_| Some(SurfaceIdentity::Workspace("PANE".to_owned()))
             )
             .is_none()
         );
@@ -1166,6 +1350,45 @@ mod tests {
         assert_eq!(value("TERMINFO_DIRS"), Some("/tmp/terminfo"));
         assert_eq!(value("MUXY_HOOK_BIN"), None);
         assert_eq!(value("MUXY_HOOK_SCRIPT"), None);
+    }
+
+    #[test]
+    fn standalone_context_scrubs_workspace_and_hook_values() {
+        let context = StandaloneLaunchContext::new(
+            PathBuf::from("/tmp/home"),
+            Path::new("/tmp/selected.socket"),
+        );
+        let environment = apply_standalone_context(
+            vec![
+                SurfaceEnvironmentVariable::new("MUXY_PANE_ID", "stale-pane"),
+                SurfaceEnvironmentVariable::new("MUXY_PROJECT_ID", "stale-project"),
+                SurfaceEnvironmentVariable::new("MUXY_WORKTREE_ID", "stale-worktree"),
+                SurfaceEnvironmentVariable::new("MUXY_SOCKET_PATH", "/tmp/stale.sock"),
+                SurfaceEnvironmentVariable::new("MUXY_HOOK_BIN", "/tmp/hook"),
+                SurfaceEnvironmentVariable::new("MUXY_HOOK_SCRIPT", "/tmp/hook.sh"),
+                SurfaceEnvironmentVariable::new("TERMINFO_DIRS", "/tmp/terminfo"),
+            ],
+            &context,
+        );
+        let value = |key: &str| {
+            environment
+                .iter()
+                .find(|variable| variable.key == key)
+                .map(|variable| variable.value.as_str())
+        };
+
+        assert_eq!(context.working_directory(), Path::new("/tmp/home"));
+        assert_eq!(value("MUXY_SOCKET_PATH"), Some("/tmp/selected.socket"));
+        assert_eq!(value("TERMINFO_DIRS"), Some("/tmp/terminfo"));
+        for key in [
+            "MUXY_PANE_ID",
+            "MUXY_PROJECT_ID",
+            "MUXY_WORKTREE_ID",
+            "MUXY_HOOK_BIN",
+            "MUXY_HOOK_SCRIPT",
+        ] {
+            assert_eq!(value(key), None);
+        }
     }
 
     #[test]

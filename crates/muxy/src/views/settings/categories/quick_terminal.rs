@@ -4,7 +4,10 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
     let category = Category::QuickTerminal;
     let style = modal.style();
     let metrics = style.metrics;
-    let enabled = settings::bool_value("muxy.quickTerminal.enabled", true);
+    let runtime = cx
+        .global::<crate::quick_terminal::runtime::QuickTerminalRuntime>()
+        .settings_state();
+    let enabled = runtime.enabled;
     let mut sections = Vec::new();
 
     sections.extend(visible(
@@ -24,19 +27,23 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
         )],
     ));
 
-    let kind = settings::quick_terminal_kind();
+    let kind = match runtime.shortcut {
+        muxy_core::quick_terminal::QuickTerminalShortcut::Unassigned => "unassigned",
+        muxy_core::quick_terminal::QuickTerminalShortcut::DoubleShift => "doubleShift",
+        muxy_core::quick_terminal::QuickTerminalShortcut::KeyCombo { .. } => "keyCombo",
+    };
     let status = if !enabled {
-        "Disabled"
-    } else if kind == "doubleShift" {
-        "Active system-wide"
+        "Disabled".to_owned()
+    } else if kind == "unassigned" {
+        "No shortcut assigned".to_owned()
     } else {
-        "No shortcut assigned"
+        runtime.monitoring_label
     };
     sections.extend(visible(
         modal,
         category,
         "Shortcut",
-        None,
+        modal.error("quick-terminal-shortcut"),
         true,
         vec![
             div()
@@ -69,23 +76,40 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
                     modal,
                     "unassigned",
                     "No Shortcut",
-                    &kind,
+                    kind,
                     cx,
                 ))
                 .child(shortcut_option(
                     modal,
                     "doubleShift",
                     "Double Shift",
-                    &kind,
+                    kind,
                     cx,
                 ))
                 .child(controls::button(
                     style,
                     "quick-record",
-                    "Record Custom…",
+                    if modal.is_recording_quick_terminal_shortcut() {
+                        "Cancel Recording"
+                    } else {
+                        "Record Custom…"
+                    },
                     false,
-                    |_, _, _| {},
+                    cx.listener(|modal: &mut SettingsModal, _, _, cx| {
+                        modal.toggle_quick_terminal_recording(cx);
+                    }),
                 ))
+                .when(kind == "doubleShift", |row| {
+                    row.child(controls::button(
+                        style,
+                        "quick-input-monitoring",
+                        "Enable Input Monitoring",
+                        false,
+                        cx.listener(|modal: &mut SettingsModal, _, _, cx| {
+                            modal.request_quick_terminal_input_monitoring(cx);
+                        }),
+                    ))
+                })
                 .into_any_element(),
         ],
     ));
@@ -241,8 +265,12 @@ fn shortcut_option(
         ))
         .child(SharedString::from(label))
         .on_click(cx.listener(move |modal: &mut SettingsModal, _, _, cx| {
-            settings::set_quick_terminal_shortcut(kind);
-            modal.refresh(cx);
+            let shortcut = if kind == "doubleShift" {
+                muxy_core::quick_terminal::QuickTerminalShortcut::DoubleShift
+            } else {
+                muxy_core::quick_terminal::QuickTerminalShortcut::Unassigned
+            };
+            modal.set_quick_terminal_shortcut(shortcut, cx);
         }))
         .into_any_element()
 }

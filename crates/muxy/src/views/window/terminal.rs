@@ -27,6 +27,26 @@ impl TerminalRuntime {
 }
 
 impl MainWindow {
+    pub(crate) fn submit_quick_terminal_notification(
+        &mut self,
+        title: String,
+        body: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.submit_notification(
+            crate::notifications::ResolvedNotificationEvent {
+                target: None,
+                source: muxy_core::notifications::NotificationSource::Osc,
+                origin: crate::notifications::NotificationOrigin::TerminalOsc,
+                title: desktop_notification_title(title),
+                body,
+                timestamp: muxy_core::store::reference_now(),
+            },
+            false,
+            cx,
+        );
+    }
+
     pub(super) fn elapsed(&self) -> Duration {
         self.view.terminal.started_at.elapsed()
     }
@@ -46,7 +66,7 @@ impl MainWindow {
                 );
                 self.submit_notification(
                     crate::notifications::ResolvedNotificationEvent {
-                        target,
+                        target: Some(target),
                         source: muxy_core::notifications::NotificationSource::Osc,
                         origin: crate::notifications::NotificationOrigin::TerminalOsc,
                         title: desktop_notification_title(title),

@@ -1,4 +1,4 @@
-use crate::terminal::surfaces::{AppSurfaceHandle, PaneLaunchContext};
+use crate::terminal::surfaces::{AppSurfaceHandle, PaneLaunchContext, StandaloneLaunchContext};
 use gpui::{App, Window};
 use muxy_core::shortcuts::KeyCombo;
 use muxy_core::workspace::TabId;
@@ -25,6 +25,15 @@ impl UnsupportedBackend {
         Err("terminal surfaces are only available on macOS".to_owned())
     }
 
+    pub fn attach_standalone(
+        &mut self,
+        _mode: muxy_core::environment::BuildMode,
+        _socket_path: &std::path::Path,
+        _window: &mut Window,
+    ) -> Result<(), String> {
+        Err("standalone terminal surfaces are only available on macOS".to_owned())
+    }
+
     pub fn spawn(
         &mut self,
         _tab_id: &TabId,
@@ -35,6 +44,15 @@ impl UnsupportedBackend {
         _cx: &mut App,
     ) -> Option<Box<dyn AppSurfaceHandle>> {
         None
+    }
+
+    pub fn spawn_standalone(
+        &mut self,
+        _context: &StandaloneLaunchContext,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Result<Box<dyn AppSurfaceHandle>, String> {
+        Err("standalone terminal surfaces are only available on macOS".to_owned())
     }
 
     pub fn set_shortcut_combos(&mut self, _combos: Vec<KeyCombo>) {}

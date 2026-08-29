@@ -5,7 +5,7 @@ use std::path::Path;
 
 const SUPPORTED_MODIFIERS: u64 = COMMAND | SHIFT | CONTROL | OPTION;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandShortcut {
     pub id: String,
@@ -29,7 +29,7 @@ impl CommandShortcut {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandShortcuts {
     pub prefix_combo: KeyCombo,
     pub shortcuts: Vec<CommandShortcut>,
@@ -88,6 +88,20 @@ impl CommandShortcuts {
         }
     }
 
+    pub fn from_mirror_value(value: &serde_json::Value) -> Result<Self, serde_json::Error> {
+        if value.is_null() {
+            return Ok(Self::default());
+        }
+        if let Ok(shortcuts) = serde_json::from_value::<Vec<CommandShortcut>>(value.clone()) {
+            return Ok(Self::normalized(Self::default().prefix_combo, shortcuts));
+        }
+        let stored = serde_json::from_value::<StoredConfiguration>(value.clone())?;
+        Ok(Self::normalized(
+            stored.prefix_combo.unwrap_or(Self::default().prefix_combo),
+            stored.shortcuts.unwrap_or_default(),
+        ))
+    }
+
     pub fn shortcut(&self, id: &str) -> Option<&CommandShortcut> {
         self.shortcuts.iter().find(|shortcut| shortcut.id == id)
     }
@@ -106,12 +120,26 @@ impl CommandShortcuts {
     }
 
     pub fn add(&mut self) -> String {
+        self.add_avoiding(&[])
+    }
+
+    pub fn add_avoiding(&mut self, forbidden: &[KeyCombo]) -> String {
+        let combo = ["t", "y", "u", "i", "o", "p", "j", "k", "l"]
+            .into_iter()
+            .map(|key| KeyCombo::new(key, COMMAND | OPTION))
+            .find(|candidate| {
+                !forbidden
+                    .iter()
+                    .chain(self.shortcuts.iter().map(|shortcut| &shortcut.combo))
+                    .any(|combo| candidate.conflicts_with(combo))
+            })
+            .unwrap_or_else(|| KeyCombo::new("", 0));
         let id = crate::store::new_uuid();
         self.shortcuts.push(CommandShortcut {
             id: id.clone(),
             name: String::new(),
             command: String::new(),
-            combo: KeyCombo::new("t", COMMAND | OPTION),
+            combo,
         });
         id
     }
@@ -163,7 +191,7 @@ impl CommandShortcuts {
         Ok(())
     }
 
-    fn save_to(&self, path: &Path) -> std::io::Result<()> {
+    pub(crate) fn save_to(&self, path: &Path) -> std::io::Result<()> {
         let contents =
             crate::prefs::settings::to_foundation_json(&self.mirror_value(), true, false);
         crate::store::write_private(path, contents.as_bytes())
@@ -286,6 +314,32 @@ mod tests {
         assert_eq!(reloaded.shortcuts[0].trimmed_command(), "scripts/setup.sh");
         assert_eq!(reloaded.shortcuts[0].combo, KeyCombo::new("s", COMMAND));
         assert_eq!(reloaded.prefix_combo, KeyCombo::new("g", COMMAND));
+    }
+
+    #[test]
+    fn new_rows_avoid_the_quick_terminal_and_existing_commands() {
+        let mut config = CommandShortcuts::default();
+        let first = config.add_avoiding(&[KeyCombo::new("t", COMMAND | OPTION)]);
+        assert_eq!(
+            config.shortcut(&first).unwrap().combo,
+            KeyCombo::new("y", COMMAND | OPTION)
+        );
+        let second = config.add_avoiding(&[KeyCombo::new("t", COMMAND | OPTION)]);
+        assert_eq!(
+            config.shortcut(&second).unwrap().combo,
+            KeyCombo::new("u", COMMAND | OPTION)
+        );
+    }
+
+    #[test]
+    fn exhausted_new_row_combos_are_unassigned() {
+        let forbidden: Vec<KeyCombo> = ["t", "y", "u", "i", "o", "p", "j", "k", "l"]
+            .into_iter()
+            .map(|key| KeyCombo::new(key, COMMAND | OPTION))
+            .collect();
+        let mut config = CommandShortcuts::default();
+        let id = config.add_avoiding(&forbidden);
+        assert!(!config.shortcut(&id).unwrap().combo.is_assigned());
     }
 
     #[test]

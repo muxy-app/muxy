@@ -420,6 +420,13 @@ impl MainWindow {
             _ => {}
         }
         self.terminal_runtime.surfaces.backend_mut().reload_config();
+        let quick_terminal_theme = self.state.theme.clone();
+        let quick_terminal_metrics = self.state.metrics;
+        cx.update_global::<crate::quick_terminal::runtime::QuickTerminalRuntime, _>(
+            |runtime, cx| {
+                runtime.update_appearance(quick_terminal_theme, quick_terminal_metrics, cx);
+            },
+        );
         cx.notify();
     }
 
@@ -454,6 +461,12 @@ impl MainWindow {
         if let Overlay::Settings(modal) = &self.view.overlay {
             modal.update(cx, |modal, cx| modal.set_appearance(theme, metrics, cx));
         }
+        let quick_terminal_theme = self.state.theme.clone();
+        cx.update_global::<crate::quick_terminal::runtime::QuickTerminalRuntime, _>(
+            |runtime, cx| {
+                runtime.update_appearance(quick_terminal_theme, metrics, cx);
+            },
+        );
         cx.notify();
     }
 

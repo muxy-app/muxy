@@ -44,6 +44,126 @@ impl PaneLaunchContext {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StandaloneLaunchContext {
+    working_directory: PathBuf,
+    socket_path: String,
+}
+
+impl StandaloneLaunchContext {
+    pub fn new(working_directory: PathBuf, socket_path: &Path) -> Self {
+        Self {
+            working_directory,
+            socket_path: socket_path.to_string_lossy().into_owned(),
+        }
+    }
+
+    pub fn working_directory(&self) -> &Path {
+        &self.working_directory
+    }
+
+    pub fn socket_path(&self) -> &str {
+        &self.socket_path
+    }
+}
+
+pub struct StandaloneTerminal {
+    backend: Backend,
+}
+
+impl Default for StandaloneTerminal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl StandaloneTerminal {
+    pub fn new() -> Self {
+        Self {
+            backend: Backend::new(),
+        }
+    }
+
+    pub fn attach(
+        &mut self,
+        mode: muxy_core::environment::BuildMode,
+        socket_path: &Path,
+        window: &mut Window,
+    ) -> Result<(), String> {
+        self.backend.attach_standalone(mode, socket_path, window)
+    }
+
+    pub fn spawn(
+        &mut self,
+        context: &StandaloneLaunchContext,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Result<Box<dyn AppSurfaceHandle>, String> {
+        self.backend.spawn_standalone(context, window, cx)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn wakeups(&self) -> Option<crate::terminal::TerminalWakeups> {
+        self.backend
+            .wakeup_receiver()
+            .map(crate::terminal::wrap_wakeups)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn wakeups(&self) -> Option<crate::terminal::TerminalWakeups> {
+        None
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn events(&self) -> Option<crate::terminal::TerminalEvents> {
+        self.backend
+            .event_receiver()
+            .map(crate::terminal::wrap_events)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn events(&self) -> Option<crate::terminal::TerminalEvents> {
+        None
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn route(
+        &mut self,
+        event: crate::terminal::TerminalEvent,
+        cx: &mut App,
+    ) -> Option<crate::terminal::SurfaceSignal> {
+        match self.backend.route(crate::terminal::unwrap_event(event), cx) {
+            Some(crate::terminal::RoutedTerminalEvent::Standalone(signal)) => Some(signal),
+            Some(crate::terminal::RoutedTerminalEvent::Workspace(_, _)) | None => None,
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn route(
+        &mut self,
+        _event: crate::terminal::TerminalEvent,
+        _cx: &mut App,
+    ) -> Option<crate::terminal::SurfaceSignal> {
+        None
+    }
+
+    pub fn tick(&self) {
+        self.backend.tick();
+    }
+
+    pub fn reload_config(&mut self) {
+        self.backend.reload_config();
+    }
+
+    pub fn set_backdrop(&self, backdrop: gpui::Rgba) {
+        self.backend.set_backdrop(backdrop);
+    }
+
+    pub fn set_window_active(&self, active: bool) {
+        self.backend.set_window_active(active);
+    }
+}
+
 pub struct TerminalSurfaces {
     backend: Backend,
     handles: HashMap<TabId, Box<dyn AppSurfaceHandle>>,
@@ -127,7 +247,12 @@ impl TerminalSurfaces {
         event: crate::terminal::TerminalEvent,
         cx: &mut App,
     ) -> Option<(TabId, crate::terminal::SurfaceSignal)> {
-        self.backend.route(crate::terminal::unwrap_event(event), cx)
+        match self.backend.route(crate::terminal::unwrap_event(event), cx) {
+            Some(crate::terminal::RoutedTerminalEvent::Workspace(tab_id, signal)) => {
+                Some((tab_id, signal))
+            }
+            Some(crate::terminal::RoutedTerminalEvent::Standalone(_)) | None => None,
+        }
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -85,6 +85,27 @@ flowchart LR
 
 Events flow back asynchronously: libghostty callbacks → `ghostty-host` `RuntimeEvent` channel → `muxy::terminal::TerminalEvents` → GPUI views.
 
+## Quick Terminal stack
+
+```mermaid
+flowchart LR
+    core["muxy-core\ntyped shortcut · detector · geometry\npresentation · settings proposal"] --> app["muxy::quick_terminal\nruntime · transaction · retained session"]
+    app --> service["shortcut service\ngeneration + rollback"]
+    service --> mac["macOS adapter\nCarbon · event tap · AppKit panel"]
+    app --> panel["GPUI popup + native compositor"]
+    panel --> shell["standalone Ghostty surface\nhome shell · selected app socket"]
+```
+
+`muxy-core` owns the portable shortcut schema, double-Shift detector, conflict inputs, geometry, presentation generations, and settings proposal validation. It has no GPUI, AppKit, Carbon, CoreGraphics, window, route, or workspace dependency. The `muxy` binary owns the application-scoped runtime, native registration transaction, settings coordination, panel, and standalone terminal lifecycle. macOS APIs are contained in the target-gated Quick Terminal platform adapter; other targets compile a same-shaped unsupported adapter.
+
+The shortcut service starts a replacement registration before publishing it, generation-guards callbacks, and stops the previous backend only after persistence succeeds. Double Shift always has a local monitor on macOS. An authorized listen-only event tap upgrades it to system-wide monitoring; denial or revocation leaves local monitoring available. Conventional key combinations use Carbon and do not require Input Monitoring.
+
+The Quick Terminal shell is not a workspace terminal or a background session. It starts in the user's home directory, receives only the selected app socket from Muxy's identity environment, and creates no project, worktree, pane, tab, hook, or daemon-session identity. One surface is retained while the panel is hidden, recreated after process exit, and terminated on disable or app shutdown.
+
+The panel and terminal surface are created at their final constrained dimensions while hidden. Show and hide animate one Core Animation clipping mask around both GPUI chrome and the native terminal, so presentation does not resize the terminal viewport. Transparency is a continuous tint-alpha setting. GPUI exposes only opaque, transparent, and blurred window backgrounds, so a stored blur of zero selects transparent mode and any nonzero blur selects the same window-level blurred mode. Reduce Transparency or Increase Contrast forces an opaque effective appearance without rewriting stored values.
+
+Quick Terminal settings and schema remain portable, but the category and route are omitted on Linux because there is no runtime backend. Linux-host launch proof remains separate release work.
+
 ## Notification stack
 
 ```mermaid

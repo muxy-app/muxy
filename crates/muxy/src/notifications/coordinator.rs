@@ -14,7 +14,7 @@ pub enum NotificationOrigin {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedNotificationEvent {
-    pub target: NotificationTarget,
+    pub target: Option<NotificationTarget>,
     pub source: NotificationSource,
     pub origin: NotificationOrigin,
     pub title: String,
@@ -32,7 +32,7 @@ pub struct DeliveryInputs {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToastDelivery {
-    pub notification_id: String,
+    pub notification_id: Option<String>,
     pub title: String,
     pub body: String,
 }
@@ -42,7 +42,7 @@ pub struct DeliveryEffects {
     pub record: Option<NotificationRecord>,
     pub schedule_save: bool,
     pub toast: Option<ToastDelivery>,
-    pub desktop: bool,
+    pub desktop_notification_id: Option<String>,
     pub sound: Option<String>,
     pub notify: bool,
 }
@@ -69,7 +69,7 @@ pub(crate) fn resolve_legacy_notification(
                 }
             });
     Some(ResolvedNotificationEvent {
-        target,
+        target: Some(target),
         source,
         origin: NotificationOrigin::LegacySocket,
         title: record.title.clone(),
@@ -116,7 +116,7 @@ pub(crate) fn resolve_agent_hook_notification(
         &record.title
     };
     Some(ResolvedNotificationEvent {
-        target,
+        target: Some(target),
         source: NotificationSource::AiProvider {
             provider_id: provider.id.to_owned(),
         },
@@ -144,45 +144,53 @@ impl DeliveryPolicy {
                 ..DeliveryEffects::default()
             };
         }
-        let Some(record) = NotificationRecord::new(
-            event.target.clone(),
-            event.source.clone(),
-            event.title.clone(),
-            event.body.clone(),
-            event.timestamp,
-        ) else {
-            return DeliveryEffects::default();
-        };
+        let record = event.target.clone().and_then(|target| {
+            NotificationRecord::new(
+                target,
+                event.source.clone(),
+                event.title.clone(),
+                event.body.clone(),
+                event.timestamp,
+            )
+        });
+        let notification_id = record
+            .as_ref()
+            .map(|record| record.id.clone())
+            .or_else(|| inputs.desktop_enabled.then(muxy_core::store::new_uuid));
         let toast = inputs.toast_enabled.then(|| ToastDelivery {
-            notification_id: record.id.clone(),
+            notification_id: record.as_ref().map(|record| record.id.clone()),
             title: event.title.clone(),
             body: event.body.clone(),
         });
-        let pair_origin = match event.origin {
-            NotificationOrigin::TerminalOsc => muxy_core::notifications::PairOrigin::TerminalOsc,
-            NotificationOrigin::AgentHook => muxy_core::notifications::PairOrigin::AgentHook,
-            NotificationOrigin::AgentHookTest | NotificationOrigin::LegacySocket => {
-                muxy_core::notifications::PairOrigin::Other
-            }
-        };
-        let desktop = inputs.desktop_enabled
-            && self
-                .desktop_pairs
+        let desktop_allowed = event.target.as_ref().is_none_or(|target| {
+            let pair_origin = match event.origin {
+                NotificationOrigin::TerminalOsc => {
+                    muxy_core::notifications::PairOrigin::TerminalOsc
+                }
+                NotificationOrigin::AgentHook => muxy_core::notifications::PairOrigin::AgentHook,
+                NotificationOrigin::AgentHookTest | NotificationOrigin::LegacySocket => {
+                    muxy_core::notifications::PairOrigin::Other
+                }
+            };
+            self.desktop_pairs
                 .allow_desktop(muxy_core::notifications::DesktopPairEvent {
                     origin: pair_origin,
-                    project_id: &event.target.project_id,
-                    worktree_id: &event.target.worktree_id,
-                    area_id: &event.target.area_id,
-                    tab_id: &event.target.tab_id,
+                    project_id: &target.project_id,
+                    worktree_id: &target.worktree_id,
+                    area_id: &target.area_id,
+                    tab_id: &target.tab_id,
                     title: &event.title,
                     body: &event.body,
                     timestamp: event.timestamp,
-                });
+                })
+        });
         DeliveryEffects {
-            record: Some(record),
-            schedule_save: true,
+            schedule_save: record.is_some(),
+            record,
             toast,
-            desktop,
+            desktop_notification_id: (inputs.desktop_enabled && desktop_allowed)
+                .then_some(notification_id)
+                .flatten(),
             sound: Some(inputs.sound),
             notify: true,
         }
@@ -329,8 +337,7 @@ mod tests {
 
     fn event(origin: NotificationOrigin, timestamp: f64) -> ResolvedNotificationEvent {
         ResolvedNotificationEvent {
-            target: NotificationTarget::new(PANE, PROJECT, WORKTREE, AREA, TAB, "/tmp/worktree")
-                .unwrap(),
+            target: NotificationTarget::new(PANE, PROJECT, WORKTREE, AREA, TAB, "/tmp/worktree"),
             source: if origin == NotificationOrigin::TerminalOsc {
                 NotificationSource::Osc
             } else {
@@ -355,7 +362,7 @@ mod tests {
     }
 
     fn target() -> NotificationTarget {
-        event(NotificationOrigin::LegacySocket, 1.0).target
+        event(NotificationOrigin::LegacySocket, 1.0).target.unwrap()
     }
 
     fn legacy(pane_id: Option<&str>, notification_type: &str) -> LegacyNotificationRecord {
@@ -398,7 +405,7 @@ mod tests {
             || None,
         )
         .unwrap();
-        assert_eq!(resolved.target, target());
+        assert_eq!(resolved.target, Some(target()));
         assert_eq!(
             resolved.source,
             NotificationSource::AiProvider {
@@ -568,10 +575,32 @@ mod tests {
             effects
                 .toast
                 .as_ref()
-                .map(|toast| toast.notification_id.as_str()),
+                .and_then(|toast| toast.notification_id.as_deref()),
             Some(record.id.as_str())
         );
-        assert!(effects.desktop);
+        assert_eq!(
+            effects.desktop_notification_id.as_deref(),
+            Some(record.id.as_str())
+        );
+        assert_eq!(effects.sound.as_deref(), Some("Funk"));
+        assert!(effects.notify);
+    }
+
+    #[test]
+    fn quick_terminal_osc_notification_has_effects_without_workspace_navigation() {
+        let mut coordinator = DeliveryPolicy::default();
+        let mut notification = event(NotificationOrigin::TerminalOsc, 10.0);
+        notification.target = None;
+        let effects = coordinator.decide(&notification, inputs());
+        assert!(effects.record.is_none());
+        assert!(!effects.schedule_save);
+        assert!(
+            effects
+                .toast
+                .as_ref()
+                .is_some_and(|toast| toast.notification_id.is_none())
+        );
+        assert!(effects.desktop_notification_id.is_some());
         assert_eq!(effects.sound.as_deref(), Some("Funk"));
         assert!(effects.notify);
     }
@@ -585,7 +614,7 @@ mod tests {
         assert!(effects.record.is_none());
         assert!(!effects.schedule_save);
         assert!(effects.toast.is_none());
-        assert!(!effects.desktop);
+        assert!(effects.desktop_notification_id.is_none());
         assert_eq!(effects.sound.as_deref(), Some("Funk"));
         assert!(!effects.notify);
     }
@@ -600,7 +629,7 @@ mod tests {
         let effects = coordinator.decide(&event(NotificationOrigin::LegacySocket, 10.0), inputs);
         assert!(effects.record.is_some());
         assert!(effects.toast.is_none());
-        assert!(!effects.desktop);
+        assert!(effects.desktop_notification_id.is_none());
         assert_eq!(effects.sound.as_deref(), Some("None"));
     }
 
@@ -613,8 +642,8 @@ mod tests {
         assert!(hook.record.is_some());
         assert!(osc.toast.is_some());
         assert!(hook.toast.is_some());
-        assert!(osc.desktop);
-        assert!(!hook.desktop);
+        assert!(osc.desktop_notification_id.is_some());
+        assert!(hook.desktop_notification_id.is_none());
         assert!(osc.sound.is_some());
         assert!(hook.sound.is_some());
     }

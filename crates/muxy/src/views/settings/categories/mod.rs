@@ -72,6 +72,9 @@ pub fn content(
     category: Category,
     cx: &mut Context<SettingsModal>,
 ) -> Vec<AnyElement> {
+    if !super::category_supported(category) {
+        return Vec::new();
+    }
     match category {
         Category::General => general::content(modal, cx),
         Category::Appearance => appearance::content(modal, cx),
@@ -93,6 +96,9 @@ pub fn content(
 }
 
 pub fn fields(modal: &SettingsModal, category: Category) -> Vec<Field> {
+    if !super::category_supported(category) {
+        return Vec::new();
+    }
     if category == Category::Commands {
         return super::commands::fields(modal);
     }

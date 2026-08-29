@@ -46,8 +46,14 @@ tempfile = "3"
 thiserror = "2"
 uuid = { version = "1", default-features = false, features = ["v4"] }
 objc2 = "0.6"
-objc2-core-foundation = "0.3"
+objc2-core-foundation = { version = "0.3", features = ["CFMachPort", "CFRunLoop"] }
+objc2-core-graphics = { version = "0.3", features = ["CGEvent", "CGEventTypes", "CGRemoteOperation"] }
 objc2-core-text = "0.3"
+objc2-quartz-core = { version = "0.3", features = [
+    "CALayer",
+    "CATransaction",
+    "objc2-core-foundation",
+] }
 objc2-foundation = { version = "0.3", features = [
     "NSArray",
     "NSGeometry",
@@ -57,6 +63,14 @@ objc2-foundation = { version = "0.3", features = [
     "NSDictionary",
 ] }
 objc2-app-kit = { version = "0.3", features = [
+    "objc2-core-graphics",
+    "NSAccessibility",
+    "NSAccessibilityConstants",
+    "NSAccessibilityElement",
+    "NSAccessibilityProtocols",
+    "NSAnimation",
+    "NSApplication",
+    "NSEvent",
     "NSImage",
     "NSImageRep",
     "NSBitmapImageRep",
@@ -68,11 +82,14 @@ objc2-app-kit = { version = "0.3", features = [
     "NSClipView",
     "NSControl",
     "NSResponder",
+    "NSRunningApplication",
     "NSScrollView",
     "NSScroller",
     "NSView",
     "NSWindow",
+    "NSWorkspace",
     "NSPasteboard",
+    "NSPanel",
     "NSScreen",
     "NSSound",
 ] }

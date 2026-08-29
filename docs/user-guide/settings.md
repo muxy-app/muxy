@@ -177,21 +177,23 @@ The setting is stored as `muxy.terminalPersistentSession.enabled` in `settings.j
 
 ## Quick terminal
 
-The assigned shortcut is the only way to open the quick terminal. On a display with a camera cutout, the terminal expands out of it like a dynamic island. Open **Quick Terminal** in Settings to configure its shortcut, size, and appearance:
+The assigned shortcut is the only way to open the quick terminal. Trigger it again or use the panel's close button to hide the panel while retaining its shell. Use `Cmd+W` to close the panel and release the surface; the next trigger starts a fresh shell. On a display with a camera cutout, the terminal expands out of it like a dynamic island. Open **Quick Terminal** in Settings to configure its shortcut, size, and appearance:
 
 - **Enable Quick Terminal** controls the entire feature. Turning it off stops the shortcut listener, closes the panel, and releases its shell while preserving its settings.
 - No shortcut is assigned by default.
 - **Double Shift** requires macOS Input Monitoring for use outside Muxy.
 - **Option Space** or another recorded key combination is registered as a conventional global shortcut without Input Monitoring.
-- **Width** and **Height** set the panel size in points for the next opening. Smaller displays automatically reduce the configured size.
-- **Terminal transparency** controls how much of the desktop shows through the terminal workspace from 0–55%.
-- **Background vibrancy** continuously controls the native macOS material intensity from 0–100%. The cutout bridge remains solid.
+- **Width** and **Height** set the panel size in points. Saved changes update the running panel, and smaller displays automatically reduce the configured size.
+- **Terminal transparency** continuously controls how much of the desktop shows through the terminal background tint from 0–55%.
+- **Background vibrancy** stores a value from 0–100%. A value of 0 disables window blur; any nonzero value enables the same native window-level blur. The cutout bridge remains solid.
 
-The vibrancy control mixes the system material continuously; it does not set a custom blur radius.
+The vibrancy value is not a custom blur radius or a continuous material-strength control. The panel and terminal surface are created at the final display-constrained size while hidden, then show and hide through a rounded clipping reveal. Opening or closing the panel therefore does not resize the terminal viewport during the animation.
 
-The gear button in the quick terminal opens an in-place settings popover with the transparency, vibrancy, width, and height controls, so those can be adjusted without leaving the terminal. Transparency and vibrancy apply immediately; size applies when the slider is released. The shortcut is also available from the shortcut control in the quick terminal. The feature toggle is stored as `muxy.quickTerminal.enabled` in `settings.json`. The shortcut is stored as `shortcuts.quickTerminal` using `{"type":"unassigned"}`, `{"type":"doubleShift"}`, or `{"type":"keyCombo","keyCombo":{"key":"space","modifiers":...},"virtualKeyCode":49}`. Panel dimensions are stored as `muxy.quickTerminal.width` and `muxy.quickTerminal.height`. Glass settings use `muxy.quickTerminal.transparency` as an integer percentage from 0–55 and `muxy.quickTerminal.blur` as an integer material intensity from 0–100.
+The gear button in the quick terminal opens an in-place settings popover with the transparency, vibrancy, width, and height controls, so those can be adjusted without leaving the terminal. Saved appearance and size changes apply to the existing runtime without restarting it. The shortcut is also available from the shortcut control in the quick terminal. The feature toggle is stored as `muxy.quickTerminal.enabled` in `settings.json`. The shortcut is stored as `shortcuts.quickTerminal` using `{"type":"unassigned"}`, `{"type":"doubleShift"}`, or `{"type":"keyCombo","keyCombo":{"key":"space","modifiers":...},"virtualKeyCode":49}`. Panel dimensions are stored as `muxy.quickTerminal.width` and `muxy.quickTerminal.height`. Appearance settings use `muxy.quickTerminal.transparency` as an integer percentage from 0–55 and `muxy.quickTerminal.blur` as a stored integer from 0–100 with the binary mapping described above.
 
-When macOS Reduce Transparency or Increase Contrast is enabled, Muxy temporarily renders the quick terminal as opaque and unblurred without changing the saved glass settings.
+The shortcut status reports disabled, unassigned, local-only, system-wide, unavailable, or a registration error based on the active runtime. Muxy requests Input Monitoring only when you choose **Enable Input Monitoring**. Denial or revocation leaves Double Shift available while Muxy is active, and a conventional global shortcut remains available without Input Monitoring.
+
+When macOS Reduce Transparency or Increase Contrast is enabled, Muxy temporarily renders the quick terminal as opaque and unblurred without changing the saved appearance settings. Quick Terminal is a macOS-only runtime. Its portable settings remain readable on Linux, but the settings category and panel are not exposed there.
 
 ## App transparency
 

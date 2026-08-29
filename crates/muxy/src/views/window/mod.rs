@@ -21,8 +21,8 @@ use crate::views::{
     create_worktree_overlay, omnibox, overlay, project_picker, settings, workspace_view,
 };
 use gpui::{
-    AnyWindowHandle, AppContext, Bounds, ClipboardItem, Context, Entity, Focusable, IntoElement,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Task, Window, px,
+    AnyWindowHandle, AppContext, BorrowAppContext, Bounds, ClipboardItem, Context, Entity,
+    Focusable, IntoElement, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Task, Window, px,
 };
 use muxy_core::prefs::Prefs;
 use muxy_core::shortcuts::KeyCombo;
@@ -72,6 +72,7 @@ pub fn key_bindings() -> Vec<gpui::KeyBinding> {
     bindings.extend(settings::key_bindings());
     bindings.extend(crate::views::repository::pull_request::key_bindings());
     bindings.extend(crate::views::repository::ai::key_bindings());
+    bindings.extend(crate::quick_terminal::key_bindings());
     bindings.push(gpui::KeyBinding::new(
         "shift-enter",
         crate::views::app::SearchPrevious,
@@ -175,7 +176,14 @@ impl MainWindow {
                 if window
                     .update(cx, |window, cx| {
                         cx.activate(true);
-                        window.navigate_notification(&notification_id, cx);
+                        if window
+                            .state
+                            .notification_store
+                            .get(&notification_id)
+                            .is_some()
+                        {
+                            window.navigate_notification(&notification_id, cx);
+                        }
                     })
                     .is_err()
                 {
@@ -220,6 +228,11 @@ impl MainWindow {
                 if window.view.window_active {
                     window.sync_active_notification_read_state(cx);
                     window.refresh_repository_on_activation(cx);
+                    cx.update_global::<crate::quick_terminal::runtime::QuickTerminalRuntime, _>(
+                        |runtime, cx| {
+                            runtime.refresh_on_activation(cx);
+                        },
+                    );
                 }
             },
         ));
@@ -229,7 +242,7 @@ impl MainWindow {
                 for _ in 0..600 {
                     if request_path.is_file() {
                         let _ = std::fs::remove_file(&request_path);
-                        let _ = window_handle.update(cx, |_, window, _| window.remove_window());
+                        let _ = window_handle.update(cx, |_, _, cx| cx.quit());
                         return;
                     }
                     cx.background_executor()
@@ -360,25 +373,25 @@ impl MainWindow {
             self.schedule_notification_save(cx);
         }
         if let Some(toast) = effects.toast {
+            let action = toast
+                .notification_id
+                .map(crate::toast::ToastAction::NavigateNotification);
             self.show_toast(
                 crate::toast::ToastContent::new(
                     toast.title,
                     toast.body,
                     crate::toast::ToastTone::Success,
-                    Some(crate::toast::ToastAction::NavigateNotification(
-                        toast.notification_id,
-                    )),
+                    action,
                 ),
                 crate::toast::ToastOrigin::Notification,
                 cx,
             );
         }
-        if effects.desktop
-            && let Some(record) = effects.record.as_ref()
+        if let Some(notification_id) = effects.desktop_notification_id
             && let Some(request) = crate::notifications::desktop::DesktopRequest::new(
-                &record.id,
-                &record.title,
-                &record.body,
+                notification_id,
+                &event.title,
+                &event.body,
             )
         {
             self.notification_coordinator.schedule_desktop(request);
