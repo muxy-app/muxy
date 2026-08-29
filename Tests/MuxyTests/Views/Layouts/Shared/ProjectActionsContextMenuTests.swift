@@ -73,8 +73,8 @@ struct ProjectActionsContextMenuPolicyTests {
         #expect(localFeatures.contains(.workspaceMembership))
     }
 
-    @Test("SSH workspace projects do not expose local workspace membership")
-    func sshWorkspaceProjectMembership() {
+    @Test("SSH workspace projects do not expose workspace membership without move targets")
+    func sshWorkspaceProjectMembershipWithoutTargets() {
         let project = Project(
             name: "Remote",
             path: "~/code/remote",
@@ -88,11 +88,35 @@ struct ProjectActionsContextMenuPolicyTests {
                 isCheckingGitRepo: false,
                 worktreeCount: 1,
                 supportsSwitchWorktree: true,
-                hasLocalWorkspaces: true
+                hasLocalWorkspaces: true,
+                hasRemoteWorkspaces: false
             )
         )
 
         #expect(!features.contains(.workspaceMembership))
+    }
+
+    @Test("SSH workspace projects expose workspace membership with move targets")
+    func sshWorkspaceProjectMembershipWithTargets() {
+        let project = Project(
+            name: "Remote",
+            path: "~/code/remote",
+            remoteWorkspaceID: UUID()
+        )
+
+        let features = ProjectActionsContextMenuPolicy.features(
+            for: project,
+            context: ProjectActionsContextMenuPolicy.Context(
+                isGitRepo: true,
+                isCheckingGitRepo: false,
+                worktreeCount: 1,
+                supportsSwitchWorktree: true,
+                hasLocalWorkspaces: false,
+                hasRemoteWorkspaces: true
+            )
+        )
+
+        #expect(features.contains(.workspaceMembership))
     }
 
     @Test("non-Git projects do not expose switch worktree")
@@ -107,7 +131,8 @@ struct ProjectActionsContextMenuPolicyTests {
                 isCheckingGitRepo: false,
                 worktreeCount: 2,
                 supportsSwitchWorktree: true,
-                hasLocalWorkspaces: false
+                hasLocalWorkspaces: false,
+                hasRemoteWorkspaces: false
             )
         )
 
@@ -121,7 +146,8 @@ struct ProjectActionsContextMenuPolicyTests {
             isCheckingGitRepo: false,
             worktreeCount: 2,
             supportsSwitchWorktree: true,
-            hasLocalWorkspaces: true
+            hasLocalWorkspaces: true,
+            hasRemoteWorkspaces: false
         )
     }
 }

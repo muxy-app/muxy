@@ -7,6 +7,7 @@ enum ProjectActionsContextMenuPolicy {
         let worktreeCount: Int
         let supportsSwitchWorktree: Bool
         let hasLocalWorkspaces: Bool
+        let hasRemoteWorkspaces: Bool
     }
 
     enum Feature: Hashable {
@@ -61,10 +62,17 @@ enum ProjectActionsContextMenuPolicy {
         ) {
             features.insert(.switchWorktree)
         }
-        if project.supportsLocalWorkspaceMembership, context.hasLocalWorkspaces {
+        if showsWorkspaceMembership(for: project, context: context) {
             features.insert(.workspaceMembership)
         }
         return features
+    }
+
+    static func showsWorkspaceMembership(for project: Project, context: Context) -> Bool {
+        if project.remoteWorkspaceID != nil {
+            return context.hasRemoteWorkspaces
+        }
+        return project.supportsLocalWorkspaceMembership && context.hasLocalWorkspaces
     }
 }
 
@@ -94,7 +102,8 @@ struct ProjectActionsContextMenu: View {
                 isCheckingGitRepo: isCheckingGitRepo,
                 worktreeCount: worktreeCount,
                 supportsSwitchWorktree: onSwitchWorktree != nil,
-                hasLocalWorkspaces: projectGroupStore.groups.contains { $0.type == .local }
+                hasLocalWorkspaces: projectGroupStore.groups.contains { $0.type == .local },
+                hasRemoteWorkspaces: !projectGroupStore.remoteWorkspaceMoveTargets(for: project).isEmpty
             )
         )
     }

@@ -388,23 +388,52 @@ struct ProjectGroupMembershipMenu: View {
         projectGroupStore.groups.filter { $0.type == .local }
     }
 
+    private var remoteTargetGroups: [ProjectGroup] {
+        projectGroupStore.remoteWorkspaceMoveTargets(for: project)
+    }
+
     var body: some View {
-        if project.supportsLocalWorkspaceMembership, !localGroups.isEmpty {
-            Menu(L10n.string("Move to Workspace")) {
-                ForEach(localGroups) { group in
-                    let isInGroup = group.projectIDs.contains(project.id)
-                    Button {
-                        if isInGroup {
-                            projectGroupStore.removeProject(projectID: project.id, fromGroup: group.id)
-                        } else {
-                            projectGroupStore.addProject(projectID: project.id, toGroup: group.id)
-                        }
-                    } label: {
-                        Label(group.name, systemImage: isInGroup ? "checkmark" : "")
+        if project.remoteWorkspaceID != nil {
+            if !remoteTargetGroups.isEmpty {
+                remoteMembershipMenu
+            }
+        } else if project.supportsLocalWorkspaceMembership, !localGroups.isEmpty {
+            localMembershipMenu
+        }
+    }
+
+    private var localMembershipMenu: some View {
+        Menu(L10n.string("Move to Workspace")) {
+            ForEach(localGroups) { group in
+                let isInGroup = group.projectIDs.contains(project.id)
+                Button {
+                    if isInGroup {
+                        projectGroupStore.removeProject(projectID: project.id, fromGroup: group.id)
+                    } else {
+                        projectGroupStore.addProject(projectID: project.id, toGroup: group.id)
                     }
+                } label: {
+                    Label(group.name, systemImage: isInGroup ? "checkmark" : "")
                 }
             }
         }
+    }
+
+    private var remoteMembershipMenu: some View {
+        Menu(L10n.string("Move to Workspace")) {
+            ForEach(remoteTargetGroups) { group in
+                Button {
+                    moveTo(group)
+                } label: {
+                    Label(group.name, systemImage: "network")
+                }
+            }
+        }
+    }
+
+    private func moveTo(_ group: ProjectGroup) {
+        guard let workspaceID = project.remoteWorkspaceID else { return }
+        projectGroupStore.moveRemoteProject(id: project.id, fromGroup: workspaceID, toGroup: group.id)
     }
 }
 

@@ -250,6 +250,32 @@ final class ProjectGroupStore {
         return didRemove
     }
 
+    func remoteWorkspaceMoveTargets(for project: Project) -> [ProjectGroup] {
+        guard let workspaceID = project.remoteWorkspaceID,
+              let source = groups.first(where: { $0.id == workspaceID })
+        else { return [] }
+        return groups.filter {
+            $0.type == .ssh && $0.id != source.id && $0.remoteDeviceID == source.remoteDeviceID
+        }
+    }
+
+    @discardableResult
+    func moveRemoteProject(id: UUID, fromGroup sourceGroupID: UUID, toGroup targetGroupID: UUID) -> Bool {
+        guard sourceGroupID != targetGroupID else { return false }
+        return commitMutation { groups in
+            guard let sourceIndex = groups.firstIndex(where: { $0.id == sourceGroupID }),
+                  let targetIndex = groups.firstIndex(where: { $0.id == targetGroupID }),
+                  groups[sourceIndex].type == .ssh,
+                  groups[targetIndex].type == .ssh,
+                  groups[sourceIndex].remoteDeviceID == groups[targetIndex].remoteDeviceID,
+                  let projectIndex = groups[sourceIndex].remoteProjects.firstIndex(where: { $0.id == id })
+            else { return false }
+            let project = groups[sourceIndex].remoteProjects.remove(at: projectIndex)
+            groups[targetIndex].remoteProjects.append(project)
+            return true
+        }
+    }
+
     func markRemoteProjectActive(id: UUID) {
         updateRemoteProject(id: id) { project in
             project.lastActiveAt = Date()
