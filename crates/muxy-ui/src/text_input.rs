@@ -9,7 +9,9 @@ use gpui::{
     UTF16Selection, UnderlineStyle, Window, WrapBoundary, WrappedLine, actions, div, fill, point,
     px, size,
 };
+use std::cell::RefCell;
 use std::ops::Range;
+use std::rc::Rc;
 use std::time::Duration;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -218,6 +220,48 @@ fn valid_offset(text: &str, offset: usize) -> usize {
     offset
 }
 
+fn selection_cursor(range: &Range<usize>, reversed: bool) -> usize {
+    if reversed { range.start } else { range.end }
+}
+
+fn replace_content(content: &str, range: Range<usize>, new_text: &str) -> SharedString {
+    (content[0..range.start].to_owned() + new_text + &content[range.end..]).into()
+}
+
+fn normalized_paste_text(text: String, multiline: bool) -> String {
+    if multiline {
+        text
+    } else {
+        text.replace('\n', " ")
+    }
+}
+
+fn utf8_offset_from_utf16(text: &str, offset: usize) -> usize {
+    let mut utf8_offset = 0;
+    let mut utf16_count = 0;
+    for character in text.chars() {
+        if utf16_count >= offset {
+            break;
+        }
+        utf16_count += character.len_utf16();
+        utf8_offset += character.len_utf8();
+    }
+    utf8_offset
+}
+
+fn utf16_offset_from_utf8(text: &str, offset: usize) -> usize {
+    let mut utf16_offset = 0;
+    let mut utf8_count = 0;
+    for character in text.chars() {
+        if utf8_count >= offset {
+            break;
+        }
+        utf8_count += character.len_utf8();
+        utf16_offset += character.len_utf16();
+    }
+    utf16_offset
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Granularity {
     Character,
@@ -308,7 +352,7 @@ impl History {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InputStyle {
     pub text: Hsla,
     pub placeholder: Hsla,
@@ -469,6 +513,8 @@ pub enum InputEvent {
     Cancelled,
 }
 
+type PasteDelegate = Rc<RefCell<Box<dyn FnMut(&mut Window, &mut App) -> bool + 'static>>>;
+
 pub struct TextInput {
     focus_handle: FocusHandle,
     content: SharedString,
@@ -496,6 +542,7 @@ pub struct TextInput {
     goal_x: Option<Pixels>,
     history: History,
     coalesce_next: bool,
+    paste_delegate: Option<PasteDelegate>,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -529,6 +576,7 @@ impl TextInput {
             goal_x: None,
             history: History::default(),
             coalesce_next: true,
+            paste_delegate: None,
         }
     }
 
@@ -553,6 +601,14 @@ impl TextInput {
         self
     }
 
+    pub fn with_paste_delegate(
+        mut self,
+        delegate: impl FnMut(&mut Window, &mut App) -> bool + 'static,
+    ) -> Self {
+        self.paste_delegate = Some(Rc::new(RefCell::new(Box::new(delegate))));
+        self
+    }
+
     pub fn with_text(mut self, text: impl Into<SharedString>) -> Self {
         self.content = text.into();
         self.selected_range = self.content.len()..self.content.len();
@@ -561,6 +617,31 @@ impl TextInput {
 
     pub fn text(&self) -> &str {
         &self.content
+    }
+
+    pub fn selected_range(&self) -> Range<usize> {
+        self.selected_range.clone()
+    }
+
+    pub fn selected_text(&self) -> &str {
+        &self.content[self.selected_range.clone()]
+    }
+
+    pub fn cursor_offset(&self) -> usize {
+        selection_cursor(&self.selected_range, self.selection_reversed)
+    }
+
+    pub fn replace_selection(&mut self, text: &str, cx: &mut Context<Self>) {
+        if let Some(marked) = self.marked_range.take() {
+            self.history
+                .end_composition(self.content[marked].to_string());
+        }
+        let range = self.selected_range.clone();
+        self.apply_edit(range, text, false, false, cx);
+    }
+
+    pub fn insert_at_selection(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.replace_selection(text, cx);
     }
 
     pub fn set_text(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
@@ -589,8 +670,31 @@ impl TextInput {
         cx.notify();
     }
 
-    pub fn set_style(&mut self, style: InputStyle) {
-        self.style = style;
+    pub fn set_style(&mut self, style: InputStyle, cx: &mut Context<Self>) {
+        if self.style != style {
+            self.style = style;
+            self.last_layout = None;
+            cx.notify();
+        }
+    }
+
+    pub fn set_font_family(&mut self, family: Option<SharedString>, cx: &mut Context<Self>) {
+        if self.font_family != family {
+            self.font_family = family;
+            self.last_layout = None;
+            cx.notify();
+        }
+    }
+
+    pub fn set_paste_delegate(
+        &mut self,
+        delegate: impl FnMut(&mut Window, &mut App) -> bool + 'static,
+    ) {
+        self.paste_delegate = Some(Rc::new(RefCell::new(Box::new(delegate))));
+    }
+
+    pub fn clear_paste_delegate(&mut self) {
+        self.paste_delegate = None;
     }
 
     pub fn set_placeholder(&mut self, placeholder: impl Into<SharedString>) {
@@ -612,14 +716,6 @@ impl TextInput {
         self.goal_x = None;
         self.history.coalesce = false;
         cx.notify();
-    }
-
-    fn cursor_offset(&self) -> usize {
-        if self.selection_reversed {
-            self.selected_range.start
-        } else {
-            self.selected_range.end
-        }
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -783,12 +879,22 @@ impl TextInput {
     }
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(delegate) = self.paste_delegate.clone() else {
+            self.paste_from_clipboard(window, cx);
+            return;
+        };
+        let input = cx.entity();
+        window.defer(cx, move |window, cx| {
+            let consumed = delegate.borrow_mut()(window, cx);
+            if !consumed {
+                input.update(cx, |input, cx| input.paste_from_clipboard(window, cx));
+            }
+        });
+    }
+
+    fn paste_from_clipboard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            let text = if self.multiline {
-                text
-            } else {
-                text.replace('\n', " ")
-            };
+            let text = normalized_paste_text(text, self.multiline);
             self.coalesce_next = false;
             self.replace_text_in_range(None, &text, window, cx);
         }
@@ -1150,29 +1256,48 @@ impl TextInput {
     }
 
     fn offset_from_utf16(&self, offset: usize) -> usize {
-        let mut utf8_offset = 0;
-        let mut utf16_count = 0;
-        for character in self.content.chars() {
-            if utf16_count >= offset {
-                break;
-            }
-            utf16_count += character.len_utf16();
-            utf8_offset += character.len_utf8();
+        utf8_offset_from_utf16(&self.content, offset)
+    }
+
+    fn apply_edit(
+        &mut self,
+        range: Range<usize>,
+        new_text: &str,
+        committing: bool,
+        coalescing: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let removed = self.content[range.clone()].to_string();
+        let before = self.selected_range.clone();
+        let reversed = self.selection_reversed;
+        self.content = replace_content(&self.content, range.clone(), new_text);
+        let cursor = range.start + new_text.len();
+        self.selected_range = cursor..cursor;
+        self.selection_reversed = false;
+        self.marked_range.take();
+        self.follow_caret = true;
+        self.goal_x = None;
+        self.coalesce_next = true;
+        if committing {
+            self.history.end_composition(new_text.to_owned());
+        } else {
+            self.history.record(
+                Edit {
+                    at: range.start,
+                    removed,
+                    inserted: new_text.to_owned(),
+                    before,
+                    reversed,
+                },
+                coalescing,
+            );
         }
-        utf8_offset
+        cx.emit(InputEvent::Changed);
+        cx.notify();
     }
 
     fn offset_to_utf16(&self, offset: usize) -> usize {
-        let mut utf16_offset = 0;
-        let mut utf8_count = 0;
-        for character in self.content.chars() {
-            if utf8_count >= offset {
-                break;
-            }
-            utf8_count += character.len_utf8();
-            utf16_offset += character.len_utf16();
-        }
-        utf16_offset
+        utf16_offset_from_utf8(&self.content, offset)
     }
 
     fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
@@ -1236,38 +1361,8 @@ impl EntityInputHandler for TextInput {
             .unwrap_or(self.selected_range.clone());
 
         let committing = self.marked_range.is_some();
-        let removed = self.content[range.clone()].to_string();
-        let before = self.selected_range.clone();
-        let reversed = self.selection_reversed;
         let coalescing = self.coalesce_next;
-        self.coalesce_next = true;
-
-        self.content =
-            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
-        let cursor = range.start + new_text.len();
-        self.selected_range = cursor..cursor;
-        self.selection_reversed = false;
-        self.marked_range.take();
-        self.follow_caret = true;
-        self.goal_x = None;
-
-        if committing {
-            self.history.end_composition(new_text.to_owned());
-        } else {
-            self.history.record(
-                Edit {
-                    at: range.start,
-                    removed,
-                    inserted: new_text.to_owned(),
-                    before,
-                    reversed,
-                },
-                coalescing,
-            );
-        }
-        cx.emit(InputEvent::Changed);
-        cx.notify();
+        self.apply_edit(range, new_text, committing, coalescing, cx);
     }
 
     fn replace_and_mark_text_in_range(
@@ -1293,19 +1388,20 @@ impl EntityInputHandler for TextInput {
             );
         }
 
-        self.content =
-            (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
-                .into();
+        self.content = replace_content(&self.content, range.clone(), new_text);
         self.marked_range =
             (!new_text.is_empty()).then(|| range.start..range.start + new_text.len());
         self.selected_range = new_selected_range_utf16
             .as_ref()
-            .map(|range| self.range_from_utf16(range))
-            .map(|selected| selected.start + range.start..selected.end + range.end)
+            .map(|selected| {
+                range.start + utf8_offset_from_utf16(new_text, selected.start)
+                    ..range.start + utf8_offset_from_utf16(new_text, selected.end)
+            })
             .unwrap_or_else(|| {
                 let cursor = range.start + new_text.len();
                 cursor..cursor
             });
+        self.selection_reversed = false;
         self.follow_caret = true;
         cx.emit(InputEvent::Changed);
         cx.notify();
@@ -1880,6 +1976,67 @@ mod tests {
         assert_eq!(super::valid_offset("héllo", 2), 1);
         assert_eq!(super::valid_offset("日本", 2), 0);
         assert_eq!(super::valid_offset("日本", 3), 3);
+    }
+
+    #[test]
+    fn selection_helpers_preserve_unicode_ranges_and_direction() {
+        let text = "aé👩‍💻日";
+        let range = "a".len().."aé👩‍💻".len();
+        assert_eq!(&text[range.clone()], "é👩‍💻");
+        assert_eq!(super::selection_cursor(&range, false), range.end);
+        assert_eq!(super::selection_cursor(&range, true), range.start);
+        assert!(text.is_char_boundary(range.start));
+        assert!(text.is_char_boundary(range.end));
+    }
+
+    #[test]
+    fn unicode_offsets_round_trip_across_utf8_and_utf16_boundaries() {
+        let text = "a😀日本z";
+        for (utf8, utf16) in [(0, 0), (1, 1), (5, 3), (8, 4), (11, 5), (12, 6)] {
+            assert_eq!(super::utf16_offset_from_utf8(text, utf8), utf16);
+            assert_eq!(super::utf8_offset_from_utf16(text, utf16), utf8);
+        }
+    }
+
+    #[test]
+    fn ime_relative_selection_stays_within_the_inserted_unicode_text() {
+        let insertion_start = 5;
+        let marked = "日本";
+        let selected_utf16 = 1..2;
+        let selected_utf8 = insertion_start
+            + super::utf8_offset_from_utf16(marked, selected_utf16.start)
+            ..insertion_start + super::utf8_offset_from_utf16(marked, selected_utf16.end);
+        assert_eq!(selected_utf8, 8..11);
+    }
+
+    #[test]
+    fn selection_replacement_records_one_undoable_edit() {
+        let content = "alpha βeta";
+        let range = 6..8;
+        let replaced = super::replace_content(content, range.clone(), "B");
+        assert_eq!(replaced.as_ref(), "alpha Beta");
+
+        let mut history = super::History::default();
+        history.record(
+            super::Edit {
+                at: range.start,
+                removed: content[range.clone()].to_owned(),
+                inserted: "B".to_owned(),
+                before: range,
+                reversed: false,
+            },
+            false,
+        );
+        assert_eq!(history.undo.len(), 1);
+        assert_eq!(history.undo[0].removed, "β");
+        assert_eq!(history.undo[0].inserted, "B");
+    }
+
+    #[test]
+    fn ordinary_paste_fallback_preserves_multiline_and_flattens_single_line() {
+        let text = "first\nsecond".to_owned();
+        assert_eq!(super::normalized_paste_text(text.clone(), true), text);
+        assert_eq!(super::normalized_paste_text(text, false), "first second");
     }
 
     #[test]

@@ -206,6 +206,30 @@ impl MainWindow {
                     .surfaces
                     .perform(&id, SurfaceAction::Paste);
             }
+            Command::ToggleComposerBroadcast => {
+                self.dismiss_overlay(cx);
+                self.toggle_composer_broadcast(cx);
+            }
+            Command::SubmitComposerWithoutReturn => {
+                self.dismiss_overlay(cx);
+                self.submit_composer(false, cx);
+            }
+            Command::ToggleComposerClearAfterSending => {
+                self.dismiss_overlay(cx);
+                self.toggle_composer_boolean_setting(
+                    "muxy.richInput.clearAfterSending",
+                    "Clear After Sending",
+                    cx,
+                );
+            }
+            Command::ToggleComposerClearOnClose => {
+                self.dismiss_overlay(cx);
+                self.toggle_composer_boolean_setting(
+                    "muxy.richInput.clearOnClose",
+                    "Clear on Close",
+                    cx,
+                );
+            }
             Command::DismissOverlay => self.dismiss_overlay(cx),
         }
     }

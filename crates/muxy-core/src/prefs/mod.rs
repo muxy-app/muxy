@@ -98,6 +98,195 @@ pub enum ExpandedStyle {
     Wide,
 }
 
+pub const COMPOSER_PANEL_MODE_KEY: &str = "muxy.panel.mode.builtin:richInput";
+pub const COMPOSER_POSITION_KEY: &str = "muxy.richInput.position";
+pub const COMPOSER_PANEL_WIDTH_KEY: &str = "muxy.richInputPanelWidth";
+pub const COMPOSER_PANEL_HEIGHT_KEY: &str = "muxy.richInputPanelHeight";
+pub const COMPOSER_BROADCAST_KEY: &str = "muxy.richInput.broadcast";
+pub const COMPOSER_FONT_SIZE_KEY: &str = "muxy.richInput.fontSize";
+pub const COMPOSER_RIGHT_WIDTH_MIN: f64 = 280.0;
+pub const COMPOSER_RIGHT_WIDTH_MAX: f64 = 800.0;
+pub const COMPOSER_RIGHT_WIDTH_DEFAULT: f64 = 380.0;
+pub const COMPOSER_BOTTOM_HEIGHT_MIN: f64 = 120.0;
+pub const COMPOSER_BOTTOM_HEIGHT_MAX: f64 = 600.0;
+pub const COMPOSER_BOTTOM_HEIGHT_DEFAULT: f64 = 220.0;
+pub const COMPOSER_FONT_SIZE_MIN: f64 = 9.0;
+pub const COMPOSER_FONT_SIZE_MAX: f64 = 32.0;
+pub const COMPOSER_FONT_SIZE_DEFAULT: f64 = 13.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComposerPanelMode {
+    Floating,
+    Pinned,
+}
+
+impl ComposerPanelMode {
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "pinned" => Self::Pinned,
+            _ => Self::Floating,
+        }
+    }
+
+    pub const fn raw(self) -> &'static str {
+        match self {
+            Self::Floating => "floating",
+            Self::Pinned => "pinned",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComposerPanelPosition {
+    Right,
+    Bottom,
+}
+
+impl ComposerPanelPosition {
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "bottom" => Self::Bottom,
+            _ => Self::Right,
+        }
+    }
+
+    pub const fn raw(self) -> &'static str {
+        match self {
+            Self::Right => "right",
+            Self::Bottom => "bottom",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ComposerPreferences {
+    pub panel_mode: ComposerPanelMode,
+    pub position: ComposerPanelPosition,
+    pub panel_width: f64,
+    pub panel_height: f64,
+    pub broadcast: bool,
+    pub font_size: f64,
+}
+
+impl Default for ComposerPreferences {
+    fn default() -> Self {
+        Self {
+            panel_mode: ComposerPanelMode::Floating,
+            position: ComposerPanelPosition::Right,
+            panel_width: COMPOSER_RIGHT_WIDTH_DEFAULT,
+            panel_height: COMPOSER_BOTTOM_HEIGHT_DEFAULT,
+            broadcast: false,
+            font_size: COMPOSER_FONT_SIZE_DEFAULT,
+        }
+    }
+}
+
+impl ComposerPreferences {
+    pub fn load() -> Self {
+        Self::from_values(
+            defaults::read_string(COMPOSER_PANEL_MODE_KEY).as_deref(),
+            defaults::read_string(COMPOSER_POSITION_KEY).as_deref(),
+            defaults::read_f64(COMPOSER_PANEL_WIDTH_KEY),
+            defaults::read_f64(COMPOSER_PANEL_HEIGHT_KEY),
+            defaults::read_bool(COMPOSER_BROADCAST_KEY),
+            defaults::read_f64(COMPOSER_FONT_SIZE_KEY),
+        )
+    }
+
+    fn from_values(
+        panel_mode: Option<&str>,
+        position: Option<&str>,
+        panel_width: Option<f64>,
+        panel_height: Option<f64>,
+        broadcast: Option<bool>,
+        font_size: Option<f64>,
+    ) -> Self {
+        let fallback = Self::default();
+        Self {
+            panel_mode: panel_mode
+                .map(ComposerPanelMode::parse)
+                .unwrap_or(fallback.panel_mode),
+            position: position
+                .map(ComposerPanelPosition::parse)
+                .unwrap_or(fallback.position),
+            panel_width: finite_clamped(
+                panel_width,
+                COMPOSER_RIGHT_WIDTH_MIN,
+                COMPOSER_RIGHT_WIDTH_MAX,
+                fallback.panel_width,
+            ),
+            panel_height: finite_clamped(
+                panel_height,
+                COMPOSER_BOTTOM_HEIGHT_MIN,
+                COMPOSER_BOTTOM_HEIGHT_MAX,
+                fallback.panel_height,
+            ),
+            broadcast: broadcast.unwrap_or(fallback.broadcast),
+            font_size: finite_clamped(
+                font_size,
+                COMPOSER_FONT_SIZE_MIN,
+                COMPOSER_FONT_SIZE_MAX,
+                fallback.font_size,
+            ),
+        }
+    }
+
+    pub fn try_store_panel_mode(mode: ComposerPanelMode) -> std::io::Result<()> {
+        defaults::try_store_string(COMPOSER_PANEL_MODE_KEY, Some(mode.raw()))
+    }
+
+    pub fn try_store_position(position: ComposerPanelPosition) -> std::io::Result<()> {
+        defaults::try_store_string(COMPOSER_POSITION_KEY, Some(position.raw()))
+    }
+
+    pub fn try_store_panel_width(width: f64) -> std::io::Result<()> {
+        defaults::try_store_f64(
+            COMPOSER_PANEL_WIDTH_KEY,
+            finite_clamped(
+                Some(width),
+                COMPOSER_RIGHT_WIDTH_MIN,
+                COMPOSER_RIGHT_WIDTH_MAX,
+                COMPOSER_RIGHT_WIDTH_DEFAULT,
+            ),
+        )
+    }
+
+    pub fn try_store_panel_height(height: f64) -> std::io::Result<()> {
+        defaults::try_store_f64(
+            COMPOSER_PANEL_HEIGHT_KEY,
+            finite_clamped(
+                Some(height),
+                COMPOSER_BOTTOM_HEIGHT_MIN,
+                COMPOSER_BOTTOM_HEIGHT_MAX,
+                COMPOSER_BOTTOM_HEIGHT_DEFAULT,
+            ),
+        )
+    }
+
+    pub fn try_store_broadcast(broadcast: bool) -> std::io::Result<()> {
+        defaults::try_store_bool(COMPOSER_BROADCAST_KEY, broadcast)
+    }
+
+    pub fn try_store_font_size(font_size: f64) -> std::io::Result<()> {
+        defaults::try_store_f64(
+            COMPOSER_FONT_SIZE_KEY,
+            finite_clamped(
+                Some(font_size),
+                COMPOSER_FONT_SIZE_MIN,
+                COMPOSER_FONT_SIZE_MAX,
+                COMPOSER_FONT_SIZE_DEFAULT,
+            ),
+        )
+    }
+}
+
+fn finite_clamped(value: Option<f64>, minimum: f64, maximum: f64, fallback: f64) -> f64 {
+    value
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(minimum, maximum))
+        .unwrap_or(fallback)
+}
+
 #[derive(Debug, Clone)]
 pub struct Prefs {
     pub scale: ScalePreset,
@@ -123,6 +312,7 @@ pub struct Prefs {
     pub default_worktree_parent_path: Option<String>,
     pub active_worktree_ids: std::collections::HashMap<String, String>,
     pub active_group_id: Option<String>,
+    pub composer: ComposerPreferences,
     pub repository_ai: RepositoryAiPreferences,
 }
 
@@ -152,6 +342,7 @@ impl Default for Prefs {
             default_worktree_parent_path: None,
             active_worktree_ids: std::collections::HashMap::new(),
             active_group_id: None,
+            composer: ComposerPreferences::default(),
             repository_ai: RepositoryAiPreferences::default(),
         }
     }
@@ -246,6 +437,7 @@ impl Prefs {
     }
 
     fn apply_portable_preferences(&mut self) {
+        self.composer = ComposerPreferences::load();
         if let Some(id) = defaults::read_string("muxy.activeProjectID") {
             self.active_project_id = Some(id);
         }
@@ -382,7 +574,86 @@ mod tests {
 
     use crate::environment::BuildMode;
 
-    use super::{ScalePreset, SortMode, executable_is_test_process, resolve_app_support_dir};
+    use super::{
+        ComposerPanelMode, ComposerPanelPosition, ComposerPreferences, ScalePreset, SortMode,
+        executable_is_test_process, resolve_app_support_dir,
+    };
+
+    #[test]
+    fn composer_preferences_use_exact_keys_and_defaults() {
+        assert_eq!(
+            [
+                super::COMPOSER_PANEL_MODE_KEY,
+                super::COMPOSER_POSITION_KEY,
+                super::COMPOSER_PANEL_WIDTH_KEY,
+                super::COMPOSER_PANEL_HEIGHT_KEY,
+                super::COMPOSER_BROADCAST_KEY,
+                super::COMPOSER_FONT_SIZE_KEY,
+            ],
+            [
+                "muxy.panel.mode.builtin:richInput",
+                "muxy.richInput.position",
+                "muxy.richInputPanelWidth",
+                "muxy.richInputPanelHeight",
+                "muxy.richInput.broadcast",
+                "muxy.richInput.fontSize",
+            ]
+        );
+        assert_eq!(
+            ComposerPreferences::default(),
+            ComposerPreferences {
+                panel_mode: ComposerPanelMode::Floating,
+                position: ComposerPanelPosition::Right,
+                panel_width: 380.0,
+                panel_height: 220.0,
+                broadcast: false,
+                font_size: 13.0,
+            }
+        );
+    }
+
+    #[test]
+    fn composer_preferences_fallback_and_clamp_malformed_values() {
+        assert_eq!(
+            ComposerPreferences::from_values(
+                Some("standalone"),
+                Some("left"),
+                Some(f64::NAN),
+                Some(f64::INFINITY),
+                None,
+                Some(f64::NEG_INFINITY),
+            ),
+            ComposerPreferences::default()
+        );
+        assert_eq!(
+            ComposerPreferences::from_values(
+                Some("pinned"),
+                Some("bottom"),
+                Some(100.0),
+                Some(900.0),
+                Some(true),
+                Some(40.0),
+            ),
+            ComposerPreferences {
+                panel_mode: ComposerPanelMode::Pinned,
+                position: ComposerPanelPosition::Bottom,
+                panel_width: 280.0,
+                panel_height: 600.0,
+                broadcast: true,
+                font_size: 32.0,
+            }
+        );
+    }
+
+    #[test]
+    fn composer_preference_enums_round_trip_accepted_values() {
+        for mode in [ComposerPanelMode::Floating, ComposerPanelMode::Pinned] {
+            assert_eq!(ComposerPanelMode::parse(mode.raw()), mode);
+        }
+        for position in [ComposerPanelPosition::Right, ComposerPanelPosition::Bottom] {
+            assert_eq!(ComposerPanelPosition::parse(position.raw()), position);
+        }
+    }
 
     #[test]
     fn parsing_a_raw_preset_is_the_identity() {

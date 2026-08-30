@@ -142,7 +142,7 @@ const fn item(
     }
 }
 
-pub const fn items(mode: BuildMode) -> [Item; 74] {
+pub const fn items(mode: BuildMode) -> [Item; 73] {
     let mobile_keys = MobileSettingsPolicy::new(mode).keys();
     [
         item(
@@ -488,14 +488,6 @@ pub const fn items(mode: BuildMode) -> [Item; 74] {
             &[],
         ),
         item(
-            "muxy.richInput.presentationMode",
-            "Composer Presentation",
-            "Chooses whether the composer opens as a workspace panel or a floating modal.",
-            Category::RichInput,
-            "Composer",
-            &["rich input", "panel", "floating"],
-        ),
-        item(
             "muxy.richInput.clearAfterSending",
             "Clear After Sending",
             "Clears text and attachments after a successful Composer submission.",
@@ -775,7 +767,7 @@ pub const fn items(mode: BuildMode) -> [Item; 74] {
     ]
 }
 
-pub const ITEMS: [Item; 74] = items(crate::build_mode!());
+pub const ITEMS: [Item; 73] = items(crate::build_mode!());
 
 fn haystack(item: &Item) -> String {
     let mut parts = vec![
@@ -897,8 +889,8 @@ mod tests {
             .enumerate()
             .filter_map(|(index, (left, right))| (left != right).then_some(index))
             .collect();
-        assert_eq!(development.len(), 74);
-        assert_eq!(production.len(), 74);
+        assert_eq!(development.len(), 73);
+        assert_eq!(production.len(), 73);
         assert_eq!(differences.len(), 3);
         for index in differences {
             assert!(development[index].key.ends_with(".dev"));

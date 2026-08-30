@@ -9,7 +9,10 @@ pub mod worktrees;
 
 pub use command_shortcuts::CommandShortcuts;
 pub use groups::{Group, Groups};
-pub use persistence::{write_atomic, write_private};
+pub use persistence::{
+    AtomicWriteError, PrivateDirectory, ensure_private_directory, write_atomic, write_private,
+    write_private_durable,
+};
 pub use projects::{HOME_PROJECT_ID, Project, home_project, load_projects};
 pub use recently_removed::{load as load_recently_removed, take as take_recently_removed};
 pub use worktrees::{Source as WorktreeSource, Worktree};

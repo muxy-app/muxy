@@ -1,11 +1,12 @@
 use crate::icon::Icon;
 use gpui::{
-    App, AppContext, ClickEvent, Context, ElementId, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    Window, div, px,
+    App, AppContext, ClickEvent, Context, ElementId, FocusHandle, Hsla, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, Pixels, Render, RenderOnce, SharedString,
+    StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type KeyHandler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
 
 #[derive(IntoElement)]
 pub struct IconGlyph {
@@ -108,7 +109,10 @@ pub struct IconButton {
     color: Hsla,
     hover_color: Hsla,
     tooltip: Option<(SharedString, Hsla, Hsla, Hsla)>,
+    focus_handle: Option<FocusHandle>,
+    selected: Option<(bool, Hsla, Pixels)>,
     on_click: Option<ClickHandler>,
+    on_key: Option<KeyHandler>,
 }
 
 impl IconButton {
@@ -128,7 +132,10 @@ impl IconButton {
             color,
             hover_color,
             tooltip: None,
+            focus_handle: None,
+            selected: None,
             on_click: None,
+            on_key: None,
         }
     }
 
@@ -143,6 +150,16 @@ impl IconButton {
         self
     }
 
+    pub fn focus_handle(mut self, focus_handle: FocusHandle) -> Self {
+        self.focus_handle = Some(focus_handle);
+        self
+    }
+
+    pub fn selected(mut self, selected: bool, background: Hsla, radius: Pixels) -> Self {
+        self.selected = Some((selected, background, radius));
+        self
+    }
+
     pub fn on_click(
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -150,12 +167,20 @@ impl IconButton {
         self.on_click = Some(Box::new(handler));
         self
     }
+
+    pub fn on_key(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_key = Some(Box::new(handler));
+        self
+    }
 }
 
 impl RenderOnce for IconButton {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let group = SharedString::from(format!("icon-button-{}", self.id));
-        let tooltip = self.tooltip;
+        let focused = self
+            .focus_handle
+            .as_ref()
+            .is_some_and(|focus_handle| focus_handle.is_focused(window));
         let mut button = div()
             .id(self.id)
             .group(group.clone())
@@ -169,10 +194,33 @@ impl RenderOnce for IconButton {
                 IconGlyph::new(self.icon, self.glyph_size, self.color)
                     .hover_in_group(group, self.hover_color),
             );
+        if let Some((selected, background, radius)) = self.selected
+            && (selected || focused)
+        {
+            button = button.rounded(radius).bg(background);
+        }
+        if let Some(focus_handle) = self.focus_handle {
+            let focus_for_mouse = focus_handle.clone();
+            button = button.track_focus(&focus_handle).on_mouse_down(
+                MouseButton::Left,
+                move |_, window, cx| {
+                    window.focus(&focus_for_mouse);
+                    cx.stop_propagation();
+                },
+            );
+        }
         if let Some(handler) = self.on_click {
             button = button.on_click(move |event, window, cx| handler(event, window, cx));
         }
-        if let Some((text, background, foreground, border)) = tooltip {
+        if let Some(handler) = self.on_key {
+            button = button.on_key_down(move |event, window, cx| {
+                if event.keystroke.key == "enter" || event.keystroke.key == "space" {
+                    handler(window, cx);
+                    cx.stop_propagation();
+                }
+            });
+        }
+        if let Some((text, background, foreground, border)) = self.tooltip {
             button = button.tooltip(move |_, cx| {
                 cx.new(|_| Tooltip::new(text.clone(), background, foreground, border))
                     .into()

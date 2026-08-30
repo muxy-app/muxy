@@ -668,7 +668,7 @@ run_staged_spike() {
         MUXY_HOOK_SCRIPT=/tmp/stale-hook-script \
         MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
         MUXY_TEST_P6_SPIKE_CASE=spike \
-        MUXY_TEST_P5_CLOSE_MAIN_WINDOW_REQUEST=1 \
+        MUXY_TEST_CLOSE_MAIN_WINDOW_REQUEST=1 \
         HOME="$app_support/home" \
         CFFIXED_USER_HOME="$app_support/home" \
         TMPDIR="$app_support/tmp" \
@@ -755,7 +755,7 @@ run_staged_spike() {
     done
     [[ "$(wc -l < "$second_identities" | tr -d ' ')" -ge 2 ]] || fail "staged spike did not create a descendant process"
 
-    printf '%s\n' close > "$app_support/.muxy-p5-close-main-window"
+    printf '%s\n' close > "$app_support/.muxy-test-close-main-window"
     for _ in $(jot 400); do
         ! kill -0 "$app_pid" 2>/dev/null && break
         sleep 0.05

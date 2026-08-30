@@ -12,12 +12,13 @@ use ghostty_host::{
     SurfaceId, SurfaceOptions, SurfacePoint, SurfaceTextError,
 };
 use objc2::rc::{Retained, Weak};
-use objc2::runtime::{AnyObject, NSObjectProtocol};
-use objc2::{AnyThread, DefinedClass, MainThreadOnly, define_class, msg_send, sel};
+use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
+use objc2::{AnyThread, DefinedClass, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAppearanceCustomization, NSAppearanceName, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSCursor, NSEvent, NSEventMask, NSEventModifierFlags, NSEventPhase, NSEventType,
-    NSTextInputClient, NSTextInputContextKeyboardSelectionDidChangeNotification, NSTrackingArea,
+    NSCursor, NSDragOperation, NSDraggingInfo, NSEvent, NSEventMask, NSEventModifierFlags,
+    NSEventPhase, NSEventType, NSPasteboard, NSTextInputClient,
+    NSTextInputContextKeyboardSelectionDidChangeNotification, NSTrackingArea,
     NSTrackingAreaOptions, NSView, NSViewBoundsDidChangeNotification, NSWindowOrderingMode,
 };
 use objc2_foundation::{
@@ -27,7 +28,7 @@ use objc2_foundation::{
 use thiserror::Error;
 
 use super::scrollbar::NativeScrollbar;
-use crate::backend::ShortcutGate;
+use crate::backend::{ExternalDrop, ShortcutGate};
 use crate::scrollbar::ScrollbarMetrics;
 
 const APPKIT_CAPS_LOCK: usize = 1 << 16;
@@ -57,13 +58,58 @@ pub struct HostViewPoint {
     pub y: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum HostViewEvent {
     ContextMenu(HostViewPoint),
     Appearance(ColorScheme),
     AppShortcut,
     NavigateBack,
     NavigateForward,
+    ExternalDrop(ExternalDrop),
+}
+
+struct DeferredKeyEvents<T> {
+    active: bool,
+    pending: Vec<T>,
+}
+
+impl<T> Default for DeferredKeyEvents<T> {
+    fn default() -> Self {
+        Self {
+            active: false,
+            pending: Vec::new(),
+        }
+    }
+}
+
+enum DeferredNativeKeyEvent {
+    Down(Retained<NSEvent>),
+    MonitoredDown(Retained<NSEvent>),
+    Up(Retained<NSEvent>),
+    FlagsChanged(Retained<NSEvent>),
+}
+
+impl<T> DeferredKeyEvents<T> {
+    fn defer(&mut self, event: T) -> bool {
+        if !self.active {
+            return false;
+        }
+        self.pending.push(event);
+        true
+    }
+
+    fn set_active(&mut self, active: bool) -> Vec<T> {
+        self.active = active;
+        if active {
+            Vec::new()
+        } else {
+            std::mem::take(&mut self.pending)
+        }
+    }
+
+    fn cancel(&mut self) -> Vec<T> {
+        self.set_active(false)
+    }
 }
 
 #[allow(dead_code)]
@@ -87,6 +133,7 @@ pub struct HostIvars {
     event_receiver: Receiver<HostViewEvent>,
     window_active: Cell<bool>,
     overlay_active: Cell<bool>,
+    deferred_key_events: RefCell<DeferredKeyEvents<DeferredNativeKeyEvent>>,
     forwarded_keys: RefCell<HashSet<u16>>,
     forwarded_mouse_buttons: Cell<u16>,
     forwarded_right_mouse_press: Cell<bool>,
@@ -120,6 +167,7 @@ impl Default for HostIvars {
             event_receiver,
             window_active: Cell::new(false),
             overlay_active: Cell::new(false),
+            deferred_key_events: RefCell::new(DeferredKeyEvents::default()),
             forwarded_keys: RefCell::new(HashSet::new()),
             forwarded_mouse_buttons: Cell::new(0),
             forwarded_right_mouse_press: Cell::new(false),
@@ -182,57 +230,41 @@ define_class!(
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            if !self.process_key_down(event) && !self.ivars().overlay_active.get() {
-                let _: () = unsafe { msg_send![super(self), keyDown: event] };
+            if self
+                .ivars()
+                .deferred_key_events
+                .borrow_mut()
+                .defer(DeferredNativeKeyEvent::Down(event.retain()))
+            {
+                return;
             }
+            self.dispatch_key_down(event);
         }
 
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
-            let was_forwarded = self
+            if self
                 .ivars()
-                .forwarded_keys
+                .deferred_key_events
                 .borrow_mut()
-                .remove(&event.keyCode());
-            if !forwards_input_while_overlay(
-                self.ivars().overlay_active.get(),
-                true,
-                was_forwarded,
-            ) {
+                .defer(DeferredNativeKeyEvent::Up(event.retain()))
+            {
                 return;
             }
-            if !self.forward_physical_key(event, KeyAction::Release, None, false, Modifiers::NONE) {
-                let _: () = unsafe { msg_send![super(self), keyUp: event] };
-            }
+            self.dispatch_key_up(event);
         }
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            if self.has_marked_text_internal() {
-                return;
-            }
-            let keycode = event.keyCode();
-            let action = if modifier_key_is_pressed(keycode, event.modifierFlags().0) {
-                KeyAction::Press
-            } else {
-                KeyAction::Release
-            };
-            let was_forwarded = match action {
-                KeyAction::Press | KeyAction::Repeat => false,
-                KeyAction::Release => self.ivars().forwarded_keys.borrow_mut().remove(&keycode),
-            };
-            if !forwards_input_while_overlay(
-                self.ivars().overlay_active.get(),
-                matches!(action, KeyAction::Release),
-                was_forwarded,
-            ) {
-                return;
-            }
-            if self.forward_physical_key(event, action, None, false, Modifiers::NONE)
-                && matches!(action, KeyAction::Press)
+            if self
+                .ivars()
+                .deferred_key_events
+                .borrow_mut()
+                .defer(DeferredNativeKeyEvent::FlagsChanged(event.retain()))
             {
-                self.ivars().forwarded_keys.borrow_mut().insert(keycode);
+                return;
             }
+            self.dispatch_flags_changed(event);
         }
 
         #[unsafe(method(performKeyEquivalent:))]
@@ -346,6 +378,33 @@ define_class!(
             if let Some(surface) = self.ivars().surface.borrow().as_ref() {
                 surface.send_mouse_pressure(stage, f64::from(event.pressure()));
             }
+        }
+
+        #[unsafe(method(draggingEntered:))]
+        fn dragging_entered(
+            &self,
+            _sender: &ProtocolObject<dyn NSDraggingInfo>,
+        ) -> NSDragOperation {
+            NSDragOperation::Copy
+        }
+
+        #[unsafe(method(prepareForDragOperation:))]
+        fn prepare_for_drag_operation(
+            &self,
+            _sender: &ProtocolObject<dyn NSDraggingInfo>,
+        ) -> bool {
+            true
+        }
+
+        #[unsafe(method(performDragOperation:))]
+        fn perform_drag_operation(&self, sender: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
+            let dropped = external_drop(sender);
+            !dropped.is_empty()
+                && self
+                    .ivars()
+                    .events
+                    .try_send(HostViewEvent::ExternalDrop(dropped))
+                    .is_ok()
         }
 
         #[unsafe(method(updateTrackingAreas))]
@@ -511,6 +570,15 @@ impl GhosttyHostView {
         let this = Self::alloc(mtm).set_ivars(HostIvars::default());
         let this: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
         this.setWantsLayer(true);
+        let dragged_types = [
+            NSString::from_str("public.file-url"),
+            NSString::from_str("public.utf8-plain-text"),
+        ];
+        let dragged_type_refs = dragged_types
+            .iter()
+            .map(|value| &**value)
+            .collect::<Vec<_>>();
+        this.registerForDraggedTypes(&NSArray::from_slice(&dragged_type_refs));
         this.install_scrollbar(mtm);
         this.sync_color_scheme(false);
         this
@@ -575,6 +643,83 @@ impl GhosttyHostView {
         }
         self.sync_cursor_visibility();
         self.sync_focus();
+    }
+
+    pub fn set_input_transaction_active(&self, active: bool) {
+        let deferred = self
+            .ivars()
+            .deferred_key_events
+            .borrow_mut()
+            .set_active(active);
+        self.replay_deferred_key_events(deferred);
+    }
+
+    pub fn cancel_input_transaction(&self) {
+        let deferred = self.ivars().deferred_key_events.borrow_mut().cancel();
+        self.replay_deferred_key_events(deferred);
+    }
+
+    fn replay_deferred_key_events(&self, deferred: Vec<DeferredNativeKeyEvent>) {
+        for event in deferred {
+            match event {
+                DeferredNativeKeyEvent::Down(event) => self.dispatch_key_down(&event),
+                DeferredNativeKeyEvent::MonitoredDown(event) => {
+                    self.dispatch_monitored_key_down(&event);
+                }
+                DeferredNativeKeyEvent::Up(event) => self.dispatch_key_up(&event),
+                DeferredNativeKeyEvent::FlagsChanged(event) => {
+                    self.dispatch_flags_changed(&event);
+                }
+            }
+        }
+    }
+
+    fn dispatch_key_down(&self, event: &NSEvent) {
+        if !self.process_key_down(event) && !self.ivars().overlay_active.get() {
+            let _: () = unsafe { msg_send![super(self), keyDown: event] };
+        }
+    }
+
+    fn dispatch_key_up(&self, event: &NSEvent) {
+        let was_forwarded = self
+            .ivars()
+            .forwarded_keys
+            .borrow_mut()
+            .remove(&event.keyCode());
+        if !forwards_input_while_overlay(self.ivars().overlay_active.get(), true, was_forwarded) {
+            return;
+        }
+        if !self.forward_physical_key(event, KeyAction::Release, None, false, Modifiers::NONE) {
+            let _: () = unsafe { msg_send![super(self), keyUp: event] };
+        }
+    }
+
+    fn dispatch_flags_changed(&self, event: &NSEvent) {
+        if self.has_marked_text_internal() {
+            return;
+        }
+        let keycode = event.keyCode();
+        let action = if modifier_key_is_pressed(keycode, event.modifierFlags().0) {
+            KeyAction::Press
+        } else {
+            KeyAction::Release
+        };
+        let was_forwarded = match action {
+            KeyAction::Press | KeyAction::Repeat => false,
+            KeyAction::Release => self.ivars().forwarded_keys.borrow_mut().remove(&keycode),
+        };
+        if !forwards_input_while_overlay(
+            self.ivars().overlay_active.get(),
+            matches!(action, KeyAction::Release),
+            was_forwarded,
+        ) {
+            return;
+        }
+        if self.forward_physical_key(event, action, None, false, Modifiers::NONE)
+            && matches!(action, KeyAction::Press)
+        {
+            self.ivars().forwarded_keys.borrow_mut().insert(keycode);
+        }
     }
 
     pub fn set_app_view(&self, view: Retained<NSView>) {
@@ -1349,6 +1494,11 @@ impl GhosttyHostView {
             .try_send(HostViewEvent::ContextMenu(point));
     }
 
+    fn dispatch_monitored_key_down(&self, event: &NSEvent) -> bool {
+        (self.claims_key_event(event) && self.process_key_down(event))
+            || self.forward_app_shortcut(event)
+    }
+
     fn install_event_monitor(&self) {
         if self.ivars().event_monitor.borrow().is_some() {
             return;
@@ -1358,10 +1508,18 @@ impl GhosttyHostView {
             let event = unsafe { event_pointer.as_ref() };
             if let Some(this) = weak.load() {
                 if event.r#type() == NSEventType::KeyDown {
-                    if this.claims_key_event(event) && this.process_key_down(event) {
+                    let claimed = this.claims_key_event(event);
+                    let app_shortcut = this.is_app_shortcut(event);
+                    if (claimed || app_shortcut)
+                        && this
+                            .ivars()
+                            .deferred_key_events
+                            .borrow_mut()
+                            .defer(DeferredNativeKeyEvent::MonitoredDown(event.retain()))
+                    {
                         return std::ptr::null_mut();
                     }
-                    if this.forward_app_shortcut(event) {
+                    if this.dispatch_monitored_key_down(event) {
                         return std::ptr::null_mut();
                     }
                     return event_pointer.as_ptr();
@@ -1752,6 +1910,33 @@ fn mouse_button(number: isize) -> Option<MouseButton> {
     }
 }
 
+fn external_drop(sender: &ProtocolObject<dyn NSDraggingInfo>) -> ExternalDrop {
+    external_drop_from_pasteboard(&sender.draggingPasteboard())
+}
+
+fn external_drop_from_pasteboard(pasteboard: &NSPasteboard) -> ExternalDrop {
+    let file_type = NSString::from_str("public.file-url");
+    let plain_type = NSString::from_str("public.utf8-plain-text");
+    let mut file_values = Vec::new();
+    let mut plain_text = None;
+    if let Some(items) = pasteboard.pasteboardItems() {
+        for item in items.iter() {
+            if let Some(value) = item.stringForType(&file_type) {
+                file_values.push(value.to_string());
+            }
+            if plain_text.is_none()
+                && let Some(value) = item.stringForType(&plain_type)
+            {
+                plain_text = Some(value.to_string());
+            }
+        }
+    }
+    ExternalDrop {
+        file_values,
+        plain_text,
+    }
+}
+
 fn navigation_button_event(number: isize) -> Option<HostViewEvent> {
     match number {
         3 => Some(HostViewEvent::NavigateBack),
@@ -1894,6 +2079,8 @@ fn physical_pixels(points: f64, scale: f64) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use objc2_app_kit::NSPasteboardItem;
+
     use super::*;
 
     #[test]
@@ -1956,6 +2143,48 @@ mod tests {
     }
 
     #[test]
+    fn external_drop_adapter_extracts_file_url_and_plain_string_representations() {
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        let item = NSPasteboardItem::new();
+        let file_type = NSString::from_str("public.file-url");
+        let plain_type = NSString::from_str("public.utf8-plain-text");
+        assert!(item.setString_forType(&NSString::from_str("file:///tmp/a%20b"), &file_type));
+        assert!(item.setString_forType(&NSString::from_str("/tmp/fallback"), &plain_type));
+        pasteboard.clearContents();
+        let items = NSArray::from_slice(&[&*item]);
+        let written: bool = unsafe { msg_send![&pasteboard, writeObjects: &*items] };
+        assert!(written);
+        assert_eq!(
+            external_drop_from_pasteboard(&pasteboard),
+            ExternalDrop {
+                file_values: vec!["file:///tmp/a%20b".to_owned()],
+                plain_text: Some("/tmp/fallback".to_owned()),
+            }
+        );
+        pasteboard.clearContents();
+    }
+
+    #[test]
+    fn external_drop_event_carries_ordered_file_values_and_optional_plain_text() {
+        let dropped = ExternalDrop {
+            file_values: vec!["file:///tmp/a".to_owned(), "/tmp/b".to_owned()],
+            plain_text: Some("/tmp/fallback".to_owned()),
+        };
+        assert!(!dropped.is_empty());
+        assert_eq!(
+            HostViewEvent::ExternalDrop(dropped.clone()),
+            HostViewEvent::ExternalDrop(dropped)
+        );
+        assert!(
+            ExternalDrop {
+                file_values: Vec::new(),
+                plain_text: None,
+            }
+            .is_empty()
+        );
+    }
+
+    #[test]
     fn appkit_navigation_buttons_are_application_events() {
         assert_eq!(
             navigation_button_event(3),
@@ -2005,6 +2234,22 @@ mod tests {
         assert!(forwards_right_mouse_button(true, false));
         assert!(!forwards_right_mouse_button(true, true));
         assert!(!forwards_right_mouse_button(false, false));
+    }
+
+    #[test]
+    fn transaction_deferral_releases_in_order_on_completion_and_cancellation() {
+        let mut deferred = DeferredKeyEvents::default();
+        assert!(!deferred.defer(0));
+        assert!(deferred.set_active(true).is_empty());
+        assert!(deferred.defer(1));
+        assert!(deferred.defer(2));
+        assert_eq!(deferred.set_active(false), [1, 2]);
+        assert!(!deferred.defer(3));
+        deferred.set_active(true);
+        assert!(deferred.defer(4));
+        assert!(deferred.defer(5));
+        assert_eq!(deferred.cancel(), [4, 5]);
+        assert!(!deferred.defer(6));
     }
 
     #[test]

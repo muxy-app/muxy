@@ -106,7 +106,8 @@ impl ShortcutEditor {
         self.theme = theme;
         self.metrics = metrics;
         let style = InputStyle::field(&self.theme, &self.metrics);
-        self.search.update(cx, |input, _| input.set_style(style));
+        self.search
+            .update(cx, |input, cx| input.set_style(style, cx));
         cx.notify();
     }
 

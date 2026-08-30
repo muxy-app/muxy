@@ -1,5 +1,6 @@
 use crate::socket::ingress::IngressQueues;
 use gpui::{App, WindowAppearance};
+use muxy_core::composer::ComposerStore;
 use muxy_core::navigation::{Direction, NavigationEntry, NavigationHistory};
 use muxy_core::notifications::{NotificationStore, NotificationTarget};
 use muxy_core::prefs::Prefs;
@@ -52,6 +53,88 @@ fn load_notification_store_from(path: impl Into<std::path::PathBuf>) -> Notifica
         log::warn!("failed to clear retained notification unread state: {error}");
     }
     store
+}
+
+pub(crate) fn load_composer_store() -> ComposerStore {
+    load_composer_store_from(muxy_core::prefs::app_support_dir())
+}
+
+fn load_composer_store_from(path: impl Into<std::path::PathBuf>) -> ComposerStore {
+    let store = ComposerStore::load_from(path);
+    for warning in &store.load_status().warnings {
+        log::warn!("{warning}");
+    }
+    if !store.load_status().malformed_keys.is_empty() {
+        log::warn!(
+            "malformed Composer drafts preserved: {}",
+            store.load_status().malformed_keys.join(", ")
+        );
+    }
+    store
+}
+
+fn p7_composer_status_path(
+    is_test_process: bool,
+    case_name: Option<&str>,
+    app_support: &Path,
+    injected_app_support: Option<&Path>,
+    home: &Path,
+) -> Option<std::path::PathBuf> {
+    if !is_test_process
+        || !matches!(case_name, Some("phase-2" | "persistence"))
+        || injected_app_support != Some(app_support)
+        || !app_support.is_absolute()
+        || app_support.starts_with(home)
+        || !std::fs::symlink_metadata(app_support)
+            .ok()
+            .is_some_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+    {
+        return None;
+    }
+    Some(app_support.join(".muxy-p7-composer-status.json"))
+}
+
+fn current_p7_composer_status_path() -> Option<std::path::PathBuf> {
+    let app_support = muxy_core::prefs::app_support_dir();
+    let injected =
+        std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").map(std::path::PathBuf::from);
+    let case_name = std::env::var("MUXY_TEST_P7_COMPOSER_CASE").ok();
+    p7_composer_status_path(
+        muxy_core::prefs::is_test_process(),
+        case_name.as_deref(),
+        &app_support,
+        injected.as_deref(),
+        &muxy_core::prefs::home_dir(),
+    )
+}
+
+pub(crate) fn p7_composer_status_enabled() -> bool {
+    current_p7_composer_status_path().is_some()
+}
+
+pub(crate) fn write_p7_composer_status(store: &ComposerStore) {
+    let Some(path) = current_p7_composer_status_path() else {
+        return;
+    };
+    let image_files = store
+        .image_storage()
+        .and_then(|storage| storage.regular_file_names().ok())
+        .unwrap_or_default();
+    let value = serde_json::json!({
+        "draftCount": store.drafts().count(),
+        "overwriteBlocked": store.load_status().overwrite_blocked,
+        "malformedKeys": store.load_status().malformed_keys,
+        "warnings": store.load_status().warnings,
+        "imageFiles": image_files,
+    });
+    match serde_json::to_vec_pretty(&value) {
+        Ok(contents) => {
+            if let Err(error) = muxy_core::store::write_private(&path, &contents) {
+                log::warn!("failed to write P7 Composer status: {error}");
+            }
+        }
+        Err(error) => log::warn!("failed to encode P7 Composer status: {error}"),
+    }
 }
 
 pub(crate) fn appearance_for_window(appearance: WindowAppearance) -> Appearance {
@@ -1020,6 +1103,53 @@ mod tests {
         let persisted: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(persisted[0]["isRead"], true);
+    }
+
+    #[test]
+    fn composer_store_staged_status_requires_test_identity_case_and_injected_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(directory.path()).unwrap();
+        let support = root.join("support");
+        let home = root.join("home");
+        std::fs::create_dir(&support).unwrap();
+        std::fs::create_dir(&home).unwrap();
+        assert!(
+            p7_composer_status_path(false, Some("phase-2"), &support, Some(&support), &home)
+                .is_none()
+        );
+        assert!(p7_composer_status_path(true, None, &support, Some(&support), &home).is_none());
+        assert!(
+            p7_composer_status_path(true, Some("other"), &support, Some(&support), &home).is_none()
+        );
+        assert!(
+            p7_composer_status_path(true, Some("phase-2"), &support, Some(&root), &home).is_none()
+        );
+        assert!(
+            p7_composer_status_path(true, Some("phase-2"), &home, Some(&home), &home).is_none()
+        );
+        assert_eq!(
+            p7_composer_status_path(true, Some("phase-2"), &support, Some(&support), &home),
+            Some(support.join(".muxy-p7-composer-status.json"))
+        );
+    }
+
+    #[test]
+    fn composer_store_startup_exposes_valid_and_recoverable_load_status() {
+        let directory = tempfile::tempdir().unwrap();
+        let id = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE:11111111-2222-4333-8444-555555555555";
+        std::fs::write(
+            directory.path().join("rich-input-drafts.json"),
+            serde_json::to_vec(&serde_json::json!({
+                id: {"text": "restored"},
+                "malformed": {"text": 7}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let store = load_composer_store_from(directory.path());
+        assert_eq!(store.drafts().count(), 1);
+        assert_eq!(store.load_status().malformed_keys, ["malformed"]);
+        assert!(!store.load_status().overwrite_blocked);
     }
 
     #[test]

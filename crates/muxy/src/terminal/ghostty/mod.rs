@@ -236,6 +236,8 @@ pub struct GhosttyBackend {
     color_scheme: Option<TerminalColorScheme>,
     navigation_events: async_channel::Sender<muxy_core::navigation::Direction>,
     navigation_event_receiver: Receiver<muxy_core::navigation::Direction>,
+    external_drops: async_channel::Sender<(SurfaceIdentity, muxy_terminal::backend::ExternalDrop)>,
+    external_drop_receiver: Receiver<(SurfaceIdentity, muxy_terminal::backend::ExternalDrop)>,
     standalone_shortcuts: async_channel::Sender<()>,
     standalone_shortcut_receiver: Receiver<()>,
 }
@@ -260,6 +262,7 @@ fn ghostty_color_scheme(scheme: TerminalColorScheme) -> ColorScheme {
 impl GhosttyBackend {
     pub fn new() -> Self {
         let (navigation_events, navigation_event_receiver) = async_channel::bounded(32);
+        let (external_drops, external_drop_receiver) = async_channel::bounded(32);
         let (standalone_shortcuts, standalone_shortcut_receiver) = async_channel::bounded(8);
         Self {
             app: None,
@@ -275,6 +278,8 @@ impl GhosttyBackend {
             color_scheme: None,
             navigation_events,
             navigation_event_receiver,
+            external_drops,
+            external_drop_receiver,
             standalone_shortcuts,
             standalone_shortcut_receiver,
         }
@@ -388,6 +393,23 @@ impl GhosttyBackend {
 
     pub fn navigation_event_receiver(&self) -> Receiver<muxy_core::navigation::Direction> {
         self.navigation_event_receiver.clone()
+    }
+
+    pub(crate) fn external_drop_receiver(
+        &self,
+    ) -> Receiver<(SurfaceIdentity, muxy_terminal::backend::ExternalDrop)> {
+        self.external_drop_receiver.clone()
+    }
+
+    pub(crate) fn inject_staged_external_drop(
+        &self,
+        identity: SurfaceIdentity,
+        dropped: muxy_terminal::backend::ExternalDrop,
+    ) -> bool {
+        muxy_core::prefs::is_test_process()
+            && std::env::var("MUXY_TEST_P7_COMPOSER_CASE").ok().as_deref() == Some("phase-7")
+            && std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").is_some()
+            && self.external_drops.try_send((identity, dropped)).is_ok()
     }
 
     pub fn tick(&self) {
@@ -717,12 +739,24 @@ impl GhosttyBackend {
         );
         let host_events = host.event_receiver();
         let navigation_events = self.navigation_events.clone();
+        let external_drops = self.external_drops.clone();
         let standalone_shortcuts = self.standalone_shortcuts.clone();
         let routes_navigation = matches!(identity, SurfaceIdentity::Workspace(_));
+        let drop_identity = identity.clone();
         let task = cx.background_spawn(async move {
             while let Ok(event) = host_events.recv().await {
                 if event == HostViewEvent::AppShortcut {
                     if !routes_navigation && standalone_shortcuts.send(()).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                if let HostViewEvent::ExternalDrop(dropped) = &event {
+                    if external_drops
+                        .send((drop_identity.clone(), dropped.clone()))
+                        .await
+                        .is_err()
+                    {
                         return;
                     }
                     continue;
@@ -735,7 +769,8 @@ impl GhosttyBackend {
                     HostViewEvent::NavigateForward => muxy_core::navigation::Direction::Forward,
                     HostViewEvent::ContextMenu(_)
                     | HostViewEvent::Appearance(_)
-                    | HostViewEvent::AppShortcut => continue,
+                    | HostViewEvent::AppShortcut
+                    | HostViewEvent::ExternalDrop(_) => continue,
                 };
                 if navigation_events.send(direction).await.is_err() {
                     return;
@@ -800,6 +835,14 @@ impl TerminalSurfaceHandle for GhosttySurfaceHandle {
 
     fn set_pointer_inside(&self, inside: bool) {
         self.host.set_pointer_inside(inside);
+    }
+
+    fn set_input_transaction_active(&self, active: bool) {
+        self.host.set_input_transaction_active(active);
+    }
+
+    fn cancel_input_transaction(&self) {
+        self.host.cancel_input_transaction();
     }
 
     fn has_native_scrollbar(&self) -> bool {

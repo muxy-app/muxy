@@ -60,6 +60,9 @@ actions!(
         TerminalOmniboxWorkspaces,
         TerminalOmniboxCommands,
         ToggleSidebar,
+        ToggleRichInput,
+        SubmitRichInput,
+        SubmitRichInputWithoutReturn,
         ToggleFullScreen,
         ToggleThemePicker,
         ReloadConfig
@@ -177,6 +180,11 @@ fn binding(action: ShortcutAction, key: String) -> Option<KeyBinding> {
             KeyBinding::new(key, TerminalOmniboxCommands, context)
         }
         ShortcutAction::ToggleSidebar => KeyBinding::new(key, ToggleSidebar, context),
+        ShortcutAction::ToggleRichInput => KeyBinding::new(key, ToggleRichInput, context),
+        ShortcutAction::SubmitRichInput => KeyBinding::new(key, SubmitRichInput, context),
+        ShortcutAction::SubmitRichInputWithoutReturn => {
+            KeyBinding::new(key, SubmitRichInputWithoutReturn, context)
+        }
         ShortcutAction::ToggleFullScreen => KeyBinding::new(key, ToggleFullScreen, context),
         ShortcutAction::ToggleThemePicker => KeyBinding::new(key, ToggleThemePicker, context),
         ShortcutAction::ReloadConfig => KeyBinding::new(key, ReloadConfig, context),

@@ -3,6 +3,7 @@ pub mod components;
 pub mod controls;
 pub mod icon;
 pub mod motion;
+pub mod panel;
 pub mod popover;
 pub mod scrollbar;
 pub mod symbols;

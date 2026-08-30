@@ -191,46 +191,21 @@ Define reusable shell command shortcuts in **Settings → Commands**:
 
 ## Composer
 
-`Cmd+I` opens the composer for multiline prompts, files, images, and broadcast sends. The default **Panel**
-presentation opens over the workspace without taking layout space. Use the panel header's pin control to dock it
-beside the workspace or float it again, resize it from its workspace-facing edge, and move it between the right and
-bottom positions. The panel's float/dock choice and position persist across app restarts.
+`⌘I` on macOS and `Alt+I` on other platforms toggle Composer for the active local terminal pane. Composer is always an in-window panel. It can sit on the right or bottom, resize from the workspace-facing edge, and switch between **Pinned**, which displaces the workspace, and **Floating**, which overlays it. Position, mode, size, broadcast state, and font size persist in the selected profile.
 
-Choose **Floating** under **Settings -> Composer -> Presentation** or **Use Floating Composer** from the panel's
-More menu to open the separate centered modal instead. Choose **Use Composer Panel** from the floating Composer's
-More menu to switch back. The presentation choice and both layouts' sizes also persist across app restarts, and
-switching an open Composer preserves its draft and attachments.
+Composer follows pane and worktree selection. A pane change in the same worktree rebinds the open panel without replacing that worktree's draft. A worktree change transfers to that worktree's saved draft. Losing the target closes the panel. While Composer owns focus, ordinary native terminal input is suppressed; closing restores terminal focus when the target still exists.
 
-Use **Settings -> Composer** or the Composer's More menu to control automatic clearing. **Clear After Sending**
-removes the submitted text and attachments only after every target finishes successfully. If the draft changes
-while a submission is finishing, Muxy preserves the newer content. **Clear on Close** removes the draft whenever
-the Composer closes, including floating auto-close, target loss, and panel displacement. When an open Composer panel
-moves to another worktree, it clears the previous worktree's draft while preserving drafts across pane changes in
-the same worktree. Both options are off by default.
+The editor supports multiline text, Unicode selection, IME composition, undo/redo, cursor insertion, wrapping, scrolling, the configured editor font family, and the Composer line-height setting. Use **Attach files** to choose multiple local files. File chips preserve insertion order and can be removed independently. Clipboard paste prefers text, then file URLs, then an image. A copied image is stored privately under `RichInputImages/` and inserted as a stable `[Image N]` token. Dropped image paths remain ordinary file attachments and are not copied.
 
-`Cmd+Shift+I` opens the legacy voice recorder normally, or starts on-device dictation inside either Composer
-presentation when it is already open. Stop Composer dictation to insert the transcript at the editor cursor, or
-press Return while recording, then edit or send it normally. Composer dictation requires an installed on-device
-speech language plus microphone and speech recognition access.
+`⌘Return` submits with Return and `⌘⇧Return` submits without Return on macOS. The header also provides both send actions. When text is selected, submission uses that selected text. Local file paths are checked before publication and shell-escaped. Each pane receives one FIFO transaction, so bracketed text, images, rollback, and the optional Return cannot interleave with later keyboard input. Broadcast captures the visible active terminal panes in retained order and processes them sequentially even when an earlier pane fails.
 
-Long prompts in the floating presentation can use a larger Composer. Drag its left, right, or bottom edge to
-resize it; because the Composer stays centered, a dragged edge grows the box symmetrically and follows the
-pointer. The expand button in the Composer header switches to a large preset instead, which is capped so it stays
-readable on big displays and shrinks to fit smaller windows; dragging an edge is what grows the Composer beyond
-that preset, and pressing the button again restores the size you dragged. Both the size and the expanded state
-are stored independently of the UI Scale preset and always clamped to the current window, so a smaller window
-shrinks the Composer without losing your size. **Reset Composer Size** in the Composer's More menu returns it to
-the default size. The text editor takes whatever room the box has left, so attachments and the dictation status
-line reduce it while they are visible. `Cmd+=` and `Cmd+-` still change the Composer font size rather than the box.
+Image submission is selected under **Settings → Composer → Image Submission**. **Clipboard Paste** temporarily replaces the native pasteboard, sends raw `Ctrl+V`, waits 300 ms, and restores every captured item and representation. **Inline File Path** inserts the escaped private PNG path in text/image order. Each unique image is normalized once per submission batch and reused across broadcast targets. A partial image-send failure clears only the transaction's partial input, appends no Return for that pane, continues later broadcast panes, and retains the draft and image for recovery.
 
-Each Composer submission is serialized with later keyboard input for its target terminal. Text, attachment paths,
-and the optional Return are submitted as one transaction, including when a Composer message is broadcast to
-several panes. Broadcast targets are processed one at a time, and each unique image attachment is normalized once
-into validated immutable PNG data that is reused across those targets.
+**Clear After Sending** clears only after every target succeeds and only when the draft revision is unchanged. **Clear on Close** clears the released worktree draft on close or worktree transfer. Both are off by default. Drafts otherwise persist per worktree in the selected profile's private `rich-input-drafts.json`; startup removes only image files proven to have no durable reference.
 
-Composer submission controls stay unavailable while dictation is starting or recording. A dictation error does
-not block typed text from being sent, and its inline message can be dismissed without closing the composer.
-Only one focused overlay is shown at a time, so Composer shortcuts do not open it over another modal.
+External path drops use one shared parser. Composer attaches every accepted path in order and deduplicates against existing chips. A terminal drop focuses the routed pane and inserts shell-escaped paths joined by spaces without Return. The project sidebar accepts existing directories sequentially, selects an already-known project without duplicating it, adds/selects new directories, and silently ignores files.
+
+Automated tests cover parser policy, native pasteboard/drop adapters, exact terminal bytes, persistence, failure retention, and isolated staged app lifecycle. Physical Finder delivery, visible drag highlighting, real clipboard timing in a TUI, visual quality, focus feel, and accessibility remain manual acceptance items.
 
 The status-bar microphone remains available as the legacy voice recorder. It inserts the final transcript into
 the control that was focused before recording and can optionally press Return afterward.

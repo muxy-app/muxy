@@ -934,6 +934,23 @@ pub(super) fn spawn_terminal_pumps(
             }
         }));
     }
+    if let Some(events) = terminals.external_drop_events() {
+        tasks.push(cx.spawn(async move |window, cx| {
+            while let Ok((identity, dropped)) = events.recv().await {
+                let crate::terminal::SurfaceIdentity::Workspace(tab_id) = identity else {
+                    continue;
+                };
+                if window
+                    .update(cx, |window, cx| {
+                        window.handle_terminal_drop(&tab_id, dropped, cx);
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        }));
+    }
     tasks
 }
 

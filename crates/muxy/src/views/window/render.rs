@@ -17,6 +17,7 @@ impl Render for MainWindow {
             window.focus(&handle);
         } else if !self.view.overlay.is_open()
             && self.view.terminal.search_inputs.is_empty()
+            && !self.composer_is_open()
             && !self.view.workspace_focus.contains_focused(window, cx)
         {
             window.focus(&self.view.workspace_focus);
@@ -70,7 +71,9 @@ impl Render for MainWindow {
             .scrollbar_drag
             .as_ref()
             .map(|drag| (drag.tab_id.as_str(), drag.origin));
-        crate::views::app::render(
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        let app = crate::views::app::render(
             crate::views::app::AppView {
                 state: &self.state,
                 repository_controls: &repository_controls,
@@ -96,9 +99,11 @@ impl Render for MainWindow {
                 drop_highlight,
                 focused_working_directory,
                 expanded_worktree_projects: self.view.worktrees.expanded_projects(),
+                composer: &self.composer,
             },
             window,
             cx,
-        )
+        );
+        crate::panels::with_phase_3_component_proof(app, &theme, metrics, cx)
     }
 }

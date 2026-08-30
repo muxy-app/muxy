@@ -256,7 +256,7 @@ run_fixture() {
     cargo test -p muxy --locked --offline notifications
     cargo test -p muxy --locked --offline notification_panel
     cargo test -p muxy --locked --offline notification_navigation
-    cargo test -p muxy --locked --offline notifications_main_window_lifecycle_wires_both_final_flush_paths
+    cargo test -p muxy --locked --offline persistent_stores_wire_quit_and_drop_flush_paths
     cargo test -p muxy --locked --offline notifications_startup
     run_catalog_contract
     source_checks
@@ -317,7 +317,7 @@ launch_app() {
         TMPDIR="$root/home/tmp/" \
         XDG_CONFIG_HOME="$root/xdg-config" \
         MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$APP_SUPPORT" \
-        MUXY_TEST_P5_CLOSE_MAIN_WINDOW_REQUEST="$close_request_enabled" \
+        MUXY_TEST_CLOSE_MAIN_WINDOW_REQUEST="$close_request_enabled" \
         "$APP_EXECUTABLE" > "$APP_LOG" 2>&1 &
     APP_PID=$!
     for _ in $(jot 400); do
@@ -395,7 +395,7 @@ normal_quit() {
 
 request_main_window_close() {
     [[ "$APP_SUPPORT" == "$VERIFICATION_ROOT"/* ]] || fail "close request escaped the verification root"
-    printf '%s\n' close > "$APP_SUPPORT/.muxy-p5-close-main-window"
+    printf '%s\n' close > "$APP_SUPPORT/.muxy-test-close-main-window"
 }
 
 write_staged_seed() {

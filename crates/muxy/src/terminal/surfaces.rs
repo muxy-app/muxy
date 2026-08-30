@@ -4,7 +4,8 @@ use muxy_core::workspace::{CloseMode, TabId, TabKind};
 use muxy_core::workspace_store::WorkspaceStore;
 use muxy_terminal::backend::{LaunchCommand, PointerInput, SurfaceAction, TerminalSurfaceHandle};
 use muxy_terminal::confirmation::{ConfirmationId, ConfirmationKind};
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 pub trait AppSurfaceHandle: TerminalSurfaceHandle {
@@ -186,6 +187,21 @@ pub struct TerminalSurfaces {
     materialization_requested: HashSet<TabId>,
     socket_path: Option<String>,
     pointer_tab: Option<TabId>,
+    pub(crate) input_queue_generation: u64,
+    pub(crate) input_queues: HashMap<TabId, crate::terminal::input_queue::PaneInputQueue>,
+    pub(crate) pasteboard_owner: Option<crate::terminal::input_queue::PasteboardInputId>,
+    pub(crate) pasteboard_waiting: VecDeque<crate::terminal::input_queue::PasteboardInputId>,
+    staged_input_bytes: RefCell<Option<HashMap<TabId, Vec<Vec<u8>>>>>,
+    staged_image_failure: RefCell<Option<TabId>>,
+}
+
+fn captures_staged_input_bytes() -> bool {
+    muxy_core::prefs::is_test_process()
+        && matches!(
+            std::env::var("MUXY_TEST_P7_COMPOSER_CASE").ok().as_deref(),
+            Some("phase-5" | "phase-6" | "phase-7")
+        )
+        && std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").is_some()
 }
 
 impl Default for TerminalSurfaces {
@@ -204,6 +220,12 @@ impl TerminalSurfaces {
             materialization_requested: HashSet::new(),
             socket_path: None,
             pointer_tab: None,
+            input_queue_generation: 0,
+            input_queues: HashMap::new(),
+            pasteboard_owner: None,
+            pasteboard_waiting: VecDeque::new(),
+            staged_input_bytes: RefCell::new(captures_staged_input_bytes().then(HashMap::new)),
+            staged_image_failure: RefCell::new(None),
         }
     }
 
@@ -253,6 +275,51 @@ impl TerminalSurfaces {
         &self,
     ) -> Option<async_channel::Receiver<muxy_core::navigation::Direction>> {
         None
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn external_drop_events(
+        &self,
+    ) -> Option<
+        async_channel::Receiver<(
+            crate::terminal::SurfaceIdentity,
+            muxy_terminal::backend::ExternalDrop,
+        )>,
+    > {
+        Some(self.backend.external_drop_receiver())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn external_drop_events(
+        &self,
+    ) -> Option<
+        async_channel::Receiver<(
+            crate::terminal::SurfaceIdentity,
+            muxy_terminal::backend::ExternalDrop,
+        )>,
+    > {
+        None
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn inject_staged_external_drop(
+        &self,
+        tab_id: &str,
+        dropped: muxy_terminal::backend::ExternalDrop,
+    ) -> bool {
+        self.backend.inject_staged_external_drop(
+            crate::terminal::SurfaceIdentity::Workspace(tab_id.to_owned()),
+            dropped,
+        )
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn inject_staged_external_drop(
+        &self,
+        _tab_id: &str,
+        _dropped: muxy_terminal::backend::ExternalDrop,
+    ) -> bool {
+        false
     }
 
     #[cfg(target_os = "macos")]
@@ -328,8 +395,43 @@ impl TerminalSurfaces {
     }
 
     pub fn send_bytes(&self, tab_id: &str, bytes: &[u8]) -> bool {
-        self.handle(tab_id)
-            .is_some_and(|handle| handle.send_bytes(bytes))
+        if bytes == muxy_terminal::input::PASTE_SHORTCUT
+            && self.staged_input_bytes.borrow().is_some()
+            && self.staged_image_failure.borrow().as_deref() == Some(tab_id)
+        {
+            self.staged_image_failure.borrow_mut().take();
+            return false;
+        }
+        let sent = self
+            .handle(tab_id)
+            .is_some_and(|handle| handle.send_bytes(bytes));
+        if sent && let Some(captured) = self.staged_input_bytes.borrow_mut().as_mut() {
+            captured
+                .entry(tab_id.to_owned())
+                .or_default()
+                .push(bytes.to_vec());
+        }
+        sent
+    }
+
+    pub(crate) fn reset_staged_input_bytes(&self) {
+        if let Some(captured) = self.staged_input_bytes.borrow_mut().as_mut() {
+            captured.clear();
+        }
+    }
+
+    pub(crate) fn arm_staged_image_failure(&self, tab_id: &str) {
+        if self.staged_input_bytes.borrow().is_some() {
+            self.staged_image_failure.replace(Some(tab_id.to_owned()));
+        }
+    }
+
+    pub(crate) fn take_staged_input_bytes(&self, tab_id: &str) -> Vec<Vec<u8>> {
+        self.staged_input_bytes
+            .borrow_mut()
+            .as_mut()
+            .and_then(|captured| captured.remove(tab_id))
+            .unwrap_or_default()
     }
 
     pub fn read_screen_text(&self, tab_id: &str, last_lines: usize) -> Option<String> {
@@ -471,6 +573,15 @@ impl TerminalSurfaces {
     }
 
     fn retain_known(&mut self, store: &WorkspaceStore) {
+        let removed_queues = self
+            .input_queues
+            .keys()
+            .filter(|tab_id| !tab_is_known(store, tab_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        for tab_id in removed_queues {
+            self.cancel_input_queue(&tab_id);
+        }
         self.handles.retain(|tab_id, _| tab_is_known(store, tab_id));
         self.pending_cwd
             .retain(|tab_id, _| tab_is_known(store, tab_id));
@@ -550,12 +661,25 @@ fn tab_is_known(store: &WorkspaceStore, tab_id: &str) -> bool {
 mod tests {
     use super::*;
     use muxy_terminal::backend::{PointerInput, SurfaceAction, SurfaceMetadata, SurfaceSignal};
-    use std::cell::Cell;
+    use muxy_terminal::input::{
+        TerminalInputError, TerminalInputStep, TerminalInputTransaction, bracketed_text_bytes,
+        clear_input_bytes,
+    };
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
+
+    #[derive(Default)]
+    struct FakeInput {
+        bytes: RefCell<Vec<Vec<u8>>>,
+        transaction_states: RefCell<Vec<bool>>,
+        cancellations: Cell<usize>,
+        send_fails: Cell<bool>,
+    }
 
     struct FakeHandle {
         occluded: Rc<Cell<bool>>,
         pointer_inside: Rc<Cell<bool>>,
+        input: Rc<FakeInput>,
         metadata: SurfaceMetadata,
         foreground_pid: Option<u64>,
     }
@@ -574,8 +698,20 @@ mod tests {
         fn set_pointer_inside(&self, inside: bool) {
             self.pointer_inside.set(inside);
         }
+        fn set_input_transaction_active(&self, active: bool) {
+            self.input.transaction_states.borrow_mut().push(active);
+        }
+        fn cancel_input_transaction(&self) {
+            self.input
+                .cancellations
+                .set(self.input.cancellations.get() + 1);
+        }
         fn has_selection(&self) -> bool {
             false
+        }
+        fn send_bytes(&self, bytes: &[u8]) -> bool {
+            self.input.bytes.borrow_mut().push(bytes.to_vec());
+            !self.input.send_fails.get()
         }
         fn foreground_pid(&self) -> Option<u64> {
             self.foreground_pid
@@ -637,11 +773,27 @@ mod tests {
             Box::new(FakeHandle {
                 occluded: occluded.clone(),
                 pointer_inside: pointer_inside.clone(),
+                input: Rc::new(FakeInput::default()),
                 metadata: SurfaceMetadata::default(),
                 foreground_pid: None,
             }),
         );
         (occluded, pointer_inside)
+    }
+
+    fn insert_input_fake(surfaces: &mut TerminalSurfaces, tab_id: &str) -> Rc<FakeInput> {
+        let input = Rc::new(FakeInput::default());
+        surfaces.handles.insert(
+            tab_id.to_owned(),
+            Box::new(FakeHandle {
+                occluded: Rc::new(Cell::new(false)),
+                pointer_inside: Rc::new(Cell::new(false)),
+                input: input.clone(),
+                metadata: SurfaceMetadata::default(),
+                foreground_pid: None,
+            }),
+        );
+        input
     }
 
     #[test]
@@ -820,6 +972,186 @@ mod tests {
     }
 
     #[test]
+    fn pane_input_queue_serializes_exact_bytes_failures_and_idle_release() {
+        let mut surfaces = TerminalSurfaces::new();
+        let input = insert_input_fake(&mut surfaces, "pane");
+        let first = TerminalInputTransaction::new(
+            vec![
+                TerminalInputStep::ClearInput { submitted_lines: 0 },
+                TerminalInputStep::BracketedText("first".to_owned()),
+            ],
+            true,
+        );
+        let second = TerminalInputTransaction::new(
+            vec![TerminalInputStep::BracketedText("second".to_owned())],
+            false,
+        );
+        let (first_completion, first_worker) = surfaces.enqueue_input_transaction("pane", first);
+        let generation = first_worker.unwrap();
+        let (second_completion, second_worker) = surfaces.enqueue_input_transaction("pane", second);
+        assert_eq!(second_worker, None);
+        let active = surfaces
+            .active_input_transaction("pane", generation)
+            .unwrap();
+        for step in &active.transaction.steps {
+            surfaces
+                .send_input_step("pane", generation, active.id, step)
+                .unwrap();
+        }
+        surfaces
+            .send_input_return("pane", generation, active.id)
+            .unwrap();
+        assert!(surfaces.complete_input_transaction("pane", generation, active.id, Ok(())));
+        assert_eq!(first_completion.try_recv(), Ok(Ok(())));
+        input.send_fails.set(true);
+        let active = surfaces
+            .active_input_transaction("pane", generation)
+            .unwrap();
+        let result =
+            surfaces.send_input_step("pane", generation, active.id, &active.transaction.steps[0]);
+        assert_eq!(result, Err(TerminalInputError::SendFailed));
+        assert!(!surfaces.complete_input_transaction("pane", generation, active.id, result));
+        assert_eq!(
+            second_completion.try_recv(),
+            Ok(Err(TerminalInputError::SendFailed))
+        );
+        assert!(!surfaces.input_queues.contains_key("pane"));
+        assert_eq!(*input.transaction_states.borrow(), [true, false]);
+        assert_eq!(
+            *input.bytes.borrow(),
+            [
+                clear_input_bytes(0),
+                bracketed_text_bytes("first"),
+                b"\r".to_vec(),
+                bracketed_text_bytes("second"),
+            ]
+        );
+    }
+
+    #[test]
+    fn pane_input_queue_cancellation_rejects_stale_workers_and_restarts_cleanly() {
+        let mut surfaces = TerminalSurfaces::new();
+        let input = insert_input_fake(&mut surfaces, "pane");
+        let transaction =
+            TerminalInputTransaction::new(vec![TerminalInputStep::RawBytes(vec![1])], false);
+        let (completion, worker) = surfaces.enqueue_input_transaction("pane", transaction.clone());
+        let stale_generation = worker.unwrap();
+        surfaces.cancel_input_queue("pane");
+        assert_eq!(
+            completion.try_recv(),
+            Ok(Err(TerminalInputError::Cancelled))
+        );
+        assert_eq!(input.cancellations.get(), 1);
+        let (_, worker) = surfaces.enqueue_input_transaction("pane", transaction);
+        let current_generation = worker.unwrap();
+        assert_ne!(stale_generation, current_generation);
+        assert!(
+            surfaces
+                .active_input_transaction("pane", stale_generation)
+                .is_none()
+        );
+        assert_eq!(
+            surfaces.send_input_return("pane", stale_generation, 1),
+            Err(TerminalInputError::Cancelled)
+        );
+        surfaces.cancel_input_queue("pane");
+        assert_eq!(input.cancellations.get(), 2);
+    }
+
+    #[test]
+    fn image_pasteboard_windows_are_fifo_across_panes() {
+        let mut surfaces = TerminalSurfaces::new();
+        insert_input_fake(&mut surfaces, "pane-a");
+        insert_input_fake(&mut surfaces, "pane-b");
+        let transaction =
+            || TerminalInputTransaction::new(vec![TerminalInputStep::PastePng(vec![1])], false);
+        let (_, first_worker) = surfaces.enqueue_input_transaction("pane-a", transaction());
+        let (_, second_worker) = surfaces.enqueue_input_transaction("pane-b", transaction());
+        let first_generation = first_worker.unwrap();
+        let second_generation = second_worker.unwrap();
+        let first = surfaces
+            .active_input_transaction("pane-a", first_generation)
+            .unwrap();
+        let second = surfaces
+            .active_input_transaction("pane-b", second_generation)
+            .unwrap();
+        assert_eq!(
+            surfaces.begin_pasteboard_step("pane-a", first_generation, first.id),
+            crate::terminal::input_queue::PasteboardStepState::Acquired
+        );
+        assert_eq!(
+            surfaces.begin_pasteboard_step("pane-b", second_generation, second.id),
+            crate::terminal::input_queue::PasteboardStepState::Waiting
+        );
+        assert_eq!(
+            surfaces.begin_pasteboard_step("pane-b", second_generation, second.id),
+            crate::terminal::input_queue::PasteboardStepState::Waiting
+        );
+        surfaces.finish_pasteboard_step("pane-a", first_generation, first.id);
+        assert_eq!(
+            surfaces.begin_pasteboard_step("pane-b", second_generation, second.id),
+            crate::terminal::input_queue::PasteboardStepState::Acquired
+        );
+        surfaces.finish_pasteboard_step("pane-b", second_generation, second.id);
+        assert!(surfaces.pasteboard_owner.is_none());
+        assert!(surfaces.pasteboard_waiting.is_empty());
+        surfaces.cancel_input_queue("pane-a");
+        surfaces.cancel_input_queue("pane-b");
+    }
+
+    #[test]
+    fn image_window_cancellation_defers_completion_and_native_release_until_restore() {
+        let mut surfaces = TerminalSurfaces::new();
+        let input = insert_input_fake(&mut surfaces, "pane");
+        let transaction =
+            TerminalInputTransaction::new(vec![TerminalInputStep::PastePng(vec![1, 2, 3])], false)
+                .with_rollback_on_failure();
+        let (completion, worker) = surfaces.enqueue_input_transaction("pane", transaction);
+        let generation = worker.unwrap();
+        let active = surfaces
+            .active_input_transaction("pane", generation)
+            .unwrap();
+        assert_eq!(
+            surfaces.begin_pasteboard_step("pane", generation, active.id),
+            crate::terminal::input_queue::PasteboardStepState::Acquired
+        );
+        surfaces.cancel_input_queue("pane");
+        assert!(completion.try_recv().is_err());
+        assert_eq!(input.cancellations.get(), 0);
+        assert!(surfaces.input_transaction_cancelled("pane", generation, active.id));
+        surfaces.finish_pasteboard_step("pane", generation, active.id);
+        assert!(!surfaces.complete_input_transaction(
+            "pane",
+            generation,
+            active.id,
+            Err(TerminalInputError::Cancelled),
+        ));
+        assert_eq!(
+            completion.try_recv(),
+            Ok(Err(TerminalInputError::Cancelled))
+        );
+        assert_eq!(*input.transaction_states.borrow(), [true, false]);
+    }
+
+    #[test]
+    fn image_failure_rollback_clears_every_submitted_line_without_return() {
+        let mut surfaces = TerminalSurfaces::new();
+        let input = insert_input_fake(&mut surfaces, "pane");
+        let transaction =
+            TerminalInputTransaction::new(Vec::new(), true).with_rollback_on_failure();
+        let (_, worker) = surfaces.enqueue_input_transaction("pane", transaction);
+        let generation = worker.unwrap();
+        let active = surfaces
+            .active_input_transaction("pane", generation)
+            .unwrap();
+        surfaces
+            .send_input_rollback("pane", generation, active.id, 2)
+            .unwrap();
+        assert_eq!(*input.bytes.borrow(), [clear_input_bytes(2)]);
+        surfaces.cancel_input_queue("pane");
+    }
+
+    #[test]
     fn foreground_pid_matches_are_sorted_by_uppercase_pane_id() {
         let mut surfaces = TerminalSurfaces::new();
         for pane_id in ["B-pane", "a-pane"] {
@@ -828,6 +1160,7 @@ mod tests {
                 Box::new(FakeHandle {
                     occluded: Rc::new(Cell::new(false)),
                     pointer_inside: Rc::new(Cell::new(false)),
+                    input: Rc::new(FakeInput::default()),
                     metadata: SurfaceMetadata::default(),
                     foreground_pid: Some(42),
                 }),

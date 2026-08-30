@@ -181,6 +181,12 @@ pub enum ShortcutAction {
     TerminalOmniboxWorkspaces,
     TerminalOmniboxCommands,
     ToggleSidebar,
+    #[serde(rename = "toggleRichInput")]
+    ToggleRichInput,
+    #[serde(rename = "submitRichInput")]
+    SubmitRichInput,
+    #[serde(rename = "submitRichInputWithoutReturn")]
+    SubmitRichInputWithoutReturn,
     ToggleFullScreen,
     ToggleThemePicker,
     ReloadConfig,
@@ -267,6 +273,9 @@ impl ShortcutAction {
             CreateWorktree => ("New Worktree", "App"),
             RemoveCurrentWorktree => ("Remove Current Worktree", "App"),
             ToggleSidebar => ("Toggle Sidebar", "App"),
+            ToggleRichInput => ("Toggle Composer", "Composer"),
+            SubmitRichInput => ("Submit Composer", "Composer"),
+            SubmitRichInputWithoutReturn => ("Submit Composer Without Return", "Composer"),
             ToggleFullScreen => ("Toggle Full Screen", "App"),
             ToggleThemePicker => ("Theme Picker", "App"),
             ReloadConfig => ("Reload Configuration", "App"),
@@ -278,11 +287,8 @@ pub fn modelled_actions() -> Vec<ShortcutAction> {
     defaults().into_iter().map(|(action, _)| action).collect()
 }
 
-pub const UNMODELLED_DEFAULTS: [(&str, &str, u64); 8] = [
-    ("toggleRichInput", "i", COMMAND),
+pub const UNMODELLED_DEFAULTS: [(&str, &str, u64); 5] = [
     ("toggleComposerVoice", "", 0),
-    ("submitRichInput", "return", COMMAND),
-    ("submitRichInputWithoutReturn", "return", COMMAND | SHIFT),
     ("toggleAppLayout", "l", COMMAND | SHIFT),
     ("toggleVoiceRecording", "i", COMMAND | SHIFT),
     ("toggleExtensionConsole", "`", COMMAND),
@@ -585,6 +591,31 @@ impl ShortcutMap {
             .cloned()
             .collect()
     }
+
+    pub fn unmodelled_combo(&self, action: &str) -> Option<KeyCombo> {
+        self.unknown
+            .iter()
+            .find_map(|entry| {
+                (entry.get("action").and_then(serde_json::Value::as_str) == Some(action))
+                    .then(|| entry.get("combo").cloned())
+                    .flatten()
+                    .and_then(|combo| serde_json::from_value(combo).ok())
+            })
+            .or_else(|| {
+                UNMODELLED_DEFAULTS
+                    .iter()
+                    .find(|(candidate, _, _)| *candidate == action)
+                    .map(|(_, key, modifiers)| KeyCombo::new(key, *modifiers))
+            })
+    }
+}
+
+fn toggle_rich_input_default() -> KeyCombo {
+    if cfg!(target_os = "macos") {
+        KeyCombo::new("i", COMMAND)
+    } else {
+        KeyCombo::new("i", OPTION)
+    }
 }
 
 fn defaults() -> Vec<(ShortcutAction, KeyCombo)> {
@@ -663,6 +694,12 @@ fn defaults() -> Vec<(ShortcutAction, KeyCombo)> {
         ),
         (TerminalOmniboxCommands, KeyCombo::new("p", COMMAND | SHIFT)),
         (ToggleSidebar, KeyCombo::new("b", COMMAND)),
+        (ToggleRichInput, toggle_rich_input_default()),
+        (SubmitRichInput, KeyCombo::new("return", COMMAND)),
+        (
+            SubmitRichInputWithoutReturn,
+            KeyCombo::new("return", COMMAND | SHIFT),
+        ),
         (
             ToggleMaximizePane,
             KeyCombo::new("return", COMMAND | OPTION),
@@ -804,8 +841,8 @@ mod tests {
                 KeyCombo::new("rightarrow", COMMAND | CONTROL),
             ),
         ];
-        assert_eq!(modelled_actions().len(), 59);
-        assert_eq!(UNMODELLED_DEFAULTS.len(), 8);
+        assert_eq!(modelled_actions().len(), 62);
+        assert_eq!(UNMODELLED_DEFAULTS.len(), 5);
         assert_eq!(
             default_combo(ShortcutAction::RemoveCurrentWorktree),
             KeyCombo::new("", 0)
@@ -825,6 +862,56 @@ mod tests {
     }
 
     #[test]
+    fn all_functional_composer_actions_are_modelled_with_exact_defaults() {
+        let toggle = if cfg!(target_os = "macos") {
+            KeyCombo::new("i", COMMAND)
+        } else {
+            KeyCombo::new("i", OPTION)
+        };
+        assert_eq!(default_combo(ShortcutAction::ToggleRichInput), toggle);
+        assert_eq!(
+            default_combo(ShortcutAction::SubmitRichInput),
+            KeyCombo::new("return", COMMAND)
+        );
+        assert_eq!(
+            default_combo(ShortcutAction::SubmitRichInputWithoutReturn),
+            KeyCombo::new("return", COMMAND | SHIFT)
+        );
+        for action in [
+            "toggleRichInput",
+            "submitRichInput",
+            "submitRichInputWithoutReturn",
+        ] {
+            assert!(
+                UNMODELLED_DEFAULTS
+                    .iter()
+                    .all(|(candidate, _, _)| *candidate != action)
+            );
+        }
+    }
+
+    #[test]
+    fn unmodelled_combos_expose_remaining_defaults_and_saved_overrides() {
+        let defaults = ShortcutMap::merge_with_unknown(HashMap::new(), Vec::new());
+        assert_eq!(
+            defaults.unmodelled_combo("inspectElement"),
+            Some(KeyCombo::new("i", COMMAND | OPTION))
+        );
+        let overridden = ShortcutMap::merge_with_unknown(
+            HashMap::new(),
+            vec![serde_json::json!({
+                "action": "inspectElement",
+                "combo": { "key": "x", "modifiers": OPTION }
+            })],
+        );
+        assert_eq!(
+            overridden.unmodelled_combo("inspectElement"),
+            Some(KeyCombo::new("x", OPTION))
+        );
+        assert_eq!(overridden.unmodelled_combo("missing"), None);
+    }
+
+    #[test]
     fn saving_preserves_entries_this_build_does_not_model() {
         let dir = std::env::temp_dir().join("muxy-keybindings-roundtrip");
         let _ = std::fs::remove_dir_all(&dir);
@@ -834,14 +921,28 @@ mod tests {
             &path,
             r#"[
                 {"action":"newTab","combo":{"key":"t","modifiers":1048576}},
+                {"action":"toggleRichInput","combo":{"key":"k","modifiers":524288}},
                 {"action":"inspectElement","combo":{"key":"d","modifiers":1179648}},
-                {"action":"submitRichInput","combo":{"key":"return","modifiers":1048576}}
+                {"action":"submitRichInput","combo":{"key":"x","modifiers":524288}},
+                {"action":"submitRichInputWithoutReturn","combo":{"key":"y","modifiers":655360}}
             ]"#,
         )
         .expect("write fixture");
 
         let mut map = ShortcutMap::load_from(&path);
-        assert_eq!(map.unknown.len(), 2);
+        assert_eq!(map.unknown.len(), 1);
+        assert_eq!(
+            map.combo(ShortcutAction::ToggleRichInput),
+            &KeyCombo::new("k", OPTION)
+        );
+        assert_eq!(
+            map.combo(ShortcutAction::SubmitRichInput),
+            &KeyCombo::new("x", OPTION)
+        );
+        assert_eq!(
+            map.combo(ShortcutAction::SubmitRichInputWithoutReturn),
+            &KeyCombo::new("y", OPTION | SHIFT)
+        );
         assert!(!map.combo(ShortcutAction::SplitDown).is_assigned());
 
         map.set(ShortcutAction::NewTab, KeyCombo::new("t", COMMAND | SHIFT));
@@ -852,21 +953,44 @@ mod tests {
         let unmodelled: Vec<&serde_json::Value> = entries
             .iter()
             .filter(|entry| {
-                matches!(
-                    entry.get("action").and_then(serde_json::Value::as_str),
-                    Some("inspectElement") | Some("submitRichInput")
-                )
+                entry.get("action").and_then(serde_json::Value::as_str) == Some("inspectElement")
             })
             .collect();
-        assert_eq!(unmodelled.len(), 2);
+        assert_eq!(unmodelled.len(), 1);
         assert_eq!(unmodelled[0]["combo"]["key"], "d");
         assert_eq!(unmodelled[0]["combo"]["modifiers"], 1179648);
-        assert_eq!(unmodelled[1]["combo"]["key"], "return");
+        for action in [
+            "toggleRichInput",
+            "submitRichInput",
+            "submitRichInputWithoutReturn",
+        ] {
+            assert_eq!(
+                entries
+                    .iter()
+                    .filter(|entry| {
+                        entry.get("action").and_then(serde_json::Value::as_str) == Some(action)
+                    })
+                    .count(),
+                1
+            );
+        }
 
         let reloaded = ShortcutMap::load_from(&path);
         assert_eq!(
             reloaded.combo(ShortcutAction::NewTab),
             &KeyCombo::new("t", COMMAND | SHIFT)
+        );
+        assert_eq!(
+            reloaded.combo(ShortcutAction::ToggleRichInput),
+            &KeyCombo::new("k", OPTION)
+        );
+        assert_eq!(
+            reloaded.combo(ShortcutAction::SubmitRichInput),
+            &KeyCombo::new("x", OPTION)
+        );
+        assert_eq!(
+            reloaded.combo(ShortcutAction::SubmitRichInputWithoutReturn),
+            &KeyCombo::new("y", OPTION | SHIFT)
         );
         assert!(!reloaded.combo(ShortcutAction::SplitDown).is_assigned());
     }
@@ -948,6 +1072,12 @@ mod tests {
                 ShortcutAction::TerminalOmniboxCommands,
             ),
             ("toggleSidebar", ShortcutAction::ToggleSidebar),
+            ("toggleRichInput", ShortcutAction::ToggleRichInput),
+            ("submitRichInput", ShortcutAction::SubmitRichInput),
+            (
+                "submitRichInputWithoutReturn",
+                ShortcutAction::SubmitRichInputWithoutReturn,
+            ),
             ("toggleFullScreen", ShortcutAction::ToggleFullScreen),
             ("toggleThemePicker", ShortcutAction::ToggleThemePicker),
             ("reloadConfig", ShortcutAction::ReloadConfig),

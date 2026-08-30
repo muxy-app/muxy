@@ -106,6 +106,30 @@ The panel and terminal surface are prepared at their final constrained dimension
 
 Quick Terminal settings and schema remain portable, but the category and route are omitted on Linux because there is no runtime backend. Linux-host launch proof remains separate release work.
 
+## Composer stack
+
+```mermaid
+flowchart LR
+    shortcut["toggleRichInput\nCmd+I on macOS · Alt+I elsewhere"] --> window["MainWindow Composer coordinator\ntarget · lifecycle · broadcast"]
+    window --> panel["muxy-ui panel primitives\nright/bottom · pinned/floating"]
+    panel --> input["multiline TextInput"]
+    input --> draft["muxy-core ComposerStore\nrich-input-drafts.json"]
+    input --> images["private RichInputImages capability"]
+    window --> plan["portable submission plan"]
+    plan --> queues["per-pane FIFO transactions"]
+    queues --> terminal["terminal surfaces"]
+    native["AppKit pasteboard and drag adapters"] --> window
+    gpui["GPUI ExternalPaths"] --> window
+```
+
+Composer is panel-only inside the main window. `muxy-ui::panel` owns reusable placement, resize, chrome, and pinned-versus-overlay geometry without Composer policy. The app owns target reconciliation, broadcast selection, file/image preparation, feedback, pasteboard timing, and per-pane publication. `muxy-core::composer` owns portable drafts, image validation/storage, reference sweeping, and submission planning without GPUI, AppKit, terminal, or app dependencies.
+
+Drafts are keyed by project/worktree identity and atomically published to the selected profile's private `rich-input-drafts.json`. Copied clipboard images live in the private `RichInputImages/` directory behind descriptor-relative no-follow operations. Startup sweeping removes only proven unreferenced files. Successful submission clears only the unchanged submitted revision when enabled; failures and newer edits retain their references.
+
+Terminal submission is one FIFO transaction per pane. Text and escaped attachment segments are bracketed-paste framed, optional Return is appended only by transaction policy, native key events defer while a transaction owns the pane, and broadcast panes are processed sequentially. Clipboard image strategy temporarily owns the app-wide pasteboard and restores every captured representation; inline-path strategy emits escaped local paths.
+
+External drops share `muxy-core::dropped_paths` parsing. Composer attaches accepted paths as files, the sidebar accepts only existing directories, and the macOS Ghostty host emits a neutral payload that the app routes with surface identity before focusing and inserting escaped paths without Return. Unsupported terminal backends expose no external-drop event stream.
+
 ## Notification stack
 
 ```mermaid

@@ -240,29 +240,26 @@ fn action_button(
     cx: &mut Context<MainWindow>,
 ) -> AnyElement {
     let theme = &state.theme;
-    let id = action.id();
-    div()
-        .id(id)
-        .group(id)
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(box_size)
-        .cursor_pointer()
-        .on_click(
-            cx.listener(move |window: &mut MainWindow, _, _, cx| match action {
-                TitlebarAction::SplitRight => {
-                    window.split_focused(muxy_core::workspace::Edge::Right, cx)
-                }
-                TitlebarAction::SplitDown => {
-                    window.split_focused(muxy_core::workspace::Edge::Bottom, cx)
-                }
-                TitlebarAction::NewTab => window.new_terminal_tab(cx),
-            }),
-        )
-        .child(IconGlyph::new(action.icon(), glyph, theme.fg_muted).hover_in_group(id, theme.fg))
-        .into_any_element()
+    IconButton::new(
+        action.id(),
+        action.icon(),
+        glyph,
+        box_size,
+        theme.fg_muted,
+        theme.fg,
+    )
+    .on_click(
+        cx.listener(move |window: &mut MainWindow, _, _, cx| match action {
+            TitlebarAction::SplitRight => {
+                window.split_focused(muxy_core::workspace::Edge::Right, cx)
+            }
+            TitlebarAction::SplitDown => {
+                window.split_focused(muxy_core::workspace::Edge::Bottom, cx)
+            }
+            TitlebarAction::NewTab => window.new_terminal_tab(cx),
+        }),
+    )
+    .into_any_element()
 }
 
 fn ide_menu_items() -> Vec<Item> {

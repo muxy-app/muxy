@@ -82,7 +82,7 @@ flowchart TD
 | Git UI (changes/branch/PR popovers, commit/push/pull, gh, AI commit/PR text) | ❌ missing |
 | Notifications (toast/panel/desktop/sounds/navigation, OSC 9/777) | ❌ missing |
 | Quick Terminal (global hotkey, panel) | ⚠️ implemented; manual native acceptance pending |
-| Composer / rich input (+ drafts, attachments, broadcast) | ❌ settings only |
+| Composer / rich input (+ drafts, attachments, broadcast) | ⚠️ implemented panel-only; manual native acceptance pending |
 | Idle terminal offline freeing + process-tree resource monitor | ❌ settings only |
 | Persistent sessions (`muxy-session` daemon + attach + UI) | ❌ missing |
 | `muxy.sock` server + verb dispatcher (3 entry surfaces) + CLI | ✅ P2 complete |
@@ -95,7 +95,7 @@ flowchart TD
 | Backup/restore (`.muxy` archive) | ❌ inert buttons |
 | Updater + 1.x sunset, What's New, tips, Diagnostics menu, URL scheme, doc type | ❌ missing |
 | Localization (extension-provided languages, catalog) | ❌ missing |
-| Drag-and-drop of files/paths (terminal, sidebar, composer) | ❌ missing |
+| Drag-and-drop of files/paths (terminal, sidebar, composer) | ⚠️ implemented; manual Finder acceptance pending |
 | Quit confirmation, terminateLater cleanup, relaunch-in-place | ❌ missing |
 | Login-shell PATH hydration (provider/CLI discovery depends on it) | ❌ missing |
 | install-skills + bundled skills + starter kits | ❌ missing |
@@ -180,7 +180,7 @@ Wire every inert control that has a backing feature: titlebar split/new-tab butt
 
 *Acceptance: complete.* Portable capped history, typed socket/hook and OSC ingress, delivery/coalescing policy, toast and panel presentation, unread synchronization, stable-ID navigation, target-gated UserNotifications/NSSound edges, persistence lifecycle, Linux core portability, CLI compatibility, and isolated debug/release lifecycle verification are green. Native authorization/banner/click behavior, sound audibility, and rendered visual/accessibility acceptance remain user-owned.
 **P6 — Quick Terminal. IMPLEMENTED; MANUAL NATIVE ACCEPTANCE PENDING.** Global hotkey (Carbon `RegisterEventHotKey` + double-Shift with Input Monitoring), slide-out panel window, persistent home shell, size/transparency/blur settings, `quick-terminal-shortcut.json` conflict validation.
-**P7 — Composer.** `⌘I` panel (dock right/bottom, resizable, pinnable) + floating mode, multiline editor (muxy-ui text_input base), image/file attachments (`RichInputImages/` + orphan sweep), broadcast to panes, per-worktree drafts (`rich-input-drafts.json`), transactional submit, editor-settings fonts. Drag-and-drop of files/paths (composer + terminal + sidebar, `DroppedPathsParser` semantics) lands here.
+**P7 — Composer. IMPLEMENTED PANEL-ONLY; MANUAL NATIVE ACCEPTANCE PENDING.** `⌘I` on macOS and `Alt+I` elsewhere toggle one in-window panel that docks right/bottom, resizes, pins to displace the workspace, or floats as an in-window overlay. The multiline editor, image/file attachments (`RichInputImages/` plus reference sweep), pane broadcast, per-worktree drafts (`rich-input-drafts.json`), transactional Return/no-Return submission, editor typography, native pasteboard adapter, and shared parser-backed Composer/terminal/sidebar path drops are implemented. There is no standalone Composer window or modal. Automated debug/release staged lifecycle and exact-byte proof are complete; physical Finder/clipboard delivery, real TUI image interpretation, visual/focus/accessibility quality, and Linux-host launch remain manual or later-platform acceptance.
 **P8 — Terminal memory features.**
 (a) Idle offline freeing — corrected semantics: there is **no detach API in libghostty**; 1.x does `ghostty_surface_free` + full recreate, scrollback is lost unless the pane is persistent-session-backed, and the startup command is not re-run on wake. Idle detection needs `sysctl(KERN_PROC_TTY)` foreground-pid resolution. Plus the **process-tree** resource monitor (`proc_pid_rusage`) + status-bar CPU/RAM widget.
 (b) Persistent sessions — consume the preferred and uid-fallback paths from `RuntimePathPolicy`, create them securely, and prove debug/release session isolation. Preserve 1.x's architecture: ghostty still runs **in-app**; the surface command is the bundled attach client (`Contents/MacOS/muxy-session attach`), and the daemon is spawned lazily by the attach client via `posix_spawn` (no launchd). Rust `muxy-session` daemon + attach speaking the 1.x framed protocol (`SessionFrame`, 256KB replay, shell-integration injection for 5 shells, LOCAL_PEERCRED, flock singleton, idle self-exit), sessions popover, Send to Background, recovery/reconnect, CLI `list-sessions`/`kill-session`.

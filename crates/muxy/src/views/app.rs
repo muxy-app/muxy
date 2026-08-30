@@ -74,6 +74,17 @@ const SYSTEM_LINE_HEIGHT: f32 = 1.2;
 
 actions!(terminal_surface, [SearchPrevious]);
 
+fn merge_composer_footer_with_status_bar(
+    show_status_bar: bool,
+    placement: Option<&muxy_ui::panel::PanelPlacement>,
+) -> bool {
+    show_status_bar
+        && placement.is_some_and(|placement| {
+            placement.mode == muxy_ui::panel::PanelMode::Pinned
+                && placement.position == muxy_ui::panel::PanelPosition::Bottom
+        })
+}
+
 pub(crate) struct AppView<'a> {
     pub state: &'a AppState,
     pub repository_controls: &'a [crate::repository::RepositoryControl],
@@ -95,6 +106,7 @@ pub(crate) struct AppView<'a> {
     pub drop_highlight: Option<(Bounds<Pixels>, muxy_core::workspace::DropZone)>,
     pub focused_working_directory: Option<String>,
     pub expanded_worktree_projects: &'a HashSet<String>,
+    pub composer: &'a crate::composer::ComposerController,
 }
 
 pub(crate) fn render(
@@ -123,6 +135,7 @@ pub(crate) fn render(
         drop_highlight,
         focused_working_directory,
         expanded_worktree_projects,
+        composer,
     } = view;
     let theme = state.theme.clone();
     let metrics = state.metrics;
@@ -158,7 +171,17 @@ pub(crate) fn render(
         .bg(theme.border_solid());
 
     let tab_workspace = state.active_tab_workspace().cloned();
-    let main_width = f32::from(window.viewport_size().width - layout.sidebar_width);
+    let composer_consumed_width = composer
+        .placement()
+        .filter(|placement| {
+            placement.mode == muxy_ui::panel::PanelMode::Pinned
+                && placement.position == muxy_ui::panel::PanelPosition::Right
+        })
+        .map(|_| state.prefs.composer.panel_width as f32)
+        .unwrap_or(0.0);
+    let main_width = (f32::from(window.viewport_size().width - layout.sidebar_width)
+        - composer_consumed_width)
+        .max(0.0);
     let panes = workspace_view::Panes {
         terminals,
         area_bounds,
@@ -189,6 +212,26 @@ pub(crate) fn render(
         }
         _ => welcome::workspace_content(state, cx),
     };
+    let merge_composer_footer =
+        merge_composer_footer_with_status_bar(state.prefs.show_status_bar, composer.placement());
+    let composer_panel = crate::composer::view::render(
+        composer,
+        &state.prefs.composer,
+        &state.shortcuts,
+        muxy_ui::panel::PanelStyle::new(theme.clone(), metrics),
+        merge_composer_footer,
+        window,
+        cx,
+    );
+    let repository_ai_menu_available = !repository_mutation_busy
+        && matches!(
+            repository_state.ai,
+            crate::repository::RepositoryAiRunState::Idle
+        )
+        && matches!(
+            repository_state.providers,
+            crate::repository::LoadState::Ready(_)
+        );
     let mut main_column = div()
         .flex()
         .flex_col()
@@ -199,30 +242,102 @@ pub(crate) fn render(
         .child(div().h(px(1.0)).flex_none().bg(theme.border_solid()))
         .child(content);
 
-    if state.prefs.show_status_bar {
-        let repository_ai_menu_available = !repository_mutation_busy
-            && matches!(
-                repository_state.ai,
-                crate::repository::RepositoryAiRunState::Idle
-            )
-            && matches!(
-                repository_state.providers,
-                crate::repository::LoadState::Ready(_)
-            );
+    if state.prefs.show_status_bar && !merge_composer_footer {
         main_column = main_column.child(status_bar::status_bar(
             state,
             focused_working_directory.as_deref(),
             repository_controls,
             repository_mutation_busy,
             repository_ai_menu_available,
+            None,
             cx,
         ));
     }
+    let main_region = match composer_panel {
+        Some(panel)
+            if panel.placement.mode == muxy_ui::panel::PanelMode::Pinned
+                && panel.placement.position == muxy_ui::panel::PanelPosition::Right =>
+        {
+            div()
+                .relative()
+                .flex()
+                .flex_row()
+                .flex_grow()
+                .min_w(px(0.0))
+                .h_full()
+                .child(main_column)
+                .child(panel.element)
+                .into_any_element()
+        }
+        Some(panel)
+            if panel.placement.mode == muxy_ui::panel::PanelMode::Pinned
+                && panel.placement.position == muxy_ui::panel::PanelPosition::Bottom =>
+        {
+            let merged_footer = panel.merged_footer;
+            div()
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_grow()
+                .min_w(px(0.0))
+                .h_full()
+                .child(main_column)
+                .child(panel.element)
+                .when_some(merged_footer, |region, footer| {
+                    region.child(status_bar::status_bar(
+                        state,
+                        focused_working_directory.as_deref(),
+                        repository_controls,
+                        repository_mutation_busy,
+                        repository_ai_menu_available,
+                        Some(footer),
+                        cx,
+                    ))
+                })
+                .into_any_element()
+        }
+        Some(panel) => div()
+            .relative()
+            .flex()
+            .flex_grow()
+            .min_w(px(0.0))
+            .h_full()
+            .child(main_column)
+            .child(panel.element)
+            .into_any_element(),
+        None => div()
+            .relative()
+            .flex()
+            .flex_grow()
+            .min_w(px(0.0))
+            .h_full()
+            .child(main_column)
+            .into_any_element(),
+    };
 
     let mut columns = div()
         .id("main-window")
         .key_context(muxy_core::shortcuts::KEY_CONTEXT)
         .track_focus(workspace_focus)
+        .on_action(
+            cx.listener(|window, _: &crate::keymap::ToggleRichInput, _, cx| {
+                window.toggle_composer(cx);
+            }),
+        )
+        .on_action(cx.listener(
+            |window, _: &crate::keymap::SubmitRichInput, window_handle, cx| {
+                if window.composer_input_is_focused(window_handle, cx) {
+                    window.submit_composer(true, cx);
+                }
+            },
+        ))
+        .on_action(cx.listener(
+            |window, _: &crate::keymap::SubmitRichInputWithoutReturn, window_handle, cx| {
+                if window.composer_input_is_focused(window_handle, cx) {
+                    window.submit_composer(false, cx);
+                }
+            },
+        ))
         .on_action(cx.listener(|window, _: &crate::keymap::NewTab, _, cx| {
             window.new_terminal_tab(cx);
         }))
@@ -558,6 +673,12 @@ pub(crate) fn render(
             window.navigate_search(false, cx);
         }))
         .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|window: &mut MainWindow, _, _, cx| {
+                window.close_floating_composer_from_outside(cx);
+            }),
+        )
+        .on_mouse_down(
             MouseButton::Navigate(NavigationDirection::Back),
             cx.listener(handle_navigation_mouse_down),
         )
@@ -588,7 +709,7 @@ pub(crate) fn render(
     }
 
     columns = columns
-        .child(main_column)
+        .child(main_region)
         .child(titlebar::nav_overlay(state, layout, cx))
         .child(sidebar_border);
 
@@ -678,6 +799,35 @@ mod tests {
         assert!(shows_welcome(Some(&empty)));
         assert!(!shows_welcome(Some(&populated)));
         assert!(shows_welcome(None));
+    }
+
+    #[test]
+    fn only_a_pinned_bottom_composer_merges_into_a_visible_status_bar() {
+        use muxy_ui::panel::{PanelMode, PanelPlacement, PanelPosition};
+
+        let pinned_bottom =
+            PanelPlacement::new("composer", PanelPosition::Bottom, PanelMode::Pinned);
+        let floating_bottom =
+            PanelPlacement::new("composer", PanelPosition::Bottom, PanelMode::Floating);
+        let pinned_right = PanelPlacement::new("composer", PanelPosition::Right, PanelMode::Pinned);
+
+        assert!(merge_composer_footer_with_status_bar(
+            true,
+            Some(&pinned_bottom)
+        ));
+        assert!(!merge_composer_footer_with_status_bar(
+            false,
+            Some(&pinned_bottom)
+        ));
+        assert!(!merge_composer_footer_with_status_bar(
+            true,
+            Some(&floating_bottom)
+        ));
+        assert!(!merge_composer_footer_with_status_bar(
+            true,
+            Some(&pinned_right)
+        ));
+        assert!(!merge_composer_footer_with_status_bar(true, None));
     }
 
     #[test]

@@ -5,13 +5,15 @@ matches the active app language as well as English setting keys and technical al
 
 ## Composer
 
-Open **Settings → Composer** to choose how the Composer is presented and whether its draft is cleared automatically.
-**Clear After Sending** clears text and attachments after a successful submission; newer edits made while a
-submission finishes are preserved. **Clear on Close** clears the draft whenever the Composer closes, regardless of
-the dismissal path. It also clears the previous worktree's draft when an open Composer panel follows a worktree
-change, while same-worktree pane changes preserve the draft. Both options are also available from the Composer's More
-menu. They are off by default and are stored as `muxy.richInput.clearAfterSending` and
-`muxy.richInput.clearOnClose` in `settings.json`.
+Open **Settings → Composer** to configure image submission, editor typography, and automatic draft clearing. Composer itself is panel-only. Use its header controls to move it between the right and bottom, pin or float it inside the main window, resize it, toggle broadcast, and change its font size. Those panel values persist in the selected profile's `preferences.json`.
+
+**Image Submission** chooses how copied images reach local terminal panes. **Clipboard Paste** temporarily replaces the native pasteboard, sends `Ctrl+V`, waits 300 ms, and restores the full captured pasteboard. **Inline File Path** inserts the shell-escaped path of the normalized private PNG. Real TUI image support is application-dependent.
+
+**Font Family** mirrors `richInputFontFamily` from `editor-settings.json`. **Line Height** stores `richInputLineHeightMultiplier`, clamped from 1.1× through 2.0×. The panel header's font controls persist `muxy.richInput.fontSize` separately.
+
+**Clear After Sending** clears text and attachments only when every target succeeds and the draft has not changed while submission was running. **Clear on Close** clears the released worktree draft when Composer closes or transfers to another worktree; a same-worktree pane change preserves it. Both options are off by default and are stored as `muxy.richInput.clearAfterSending` and `muxy.richInput.clearOnClose` in `settings.json`.
+
+Drafts are private per-worktree data in `rich-input-drafts.json`. Copied images are private files under `RichInputImages/`; startup removes only files proven to have no durable draft reference. No Composer state is imported through the legacy Swift migration allowlist.
 
 ## Language
 

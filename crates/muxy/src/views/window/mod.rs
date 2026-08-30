@@ -1,4 +1,6 @@
 mod commands;
+pub(crate) mod composer;
+mod dropped_paths;
 mod lifecycle;
 pub mod menu_bar;
 mod overlays;
@@ -24,6 +26,7 @@ use gpui::{
     AnyWindowHandle, AppContext, BorrowAppContext, Bounds, ClipboardItem, Context, Entity,
     Focusable, IntoElement, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Task, Window, px,
 };
+use muxy_core::composer::ComposerStore;
 use muxy_core::prefs::Prefs;
 use muxy_core::shortcuts::KeyCombo;
 use muxy_core::store::logo;
@@ -41,23 +44,58 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 const BELL_FLASH_DURATION: Duration = Duration::from_millis(1250);
 const NOTIFICATION_SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
-const TEST_CLOSE_REQUEST_ENV: &str = "MUXY_TEST_P5_CLOSE_MAIN_WINDOW_REQUEST";
-const TEST_CLOSE_REQUEST_FILE: &str = ".muxy-p5-close-main-window";
+const TEST_CLOSE_REQUEST_ENV: &str = "MUXY_TEST_CLOSE_MAIN_WINDOW_REQUEST";
+const TEST_CLOSE_REQUEST_FILE: &str = ".muxy-test-close-main-window";
 const WATCHER_DEBOUNCE_MS: u64 = 300;
 
 fn test_close_request_path(
     is_test_process: bool,
     enabled: bool,
     app_support: &Path,
+    injected_app_support: Option<&Path>,
+    home: &Path,
 ) -> Option<PathBuf> {
-    (is_test_process && enabled).then(|| app_support.join(TEST_CLOSE_REQUEST_FILE))
+    if !is_test_process || !enabled || injected_app_support != Some(app_support) {
+        return None;
+    }
+    if !app_support.is_absolute()
+        || app_support.starts_with(home)
+        || app_support.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::CurDir | std::path::Component::ParentDir
+            )
+        })
+        || path_has_symlink_or_missing_component(app_support)
+    {
+        return None;
+    }
+    Some(app_support.join(TEST_CLOSE_REQUEST_FILE))
+}
+
+fn path_has_symlink_or_missing_component(path: &Path) -> bool {
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component);
+        let Ok(metadata) = std::fs::symlink_metadata(&current) else {
+            return true;
+        };
+        if metadata.file_type().is_symlink() {
+            return true;
+        }
+    }
+    false
 }
 
 fn staged_close_request_path() -> Option<PathBuf> {
+    let app_support = muxy_core::prefs::app_support_dir();
+    let injected = std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").map(PathBuf::from);
     test_close_request_path(
         muxy_core::prefs::is_test_process(),
         matches!(std::env::var(TEST_CLOSE_REQUEST_ENV).as_deref(), Ok("1")),
-        &muxy_core::prefs::app_support_dir(),
+        &app_support,
+        injected.as_deref(),
+        &muxy_core::prefs::home_dir(),
     )
 }
 
@@ -87,6 +125,10 @@ use view_state::{ScrollbarDrag, ViewState, WorkspaceGesture};
 
 pub struct MainWindow {
     pub state: AppState,
+    composer: crate::composer::ComposerController,
+    composer_store: ComposerStore,
+    composer_save_generation: u64,
+    _composer_save_task: Option<Task<()>>,
     view: ViewState,
     pub(crate) window_handle: AnyWindowHandle,
     pub(crate) terminal_runtime: TerminalRuntime,
@@ -192,8 +234,13 @@ impl MainWindow {
             }
         });
         let socket_runtime = SocketRuntime::attach(socket, cx);
+        let composer_store = crate::state::load_composer_store();
         let mut main_window = Self {
             state,
+            composer: crate::composer::ComposerController::default(),
+            composer_store,
+            composer_save_generation: 0,
+            _composer_save_task: None,
             view,
             window_handle: window.window_handle(),
             terminal_runtime: TerminalRuntime::new(terminals, terminal_tasks),
@@ -217,8 +264,9 @@ impl MainWindow {
         main_window._notification_authorization_probe = Some(cx.spawn(async move |_, _| {
             let _ = authorization.recv().await;
         }));
-        main_window.view.notification_quit_subscription = Some(cx.on_app_quit(|window, _| {
+        main_window.view.store_quit_subscription = Some(cx.on_app_quit(|window, _| {
             window.flush_notification_store();
+            window.flush_composer_store();
             async {}
         }));
         main_window.view.activation_subscription = Some(cx.observe_window_activation(
@@ -247,6 +295,7 @@ impl MainWindow {
                 window.apply_theme_setting(cx);
             },
         ));
+        main_window.prepare_p7_composer_fixture(cx);
         if let Some(request_path) = staged_close_request_path() {
             let window_handle = main_window.window_handle;
             cx.spawn(async move |_, cx| {
@@ -435,9 +484,64 @@ impl MainWindow {
         self.notification_coordinator.set_save_task(task);
     }
 
+    fn prepare_p7_composer_fixture(&mut self, cx: &mut Context<Self>) {
+        if !crate::state::p7_composer_status_enabled() {
+            return;
+        }
+        if self.composer_store.load_status().overwrite_blocked {
+            crate::state::write_p7_composer_status(&self.composer_store);
+            return;
+        }
+        let Some(id) = muxy_core::composer::DraftId::new(
+            "BBBBBBBB-CCCC-4DDD-8EEE-FFFFFFFFFFFF",
+            "66666666-7777-4888-8999-AAAAAAAAAAAA",
+        ) else {
+            return;
+        };
+        if let Err(error) =
+            self.composer_store
+                .edit_content(id, "debounced phase-2 draft".to_owned(), Vec::new())
+        {
+            log::warn!("failed to prepare P7 Composer fixture: {error}");
+            crate::state::write_p7_composer_status(&self.composer_store);
+            return;
+        }
+        if self.composer_store.needs_flush() {
+            self.schedule_composer_save(cx);
+        } else {
+            crate::state::write_p7_composer_status(&self.composer_store);
+        }
+    }
+
+    fn schedule_composer_save(&mut self, cx: &mut Context<Self>) {
+        let revision = self.composer_store.dirty_revision();
+        self.composer_save_generation = self.composer_save_generation.saturating_add(1);
+        let generation = self.composer_save_generation;
+        self._composer_save_task = Some(cx.spawn(async move |window, cx| {
+            cx.background_executor()
+                .timer(muxy_core::composer::SAVE_DEBOUNCE)
+                .await;
+            let _ = window.update(cx, |window, _| {
+                if window.composer_save_generation != generation {
+                    return;
+                }
+                if let Err(error) = window.composer_store.flush_if_revision(revision) {
+                    log::warn!("failed to save Composer drafts: {error}");
+                }
+                crate::state::write_p7_composer_status(&window.composer_store);
+            });
+        }));
+    }
+
     fn flush_notification_store(&mut self) {
         if let Err(error) = self.state.notification_store.flush() {
             log::warn!("failed to flush notifications: {error}");
+        }
+    }
+
+    fn flush_composer_store(&mut self) {
+        if let Err(error) = self.composer_store.flush() {
+            log::warn!("failed to flush Composer drafts: {error}");
         }
     }
 
@@ -474,6 +578,7 @@ impl MainWindow {
 impl Drop for MainWindow {
     fn drop(&mut self) {
         self.flush_notification_store();
+        self.flush_composer_store();
     }
 }
 
@@ -576,23 +681,76 @@ mod feedback_tests {
     }
 
     #[test]
-    fn notifications_main_window_lifecycle_wires_both_final_flush_paths() {
+    fn persistent_stores_wire_quit_and_drop_flush_paths() {
         let source = include_str!("mod.rs");
         let quit = source.find("cx.on_app_quit(|window, _|").unwrap();
         let drop = source.find("impl Drop for MainWindow").unwrap();
 
         assert!(source[quit..drop].contains("window.flush_notification_store();"));
+        assert!(source[quit..drop].contains("window.flush_composer_store();"));
         assert!(source[drop..].contains("self.flush_notification_store();"));
+        assert!(source[drop..].contains("self.flush_composer_store();"));
     }
 
     #[test]
-    fn notifications_staged_close_request_is_test_only_and_root_local() {
-        let root = std::path::Path::new("/tmp/muxy-test-support");
-        assert_eq!(super::test_close_request_path(false, true, root), None);
-        assert_eq!(super::test_close_request_path(true, false, root), None);
+    fn composer_save_uses_the_core_debounce_and_revision_guard() {
+        let source = include_str!("mod.rs");
+        let schedule = source.find("fn schedule_composer_save").unwrap();
+        let flush = source[schedule..]
+            .find("fn flush_notification_store")
+            .map(|offset| schedule + offset)
+            .unwrap();
+        assert!(source[schedule..flush].contains("timer(muxy_core::composer::SAVE_DEBOUNCE)"));
+        assert!(source[schedule..flush].contains("flush_if_revision(revision)"));
+        assert!(source[schedule..flush].contains("composer_save_generation != generation"));
+    }
+
+    #[test]
+    fn staged_close_request_requires_a_safe_injected_test_root() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(directory.path()).unwrap();
+        let support = root.join("support");
+        let home = root.join("home");
+        std::fs::create_dir(&support).unwrap();
+        std::fs::create_dir(&home).unwrap();
         assert_eq!(
-            super::test_close_request_path(true, true, root),
-            Some(root.join(".muxy-p5-close-main-window"))
+            super::test_close_request_path(false, true, &support, Some(&support), &home),
+            None
         );
+        assert_eq!(
+            super::test_close_request_path(true, false, &support, Some(&support), &home),
+            None
+        );
+        assert_eq!(
+            super::test_close_request_path(true, true, &support, None, &home),
+            None
+        );
+        assert_eq!(
+            super::test_close_request_path(true, true, &support, Some(&root), &home),
+            None
+        );
+        assert_eq!(
+            super::test_close_request_path(
+                true,
+                true,
+                &home.join(".muxy"),
+                Some(&home.join(".muxy")),
+                &home
+            ),
+            None
+        );
+        assert_eq!(
+            super::test_close_request_path(true, true, &support, Some(&support), &home),
+            Some(support.join(".muxy-test-close-main-window"))
+        );
+        #[cfg(unix)]
+        {
+            let linked = root.join("linked");
+            std::os::unix::fs::symlink(&support, &linked).unwrap();
+            assert_eq!(
+                super::test_close_request_path(true, true, &linked, Some(&linked), &home),
+                None
+            );
+        }
     }
 }

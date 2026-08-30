@@ -10,6 +10,11 @@ pub struct ImageRequest {
     pub directory: Option<String>,
 }
 
+pub struct FilesRequest {
+    pub title: &'static str,
+    pub directory: Option<String>,
+}
+
 const IMAGE_EXTENSIONS: [&str; 10] = [
     "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp", "svg", "heic",
 ];
@@ -23,6 +28,20 @@ pub async fn pick_folder(request: FolderRequest) -> Option<PathBuf> {
         .pick_folder()
         .await
         .map(|handle| handle.path().to_path_buf())
+}
+
+pub async fn pick_files(request: FilesRequest) -> Vec<PathBuf> {
+    let mut dialog = rfd::AsyncFileDialog::new().set_title(request.title);
+    if let Some(directory) = request.directory {
+        dialog = dialog.set_directory(directory);
+    }
+    dialog
+        .pick_files()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|handle| handle.path().to_path_buf())
+        .collect()
 }
 
 pub async fn pick_image(request: ImageRequest) -> Option<PathBuf> {

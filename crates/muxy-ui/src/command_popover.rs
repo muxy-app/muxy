@@ -846,7 +846,8 @@ impl CommandPopover {
         self.theme = theme.clone();
         self.metrics = metrics;
         let style = input_style(self.config.density, &theme, &metrics);
-        self.input.update(cx, |input, _| input.set_style(style));
+        self.input
+            .update(cx, |input, cx| input.set_style(style, cx));
         cx.notify();
     }
 

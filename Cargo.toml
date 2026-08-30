@@ -56,6 +56,7 @@ objc2-quartz-core = { version = "0.3", features = [
 ] }
 objc2-foundation = { version = "0.3", features = [
     "NSArray",
+    "NSData",
     "NSGeometry",
     "NSString",
     "NSValue",
@@ -70,6 +71,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSAccessibilityProtocols",
     "NSAnimation",
     "NSApplication",
+    "NSDragging",
     "NSEvent",
     "NSImage",
     "NSImageRep",
@@ -89,6 +91,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSWindow",
     "NSWorkspace",
     "NSPasteboard",
+    "NSPasteboardItem",
     "NSPanel",
     "NSScreen",
     "NSSound",

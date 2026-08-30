@@ -1618,6 +1618,7 @@ impl MainWindow {
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
+        self.composer.set_menu_open(false);
         self.view.subscriptions.clear();
         self.view.overlay = Overlay::Menu(Menu::new(items, position));
         cx.notify();
@@ -1647,6 +1648,8 @@ impl MainWindow {
     }
 
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
+        let restore_composer_focus =
+            matches!(self.view.overlay, Overlay::Menu(_)) && self.composer.menu_open();
         if matches!(self.view.overlay, Overlay::TerminalConfirm { .. }) {
             self.resolve_terminal_confirmation(false, cx);
             return;
@@ -1717,6 +1720,12 @@ impl MainWindow {
         }
         self.view.subscriptions.clear();
         self.view.overlay = Overlay::None;
+        if restore_composer_focus {
+            self.composer.set_menu_open(false);
+            if let Some(input) = self.composer.input() {
+                self.view.pending_focus = Some(input.focus_handle(cx));
+            }
+        }
         cx.notify();
     }
 

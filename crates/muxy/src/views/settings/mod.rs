@@ -261,9 +261,10 @@ impl SettingsModal {
         self.theme = theme.clone();
         self.metrics = metrics;
         let style = self.input_style();
-        self.search.update(cx, |input, _| input.set_style(style));
+        self.search
+            .update(cx, |input, cx| input.set_style(style, cx));
         for field in self.fields.values() {
-            field.update(cx, |input, _| input.set_style(style));
+            field.update(cx, |input, cx| input.set_style(style, cx));
         }
         if let Some((_, browser)) = &self.browser {
             browser.update(cx, |browser, cx| {

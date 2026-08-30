@@ -12,6 +12,14 @@ fn desktop_notification_is_sound_only(window_active: bool, target_focused: bool)
     window_active && target_focused
 }
 
+fn terminal_input_overlay_active(
+    overlay_open: bool,
+    search_open: bool,
+    composer_input_focused: bool,
+) -> bool {
+    overlay_open || search_open || composer_input_focused
+}
+
 pub(crate) struct TerminalRuntime {
     pub(crate) surfaces: TerminalSurfaces,
     pub(super) _tasks: Vec<Task<()>>,
@@ -264,8 +272,12 @@ impl MainWindow {
             self.view.overlay = Overlay::TerminalConfirm { tab_id, id, kind };
         }
 
-        let overlay_open =
-            self.view.overlay.is_open() || !self.view.terminal.search_inputs.is_empty();
+        self.reconcile_composer_target(cx);
+        let overlay_open = terminal_input_overlay_active(
+            self.view.overlay.is_open(),
+            !self.view.terminal.search_inputs.is_empty(),
+            self.composer_input_is_focused(window, cx),
+        );
         if overlay_open != self.view.terminal.overlay_was_open {
             self.terminal_runtime
                 .surfaces
@@ -697,5 +709,13 @@ mod tests {
         assert!(!desktop_notification_is_sound_only(true, false));
         assert!(!desktop_notification_is_sound_only(false, true));
         assert!(!desktop_notification_is_sound_only(false, false));
+    }
+
+    #[test]
+    fn composer_only_suppresses_terminal_input_while_its_editor_is_focused() {
+        assert!(terminal_input_overlay_active(false, false, true));
+        assert!(!terminal_input_overlay_active(false, false, false));
+        assert!(terminal_input_overlay_active(true, false, false));
+        assert!(terminal_input_overlay_active(false, true, false));
     }
 }

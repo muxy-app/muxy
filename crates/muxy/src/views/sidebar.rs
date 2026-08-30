@@ -7,8 +7,8 @@ use crate::views::project_row::{
 use crate::views::sidebar_footer::sidebar_footer;
 use crate::views::workspace_switcher::{sort_button, workspace_switcher};
 use gpui::{
-    AnyElement, Context, FontWeight, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, div, px,
+    AnyElement, Context, ExternalPaths, FontWeight, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, ParentElement, SharedString, StatefulInteractiveElement, Styled, div, px,
 };
 use muxy_ui::components::IconGlyph;
 use muxy_ui::icon::Icon;
@@ -25,7 +25,14 @@ pub fn sidebar(
     expanded_worktree_projects: &std::collections::HashSet<String>,
     cx: &mut Context<MainWindow>,
 ) -> AnyElement {
+    let accent_soft = state.theme.accent_soft;
     div()
+        .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(accent_soft))
+        .on_drop(
+            cx.listener(|window: &mut MainWindow, paths: &ExternalPaths, _, cx| {
+                window.handle_sidebar_drop(paths.paths(), cx);
+            }),
+        )
         .flex()
         .flex_col()
         .size_full()

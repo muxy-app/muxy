@@ -427,12 +427,14 @@ pub fn layer(
                     MouseButton::Left,
                     cx.listener(|window: &mut MainWindow, _, _, cx| {
                         window.dismiss_overlay(cx);
+                        cx.stop_propagation();
                     }),
                 )
                 .on_mouse_down(
                     MouseButton::Right,
                     cx.listener(|window: &mut MainWindow, _, _, cx| {
                         window.dismiss_overlay(cx);
+                        cx.stop_propagation();
                     }),
                 ),
         )

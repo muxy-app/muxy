@@ -21,6 +21,7 @@ pub fn status_bar(
     repository_controls: &[crate::repository::RepositoryControl],
     repository_mutation_busy: bool,
     repository_ai_menu_available: bool,
+    trailing: Option<AnyElement>,
     cx: &mut Context<MainWindow>,
 ) -> AnyElement {
     let metrics = &state.metrics;
@@ -32,6 +33,8 @@ pub fn status_bar(
         .items_center()
         .gap(px(8.0))
         .h_full()
+        .min_w(px(0.0))
+        .px(px(10.0))
         .flex_grow();
 
     let path =
@@ -114,13 +117,14 @@ pub fn status_bar(
         .flex_row()
         .flex_none()
         .items_center()
-        .gap(px(8.0))
-        .px(px(10.0))
         .h(metrics.status_bar_height())
         .bg(theme.bg)
         .border_t(px(1.0))
         .border_color(theme.border)
         .child(left)
+        .when_some(trailing, |bar, trailing| {
+            bar.child(status_separator(state)).child(trailing)
+        })
         .into_any_element()
 }
 

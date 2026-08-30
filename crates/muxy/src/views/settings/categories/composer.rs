@@ -6,30 +6,17 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
         .as_f64()
         .unwrap_or(1.2);
 
-    let mut items = vec![
-        segmented_row(
-            modal,
-            "Presentation",
-            "muxy.richInput.presentationMode",
-            "panel",
-            vec![
-                Choice::new("panel", "Panel"),
-                Choice::new("floating", "Floating"),
-            ],
-            cx,
-        ),
-        editor_picker_row(
-            modal,
-            "Image Submission",
-            COMPOSER_IMAGE,
-            "clipboard",
-            vec![
-                Choice::new("clipboard", "Clipboard Paste"),
-                Choice::new("inlinePath", "Inline File Path"),
-            ],
-            cx,
-        ),
-    ];
+    let mut items = vec![editor_picker_row(
+        modal,
+        "Image Submission",
+        COMPOSER_IMAGE,
+        "clipboard",
+        vec![
+            Choice::new("clipboard", "Clipboard Paste"),
+            Choice::new("inlinePath", "Inline File Path"),
+        ],
+        cx,
+    )];
     if let Some(field) = modal.field(COMPOSER_FONT) {
         items.push(controls::row(
             style,
@@ -57,7 +44,7 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
         modal,
         Category::RichInput,
         "Composer",
-        Some("Inline File Path keeps multiple images perfectly ordered with text and Enter. Use Clipboard Paste if your TUI doesn't recognize image paths. SSH panes always upload the image and inline its remote path, because a Mac file path does not resolve on the remote device."),
+        Some("Inline File Path keeps multiple local images ordered with text and Enter. Use Clipboard Paste if your TUI doesn't recognize local image paths."),
         false,
         items,
     )

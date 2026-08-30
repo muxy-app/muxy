@@ -146,6 +146,10 @@ printf '==> Checking P4 repository ownership\n'
     printf 'error: P6 verification script must be executable\n' >&2
     exit 1
 }
+[[ -x scripts/verify-p7-composer.sh ]] || {
+    printf 'error: P7 verification script must be executable\n' >&2
+    exit 1
+}
 provider_catalog_owner='crates/muxy-core/src/repository_ai.rs'
 provider_catalog_matches="$(rg -n 'ProviderDescriptor\s*\{' crates/ --glob '*.rs' \
     | rg -v "^${provider_catalog_owner}:" || true)"
@@ -197,6 +201,53 @@ if rg -n 'objc2|ghostty_host|ghostty_sys|NativeView|NSView' \
     exit 1
 fi
 
+printf '==> Checking P7 Composer ownership and exact names\n'
+rg -q -F 'PANEL_ID: &str = "builtin:richInput"' crates/muxy-core/src/composer/mod.rs || {
+    printf 'error: Composer panel ID differs\n' >&2
+    exit 1
+}
+rg -q -F 'DRAFTS_FILE_NAME: &str = "rich-input-drafts.json"' crates/muxy-core/src/composer/mod.rs || {
+    printf 'error: Composer draft filename differs\n' >&2
+    exit 1
+}
+rg -q -F 'IMAGES_DIRECTORY_NAME: &str = "RichInputImages"' crates/muxy-core/src/composer/mod.rs || {
+    printf 'error: Composer image directory differs\n' >&2
+    exit 1
+}
+for declaration in \
+    $'#[serde(rename = "toggleRichInput")]\n    ToggleRichInput,' \
+    $'#[serde(rename = "submitRichInput")]\n    SubmitRichInput,' \
+    $'#[serde(rename = "submitRichInputWithoutReturn")]\n    SubmitRichInputWithoutReturn,'; do
+    rg -q -U -F "$declaration" crates/muxy-core/src/shortcuts.rs || {
+        printf 'error: Composer shortcut production declaration differs\n' >&2
+        exit 1
+    }
+done
+rg -q -U -F $'fn toggle_rich_input_default() -> KeyCombo {\n    if cfg!(target_os = "macos") {\n        KeyCombo::new("i", COMMAND)\n    } else {\n        KeyCombo::new("i", OPTION)\n    }\n}' crates/muxy-core/src/shortcuts.rs || {
+    printf 'error: Composer toggle defaults differ\n' >&2
+    exit 1
+}
+rg -q -U -F $'(ToggleRichInput, toggle_rich_input_default()),\n        (SubmitRichInput, KeyCombo::new("return", COMMAND)),\n        (\n            SubmitRichInputWithoutReturn,\n            KeyCombo::new("return", COMMAND | SHIFT),\n        ),' crates/muxy-core/src/shortcuts.rs || {
+    printf 'error: Composer production shortcut mappings differ\n' >&2
+    exit 1
+}
+composer_core_boundary="$(rg -n 'gpui|objc2|AppKit|MainWindow|AppState' crates/muxy-core/src/composer || true)"
+if [[ -n "$composer_core_boundary" ]]; then
+    printf '%s\n' "$composer_core_boundary"
+    printf 'error: portable Composer core crossed an app or platform boundary\n' >&2
+    exit 1
+fi
+panel_policy_boundary="$(rg -ni 'composer|draft|terminal|extension' crates/muxy-ui/src/panel.rs || true)"
+if [[ -n "$panel_policy_boundary" ]]; then
+    printf '%s\n' "$panel_policy_boundary"
+    printf 'error: caller policy entered muxy-ui panel primitives\n' >&2
+    exit 1
+fi
+if rg -n 'rich-input-drafts|RichInputImages|richInput' crates/muxy-core/src/migration.rs; then
+    printf 'error: Composer state entered the migration allowlist\n' >&2
+    exit 1
+fi
+
 printf '==> Checking P6 portable Quick Terminal ownership\n'
 "$SCRIPT_DIR/verify-p6-quick-terminal.sh" --fixture portable
 
@@ -224,6 +275,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 
     printf '==> Checking P6 Quick Terminal verification guards\n'
     "$SCRIPT_DIR/verify-p6-quick-terminal.sh" --self-test
+
+    printf '==> Checking P7 Composer verification guards\n'
+    "$SCRIPT_DIR/verify-p7-composer.sh" --self-test
 
     printf '==> Checking staged migration safety guards\n'
     "$SCRIPT_DIR/verify-p2-5-migration.sh" --self-test

@@ -68,7 +68,7 @@ const fn special(key: &'static str, source: Source) -> Entry {
     Entry { key, source }
 }
 
-pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 69] {
+pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 68] {
     let mobile_policy = MobileSettingsPolicy::new(mode);
     let mobile_keys = mobile_policy.keys();
     [
@@ -115,7 +115,6 @@ pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 69] {
         text("muxy.appBackgroundStyle", "vibrant"),
         text("muxy.sidebarCollapsedStyle", "icons"),
         text("muxy.sidebarExpandedStyle", "wide"),
-        text("muxy.richInput.presentationMode", "panel"),
         text("muxy.ai.repositoryActions.commit.provider", ""),
         text("muxy.ai.repositoryActions.commit.prompt", COMMIT_PROMPT),
         text("muxy.ai.repositoryActions.createPullRequest.provider", ""),
@@ -162,7 +161,7 @@ pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 69] {
     ]
 }
 
-pub const MIRROR: [Entry; 69] = mirror(crate::build_mode!());
+pub const MIRROR: [Entry; 68] = mirror(crate::build_mode!());
 
 pub const NOTIFICATION_SOUNDS: [&str; 15] = [
     "None",
@@ -188,7 +187,7 @@ pub fn provider_key(id: &str) -> String {
     format!("muxy.notifications.provider.{id}.enabled")
 }
 
-const ALLOWED_STRINGS: [(&str, &[&str]); 11] = [
+const ALLOWED_STRINGS: [(&str, &[&str]); 10] = [
     ("muxy.update.channel", &["stable", "beta"]),
     ("muxy.projectPicker.mode", &["custom", "finder"]),
     ("muxy.sentry.consent", &["", "allowed", "denied"]),
@@ -196,7 +195,6 @@ const ALLOWED_STRINGS: [(&str, &[&str]); 11] = [
     ("muxy.appBackgroundStyle", &["vibrant", "solid"]),
     ("muxy.sidebarCollapsedStyle", &["hidden", "icons"]),
     ("muxy.sidebarExpandedStyle", &["icons", "wide"]),
-    ("muxy.richInput.presentationMode", &["panel", "floating"]),
     (
         "editor.richInputImageStrategy",
         &["clipboard", "inlinePath"],
@@ -1400,13 +1398,13 @@ mod tests {
             .enumerate()
             .filter_map(|(index, (left, right))| (left != right).then_some(index))
             .collect();
-        assert_eq!(development.len(), 69);
-        assert_eq!(production.len(), 69);
+        assert_eq!(development.len(), 68);
+        assert_eq!(production.len(), 68);
         for entries in [&development, &production] {
             let mut keys: Vec<&str> = entries.iter().map(|entry| entry.key).collect();
             keys.sort_unstable();
             keys.dedup();
-            assert_eq!(keys.len(), 69);
+            assert_eq!(keys.len(), 68);
         }
         assert_eq!(differences.len(), 3);
         for index in differences {
@@ -1456,7 +1454,7 @@ mod tests {
             let inactive = crate::environment::MobileSettingsPolicy::new(mode.other()).keys();
             let root: Value = serde_json::from_str(&super::system_defaults_text_for(mode)).unwrap();
             let root = root.as_object().unwrap();
-            assert_eq!(root.len(), 69);
+            assert_eq!(root.len(), 68);
             for key in [active.enabled, active.port, active.scrollback_cap] {
                 assert!(root.contains_key(key));
             }
@@ -1739,6 +1737,26 @@ mod tests {
         assert_eq!(root.get("zzz.unknown"), Some(&json!({ "kept": 1 })));
         assert!(root.get("muxy.showStatusBar").unwrap().is_boolean());
         assert!(root.get("muxy.theme.dark").unwrap().is_string());
+    }
+
+    #[test]
+    fn composer_presentation_mode_is_inert_unknown_data() {
+        let (_dir, path) = sync_fixture(
+            "{\"muxy.richInput.presentationMode\":\"floating\",\"muxy.showStatusBar\":true}",
+        );
+        assert!(super::sync_at(&path, crate::build_mode!()));
+        let root: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(root["muxy.richInput.presentationMode"], json!("floating"));
+        assert!(
+            !super::MIRROR
+                .iter()
+                .any(|entry| entry.key == "muxy.richInput.presentationMode")
+        );
+        assert!(
+            !super::ALLOWED_STRINGS
+                .iter()
+                .any(|(key, _)| *key == "muxy.richInput.presentationMode")
+        );
     }
 
     #[test]

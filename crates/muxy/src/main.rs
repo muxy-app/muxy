@@ -1,10 +1,13 @@
 mod assets;
 mod command;
+mod composer;
 mod git;
 mod keymap;
 #[cfg(target_os = "macos")]
 mod native_compositor;
 pub mod notifications;
+pub mod panels;
+mod pasteboard;
 mod platform;
 mod project_operations;
 pub mod quick_terminal;

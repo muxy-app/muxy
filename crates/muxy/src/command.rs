@@ -54,6 +54,10 @@ pub enum Command {
     RestoreRecentlyRemoved(String),
     TerminalCopy(String),
     TerminalPaste(String),
+    ToggleComposerBroadcast,
+    SubmitComposerWithoutReturn,
+    ToggleComposerClearAfterSending,
+    ToggleComposerClearOnClose,
     OpenInIde(String),
     DismissOverlay,
 }

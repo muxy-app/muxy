@@ -112,6 +112,8 @@ pub trait TerminalSurfaceHandle {
     fn set_focused(&self, focused: bool);
     fn set_occluded(&self, occluded: bool);
     fn set_pointer_inside(&self, inside: bool);
+    fn set_input_transaction_active(&self, _active: bool) {}
+    fn cancel_input_transaction(&self) {}
     fn has_native_scrollbar(&self) -> bool {
         false
     }
@@ -135,6 +137,18 @@ pub trait TerminalSurfaceHandle {
     fn refresh(&mut self) -> bool;
     fn needs_confirm_close(&self) -> bool;
     fn request_close(&self);
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExternalDrop {
+    pub file_values: Vec<String>,
+    pub plain_text: Option<String>,
+}
+
+impl ExternalDrop {
+    pub fn is_empty(&self) -> bool {
+        self.file_values.is_empty() && self.plain_text.as_deref().is_none_or(str::is_empty)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -320,6 +334,24 @@ mod tests {
             modifiers: 0,
         }]);
         assert!(!gate.declines("", 0x00, 0));
+    }
+
+    #[test]
+    fn external_drop_is_neutral_and_distinguishes_empty_content() {
+        assert!(
+            ExternalDrop {
+                file_values: Vec::new(),
+                plain_text: None,
+            }
+            .is_empty()
+        );
+        assert!(
+            !ExternalDrop {
+                file_values: vec!["file:///tmp/a".to_owned()],
+                plain_text: Some("fallback".to_owned()),
+            }
+            .is_empty()
+        );
     }
 
     #[test]
