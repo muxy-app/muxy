@@ -8,6 +8,8 @@ pub mod notifications;
 pub mod prefs;
 pub mod quick_terminal;
 pub mod repository_ai;
+pub mod resources;
+pub mod session;
 pub mod settings_catalog;
 pub mod shortcuts;
 pub mod store;

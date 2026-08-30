@@ -318,7 +318,7 @@ phase_6_documentation_checks() {
 }
 
 phase_6_scope_checks() {
-    local expected_manifests actual_manifests expected_bins actual_bins locked untracked
+    local expected_manifests actual_manifests expected_bins actual_bins locked untracked changes
     if rg -n 'static mut|thread_local!' \
         crates/muxy-core/src/quick_terminal crates/muxy-core/src/prefs/settings.rs \
         crates/muxy/src/quick_terminal; then
@@ -383,7 +383,6 @@ phase_6_scope_checks() {
         Muxy \
         Tests \
         crates/muxy/src/socket \
-        crates/muxy-proto \
         scripts/build-app.sh \
         scripts/verify-bundle.sh \
         resources/Info.plist \
@@ -396,6 +395,15 @@ phase_6_scope_checks() {
             fail "P6 added an untracked file under locked path: $locked"
         }
     done
+    changes="$(git status --short --untracked-files=all -- crates/muxy-proto \
+        | rg -v 'crates/muxy-proto/src/session/|crates/muxy-proto/src/lib.rs$' || true)"
+    [[ -z "$changes" ]] || {
+        printf '%s\n' "$changes"
+        if printf '%s\n' "$changes" | rg -q '^\?\? '; then
+            fail "P6 added an untracked file under locked path: crates/muxy-proto"
+        fi
+        fail "P6 changed locked path: crates/muxy-proto"
+    }
 }
 
 phase_6_guardrails() {

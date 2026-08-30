@@ -1,3 +1,4 @@
+use muxy_proto::session::SessionId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -18,6 +19,8 @@ pub enum TabKind {
 pub struct Tab {
     pub id: TabId,
     pub kind: TabKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<TabId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -51,6 +54,7 @@ impl Tab {
         Self {
             id: crate::store::new_uuid(),
             kind,
+            session_id: None,
             parent_id: None,
             project_path: None,
             custom_title: None,

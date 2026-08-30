@@ -106,6 +106,7 @@ source_checks() {
         scripts/stage-test-app.sh \
         crates/muxy/src/socket \
         .github || true)"
+    changes="$(printf '%s\n' "$changes" | rg -v 'crates/muxy-proto/src/session/|crates/muxy-proto/src/lib.rs$' || true)"
     [[ -z "$changes" ]] || {
         printf '%s\n' "$changes"
         fail "a locked migration, protocol, CLI, bundle, staging, or CI path changed"

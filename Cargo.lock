@@ -3301,6 +3301,7 @@ dependencies = [
  "image",
  "libc",
  "log",
+ "muxy-proto",
  "objc2",
  "objc2-foundation",
  "resvg",

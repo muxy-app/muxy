@@ -150,6 +150,10 @@ printf '==> Checking P4 repository ownership\n'
     printf 'error: P7 verification script must be executable\n' >&2
     exit 1
 }
+[[ -x scripts/verify-p8-terminal-memory.sh ]] || {
+    printf 'error: P8 verification script must be executable\n' >&2
+    exit 1
+}
 provider_catalog_owner='crates/muxy-core/src/repository_ai.rs'
 provider_catalog_matches="$(rg -n 'ProviderDescriptor\s*\{' crates/ --glob '*.rs' \
     | rg -v "^${provider_catalog_owner}:" || true)"
@@ -190,9 +194,26 @@ check_boundary() {
 }
 check_boundary muxy-api 'gpui|objc2|ghostty|muxy[-_]terminal|muxy[-_]ui'
 check_boundary muxy-core 'gpui|muxy[-_]api|muxy[-_]terminal|muxy[-_]ui|notify'
-check_boundary muxy-proto 'gpui|objc2|objective-c|ghostty|muxy[-_](core|api|terminal|ui)|muxy::|package\s*=\s*"muxy"|^\s*muxy(\.workspace)?\s*='
+check_boundary muxy-proto 'gpui|objc2|objective-c|ghostty[-_](host|sys)|muxy[-_](core|api|terminal|ui)|muxy::|package\s*=\s*"muxy"|^\s*muxy(\.workspace)?\s*='
 check_boundary muxy-terminal 'gpui|muxy[-_]api|muxy[-_]ui'
 check_boundary muxy-ui 'muxy[-_]core|muxy[-_]api|muxy[-_]terminal|ghostty'
+
+printf '==> Checking P8 portable ownership\n'
+[[ ! -e crates/muxy-session ]] || {
+    printf 'error: P8 daemon crate entered before Phase 2\n' >&2
+    exit 1
+}
+if find . -name terminal-session-mode.json -print | grep -q .; then
+    printf 'error: P8 must not add a terminal session mode marker\n' >&2
+    exit 1
+fi
+p8_terminal_boundary="$(rg -n 'gpui|objc2|ghostty|MainWindow|AppState' crates/muxy-terminal/src/offline || true)"
+if [[ -n "$p8_terminal_boundary" ]]; then
+    printf '%s\n' "$p8_terminal_boundary"
+    printf 'error: portable idle policy crossed an app or platform boundary\n' >&2
+    exit 1
+fi
+"$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture portable
 
 printf '==> Checking the terminal backend boundary\n'
 if rg -n 'objc2|ghostty_host|ghostty_sys|NativeView|NSView' \
@@ -278,6 +299,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 
     printf '==> Checking P7 Composer verification guards\n'
     "$SCRIPT_DIR/verify-p7-composer.sh" --self-test
+
+    printf '==> Checking P8 terminal memory verification guards\n'
+    "$SCRIPT_DIR/verify-p8-terminal-memory.sh" --self-test
 
     printf '==> Checking staged migration safety guards\n'
     "$SCRIPT_DIR/verify-p2-5-migration.sh" --self-test

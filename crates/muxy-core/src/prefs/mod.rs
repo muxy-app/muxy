@@ -113,6 +113,78 @@ pub const COMPOSER_BOTTOM_HEIGHT_DEFAULT: f64 = 220.0;
 pub const COMPOSER_FONT_SIZE_MIN: f64 = 9.0;
 pub const COMPOSER_FONT_SIZE_MAX: f64 = 32.0;
 pub const COMPOSER_FONT_SIZE_DEFAULT: f64 = 13.0;
+pub const TERMINAL_OFFLINE_ENABLED_KEY: &str = "muxy.terminalOffline.enabled";
+pub const TERMINAL_OFFLINE_THRESHOLD_KEY: &str = "muxy.terminalOffline.idleThresholdSeconds";
+pub const TERMINAL_PERSISTENT_ENABLED_KEY: &str = "muxy.terminalPersistentSession.enabled";
+pub const RESOURCE_STATUS_ENABLED_KEY: &str = "muxy.showResourceUsageInStatusBar";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TerminalIdleTimeout {
+    TenSeconds,
+    ThirtySeconds,
+    OneMinute,
+    TwoMinutes,
+    FiveMinutes,
+    TenMinutes,
+    FifteenMinutes,
+    ThirtyMinutes,
+}
+
+impl TerminalIdleTimeout {
+    pub const ALL: [Self; 8] = [
+        Self::TenSeconds,
+        Self::ThirtySeconds,
+        Self::OneMinute,
+        Self::TwoMinutes,
+        Self::FiveMinutes,
+        Self::TenMinutes,
+        Self::FifteenMinutes,
+        Self::ThirtyMinutes,
+    ];
+
+    pub const fn seconds(self) -> u64 {
+        match self {
+            Self::TenSeconds => 10,
+            Self::ThirtySeconds => 30,
+            Self::OneMinute => 60,
+            Self::TwoMinutes => 120,
+            Self::FiveMinutes => 300,
+            Self::TenMinutes => 600,
+            Self::FifteenMinutes => 900,
+            Self::ThirtyMinutes => 1800,
+        }
+    }
+
+    pub fn closest(seconds: f64) -> Self {
+        Self::ALL
+            .into_iter()
+            .min_by(|left, right| {
+                (left.seconds() as f64 - seconds)
+                    .abs()
+                    .total_cmp(&(right.seconds() as f64 - seconds).abs())
+            })
+            .unwrap_or(Self::FiveMinutes)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalMemoryPreferences {
+    pub persistent_sessions_enabled: bool,
+    pub idle_sleeping_enabled: bool,
+    pub idle_timeout: TerminalIdleTimeout,
+    pub resource_status_enabled: bool,
+}
+
+impl Default for TerminalMemoryPreferences {
+    fn default() -> Self {
+        Self {
+            persistent_sessions_enabled: false,
+            idle_sleeping_enabled: false,
+            idle_timeout: TerminalIdleTimeout::FiveMinutes,
+            resource_status_enabled: true,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComposerPanelMode {
@@ -313,6 +385,7 @@ pub struct Prefs {
     pub active_worktree_ids: std::collections::HashMap<String, String>,
     pub active_group_id: Option<String>,
     pub composer: ComposerPreferences,
+    pub terminal_memory: TerminalMemoryPreferences,
     pub repository_ai: RepositoryAiPreferences,
 }
 
@@ -343,6 +416,7 @@ impl Default for Prefs {
             active_worktree_ids: std::collections::HashMap::new(),
             active_group_id: None,
             composer: ComposerPreferences::default(),
+            terminal_memory: TerminalMemoryPreferences::default(),
             repository_ai: RepositoryAiPreferences::default(),
         }
     }
@@ -395,6 +469,20 @@ impl Prefs {
         }
         if let Some(value) = flag("muxy.projects.keepOpenWhenNoTabs") {
             self.keep_projects_open = value;
+        }
+        if let Some(value) = flag(TERMINAL_PERSISTENT_ENABLED_KEY) {
+            self.terminal_memory.persistent_sessions_enabled = value;
+        }
+        if let Some(value) = flag(TERMINAL_OFFLINE_ENABLED_KEY) {
+            self.terminal_memory.idle_sleeping_enabled = value;
+        }
+        if let Some(value) =
+            number(TERMINAL_OFFLINE_THRESHOLD_KEY).filter(|value| value.is_finite())
+        {
+            self.terminal_memory.idle_timeout = TerminalIdleTimeout::closest(value);
+        }
+        if let Some(value) = flag(RESOURCE_STATUS_ENABLED_KEY) {
+            self.terminal_memory.resource_status_enabled = value;
         }
         if let Some(value) =
             number("muxy.tabs.maxWidth").filter(|value| value.is_finite() && *value >= 0.0)
@@ -576,7 +664,8 @@ mod tests {
 
     use super::{
         ComposerPanelMode, ComposerPanelPosition, ComposerPreferences, ScalePreset, SortMode,
-        executable_is_test_process, resolve_app_support_dir,
+        TerminalIdleTimeout, TerminalMemoryPreferences, executable_is_test_process,
+        resolve_app_support_dir,
     };
 
     #[test]
@@ -717,6 +806,55 @@ mod tests {
         assert_eq!(prefs.repository_ai.commit.prompt, "Commit prompt");
         assert_eq!(prefs.repository_ai.create_pull_request.provider, "claude");
         assert_eq!(prefs.repository_ai.create_pull_request.prompt, "PR prompt");
+    }
+
+    #[test]
+    fn terminal_memory_preferences_use_exact_defaults_and_timeout_choices() {
+        assert_eq!(
+            TerminalMemoryPreferences::default(),
+            TerminalMemoryPreferences {
+                persistent_sessions_enabled: false,
+                idle_sleeping_enabled: false,
+                idle_timeout: TerminalIdleTimeout::FiveMinutes,
+                resource_status_enabled: true,
+            }
+        );
+        assert_eq!(
+            TerminalIdleTimeout::ALL.map(TerminalIdleTimeout::seconds),
+            [10, 30, 60, 120, 300, 600, 900, 1800]
+        );
+        assert_eq!(
+            TerminalIdleTimeout::closest(9.0),
+            TerminalIdleTimeout::TenSeconds
+        );
+        assert_eq!(
+            TerminalIdleTimeout::closest(280.0),
+            TerminalIdleTimeout::FiveMinutes
+        );
+        assert_eq!(
+            TerminalIdleTimeout::closest(100_000.0),
+            TerminalIdleTimeout::ThirtyMinutes
+        );
+    }
+
+    #[test]
+    fn terminal_memory_preferences_load_as_typed_runtime_fields() {
+        let mut prefs = super::Prefs::default();
+        prefs.apply_settings_root(&serde_json::json!({
+            "muxy.terminalPersistentSession.enabled": true,
+            "muxy.terminalOffline.enabled": true,
+            "muxy.terminalOffline.idleThresholdSeconds": 610,
+            "muxy.showResourceUsageInStatusBar": false
+        }));
+        assert_eq!(
+            prefs.terminal_memory,
+            TerminalMemoryPreferences {
+                persistent_sessions_enabled: true,
+                idle_sleeping_enabled: true,
+                idle_timeout: TerminalIdleTimeout::TenMinutes,
+                resource_status_enabled: false,
+            }
+        );
     }
 
     #[test]

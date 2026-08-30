@@ -1,4 +1,5 @@
 use crate::confirmation::{ConfirmationId, ConfirmationKind};
+use crate::offline::policy::TerminalSafetyFacts;
 use crate::scrollbar::ScrollbarMetrics;
 use muxy_core::shortcuts::KeyCombo;
 
@@ -108,6 +109,23 @@ pub enum PointerInput {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TerminalLifecycleFacts {
+    pub surface_identity: u64,
+    pub activity_generation: u64,
+    pub safety: TerminalSafetyFacts,
+}
+
+impl TerminalLifecycleFacts {
+    pub const fn unknown(surface_identity: u64, activity_generation: u64) -> Self {
+        Self {
+            surface_identity,
+            activity_generation,
+            safety: TerminalSafetyFacts::unknown(),
+        }
+    }
+}
+
 pub trait TerminalSurfaceHandle {
     fn set_focused(&self, focused: bool);
     fn set_occluded(&self, occluded: bool);
@@ -129,6 +147,9 @@ pub trait TerminalSurfaceHandle {
     }
     fn foreground_pid(&self) -> Option<u64> {
         None
+    }
+    fn lifecycle_facts(&self) -> TerminalLifecycleFacts {
+        TerminalLifecycleFacts::unknown(0, 0)
     }
     fn metadata(&self) -> &SurfaceMetadata;
     fn perform(&self, action: SurfaceAction) -> bool;

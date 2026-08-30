@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod confirmation;
 pub mod input;
+pub mod offline;
 pub mod scrollbar;
 pub mod search;
 

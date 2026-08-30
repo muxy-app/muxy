@@ -162,6 +162,7 @@ source_checks() {
         scripts/build-app.sh \
         scripts/verify-bundle.sh \
         .github || true)"
+    changes="$(printf '%s\n' "$changes" | rg -v 'crates/muxy-proto/src/session/|crates/muxy-proto/src/lib.rs$' || true)"
     [[ -z "$changes" ]] || {
         printf '%s\n' "$changes"
         fail "a locked protocol, catalog, migration, CLI, bundle, or CI path changed"

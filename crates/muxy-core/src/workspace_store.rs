@@ -1,5 +1,6 @@
 use crate::store;
 use crate::workspace::{Axis, SplitNode, Tab, TabArea, TabKind, TopLevelTabNode, WorkspaceState};
+use muxy_proto::session::SessionId;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::io;
@@ -12,6 +13,12 @@ pub struct WorkspaceStore {
     snapshots: Vec<RawSnapshot>,
     raw_tabs: HashMap<String, Map<String, Value>>,
     unparsed: Vec<Value>,
+    session_link_errors: Vec<SessionLinkPersistenceError>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum SessionLinkPersistenceError {
+    InvalidSessionId { tab_id: String },
 }
 
 #[derive(Debug, Clone)]
@@ -57,12 +64,14 @@ impl WorkspaceStore {
                 }
             }
         }
+        let session_link_errors = invalid_session_links(&raw_tabs);
         Self {
             path,
             states,
             snapshots,
             raw_tabs,
             unparsed,
+            session_link_errors,
         }
     }
 
@@ -72,6 +81,10 @@ impl WorkspaceStore {
 
     pub fn states_mut(&mut self) -> &mut [WorkspaceState] {
         &mut self.states
+    }
+
+    pub fn session_link_errors(&self) -> &[SessionLinkPersistenceError] {
+        &self.session_link_errors
     }
 
     pub fn active(&self, project_id: &str, project_path: &str) -> Option<&WorkspaceState> {
@@ -410,6 +423,29 @@ fn decode_split_node(value: &Value) -> Option<SplitNode> {
     }
 }
 
+fn invalid_session_links(
+    raw_tabs: &HashMap<String, Map<String, Value>>,
+) -> Vec<SessionLinkPersistenceError> {
+    raw_tabs
+        .iter()
+        .filter_map(|(tab_id, tab)| {
+            let terminal = !matches!(
+                tab.get("kind").and_then(Value::as_str),
+                Some("browser" | "extensionWebView" | "extension")
+            );
+            let value = tab.get("sessionId")?;
+            (terminal
+                && value
+                    .as_str()
+                    .and_then(|value| SessionId::parse(value).ok())
+                    .is_none())
+            .then(|| SessionLinkPersistenceError::InvalidSessionId {
+                tab_id: tab_id.clone(),
+            })
+        })
+        .collect()
+}
+
 fn decode_tab(value: &Value, area_project_path: &str) -> Option<Tab> {
     let stored = value.as_object()?;
     let id = string_field(stored, "id")?;
@@ -433,6 +469,11 @@ fn decode_tab(value: &Value, area_project_path: &str) -> Option<Tab> {
     Some(Tab {
         id,
         kind,
+        session_id: match kind {
+            TabKind::Terminal => optional_string_field(stored, "sessionId")
+                .and_then(|value| SessionId::parse(&value).ok()),
+            TabKind::Browser | TabKind::ExtensionWebView => None,
+        },
         parent_id: optional_string_field(stored, "parentTabID"),
         project_path: optional_string_field(stored, "projectPath")
             .or_else(|| Some(area_project_path.to_owned())),
@@ -755,6 +796,20 @@ fn encode_tab(
         ),
     );
     stored.insert("id".into(), Value::String(tab.id.clone()));
+    if tab.kind == TabKind::Terminal {
+        if let Some(session_id) = tab.session_id {
+            stored.insert("sessionId".into(), Value::String(session_id.uppercase()));
+        } else if raw
+            .and_then(|tab| tab.get("sessionId"))
+            .is_none_or(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|value| SessionId::parse(value).is_ok())
+            })
+        {
+            stored.remove("sessionId");
+        }
+    }
     set_optional_string(&mut stored, "parentTabID", tab.parent_id.as_ref());
     set_optional_string(&mut stored, "customTitle", tab.custom_title.as_ref());
     set_optional_string(&mut stored, "colorID", tab.color_id.as_ref());
@@ -1109,6 +1164,7 @@ mod tests {
                 "paneUsesDefaultTitle": false,
                 "paneID": "old-pane",
                 "paneSessionID": "old-session",
+                "sessionId": "123e4567-e89b-12d3-a456-426614174000",
                 "filePath": "/old/file",
                 "currentWorkingDirectory": "/old/cwd",
                 "engineVersion": 7
@@ -1116,19 +1172,90 @@ mod tests {
         }]);
         file.write(&fixture);
         let mut store = WorkspaceStore::load_from(&file.path);
-        store.states_mut()[0]
-            .tab_mut("terminal")
-            .unwrap()
-            .custom_title = Some("Changed".into());
+        let terminal = store.states_mut()[0].tab_mut("terminal").unwrap();
+        assert_eq!(
+            terminal.session_id.unwrap().uppercase(),
+            "123E4567-E89B-12D3-A456-426614174000"
+        );
+        terminal.session_id = Some(
+            muxy_proto::session::SessionId::parse("223e4567-e89b-12d3-a456-426614174000").unwrap(),
+        );
+        terminal.custom_title = Some("Changed".into());
         store.save().unwrap();
         let tab = &file.read()[0]["root"]["tabArea"]["tabs"][0];
         assert_eq!(tab["customTitle"], "Changed");
         assert_eq!(tab["paneUsesDefaultTitle"], false);
         assert_eq!(tab["paneID"], "old-pane");
         assert_eq!(tab["paneSessionID"], "old-session");
+        assert_eq!(tab["sessionId"], "223E4567-E89B-12D3-A456-426614174000");
         assert_eq!(tab["filePath"], "/old/file");
         assert_eq!(tab["currentWorkingDirectory"], "/old/cwd");
         assert_eq!(tab["engineVersion"], 7);
+    }
+
+    #[test]
+    fn malformed_terminal_session_links_are_preserved_and_reported() {
+        let file = TempFile::new();
+        let fixture = json!([{
+            "projectID": "project",
+            "root": area("area", "/project", vec![
+                json!({
+                    "kind": "terminal",
+                    "id": "invalid-string",
+                    "isPinned": false,
+                    "sessionId": "not-a-session-id"
+                }),
+                json!({
+                    "kind": "terminal",
+                    "id": "invalid-type",
+                    "isPinned": false,
+                    "sessionId": 42
+                })
+            ], 0)
+        }]);
+        file.write(&fixture);
+        let store = WorkspaceStore::load_from(&file.path);
+        assert_eq!(store.session_link_errors().len(), 2);
+        assert!(store.session_link_errors().contains(
+            &SessionLinkPersistenceError::InvalidSessionId {
+                tab_id: "invalid-string".into()
+            }
+        ));
+        assert!(store.session_link_errors().contains(
+            &SessionLinkPersistenceError::InvalidSessionId {
+                tab_id: "invalid-type".into()
+            }
+        ));
+        store.save().unwrap();
+        let saved = file.read();
+        assert_eq!(
+            saved[0]["root"]["tabArea"]["tabs"][0]["sessionId"],
+            "not-a-session-id"
+        );
+        assert_eq!(saved[0]["root"]["tabArea"]["tabs"][1]["sessionId"], 42);
+    }
+
+    #[test]
+    fn non_terminal_tabs_preserve_raw_session_id_without_adopting_it() {
+        let file = TempFile::new();
+        let fixture = json!([{
+            "projectID": "project",
+            "root": area("area", "/project", vec![json!({
+                "kind": "browser",
+                "id": "browser",
+                "isPinned": false,
+                "browserURL": "https://example.com",
+                "sessionId": "retained-browser-value"
+            })], 0)
+        }]);
+        file.write(&fixture);
+        let store = WorkspaceStore::load_from(&file.path);
+        assert_eq!(store.states()[0].tab("browser").unwrap().session_id, None);
+        store.save().unwrap();
+        assert_eq!(
+            file.read()[0]["root"]["tabArea"]["tabs"][0]["sessionId"],
+            "retained-browser-value"
+        );
     }
 
     #[test]
