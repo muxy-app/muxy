@@ -252,10 +252,15 @@ final class ProjectGroupStore {
 
     func remoteWorkspaceMoveTargets(for project: Project) -> [ProjectGroup] {
         guard let workspaceID = project.remoteWorkspaceID,
-              let source = groups.first(where: { $0.id == workspaceID })
+              let source = groups.first(where: { $0.id == workspaceID }),
+              source.type == .ssh,
+              let sourceDeviceID = source.remoteDeviceID
         else { return [] }
         return groups.filter {
-            $0.type == .ssh && $0.id != source.id && $0.remoteDeviceID == source.remoteDeviceID
+            $0.type == .ssh
+                && $0.id != source.id
+                && $0.remoteDeviceID == sourceDeviceID
+                && !Self.containsRemoteProject(path: project.path, in: $0)
         }
     }
 
@@ -267,12 +272,23 @@ final class ProjectGroupStore {
                   let targetIndex = groups.firstIndex(where: { $0.id == targetGroupID }),
                   groups[sourceIndex].type == .ssh,
                   groups[targetIndex].type == .ssh,
-                  groups[sourceIndex].remoteDeviceID == groups[targetIndex].remoteDeviceID,
+                  let sourceDeviceID = groups[sourceIndex].remoteDeviceID,
+                  let targetDeviceID = groups[targetIndex].remoteDeviceID,
+                  sourceDeviceID == targetDeviceID,
                   let projectIndex = groups[sourceIndex].remoteProjects.firstIndex(where: { $0.id == id })
             else { return false }
-            let project = groups[sourceIndex].remoteProjects.remove(at: projectIndex)
+            let project = groups[sourceIndex].remoteProjects[projectIndex]
+            guard !Self.containsRemoteProject(path: project.path, in: groups[targetIndex]) else { return false }
+            groups[sourceIndex].remoteProjects.remove(at: projectIndex)
             groups[targetIndex].remoteProjects.append(project)
             return true
+        }
+    }
+
+    private static func containsRemoteProject(path: String, in group: ProjectGroup) -> Bool {
+        let standardizedPath = ProjectPickerPathService.standardizedRemotePath(path)
+        return group.remoteProjects.contains {
+            ProjectPickerPathService.standardizedRemotePath($0.path) == standardizedPath
         }
     }
 

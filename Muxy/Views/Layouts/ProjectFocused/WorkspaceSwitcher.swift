@@ -393,10 +393,8 @@ struct ProjectGroupMembershipMenu: View {
     }
 
     var body: some View {
-        if project.remoteWorkspaceID != nil {
-            if !remoteTargetGroups.isEmpty {
-                remoteMembershipMenu
-            }
+        if project.remoteWorkspaceID != nil, !remoteTargetGroups.isEmpty {
+            remoteMembershipMenu
         } else if project.supportsLocalWorkspaceMembership, !localGroups.isEmpty {
             localMembershipMenu
         }

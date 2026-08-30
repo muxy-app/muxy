@@ -490,6 +490,40 @@ struct ProjectGroupStoreTests {
         #expect(store.remoteWorkspaceMoveTargets(for: Project(name: "A", path: "/a")).isEmpty)
     }
 
+    @Test("remote project moves reject SSH workspaces without device IDs")
+    func remoteProjectMovesRejectMissingDeviceIDs() {
+        let remote = RemoteProject(name: "api", path: "~/code/api")
+        let source = ProjectGroup(name: "Source", type: .ssh, remoteProjects: [remote])
+        let target = ProjectGroup(name: "Target", type: .ssh)
+        let persistence = ProjectGroupPersistenceStub(initial: [source, target])
+        let store = makeStore(persistence: persistence)
+        let project = remote.asProject(workspaceID: source.id, sortOrder: 0)
+
+        #expect(store.remoteWorkspaceMoveTargets(for: project).isEmpty)
+        #expect(!store.moveRemoteProject(id: remote.id, fromGroup: source.id, toGroup: target.id))
+        #expect(store.groups.first { $0.id == source.id }?.remoteProjects.first?.id == remote.id)
+        #expect(store.groups.first { $0.id == target.id }?.remoteProjects.isEmpty == true)
+        #expect(persistence.savedGroups == nil)
+    }
+
+    @Test("remote project moves reject targets containing the same standardized path")
+    func remoteProjectMovesRejectDuplicateTargetPaths() {
+        let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
+        let remote = RemoteProject(name: "api", path: "~/code/api")
+        let duplicate = RemoteProject(name: "duplicate", path: "~/code/./api")
+        let source = ProjectGroup(name: "Source", type: .ssh, remoteDeviceID: device.id, remoteProjects: [remote])
+        let target = ProjectGroup(name: "Target", type: .ssh, remoteDeviceID: device.id, remoteProjects: [duplicate])
+        let persistence = ProjectGroupPersistenceStub(initial: [source, target])
+        let store = makeStore(persistence: persistence, devices: [device])
+        let project = remote.asProject(workspaceID: source.id, sortOrder: 0)
+
+        #expect(store.remoteWorkspaceMoveTargets(for: project).isEmpty)
+        #expect(!store.moveRemoteProject(id: remote.id, fromGroup: source.id, toGroup: target.id))
+        #expect(store.groups.first { $0.id == source.id }?.remoteProjects.first?.id == remote.id)
+        #expect(store.groups.first { $0.id == target.id }?.remoteProjects.map(\.id) == [duplicate.id])
+        #expect(persistence.savedGroups == nil)
+    }
+
     @Test("moveRemoteProject moves the project between SSH workspaces and persists")
     func moveRemoteProject() throws {
         let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
