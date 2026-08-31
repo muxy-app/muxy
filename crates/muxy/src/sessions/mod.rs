@@ -109,6 +109,17 @@ pub enum SessionReattachOutcome {
     Reattached(WorkspacePlacement),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionEndCandidate {
+    pub session_id: SessionId,
+    pub owner: SessionOwner,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionEndAllPlan {
+    pub candidates: Vec<SessionEndCandidate>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct OwnerObservation {
     generation: u64,
@@ -406,15 +417,29 @@ impl SessionCoordinator {
             .collect::<HashSet<_>>();
         let mut sessions = descriptors
             .into_iter()
-            .map(|descriptor| {
+            .filter_map(|descriptor| {
                 let linked_state = descriptor
                     .placement
                     .as_ref()
                     .and_then(|placement| self.linked_tabs.get(&placement.tab_id));
+                let linked_matches = linked
+                    .iter()
+                    .filter(|candidate| candidate.session_id == descriptor.session_id)
+                    .collect::<Vec<_>>();
+                if matches!(descriptor.status, SessionStatus::Exited { .. })
+                    && linked_matches.is_empty()
+                {
+                    return None;
+                }
+                let invalid_owner = linked_matches.len() > 1
+                    || linked_matches
+                        .first()
+                        .is_some_and(|linked| linked.owner != descriptor.owner);
                 let state = match descriptor.status {
                     SessionStatus::Exited { .. } => ManagedSessionState::Ended,
                     SessionStatus::Running
-                        if linked_state == Some(&LinkedTabState::AttachmentFailed) =>
+                        if invalid_owner
+                            || linked_state == Some(&LinkedTabState::AttachmentFailed) =>
                     {
                         ManagedSessionState::AttachmentFailed
                     }
@@ -423,7 +448,7 @@ impl SessionCoordinator {
                     }
                     SessionStatus::Running => ManagedSessionState::Background,
                 };
-                ManagedSession {
+                Some(ManagedSession {
                     session_id: descriptor.session_id,
                     owner: descriptor.owner,
                     placement: descriptor.placement,
@@ -431,7 +456,7 @@ impl SessionCoordinator {
                     title: descriptor.title,
                     working_directory: descriptor.working_directory,
                     state,
-                }
+                })
             })
             .collect::<Vec<_>>();
         sessions.extend(linked.into_iter().filter_map(|linked| {
@@ -457,6 +482,122 @@ impl SessionCoordinator {
         }));
         sessions.sort_by(|left, right| left.session_id.cmp(&right.session_id));
         Ok(sessions)
+    }
+
+    pub fn live_session_descriptors(&self) -> Result<Vec<SessionDescriptor>, String> {
+        let mut control = self
+            .existing_control()?
+            .ok_or_else(|| "persistent session runtime is unavailable".to_owned())?;
+        let mut sessions = control
+            .list()
+            .map_err(display_error)?
+            .into_iter()
+            .filter(|session| session.status == SessionStatus::Running)
+            .collect::<Vec<_>>();
+        sessions.sort_by_key(|session| session.session_id);
+        Ok(sessions)
+    }
+
+    pub fn end_session(
+        &mut self,
+        session_id: SessionId,
+        expected_owner: &SessionOwner,
+        store: &mut WorkspaceStore,
+    ) -> Result<(), String> {
+        let mut control = self
+            .existing_control()?
+            .ok_or_else(|| "persistent session runtime is unavailable".to_owned())?;
+        let linked_tab = end_exact_session(&mut control, store, session_id, expected_owner)?;
+        if let Some(tab_id) = linked_tab {
+            self.linked_tabs.remove(&tab_id);
+        }
+        Ok(())
+    }
+
+    pub fn end_session_by_id(
+        &mut self,
+        session_id: SessionId,
+        store: &mut WorkspaceStore,
+    ) -> Result<(), String> {
+        let descriptor = self
+            .live_session_descriptors()?
+            .into_iter()
+            .find(|descriptor| descriptor.session_id == session_id)
+            .ok_or_else(|| format!("pane not found {session_id}"))?;
+        self.end_session(session_id, &descriptor.owner, store)
+    }
+
+    pub fn remove_stale_session(
+        &mut self,
+        tab_id: &str,
+        session_id: SessionId,
+        expected_owner: &SessionOwner,
+        store: &mut WorkspaceStore,
+    ) -> Result<(), String> {
+        let linked = linked_sessions(store)
+            .into_iter()
+            .filter(|linked| linked.tab_id.eq_ignore_ascii_case(tab_id))
+            .collect::<Vec<_>>();
+        let [linked] = linked.as_slice() else {
+            return Err("workspace session link is missing or duplicated".to_owned());
+        };
+        if linked.session_id != session_id {
+            return Err("workspace session link changed".to_owned());
+        }
+        if let Some(mut control) = self.existing_control()? {
+            match control.get(session_id).map_err(display_error)? {
+                Some(descriptor) => {
+                    if descriptor.owner != *expected_owner {
+                        return Err(format!("session owner mismatch {session_id}"));
+                    }
+                    if descriptor.status == SessionStatus::Running {
+                        return Err("the linked background session is still running".to_owned());
+                    }
+                }
+                None if linked.owner != *expected_owner => {
+                    return Err("workspace session link changed".to_owned());
+                }
+                None => {}
+            }
+        } else if linked.owner != *expected_owner {
+            return Err("workspace session link changed".to_owned());
+        }
+        remove_stale_workspace_link(store, tab_id)?;
+        self.linked_tabs.remove(tab_id);
+        Ok(())
+    }
+
+    pub fn end_all_plan(&self) -> Result<SessionEndAllPlan, String> {
+        let candidates = self
+            .live_session_descriptors()?
+            .into_iter()
+            .map(|descriptor| SessionEndCandidate {
+                session_id: descriptor.session_id,
+                owner: descriptor.owner,
+            })
+            .collect();
+        Ok(SessionEndAllPlan { candidates })
+    }
+
+    pub fn end_all_plan_sessions(
+        &mut self,
+        plan: &SessionEndAllPlan,
+        store: &mut WorkspaceStore,
+    ) -> Result<(), String> {
+        if plan.candidates.is_empty() {
+            if self.end_all_plan()?.candidates.is_empty() {
+                return Ok(());
+            }
+            return Err("the active session set changed after confirmation".to_owned());
+        }
+        let mut control = self
+            .existing_control()?
+            .ok_or_else(|| "persistent session runtime is unavailable".to_owned())?;
+        let linked_tabs = end_session_plan(&mut control, store, plan)?;
+        for tab_id in linked_tabs {
+            self.linked_tabs.remove(&tab_id);
+        }
+        Ok(())
     }
 
     pub fn send_to_background(
@@ -1128,6 +1269,127 @@ fn reattach_session<C: Control>(
     *store = updated;
     control.set_placement(descriptor.session_id, placement.clone())?;
     Ok(SessionReattachOutcome::Reattached(placement))
+}
+
+fn remove_stale_workspace_link(store: &mut WorkspaceStore, tab_id: &str) -> Result<(), String> {
+    remove_workspace_links(store, &[tab_id.to_owned()])
+}
+
+fn remove_workspace_links(store: &mut WorkspaceStore, tab_ids: &[String]) -> Result<(), String> {
+    let updated = store_without_workspace_links(store, tab_ids)?;
+    updated.save().map_err(display_error)?;
+    *store = updated;
+    Ok(())
+}
+
+fn store_without_workspace_links(
+    store: &WorkspaceStore,
+    tab_ids: &[String],
+) -> Result<WorkspaceStore, String> {
+    let mut updated = store.clone();
+    for tab_id in tab_ids {
+        let removed = updated
+            .states_mut()
+            .iter_mut()
+            .find(|workspace| workspace.tab(tab_id).is_some())
+            .map(|workspace| workspace.close_tab(tab_id, CloseMode::Single))
+            .unwrap_or_default();
+        if removed != [tab_id.to_owned()] {
+            return Err("workspace session removal changed".to_owned());
+        }
+    }
+    Ok(updated)
+}
+
+fn exact_session_link(
+    store: &WorkspaceStore,
+    descriptor: &SessionDescriptor,
+    expected_owner: &SessionOwner,
+) -> Result<Option<String>, String> {
+    if &descriptor.owner != expected_owner {
+        return Err(format!("session owner mismatch {}", descriptor.session_id));
+    }
+    let linked = linked_sessions(store)
+        .into_iter()
+        .filter(|linked| linked.session_id == descriptor.session_id)
+        .collect::<Vec<_>>();
+    if linked.len() > 1 {
+        return Err(format!(
+            "duplicate workspace session link {}",
+            descriptor.session_id
+        ));
+    }
+    Ok(linked.first().map(|linked| linked.tab_id.clone()))
+}
+
+fn end_exact_session<C: Control>(
+    control: &mut C,
+    store: &mut WorkspaceStore,
+    session_id: SessionId,
+    expected_owner: &SessionOwner,
+) -> Result<Option<String>, String> {
+    let descriptor = control
+        .get(session_id)
+        .map_err(display_error)?
+        .ok_or_else(|| format!("pane not found {session_id}"))?;
+    let linked_tab = exact_session_link(store, &descriptor, expected_owner)?;
+    let updated = linked_tab
+        .as_ref()
+        .map(|tab_id| store_without_workspace_links(store, std::slice::from_ref(tab_id)))
+        .transpose()?;
+    if descriptor.status == SessionStatus::Running {
+        control.end(session_id).map_err(display_error)?;
+    }
+    if let Some(updated) = updated {
+        updated.save().map_err(display_error)?;
+        *store = updated;
+    }
+    Ok(linked_tab)
+}
+
+fn end_session_plan<C: Control>(
+    control: &mut C,
+    store: &mut WorkspaceStore,
+    plan: &SessionEndAllPlan,
+) -> Result<Vec<String>, String> {
+    let mut descriptors = control
+        .list()
+        .map_err(display_error)?
+        .into_iter()
+        .filter(|descriptor| descriptor.status == SessionStatus::Running)
+        .collect::<Vec<_>>();
+    descriptors.sort_by_key(|descriptor| descriptor.session_id);
+    let current = SessionEndAllPlan {
+        candidates: descriptors
+            .iter()
+            .map(|descriptor| SessionEndCandidate {
+                session_id: descriptor.session_id,
+                owner: descriptor.owner.clone(),
+            })
+            .collect(),
+    };
+    if current != *plan {
+        return Err("the active session set changed after confirmation".to_owned());
+    }
+    let mut linked_tabs = Vec::new();
+    for (descriptor, candidate) in descriptors.iter().zip(&plan.candidates) {
+        if let Some(tab_id) = exact_session_link(store, descriptor, &candidate.owner)? {
+            linked_tabs.push(tab_id);
+        }
+    }
+    let updated = if linked_tabs.is_empty() {
+        None
+    } else {
+        Some(store_without_workspace_links(store, &linked_tabs)?)
+    };
+    for candidate in &plan.candidates {
+        control.end(candidate.session_id).map_err(display_error)?;
+    }
+    if let Some(updated) = updated {
+        updated.save().map_err(display_error)?;
+        *store = updated;
+    }
+    Ok(linked_tabs)
 }
 
 fn exact_running_session<C: Control>(
@@ -1930,6 +2192,128 @@ mod tests {
         };
         assert!(end_close_candidates(&mut control, &single.persistent).is_err());
         assert!(control.ended_ids.is_empty());
+    }
+
+    #[test]
+    fn session_manager_end_validates_exact_owner_before_signaling() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let mut store = store(temp.path(), &project_id, &worktree_id);
+        let tab = eligible_tabs(&[project(&project_id, false)], &store, &HashMap::new()).remove(0);
+        let id = session_id("B23E4567-E89B-12D3-A456-426614174000");
+        store.states_mut()[0]
+            .tab_mut(&tab.tab_id)
+            .unwrap()
+            .session_id = Some(id);
+        store.save().unwrap();
+        let mut request = create_request(&contract(temp.path()), &tab).unwrap();
+        request.session_id = id;
+        let descriptor = descriptor(&request, SessionStatus::Running);
+        let mut control = FakeControl {
+            sessions: vec![descriptor.clone()],
+            ..Default::default()
+        };
+        let mut changed_owner = descriptor.owner.clone();
+        changed_owner.worktree_id = muxy_core::store::new_uuid();
+
+        assert_eq!(
+            end_exact_session(&mut control, &mut store, id, &changed_owner),
+            Err(format!("session owner mismatch {id}"))
+        );
+        assert!(control.ended_ids.is_empty());
+        assert_eq!(
+            end_exact_session(&mut control, &mut store, id, &descriptor.owner).unwrap(),
+            Some(tab.tab_id.clone())
+        );
+        assert_eq!(control.ended_ids, [id]);
+        assert!(store.states()[0].tab(&tab.tab_id).is_none());
+        let reloaded = WorkspaceStore::load_from(temp.path().join("workspaces.json"));
+        assert!(reloaded.states()[0].tab(&tab.tab_id).is_none());
+    }
+
+    #[test]
+    fn session_manager_end_cleans_owner_changed_daemon_and_workspace_link() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let mut store = store(temp.path(), &project_id, &worktree_id);
+        let tab = eligible_tabs(&[project(&project_id, false)], &store, &HashMap::new()).remove(0);
+        let id = session_id("E23E4567-E89B-12D3-A456-426614174000");
+        store.states_mut()[0]
+            .tab_mut(&tab.tab_id)
+            .unwrap()
+            .session_id = Some(id);
+        store.save().unwrap();
+        let mut request = create_request(&contract(temp.path()), &tab).unwrap();
+        request.session_id = id;
+        request.owner.worktree_id = muxy_core::store::new_uuid();
+        let descriptor = descriptor(&request, SessionStatus::Running);
+        let mut control = FakeControl {
+            sessions: vec![descriptor.clone()],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            end_exact_session(&mut control, &mut store, id, &descriptor.owner).unwrap(),
+            Some(tab.tab_id.clone())
+        );
+        assert_eq!(control.ended_ids, [id]);
+        assert!(store.states()[0].tab(&tab.tab_id).is_none());
+    }
+
+    #[test]
+    fn session_manager_end_all_rejects_a_changed_confirmed_set_before_signaling() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let mut store = store(temp.path(), &project_id, &worktree_id);
+        let tab = eligible_tabs(&[project(&project_id, false)], &store, &HashMap::new()).remove(0);
+        let mut request = create_request(&contract(temp.path()), &tab).unwrap();
+        request.session_id = session_id("C23E4567-E89B-12D3-A456-426614174000");
+        let first = descriptor(&request, SessionStatus::Running);
+        let plan = SessionEndAllPlan {
+            candidates: vec![SessionEndCandidate {
+                session_id: first.session_id,
+                owner: first.owner.clone(),
+            }],
+        };
+        let mut added_request = request;
+        added_request.session_id = session_id("D23E4567-E89B-12D3-A456-426614174000");
+        added_request.owner.original_tab_id = muxy_core::store::new_uuid();
+        let mut control = FakeControl {
+            sessions: vec![first, descriptor(&added_request, SessionStatus::Running)],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            end_session_plan(&mut control, &mut store, &plan),
+            Err("the active session set changed after confirmation".to_owned())
+        );
+        assert!(control.ended_ids.is_empty());
+    }
+
+    #[test]
+    fn session_manager_remove_closes_only_the_selected_stale_link() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let mut store = store(temp.path(), &project_id, &worktree_id);
+        let tab_ids = store.states()[0]
+            .root
+            .as_ref()
+            .unwrap()
+            .tabs()
+            .iter()
+            .map(|tab| tab.id.clone())
+            .collect::<Vec<_>>();
+
+        remove_stale_workspace_link(&mut store, &tab_ids[0]).unwrap();
+        assert!(store.states()[0].tab(&tab_ids[0]).is_none());
+        assert!(store.states()[0].tab(&tab_ids[1]).is_some());
+        let reloaded = WorkspaceStore::load_from(temp.path().join("workspaces.json"));
+        assert!(reloaded.states()[0].tab(&tab_ids[0]).is_none());
+        assert!(reloaded.states()[0].tab(&tab_ids[1]).is_some());
     }
 
     #[test]

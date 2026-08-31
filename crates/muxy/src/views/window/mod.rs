@@ -398,6 +398,7 @@ impl MainWindow {
         main_window.prepare_staged_phase_six(cx);
         main_window.prepare_p7_composer_fixture(cx);
         main_window.prepare_staged_phase_four(cx);
+        main_window.prepare_staged_phase_seven();
         if let Some(request_path) = staged_close_request_path() {
             let window_handle = main_window.window_handle;
             cx.spawn(async move |_, cx| {

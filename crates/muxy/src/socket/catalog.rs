@@ -43,6 +43,7 @@ pub const P2_PHASE5_HEADS: [&str; 12] = [
 ];
 
 pub const P3_IMPLEMENTED_LEGACY_HEADS: [&str; 1] = ["create-worktree"];
+pub const P8_IMPLEMENTED_LEGACY_HEADS: [&str; 2] = ["list-sessions", "kill-session"];
 
 pub const P2_PERMISSION_REQUIREMENTS: [(&str, Option<&str>); 33] = [
     ("list-projects", Some("projects:read")),
@@ -82,12 +83,12 @@ pub const P2_PERMISSION_REQUIREMENTS: [(&str, Option<&str>); 33] = [
 
 pub const P3_PERMISSION_REQUIREMENTS: [(&str, Option<&str>); 1] =
     [("create-worktree", Some("worktrees:write"))];
-
-pub const ROADMAP_DEFERRED_LEGACY_HEADS: [(&str, &str); 3] = [
-    ("list-sessions", "P8"),
-    ("kill-session", "P8"),
-    ("open-tab", "P10"),
+pub const P8_PERMISSION_REQUIREMENTS: [(&str, Option<&str>); 2] = [
+    ("list-sessions", Some("panes:read")),
+    ("kill-session", Some("panes:write")),
 ];
+
+pub const ROADMAP_DEFERRED_LEGACY_HEADS: [(&str, &str); 1] = [("open-tab", "P10")];
 
 pub const P9_BROWSER_HEADS: [&str; 36] = [
     "browser.open",
@@ -247,6 +248,7 @@ pub fn recognized_command_heads() -> HashSet<String> {
         .chain(P2_PHASE4_HEADS)
         .chain(P2_PHASE5_HEADS)
         .chain(P3_IMPLEMENTED_LEGACY_HEADS)
+        .chain(P8_IMPLEMENTED_LEGACY_HEADS)
         .chain(
             ROADMAP_DEFERRED_LEGACY_HEADS
                 .into_iter()
@@ -277,6 +279,7 @@ pub fn required_permissions(command: &str) -> Vec<&'static str> {
     let mut permissions = P2_PERMISSION_REQUIREMENTS
         .iter()
         .chain(P3_PERMISSION_REQUIREMENTS.iter())
+        .chain(P8_PERMISSION_REQUIREMENTS.iter())
         .find_map(|(candidate, permission)| (*candidate == head).then_some(*permission))
         .flatten()
         .into_iter()
@@ -334,6 +337,7 @@ mod tests {
             .iter()
             .copied()
             .chain(P3_IMPLEMENTED_LEGACY_HEADS)
+            .chain(P8_IMPLEMENTED_LEGACY_HEADS)
             .chain(
                 ROADMAP_DEFERRED_LEGACY_HEADS
                     .into_iter()
@@ -369,11 +373,13 @@ mod tests {
             });
         assert_eq!(fingerprint, 16_943_492_558_170_763_262);
         assert!(P3_IMPLEMENTED_LEGACY_HEADS.contains(&"create-worktree"));
-        assert!(
-            !ROADMAP_DEFERRED_LEGACY_HEADS
-                .iter()
-                .any(|(head, _)| *head == "create-worktree")
+        assert_eq!(
+            P8_IMPLEMENTED_LEGACY_HEADS,
+            ["list-sessions", "kill-session"]
         );
+        assert!(!ROADMAP_DEFERRED_LEGACY_HEADS.iter().any(|(head, _)| {
+            ["create-worktree", "list-sessions", "kill-session"].contains(head)
+        }));
     }
 
     #[test]
@@ -408,11 +414,15 @@ mod tests {
         let mapped = P2_PERMISSION_REQUIREMENTS
             .into_iter()
             .chain(P3_PERMISSION_REQUIREMENTS)
+            .chain(P8_PERMISSION_REQUIREMENTS)
             .map(|(head, _)| head)
             .collect::<BTreeSet<_>>();
         assert_eq!(
             mapped,
-            p2.into_iter().chain(P3_IMPLEMENTED_LEGACY_HEADS).collect()
+            p2.into_iter()
+                .chain(P3_IMPLEMENTED_LEGACY_HEADS)
+                .chain(P8_IMPLEMENTED_LEGACY_HEADS)
+                .collect()
         );
         assert_eq!(required_permissions("list-panes"), ["panes:read"]);
         assert_eq!(
@@ -423,6 +433,11 @@ mod tests {
         assert_eq!(
             required_permissions("create-worktree|name|branch||||"),
             ["worktrees:write"]
+        );
+        assert_eq!(required_permissions("list-sessions"), ["panes:read"]);
+        assert_eq!(
+            required_permissions("kill-session|123E4567-E89B-12D3-A456-426614174000"),
+            ["panes:write"]
         );
         assert_eq!(
             denied_permission("split-right|echo ready", &BTreeSet::new()),

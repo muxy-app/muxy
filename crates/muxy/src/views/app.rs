@@ -89,10 +89,12 @@ fn merge_composer_footer_with_status_bar(
 enum StatusTrailingSlot {
     Composer,
     Resource,
+    Session,
 }
 
 fn status_trailing_slots(
     resource_enabled: bool,
+    sessions_enabled: bool,
     composer_present: bool,
 ) -> Vec<StatusTrailingSlot> {
     let mut slots = Vec::new();
@@ -102,22 +104,33 @@ fn status_trailing_slots(
     if resource_enabled {
         slots.push(StatusTrailingSlot::Resource);
     }
+    if sessions_enabled {
+        slots.push(StatusTrailingSlot::Session);
+    }
     slots
+}
+
+fn session_manager_enabled(applied_mode: Option<crate::sessions::AppliedSessionMode>) -> bool {
+    applied_mode == Some(crate::sessions::AppliedSessionMode::Persistent)
 }
 
 fn status_trailing_items(
     state: &AppState,
     resource_snapshot: &crate::resource_monitor::ResourceMonitorSnapshot,
+    sessions_enabled: bool,
     mut composer_footer: Option<AnyElement>,
+    cx: &mut Context<MainWindow>,
 ) -> Vec<AnyElement> {
     status_trailing_slots(
         state.prefs.terminal_memory.resource_status_enabled,
+        sessions_enabled,
         composer_footer.is_some(),
     )
     .into_iter()
     .map(|slot| match slot {
         StatusTrailingSlot::Composer => composer_footer.take().unwrap(),
         StatusTrailingSlot::Resource => status_bar::resource_status_item(state, resource_snapshot),
+        StatusTrailingSlot::Session => status_bar::session_manager_item(state, cx),
     })
     .collect()
 }
@@ -145,6 +158,7 @@ pub(crate) struct AppView<'a> {
     pub expanded_worktree_projects: &'a HashSet<String>,
     pub composer: &'a crate::composer::ComposerController,
     pub resource_snapshot: &'a crate::resource_monitor::ResourceMonitorSnapshot,
+    pub applied_session_mode: Option<crate::sessions::AppliedSessionMode>,
 }
 
 pub(crate) fn render(
@@ -175,6 +189,7 @@ pub(crate) fn render(
         expanded_worktree_projects,
         composer,
         resource_snapshot,
+        applied_session_mode,
     } = view;
     let theme = state.theme.clone();
     let metrics = state.metrics;
@@ -282,13 +297,20 @@ pub(crate) fn render(
         .child(content);
 
     if state.prefs.show_status_bar && !merge_composer_footer {
+        let trailing = status_trailing_items(
+            state,
+            resource_snapshot,
+            session_manager_enabled(applied_session_mode),
+            None,
+            cx,
+        );
         main_column = main_column.child(status_bar::status_bar(
             state,
             focused_working_directory.as_deref(),
             repository_controls,
             repository_mutation_busy,
             repository_ai_menu_available,
-            status_trailing_items(state, resource_snapshot, None),
+            trailing,
             cx,
         ));
     }
@@ -323,13 +345,20 @@ pub(crate) fn render(
                 .child(main_column)
                 .child(panel.element)
                 .when_some(merged_footer, |region, footer| {
+                    let trailing = status_trailing_items(
+                        state,
+                        resource_snapshot,
+                        session_manager_enabled(applied_session_mode),
+                        Some(footer),
+                        cx,
+                    );
                     region.child(status_bar::status_bar(
                         state,
                         focused_working_directory.as_deref(),
                         repository_controls,
                         repository_mutation_busy,
                         repository_ai_menu_available,
-                        status_trailing_items(state, resource_snapshot, Some(footer)),
+                        trailing,
                         cx,
                     ))
                 })
@@ -841,20 +870,35 @@ mod tests {
     }
 
     #[test]
-    fn resource_status_and_composer_use_distinct_ordered_trailing_slots() {
+    fn session_manager_visibility_tracks_applied_launch_mode() {
+        assert!(session_manager_enabled(Some(
+            crate::sessions::AppliedSessionMode::Persistent
+        )));
+        assert!(!session_manager_enabled(Some(
+            crate::sessions::AppliedSessionMode::Ordinary
+        )));
+        assert!(!session_manager_enabled(None));
+    }
+
+    #[test]
+    fn composer_resource_and_sessions_use_distinct_ordered_trailing_slots() {
         assert_eq!(
-            status_trailing_slots(true, true),
-            [StatusTrailingSlot::Composer, StatusTrailingSlot::Resource]
+            status_trailing_slots(true, true, true),
+            [
+                StatusTrailingSlot::Composer,
+                StatusTrailingSlot::Resource,
+                StatusTrailingSlot::Session,
+            ]
         );
         assert_eq!(
-            status_trailing_slots(false, true),
-            [StatusTrailingSlot::Composer]
+            status_trailing_slots(false, true, true),
+            [StatusTrailingSlot::Composer, StatusTrailingSlot::Session]
         );
         assert_eq!(
-            status_trailing_slots(true, false),
+            status_trailing_slots(true, false, false),
             [StatusTrailingSlot::Resource]
         );
-        assert!(status_trailing_slots(false, false).is_empty());
+        assert!(status_trailing_slots(false, false, false).is_empty());
     }
 
     #[test]

@@ -1748,7 +1748,9 @@ impl MainWindow {
             | Overlay::Symbols { anchor, .. }
             | Overlay::Colors { anchor, .. }
             | Overlay::TabColors { anchor, .. } => *anchor,
-            Overlay::Repository { anchor, .. } | Overlay::Notifications { anchor } => anchor.origin,
+            Overlay::Repository { anchor, .. }
+            | Overlay::Notifications { anchor }
+            | Overlay::SessionManager { anchor, .. } => anchor.origin,
             Overlay::TabRename { bounds, .. } => bounds.origin,
             Overlay::None
             | Overlay::Picker(_)
@@ -1892,8 +1894,216 @@ impl MainWindow {
         cx.notify();
     }
 
+    pub(crate) fn open_session_manager(
+        &mut self,
+        anchor: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(self.view.overlay, Overlay::SessionManager { .. }) {
+            self.dismiss_overlay(cx);
+            return;
+        }
+        let theme = self.state.theme.clone();
+        let metrics = self.state.metrics;
+        let picker = cx.new(move |cx| crate::views::session_manager::picker(theme, metrics, cx));
+        self.refresh_session_manager(&picker, "", cx);
+        let subscription = cx.subscribe(&picker, |window: &mut Self, picker, event, cx| {
+            use muxy_ui::command_popover::CommandPopoverEvent;
+            match event {
+                CommandPopoverEvent::QueryChanged { query, .. } => {
+                    window.refresh_session_manager(&picker, query.as_ref(), cx);
+                }
+                CommandPopoverEvent::RowAction { row, action } => {
+                    window.handle_session_manager_action(
+                        &picker,
+                        row.as_ref(),
+                        action.as_ref(),
+                        cx,
+                    );
+                }
+                CommandPopoverEvent::FooterAction(action) if action.as_ref() == "end-all" => {
+                    window.confirm_end_all_sessions(&picker, cx);
+                }
+                CommandPopoverEvent::FooterAction(action)
+                    if action.as_ref() == "terminal-settings" =>
+                {
+                    window.open_terminal_settings_from_manager(cx);
+                }
+                CommandPopoverEvent::Dismissed => window.dismiss_overlay(cx),
+                _ => {}
+            }
+        });
+        window.focus(&picker.focus_handle(cx));
+        self.view.subscriptions = vec![subscription];
+        self.view.overlay = Overlay::SessionManager { picker, anchor };
+        cx.notify();
+    }
+
+    fn refresh_session_manager(
+        &mut self,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        query: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let sessions = self.sessions.managed_sessions(&self.state.tab_workspaces);
+        crate::views::session_manager::sync_picker(picker, sessions, query, cx);
+    }
+
+    fn handle_session_manager_action(
+        &mut self,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        row: &str,
+        action_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let (confirmed, action_id) = action_id
+            .strip_prefix("confirm:")
+            .map_or((false, action_id), |action| (true, action));
+        let Some(action) = crate::views::session_manager::SessionManagerAction::parse(action_id)
+        else {
+            return;
+        };
+        if row != format!("session:{}", action.session_id) {
+            return;
+        }
+        let sessions = match self.sessions.managed_sessions(&self.state.tab_workspaces) {
+            Ok(sessions) => sessions,
+            Err(error) => {
+                self.session_manager_error(error, cx);
+                return;
+            }
+        };
+        let Some(session) = sessions
+            .iter()
+            .find(|session| session.session_id == action.session_id)
+        else {
+            self.session_manager_error("session manager selection changed".to_owned(), cx);
+            return;
+        };
+        if !confirmed
+            && matches!(
+                action.kind,
+                crate::views::session_manager::SessionManagerActionKind::End
+                    | crate::views::session_manager::SessionManagerActionKind::Remove
+            )
+        {
+            let message = match action.kind {
+                crate::views::session_manager::SessionManagerActionKind::End => {
+                    crate::views::session_manager::end_confirmation(&session.title)
+                }
+                crate::views::session_manager::SessionManagerActionKind::Remove => {
+                    crate::views::session_manager::remove_confirmation(&session.title)
+                }
+                _ => unreachable!(),
+            };
+            let result = picker.update(cx, |picker, cx| {
+                picker.open_confirmation_with_message(row, action_id, Some(message.into()), cx)
+            });
+            if result.is_err() {
+                self.session_manager_error("session manager selection changed".to_owned(), cx);
+            }
+            return;
+        }
+        self.perform_session_manager_action(picker, action, session.clone(), cx);
+    }
+
+    fn perform_session_manager_action(
+        &mut self,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        action: crate::views::session_manager::SessionManagerAction,
+        session: crate::sessions::ManagedSession,
+        cx: &mut Context<Self>,
+    ) {
+        match crate::views::session_manager::execute(
+            &action,
+            &session,
+            &mut self.sessions,
+            &mut self.state.tab_workspaces,
+        ) {
+            Ok(Some(placement)) => {
+                self.state
+                    .select_worktree(&placement.project_id, &placement.worktree_id);
+                self.dismiss_overlay(cx);
+                cx.notify();
+            }
+            Ok(None) => {
+                let query = picker.read(cx).query().to_owned();
+                self.refresh_session_manager(picker, &query, cx);
+                cx.notify();
+            }
+            Err(error) => self.session_manager_error(error, cx),
+        }
+    }
+
+    fn confirm_end_all_sessions(
+        &mut self,
+        picker: &Entity<muxy_ui::command_popover::CommandPopover>,
+        cx: &mut Context<Self>,
+    ) {
+        let plan = match self.sessions.end_all_plan() {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.session_manager_error(error, cx);
+                return;
+            }
+        };
+        if plan.candidates.is_empty() {
+            return;
+        }
+        let answer = self.ask(
+            "End All Sessions?".to_owned(),
+            crate::views::session_manager::end_all_confirmation(plan.candidates.len()),
+            &["End All Sessions", "Cancel"],
+            cx,
+        );
+        let picker = picker.clone();
+        cx.spawn(async move |window, cx| {
+            if answer.await != Some(0) {
+                return;
+            }
+            let _ = window.update(cx, |window, cx| {
+                match window
+                    .sessions
+                    .end_all_plan_sessions(&plan, &mut window.state.tab_workspaces)
+                {
+                    Ok(()) => {
+                        let query = picker.read(cx).query().to_owned();
+                        window.refresh_session_manager(&picker, &query, cx);
+                        cx.notify();
+                    }
+                    Err(error) => window.session_manager_error(error, cx),
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn session_manager_error(&mut self, error: String, cx: &mut Context<Self>) {
+        self.feedback(
+            "Terminal Sessions",
+            error,
+            crate::toast::ToastTone::Error,
+            cx,
+        );
+    }
+
+    fn open_terminal_settings_from_manager(&mut self, cx: &mut Context<Self>) {
+        let handle = self.window_handle.downcast::<Self>();
+        let Some(handle) = handle else {
+            return;
+        };
+        let _ = handle.update(cx, |window, app_window, cx| {
+            window.open_terminal_settings(app_window, cx);
+        });
+    }
+
     pub(crate) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_settings_category(None, window, cx);
+    }
+
+    pub(crate) fn open_terminal_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_settings_category(Some(settings::Category::Terminal), window, cx);
     }
 
     pub(crate) fn open_quick_terminal_settings(

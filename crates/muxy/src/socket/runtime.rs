@@ -9,7 +9,7 @@ use muxy_proto::server::{
 use crate::socket::catalog;
 use crate::socket::commands::panes::{self, PaneCommand};
 use crate::socket::commands::projects::{self, ProjectCommand};
-use crate::socket::commands::{CommandResult, tabs, workspaces};
+use crate::socket::commands::{CommandResult, sessions, tabs, workspaces};
 use crate::socket::ingress::AgentHookResolution;
 use crate::views::window::MainWindow;
 
@@ -153,6 +153,15 @@ impl MainWindow {
                     return;
                 }
                 if let Some(result) = workspaces::handle(head, &parts, &mut self.state) {
+                    self.finish_socket_command(result, request.responder, cx);
+                    return;
+                }
+                if let Some(result) = sessions::handle(
+                    head,
+                    &parts,
+                    &mut self.sessions,
+                    &mut self.state.tab_workspaces,
+                ) {
                     self.finish_socket_command(result, request.responder, cx);
                     return;
                 }

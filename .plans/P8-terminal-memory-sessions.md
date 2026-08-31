@@ -1622,3 +1622,107 @@ The debug app build and strict bundle verification passed. Staging produced `/Us
 - Session Manager, CLI activation, final profile hardening, release documentation, and release acceptance remain assigned to Phases 7 and 8.
 
 **Publication target:** Phase 6 commit `P8 phase 6: add process resource monitoring` on `p8-terminal-memory-sessions`, pushed to draft PR [#1106](https://github.com/muxy-app/muxy/pull/1106), base `2.x`.
+
+### Phase 7 - Session-manager popover and P2 CLI activation
+
+**Completed:** 2026-08-31 18:33:13 UTC
+
+**Implemented:**
+
+- Added a status-bar Session Manager with deterministic Workspace Sessions, Background Sessions, and Missing/Ended sections. Focus, Reattach, End, Start New, Remove, End All, and Terminal Settings use production coordinator operations with exact action IDs, counted confirmations, and accessibility labels.
+- Defined attached as durable workspace placement. Hidden renderer-free terminal tabs remain attached. The status control follows the applied launch mode, remains available until a restart actually disables sessions, and supports mouse, Enter, and Space activation.
+- Added exact-owner session ending that validates the selected daemon descriptor, prevalidates durable tab removal, ends only the exact daemon tree, persists the updated workspace store, and removes stale owner-changed links safely. Bulk ending validates the complete confirmed set before signaling and persists all corresponding tab removals.
+- Activated the retained `list-sessions` and `kill-session` P2 CLI heads without changing the wrapper bytes, framing, terminator convention, command-head count, or legacy bundle path. Listing emits the pinned tab-separated session, shell, working-directory, attachment, title, project, worktree, and tab columns. Killing reports exact usage, invalid UUID, not-found, owner mismatch, unavailable-runtime, and success results, and removes an attached workspace tab after exact cleanup.
+- Added manager, CLI, and narrow trailing-status fixtures. The staged Phase 7 proof uses only an owned isolated `/tmp/p8-isolated-test-*` root and production coordinator logic to exercise Focus, Background, Reattach, Start New, Remove, End, End All confirmation behavior, retained legacy-bundle CLI listing, GUI close survival, reopen, CLI kill, exact identity cleanup, and zero residue.
+- Narrowed earlier P5, P6, and P7 source guards only for the exact Phase 7 socket integration files. All other locked socket, protocol, migration, CLI, bundle, staging, and CI paths remain rejected.
+- Updated `docs/features/muxy-cli.md` only after the bundle CLI byte comparison passed. It now documents attachment as workspace placement, including hidden tabs without a terminal renderer.
+- The retained CLI remained 45,326 bytes with SHA-256 `e9fe05bf57067cc0bd3345bc37a09730fb44fef85e96a37d18ec92b4d4d7ac32`.
+
+**Read-only review and fixes:**
+
+The required single read-only Phase 7 review reported six material findings. All were verified and fixed without a second review cycle:
+
+1. Owner-changed failed attachments exposed End but durable-owner validation made cleanup impossible. Exact daemon ownership remains mandatory, while a stale durable owner no longer blocks cleanup of that exact daemon descriptor and workspace link.
+2. End could leave hidden renderer-free workspace tabs stale. Single and bulk ending now prevalidate, persist, and install workspace-tab removals around exact session termination. Ended descriptors without durable links are excluded from managed sessions.
+3. `kill-session` treated a missing runtime as an empty session list. Runtime absence now returns `persistent session runtime is unavailable`, with fake-target and real isolated no-socket coverage.
+4. Choosing restart-required disable hid the manager immediately. Status composition now follows `AppliedSessionMode`, not the uncommitted desired preference.
+5. Accessibility labels existed only in the manager model and the status control was mouse-only. Popover rows now propagate labels into rendered accessibility text, and the status control accepts keyboard activation.
+6. The original staged Start New check did not prove that the same durable tab received a replacement daemon. The staged proof now directly ends exact isolated sessions, runs production Start New and reconciliation, verifies the original tab receives a different live session ID, separately proves Remove and End semantics, and tracks the replacement daemon identities through cleanup.
+
+**Observed failures and fixes:**
+
+1. `cargo fmt --all && cargo test -p muxy --locked --offline session_manager --no-run` initially failed with `error[E0308]: mismatched types` because a test compared `Option<&ArcCow<'_, str>>` with `Option<&str>`. Mapping the shared label through `label.as_ref()` fixed compilation.
+2. `cargo test -p muxy --locked --offline socket_kill_session_reports_a_real_missing_runtime -- --exact` passed while running zero tests because the exact module path was omitted. The corrected full-path command ran and passed one test.
+3. The first `scripts/check.sh` attempt rejected the hard-coded test literal `muxy-dev.sock` under environment-policy ownership. The test now derives the socket filename from `RuntimePathPolicy`.
+4. The next check rejected the entire changed socket directory under the prior P6 guard. That guard now permits only `socket/catalog.rs`, `socket/runtime.rs`, `socket/commands/mod.rs`, and `socket/commands/sessions.rs`, while rejecting every other socket path.
+5. Clippy then rejected a redundant closure in the new session command. Replacing `.map(|reply| CommandResult::changed(reply))` with `.map(CommandResult::changed)` fixed it.
+6. The next check reached the prior P7 Composer guard and rejected the same Phase 7 socket integration. Its exception was narrowed to those four exact files.
+7. The following check reached the P5 notification guard and rejected `socket/catalog.rs`. Its exception was narrowed to that exact catalog file.
+8. A later full check completed source guards, Clippy, builds, staging guards, and verifier self-tests, then encountered two unrelated timing failures in `muxy-api`: `workflow_read_phases_honor_identity_cancellation` failed while waiting for `--porcelain=1`, and `create_worktree_turns_every_setup_failure_into_a_nonrollback_warning` failed after a Git subprocess timeout while preparing a temporary worktree. The exact focused tests each passed individually, in 3.54 seconds and 0.37 seconds respectively. The unchanged full `scripts/check.sh` rerun then passed.
+9. The exact Linux full-app cross-check failed before project code with exit status 101 because `freetype-sys` could not find `x86_64-linux-gnu-g++` and `psm` could not find `x86_64-linux-gnu-gcc`. The documented unsandboxed Zig-wrapper supplemental check passed with 21 existing Linux-only warnings.
+
+**Focused verification before the final gate:**
+
+```text
+cargo fmt --all && cargo test -p muxy --locked --offline session_manager --no-run
+cargo test -p muxy --locked --offline session_manager
+cargo test -p muxy --locked --offline socket
+cargo test -p muxy --locked --offline socket_kill_session_reports_a_real_missing_runtime -- --exact
+cargo test -p muxy --locked --offline socket::commands::sessions::tests::socket_kill_session_reports_a_real_missing_runtime -- --exact
+bash -n scripts/verify-p8-terminal-memory.sh
+git diff --check
+cargo fmt --all -- --check
+cargo test -p muxy-api --locked --offline repository::ai::tests::workflow_read_phases_honor_identity_cancellation -- --exact
+cargo test -p muxy-api --locked --offline worktree_lifecycle::tests::create_worktree_turns_every_setup_failure_into_a_nonrollback_warning -- --exact
+```
+
+After the type fix, the manager suite passed 9 tests and the socket suite passed 39 tests. The corrected isolated missing-runtime command passed one test. Shell syntax, formatting, and diff checks passed. Both focused `muxy-api` reruns passed.
+
+**Exact Phase 7 gate:**
+
+The gate was run in the plan's order:
+
+```text
+cargo test -p muxy --locked --offline session_manager
+cargo test -p muxy --locked --offline socket
+scripts/verify-p8-terminal-memory.sh --fixture session-manager
+scripts/verify-p8-terminal-memory.sh --fixture cli-sessions
+scripts/verify-p8-terminal-memory.sh --fixture status-trailing-group
+scripts/check.sh
+cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
+scripts/build-app.sh debug
+scripts/verify-bundle.sh target/debug/Muxy.app debug
+staged_app="$(scripts/stage-test-app.sh target/debug/Muxy.app p8-phase-7)"
+scripts/verify-p8-terminal-memory.sh --staged debug "$staged_app" phase-7
+cmp -s Muxy/Resources/scripts/muxy-cli target/debug/Muxy.app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli
+git diff --check
+```
+
+The manager and socket suites passed 9 and 39 tests. The fixtures reported:
+
+```text
+P8 Session Manager sections, actions, confirmations, owner validation, and stale cleanup fixture passed
+P8 retained CLI session heads, exact columns, errors, permissions, and frozen catalog fixture passed
+P8 Composer, resource, and session status trailing group fixture passed
+```
+
+After the documented transient and guard-integration fixes, `scripts/check.sh` passed shell and source guards, formatting, Clippy with warnings denied, workspace builds and tests, staging safety, all verifier self-tests, debug app build, helper-first signing, and bundle verification. The exact Linux cross-check produced the documented missing-GNU-compiler environmental failure.
+
+The supplemental command was run unsandboxed:
+
+```text
+PATH="$PWD/target/test-verification/p8/toolchain:$PATH" \
+AR_x86_64_unknown_linux_gnu='zig ar' \
+cargo check -p muxy --all-features --locked --offline \
+--target x86_64-unknown-linux-gnu
+```
+
+It passed with 21 existing Linux-only unused or dead-code warnings. The explicit debug build and strict bundle verification passed. Staging produced `/Users/saeed/Projects/muxy-2.x/target/test-verification/apps/p8-phase-7/MuxyTests.app`, and the verifier reported `P8 staged Phase 7 production manager actions, retained CLI survival, reopen, kill, and zero residue passed`. The exact CLI bundle comparison and final `git diff --check` passed.
+
+**Unverified or intentionally deferred after Phase 7:**
+
+- Native Linux-host app and CLI runtime behavior were not executed. The full app cross-target compiled only through the supplemental Zig wrappers after the host lacked the required GNU cross-compilers.
+- Manual native and visual acceptance of popover density, narrow status layout, keyboard focus indication, screen-reader announcements, destructive confirmation presentation, and live session transitions remains unobserved. Focused tests, fixtures, and staged runtime verification cover the underlying state, actions, accessibility labels, and keyboard bindings.
+- Hostile verifier matrices, final debug/release isolation, release staging, complete documentation, and roadmap closure remain assigned to Phase 8.
+
+**Publication target:** Phase 7 commit `P8 phase 7: add session manager and CLI control` on `p8-terminal-memory-sessions`, pushed to draft PR [#1106](https://github.com/muxy-app/muxy/pull/1106), base `2.x`.

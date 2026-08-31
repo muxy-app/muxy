@@ -7,6 +7,8 @@ use muxy_api::truth::{ProjectProbe, ProjectTruth};
 const P8_STAGED_PHASE_FOUR_ENV: &str = "MUXY_TEST_P8_PHASE4_CASE";
 const P8_STAGED_PHASE_FOUR_STATUS: &str = ".muxy-p8-phase4-status.json";
 const P8_STAGED_PHASE_FOUR_PROCEED: &str = ".muxy-p8-phase4-proceed";
+const P8_STAGED_PHASE_SEVEN_ENV: &str = "MUXY_TEST_P8_PHASE7_CASE";
+const P8_STAGED_PHASE_SEVEN_STATUS: &str = ".muxy-p8-phase7-status.json";
 
 struct StagedPhaseFourPaths {
     status: PathBuf,
@@ -46,6 +48,35 @@ fn staged_phase_four_paths() -> Option<(String, StagedPhaseFourPaths)> {
             proceed: root.join(P8_STAGED_PHASE_FOUR_PROCEED),
             owned_processes: root.join("owned-processes"),
         },
+    ))
+}
+
+fn staged_phase_seven_paths() -> Option<(PathBuf, PathBuf)> {
+    if !muxy_core::prefs::is_test_process()
+        || std::env::var(P8_STAGED_PHASE_SEVEN_ENV).ok().as_deref() != Some("manager")
+    {
+        return None;
+    }
+    let app_support = muxy_core::prefs::app_support_dir();
+    let injected = std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").map(PathBuf::from);
+    if injected.as_deref() != Some(app_support.as_path())
+        || !app_support.is_absolute()
+        || app_support.starts_with(muxy_core::prefs::home_dir())
+        || path_has_symlink_or_missing_component(&app_support)
+    {
+        return None;
+    }
+    let root = app_support.parent()?.to_path_buf();
+    if std::fs::read_to_string(root.join(".muxy-p8-owner"))
+        .ok()?
+        .trim()
+        != "muxy-p8-terminal-memory-v1"
+    {
+        return None;
+    }
+    Some((
+        root.join(P8_STAGED_PHASE_SEVEN_STATUS),
+        root.join("owned-processes"),
     ))
 }
 
@@ -151,6 +182,242 @@ impl MainWindow {
             );
         })
         .detach();
+    }
+
+    pub(super) fn prepare_staged_phase_seven(&mut self) {
+        let Some((status, owned_processes)) = staged_phase_seven_paths() else {
+            return;
+        };
+        if let Err(error) = self.run_staged_phase_seven_manager(&status, &owned_processes) {
+            let _ = write_staged_phase_four_json(
+                &status,
+                &serde_json::json!({ "state": "error", "error": error }),
+            );
+        }
+    }
+
+    fn run_staged_phase_seven_manager(
+        &mut self,
+        status: &Path,
+        owned_processes: &Path,
+    ) -> Result<(), String> {
+        let managed = self.sessions.managed_sessions(&self.state.tab_workspaces)?;
+        let mut sessions = managed
+            .into_iter()
+            .filter(|session| {
+                session.state == crate::sessions::ManagedSessionState::Workspace
+                    && session.placement.is_some()
+                    && session.shell.is_some()
+                    && self
+                        .state
+                        .workspace
+                        .project(&session.owner.project_id)
+                        .is_some_and(|project| !project.is_home())
+            })
+            .collect::<Vec<_>>();
+        sessions.sort_by_key(|session| session.session_id);
+        if sessions.len() < 5 {
+            return Err("staged Phase 7 requires five workspace sessions".to_owned());
+        }
+        let mut identities = self.sessions.runtime_process_identities()?;
+        write_staged_phase_four_processes(owned_processes, &identities)
+            .map_err(|error| error.to_string())?;
+
+        let action = |kind, session_id| crate::views::session_manager::SessionManagerAction {
+            kind,
+            session_id,
+        };
+        crate::views::session_manager::execute(
+            &action(
+                crate::views::session_manager::SessionManagerActionKind::Focus,
+                sessions[0].session_id,
+            ),
+            &sessions[0],
+            &mut self.sessions,
+            &mut self.state.tab_workspaces,
+        )?
+        .ok_or_else(|| "staged Phase 7 Focus did not return a placement".to_owned())?;
+
+        let background = sessions[1].clone();
+        let placement = background
+            .placement
+            .clone()
+            .ok_or_else(|| "staged Phase 7 Background placement is missing".to_owned())?;
+        self.sessions.send_to_background(
+            &placement.tab_id,
+            background.session_id,
+            &background.owner,
+        )?;
+        let mut updated = self.state.tab_workspaces.clone();
+        let removed = updated
+            .states_mut()
+            .iter_mut()
+            .find(|workspace| workspace.tab(&placement.tab_id).is_some())
+            .map(|workspace| {
+                workspace.close_tab(&placement.tab_id, muxy_core::workspace::CloseMode::Single)
+            })
+            .unwrap_or_default();
+        if removed != [placement.tab_id] {
+            return Err("staged Phase 7 Background candidate changed".to_owned());
+        }
+        updated.save().map_err(|error| error.to_string())?;
+        self.state.tab_workspaces = updated;
+        let background = self
+            .sessions
+            .managed_sessions(&self.state.tab_workspaces)?
+            .into_iter()
+            .find(|session| {
+                session.session_id == background.session_id
+                    && session.state == crate::sessions::ManagedSessionState::Background
+            })
+            .ok_or_else(|| "staged Phase 7 Background session is unavailable".to_owned())?;
+        crate::views::session_manager::execute(
+            &action(
+                crate::views::session_manager::SessionManagerActionKind::Reattach,
+                background.session_id,
+            ),
+            &background,
+            &mut self.sessions,
+            &mut self.state.tab_workspaces,
+        )?
+        .ok_or_else(|| "staged Phase 7 Reattach did not return a placement".to_owned())?;
+
+        let ended_for_start = sessions[2].clone();
+        let ended_for_remove = sessions[3].clone();
+        let socket_path = self
+            .sessions
+            .socket_path()
+            .ok_or_else(|| "staged Phase 7 session socket is unavailable".to_owned())?;
+        let build_mode = if self.sessions.build_mode().is_development() {
+            muxy_proto::session::BuildMode::Development
+        } else {
+            muxy_proto::session::BuildMode::Production
+        };
+        let mut client = muxy_session::SessionClient::connect(socket_path, build_mode)
+            .map_err(|error| error.to_string())?;
+        client
+            .end_session(ended_for_start.session_id)
+            .map_err(|error| error.to_string())?;
+        client
+            .end_session(ended_for_remove.session_id)
+            .map_err(|error| error.to_string())?;
+
+        let ended_for_start = self
+            .sessions
+            .managed_sessions(&self.state.tab_workspaces)?
+            .into_iter()
+            .find(|session| session.session_id == ended_for_start.session_id)
+            .ok_or_else(|| "staged Phase 7 ended session disappeared".to_owned())?;
+        let replacement_tab_id = ended_for_start
+            .placement
+            .as_ref()
+            .map(|placement| placement.tab_id.clone())
+            .ok_or_else(|| "staged Phase 7 replacement tab is unavailable".to_owned())?;
+        crate::views::session_manager::execute(
+            &action(
+                crate::views::session_manager::SessionManagerActionKind::StartNew,
+                ended_for_start.session_id,
+            ),
+            &ended_for_start,
+            &mut self.sessions,
+            &mut self.state.tab_workspaces,
+        )?;
+        let launches = self
+            .terminal_runtime
+            .surfaces
+            .pending_session_launches(&self.state.tab_workspaces);
+        self.sessions.reconcile_new_sessions(
+            &self.state.workspace.projects,
+            &mut self.state.tab_workspaces,
+            &launches,
+        )?;
+        let replacement_session_id = self
+            .state
+            .tab_workspaces
+            .states()
+            .iter()
+            .find_map(|workspace| workspace.tab(&replacement_tab_id))
+            .and_then(|tab| tab.session_id)
+            .filter(|session_id| *session_id != ended_for_start.session_id)
+            .ok_or_else(|| "staged Phase 7 Start New did not replace the session".to_owned())?;
+        if !self
+            .sessions
+            .live_session_descriptors()?
+            .iter()
+            .any(|descriptor| descriptor.session_id == replacement_session_id)
+        {
+            return Err("staged Phase 7 replacement session is not running".to_owned());
+        }
+
+        let ended_for_remove = self
+            .sessions
+            .managed_sessions(&self.state.tab_workspaces)?
+            .into_iter()
+            .find(|session| session.session_id == ended_for_remove.session_id)
+            .ok_or_else(|| "staged Phase 7 removable session disappeared".to_owned())?;
+        crate::views::session_manager::execute(
+            &action(
+                crate::views::session_manager::SessionManagerActionKind::Remove,
+                ended_for_remove.session_id,
+            ),
+            &ended_for_remove,
+            &mut self.sessions,
+            &mut self.state.tab_workspaces,
+        )?;
+
+        let ended_by_manager = sessions[4].clone();
+        let ended_tab_id = ended_by_manager
+            .placement
+            .as_ref()
+            .map(|placement| placement.tab_id.clone())
+            .ok_or_else(|| "staged Phase 7 End tab is unavailable".to_owned())?;
+        crate::views::session_manager::execute(
+            &action(
+                crate::views::session_manager::SessionManagerActionKind::End,
+                ended_by_manager.session_id,
+            ),
+            &ended_by_manager,
+            &mut self.sessions,
+            &mut self.state.tab_workspaces,
+        )?;
+        if self
+            .state
+            .tab_workspaces
+            .states()
+            .iter()
+            .any(|workspace| workspace.tab(&ended_tab_id).is_some())
+        {
+            return Err("staged Phase 7 End left its workspace tab behind".to_owned());
+        }
+
+        let remaining = self.sessions.live_session_descriptors()?;
+        if remaining.len() < 2 {
+            return Err("staged Phase 7 did not retain CLI sessions".to_owned());
+        }
+        for identity in self.sessions.runtime_process_identities()? {
+            if !identities.contains(&identity) {
+                identities.push(identity);
+            }
+        }
+        write_staged_phase_four_processes(owned_processes, &identities)
+            .map_err(|error| error.to_string())?;
+        write_staged_phase_four_json(
+            status,
+            &serde_json::json!({
+                "state": "complete",
+                "focusSessionId": sessions[0].session_id,
+                "reattachSessionId": sessions[1].session_id,
+                "replacedSessionId": sessions[2].session_id,
+                "startedSessionId": replacement_session_id,
+                "removedSessionId": sessions[3].session_id,
+                "endedSessionId": sessions[4].session_id,
+                "remainingSessionIds": remaining
+                    .iter()
+                    .map(|session| session.session_id)
+                    .collect::<Vec<_>>(),
+            }),
+        )
+        .map_err(|error| error.to_string())
     }
 
     fn run_staged_phase_four_background(

@@ -176,6 +176,7 @@ impl Render for MainWindow {
                 expanded_worktree_projects: self.view.worktrees.expanded_projects(),
                 composer: &self.composer,
                 resource_snapshot: self.resource_monitor.snapshot(),
+                applied_session_mode: self.sessions.applied_mode(),
             },
             window,
             cx,

@@ -353,6 +353,24 @@ phase_six_source_checks() {
     rg -q 'status_trailing_items' crates/muxy/src/views/app.rs || fail "Composer and resource status composition is missing"
 }
 
+phase_seven_source_checks() {
+    phase_six_source_checks
+    require_command shasum
+    for path in \
+        crates/muxy/src/views/session_manager.rs \
+        crates/muxy/src/socket/commands/sessions.rs; do
+        [[ -f "$path" ]] || fail "missing Phase 7 source: $path"
+    done
+    rg -q 'SessionManager' crates/muxy/src/views/overlay.rs crates/muxy/src/views/window/overlays.rs || fail "session manager popover is not wired"
+    rg -q 'SessionManagerActionKind::Focus' crates/muxy/src/views/session_manager.rs crates/muxy/src/views/window/lifecycle.rs || fail "session manager Focus action is missing"
+    rg -q 'end_all_plan_sessions' crates/muxy/src/sessions/mod.rs crates/muxy/src/views/window/overlays.rs || fail "immutable End All action is missing"
+    rg -q 'open_terminal_settings' crates/muxy/src/views/window/overlays.rs || fail "Terminal Settings action is missing"
+    rg -q 'P8_IMPLEMENTED_LEGACY_HEADS' crates/muxy/src/socket/catalog.rs || fail "retained P8 CLI heads are not activated"
+    rg -q '"list-sessions"' crates/muxy/src/socket/commands/sessions.rs || fail "list-sessions handler is missing"
+    rg -q '"kill-session"' crates/muxy/src/socket/commands/sessions.rs || fail "kill-session handler is missing"
+    [[ "$(shasum -a 256 Muxy/Resources/scripts/muxy-cli | awk '{ print $1 }')" == e9fe05bf57067cc0bd3345bc37a09730fb44fef85e96a37d18ec92b4d4d7ac32 ]] || fail "retained CLI source bytes changed"
+}
+
 portable_fixture() {
     source_checks
     cargo test -p muxy-proto --locked --offline session
@@ -507,8 +525,32 @@ resource_math_fixture() {
     cargo test -p muxy --locked --offline resource_monitor::tests::resource_monitor_aggregates_overlapping_app_daemon_shell_and_grandchild_once -- --exact
     cargo test -p muxy --locked --offline resource_monitor::tests::resource_monitor_rejects_pid_reuse_and_reports_stale_without_false_zero -- --exact
     cargo test -p muxy --locked --offline resource_monitor::tests::resource_monitor_disable_stops_requests_and_reenable_uses_fresh_baseline -- --exact
-    cargo test -p muxy --locked --offline views::app::tests::resource_status_and_composer_use_distinct_ordered_trailing_slots -- --exact
+    cargo test -p muxy --locked --offline views::app::tests::composer_resource_and_sessions_use_distinct_ordered_trailing_slots -- --exact
     printf 'P8 resource delta, deduplication, identity, stale, enable transition, and status coexistence fixture passed\n'
+}
+
+session_manager_fixture() {
+    phase_seven_source_checks
+    cargo test -p muxy --locked --offline session_manager
+    cargo test -p muxy --locked --offline session_lifecycle_exact_owner_cleanup_never_ends_unrelated_sessions
+    printf 'P8 Session Manager sections, actions, confirmations, owner validation, and stale cleanup fixture passed\n'
+}
+
+cli_sessions_fixture() {
+    phase_seven_source_checks
+    cargo test -p muxy --locked --offline socket_list_sessions_preserves_exact_columns_and_placement_attachment
+    cargo test -p muxy --locked --offline socket_kill_session_pins_usage_invalid_not_found_and_success
+    cargo test -p muxy --locked --offline socket_kill_session_pins_owner_mismatch_and_daemon_unavailable
+    cargo test -p muxy --locked --offline socket_catalog_marks_create_worktree_implemented_without_changing_recognition
+    printf 'P8 retained CLI session heads, exact columns, errors, permissions, and frozen catalog fixture passed\n'
+}
+
+status_trailing_group_fixture() {
+    phase_seven_source_checks
+    cargo test -p muxy --locked --offline views::app::tests::composer_resource_and_sessions_use_distinct_ordered_trailing_slots -- --exact
+    rg -q 'div\(\)\.flex\(\)\.flex_row\(\)\.flex_none\(\)\.items_center\(\)\.h_full\(\)' crates/muxy/src/views/status_bar.rs || fail "status trailing group is not fixed-width at narrow widths"
+    rg -q 'status-terminal-sessions' crates/muxy/src/views/status_bar.rs || fail "session status button is missing"
+    printf 'P8 Composer, resource, and session status trailing group fixture passed\n'
 }
 
 resource_process_tree_fixture() {
@@ -1402,6 +1444,154 @@ staged_phase_six() {
     printf 'P8 staged Phase 6 app, daemon, shell, descendant resource sampling, disable stop, and zero residue passed\n'
 }
 
+staged_phase_seven() {
+    local profile="$1" app="$2" case_name="$3" root app_support home tmp xdg app_socket session_socket
+    local executable cli project app_log status sessions reopened target reply attempt state count id pid cwd attached title project_id worktree_id tab_id
+    [[ "$(uname -s)" == Darwin ]] || fail "staged verification requires macOS"
+    [[ "$profile" == debug || "$profile" == release ]] || fail "invalid staged profile: $profile"
+    [[ "$case_name" == phase-7 ]] || fail "unsupported Phase 7 staged case: $case_name"
+    validate_staged_app "$app"
+    phase_seven_source_checks
+    root="$(prepare_unique_tmp_root phase7)"
+    ACTIVE_ROOT="$root"
+    app_support="$root/app"
+    home="$root/home"
+    tmp="$root/tmp"
+    xdg="$root/xdg"
+    project="$root/project"
+    mkdir -p "$app_support" "$home" "$tmp" "$xdg" "$project"
+    git -C "$project" init -q
+    app_socket="$app_support/muxy.sock"
+    session_socket="$app_support/sessions/control.sock"
+    if [[ "$profile" == debug ]]; then
+        app_socket="$app_support/muxy-dev.sock"
+        session_socket="$app_support/sessions-dev/control.sock"
+    fi
+    ACTIVE_SOCKET="$app_socket"
+    executable="$app/Contents/MacOS/MuxyTests"
+    cli="$app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+    app_log="$root/app.log"
+    status="$root/.muxy-p8-phase7-status.json"
+    [[ -x "$cli" ]] || fail "retained staged CLI is missing"
+    cmp -s "$PROJECT_ROOT/Muxy/Resources/scripts/muxy-cli" "$cli" || fail "retained staged CLI bytes differ"
+    printf '%s\n%s\n' "$executable" "$profile" > "$root/.phase3-runtime"
+
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 7 seed app exited before binding its socket"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" ]] || fail "staged Phase 7 seed app socket was not created"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" create-project "$project" --name P8Phase7 >/dev/null
+    for _ in 1 2 3 4 5; do
+        MUXY_SOCKET_PATH="$app_socket" "$cli" new-tab >/dev/null
+    done
+    printf '{"muxy.terminalPersistentSession.enabled":true}\n' > "$app_support/settings.json"
+    close_phase_three_app "$app_log"
+
+    MUXY_TEST_P8_PHASE7_CASE=manager \
+        MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 600; attempt++)); do
+        state="$(plutil -extract state raw -o - "$status" 2>/dev/null || true)"
+        [[ -S "$app_socket" && -S "$session_socket" && "$state" == complete ]] && break
+        [[ "$state" != error ]] || {
+            cat "$status"
+            cat "$app_log"
+            fail "staged Phase 7 manager actions reported an error"
+        }
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 7 manager app exited during startup"
+        }
+        sleep 0.05
+    done
+    [[ "$state" == complete && -f "$root/owned-processes" ]] || {
+        cat "$app_log"
+        fail "staged Phase 7 manager actions did not complete"
+    }
+
+    sessions="$(MUXY_SOCKET_PATH="$app_socket" "$cli" list-sessions)"
+    count=0
+    while IFS=$'\t' read -r id pid cwd attached title project_id worktree_id tab_id; do
+        [[ -n "$id" ]] || continue
+        [[ "$id" =~ ^[0-9A-F-]{36}$ ]] || fail "staged Phase 7 list-sessions returned an invalid session ID"
+        [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail "staged Phase 7 list-sessions returned an invalid shell PID"
+        [[ -n "$cwd" && ( "$attached" == true || "$attached" == false ) ]] || fail "staged Phase 7 list-sessions returned invalid cwd or attachment fields"
+        [[ -n "$title" && -n "$project_id" && -n "$worktree_id" ]] || fail "staged Phase 7 list-sessions omitted owner columns"
+        if [[ "$attached" == true ]]; then
+            [[ -n "$tab_id" ]] || fail "staged Phase 7 attached session omitted its tab ID"
+        else
+            [[ -z "$tab_id" ]] || fail "staged Phase 7 background session returned a tab ID"
+        fi
+        count=$((count + 1))
+    done <<< "$sessions"
+    ((count >= 2)) || fail "staged Phase 7 retained CLI listed fewer than two sessions"
+    target="$(printf '%s\n' "$sessions" | awk -F $'\t' 'NF == 8 { print $1; exit }')"
+    [[ "$target" =~ ^[0-9A-F-]{36}$ ]] || fail "staged Phase 7 could not select a CLI session"
+    close_phase_three_app "$app_log"
+    [[ -S "$session_socket" ]] || fail "staged Phase 7 listed session did not survive app close"
+
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" && -S "$session_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 7 reopen exited before binding its sockets"
+        }
+        sleep 0.05
+    done
+    reopened="$(MUXY_SOCKET_PATH="$app_socket" "$cli" list-sessions)"
+    printf '%s\n' "$reopened" | awk -F $'\t' -v held="$target" '$1 == held { found = 1 } END { exit !found }' || fail "staged Phase 7 listed session did not survive reopen"
+    reply="$(MUXY_SOCKET_PATH="$app_socket" "$cli" kill-session --session "$target")"
+    [[ "$reply" == ok ]] || fail "staged Phase 7 kill-session reply differed: $reply"
+    for ((attempt = 0; attempt < 200; attempt++)); do
+        reopened="$(MUXY_SOCKET_PATH="$app_socket" "$cli" list-sessions)"
+        if ! printf '%s\n' "$reopened" | awk -F $'\t' -v held="$target" '$1 == held { found = 1 } END { exit !found }'; then
+            break
+        fi
+        sleep 0.05
+    done
+    ! printf '%s\n' "$reopened" | awk -F $'\t' -v held="$target" '$1 == held { found = 1 } END { exit !found }' || fail "staged Phase 7 killed session remained listed"
+    while IFS=$'\t' read -r id _; do
+        [[ "$id" =~ ^[0-9A-F-]{36}$ ]] || continue
+        MUXY_SOCKET_PATH="$app_socket" "$cli" kill-session --session "$id" >/dev/null
+    done <<< "$reopened"
+    close_phase_three_app "$app_log"
+    printf '{"muxy.terminalPersistentSession.enabled":false}\n' > "$app_support/settings.json"
+    cleanup_phase_three_runtime "$root" || fail "staged Phase 7 persistent cleanup failed"
+    P8_STAGED_VERIFY_DEAD_ROOT="$root" \
+        cargo test -p muxy-session --test staged_helper --locked --offline \
+            staged_recorded_processes_are_dead -- --exact >/dev/null
+    [[ ! -e "$root/owned-processes" ]] || fail "staged Phase 7 process identities remained"
+    [[ ! -S "$app_socket" && ! -S "$session_socket" ]] || fail "staged Phase 7 sockets remained"
+    cleanup_owned_root "$root"
+    ACTIVE_SOCKET=""
+    ACTIVE_ROOT=""
+    printf 'P8 staged Phase 7 production manager actions, retained CLI survival, reopen, kill, and zero residue passed\n'
+}
+
 self_test() {
     local nonce="$$" owned unowned mismatch linked target outside
     source_checks
@@ -1473,6 +1663,9 @@ case "${1:-}" in
             ordinary-sleep-wake) ordinary_sleep_wake_fixture ;;
             resource-math) resource_math_fixture ;;
             resource-process-tree) resource_process_tree_fixture ;;
+            session-manager) session_manager_fixture ;;
+            cli-sessions) cli_sessions_fixture ;;
+            status-trailing-group) status_trailing_group_fixture ;;
             *) fail "unknown P8 fixture: $2" ;;
         esac
         ;;
@@ -1492,6 +1685,7 @@ case "${1:-}" in
             phase-4) staged_phase_four "$2" "$3" "$4" ;;
             phase-5) staged_phase_five "$2" "$3" "$4" ;;
             phase-6) staged_phase_six "$2" "$3" "$4" ;;
+            phase-7) staged_phase_seven "$2" "$3" "$4" ;;
             *) fail "unsupported staged P8 phase: $4" ;;
         esac
         ;;

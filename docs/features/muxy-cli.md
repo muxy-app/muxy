@@ -332,7 +332,7 @@ Output is tab-separated:
 <session-id>  <shell-pid>  <working-directory>  <attached>  <title>  <project-id>  <worktree-id>  <tab-id>
 ```
 
-`<attached>` is `true` while a terminal pane is connected to the session and `false` while it runs unattended. The last four columns identify which tab, project, and worktree the session belongs to, and are empty for a session that has never been attached from a worktree.
+`<attached>` is `true` while the session has a tab in a workspace and `false` while it runs in the background without workspace placement. Hidden tabs remain attached even when they have no terminal renderer. The last four columns identify which tab, project, and worktree the session belongs to, and are empty for a session that has never been attached from a worktree.
 
 A session ID matches its pane ID until a tab adopts someone else's session, so always take the ID from the first column rather than assuming it is a pane ID.
 

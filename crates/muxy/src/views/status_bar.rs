@@ -3,9 +3,9 @@ use crate::views::menu::Item;
 use crate::views::window::MainWindow;
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    AnyElement, AppContext, Context, FontWeight, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, ParentElement, SharedString, StatefulInteractiveElement, Styled, canvas, div,
-    px,
+    AnyElement, AppContext, Context, FontWeight, InteractiveElement, IntoElement, KeyDownEvent,
+    MouseButton, MouseDownEvent, ParentElement, SharedString, StatefulInteractiveElement, Styled,
+    canvas, div, px,
 };
 use muxy_core::prefs::home_dir;
 use muxy_ui::components::{IconGlyph, Tooltip};
@@ -141,6 +141,87 @@ fn status_trailing_group(state: &AppState, trailing: Vec<AnyElement>) -> AnyElem
                     .child(item)
             },
         )
+        .into_any_element()
+}
+
+fn session_manager_activation_key(key: &str) -> bool {
+    key == "enter" || key == "space"
+}
+
+pub fn session_manager_item(state: &AppState, cx: &mut Context<MainWindow>) -> AnyElement {
+    let metrics = &state.metrics;
+    let theme = &state.theme;
+    let bounds = Rc::new(Cell::new(None));
+    let recorder = bounds.clone();
+    let click_bounds = bounds.clone();
+    let key_bounds = bounds.clone();
+    let background = theme.raised();
+    let foreground = theme.fg;
+    let border = theme.border;
+    div()
+        .id("status-terminal-sessions")
+        .tab_index(0)
+        .relative()
+        .flex()
+        .flex_row()
+        .flex_none()
+        .items_center()
+        .gap(px(4.0))
+        .h_full()
+        .px(px(8.0))
+        .text_color(theme.fg_muted)
+        .cursor_pointer()
+        .hover(|style| style.text_color(theme.fg))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(
+                move |window: &mut MainWindow, _: &MouseDownEvent, view, cx| {
+                    if let Some(bounds) = click_bounds.get() {
+                        window.open_session_manager(bounds, view, cx);
+                    }
+                },
+            ),
+        )
+        .on_key_down(cx.listener(
+            move |window: &mut MainWindow, event: &KeyDownEvent, view, cx| {
+                if session_manager_activation_key(&event.keystroke.key)
+                    && let Some(bounds) = key_bounds.get()
+                {
+                    window.open_session_manager(bounds, view, cx);
+                    cx.stop_propagation();
+                }
+            },
+        ))
+        .child(
+            canvas(
+                move |bounds, _, _| recorder.set(Some(bounds)),
+                |_, _: (), _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
+        .child(IconGlyph::new(
+            Icon::Terminal,
+            metrics.font_caption(),
+            theme.fg_muted,
+        ))
+        .child(
+            div()
+                .text_size(metrics.font_footnote())
+                .font_weight(FontWeight::MEDIUM)
+                .child("Sessions"),
+        )
+        .child(
+            div()
+                .absolute()
+                .size(px(1.0))
+                .opacity(0.0)
+                .child("Terminal Sessions"),
+        )
+        .tooltip(move |_, cx| {
+            cx.new(|_| Tooltip::new("Terminal Sessions", background, foreground, border))
+                .into()
+        })
         .into_any_element()
 }
 
@@ -626,6 +707,13 @@ fn status_control_ids(has_path: bool) -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_manager_status_control_accepts_keyboard_activation() {
+        assert!(session_manager_activation_key("enter"));
+        assert!(session_manager_activation_key("space"));
+        assert!(!session_manager_activation_key("escape"));
+    }
 
     #[test]
     fn status_path_local_and_remote_actions_are_truthful() {

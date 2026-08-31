@@ -1,5 +1,6 @@
 pub mod panes;
 pub mod projects;
+pub mod sessions;
 pub mod tabs;
 pub mod target;
 pub mod workspaces;

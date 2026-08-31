@@ -383,7 +383,6 @@ phase_6_scope_checks() {
         crates/muxy-core/src/migration.rs \
         Muxy \
         Tests \
-        crates/muxy/src/socket \
         resources/Info.plist \
         .github; do
         git diff --quiet -- "$locked" || fail "P6 changed locked path: $locked"
@@ -394,6 +393,12 @@ phase_6_scope_checks() {
             fail "P6 added an untracked file under locked path: $locked"
         }
     done
+    changes="$(git status --short --untracked-files=all -- crates/muxy/src/socket \
+        | rg -v 'crates/muxy/src/socket/catalog.rs$|crates/muxy/src/socket/runtime.rs$|crates/muxy/src/socket/commands/mod.rs$|crates/muxy/src/socket/commands/sessions.rs$' || true)"
+    [[ -z "$changes" ]] || {
+        printf '%s\n' "$changes"
+        fail "P6 changed a socket path outside the P8 session CLI integration"
+    }
     changes="$(git status --short --untracked-files=all -- crates/muxy-proto \
         | rg -v 'crates/muxy-proto/src/session/|crates/muxy-proto/src/lib.rs$' || true)"
     [[ -z "$changes" ]] || {

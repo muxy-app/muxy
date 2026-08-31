@@ -342,6 +342,7 @@ pub struct CommandPopoverRow {
     pub id: SharedString,
     pub title: SharedString,
     pub subtitle: Option<SharedString>,
+    pub accessibility_label: Option<SharedString>,
     pub leading: Option<CommandPopoverLeading>,
     pub trailing: Option<SharedString>,
     pub actions: Vec<CommandPopoverAction>,
@@ -357,6 +358,7 @@ impl CommandPopoverRow {
             id: id.into(),
             title: title.into(),
             subtitle: None,
+            accessibility_label: None,
             leading: None,
             trailing: None,
             actions: Vec::new(),
@@ -1101,6 +1103,7 @@ impl CommandPopover {
                 let hover_id = row.id.clone();
                 let group = SharedString::from(format!("command-row-{}", row.id));
                 let swatches = row.swatches.clone();
+                let accessibility_label = row.accessibility_label.clone();
                 let selected_background =
                     if self.config.presentation == CommandPopoverPresentation::Embedded {
                         self.theme.hover
@@ -1113,6 +1116,7 @@ impl CommandPopover {
                         row.id
                     )))
                     .group(group.clone())
+                    .relative()
                     .w_full()
                     .h(self.metrics.scaled(row_height))
                     .px(self.metrics.scaled(layout.item_inset))
@@ -1299,6 +1303,9 @@ impl CommandPopover {
                     }
                     content = content.child(actions);
                 }
+                content = content.when_some(accessibility_label, |element, label| {
+                    element.child(div().absolute().size(px(1.0)).opacity(0.0).child(label))
+                });
                 let _ = window;
                 div()
                     .w_full()

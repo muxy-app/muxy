@@ -103,7 +103,7 @@ source_checks() {
         Muxy/Resources/scripts/muxy-cli \
         crates/muxy/src/socket \
         .github || true)"
-    changes="$(printf '%s\n' "$changes" | rg -v 'crates/muxy-proto/src/session/|crates/muxy-proto/src/lib.rs$' || true)"
+    changes="$(printf '%s\n' "$changes" | rg -v 'crates/muxy-proto/src/session/|crates/muxy-proto/src/lib.rs$|crates/muxy/src/socket/catalog.rs$|crates/muxy/src/socket/runtime.rs$|crates/muxy/src/socket/commands/mod.rs$|crates/muxy/src/socket/commands/sessions.rs$' || true)"
     [[ -z "$changes" ]] || {
         printf '%s\n' "$changes"
         fail "a locked migration, protocol, CLI, bundle, staging, or CI path changed"

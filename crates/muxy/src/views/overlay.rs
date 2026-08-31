@@ -48,6 +48,10 @@ pub enum Overlay {
     Notifications {
         anchor: gpui::Bounds<Pixels>,
     },
+    SessionManager {
+        picker: Entity<muxy_ui::command_popover::CommandPopover>,
+        anchor: gpui::Bounds<Pixels>,
+    },
     ThemePicker {
         browser: Entity<crate::views::settings::theme_picker::ThemeBrowser>,
         anchor: Option<gpui::Bounds<Pixels>>,
@@ -279,6 +283,26 @@ pub fn layer(
                 muxy_core::store::reference_now(),
             );
             crate::views::notifications::panel::render(model, origin, focus, state, cx)
+        }
+        Overlay::SessionManager { picker, anchor } => {
+            let size = gpui::size(
+                state
+                    .metrics
+                    .scaled(crate::views::session_manager::PANEL_WIDTH),
+                state
+                    .metrics
+                    .scaled(crate::views::session_manager::PANEL_HEIGHT),
+            );
+            let origin = clamp(
+                gpui::point(
+                    anchor.origin.x + anchor.size.width - size.width,
+                    anchor.origin.y - size.height - state.metrics.spacing2(),
+                ),
+                size,
+                viewport,
+                state,
+            );
+            anchored_picker(picker, origin, size, viewport, state)
         }
         Overlay::ThemePicker { browser, anchor } => {
             let picker = browser.read(cx).picker().clone();

@@ -8,6 +8,7 @@ pub mod overlay;
 pub mod project_picker;
 pub mod project_row;
 pub mod repository;
+pub mod session_manager;
 pub mod settings;
 pub mod shortcut_editor;
 pub mod sidebar;
