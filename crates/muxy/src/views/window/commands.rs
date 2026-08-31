@@ -182,6 +182,8 @@ impl MainWindow {
             Command::CloseTabsToRight(id) => {
                 self.close_tabs(&id, muxy_core::workspace::CloseMode::ToRight, cx)
             }
+            Command::SendToBackground(id) => self.send_tab_to_background(&id, cx),
+            Command::StartNewTerminal(id) => self.start_new_terminal(&id, cx),
             Command::RunCommandShortcut(id) => {
                 self.dismiss_overlay(cx);
                 self.create_command_tab(&id, cx);

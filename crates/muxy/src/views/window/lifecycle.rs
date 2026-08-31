@@ -4,6 +4,81 @@ use crate::project_operations::{
 };
 use muxy_api::truth::{ProjectProbe, ProjectTruth};
 
+const P8_STAGED_PHASE_FOUR_ENV: &str = "MUXY_TEST_P8_PHASE4_CASE";
+const P8_STAGED_PHASE_FOUR_STATUS: &str = ".muxy-p8-phase4-status.json";
+const P8_STAGED_PHASE_FOUR_PROCEED: &str = ".muxy-p8-phase4-proceed";
+
+struct StagedPhaseFourPaths {
+    status: PathBuf,
+    proceed: PathBuf,
+    owned_processes: PathBuf,
+}
+
+fn staged_phase_four_paths() -> Option<(String, StagedPhaseFourPaths)> {
+    if !muxy_core::prefs::is_test_process() {
+        return None;
+    }
+    let case_name = std::env::var(P8_STAGED_PHASE_FOUR_ENV).ok()?;
+    if !matches!(case_name.as_str(), "background" | "reopen") {
+        return None;
+    }
+    let app_support = muxy_core::prefs::app_support_dir();
+    let injected = std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").map(PathBuf::from);
+    if injected.as_deref() != Some(app_support.as_path())
+        || !app_support.is_absolute()
+        || app_support.starts_with(muxy_core::prefs::home_dir())
+        || path_has_symlink_or_missing_component(&app_support)
+    {
+        return None;
+    }
+    let root = app_support.parent()?.to_path_buf();
+    if std::fs::read_to_string(root.join(".muxy-p8-owner"))
+        .ok()?
+        .trim()
+        != "muxy-p8-terminal-memory-v1"
+    {
+        return None;
+    }
+    Some((
+        case_name,
+        StagedPhaseFourPaths {
+            status: root.join(P8_STAGED_PHASE_FOUR_STATUS),
+            proceed: root.join(P8_STAGED_PHASE_FOUR_PROCEED),
+            owned_processes: root.join("owned-processes"),
+        },
+    ))
+}
+
+fn write_staged_phase_four_json(path: &Path, value: &serde_json::Value) -> std::io::Result<()> {
+    let temporary = path.with_extension("json.tmp");
+    std::fs::write(&temporary, serde_json::to_vec_pretty(value)?)?;
+    std::fs::rename(temporary, path)
+}
+
+fn write_staged_phase_four_processes(
+    path: &Path,
+    identities: &[muxy_proto::session::ProcessIdentity],
+) -> std::io::Result<()> {
+    if identities.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "staged session runtime has no process identities",
+        ));
+    }
+    let mut contents = String::new();
+    for (index, identity) in identities.iter().enumerate() {
+        contents.push_str(&format!(
+            "{} {} {}\n",
+            identity.process_id,
+            identity.start_identity,
+            if index == 0 { "daemon" } else { "shell" }
+        ));
+    }
+    let temporary = path.with_extension("tmp");
+    std::fs::write(&temporary, contents)?;
+    std::fs::rename(temporary, path)
+}
+
 pub(super) struct ProjectRuntime {
     pub(super) watchers: muxy_api::watcher::Watchers,
     pub(super) git_options: muxy_api::git::GitOptions,
@@ -37,6 +112,271 @@ impl Drop for ProjectRuntime {
 }
 
 impl MainWindow {
+    pub(super) fn prepare_staged_phase_four(&mut self, cx: &mut Context<Self>) {
+        let Some((case_name, paths)) = staged_phase_four_paths() else {
+            return;
+        };
+        if case_name == "background" {
+            if let Err(error) = self.run_staged_phase_four_background(&paths) {
+                let _ = write_staged_phase_four_json(
+                    &paths.status,
+                    &serde_json::json!({ "state": "error", "error": error }),
+                );
+            }
+            return;
+        }
+        cx.spawn(async move |window, cx| {
+            for _ in 0..600 {
+                if paths.proceed.is_file() {
+                    let _ = window.update(cx, |window, _| {
+                        if let Err(error) = window.run_staged_phase_four_reopen(&paths) {
+                            let _ = write_staged_phase_four_json(
+                                &paths.status,
+                                &serde_json::json!({ "state": "error", "error": error }),
+                            );
+                        }
+                    });
+                    return;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(50))
+                    .await;
+            }
+            let _ = write_staged_phase_four_json(
+                &paths.status,
+                &serde_json::json!({
+                    "state": "error",
+                    "error": "staged Phase 4 proceed request timed out"
+                }),
+            );
+        })
+        .detach();
+    }
+
+    fn run_staged_phase_four_background(
+        &mut self,
+        paths: &StagedPhaseFourPaths,
+    ) -> Result<(), String> {
+        let mut sessions = self.sessions.managed_sessions(&self.state.tab_workspaces)?;
+        sessions.retain(|session| {
+            session.state == crate::sessions::ManagedSessionState::Workspace
+                && session.placement.is_some()
+                && session.shell.is_some()
+                && self
+                    .state
+                    .workspace
+                    .project(&session.owner.project_id)
+                    .is_some_and(|project| !project.is_home())
+        });
+        sessions.sort_by(|left, right| left.session_id.cmp(&right.session_id));
+        let first = sessions
+            .first()
+            .cloned()
+            .ok_or_else(|| "staged app has no persistent workspace session".to_owned())?;
+        let unrelated = sessions
+            .iter()
+            .find(|session| {
+                !session
+                    .owner
+                    .project_id
+                    .eq_ignore_ascii_case(&first.owner.project_id)
+            })
+            .cloned()
+            .ok_or_else(|| "staged app has no unrelated persistent session".to_owned())?;
+        let identities = self.sessions.runtime_process_identities()?;
+        write_staged_phase_four_processes(&paths.owned_processes, &identities)
+            .map_err(|error| error.to_string())?;
+        let placement = first
+            .placement
+            .clone()
+            .ok_or_else(|| "staged session has no workspace placement".to_owned())?;
+        self.sessions
+            .send_to_background(&placement.tab_id, first.session_id, &first.owner)?;
+        let mut updated = self.state.tab_workspaces.clone();
+        let removed = updated
+            .states_mut()
+            .iter_mut()
+            .find(|workspace| workspace.tab(&placement.tab_id).is_some())
+            .map(|workspace| {
+                workspace.close_tab(&placement.tab_id, muxy_core::workspace::CloseMode::Single)
+            })
+            .unwrap_or_default();
+        if removed != [placement.tab_id.clone()] {
+            return Err("staged Background workspace candidate changed".to_owned());
+        }
+        updated.save().map_err(|error| error.to_string())?;
+        self.state.tab_workspaces = updated;
+        let managed = self.sessions.managed_sessions(&self.state.tab_workspaces)?;
+        if !managed.iter().any(|session| {
+            session.session_id == first.session_id
+                && session.state == crate::sessions::ManagedSessionState::Background
+        }) {
+            return Err("staged app did not move the exact session to Background".to_owned());
+        }
+        write_staged_phase_four_json(
+            &paths.status,
+            &serde_json::json!({
+                "state": "background",
+                "sessionId": first.session_id,
+                "unrelatedSessionId": unrelated.session_id,
+                "owner": first.owner,
+                "originalPlacement": placement,
+            }),
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    fn run_staged_phase_four_reopen(&mut self, paths: &StagedPhaseFourPaths) -> Result<(), String> {
+        let status: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(&paths.status).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())?;
+        if status.get("state").and_then(serde_json::Value::as_str) != Some("background") {
+            return Err("staged Phase 4 status is not Background".to_owned());
+        }
+        let session_id: muxy_proto::session::SessionId = serde_json::from_value(
+            status
+                .get("sessionId")
+                .cloned()
+                .ok_or_else(|| "staged session ID is missing".to_owned())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let unrelated_session_id: muxy_proto::session::SessionId = serde_json::from_value(
+            status
+                .get("unrelatedSessionId")
+                .cloned()
+                .ok_or_else(|| "staged unrelated session ID is missing".to_owned())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let owner: muxy_proto::session::SessionOwner = serde_json::from_value(
+            status
+                .get("owner")
+                .cloned()
+                .ok_or_else(|| "staged session owner is missing".to_owned())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let original: muxy_proto::session::WorkspacePlacement = serde_json::from_value(
+            status
+                .get("originalPlacement")
+                .cloned()
+                .ok_or_else(|| "staged original placement is missing".to_owned())?,
+        )
+        .map_err(|error| error.to_string())?;
+        let outcome = self
+            .sessions
+            .reattach(session_id, &mut self.state.tab_workspaces)?;
+        let placement = match outcome {
+            crate::sessions::SessionReattachOutcome::Focused(placement)
+            | crate::sessions::SessionReattachOutcome::Reattached(placement) => placement,
+        };
+        if placement.project_id != original.project_id
+            || placement.worktree_id != original.worktree_id
+            || placement.tab_id != original.tab_id
+        {
+            return Err("staged reattach changed the original owner placement".to_owned());
+        }
+        let project = self
+            .state
+            .workspace
+            .project(&owner.project_id)
+            .cloned()
+            .ok_or_else(|| "staged session project is missing".to_owned())?;
+        let token = self
+            .state
+            .project_operations
+            .begin_operation(&project.id, ProjectOperationKind::Remove)
+            .map_err(|_| "staged project deletion operation is busy".to_owned())?;
+        let cleanup_plan =
+            self.sessions
+                .owner_cleanup_plan(&crate::sessions::SessionOwnerScope {
+                    project_id: owner.project_id.clone(),
+                    worktree_id: None,
+                })?;
+        if !cleanup_plan
+            .candidates
+            .iter()
+            .any(|candidate| candidate.session_id == session_id && candidate.owner == owner)
+        {
+            return Err(
+                "staged exact-owner cleanup plan omitted the reattached session".to_owned(),
+            );
+        }
+        let project_is_current = |window: &Self| {
+            window
+                .state
+                .workspace
+                .project(&project.id)
+                .is_some_and(|current| {
+                    current.path == project.path
+                        && current.remote_workspace_id == project.remote_workspace_id
+                })
+                && window.state.project_operations.matches_operation(&token)
+        };
+        if !project_is_current(self) {
+            return Err("staged project changed before exact-owner cleanup".to_owned());
+        }
+        self.sessions.end_owner_cleanup_plan(&cleanup_plan)?;
+        if !project_is_current(self) {
+            return Err("staged project changed during exact-owner cleanup".to_owned());
+        }
+        match self
+            .state
+            .remove_project_with_operation(&project.id, &token)
+        {
+            crate::state::RemoveProjectOutcome::Removed => {}
+            crate::state::RemoveProjectOutcome::NotRemoved => {
+                return Err("staged project was not removed after cleanup".to_owned());
+            }
+            crate::state::RemoveProjectOutcome::RemovedWithWorkspacePersistenceError(error) => {
+                return Err(format!(
+                    "staged project was removed but workspace persistence failed: {error}"
+                ));
+            }
+        }
+        let managed = self.sessions.managed_sessions(&self.state.tab_workspaces)?;
+        if managed.iter().any(|session| {
+            session.session_id == session_id
+                && matches!(
+                    session.state,
+                    crate::sessions::ManagedSessionState::Workspace
+                        | crate::sessions::ManagedSessionState::Background
+                )
+        }) {
+            return Err("staged exact-owner cleanup left its session running".to_owned());
+        }
+        if !managed.iter().any(|session| {
+            session.session_id == unrelated_session_id
+                && matches!(
+                    session.state,
+                    crate::sessions::ManagedSessionState::Workspace
+                        | crate::sessions::ManagedSessionState::Background
+                )
+        }) {
+            return Err("staged exact-owner cleanup ended the unrelated session".to_owned());
+        }
+        self.sessions.end_all_sessions()?;
+        let managed = self.sessions.managed_sessions(&self.state.tab_workspaces)?;
+        if managed.iter().any(|session| {
+            matches!(
+                session.state,
+                crate::sessions::ManagedSessionState::Workspace
+                    | crate::sessions::ManagedSessionState::Background
+            )
+        }) {
+            return Err("staged End All left a session running".to_owned());
+        }
+        write_staged_phase_four_json(
+            &paths.status,
+            &serde_json::json!({
+                "state": "complete",
+                "sessionId": session_id,
+                "unrelatedSessionId": unrelated_session_id,
+                "ownerCleanupCount": cleanup_plan.candidates.len(),
+            }),
+        )
+        .map_err(|error| error.to_string())
+    }
+
     pub(super) fn apply_environment_upgrade(
         &mut self,
         environment: muxy_api::execution_environment::ExecutionEnvironment,
@@ -411,11 +751,26 @@ impl MainWindow {
             );
             return;
         }
-        let generation = self.state.project_operations.generation(&project_id);
-        let identity = self
-            .view
-            .worktrees
-            .begin_removal(&project_id, &worktree_id, generation);
+        let token = match self
+            .state
+            .project_operations
+            .begin_operation(&project_id, ProjectOperationKind::Remove)
+        {
+            Ok(token) => token,
+            Err(BeginOperationError::Busy(_)) => {
+                self.feedback(
+                    "Remove Worktree",
+                    "Another worktree operation is still running.",
+                    crate::toast::ToastTone::Warning,
+                    cx,
+                );
+                return;
+            }
+        };
+        let identity =
+            self.view
+                .worktrees
+                .begin_removal(&project_id, &worktree_id, token.generation());
         let options = self.worktree_remove_options(&project_id);
         cx.spawn(async move |window, cx| {
             let inspected = cx
@@ -433,16 +788,19 @@ impl MainWindow {
             let confirmation = window
                 .update(cx, |window, cx| {
                     if !window.view.worktrees.matches_removal(&identity) {
+                        let _ = window.state.project_operations.finish_operation(&token);
                         return None;
                     }
-                    if !window.removal_request_is_current(&identity, &project, &worktree) {
+                    if !window.removal_request_is_current(&identity, &token, &project, &worktree) {
                         window.view.worktrees.clear_removal_if(&identity);
+                        let _ = window.state.project_operations.finish_operation(&token);
                         return None;
                     }
                     let inspection = match inspected {
                         Ok(inspection) => inspection,
                         Err(error) => {
                             window.view.worktrees.clear_removal();
+                            let _ = window.state.project_operations.finish_operation(&token);
                             window.feedback(
                                 "Remove Worktree",
                                 error.to_string(),
@@ -462,35 +820,103 @@ impl MainWindow {
                                 &inspection.teardown_commands,
                             )
                         });
+                    let scope = crate::sessions::SessionOwnerScope {
+                        project_id: project.id.to_ascii_uppercase(),
+                        worktree_id: Some(inspection.worktree.id.to_ascii_uppercase()),
+                    };
+                    let cleanup_plan = match window.sessions.owner_cleanup_plan(&scope) {
+                        Ok(plan) => plan,
+                        Err(error) => {
+                            window.view.worktrees.clear_removal();
+                            let _ = window.state.project_operations.finish_operation(&token);
+                            window.feedback(
+                                "Remove Worktree",
+                                error,
+                                crate::toast::ToastTone::Error,
+                                cx,
+                            );
+                            return None;
+                        }
+                    };
+                    let session_count = cleanup_plan.candidates.len();
+                    let mut message = removal_confirmation_message(&inspection);
+                    if session_count > 0 {
+                        message.push_str(&format!(
+                            "\n\nThis will also end {session_count} background {} and every process inside {}.",
+                            if session_count == 1 { "session" } else { "sessions" },
+                            if session_count == 1 { "it" } else { "them" }
+                        ));
+                    }
                     let answer = window.ask(
                         format!("Remove '{}'?", inspection.worktree.name),
-                        removal_confirmation_message(&inspection),
+                        message,
                         &["Remove", "Cancel"],
                         cx,
                     );
-                    Some((answer, inspection.worktree, approval))
+                    Some((answer, inspection.worktree, approval, cleanup_plan))
                 })
                 .ok()
                 .flatten();
-            let Some((answer, inspected_worktree, approval)) = confirmation else {
+            let Some((answer, inspected_worktree, approval, cleanup_plan)) = confirmation else {
                 return;
             };
             if answer.await != Some(0) {
                 let _ = window.update(cx, |window, _| {
-                    window.view.worktrees.clear_removal_if(&identity)
+                    window.view.worktrees.clear_removal_if(&identity);
+                    let _ = window.state.project_operations.finish_operation(&token);
                 });
                 return;
             }
             let _ = window.update(cx, |window, cx| {
                 if !window.view.worktrees.matches_removal(&identity) {
+                    let _ = window.state.project_operations.finish_operation(&token);
                     return;
                 }
-                if !window.removal_request_is_current(&identity, &project, &inspected_worktree) {
+                if !window.removal_request_is_current(
+                    &identity,
+                    &token,
+                    &project,
+                    &inspected_worktree,
+                ) {
                     window.view.worktrees.clear_removal_if(&identity);
+                    let _ = window.state.project_operations.finish_operation(&token);
+                    return;
+                }
+                if let Err(error) = window.sessions.end_owner_cleanup_plan(&cleanup_plan) {
+                    window.view.worktrees.clear_removal_if(&identity);
+                    let _ = window.state.project_operations.finish_operation(&token);
+                    window.feedback(
+                        "Remove Worktree",
+                        error,
+                        crate::toast::ToastTone::Error,
+                        cx,
+                    );
+                    return;
+                }
+                if !window.removal_request_is_current(
+                    &identity,
+                    &token,
+                    &project,
+                    &inspected_worktree,
+                ) {
+                    window.view.worktrees.clear_removal_if(&identity);
+                    let _ = window.state.project_operations.finish_operation(&token);
+                    window.feedback(
+                        "Remove Worktree",
+                        "The worktree changed while its background sessions were ending.",
+                        crate::toast::ToastTone::Error,
+                        cx,
+                    );
                     return;
                 }
                 window.view.worktrees.clear_removal_if(&identity);
-                window.request_native_worktree_removal(project, inspected_worktree, approval, cx);
+                window.request_native_worktree_removal(
+                    token,
+                    project,
+                    inspected_worktree,
+                    approval,
+                    cx,
+                );
             });
         })
         .detach();
@@ -499,11 +925,12 @@ impl MainWindow {
     fn removal_request_is_current(
         &self,
         identity: &super::view_state::RemovalRequestIdentity,
+        token: &ProjectOperationToken,
         expected_project: &muxy_core::store::Project,
         expected: &muxy_core::store::worktrees::Worktree,
     ) -> bool {
         self.view.worktrees.matches_removal(identity)
-            && !self.state.project_operations.is_busy(&identity.project_id)
+            && self.state.project_operations.matches_operation(token)
             && self
                 .state
                 .workspace
@@ -536,28 +963,13 @@ impl MainWindow {
 
     fn request_native_worktree_removal(
         &mut self,
+        token: ProjectOperationToken,
         project: muxy_core::store::Project,
         worktree: muxy_core::store::worktrees::Worktree,
         project_hook_approval: Option<muxy_api::worktree_config::ProjectHookApproval>,
         cx: &mut Context<Self>,
     ) {
         let project_id = project.id.clone();
-        let token = match self
-            .state
-            .project_operations
-            .begin_operation(&project_id, ProjectOperationKind::Remove)
-        {
-            Ok(token) => token,
-            Err(BeginOperationError::Busy(_)) => {
-                self.feedback(
-                    "Remove Worktree",
-                    "Another worktree operation is still running.",
-                    crate::toast::ToastTone::Warning,
-                    cx,
-                );
-                return;
-            }
-        };
         let request = muxy_api::worktree_lifecycle::RemoveWorktreeRequest {
             project,
             worktree,
@@ -572,6 +984,15 @@ impl MainWindow {
                 )
                 .await;
             let _ = window.update(cx, |window, cx| {
+                if !window.state.project_operations.matches_operation(&token) {
+                    window.feedback(
+                        "Remove Worktree",
+                        "The worktree removal completed after its owner identity changed.",
+                        crate::toast::ToastTone::Error,
+                        cx,
+                    );
+                    return;
+                }
                 match result {
                     Ok(outcome) => {
                         let effects = window.state.apply_removed_worktree(&project_id, outcome);
@@ -716,17 +1137,24 @@ impl MainWindow {
     }
 
     fn commit_project_truth(&mut self, truth: ProjectTruth) -> Result<usize, String> {
+        let owner_existence = truth.owner_existence.clone();
         let refresh_error = truth
             .candidate
             .as_ref()
             .and_then(muxy_api::worktrees::RefreshCandidate::error)
             .map(str::to_owned);
+        if truth
+            .candidate
+            .as_ref()
+            .is_some_and(|candidate| candidate.worktrees().is_none())
+        {
+            return Err(refresh_error.unwrap_or_else(|| "worktree refresh unavailable".to_owned()));
+        }
+        let count = truth.worktrees.as_ref().map_or(0, Vec::len);
+        self.sessions
+            .reconcile_owner_existence(&owner_existence, &self.state.tab_workspaces)
+            .map_err(|error| format!("owner reconciliation failed: {error}"))?;
         if let Some(candidate) = truth.candidate.as_ref() {
-            if candidate.worktrees().is_none() {
-                return Err(
-                    refresh_error.unwrap_or_else(|| "worktree refresh unavailable".to_owned())
-                );
-            }
             muxy_api::worktrees::save_candidate(
                 &muxy_core::store::worktrees::worktrees_dir(),
                 &truth.project_id,
@@ -734,7 +1162,6 @@ impl MainWindow {
             )
             .map_err(|error| error.to_string())?;
         }
-        let count = truth.worktrees.as_ref().map_or(0, Vec::len);
         self.state
             .apply_truth(vec![truth])
             .map_err(|_| "could not save project workspace".to_owned())?;

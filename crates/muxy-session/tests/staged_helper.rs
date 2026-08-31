@@ -42,6 +42,7 @@ fn staged_bundle_helper_detaches_survives_app_close_and_cleans() {
     let socket = root.join("control.sock");
     let mut daemon = spawn_daemon(&helper, &socket);
     let daemon_identity = process_identity(daemon.id()).unwrap();
+    write_owned_process_records(&root, &[(daemon_identity, "daemon")]);
     wait_for_socket(&socket, &mut daemon);
     let mut control = SessionClient::connect(&socket, current_build_mode()).unwrap();
     let descriptor = control
@@ -84,6 +85,20 @@ fn staged_bundle_helper_detaches_survives_app_close_and_cleans() {
         }
         assert!(Instant::now() < deadline, "staged daemon did not exit idle");
         std::thread::sleep(Duration::from_millis(20));
+    }
+    std::fs::remove_file(root.join("owned-processes")).unwrap();
+}
+
+#[test]
+fn staged_recorded_processes_are_dead() {
+    let Some(root) = std::env::var_os("P8_STAGED_VERIFY_DEAD_ROOT") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    validate_owned_root(&root);
+    let records = read_owned_processes(&root);
+    for (identity, _) in &records {
+        assert!(!identity_is_alive(*identity));
     }
     std::fs::remove_file(root.join("owned-processes")).unwrap();
 }
@@ -180,17 +195,23 @@ fn renderer(socket: &Path, session_id: SessionId, generation: u64) -> RendererCl
 }
 
 fn write_owned_processes(root: &Path, shell: ProcessIdentity, daemon: ProcessIdentity) {
-    std::fs::write(
-        root.join("owned-processes"),
-        format!(
-            "{} {} shell\n{} {} daemon\n",
-            shell.process_id, shell.start_identity, daemon.process_id, daemon.start_identity
-        ),
-    )
-    .unwrap();
+    write_owned_process_records(root, &[(shell, "shell"), (daemon, "daemon")]);
 }
 
-fn cleanup_recorded_processes(root: &Path) {
+fn write_owned_process_records(root: &Path, records: &[(ProcessIdentity, &str)]) {
+    let contents = records
+        .iter()
+        .map(|(identity, role)| {
+            format!(
+                "{} {} {role}\n",
+                identity.process_id, identity.start_identity
+            )
+        })
+        .collect::<String>();
+    std::fs::write(root.join("owned-processes"), contents).unwrap();
+}
+
+fn validate_owned_root(root: &Path) {
     let canonical_tmp = std::fs::canonicalize("/tmp").unwrap();
     assert_eq!(root.parent(), Some(canonical_tmp.as_path()));
     assert!(
@@ -204,16 +225,29 @@ fn cleanup_recorded_processes(root: &Path) {
             .trim(),
         "muxy-p8-terminal-memory-v1"
     );
-    let records = std::fs::read_to_string(root.join("owned-processes")).unwrap();
-    for line in records.lines() {
-        let mut fields = line.split_whitespace();
-        let identity = ProcessIdentity {
-            process_id: fields.next().unwrap().parse().unwrap(),
-            start_identity: fields.next().unwrap().parse().unwrap(),
-        };
-        let role = fields.next().unwrap();
-        assert!(matches!(role, "shell" | "daemon"));
-        assert!(fields.next().is_none());
+}
+
+fn read_owned_processes(root: &Path) -> Vec<(ProcessIdentity, String)> {
+    std::fs::read_to_string(root.join("owned-processes"))
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let mut fields = line.split_whitespace();
+            let identity = ProcessIdentity {
+                process_id: fields.next().unwrap().parse().unwrap(),
+                start_identity: fields.next().unwrap().parse().unwrap(),
+            };
+            let role = fields.next().unwrap().to_owned();
+            assert!(matches!(role.as_str(), "shell" | "daemon"));
+            assert!(fields.next().is_none());
+            (identity, role)
+        })
+        .collect()
+}
+
+fn cleanup_recorded_processes(root: &Path) {
+    validate_owned_root(root);
+    for (identity, _) in read_owned_processes(root) {
         terminate_exact_identity(identity);
     }
     std::fs::remove_file(root.join("owned-processes")).unwrap();

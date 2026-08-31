@@ -423,6 +423,13 @@ impl TerminalSurfaces {
         self.session_retryable.contains(tab_id)
     }
 
+    pub fn start_new_available(&self, tab_id: &str) -> bool {
+        matches!(
+            self.unavailable_reason(tab_id),
+            Some("Background session is missing" | "Background session has ended")
+        )
+    }
+
     pub fn take_session_attachment(&mut self, tab_id: &str) -> bool {
         let attached = self.session_attachments.remove(tab_id).is_some();
         if attached {

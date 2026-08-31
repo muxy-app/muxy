@@ -225,6 +225,13 @@ impl ProjectOperations {
         })
     }
 
+    pub fn matches_operation(&self, token: &ProjectOperationToken) -> bool {
+        self.projects.get(&token.project_id).is_some_and(|state| {
+            state.generation == token.generation
+                && state.operation == Some((token.request_id, token.kind))
+        })
+    }
+
     pub fn is_mutating(&self, project_id: &str) -> bool {
         self.projects
             .get(project_id)
@@ -372,6 +379,26 @@ mod tests {
 
         assert!(committed.schedule_fresh_probe);
         assert!(operations.begin_background_probe("project").is_some());
+    }
+
+    #[test]
+    fn session_lifecycle_owner_deletion_token_survives_confirmation_and_rejects_replacement() {
+        let mut operations = ProjectOperations::default();
+        let cancelled = operations
+            .begin_operation("project", ProjectOperationKind::Remove)
+            .unwrap();
+        assert!(operations.matches_operation(&cancelled));
+        assert!(operations.begin_background_probe("project").is_none());
+        assert!(operations.finish_operation(&cancelled).is_ok());
+        assert!(!operations.matches_operation(&cancelled));
+
+        let active = operations
+            .begin_operation("project", ProjectOperationKind::Remove)
+            .unwrap();
+        assert!(operations.matches_operation(&active));
+        operations.project_removed("project");
+        assert!(!operations.matches_operation(&active));
+        assert!(operations.finish_operation(&active).is_err());
     }
 
     #[test]

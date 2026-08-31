@@ -1802,9 +1802,21 @@ impl MainWindow {
             .surfaces
             .handle(tab_id)
             .is_some_and(|handle| handle.has_selection());
+        let persistent = self
+            .state
+            .tab_workspaces
+            .states()
+            .iter()
+            .find_map(|workspace| workspace.tab(tab_id))
+            .is_some_and(|tab| tab.session_id.is_some());
         let items = vec![
             Item::action("Copy", Command::TerminalCopy(tab_id.to_owned())).disabled(!has_selection),
             Item::action("Paste", Command::TerminalPaste(tab_id.to_owned())),
+            Item::action(
+                "Send to Background",
+                Command::SendToBackground(tab_id.to_owned()),
+            )
+            .disabled(!persistent),
         ];
         self.open_menu(items, position, cx);
         window.focus(&self.view.menu_focus);
@@ -2535,27 +2547,157 @@ impl MainWindow {
     }
 
     pub(super) fn confirm_remove(&mut self, project_id: String, cx: &mut Context<Self>) {
-        let Some(project) = self.state.workspace.project(&project_id) else {
+        let Some(project) = self.state.workspace.project(&project_id).cloned() else {
             return;
         };
+        let token = match self.state.project_operations.begin_operation(
+            &project_id,
+            crate::project_operations::ProjectOperationKind::Remove,
+        ) {
+            Ok(token) => token,
+            Err(_) => {
+                self.feedback(
+                    "Remove Project",
+                    "Another project operation is still running.",
+                    crate::toast::ToastTone::Warning,
+                    cx,
+                );
+                return;
+            }
+        };
+        let scope = crate::sessions::SessionOwnerScope {
+            project_id: project_id.to_ascii_uppercase(),
+            worktree_id: None,
+        };
+        let cleanup_plan = match self.sessions.owner_cleanup_plan(&scope) {
+            Ok(plan) => plan,
+            Err(error) => {
+                let _ = self.state.project_operations.finish_operation(&token);
+                self.feedback("Remove Project", error, crate::toast::ToastTone::Error, cx);
+                return;
+            }
+        };
+        let session_count = cleanup_plan.candidates.len();
         let title = format!("Remove \"{}\"?", project.name);
-        self.dismiss_overlay(cx);
-
-        let answer = self.ask(
-            title,
+        let mut message =
             "This will remove the project from Muxy. Project files on disk will not be deleted."
-                .to_owned(),
-            &["Remove", "Cancel"],
+                .to_owned();
+        if session_count > 0 {
+            message.push_str(&format!(
+                "\n\nThis will also end {session_count} background {} and every process inside {}.",
+                if session_count == 1 {
+                    "session"
+                } else {
+                    "sessions"
+                },
+                if session_count == 1 { "it" } else { "them" }
+            ));
+        }
+        self.dismiss_overlay(cx);
+        let answer = self.ask(title, message, &["Remove", "Cancel"], cx);
+
+        cx.spawn(async move |window, cx| {
+            if answer.await != Some(0) {
+                let _ = window.update(cx, |window, _| {
+                    let _ = window.state.project_operations.finish_operation(&token);
+                });
+                return;
+            }
+            let _ = window.update(cx, |window, cx| {
+                let current = window
+                    .state
+                    .workspace
+                    .project(&project_id)
+                    .is_some_and(|current| {
+                        current.path == project.path
+                            && current.remote_workspace_id == project.remote_workspace_id
+                    });
+                if !current || !window.state.project_operations.matches_operation(&token) {
+                    let _ = window.state.project_operations.finish_operation(&token);
+                    return;
+                }
+                if let Err(error) = window.sessions.end_owner_cleanup_plan(&cleanup_plan) {
+                    let _ = window.state.project_operations.finish_operation(&token);
+                    window.feedback("Remove Project", error, crate::toast::ToastTone::Error, cx);
+                    return;
+                }
+                let current = window
+                    .state
+                    .workspace
+                    .project(&project_id)
+                    .is_some_and(|current| {
+                        current.path == project.path
+                            && current.remote_workspace_id == project.remote_workspace_id
+                    });
+                if !current || !window.state.project_operations.matches_operation(&token) {
+                    let _ = window.state.project_operations.finish_operation(&token);
+                    window.feedback(
+                        "Remove Project",
+                        "The project changed while its background sessions were ending.",
+                        crate::toast::ToastTone::Error,
+                        cx,
+                    );
+                    return;
+                }
+                match window
+                    .state
+                    .remove_project_with_operation(&project_id, &token)
+                {
+                    crate::state::RemoveProjectOutcome::NotRemoved => {
+                        let _ = window.state.project_operations.finish_operation(&token);
+                        window.feedback(
+                            "Remove Project",
+                            "The project changed before it could be removed.",
+                            crate::toast::ToastTone::Error,
+                            cx,
+                        );
+                    }
+                    crate::state::RemoveProjectOutcome::Removed => {}
+                    crate::state::RemoveProjectOutcome::RemovedWithWorkspacePersistenceError(
+                        error,
+                    ) => {
+                        window.retry_removed_project_workspace_save(error, cx);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn retry_removed_project_workspace_save(
+        &mut self,
+        error: std::io::Error,
+        cx: &mut Context<Self>,
+    ) {
+        let answer = self.ask(
+            "Project Removed, Save Failed".to_owned(),
+            format!(
+                "The project and its sessions were removed, but the workspace file could not be saved: {error}"
+            ),
+            &["Retry Save", "Dismiss"],
             cx,
         );
-
         cx.spawn(async move |window, cx| {
             if answer.await != Some(0) {
                 return;
             }
             let _ = window.update(cx, |window, cx| {
-                window.remove_project(&project_id, cx);
-                cx.notify();
+                if let Err(error) = window.state.persist_tab_workspaces() {
+                    window.feedback(
+                        "Save Workspace",
+                        format!("The workspace still could not be saved: {error}"),
+                        crate::toast::ToastTone::Error,
+                        cx,
+                    );
+                } else {
+                    window.feedback(
+                        "Workspace Saved",
+                        "The project removal is now durable.",
+                        crate::toast::ToastTone::Success,
+                        cx,
+                    );
+                }
             });
         })
         .detach();
@@ -2571,7 +2713,13 @@ impl MainWindow {
             );
             return;
         }
-        self.state.remove_project(project_id);
+        match self.state.remove_project_outcome(project_id) {
+            crate::state::RemoveProjectOutcome::NotRemoved => {}
+            crate::state::RemoveProjectOutcome::Removed => {}
+            crate::state::RemoveProjectOutcome::RemovedWithWorkspacePersistenceError(error) => {
+                self.retry_removed_project_workspace_save(error, cx);
+            }
+        }
     }
 
     pub(super) fn ask(

@@ -49,6 +49,8 @@ pub enum Command {
     CloseOtherTabs(String),
     CloseTabsToLeft(String),
     CloseTabsToRight(String),
+    SendToBackground(String),
+    StartNewTerminal(String),
     RunCommandShortcut(String),
     ApplyLayout(String),
     RestoreRecentlyRemoved(String),

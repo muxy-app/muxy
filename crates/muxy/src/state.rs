@@ -30,6 +30,12 @@ pub struct RemovalEffects {
     pub navigation_recorded: bool,
 }
 
+pub enum RemoveProjectOutcome {
+    NotRemoved,
+    Removed,
+    RemovedWithWorkspacePersistenceError(io::Error),
+}
+
 impl std::fmt::Display for NavigationApplyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -915,11 +921,33 @@ impl AppState {
     }
 
     pub fn remove_project(&mut self, project_id: &str) -> bool {
+        !matches!(
+            self.remove_project_outcome(project_id),
+            RemoveProjectOutcome::NotRemoved
+        )
+    }
+
+    pub fn remove_project_outcome(&mut self, project_id: &str) -> RemoveProjectOutcome {
         if self.project_operations.is_mutating(project_id) {
-            return false;
+            return RemoveProjectOutcome::NotRemoved;
         }
+        self.remove_project_inner(project_id)
+    }
+
+    pub fn remove_project_with_operation(
+        &mut self,
+        project_id: &str,
+        token: &crate::project_operations::ProjectOperationToken,
+    ) -> RemoveProjectOutcome {
+        if !self.project_operations.matches_operation(token) || token.project_id() != project_id {
+            return RemoveProjectOutcome::NotRemoved;
+        }
+        self.remove_project_inner(project_id)
+    }
+
+    fn remove_project_inner(&mut self, project_id: &str) -> RemoveProjectOutcome {
         if !self.workspace.remove(project_id) {
-            return false;
+            return RemoveProjectOutcome::NotRemoved;
         }
         self.project_operations.project_removed(project_id);
         self.tab_workspaces.remove_project(project_id);
@@ -936,14 +964,15 @@ impl AppState {
                 self.workspace.activate_group_for_project(replacement);
             }
         }
-        if let Err(error) = self.persist_tab_workspaces() {
-            log::warn!("failed to save workspaces after project removal: {error}");
-        }
+        let persistence_error = self.persist_tab_workspaces().err();
         Prefs::store_default(
             "muxy.activeProjectID",
             self.prefs.active_project_id.as_deref(),
         );
-        true
+        match persistence_error {
+            Some(error) => RemoveProjectOutcome::RemovedWithWorkspacePersistenceError(error),
+            None => RemoveProjectOutcome::Removed,
+        }
     }
 
     pub fn is_active(&self, project: &Project) -> bool {
@@ -1559,12 +1588,11 @@ mod tests {
 
         assert!(!state.remove_project("project-one"));
         assert!(state.workspace.project("project-one").is_some());
-
-        state
-            .project_operations
-            .finish_operation(&operation)
-            .unwrap();
-        assert!(state.remove_project("project-one"));
+        assert!(matches!(
+            state.remove_project_with_operation("project-one", &operation),
+            RemoveProjectOutcome::Removed
+        ));
+        assert!(state.workspace.project("project-one").is_none());
     }
 
     #[test]
@@ -1588,6 +1616,7 @@ mod tests {
             worktree_label: Some("refreshed".into()),
             worktrees: Some(vec![refreshed]),
             candidate: None,
+            owner_existence: Vec::new(),
         }]);
 
         assert!(result.is_err());

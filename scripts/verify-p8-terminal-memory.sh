@@ -307,6 +307,20 @@ phase_three_source_checks() {
     ! rg -q 'terminal-session-mode\.json' crates || fail "forbidden session mode marker is referenced"
 }
 
+phase_four_source_checks() {
+    phase_three_source_checks
+    [[ -f crates/muxy-session/tests/lifecycle.rs ]] || fail "missing Phase 4 lifecycle integration test"
+    rg -q 'pub enum OwnerExistence' crates/muxy-api/src/truth.rs || fail "owner existence truth is missing"
+    rg -q 'confirmed_missing_scopes' crates/muxy/src/sessions/mod.rs || fail "two-observation owner reconciliation is missing"
+    rg -q 'SessionCoordinator::close_plan' crates/muxy/src/views/window/workspace.rs || fail "immutable close planning is missing"
+    rg -q 'send_tab_to_background' crates/muxy/src/views/window/workspace.rs || fail "Send to Background action is missing"
+    rg -q 'SessionReattachOutcome' crates/muxy/src/sessions/mod.rs || fail "exact session reattach model is missing"
+    rg -q 'matches_operation\(&token\)' crates/muxy/src/views/window/lifecycle.rs crates/muxy/src/views/window/overlays.rs || fail "owner deletion token revalidation is missing"
+    rg -q 'end_owner_cleanup_plan' crates/muxy/src/views/window/lifecycle.rs crates/muxy/src/views/window/overlays.rs || fail "immutable owner cleanup planning is missing"
+    rg -q 'prepare_staged_phase_four' crates/muxy/src/views/window/mod.rs crates/muxy/src/views/window/lifecycle.rs || fail "app-owned staged lifecycle hook is missing"
+    rg -q 'StartNewTerminal' crates/muxy/src/views/workspace_view.rs || fail "Start New Terminal action is missing"
+}
+
 portable_fixture() {
     source_checks
     cargo test -p muxy-proto --locked --offline session
@@ -372,6 +386,48 @@ exclusions_fixture() {
     cargo test -p muxy --locked --offline sessions_exclude_remote_workspaces_and_escape_each_attach_argument
     cargo test -p muxy --locked --offline quick_terminal_session_creates_lazily_and_retains_one_surface
     printf 'P8 Quick Terminal and remote exclusion fixture passed\n'
+}
+
+close_background_reattach_fixture() {
+    phase_four_source_checks
+    cargo test -p muxy --locked --offline session_lifecycle_close_plan_ends_persistent_backing_before_workspace_mutation
+    cargo test -p muxy --locked --offline session_lifecycle_background_and_reattach_preserve_identity_and_startup_command
+    printf 'P8 close, Background, exact reattach, and Focus fixture passed\n'
+}
+
+all_close_modes_fixture() {
+    phase_four_source_checks
+    cargo test -p muxy --locked --offline session_lifecycle_all_close_modes_partition_mixed_tabs_and_validate_before_cleanup
+    printf 'P8 all CloseMode candidate partitioning fixture passed\n'
+}
+
+owner_deletion_transaction_fixture() {
+    phase_four_source_checks
+    cargo test -p muxy --locked --offline session_lifecycle_owner_deletion_token_survives_confirmation_and_rejects_replacement
+    cargo test -p muxy --locked --offline session_lifecycle_exact_owner_cleanup_never_ends_unrelated_sessions
+    printf 'P8 exact-owner deletion transaction fixture passed\n'
+}
+
+external_owner_truth_fixture() {
+    phase_four_source_checks
+    cargo test -p muxy-api --locked --offline truth_owner_existence
+    cargo test -p muxy --locked --offline session_lifecycle_external_owner_truth_requires_two_fresh_missing_observations
+    printf 'P8 external owner truth fixture passed\n'
+}
+
+quit_crash_missing_fixture() {
+    phase_four_source_checks
+    cargo test -p muxy-session --test lifecycle --locked --offline lifecycle_background_reattach_quit_exact_owner_cleanup_and_shell_exit_are_distinct -- --exact
+    cargo test -p muxy --locked --offline sessions_recover_exact_owner_and_surface_missing_or_ended_links
+    cargo test -p muxy --locked --offline session_attachment_exit_drops_only_the_proxy_surface
+    printf 'P8 quit, daemon lifecycle, attachment failure, missing, and shell-exit fixture passed\n'
+}
+
+startup_command_once_fixture() {
+    phase_four_source_checks
+    cargo test -p muxy-session --test lifecycle --locked --offline lifecycle_background_reattach_quit_exact_owner_cleanup_and_shell_exit_are_distinct -- --exact
+    cargo test -p muxy --locked --offline session_lifecycle_background_and_reattach_preserve_identity_and_startup_command
+    printf 'P8 one-shot startup command fixture passed\n'
 }
 
 validate_staged_app() {
@@ -763,6 +819,153 @@ staged_phase_three() {
     printf 'P8 staged Phase 3 restart-only transition, hidden/visible renderer, attachment replay, exact-ID reopen, and disable cleanup passed\n'
 }
 
+staged_phase_four() {
+    local profile="$1" app="$2" case_name="$3" root app_support home tmp xdg app_socket session_socket
+    local executable cli helper app_log reopen_log project_one project_two status proceed attempt state pid held role
+    [[ "$(uname -s)" == Darwin ]] || fail "staged verification requires macOS"
+    [[ "$profile" == debug || "$profile" == release ]] || fail "invalid staged profile: $profile"
+    [[ "$case_name" == phase-4 ]] || fail "unsupported Phase 4 staged case: $case_name"
+    validate_staged_app "$app"
+    phase_four_source_checks
+    root="$(prepare_unique_tmp_root phase4)"
+    ACTIVE_ROOT="$root"
+    app_support="$root/app"
+    home="$root/home"
+    tmp="$root/tmp"
+    xdg="$root/xdg"
+    project_one="$root/project-one"
+    project_two="$root/project-two"
+    mkdir -p "$app_support" "$home" "$tmp" "$xdg" "$project_one" "$project_two"
+    git -C "$project_one" init -q
+    git -C "$project_two" init -q
+    app_socket="$app_support/muxy.sock"
+    session_socket="$app_support/sessions/control.sock"
+    if [[ "$profile" == debug ]]; then
+        app_socket="$app_support/muxy-dev.sock"
+        session_socket="$app_support/sessions-dev/control.sock"
+    fi
+    ACTIVE_SOCKET="$app_socket"
+    executable="$app/Contents/MacOS/MuxyTests"
+    helper="$app/Contents/MacOS/muxy-session"
+    cli="$app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+    app_log="$root/app.log"
+    reopen_log="$root/reopen.log"
+    status="$root/.muxy-p8-phase4-status.json"
+    proceed="$root/.muxy-p8-phase4-proceed"
+    [[ -x "$helper" ]] || fail "staged session helper is missing"
+    codesign --verify --strict "$helper"
+    printf '%s\n%s\n' "$executable" "$profile" > "$root/.phase3-runtime"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 4 seed app exited before binding its socket"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" ]] || fail "staged Phase 4 seed app socket was not created"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" create-project "$project_one" --name P8Phase4One >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" new-tab >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" create-project "$project_two" --name P8Phase4Two >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" new-tab >/dev/null
+    printf '{"muxy.terminalPersistentSession.enabled":true}\n' > "$app_support/settings.json"
+    close_phase_three_app "$app_log"
+
+    MUXY_TEST_P8_PHASE4_CASE=background \
+        MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        state="$(sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$status" 2>/dev/null || true)"
+        [[ -S "$app_socket" && -S "$session_socket" && "$state" == background ]] && break
+        [[ "$state" != error ]] || {
+            cat "$status"
+            cat "$app_log"
+            fail "staged Phase 4 app reported a Background error"
+        }
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 4 Background app exited"
+        }
+        sleep 0.05
+    done
+    [[ "$state" == background && -f "$root/owned-processes" && -S "$session_socket" ]] || {
+        cat "$app_log"
+        fail "staged Phase 4 app did not complete Background"
+    }
+    while IFS=' ' read -r pid held role; do
+        [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail "invalid owned $role PID"
+        [[ "$held" =~ ^[1-9][0-9]*$ ]] || fail "invalid owned $role start identity"
+        [[ "$role" == shell || "$role" == daemon ]] || fail "invalid owned process role"
+    done < "$root/owned-processes"
+    close_phase_three_app "$app_log"
+    [[ -S "$session_socket" ]] || fail "app-owned Phase 4 daemon did not survive normal close"
+
+    MUXY_TEST_P8_PHASE4_CASE=reopen \
+        MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$reopen_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" && -S "$session_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$reopen_log"
+            fail "staged Phase 4 reopen exited before binding its sockets"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" && -S "$session_socket" ]] || fail "staged Phase 4 reopen sockets were not created"
+    touch "$proceed"
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        state="$(sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$status" 2>/dev/null || true)"
+        [[ "$state" == complete ]] && break
+        [[ "$state" != error ]] || {
+            cat "$status"
+            cat "$reopen_log"
+            fail "staged Phase 4 reopen reported an error"
+        }
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$reopen_log"
+            fail "staged Phase 4 reopen exited before cleanup"
+        }
+        sleep 0.05
+    done
+    [[ "$state" == complete ]] || {
+        cat "$reopen_log"
+        fail "staged Phase 4 app did not complete reattach and cleanup"
+    }
+    for ((attempt = 0; attempt < 600; attempt++)); do
+        [[ ! -S "$session_socket" ]] && break
+        sleep 0.05
+    done
+    [[ ! -S "$session_socket" ]] || fail "app-owned Phase 4 daemon socket remained after End All"
+    P8_STAGED_VERIFY_DEAD_ROOT="$root" \
+        cargo test -p muxy-session --test staged_helper --locked --offline \
+            staged_recorded_processes_are_dead -- --exact >/dev/null
+    close_phase_three_app "$reopen_log"
+    [[ ! -e "$root/owned-processes" ]] || fail "staged Phase 4 process identities remained"
+    [[ ! -S "$app_socket" ]] || fail "staged Phase 4 app socket remained"
+    rm -f -- "$root/.phase3-runtime"
+    cleanup_owned_root "$root"
+    ACTIVE_SOCKET=""
+    ACTIVE_ROOT=""
+    printf 'P8 staged Phase 4 app-owned Background survival, exact reattach, project deletion cleanup, End All, and zero residue passed\n'
+}
+
 self_test() {
     local nonce="$$" owned unowned mismatch linked target outside
     source_checks
@@ -821,6 +1024,12 @@ case "${1:-}" in
             transitions) transitions_fixture ;;
             renderer-attachment) renderer_attachment_fixture ;;
             exclusions) exclusions_fixture ;;
+            close-background-reattach) close_background_reattach_fixture ;;
+            all-close-modes) all_close_modes_fixture ;;
+            owner-deletion-transaction) owner_deletion_transaction_fixture ;;
+            external-owner-truth) external_owner_truth_fixture ;;
+            quit-crash-missing) quit_crash_missing_fixture ;;
+            startup-command-once) startup_command_once_fixture ;;
             *) fail "unknown P8 fixture: $2" ;;
         esac
         ;;
@@ -837,6 +1046,7 @@ case "${1:-}" in
             phase-1) staged_phase_one "$2" "$3" "$4" ;;
             phase-2) staged_phase_two "$2" "$3" "$4" ;;
             phase-3) staged_phase_three "$2" "$3" "$4" ;;
+            phase-4) staged_phase_four "$2" "$3" "$4" ;;
             *) fail "unsupported staged P8 phase: $4" ;;
         esac
         ;;

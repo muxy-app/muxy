@@ -152,45 +152,7 @@ impl MainWindow {
     }
 
     pub(super) fn close_tab_confirmed(&mut self, tab_id: &str, cx: &mut Context<Self>) {
-        let project = self.state.active_project().map(|project| {
-            let workspace_path = self
-                .state
-                .active_tab_workspace()
-                .and_then(|workspace| workspace.worktree_path.clone())
-                .unwrap_or_else(|| project.path.clone());
-            (project.id.clone(), workspace_path, project.is_home())
-        });
-        let removed = self
-            .state
-            .active_tab_workspace_mut()
-            .map(|workspace| workspace.close_tab(tab_id, muxy_core::workspace::CloseMode::Single))
-            .unwrap_or_default();
-        if removed.is_empty() {
-            return;
-        }
-        for closed in &removed {
-            if let Some(handle) = self.terminal_runtime.surfaces.handle(closed) {
-                handle.request_close();
-            }
-        }
-        let empty = self
-            .state
-            .active_tab_workspace()
-            .is_some_and(|workspace| workspace.root.is_none());
-        if empty
-            && !self.state.prefs.keep_projects_open
-            && let Some((project_id, workspace_path, is_home)) = project
-            && !is_home
-        {
-            self.state
-                .tab_workspaces
-                .remove_workspace(&project_id, &workspace_path);
-            if !self.state.tab_workspaces.has_project(&project_id) {
-                self.remove_project(&project_id, cx);
-            }
-        }
-        let _ = self.state.persist_tab_workspaces();
-        cx.notify();
+        self.request_tab_close(tab_id, muxy_core::workspace::CloseMode::Single, true, cx);
     }
 
     pub(crate) fn split_focused(
@@ -629,15 +591,249 @@ impl MainWindow {
         mode: muxy_core::workspace::CloseMode,
         cx: &mut Context<Self>,
     ) {
+        self.dismiss_overlay(cx);
+        self.request_tab_close(tab_id, mode, false, cx);
+    }
+
+    pub(crate) fn send_tab_to_background(&mut self, tab_id: &str, cx: &mut Context<Self>) {
+        if self.sessions.applied_mode() != Some(crate::sessions::AppliedSessionMode::Persistent) {
+            self.feedback(
+                "Send to Background",
+                "Background sessions are not enabled for this launch.",
+                crate::toast::ToastTone::Warning,
+                cx,
+            );
+            return;
+        }
+        let Some(workspace) = self.state.active_tab_workspace() else {
+            return;
+        };
+        let plan = crate::sessions::SessionCoordinator::close_plan(
+            workspace,
+            tab_id,
+            muxy_core::workspace::CloseMode::Single,
+        );
+        if plan.tab_ids != [tab_id] || plan.persistent.len() != 1 {
+            self.feedback(
+                "Send to Background",
+                "Only one persistent terminal pane can be sent to the background at a time.",
+                crate::toast::ToastTone::Warning,
+                cx,
+            );
+            return;
+        }
+        let candidate = &plan.persistent[0];
+        if let Err(error) = self.sessions.send_to_background(
+            &candidate.tab_id,
+            candidate.session_id,
+            &candidate.owner,
+        ) {
+            self.feedback(
+                "Send to Background",
+                error,
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
+        let previous = self.state.tab_workspaces.clone();
+        let removed = self
+            .state
+            .active_tab_workspace_mut()
+            .map(|workspace| workspace.close_tab(tab_id, muxy_core::workspace::CloseMode::Single))
+            .unwrap_or_default();
+        if removed != plan.tab_ids {
+            self.state.tab_workspaces = previous;
+            self.feedback(
+                "Send to Background",
+                "The session is detached, but the workspace changed before its tab was removed.",
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
+        if let Err(error) = self.state.persist_tab_workspaces() {
+            self.state.tab_workspaces = previous;
+            self.feedback(
+                "Send to Background",
+                format!("The session is detached, but the workspace could not be saved: {error}"),
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
+        if let Some(handle) = self.terminal_runtime.surfaces.handle(tab_id) {
+            handle.request_close();
+        }
+        self.dismiss_overlay(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn start_new_terminal(&mut self, tab_id: &str, cx: &mut Context<Self>) {
+        let session_id = self
+            .state
+            .tab_workspaces
+            .states()
+            .iter()
+            .find_map(|workspace| workspace.tab(tab_id))
+            .and_then(|tab| tab.session_id);
+        let Some(session_id) = session_id else {
+            return;
+        };
+        if let Err(error) =
+            self.sessions
+                .start_new_terminal(tab_id, session_id, &mut self.state.tab_workspaces)
+        {
+            self.feedback(
+                "Start New Terminal",
+                error,
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
+        cx.notify();
+    }
+
+    fn request_tab_close(
+        &mut self,
+        tab_id: &str,
+        mode: muxy_core::workspace::CloseMode,
+        remove_empty_project: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(workspace) = self.state.active_tab_workspace() else {
+            return;
+        };
+        let plan = crate::sessions::SessionCoordinator::close_plan(workspace, tab_id, mode);
+        if plan.tab_ids.is_empty() {
+            return;
+        }
+        if plan.persistent.is_empty() {
+            self.apply_tab_close(plan, tab_id, mode, remove_empty_project, cx);
+            return;
+        }
+        let count = plan.persistent.len();
+        let message = if count == 1 {
+            "Closing this tab will end its background session and every process inside it."
+                .to_owned()
+        } else {
+            format!(
+                "Closing these tabs will end {count} background sessions and every process inside them."
+            )
+        };
+        let answer = self.ask(
+            "End Background Sessions?".to_owned(),
+            message,
+            &["End and Close", "Cancel"],
+            cx,
+        );
+        let tab_id = tab_id.to_owned();
+        cx.spawn(async move |window, cx| {
+            if answer.await != Some(0) {
+                return;
+            }
+            let _ = window.update(cx, |window, cx| {
+                window.apply_tab_close(plan, &tab_id, mode, remove_empty_project, cx);
+            });
+        })
+        .detach();
+    }
+
+    fn apply_tab_close(
+        &mut self,
+        plan: crate::sessions::SessionClosePlan,
+        tab_id: &str,
+        mode: muxy_core::workspace::CloseMode,
+        remove_empty_project: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(current) = self.state.active_tab_workspace() else {
+            return;
+        };
+        let current_plan = crate::sessions::SessionCoordinator::close_plan(current, tab_id, mode);
+        if current_plan != plan {
+            self.feedback(
+                "Close Tabs",
+                "The workspace changed before the close completed.",
+                crate::toast::ToastTone::Warning,
+                cx,
+            );
+            return;
+        }
+        if let Err(error) = self.sessions.end_close_plan(&plan) {
+            self.feedback("Close Tabs", error, crate::toast::ToastTone::Error, cx);
+            return;
+        }
+        let Some(current) = self.state.active_tab_workspace() else {
+            return;
+        };
+        if crate::sessions::SessionCoordinator::close_plan(current, tab_id, mode) != plan {
+            self.feedback(
+                "Close Tabs",
+                "The workspace changed while background sessions were ending.",
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
+        let previous = self.state.tab_workspaces.clone();
+        let project = self.state.active_project().map(|project| {
+            let workspace_path = self
+                .state
+                .active_tab_workspace()
+                .and_then(|workspace| workspace.worktree_path.clone())
+                .unwrap_or_else(|| project.path.clone());
+            (project.id.clone(), workspace_path, project.is_home())
+        });
         let removed = self
             .state
             .active_tab_workspace_mut()
             .map(|workspace| workspace.close_tab(tab_id, mode))
             .unwrap_or_default();
-        if !removed.is_empty() {
-            let _ = self.state.persist_tab_workspaces();
+        if removed != plan.tab_ids {
+            self.state.tab_workspaces = previous;
+            self.feedback(
+                "Close Tabs",
+                "The workspace close result changed unexpectedly.",
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
         }
-        self.dismiss_overlay(cx);
+        if let Err(error) = self.state.persist_tab_workspaces() {
+            self.state.tab_workspaces = previous;
+            self.feedback(
+                "Close Tabs",
+                format!("The sessions ended, but the workspace could not be saved: {error}"),
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
+        for closed in &removed {
+            if let Some(handle) = self.terminal_runtime.surfaces.handle(closed) {
+                handle.request_close();
+            }
+        }
+        let empty = self
+            .state
+            .active_tab_workspace()
+            .is_some_and(|workspace| workspace.root.is_none());
+        if remove_empty_project
+            && empty
+            && !self.state.prefs.keep_projects_open
+            && let Some((project_id, workspace_path, is_home)) = project
+            && !is_home
+        {
+            self.state
+                .tab_workspaces
+                .remove_workspace(&project_id, &workspace_path);
+            if !self.state.tab_workspaces.has_project(&project_id) {
+                self.remove_project(&project_id, cx);
+            }
+        }
+        cx.notify();
     }
 
     pub(crate) fn start_tab_rename(

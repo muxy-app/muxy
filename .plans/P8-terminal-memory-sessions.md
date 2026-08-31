@@ -1342,3 +1342,101 @@ The staged proof used retained CLI commands to observe at least two durable IDs,
 - Idle sleeping, adaptive replay, resource monitoring, Session Manager, CLI activation, final workflow coverage, and release acceptance remain assigned to later phases.
 
 **Publication target:** Phase 3 commit `P8 phase 3: integrate persistent terminal sessions` on `p8-terminal-memory-sessions`, pushed to draft PR [#1106](https://github.com/muxy-app/muxy/pull/1106) with required base `2.x`.
+
+### Phase 4 - Full workspace and background-session lifecycle
+
+**Completed:** 2026-08-31 13:14:02 UTC
+
+**Implemented:**
+
+- Added immutable close and exact-owner cleanup plans. Single-tab and every `CloseMode` compute the complete candidate set before daemon cleanup, revalidate it before ending any session, mutate only after acknowledgements, and report persistence failures without claiming rollback.
+- Added Send to Background, exact Focus/Reattach, Start New Terminal, managed session state models, exact original owner placement restoration, and distinct Workspace, Background, Missing, Ended, and AttachmentFailed outcomes. Reattach and Start New do not replay an old startup command.
+- Added project and worktree deletion transactions that hold and revalidate operation tokens around counted immutable cleanup plans. Candidate additions or owner changes after confirmation abort before any session is ended. Project mutation occurs while the token is active.
+- Added explicit project-removal workspace persistence outcomes and a Retry Save action. Sessions stay ended after a partial persistence failure and the UI does not report rollback.
+- Added neutral current-generation project/worktree existence facts. Two increasing Missing observations in one generation are required before exact-owner cleanup. Present, Unknown, stale observations, symlink loops, and permission errors fail safe.
+- Added app startup and activation truth probes, normal quit detach-only behavior, exact End All separation, missing/ended placeholders, and recoverable Start New and Remove actions.
+- Added isolated lifecycle integration coverage and six Phase 4 fixtures. The staged proof now uses only the staged app's isolated session socket and app lifecycle hook. It sends an app-owned session to Background, closes normally, reopens and reattaches the exact ID and original placement, performs token-held project deletion cleanup while preserving an unrelated project session, runs End All, and verifies exact recorded PID/start identities are dead before removing their record.
+- Every runtime proof used a unique `/tmp/p8-isolated-test-*` root. No production or Swift runtime path was queried or cleaned. Cleanup never searched by process name and signaled only recorded exact test-owned identities.
+
+**Observed failures and fixes:**
+
+1. An early focused `cargo test -p muxy-session --locked --offline lifecycle` run in the workspace sandbox failed before daemon acceptance with `Operation not permitted`. The unsandboxed rerun exposed a real timeout because `startup_command = "exit 7"` did not produce the intended shell status. The test now uses `/bin/sh -c 'exit 7'`; the unsandboxed lifecycle test and final exact gate passed.
+2. An intermediate workspace-view edit had an unclosed delimiter. Formatting and compilation identified it, the delimiter was fixed, and subsequent formatting, checks, Clippy, and tests passed.
+3. The exact full-app Linux cross-check failed before project code because this macOS host lacks `x86_64-linux-gnu-gcc` and `x86_64-linux-gnu-g++`. `psm` and `freetype-sys` reported the missing tools. The required failure remains part of the gate result. The supplemental Zig-wrapper check passed with 21 existing Linux-only warnings.
+
+**Read-only review and fixes:**
+
+The required one-time read-only Phase 4 review reported four high-confidence findings. All were verified and fixed without a second review cycle:
+
+1. The staged proof previously drove a separate helper daemon directly. It now seeds two isolated app projects and drives Background, reopen reattach, project deletion cleanup, and End All through the staged app coordinator and app-owned session socket.
+2. The prior helper could fail before recording detached process identities. The direct Phase 4 helper daemon was removed. The app hook records its daemon and every running shell identity before lifecycle mutation, error cleanup uses the isolated app disable path plus exact identities, and final verification removes the record only after every exact identity is dead.
+3. Project/worktree confirmation counts previously came from a different daemon snapshot than cleanup. Both flows now retain immutable exact session ID plus full owner plans, relist and compare the complete set after confirmation, and abort before ending anything if it changed.
+4. Project deletion persistence failure was previously logged and treated as success. It now returns a structured partial-success outcome and presents an explicit Retry Save action without rerunning cleanup or resurrecting sessions.
+
+**Final focused and phase-gate evidence:**
+
+```text
+cargo test -p muxy-api --locked --offline truth
+cargo test -p muxy-core --locked --offline reconciliation
+cargo test -p muxy-session --locked --offline lifecycle
+cargo test -p muxy --locked --offline session_lifecycle
+scripts/verify-p8-terminal-memory.sh --fixture close-background-reattach
+scripts/verify-p8-terminal-memory.sh --fixture all-close-modes
+scripts/verify-p8-terminal-memory.sh --fixture owner-deletion-transaction
+scripts/verify-p8-terminal-memory.sh --fixture external-owner-truth
+scripts/verify-p8-terminal-memory.sh --fixture quit-crash-missing
+scripts/verify-p8-terminal-memory.sh --fixture startup-command-once
+```
+
+All passed in exact order. Truth reported 3 passed, reconciliation 3 passed, daemon lifecycle 1 passed, Muxy session lifecycle 7 passed, and all six fixtures reported success.
+
+```text
+scripts/check.sh
+```
+
+Passed unsandboxed. It completed shell/source guards, all workspace tests, P8 runtime fixtures, formatting, Clippy, verifier self-tests, debug app build, helper-first signing, and bundle verification.
+
+```text
+cargo check -p muxy-api --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy-session --all-features --locked --offline --target x86_64-unknown-linux-gnu
+```
+
+Both passed.
+
+```text
+cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
+```
+
+Failed before project code because `x86_64-linux-gnu-gcc` and `x86_64-linux-gnu-g++` are absent. The failures came from `psm` and `freetype-sys` native build scripts.
+
+```text
+PATH="$PWD/target/test-verification/p8/toolchain:$PATH" AR_x86_64_unknown_linux_gnu='zig ar' cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
+```
+
+The supplemental cross-check passed with 21 existing Linux-only unused or dead-code warnings.
+
+```text
+scripts/build-app.sh debug
+scripts/verify-bundle.sh target/debug/Muxy.app debug
+staged_app="$(scripts/stage-test-app.sh target/debug/Muxy.app p8-phase-4)"
+scripts/verify-p8-terminal-memory.sh --staged debug "$staged_app" phase-4
+git diff --check
+find /tmp -maxdepth 1 -name 'p8-isolated-test-*' -print
+```
+
+All executable checks passed. The staged app path was `/Users/saeed/Projects/muxy-2.x/target/test-verification/apps/p8-phase-4/MuxyTests.app`. The verifier reported `P8 staged Phase 4 app-owned Background survival, exact reattach, project deletion cleanup, End All, and zero residue passed`. `git diff --check` passed and the final isolated-root search returned no output.
+
+Supplemental final checks also passed:
+
+```text
+cargo clippy -p muxy-api -p muxy-session -p muxy --all-targets --all-features --locked --offline -- -D warnings
+bash -n scripts/verify-p8-terminal-memory.sh
+```
+
+**Unverified or intentionally deferred after Phase 4:**
+
+- Native Linux-host daemon, PTY, renderer, app runtime, and process identity behavior were not executed. API and session crates cross-target compiled with the host toolchain. The full app required supplemental Zig wrappers because the exact native cross compilers are absent.
+- Manual UI interaction for destructive close confirmations, Send to Background menu presentation, persistence retry prompts, attachment-failure copy, and project/worktree cancellation remains unobserved. Their state and transaction paths are covered by focused tests and fixtures.
+- Idle renderer sleeping, resource monitoring, status UI, Session Manager, CLI session activation, profile hardening, and release acceptance remain assigned to Phases 5 through 8.
+
+**Publication target:** Phase 4 commit `P8 phase 4: complete session lifecycle` on `p8-terminal-memory-sessions`, pushed to draft PR [#1106](https://github.com/muxy-app/muxy/pull/1106), base `2.x`.

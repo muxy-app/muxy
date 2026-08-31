@@ -2,11 +2,11 @@ use crate::resources::AppResources;
 use muxy_core::environment::BuildMode;
 use muxy_core::session::transition::DesiredSessionMode;
 use muxy_core::store::Project;
-use muxy_core::workspace::TabKind;
+use muxy_core::workspace::{CloseMode, Tab, TabKind, WorkspaceState};
 use muxy_core::workspace_store::WorkspaceStore;
 use muxy_proto::session::{
-    CreateSessionRequest, EnvironmentEntry, SessionDescriptor, SessionId, SessionOwner,
-    SessionStatus, WindowSize, WorkspacePlacement,
+    CreateSessionRequest, EnvironmentEntry, ProcessIdentity, SessionDescriptor, SessionId,
+    SessionOwner, SessionStatus, WindowSize, WorkspacePlacement,
 };
 use muxy_session::SessionClient;
 use std::collections::{HashMap, HashSet};
@@ -43,6 +43,72 @@ pub struct PendingSessionLaunch {
     pub command: Option<muxy_terminal::backend::LaunchCommand>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionCloseCandidate {
+    pub tab_id: String,
+    pub session_id: SessionId,
+    pub owner: SessionOwner,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionClosePlan {
+    pub project_id: String,
+    pub worktree_id: Option<String>,
+    pub tab_ids: Vec<String>,
+    pub persistent: Vec<SessionCloseCandidate>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct SessionOwnerScope {
+    pub project_id: String,
+    pub worktree_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionOwnerCleanupCandidate {
+    pub session_id: SessionId,
+    pub owner: SessionOwner,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionOwnerCleanupPlan {
+    pub scope: SessionOwnerScope,
+    pub candidates: Vec<SessionOwnerCleanupCandidate>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ManagedSessionState {
+    Workspace,
+    Background,
+    Missing,
+    Ended,
+    AttachmentFailed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ManagedSession {
+    pub session_id: SessionId,
+    pub owner: SessionOwner,
+    pub placement: Option<WorkspacePlacement>,
+    pub shell: Option<ProcessIdentity>,
+    pub title: String,
+    pub working_directory: String,
+    pub state: ManagedSessionState,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SessionReattachOutcome {
+    Focused(WorkspacePlacement),
+    Reattached(WorkspacePlacement),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct OwnerObservation {
+    generation: u64,
+    request_id: u64,
+    missing_count: u8,
+}
+
 #[derive(Clone)]
 struct LaunchContract {
     socket_path: PathBuf,
@@ -64,6 +130,16 @@ struct EligibleTab {
     linked_session_id: Option<SessionId>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LinkedSession {
+    tab_id: String,
+    session_id: SessionId,
+    owner: SessionOwner,
+    placement: WorkspacePlacement,
+    title: String,
+    working_directory: String,
+}
+
 pub struct SessionCoordinator {
     barrier: StartupBarrier,
     desired: DesiredSessionMode,
@@ -73,6 +149,7 @@ pub struct SessionCoordinator {
     main_socket_path: PathBuf,
     contract: Option<LaunchContract>,
     linked_tabs: HashMap<String, LinkedTabState>,
+    owner_observations: HashMap<SessionOwnerScope, OwnerObservation>,
 }
 
 impl SessionCoordinator {
@@ -99,6 +176,7 @@ impl SessionCoordinator {
             main_socket_path: main_socket_path.to_path_buf(),
             contract: None,
             linked_tabs: HashMap::new(),
+            owner_observations: HashMap::new(),
         };
         coordinator.run_startup(projects, store);
         coordinator
@@ -258,6 +336,309 @@ impl SessionCoordinator {
         self.update_linked_tab(tab_id, session_id, LinkedTabState::Present)
     }
 
+    pub fn close_plan(
+        workspace: &WorkspaceState,
+        tab_id: &str,
+        mode: CloseMode,
+    ) -> SessionClosePlan {
+        let mut candidate = workspace.clone();
+        let tab_ids = candidate.close_tab(tab_id, mode);
+        let persistent = tab_ids
+            .iter()
+            .filter_map(|tab_id| {
+                let tab = workspace.tab(tab_id)?;
+                let session_id = tab.session_id?;
+                let worktree_id = workspace.worktree_id.as_ref()?;
+                let owner = SessionOwner {
+                    project_id: workspace.project_id.to_ascii_uppercase(),
+                    worktree_id: worktree_id.to_ascii_uppercase(),
+                    original_tab_id: tab.id.to_ascii_uppercase(),
+                };
+                owner.validate().ok()?;
+                Some(SessionCloseCandidate {
+                    tab_id: tab.id.clone(),
+                    session_id,
+                    owner,
+                })
+            })
+            .collect();
+        SessionClosePlan {
+            project_id: workspace.project_id.clone(),
+            worktree_id: workspace.worktree_id.clone(),
+            tab_ids,
+            persistent,
+        }
+    }
+
+    pub fn end_close_plan(&mut self, plan: &SessionClosePlan) -> Result<(), String> {
+        if plan.persistent.is_empty() {
+            return Ok(());
+        }
+        let mut control = self
+            .existing_control()?
+            .ok_or_else(|| "persistent session runtime is unavailable".to_owned())?;
+        end_close_candidates(&mut control, &plan.persistent).map_err(display_error)?;
+        for candidate in &plan.persistent {
+            self.linked_tabs
+                .insert(candidate.tab_id.clone(), LinkedTabState::Ended);
+        }
+        Ok(())
+    }
+
+    pub fn managed_sessions(&self, store: &WorkspaceStore) -> Result<Vec<ManagedSession>, String> {
+        let linked = linked_sessions(store);
+        let descriptors = match self.existing_control()? {
+            Some(mut control) => control.list().map_err(display_error)?,
+            None if linked.is_empty() => Vec::new(),
+            None => return Err("persistent session runtime is unavailable".to_owned()),
+        };
+        let descriptor_ids = descriptors
+            .iter()
+            .map(|descriptor| descriptor.session_id)
+            .collect::<HashSet<_>>();
+        let mut sessions = descriptors
+            .into_iter()
+            .map(|descriptor| {
+                let linked_state = descriptor
+                    .placement
+                    .as_ref()
+                    .and_then(|placement| self.linked_tabs.get(&placement.tab_id));
+                let state = match descriptor.status {
+                    SessionStatus::Exited { .. } => ManagedSessionState::Ended,
+                    SessionStatus::Running
+                        if linked_state == Some(&LinkedTabState::AttachmentFailed) =>
+                    {
+                        ManagedSessionState::AttachmentFailed
+                    }
+                    SessionStatus::Running if descriptor.placement.is_some() => {
+                        ManagedSessionState::Workspace
+                    }
+                    SessionStatus::Running => ManagedSessionState::Background,
+                };
+                ManagedSession {
+                    session_id: descriptor.session_id,
+                    owner: descriptor.owner,
+                    placement: descriptor.placement,
+                    shell: Some(descriptor.shell),
+                    title: descriptor.title,
+                    working_directory: descriptor.working_directory,
+                    state,
+                }
+            })
+            .collect::<Vec<_>>();
+        sessions.extend(linked.into_iter().filter_map(|linked| {
+            if descriptor_ids.contains(&linked.session_id) {
+                return None;
+            }
+            let state = match self.linked_tabs.get(&linked.tab_id) {
+                Some(LinkedTabState::Ended) => ManagedSessionState::Ended,
+                Some(LinkedTabState::AttachmentFailed) => ManagedSessionState::AttachmentFailed,
+                Some(LinkedTabState::Present | LinkedTabState::Missing) | None => {
+                    ManagedSessionState::Missing
+                }
+            };
+            Some(ManagedSession {
+                session_id: linked.session_id,
+                owner: linked.owner,
+                placement: Some(linked.placement),
+                shell: None,
+                title: linked.title,
+                working_directory: linked.working_directory,
+                state,
+            })
+        }));
+        sessions.sort_by(|left, right| left.session_id.cmp(&right.session_id));
+        Ok(sessions)
+    }
+
+    pub fn send_to_background(
+        &mut self,
+        tab_id: &str,
+        session_id: SessionId,
+        owner: &SessionOwner,
+    ) -> Result<(), String> {
+        let mut control = self
+            .existing_control()?
+            .ok_or_else(|| "persistent session runtime is unavailable".to_owned())?;
+        let descriptor = exact_running_session(&mut control, session_id, owner)?;
+        control
+            .clear_placement(descriptor.session_id)
+            .map_err(display_error)?;
+        self.linked_tabs.remove(tab_id);
+        Ok(())
+    }
+
+    pub fn reattach(
+        &mut self,
+        session_id: SessionId,
+        store: &mut WorkspaceStore,
+    ) -> Result<SessionReattachOutcome, String> {
+        let mut control = self
+            .existing_control()?
+            .ok_or_else(|| "persistent session runtime is unavailable".to_owned())?;
+        let descriptor = control
+            .get(session_id)
+            .map_err(display_error)?
+            .ok_or_else(|| "background session is missing".to_owned())?;
+        if descriptor.status != SessionStatus::Running {
+            return Err("background session has ended".to_owned());
+        }
+        let outcome = reattach_session(&mut control, store, &descriptor).map_err(display_error)?;
+        let placement = match &outcome {
+            SessionReattachOutcome::Focused(placement)
+            | SessionReattachOutcome::Reattached(placement) => placement,
+        };
+        self.linked_tabs
+            .insert(placement.tab_id.clone(), LinkedTabState::Present);
+        Ok(outcome)
+    }
+
+    pub fn owner_cleanup_plan(
+        &self,
+        scope: &SessionOwnerScope,
+    ) -> Result<SessionOwnerCleanupPlan, String> {
+        let candidates = match self.existing_control()? {
+            Some(mut control) => {
+                owner_cleanup_candidates(&mut control, scope).map_err(display_error)?
+            }
+            None => Vec::new(),
+        };
+        Ok(SessionOwnerCleanupPlan {
+            scope: scope.clone(),
+            candidates,
+        })
+    }
+
+    pub fn owner_session_count(&self, scope: &SessionOwnerScope) -> Result<usize, String> {
+        self.owner_cleanup_plan(scope)
+            .map(|plan| plan.candidates.len())
+    }
+
+    pub fn end_owner_cleanup_plan(
+        &mut self,
+        plan: &SessionOwnerCleanupPlan,
+    ) -> Result<Vec<SessionId>, String> {
+        if plan.candidates.is_empty() {
+            let current = self.owner_cleanup_plan(&plan.scope)?;
+            if current.candidates.is_empty() {
+                return Ok(Vec::new());
+            }
+            return Err("the background session set changed after confirmation".to_owned());
+        }
+        let mut control = self
+            .existing_control()?
+            .ok_or_else(|| "persistent session runtime is unavailable".to_owned())?;
+        end_owner_cleanup_candidates(&mut control, plan).map_err(display_error)
+    }
+
+    pub fn end_owner_sessions(
+        &mut self,
+        scope: &SessionOwnerScope,
+    ) -> Result<Vec<SessionId>, String> {
+        let plan = self.owner_cleanup_plan(scope)?;
+        self.end_owner_cleanup_plan(&plan)
+    }
+
+    pub fn runtime_process_identities(&self) -> Result<Vec<ProcessIdentity>, String> {
+        let Some(mut control) = self.existing_control()? else {
+            return Ok(Vec::new());
+        };
+        let daemon = control.daemon_identity();
+        let mut shells = control
+            .list()
+            .map_err(display_error)?
+            .into_iter()
+            .filter(|descriptor| descriptor.status == SessionStatus::Running)
+            .map(|descriptor| descriptor.shell)
+            .collect::<Vec<_>>();
+        shells.sort_by_key(|identity| (identity.process_id, identity.start_identity));
+        shells.dedup();
+        shells.retain(|identity| *identity != daemon);
+        let mut identities = Vec::with_capacity(shells.len() + 1);
+        identities.push(daemon);
+        identities.extend(shells);
+        Ok(identities)
+    }
+
+    pub fn end_all_sessions(&mut self) -> Result<(), String> {
+        let Some(mut control) = self.existing_control()? else {
+            return Ok(());
+        };
+        control.end_all().map_err(display_error)?;
+        for state in self.linked_tabs.values_mut() {
+            *state = LinkedTabState::Ended;
+        }
+        Ok(())
+    }
+
+    pub fn start_new_terminal(
+        &mut self,
+        tab_id: &str,
+        session_id: SessionId,
+        store: &mut WorkspaceStore,
+    ) -> Result<(), String> {
+        if let Some(mut control) = self.existing_control()?
+            && let Some(descriptor) = control.get(session_id).map_err(display_error)?
+            && descriptor.status == SessionStatus::Running
+        {
+            return Err("the linked background session is still running".to_owned());
+        }
+        let mut updated = store.clone();
+        let tab = updated
+            .states_mut()
+            .iter_mut()
+            .find_map(|workspace| workspace.tab_mut(tab_id))
+            .ok_or_else(|| "workspace tab no longer exists".to_owned())?;
+        if tab.session_id != Some(session_id) {
+            return Err("workspace session link changed".to_owned());
+        }
+        tab.session_id = None;
+        updated.save().map_err(display_error)?;
+        *store = updated;
+        self.linked_tabs.remove(tab_id);
+        Ok(())
+    }
+
+    pub fn reconcile_owner_existence(
+        &mut self,
+        facts: &[muxy_api::truth::OwnerExistenceFact],
+        store: &WorkspaceStore,
+    ) -> Result<Vec<SessionId>, String> {
+        let scopes = confirmed_missing_scopes(&mut self.owner_observations, facts);
+        if scopes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some(mut control) = self.existing_control()? else {
+            return Ok(Vec::new());
+        };
+        let ended = end_owner_sessions(&mut control, &scopes).map_err(display_error)?;
+        for linked in linked_sessions(store) {
+            if ended.contains(&linked.session_id) {
+                self.linked_tabs
+                    .insert(linked.tab_id, LinkedTabState::Ended);
+            }
+        }
+        Ok(ended)
+    }
+
+    fn existing_control(&self) -> Result<Option<FacadeControl>, String> {
+        let fallback;
+        let contract = match self.contract.as_ref() {
+            Some(contract) => contract,
+            None => {
+                let socket_path = runtime_socket_path(self.mode, &self.app_support);
+                if !socket_path.exists() {
+                    return Ok(None);
+                }
+                fallback = self.build_contract(socket_path)?;
+                &fallback
+            }
+        };
+        FacadeControl::connect(contract, false)
+            .map(Some)
+            .map_err(display_error)
+    }
+
     fn update_linked_tab(
         &mut self,
         tab_id: &str,
@@ -414,12 +795,54 @@ fn set_environment(entries: &mut Vec<EnvironmentEntry>, key: &str, value: &str) 
 }
 
 fn linked_session_count(store: &WorkspaceStore) -> usize {
-    store
-        .states()
-        .iter()
-        .flat_map(|workspace| workspace.root.iter().flat_map(|root| root.tabs()))
-        .filter(|tab| tab.kind == TabKind::Terminal && tab.session_id.is_some())
-        .count()
+    linked_sessions(store).len()
+}
+
+fn linked_sessions(store: &WorkspaceStore) -> Vec<LinkedSession> {
+    let mut linked = Vec::new();
+    for workspace in store.states() {
+        let Some(worktree_id) = workspace.worktree_id.as_deref() else {
+            continue;
+        };
+        let Some(root) = workspace.root.as_ref() else {
+            continue;
+        };
+        for tab in root.tabs() {
+            let Some(session_id) = tab.session_id else {
+                continue;
+            };
+            let Some(area) = workspace.area_containing_tab(&tab.id) else {
+                continue;
+            };
+            let owner = SessionOwner {
+                project_id: workspace.project_id.to_ascii_uppercase(),
+                worktree_id: worktree_id.to_ascii_uppercase(),
+                original_tab_id: tab.id.to_ascii_uppercase(),
+            };
+            let placement = WorkspacePlacement {
+                project_id: owner.project_id.clone(),
+                worktree_id: owner.worktree_id.clone(),
+                tab_id: owner.original_tab_id.clone(),
+                area_id: area.id.to_ascii_uppercase(),
+            };
+            if owner.validate().is_err() || placement.validate().is_err() {
+                continue;
+            }
+            linked.push(LinkedSession {
+                tab_id: tab.id.clone(),
+                session_id,
+                owner,
+                placement,
+                title: tab.title().to_owned(),
+                working_directory: tab
+                    .project_path
+                    .clone()
+                    .or_else(|| workspace.worktree_path.clone())
+                    .unwrap_or_default(),
+            });
+        }
+    }
+    linked
 }
 
 fn disable_persistent<C: Control>(control: &mut C, store: &mut WorkspaceStore) -> io::Result<()> {
@@ -527,6 +950,8 @@ trait Control {
         session_id: SessionId,
         placement: WorkspacePlacement,
     ) -> io::Result<()>;
+    fn clear_placement(&mut self, session_id: SessionId) -> io::Result<()>;
+    fn end(&mut self, session_id: SessionId) -> io::Result<()>;
     fn end_all(&mut self) -> io::Result<()>;
 }
 
@@ -549,6 +974,10 @@ impl FacadeControl {
         client.set_write_timeout(Some(STARTUP_CONTROL_TIMEOUT))?;
         Ok(Self { client })
     }
+
+    fn daemon_identity(&self) -> ProcessIdentity {
+        self.client.daemon_identity()
+    }
 }
 
 fn query_linked_tab<C: Control>(
@@ -563,6 +992,273 @@ fn query_linked_tab<C: Control>(
             SessionStatus::Exited { .. } => LinkedTabState::Ended,
         },
     })
+}
+
+fn reattach_session<C: Control>(
+    control: &mut C,
+    store: &mut WorkspaceStore,
+    descriptor: &SessionDescriptor,
+) -> io::Result<SessionReattachOutcome> {
+    let existing = linked_sessions(store)
+        .into_iter()
+        .filter(|linked| linked.session_id == descriptor.session_id)
+        .collect::<Vec<_>>();
+    if let [linked] = existing.as_slice() {
+        if linked.owner != descriptor.owner {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "workspace session owner differs",
+            ));
+        }
+        let mut updated = store.clone();
+        let workspace = updated
+            .states_mut()
+            .iter_mut()
+            .find(|workspace| {
+                workspace
+                    .project_id
+                    .eq_ignore_ascii_case(&linked.owner.project_id)
+                    && workspace.worktree_id.as_deref().is_some_and(|worktree_id| {
+                        worktree_id.eq_ignore_ascii_case(&linked.owner.worktree_id)
+                    })
+            })
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "original workspace is missing")
+            })?;
+        if !workspace.select_tab(&linked.placement.area_id, &linked.tab_id) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "workspace session placement is invalid",
+            ));
+        }
+        updated.save()?;
+        *store = updated;
+        control.set_placement(descriptor.session_id, linked.placement.clone())?;
+        return Ok(SessionReattachOutcome::Focused(linked.placement.clone()));
+    }
+    if !existing.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "workspace contains duplicate session links",
+        ));
+    }
+    if linked_sessions(store).iter().any(|linked| {
+        linked
+            .tab_id
+            .eq_ignore_ascii_case(&descriptor.owner.original_tab_id)
+    }) {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "original session tab identifier is already in use",
+        ));
+    }
+    let mut updated = store.clone();
+    let workspace = updated
+        .states_mut()
+        .iter_mut()
+        .find(|workspace| {
+            workspace
+                .project_id
+                .eq_ignore_ascii_case(&descriptor.owner.project_id)
+                && workspace.worktree_id.as_deref().is_some_and(|worktree_id| {
+                    worktree_id.eq_ignore_ascii_case(&descriptor.owner.worktree_id)
+                })
+        })
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "original workspace is missing"))?;
+    let mut tab = Tab::new(TabKind::Terminal);
+    tab.id = descriptor.owner.original_tab_id.clone();
+    tab.session_id = Some(descriptor.session_id);
+    tab.project_path = Some(descriptor.working_directory.clone());
+    tab.pane_title = Some(descriptor.title.clone());
+    let tab_id = workspace.new_top_level_tab(tab).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "original session tab identifier is already in use",
+        )
+    })?;
+    let area_id = workspace
+        .area_containing_tab(&tab_id)
+        .map(|area| area.id.to_ascii_uppercase())
+        .ok_or_else(|| io::Error::other("reattached tab has no workspace area"))?;
+    let placement = WorkspacePlacement {
+        project_id: descriptor.owner.project_id.clone(),
+        worktree_id: descriptor.owner.worktree_id.clone(),
+        tab_id,
+        area_id,
+    };
+    placement
+        .validate()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+    updated.save()?;
+    *store = updated;
+    control.set_placement(descriptor.session_id, placement.clone())?;
+    Ok(SessionReattachOutcome::Reattached(placement))
+}
+
+fn exact_running_session<C: Control>(
+    control: &mut C,
+    session_id: SessionId,
+    owner: &SessionOwner,
+) -> Result<SessionDescriptor, String> {
+    let descriptor = control
+        .get(session_id)
+        .map_err(display_error)?
+        .ok_or_else(|| "background session is missing".to_owned())?;
+    if &descriptor.owner != owner {
+        return Err("background session owner changed".to_owned());
+    }
+    if descriptor.status != SessionStatus::Running {
+        return Err("background session has ended".to_owned());
+    }
+    Ok(descriptor)
+}
+
+fn end_close_candidates<C: Control>(
+    control: &mut C,
+    candidates: &[SessionCloseCandidate],
+) -> io::Result<()> {
+    let descriptors = control.list()?;
+    let mut running = Vec::new();
+    for candidate in candidates {
+        let matches = descriptors
+            .iter()
+            .filter(|descriptor| descriptor.session_id == candidate.session_id)
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [] => {}
+            [descriptor] if descriptor.owner != candidate.owner => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("session owner differs for tab {}", candidate.tab_id),
+                ));
+            }
+            [descriptor] if descriptor.status == SessionStatus::Running => {
+                running.push(candidate.session_id);
+            }
+            [_] => {}
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("duplicate session identifier for tab {}", candidate.tab_id),
+                ));
+            }
+        }
+    }
+    for session_id in running {
+        control.end(session_id)?;
+    }
+    Ok(())
+}
+
+fn owner_matches_scope(owner: &SessionOwner, scope: &SessionOwnerScope) -> bool {
+    owner.project_id.eq_ignore_ascii_case(&scope.project_id)
+        && scope
+            .worktree_id
+            .as_deref()
+            .is_none_or(|worktree_id| owner.worktree_id.eq_ignore_ascii_case(worktree_id))
+}
+
+fn owner_cleanup_candidates<C: Control>(
+    control: &mut C,
+    scope: &SessionOwnerScope,
+) -> io::Result<Vec<SessionOwnerCleanupCandidate>> {
+    let mut candidates = control
+        .list()?
+        .into_iter()
+        .filter(|descriptor| {
+            descriptor.status == SessionStatus::Running
+                && owner_matches_scope(&descriptor.owner, scope)
+        })
+        .map(|descriptor| SessionOwnerCleanupCandidate {
+            session_id: descriptor.session_id,
+            owner: descriptor.owner,
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| left.session_id.cmp(&right.session_id));
+    Ok(candidates)
+}
+
+fn end_owner_cleanup_candidates<C: Control>(
+    control: &mut C,
+    plan: &SessionOwnerCleanupPlan,
+) -> io::Result<Vec<SessionId>> {
+    if owner_cleanup_candidates(control, &plan.scope)? != plan.candidates {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the background session set changed after confirmation",
+        ));
+    }
+    let mut ended = Vec::with_capacity(plan.candidates.len());
+    for candidate in &plan.candidates {
+        control.end(candidate.session_id)?;
+        ended.push(candidate.session_id);
+    }
+    Ok(ended)
+}
+
+fn end_owner_sessions<C: Control>(
+    control: &mut C,
+    scopes: &[SessionOwnerScope],
+) -> io::Result<Vec<SessionId>> {
+    let mut ended = Vec::new();
+    for descriptor in control.list()? {
+        if descriptor.status == SessionStatus::Running
+            && scopes
+                .iter()
+                .any(|scope| owner_matches_scope(&descriptor.owner, scope))
+            && !ended.contains(&descriptor.session_id)
+        {
+            control.end(descriptor.session_id)?;
+            ended.push(descriptor.session_id);
+        }
+    }
+    Ok(ended)
+}
+
+fn confirmed_missing_scopes(
+    observations: &mut HashMap<SessionOwnerScope, OwnerObservation>,
+    facts: &[muxy_api::truth::OwnerExistenceFact],
+) -> Vec<SessionOwnerScope> {
+    let mut confirmed = Vec::new();
+    for fact in facts {
+        let scope = SessionOwnerScope {
+            project_id: fact.project_id.to_ascii_uppercase(),
+            worktree_id: fact.worktree_id.as_ref().map(|id| id.to_ascii_uppercase()),
+        };
+        let previous = observations.get(&scope).copied();
+        if previous.is_some_and(|previous| {
+            previous.generation > fact.generation
+                || (previous.generation == fact.generation
+                    && previous.request_id >= fact.request_id)
+        }) {
+            continue;
+        }
+        let missing_count = match fact.existence {
+            muxy_api::truth::OwnerExistence::Missing
+                if previous.is_some_and(|previous| {
+                    previous.generation == fact.generation && previous.missing_count > 0
+                }) =>
+            {
+                2
+            }
+            muxy_api::truth::OwnerExistence::Missing => 1,
+            muxy_api::truth::OwnerExistence::Present | muxy_api::truth::OwnerExistence::Unknown => {
+                0
+            }
+        };
+        observations.insert(
+            scope.clone(),
+            OwnerObservation {
+                generation: fact.generation,
+                request_id: fact.request_id,
+                missing_count,
+            },
+        );
+        if missing_count == 2 {
+            confirmed.push(scope);
+        }
+    }
+    confirmed
 }
 
 impl Control for FacadeControl {
@@ -585,6 +1281,14 @@ impl Control for FacadeControl {
     ) -> io::Result<()> {
         self.client
             .set_workspace_placement(session_id, Some(placement))
+    }
+
+    fn clear_placement(&mut self, session_id: SessionId) -> io::Result<()> {
+        self.client.set_workspace_placement(session_id, None)
+    }
+
+    fn end(&mut self, session_id: SessionId) -> io::Result<()> {
+        self.client.end_session(session_id)
     }
 
     fn end_all(&mut self) -> io::Result<()> {
@@ -775,6 +1479,8 @@ mod tests {
         sessions: Vec<SessionDescriptor>,
         created: Vec<CreateSessionRequest>,
         placements: Vec<(SessionId, WorkspacePlacement)>,
+        cleared_placements: Vec<SessionId>,
+        ended_ids: Vec<SessionId>,
         create_ids: VecDeque<SessionId>,
         ended: usize,
         end_fails: bool,
@@ -817,7 +1523,41 @@ mod tests {
             session_id: SessionId,
             placement: WorkspacePlacement,
         ) -> io::Result<()> {
-            self.placements.push((session_id, placement));
+            self.placements.push((session_id, placement.clone()));
+            if let Some(session) = self
+                .sessions
+                .iter_mut()
+                .find(|session| session.session_id == session_id)
+            {
+                session.placement = Some(placement);
+            }
+            Ok(())
+        }
+
+        fn clear_placement(&mut self, session_id: SessionId) -> io::Result<()> {
+            self.cleared_placements.push(session_id);
+            if let Some(session) = self
+                .sessions
+                .iter_mut()
+                .find(|session| session.session_id == session_id)
+            {
+                session.placement = None;
+            }
+            Ok(())
+        }
+
+        fn end(&mut self, session_id: SessionId) -> io::Result<()> {
+            if self.end_fails {
+                return Err(io::Error::other("end failed"));
+            }
+            self.ended_ids.push(session_id);
+            if let Some(session) = self
+                .sessions
+                .iter_mut()
+                .find(|session| session.session_id == session_id)
+            {
+                session.status = SessionStatus::Exited { status: Some(0) };
+            }
             Ok(())
         }
 
@@ -1043,6 +1783,298 @@ mod tests {
     }
 
     #[test]
+    fn session_lifecycle_close_plan_ends_persistent_backing_before_workspace_mutation() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let mut store = store(temp.path(), &project_id, &worktree_id);
+        let eligible = eligible_tabs(&[project(&project_id, false)], &store, &HashMap::new());
+        let closing = &eligible[0];
+        let held_id = session_id("623E4567-E89B-12D3-A456-426614174000");
+        store.states_mut()[0]
+            .tab_mut(&closing.tab_id)
+            .unwrap()
+            .session_id = Some(held_id);
+        let plan =
+            SessionCoordinator::close_plan(&store.states()[0], &closing.tab_id, CloseMode::Single);
+        assert_eq!(plan.tab_ids, vec![closing.tab_id.clone()]);
+        assert_eq!(plan.persistent.len(), 1);
+        assert!(store.states()[0].tab(&closing.tab_id).is_some());
+
+        let mut request = create_request(&contract(temp.path()), closing).unwrap();
+        request.session_id = held_id;
+        let mut control = FakeControl {
+            sessions: vec![descriptor(&request, SessionStatus::Running)],
+            ..Default::default()
+        };
+        end_close_candidates(&mut control, &plan.persistent).unwrap();
+        assert_eq!(control.ended_ids, vec![held_id]);
+        assert!(store.states()[0].tab(&closing.tab_id).is_some());
+        let removed = store.states_mut()[0].close_tab(&closing.tab_id, CloseMode::Single);
+        assert_eq!(removed, plan.tab_ids);
+    }
+
+    #[test]
+    fn session_lifecycle_all_close_modes_partition_mixed_tabs_and_validate_before_cleanup() {
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let mut workspace =
+            WorkspaceState::with_worktree(&project_id, &worktree_id, "/tmp/project");
+        let mut first = Tab::new(TabKind::Terminal);
+        first.session_id = Some(session_id("923E4567-E89B-12D3-A456-426614174000"));
+        let first_id = workspace.new_top_level_tab(first).unwrap();
+        let mut child = Tab::new(TabKind::Terminal);
+        child.session_id = Some(session_id("A23E4567-E89B-12D3-A456-426614174000"));
+        let child_id = child.id.clone();
+        workspace
+            .split_focused_area(muxy_core::workspace::Edge::Right, child)
+            .unwrap();
+        let second_id = workspace
+            .new_top_level_tab(Tab::new(TabKind::Terminal))
+            .unwrap();
+        let browser_id = workspace
+            .new_top_level_tab(Tab::new(TabKind::Browser))
+            .unwrap();
+        let extension_id = workspace
+            .new_top_level_tab(Tab::new(TabKind::ExtensionWebView))
+            .unwrap();
+
+        let single = SessionCoordinator::close_plan(&workspace, &first_id, CloseMode::Single);
+        assert_eq!(single.tab_ids, vec![first_id.clone(), child_id.clone()]);
+        assert_eq!(single.persistent.len(), 2);
+        let others = SessionCoordinator::close_plan(&workspace, &second_id, CloseMode::Others);
+        assert_eq!(
+            others.tab_ids,
+            vec![
+                first_id.clone(),
+                child_id.clone(),
+                browser_id.clone(),
+                extension_id.clone()
+            ]
+        );
+        assert_eq!(others.persistent.len(), 2);
+        let left = SessionCoordinator::close_plan(&workspace, &browser_id, CloseMode::ToLeft);
+        assert_eq!(
+            left.tab_ids,
+            vec![first_id.clone(), child_id, second_id.clone()]
+        );
+        assert_eq!(left.persistent.len(), 2);
+        let right = SessionCoordinator::close_plan(&workspace, &second_id, CloseMode::ToRight);
+        assert_eq!(right.tab_ids, vec![browser_id, extension_id]);
+        assert!(right.persistent.is_empty());
+
+        let requests = single
+            .persistent
+            .iter()
+            .map(|candidate| CreateSessionRequest {
+                session_id: candidate.session_id,
+                owner: candidate.owner.clone(),
+                placement: None,
+                working_directory: "/tmp".into(),
+                initial_size: WindowSize::new(80, 24),
+                shell_executable: "/bin/sh".into(),
+                argv: Vec::new(),
+                startup_command: None,
+                keep_shell_open: false,
+                environment: Vec::new(),
+                ghostty_resources: "/tmp/resources".into(),
+                terminfo: "/tmp/terminfo".into(),
+                terminal_type: "xterm-ghostty".into(),
+                color_terminal: "truecolor".into(),
+                title: "Terminal".into(),
+            })
+            .collect::<Vec<_>>();
+        let mut descriptors = requests
+            .iter()
+            .map(|request| descriptor(request, SessionStatus::Running))
+            .collect::<Vec<_>>();
+        descriptors[1].owner.original_tab_id = muxy_core::store::new_uuid();
+        let mut control = FakeControl {
+            sessions: descriptors,
+            ..Default::default()
+        };
+        assert!(end_close_candidates(&mut control, &single.persistent).is_err());
+        assert!(control.ended_ids.is_empty());
+    }
+
+    #[test]
+    fn session_lifecycle_background_and_reattach_preserve_identity_and_startup_command() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let mut store = store(temp.path(), &project_id, &worktree_id);
+        let mut launches = HashMap::new();
+        let tab_id = store.states()[0].root.as_ref().unwrap().tabs()[0]
+            .id
+            .clone();
+        launches.insert(
+            tab_id.clone(),
+            PendingSessionLaunch {
+                directory: temp.path().to_path_buf(),
+                command: Some(muxy_terminal::backend::LaunchCommand {
+                    command: "printf once".to_owned(),
+                    keeps_shell_open: true,
+                }),
+            },
+        );
+        let tab = eligible_tabs(&[project(&project_id, false)], &store, &launches)
+            .into_iter()
+            .find(|tab| tab.tab_id == tab_id)
+            .unwrap();
+        let request = create_request(&contract(temp.path()), &tab).unwrap();
+        assert_eq!(request.startup_command.as_deref(), Some("printf once"));
+        let descriptor = descriptor(&request, SessionStatus::Running);
+        let mut control = FakeControl {
+            sessions: vec![descriptor.clone()],
+            ..Default::default()
+        };
+
+        exact_running_session(&mut control, descriptor.session_id, &descriptor.owner).unwrap();
+        control.clear_placement(descriptor.session_id).unwrap();
+        assert!(control.sessions[0].placement.is_none());
+        assert_eq!(
+            store.states_mut()[0].close_tab(&tab_id, CloseMode::Single),
+            vec![tab_id.clone()]
+        );
+        store.save().unwrap();
+
+        let outcome = reattach_session(&mut control, &mut store, &descriptor).unwrap();
+        let SessionReattachOutcome::Reattached(placement) = outcome else {
+            panic!("detached session was not reattached");
+        };
+        assert_eq!(placement.tab_id, descriptor.owner.original_tab_id);
+        assert_eq!(control.sessions[0].placement, Some(placement.clone()));
+        assert_eq!(
+            store.states()[0]
+                .tab(&placement.tab_id)
+                .and_then(|tab| tab.session_id),
+            Some(descriptor.session_id)
+        );
+        assert!(matches!(
+            reattach_session(&mut control, &mut store, &descriptor).unwrap(),
+            SessionReattachOutcome::Focused(focused) if focused == placement
+        ));
+        assert!(control.created.is_empty());
+    }
+
+    #[test]
+    fn session_lifecycle_external_owner_truth_requires_two_fresh_missing_observations() {
+        use muxy_api::truth::{OwnerExistence, OwnerExistenceFact};
+
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let scope = SessionOwnerScope {
+            project_id: project_id.clone(),
+            worktree_id: Some(worktree_id.clone()),
+        };
+        let fact = |request_id, existence| OwnerExistenceFact {
+            project_id: project_id.clone(),
+            worktree_id: Some(worktree_id.clone()),
+            path: "/tmp/missing".to_owned(),
+            generation: 7,
+            request_id,
+            existence,
+        };
+        let mut observations = HashMap::new();
+        assert!(
+            confirmed_missing_scopes(&mut observations, &[fact(1, OwnerExistence::Missing)])
+                .is_empty()
+        );
+        assert_eq!(
+            confirmed_missing_scopes(&mut observations, &[fact(2, OwnerExistence::Missing)]),
+            vec![scope.clone()]
+        );
+        assert!(
+            confirmed_missing_scopes(&mut observations, &[fact(1, OwnerExistence::Missing)])
+                .is_empty()
+        );
+        assert!(
+            confirmed_missing_scopes(&mut observations, &[fact(3, OwnerExistence::Unknown)])
+                .is_empty()
+        );
+        assert!(
+            confirmed_missing_scopes(&mut observations, &[fact(4, OwnerExistence::Missing)])
+                .is_empty()
+        );
+        assert!(
+            confirmed_missing_scopes(&mut observations, &[fact(5, OwnerExistence::Present)])
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn session_lifecycle_exact_owner_cleanup_never_ends_unrelated_sessions() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let other_worktree_id = muxy_core::store::new_uuid();
+        let store = store(temp.path(), &project_id, &worktree_id);
+        let mut tabs = eligible_tabs(&[project(&project_id, false)], &store, &HashMap::new());
+        let first = tabs.remove(0);
+        let mut first_request = create_request(&contract(temp.path()), &first).unwrap();
+        first_request.session_id = session_id("723E4567-E89B-12D3-A456-426614174000");
+        let mut other_request = first_request.clone();
+        other_request.session_id = session_id("823E4567-E89B-12D3-A456-426614174000");
+        other_request.owner.worktree_id = other_worktree_id;
+        let mut control = FakeControl {
+            sessions: vec![
+                descriptor(&first_request, SessionStatus::Running),
+                descriptor(&other_request, SessionStatus::Running),
+            ],
+            ..Default::default()
+        };
+        let ended = end_owner_sessions(
+            &mut control,
+            &[SessionOwnerScope {
+                project_id,
+                worktree_id: Some(worktree_id),
+            }],
+        )
+        .unwrap();
+        assert_eq!(ended, vec![first_request.session_id]);
+        assert_eq!(control.ended_ids, vec![first_request.session_id]);
+        assert_eq!(control.sessions[1].status, SessionStatus::Running);
+    }
+
+    #[test]
+    fn session_lifecycle_owner_cleanup_rejects_candidates_added_after_confirmation() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let store = store(temp.path(), &project_id, &worktree_id);
+        let first =
+            eligible_tabs(&[project(&project_id, false)], &store, &HashMap::new()).remove(0);
+        let mut first_request = create_request(&contract(temp.path()), &first).unwrap();
+        first_request.session_id = session_id("923E4567-E89B-12D3-A456-426614174000");
+        let mut control = FakeControl {
+            sessions: vec![descriptor(&first_request, SessionStatus::Running)],
+            ..Default::default()
+        };
+        let scope = SessionOwnerScope {
+            project_id,
+            worktree_id: Some(worktree_id),
+        };
+        let plan = SessionOwnerCleanupPlan {
+            scope: scope.clone(),
+            candidates: owner_cleanup_candidates(&mut control, &scope).unwrap(),
+        };
+        let mut added_request = first_request.clone();
+        added_request.session_id = session_id("A23E4567-E89B-12D3-A456-426614174000");
+        added_request.owner.original_tab_id = muxy_core::store::new_uuid();
+        control
+            .sessions
+            .push(descriptor(&added_request, SessionStatus::Running));
+        assert!(end_owner_cleanup_candidates(&mut control, &plan).is_err());
+        assert!(control.ended_ids.is_empty());
+        assert!(
+            control
+                .sessions
+                .iter()
+                .all(|session| session.status == SessionStatus::Running)
+        );
+    }
+
+    #[test]
     fn sessions_startup_barrier_and_restart_mode_are_explicit() {
         assert!(
             !SessionCoordinator {
@@ -1054,6 +2086,7 @@ mod tests {
                 main_socket_path: PathBuf::new(),
                 contract: None,
                 linked_tabs: HashMap::new(),
+                owner_observations: HashMap::new(),
             }
             .is_ready()
         );
@@ -1067,6 +2100,7 @@ mod tests {
                 main_socket_path: PathBuf::new(),
                 contract: None,
                 linked_tabs: HashMap::new(),
+                owner_observations: HashMap::new(),
             }
             .is_ready()
         );

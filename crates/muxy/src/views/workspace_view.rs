@@ -530,6 +530,7 @@ fn pane_content(
             area_id,
             panes.terminals.unavailable_reason(&tab.id),
             panes.terminals.attachment_retry_available(&tab.id),
+            panes.terminals.start_new_available(&tab.id),
             cx,
         );
     };
@@ -794,10 +795,13 @@ fn pane_placeholder(
     area_id: &str,
     unavailable: Option<&str>,
     retry_attachment: bool,
+    start_new: bool,
     cx: &mut Context<MainWindow>,
 ) -> AnyElement {
     let tab_id = tab.id.clone();
     let retry_tab_id = tab.id.clone();
+    let start_new_tab_id = tab.id.clone();
+    let remove_tab_id = tab.id.clone();
     let dragged_tab_id = tab.id.clone();
     let dragged_area_id = area_id.to_owned();
     let focused_area_id = area_id.to_owned();
@@ -864,6 +868,56 @@ fn pane_placeholder(
                     .on_click(cx.listener(move |window, _, _, cx| {
                         window.retry_session_attachment(&retry_tab_id, cx);
                     })),
+            )
+        })
+        .when(start_new, |placeholder| {
+            placeholder.child(
+                div()
+                    .flex()
+                    .gap(state.metrics.spacing3())
+                    .child(
+                        div()
+                            .id(ElementId::Name(SharedString::from(format!(
+                                "session-start-new-{start_new_tab_id}"
+                            ))))
+                            .px(state.metrics.spacing5())
+                            .py(state.metrics.spacing3())
+                            .rounded(state.metrics.radius_md())
+                            .bg(state.theme.surface)
+                            .text_color(state.theme.fg)
+                            .cursor_pointer()
+                            .child("Start New Terminal")
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(move |window, _, app_window, cx| {
+                                window.perform(
+                                    crate::command::Command::StartNewTerminal(
+                                        start_new_tab_id.clone(),
+                                    ),
+                                    app_window,
+                                    cx,
+                                );
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id(ElementId::Name(SharedString::from(format!(
+                                "session-remove-{remove_tab_id}"
+                            ))))
+                            .px(state.metrics.spacing5())
+                            .py(state.metrics.spacing3())
+                            .rounded(state.metrics.radius_md())
+                            .text_color(state.theme.fg_muted)
+                            .cursor_pointer()
+                            .child("Remove")
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(move |window, _, app_window, cx| {
+                                window.perform(
+                                    crate::command::Command::CloseTab(remove_tab_id.clone()),
+                                    app_window,
+                                    cx,
+                                );
+                            })),
+                    ),
             )
         })
         .into_any_element()

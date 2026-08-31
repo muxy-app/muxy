@@ -278,6 +278,7 @@ impl MainWindow {
                 window.view.window_active = app_window.is_window_active();
                 if window.view.window_active {
                     window.sync_active_notification_read_state(cx);
+                    window.refresh_project_truth(None, cx);
                     window.refresh_repository_on_activation(cx);
                     cx.update_global::<crate::quick_terminal::runtime::QuickTerminalRuntime, _>(
                         |runtime, cx| {
@@ -299,6 +300,7 @@ impl MainWindow {
             },
         ));
         main_window.prepare_p7_composer_fixture(cx);
+        main_window.prepare_staged_phase_four(cx);
         if let Some(request_path) = staged_close_request_path() {
             let window_handle = main_window.window_handle;
             cx.spawn(async move |_, cx| {
