@@ -103,13 +103,23 @@ stage_app() {
         >/dev/null 2>&1; then
         plutil -remove LSMultipleInstancesProhibited "$destination_plist"
     fi
-    codesign --deep --force --sign - --timestamp=none "$destination" >/dev/null
+    if [[ -e "$destination/Contents/MacOS/muxy-session" ]]; then
+        [[ -x "$destination/Contents/MacOS/muxy-session" ]] || {
+            fail "staged session helper is not executable"
+        }
+        codesign --force --sign - --timestamp=none \
+            "$destination/Contents/MacOS/muxy-session" >/dev/null
+    fi
+    codesign --force --sign - --timestamp=none "$destination" >/dev/null
 
     [[ "$(plutil -extract CFBundleIdentifier raw -o - "$destination_plist")" == \
         "$TEST_BUNDLE_IDENTIFIER" ]] || fail "staged bundle identifier mismatch"
     [[ "$(plutil -extract CFBundleExecutable raw -o - "$destination_plist")" == \
         "$TEST_EXECUTABLE" ]] || fail "staged executable name mismatch"
     [[ -x "$destination/Contents/MacOS/$TEST_EXECUTABLE" ]] || fail "staged executable not found"
+    if [[ -e "$destination/Contents/MacOS/muxy-session" ]]; then
+        codesign --verify --strict "$destination/Contents/MacOS/muxy-session"
+    fi
     codesign --verify --deep --strict "$destination"
     printf '%s\n' "$destination"
 }

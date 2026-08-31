@@ -3,23 +3,21 @@ set -euo pipefail
 IFS=$'\n\t'
 
 APP_PID=""
-APP_START_IDENTITY=""
+PROBE_PID=""
 ACTIVE_ROOT=""
 ACTIVE_SOCKET=""
 cleanup_active() {
-    local status=0 current=""
-    if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
-        current="$(process_start_identity "$APP_PID" || true)"
-        if [[ -n "$APP_START_IDENTITY" && "$current" == "$APP_START_IDENTITY" ]]; then
-            kill -TERM "$APP_PID" 2>/dev/null || true
-            wait "$APP_PID" 2>/dev/null || true
-        elif [[ -z "$current" ]]; then
-            status=1
-        fi
+    local status=0
+    if [[ -n "$ACTIVE_ROOT" && -d "$ACTIVE_ROOT" ]]; then
+        touch "$ACTIVE_ROOT/probe.proceed" 2>/dev/null || true
     fi
+    finish_probe_job "$PROBE_PID" || status=1
+    PROBE_PID=""
+    stop_job_process "$APP_PID" || status=1
     APP_PID=""
-    APP_START_IDENTITY=""
-    if [[ -n "$ACTIVE_SOCKET" && -n "$ACTIVE_ROOT" && "$ACTIVE_SOCKET" == "$ACTIVE_ROOT"/* ]]; then
+    if [[ -n "$ACTIVE_ROOT" ]] && root_is_owned "$ACTIVE_ROOT"; then
+        cleanup_owned_root "$ACTIVE_ROOT" || status=1
+    elif [[ -n "$ACTIVE_SOCKET" && -n "$ACTIVE_ROOT" && "$ACTIVE_SOCKET" == "$ACTIVE_ROOT"/* ]]; then
         rm -f -- "$ACTIVE_SOCKET" 2>/dev/null || status=1
     fi
     ACTIVE_SOCKET=""
@@ -46,6 +44,8 @@ readonly OWNER_FILE=".muxy-p8-owner"
 readonly OWNER_VALUE="muxy-p8-terminal-memory-v1"
 readonly STAGED_APPS_ROOT="$PROJECT_ROOT/target/test-verification/apps"
 readonly STAGED_OWNER_FILE=".muxy-stage-owner"
+ISOLATED_TMP_ROOT="$(cd /tmp && pwd -P)"
+readonly ISOLATED_TMP_ROOT
 
 fail() {
     printf 'error: %s\n' "$*" >&2
@@ -70,7 +70,7 @@ reject_symlink_components() {
 
 root_path_is_safe() {
     local root="$1"
-    [[ "$root" == "$CASES_ROOT/"* ]] || return 1
+    [[ "$root" == "$CASES_ROOT/"* || "$root" == "$ISOLATED_TMP_ROOT/p8-isolated-test-"* ]] || return 1
     [[ "$root" != *"/../"* && "$root" != */.. && "$root" != *"/./"* && "$root" != */. ]] || return 1
     reject_symlink_components "$root"
 }
@@ -93,35 +93,64 @@ prepare_root() {
         rm -rf -- "$root"
     fi
     mkdir -p "$root"
+    chmod 0700 "$root"
     printf '%s\n' "$OWNER_VALUE" > "$root/$OWNER_FILE"
     chmod 0600 "$root/$OWNER_FILE"
 }
 
-process_start_identity() {
-    local pid="$1" started
-    started="$(ps -p "$pid" -o lstart= 2>/dev/null)" || return 1
-    started="$(printf '%s' "$started" | awk '{$1=$1; print}')"
-    [[ -n "$started" ]] || return 1
-    printf '%s' "$started" | shasum -a 256 | awk '{print $1}'
+prepare_unique_phase_two_root() {
+    local root
+    root="$(mktemp -d "$ISOLATED_TMP_ROOT/p8-isolated-test-staged-phase2.XXXXXX")"
+    root_path_is_safe "$root" || fail "refusing unsafe P8 root: $root"
+    chmod 0700 "$root"
+    printf '%s\n' "$OWNER_VALUE" > "$root/$OWNER_FILE"
+    chmod 0600 "$root/$OWNER_FILE"
+    printf '%s\n' "$root"
+}
+
+finish_probe_job() {
+    local pid="$1" active attempt
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 0
+    for ((attempt = 0; attempt < 600; attempt++)); do
+        active="$(jobs -pr | awk -v held="$pid" '$1 == held { print $1 }')"
+        [[ "$active" == "$pid" ]] || {
+            wait "$pid" 2>/dev/null || true
+            return 0
+        }
+        sleep 0.025
+    done
+    stop_job_process "$pid"
+}
+
+stop_job_process() {
+    local pid="$1" active attempt
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 0
+    active="$(jobs -pr | awk -v held="$pid" '$1 == held { print $1 }')"
+    [[ "$active" == "$pid" ]] || return 0
+    kill -TERM "$pid" 2>/dev/null || true
+    for ((attempt = 0; attempt < 200; attempt++)); do
+        active="$(jobs -pr | awk -v held="$pid" '$1 == held { print $1 }')"
+        [[ "$active" == "$pid" ]] || {
+            wait "$pid" 2>/dev/null || true
+            return 0
+        }
+        sleep 0.025
+    done
+    fail "owned shell job did not stop: $pid"
+}
+
+cleanup_recorded_processes() {
+    local root="$1"
+    [[ -f "$root/owned-processes" && ! -L "$root/owned-processes" ]] || return 0
+    P8_STAGED_CLEANUP_ROOT="$root" \
+        cargo test -p muxy-session --test staged_helper --locked --offline \
+            staged_bundle_helper_detaches_survives_app_close_and_cleans -- --exact >/dev/null
 }
 
 cleanup_owned_root() {
-    local root="$1" pid_file pid held current attempt
+    local root="$1"
     root_is_owned "$root" || fail "cleanup root is not P8-owned: $root"
-    pid_file="$root/app.pid"
-    if [[ -f "$pid_file" && ! -L "$pid_file" ]]; then
-        read -r pid held < "$pid_file" || true
-        if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" 2>/dev/null; then
-            current="$(process_start_identity "$pid" || true)"
-            [[ -n "$current" && "$current" == "$held" ]] || fail "refusing to signal reused or unknown PID $pid"
-            kill -TERM "$pid" 2>/dev/null || true
-            for ((attempt = 0; attempt < 200; attempt++)); do
-                kill -0 "$pid" 2>/dev/null || break
-                sleep 0.025
-            done
-            kill -0 "$pid" 2>/dev/null && fail "owned process did not stop: $pid"
-        fi
-    fi
+    cleanup_recorded_processes "$root"
     find "$root" -type s -delete
     rm -rf -- "$root"
 }
@@ -149,11 +178,39 @@ source_checks() {
     rg -q 'pub session_id: Option<SessionId>' crates/muxy-core/src/workspace/tab.rs || fail "typed sessionId is missing"
     rg -q '"sessionId"' crates/muxy-core/src/workspace_store.rs || fail "sessionId persistence is missing"
     rg -q '"paneSessionID"' crates/muxy-core/src/workspace_store.rs || fail "paneSessionID preservation proof is missing"
-    [[ ! -e crates/muxy-session ]] || fail "Phase 2 daemon crate entered Phase 1"
     matches="$(find . -name terminal-session-mode.json -print)"
     [[ -z "$matches" ]] || fail "forbidden terminal session marker exists"
     matches="$(rg -n 'muxy[-_]session' crates/muxy/Cargo.toml crates/muxy/src || true)"
-    [[ -z "$matches" ]] || fail "P8 runtime behavior entered Phase 1"
+    [[ -z "$matches" ]] || fail "P8 app runtime behavior entered before Phase 3"
+}
+
+phase_two_source_checks() {
+    source_checks
+    for path in \
+        crates/muxy-session/src/client.rs \
+        crates/muxy-session/src/daemon/mod.rs \
+        crates/muxy-session/src/daemon/session.rs \
+        crates/muxy-session/src/process_tree/mod.rs \
+        crates/muxy-session/src/pty/unix.rs \
+        crates/muxy-session/src/runtime_paths.rs \
+        crates/muxy-session/src/shell.rs \
+        crates/muxy-session/src/transport/unix.rs \
+        docs/development/session-protocol.md; do
+        [[ -f "$path" ]] || fail "missing Phase 2 source: $path"
+    done
+    rg -q '^muxy-session = \{ path = "crates/muxy-session" \}$' Cargo.toml || {
+        fail "workspace dependency on muxy-session is missing"
+    }
+    rg -q '"crates/muxy-session"' Cargo.toml || fail "muxy-session workspace member is missing"
+    rg -q 'authenticate_same_user\(&stream\)' crates/muxy-session/src/daemon/mod.rs || {
+        fail "daemon does not authenticate peers before handshake decode"
+    }
+    rg -q 'LOCAL_PEERCRED' crates/muxy-session/src/transport/unix.rs || fail "macOS peer authentication is missing"
+    rg -q 'SO_PEERCRED' crates/muxy-session/src/transport/unix.rs || fail "Linux peer authentication is missing"
+    rg -q 'O_NOFOLLOW' crates/muxy-session/src/runtime_paths.rs || fail "runtime no-follow validation is missing"
+    rg -q 'Contents/MacOS/muxy-session' scripts/build-app.sh scripts/verify-bundle.sh || {
+        fail "session helper bundle contract is missing"
+    }
 }
 
 portable_fixture() {
@@ -163,6 +220,39 @@ portable_fixture() {
     cargo test -p muxy-core --locked --offline resources
     cargo test -p muxy-terminal --locked --offline offline
     printf 'P8 portable fixture passed\n'
+}
+
+protocol_fixture() {
+    phase_two_source_checks
+    cargo test -p muxy-proto --locked --offline session
+    cargo test -p muxy-session --lib --locked --offline transport
+    printf 'P8 protocol fixture passed\n'
+}
+
+security_fixture() {
+    phase_two_source_checks
+    cargo test -p muxy-session --lib --locked --offline runtime_paths
+    cargo test -p muxy-session --test security --locked --offline
+    printf 'P8 security fixture passed with isolated runtime roots\n'
+}
+
+daemon_detach_attach_fixture() {
+    phase_two_source_checks
+    cargo test -p muxy-session --test daemon --locked --offline
+    cargo test -p muxy-session --test attach --locked --offline
+    printf 'P8 daemon detach/attach fixture passed with isolated runtime roots\n'
+}
+
+process_cleanup_fixture() {
+    phase_two_source_checks
+    cargo test -p muxy-session --test process_cleanup --locked --offline
+    printf 'P8 process cleanup fixture passed with identity-bound processes\n'
+}
+
+shell_integration_fixture() {
+    phase_two_source_checks
+    cargo test -p muxy-session --lib --locked --offline shell
+    printf 'P8 shell integration fixture passed\n'
 }
 
 validate_staged_app() {
@@ -181,7 +271,7 @@ validate_staged_app() {
 
 staged_phase_one() {
     local profile="$1" app="$2" case_name="$3" root app_support home tmp xdg socket_name
-    local executable log cli exit_status start_identity attempt
+    local executable log cli exit_status attempt
     [[ "$(uname -s)" == Darwin ]] || fail "staged verification requires macOS"
     [[ "$profile" == debug || "$profile" == release ]] || fail "invalid staged profile: $profile"
     [[ "$case_name" == phase-1 ]] || fail "unsupported Phase 1 staged case: $case_name"
@@ -210,9 +300,6 @@ staged_phase_one() {
         XDG_CONFIG_HOME="$xdg" \
         "$executable" > "$log" 2>&1 &
     APP_PID=$!
-    start_identity="$(process_start_identity "$APP_PID")"
-    APP_START_IDENTITY="$start_identity"
-    printf '%s %s\n' "$APP_PID" "$start_identity" > "$root/app.pid"
     for ((attempt = 0; attempt < 400; attempt++)); do
         [[ -S "$ACTIVE_SOCKET" ]] && break
         kill -0 "$APP_PID" 2>/dev/null || {
@@ -235,7 +322,6 @@ staged_phase_one() {
     exit_status=$?
     set -e
     APP_PID=""
-    APP_START_IDENTITY=""
     [[ "$exit_status" == 0 ]] || {
         cat "$log"
         fail "staged app exited with status $exit_status"
@@ -247,6 +333,108 @@ staged_phase_one() {
     ACTIVE_SOCKET=""
     ACTIVE_ROOT=""
     printf 'P8 staged Phase 1 passed with zero staged process residue\n'
+}
+
+staged_phase_two() {
+    local profile="$1" app="$2" case_name="$3" root app_support home tmp xdg app_socket
+    local executable helper app_log probe_log cli exit_status probe_pid
+    local ready proceed attempt pid held role
+    [[ "$(uname -s)" == Darwin ]] || fail "staged verification requires macOS"
+    [[ "$profile" == debug || "$profile" == release ]] || fail "invalid staged profile: $profile"
+    [[ "$case_name" == phase-2 ]] || fail "unsupported Phase 2 staged case: $case_name"
+    validate_staged_app "$app"
+    phase_two_source_checks
+    root="$(prepare_unique_phase_two_root)"
+    ACTIVE_ROOT="$root"
+    app_support="$root/app"
+    home="$root/home"
+    tmp="$root/tmp"
+    xdg="$root/xdg"
+    mkdir -p "$app_support" "$home" "$tmp" "$xdg"
+    app_socket="$app_support/muxy.sock"
+    [[ "$profile" == debug ]] && app_socket="$app_support/muxy-dev.sock"
+    ACTIVE_SOCKET="$app_socket"
+    executable="$app/Contents/MacOS/MuxyTests"
+    helper="$app/Contents/MacOS/muxy-session"
+    app_log="$root/app.log"
+    probe_log="$root/probe.log"
+    cli="$app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+    ready="$root/probe.ready"
+    proceed="$root/probe.proceed"
+    [[ -x "$helper" ]] || fail "staged session helper is missing"
+    codesign --verify --strict "$helper"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged app exited before binding its socket"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" ]] || fail "staged app socket was not created"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" list-projects >/dev/null
+    P8_STAGED_SESSION_HELPER="$helper" \
+        P8_STAGED_SESSION_ROOT="$root" \
+        P8_STAGED_READY_FILE="$ready" \
+        P8_STAGED_PROCEED_FILE="$proceed" \
+        cargo test -p muxy-session --test staged_helper --locked --offline \
+            staged_bundle_helper_detaches_survives_app_close_and_cleans -- --exact --nocapture \
+            > "$probe_log" 2>&1 &
+    probe_pid=$!
+    PROBE_PID="$probe_pid"
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -f "$ready" ]] && break
+        kill -0 "$probe_pid" 2>/dev/null || {
+            cat "$probe_log"
+            fail "staged helper probe exited before detach proof"
+        }
+        sleep 0.05
+    done
+    [[ -f "$ready" && -f "$root/owned-processes" ]] || fail "staged detach proof was not ready"
+    while IFS=' ' read -r pid held role; do
+        [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail "invalid owned $role PID"
+        [[ "$held" =~ ^[1-9][0-9]*$ ]] || fail "invalid owned $role start identity"
+        [[ "$role" == shell || "$role" == daemon ]] || fail "invalid owned process role"
+    done < "$root/owned-processes"
+    osascript -e 'tell application id "com.muxy.tests" to quit'
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        ! kill -0 "$APP_PID" 2>/dev/null && break
+        sleep 0.05
+    done
+    ! kill -0 "$APP_PID" 2>/dev/null || fail "staged app did not close normally"
+    set +e
+    wait "$APP_PID"
+    exit_status=$?
+    set -e
+    APP_PID=""
+    [[ "$exit_status" == 0 ]] || {
+        cat "$app_log"
+        fail "staged app exited with status $exit_status"
+    }
+    touch "$proceed"
+    set +e
+    wait "$probe_pid"
+    exit_status=$?
+    set -e
+    PROBE_PID=""
+    [[ "$exit_status" == 0 ]] || {
+        cat "$probe_log"
+        fail "staged helper probe exited with status $exit_status"
+    }
+    [[ ! -e "$root/owned-processes" ]] || fail "staged helper process identities remained"
+    [[ ! -S "$root/control.sock" ]] || fail "staged helper socket remained"
+    [[ ! -S "$app_socket" ]] || fail "staged app socket remained"
+    cleanup_owned_root "$root"
+    ACTIVE_SOCKET=""
+    ACTIVE_ROOT=""
+    printf 'P8 staged Phase 2 detach, app-close survival, reattach, and cleanup passed\n'
 }
 
 self_test() {
@@ -295,21 +483,32 @@ done
 
 case "${1:-}" in
     --fixture)
-        (($# == 2)) || fail "usage: scripts/verify-p8-terminal-memory.sh --fixture portable"
-        [[ "$2" == portable ]] || fail "unknown Phase 1 fixture: $2"
+        (($# == 2)) || fail "usage: scripts/verify-p8-terminal-memory.sh --fixture NAME"
         require_command cargo
-        portable_fixture
+        case "$2" in
+            portable) portable_fixture ;;
+            protocol) protocol_fixture ;;
+            security) security_fixture ;;
+            daemon-detach-attach) daemon_detach_attach_fixture ;;
+            process-cleanup) process_cleanup_fixture ;;
+            shell-integration) shell_integration_fixture ;;
+            *) fail "unknown P8 fixture: $2" ;;
+        esac
         ;;
     --self-test)
         (($# == 1)) || fail "usage: scripts/verify-p8-terminal-memory.sh --self-test"
         self_test
         ;;
     --staged)
-        (($# == 4)) || fail "usage: scripts/verify-p8-terminal-memory.sh --staged PROFILE APP phase-1"
+        (($# == 4)) || fail "usage: scripts/verify-p8-terminal-memory.sh --staged PROFILE APP PHASE"
         for command_name in awk cmp codesign osascript pgrep plutil ps shasum; do
             require_command "$command_name"
         done
-        staged_phase_one "$2" "$3" "$4"
+        case "$4" in
+            phase-1) staged_phase_one "$2" "$3" "$4" ;;
+            phase-2) staged_phase_two "$2" "$3" "$4" ;;
+            *) fail "unsupported staged P8 phase: $4" ;;
+        esac
         ;;
     --cleanup-only)
         (($# == 2)) || fail "usage: scripts/verify-p8-terminal-memory.sh --cleanup-only OWNED_ROOT"
@@ -320,6 +519,6 @@ case "${1:-}" in
         printf 'P8 cleanup completed: %s\n' "$2"
         ;;
     *)
-        fail "usage: scripts/verify-p8-terminal-memory.sh --fixture portable | --self-test | --staged PROFILE APP phase-1 | --cleanup-only OWNED_ROOT"
+        fail "usage: scripts/verify-p8-terminal-memory.sh --fixture NAME | --self-test | --staged PROFILE APP PHASE | --cleanup-only OWNED_ROOT"
         ;;
 esac

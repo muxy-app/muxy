@@ -361,6 +361,7 @@ phase_6_scope_checks() {
         crates/muxy-api/Cargo.toml \
         crates/muxy-core/Cargo.toml \
         crates/muxy-proto/Cargo.toml \
+        crates/muxy-session/Cargo.toml \
         crates/muxy-terminal/Cargo.toml \
         crates/muxy-ui/Cargo.toml \
         crates/muxy/Cargo.toml)"
@@ -369,7 +370,7 @@ phase_6_scope_checks() {
         printf 'expected crate manifests:\n%s\nactual crate manifests:\n%s\n' "$expected_manifests" "$actual_manifests"
         fail "P6 introduced a new crate"
     }
-    expected_bins='crates/muxy/src/main.rs'
+    expected_bins="$(printf '%s\n' crates/muxy-session/src/main.rs crates/muxy/src/main.rs)"
     actual_bins="$(find crates -type f \( -path '*/src/bin/*' -o -name main.rs \) -print | sort)"
     [[ "$actual_bins" == "$expected_bins" ]] || {
         printf 'expected binaries:\n%s\nactual binaries:\n%s\n' "$expected_bins" "$actual_bins"
@@ -383,8 +384,6 @@ phase_6_scope_checks() {
         Muxy \
         Tests \
         crates/muxy/src/socket \
-        scripts/build-app.sh \
-        scripts/verify-bundle.sh \
         resources/Info.plist \
         .github; do
         git diff --quiet -- "$locked" || fail "P6 changed locked path: $locked"

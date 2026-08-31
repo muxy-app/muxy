@@ -19,7 +19,7 @@ fail() {
     exit 1
 }
 
-for command_name in cmp codesign grep iconutil plutil; do
+for command_name in cmp codesign find grep iconutil lipo plutil sed sort uname; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command not found: $command_name"
 done
 [[ -x /usr/libexec/PlistBuddy ]] || fail "required command not found: /usr/libexec/PlistBuddy"
@@ -28,6 +28,7 @@ readonly CONTENTS="$APP_BUNDLE/Contents"
 readonly PLIST="$CONTENTS/Info.plist"
 readonly RESOURCES="$CONTENTS/Resources"
 readonly EXECUTABLE="$CONTENTS/MacOS/muxy"
+readonly SESSION_HELPER="$CONTENTS/MacOS/muxy-session"
 readonly ICON="$RESOURCES/AppIcon.icns"
 readonly CLI_SOURCE="$PROJECT_ROOT/Muxy/Resources/scripts/muxy-cli"
 readonly BUNDLED_CLI="$RESOURCES/Muxy_Muxy.bundle/scripts/muxy-cli"
@@ -36,6 +37,21 @@ readonly BUNDLED_DEVELOPMENT_CLI="$RESOURCES/muxy-dev-bin/muxy"
 
 [[ -d "$APP_BUNDLE" ]] || fail "app bundle not found: $APP_BUNDLE"
 [[ -x "$EXECUTABLE" ]] || fail "bundle executable is missing or not executable"
+[[ -x "$SESSION_HELPER" ]] || fail "session helper is missing or not executable"
+macos_inventory="$(find "$CONTENTS/MacOS" -mindepth 1 -maxdepth 1 -type f -print \
+    | sed 's#^.*/##' | LC_ALL=C sort)"
+[[ "$macos_inventory" == $'muxy\nmuxy-session' ]] || {
+    fail "Contents/MacOS inventory differs: $macos_inventory"
+}
+main_architectures="$(lipo -archs "$EXECUTABLE")"
+helper_architectures="$(lipo -archs "$SESSION_HELPER")"
+[[ "$main_architectures" == "$helper_architectures" ]] || {
+    fail "app and session helper architectures differ"
+}
+case " $main_architectures " in
+    *" $(uname -m) "*) ;;
+    *) fail "bundle does not contain the current architecture: $(uname -m)" ;;
+esac
 [[ -f "$PLIST" ]] || fail "Info.plist is missing"
 [[ -s "$ICON" ]] || fail "AppIcon.icns is missing or empty"
 [[ -x "$BUNDLED_CLI" && -s "$BUNDLED_CLI" ]] || {
@@ -91,6 +107,12 @@ readonly expected_name expected_identifier
 [[ -s "$RESOURCES/ghostty/shell-integration/zsh/ghostty-integration" ]] || {
     fail "bundled zsh shell integration is missing"
 }
+[[ -s "$RESOURCES/ghostty/shell-integration/bash/elvish/lib/ghostty-integration.elv" ]] || {
+    fail "bundled elvish shell integration is missing"
+}
+[[ -s "$RESOURCES/ghostty/shell-integration/nushell/vendor/autoload/ghostty.nu" ]] || {
+    fail "bundled nushell shell integration is missing"
+}
 readonly BUNDLED_DEVELOPMENT_FISH_INTEGRATION="$RESOURCES/ghostty/shell-integration/fish/vendor_conf.d/zz-muxy-development-cli.fish"
 if [[ "$PROFILE" == debug || -x "$BUNDLED_DEVELOPMENT_CLI" ]]; then
     for integration in \
@@ -140,6 +162,11 @@ for icon_name in \
     }
 done
 
+codesign --verify --strict --verbose=2 "$SESSION_HELPER"
+helper_signature_details="$(codesign --display --verbose=4 "$SESSION_HELPER" 2>&1)"
+grep -q '^Signature=adhoc$' <<<"$helper_signature_details" || {
+    fail "session helper signature is not ad-hoc"
+}
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 signature_details="$(codesign --display --verbose=4 "$APP_BUNDLE" 2>&1)"
 grep -q '^Signature=adhoc$' <<<"$signature_details" || fail "bundle signature is not ad-hoc"

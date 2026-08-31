@@ -196,13 +196,10 @@ check_boundary muxy-api 'gpui|objc2|ghostty|muxy[-_]terminal|muxy[-_]ui'
 check_boundary muxy-core 'gpui|muxy[-_]api|muxy[-_]terminal|muxy[-_]ui|notify'
 check_boundary muxy-proto 'gpui|objc2|objective-c|ghostty[-_](host|sys)|muxy[-_](core|api|terminal|ui)|muxy::|package\s*=\s*"muxy"|^\s*muxy(\.workspace)?\s*='
 check_boundary muxy-terminal 'gpui|muxy[-_]api|muxy[-_]ui'
+check_boundary muxy-session 'gpui|objc2|ghostty[-_](host|sys)|muxy[-_](api|terminal|ui)|package\s*=\s*"muxy"'
 check_boundary muxy-ui 'muxy[-_]core|muxy[-_]api|muxy[-_]terminal|ghostty'
 
-printf '==> Checking P8 portable ownership\n'
-[[ ! -e crates/muxy-session ]] || {
-    printf 'error: P8 daemon crate entered before Phase 2\n' >&2
-    exit 1
-}
+printf '==> Checking P8 portable and daemon ownership\n'
 if find . -name terminal-session-mode.json -print | grep -q .; then
     printf 'error: P8 must not add a terminal session mode marker\n' >&2
     exit 1
@@ -214,6 +211,11 @@ if [[ -n "$p8_terminal_boundary" ]]; then
     exit 1
 fi
 "$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture portable
+"$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture protocol
+"$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture security
+"$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture daemon-detach-attach
+"$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture process-cleanup
+"$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture shell-integration
 
 printf '==> Checking the terminal backend boundary\n'
 if rg -n 'objc2|ghostty_host|ghostty_sys|NativeView|NSView' \

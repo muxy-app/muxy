@@ -159,8 +159,6 @@ source_checks() {
         crates/muxy/src/socket/catalog.rs \
         crates/muxy-core/src/migration.rs \
         Muxy/Resources/scripts/muxy-cli \
-        scripts/build-app.sh \
-        scripts/verify-bundle.sh \
         .github || true)"
     changes="$(printf '%s\n' "$changes" | rg -v 'crates/muxy-proto/src/session/|crates/muxy-proto/src/lib.rs$' || true)"
     [[ -z "$changes" ]] || {

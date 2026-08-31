@@ -6,3 +6,5 @@ pub mod terminal_stream;
 pub mod window_size;
 
 pub use id::{SessionId, SessionIdError};
+pub use messages::*;
+pub use window_size::*;
