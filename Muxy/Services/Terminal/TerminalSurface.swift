@@ -136,7 +136,7 @@ protocol TerminalSessionRecoverySurface: AnyObject {
     var onSessionRecoveryFailed: ((Bool) -> Void)? { get set }
     var isSessionRecoveryFailed: Bool { get }
 
-    func reattachPersistentSession()
+    func reconnect()
     func reportSessionRecoveryFailure()
 }
 

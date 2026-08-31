@@ -732,6 +732,7 @@
 "Repository unavailable" = "Repository unavailable";
 "Repository unavailable. Click to retry." = "Repository unavailable. Click to retry.";
 "Reconnect" = "Reconnect";
+"Reconnect to start a new SSH terminal session" = "Reconnect to start a new SSH terminal session";
 "Reconnect to the background terminal session" = "Reconnect to the background terminal session";
 "Reset" = "Reset";
 "Reset All" = "Reset All";
@@ -774,6 +775,7 @@
 "Runs new terminals in a background process so they survive quitting Muxy." = "Runs new terminals in a background process so they survive quitting Muxy.";
 "Runtime Error" = "Runtime Error";
 "SSH Host" = "SSH Host";
+"SSH connection ended" = "SSH connection ended";
 "Save" = "Save";
 "Saves your settings, projects, remote devices, shortcuts and customizations to a single .muxy file. Credentials such as SSH keys, passwords and paired mobile devices are never included." = "Saves your settings, projects, remote devices, shortcuts and customizations to a single .muxy file. Credentials such as SSH keys, passwords and paired mobile devices are never included.";
 "Scan this with the Muxy mobile app to add this Mac. The QR carries no token — first-time pairing still needs your approval." = "Scan this with the Muxy mobile app to add this Mac. The QR carries no token — first-time pairing still needs your approval.";
@@ -1070,6 +1072,7 @@
 "Could not paste image on remote device" = "Could not paste image on remote device";
 "Could not upload attachment to remote device" = "Could not upload attachment to remote device";
 "The SSH destination changed during upload." = "The SSH destination changed during upload.";
+"The SSH connection to this project ended. Reconnect to start a new terminal session." = "The SSH connection to this project ended. Reconnect to start a new terminal session.";
 "Creates the extension in %@/<name>" = "Creates the extension in %@/<name>";
 "Extension icon rail order" = "Extension icon rail order";
 "Extension Location" = "Extension Location";
