@@ -2,7 +2,7 @@
 
 ## Context
 
-Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emulator (libghostty) + project/worktree manager + JS extension platform + embedded browser + mobile WebSocket server + AI-agent hook system + tmux-like persistent sessions. The Rust + GPUI rewrite is now in this repository on the `2.x` branch, with the 8-crate workspace at the branch root and the Swift implementation retained alongside it as the parity reference. The architecture refactor is **fully complete** and mechanically enforced by `scripts/check.sh`. The old phase plans are consumed or superseded; this document is the single roadmap for finishing the rewrite. It has passed one adversarial review pass; corrections from that review are folded in.
+Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emulator (libghostty) + project/worktree manager + JS extension platform + embedded browser + mobile WebSocket server + AI-agent hook system + tmux-like persistent sessions. The Rust + GPUI rewrite is now in this repository on the `2.x` branch, with the 9-crate workspace at the branch root and the Swift implementation retained alongside it as the parity reference. The architecture refactor is **fully complete** and mechanically enforced by `scripts/check.sh`. The old phase plans are consumed or superseded; this document is the single roadmap for finishing the rewrite. It has passed one adversarial review pass; corrections from that review are folded in.
 
 **Goal:** Muxy 2.0 for macOS replaces the Swift app in `/Applications`. Release performs one bounded, source-preserving import into `~/.muxy`, then Rust owns its storage. Debug owns `~/.muxy-dev`. Linux comes after, while this roadmap keeps it compiling and launching.
 
@@ -14,7 +14,7 @@ Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emu
 | 2 | **Dev/prod isolation** mirrored from Swift — added early, essential for development. |
 | 3 | **Webview:** direct WKWebView via objc2, hosted through the existing `native_compositor`. |
 | 4 | **Extension host:** out-of-process Rust binary using **system JavaScriptCore** — exact engine parity with 1.x extensions. |
-| 5 | **Persistent sessions + idle offline freeing:** both rebuilt (both default **off** in 1.x — verified). Rust daemon uses the same paths and framed protocol. |
+| 5 | **Persistent sessions + idle offline freeing:** both rebuilt and default off. Rust uses isolated profile-specific runtime paths and a bounded Rust session protocol. It does not adopt retained Swift sessions or wire state. |
 | 6 | **Updates:** Sparkle is NOT carried over. 2.x ships a unified Rust-native updater (Mac now, Linux later). Bundle id stays `com.muxy.app`; existing users upgrade by manual download-and-replace. |
 | 7 | **CLI:** keep the bash wrapper untouched — "the installed CLI just works" is an acceptance test of the socket server's fidelity. |
 | 8 | **Sentry: dropped entirely.** Local diagnostics (logs, profiler, Diagnostics menu, export) stay. |
@@ -25,6 +25,7 @@ Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emu
 | 13 | **Repo workflow:** the active rewrite repository is `~/Projects/muxy-2.x` on branch `2.x`. The Rust workspace lives at the branch root alongside the retained Swift parity reference. Feature branches PR into `2.x`; `~/Projects/muxy` remains the 1.x working copy. |
 | 14 | **Release gate:** beta-channel soak + full parity checklist (details in Verification). |
 | 15 | **Storage cutover:** release imports the retained Swift profile once into `~/.muxy`; debug uses `~/.muxy-dev`; existing Rust data wins and the Swift source remains untouched. |
+| 16 | **Testing:** automated tests and verifiers are headless and never launch Muxy or a staged app bundle on a user's computer. Visual, focus, accessibility, native lifecycle, and real OS integration are checked manually by the user. |
 
 ## Open decisions (surfaced by adversarial review — resolve at owning phase's planning)
 
@@ -49,15 +50,22 @@ flowchart TD
     UI["muxy-ui\nGPUI kit: theme, icons, controls,\ntext_input, scrollbar"]
     TERM["muxy-terminal\nbackend trait, search, scrollbar,\nconfirmations, ghostty NSView host"]
     API["muxy-api\ngit, worktrees(read), truth, ide,\nlayouts, watcher, picker"]
+    PROTO["muxy-proto\napp and session wire contracts"]
     CORE["muxy-core\nprefs, settings catalog, shortcuts,\nstores, workspace tree, workspace_store"]
+    SESSION["muxy-session\nPTY daemon + attach client"]
     HOST["ghostty-host\nsafe wrapper, RuntimeEvent channel"]
     SYS["ghostty-sys\nbindgen FFI → GhosttyKit.xcframework"]
 
     app --> UI
     app --> TERM
     app --> API
+    app --> PROTO
+    app --> SESSION
     API --> CORE
+    CORE --> PROTO
     TERM --> CORE
+    SESSION --> CORE
+    SESSION --> PROTO
     TERM --> HOST
     HOST --> SYS
     app --> CORE
@@ -67,7 +75,7 @@ flowchart TD
 - Terminal stack: libghostty FFI → host → NSView (IME, CJK fonts, mouse, pressure) → GPUI compositing; shell launch with startup commands; OSC titles/PWD/progress; search; overlay scrollbar; clipboard/paste/close confirmations.
 - Tabs/splits: full two-level tree (top-level tab groups + per-group split trees), drag/dock/reorder, pin/color/icon/rename, maximize, directional focus.
 - Persistence uses Rust-owned profile roots. Release imports the current allowlist once from `~/Library/Application Support/Muxy` into `~/.muxy`; debug uses `~/.muxy-dev`; staged tests inject ignored roots. Existing destination data wins, the Swift source is never modified, and terminal migration outcomes never inspect it again. Preferences use private atomic `preferences.json`; only an eligible pending macOS release migration reads the production `NSUserDefaults` suite through Foundation.
-- Projects/groups/worktrees (read + switch), git truth off-thread, FS watcher, project picker, omnibox (6 scopes), repo layouts (`.muxy/layouts/*`), 490 bundled themes + paired light/dark, keybindings (54 of 1.x's 68 bindable actions modelled + unmodelled passthrough — parity audit needed), chorded command shortcuts + editor UI, settings modal (16 categories + JSON editor), native menu bar, app bundling/signing scripts (ad-hoc, single-binary only).
+- Projects/groups/worktrees (read + switch), git truth off-thread, FS watcher, project picker, omnibox (6 scopes), repo layouts (`.muxy/layouts/*`), 490 bundled themes + paired light/dark, keybindings (54 of 1.x's 68 bindable actions modelled + unmodelled passthrough — parity audit needed), chorded command shortcuts + editor UI, settings modal (16 categories + JSON editor), native menu bar, app bundling/signing scripts with the nested `muxy-session` helper and exact shell-integration inventory (ad-hoc only).
 
 ## Gap Map — 1.x feature vs 2.x status
 
@@ -83,8 +91,8 @@ flowchart TD
 | Notifications (toast/panel/desktop/sounds/navigation, OSC 9/777) | ❌ missing |
 | Quick Terminal (global hotkey, panel) | ⚠️ implemented; manual native acceptance pending |
 | Composer / rich input (+ drafts, attachments, broadcast) | ⚠️ implemented panel-only; manual native acceptance pending |
-| Idle terminal offline freeing + process-tree resource monitor | ❌ settings only |
-| Persistent sessions (`muxy-session` daemon + attach + UI) | ❌ missing |
+| Idle terminal offline freeing + process-tree resource monitor | ⚠️ implemented; manual native acceptance pending |
+| Persistent sessions (`muxy-session` daemon + attach + UI) | ⚠️ implemented; manual native acceptance pending |
 | `muxy.sock` server + verb dispatcher (3 entry surfaces) + CLI | ✅ P2 complete |
 | Extension platform (host, manifests, permissions, consent, audit, marketplace, surfaces) | ❌ missing |
 | Embedded browser (WKWebView, profiles, history, automation, cookie import) | ❌ missing |
@@ -101,8 +109,8 @@ flowchart TD
 | install-skills + bundled skills + starter kits | ❌ missing |
 | Deferred startup ordering, TCC usage strings, tooltip/press-and-hold defaults | ❌ missing |
 | Transparency/blur, app layouts (`tabFocused`/`agentsFocused` refinements) | ❌ partial (projectFocused chrome only) |
-| Dev/prod isolation | ✅ P1 contracts and settings complete; P2 socket coexistence proven; session, hook, and mobile runtime proof remains in P8/P11/P12 |
-| Release signing/notarization/DMG, multi-binary bundle | ❌ ad-hoc, single binary |
+| Dev/prod isolation | ✅ P1 contracts and settings complete; app socket and P8 session runtime coexistence proven; hook and mobile runtime proof remains in P11/P12 |
+| Release signing/notarization/DMG, multi-binary bundle | ⚠️ app and `muxy-session` ad-hoc debug/release bundles verified; distribution signing, notarization, and later helpers remain P15 |
 
 Note: 1.x has **no** menu-bar extra/NSStatusItem and **no** onboarding flow — none should be assumed.
 
@@ -153,7 +161,7 @@ Each phase gets its own detailed plan (grill-me per task) before implementation.
 ### Stage A — Foundations
 
 **P0 — Repo migration, workflow & local quality gates. COMPLETE.**
-The active rewrite repository is `~/Projects/muxy-2.x` on branch `2.x`. The 8-crate Rust workspace is at the repository root alongside the retained Swift implementation, which remains the parity reference while the rewrite proceeds. Feature branches target `2.x`; `~/Projects/muxy` remains the 1.x working copy. Local enforcement is provided by `scripts/check.sh`, `scripts/build-app.sh`, and `scripts/verify-bundle.sh`. New phases extend crate-boundary and bundle gates when they add crates or executables. The existing 1.x workflows remain in the repository, while Rust macOS/Linux CI is deliberately deferred to P15 so it lands before release.
+The active rewrite repository is `~/Projects/muxy-2.x` on branch `2.x`. The 9-crate Rust workspace is at the repository root alongside the retained Swift implementation, which remains the parity reference while the rewrite proceeds. Feature branches target `2.x`; `~/Projects/muxy` remains the 1.x working copy. Local enforcement is provided by `scripts/check.sh`, `scripts/build-app.sh`, and `scripts/verify-bundle.sh`. New phases extend crate-boundary and bundle gates when they add crates or executables. The existing 1.x workflows remain in the repository, while Rust macOS/Linux CI is deliberately deferred to P15 so it lands before release.
 *Acceptance: complete.* The active repository and `2.x` workflow are established, the Rust workspace builds from the branch root, and local quality gates are available.
 
 **P1 — Dev/prod isolation. COMPLETE.**
@@ -180,11 +188,10 @@ Wire every inert control that has a backing feature: titlebar split/new-tab butt
 
 *Acceptance: complete.* Portable capped history, typed socket/hook and OSC ingress, delivery/coalescing policy, toast and panel presentation, unread synchronization, stable-ID navigation, target-gated UserNotifications/NSSound edges, persistence lifecycle, Linux core portability, CLI compatibility, and isolated debug/release lifecycle verification are green. Native authorization/banner/click behavior, sound audibility, and rendered visual/accessibility acceptance remain user-owned.
 **P6 — Quick Terminal. IMPLEMENTED; MANUAL NATIVE ACCEPTANCE PENDING.** Global hotkey (Carbon `RegisterEventHotKey` + double-Shift with Input Monitoring), slide-out panel window, persistent home shell, size/transparency/blur settings, `quick-terminal-shortcut.json` conflict validation.
-**P7 — Composer. IMPLEMENTED PANEL-ONLY; MANUAL NATIVE ACCEPTANCE PENDING.** `⌘I` on macOS and `Alt+I` elsewhere toggle one in-window panel that docks right/bottom, resizes, pins to displace the workspace, or floats as an in-window overlay. The multiline editor, image/file attachments (`RichInputImages/` plus reference sweep), pane broadcast, per-worktree drafts (`rich-input-drafts.json`), transactional Return/no-Return submission, editor typography, native pasteboard adapter, and shared parser-backed Composer/terminal/sidebar path drops are implemented. There is no standalone Composer window or modal. Automated debug/release staged lifecycle and exact-byte proof are complete; physical Finder/clipboard delivery, real TUI image interpretation, visual/focus/accessibility quality, and Linux-host launch remain manual or later-platform acceptance.
-**P8 — Terminal memory features.**
-(a) Idle offline freeing — corrected semantics: there is **no detach API in libghostty**; 1.x does `ghostty_surface_free` + full recreate, scrollback is lost unless the pane is persistent-session-backed, and the startup command is not re-run on wake. Idle detection needs `sysctl(KERN_PROC_TTY)` foreground-pid resolution. Plus the **process-tree** resource monitor (`proc_pid_rusage`) + status-bar CPU/RAM widget.
-(b) Persistent sessions — consume the preferred and uid-fallback paths from `RuntimePathPolicy`, create them securely, and prove debug/release session isolation. Preserve 1.x's architecture: ghostty still runs **in-app**; the surface command is the bundled attach client (`Contents/MacOS/muxy-session attach`), and the daemon is spawned lazily by the attach client via `posix_spawn` (no launchd). Rust `muxy-session` daemon + attach speaking the 1.x framed protocol (`SessionFrame`, 256KB replay, shell-integration injection for 5 shells, LOCAL_PEERCRED, flock singleton, idle self-exit), sessions popover, Send to Background, recovery/reconnect, CLI `list-sessions`/`kill-session`.
-Precondition: verify `ghostty-host` exposes the five fork-only APIs P8/P12 rely on (`ghostty_surface_set_data_callback`, `read_cells`, `foreground_pid`, `send_input_raw`, `set_occlusion`).
+**P7 — Composer. IMPLEMENTED PANEL-ONLY; MANUAL NATIVE ACCEPTANCE PENDING.** `⌘I` on macOS and `Alt+I` elsewhere toggle one in-window panel that docks right/bottom, resizes, pins to displace the workspace, or floats as an in-window overlay. The multiline editor, image/file attachments (`RichInputImages/` plus reference sweep), pane broadcast, per-worktree drafts (`rich-input-drafts.json`), transactional Return/no-Return submission, editor typography, native pasteboard adapter, and shared parser-backed Composer/terminal/sidebar path drops are implemented. There is no standalone Composer window or modal. Headless state, exact-byte, and bundle proof are complete; physical Finder/clipboard delivery, real TUI image interpretation, visual/focus/accessibility quality, native lifecycle, and Linux-host launch remain manual or later-platform acceptance.
+**P8 — Terminal memory features. IMPLEMENTED; MANUAL NATIVE ACCEPTANCE PENDING.**
+(a) Idle terminal sleeping is separately default off, hidden-only, generation-safe, and fail-awake when process facts are uncertain. Persistent sleep drops only the renderer and attach client. Safe ordinary sleep recreates a shell in the last cwd without rerunning the startup command and loses scrollback. The default threshold is 300 seconds. The process-tree resource monitor is default on, aggregates app and authenticated session descendants by PID/start identity, and presents live, stale, and unavailable CPU/RAM states.
+(b) Persistent sessions are restart-only and default off. The profile-specific private `muxy-session` daemon owns PTYs, exact process-tree cleanup, bounded 256 KiB replay, and one renderer per session. Ghostty remains in-app and runs the bundled `Contents/MacOS/muxy-session attach` renderer client. The current Rust protocol is versioned, bounded, and same-user authenticated; it does not adopt retained Swift sessions, old protocol sessions, arbitrary processes, or `paneSessionID`. Session Manager, Send to Background, recovery states, and retained CLI `list-sessions`/`kill-session` are active. Headless state/protocol/process tests and debug/release bundle verification are required by the P8 gate. Automated app-launching E2E is disabled. Native visual, accessibility, interactive, lifecycle, and daily-use acceptance remains manual and user-owned.
 **Stage B extras:** quit confirmation + `.terminateLater`-style 5s cleanup + relaunch-in-place; deferred-startup ordering ladder; `ApplePressAndHoldEnabled`/tooltip-delay registrations.
 *Stage B exit:* you live on the Rust app daily.
 
@@ -243,7 +250,7 @@ Placement rules per phase:
 - **P2 socket server:** wire types + the real framing (pipe-separated lines, NUL-terminated CLI replies, base64-JSON fields) in `muxy-proto`; the unix-socket listener as a headless transport (requests/replies over channels, no GPUI); the verb dispatcher lives in the app (it needs `AppState`, like `MuxyAPIDispatcher`), delegating real work to `muxy-core`/`muxy-api`.
 - **P5 notifications / P14 backup:** models + stores in `muxy-core`; macOS delivery (UserNotifications, `ditto`) at cfg-gated edges.
 - **P6 quick terminal / P13 voice:** windows/UI in `muxy`; Carbon hotkey, Speech, AVCapture as small mac-gated modules with neutral APIs.
-- **P8 idle freeing:** policy headless in `muxy-terminal` (offline policy/timeout mirror), surface free/recreate via the backend trait; proc/sysctl sampling mac-gated.
+- **P8 terminal memory:** idle policy and wake ordering are headless in `muxy-terminal`; resource aggregation is in `muxy-core`; macOS process sampling, renderer lifecycle, startup reconciliation, and UI remain in `muxy`; the `muxy-session` crate owns the shared client facade, private daemon transport, PTYs, replay, secure runtime paths, and process cleanup.
 - **P9 webview:** `muxy-web` mirrors the `muxy-terminal` shape — headless handle trait + signals, WKWebView NSView impl mac-gated (incl. the reparenting broker), app-side adapter adds `element()`; `views/` never names NSView types (check.sh gate extends to it).
 - **P10 extensions:** manifest/permissions/consent/audit models headless (shared by app and host via `muxy-proto`); host-process JSC embedding in `muxy-extension-host`; the in-process command-script runner's placement follows the P10 open decision.
 - **P15 updater:** headless feed-parse/verify crate or `muxy-api` module; platform install steps cfg-gated.
@@ -273,7 +280,7 @@ Placement rules per phase:
 | Hook installer writes into other tools' configs | P11 requires current-mode permits at every mutator; development permits only explicit AI Notifications toggle/Refresh handlers; mechanically allowlist those mint sites; byte-compare staged shims/JSON against 1.x output. |
 | Carbon hotkey + Input Monitoring from Rust | Small standalone spike in P6. |
 | GPUI limitations (panel windows, transparency, multi-window quick terminal) | Spike quick-terminal window shape early in P6; fallback is an NSPanel via objc2 hosting a GPUI view. |
-| Persistent-session protocol byte fidelity | Golden transcripts recorded from the Swift daemon; cross-attach test (Rust attach ↔ Swift daemon); preserve the attach-client-spawns-daemon architecture. |
+| Persistent-session protocol safety | The current Rust protocol has strict bounded codecs, same-user peer authentication, build/version mismatch rejection, isolated daemon/attach integration tests, and no retained Swift adoption. |
 | Scope: "full parity" is enormous | Stage gates; per-phase grill-me planning; parity checklist maintained from day one, seeded from the corrected inventory in this plan. |
 
 ## Verification strategy

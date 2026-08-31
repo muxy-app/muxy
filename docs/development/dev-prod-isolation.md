@@ -7,25 +7,24 @@ flowchart LR
     A[Choose a run mode] --> B{Mode}
     B -->|Debug| C[scripts/run.sh debug]
     B -->|Release| D[scripts/run.sh release]
-    B -->|Isolated test| E[scripts/run-test-app.sh debug or release]
+    B -->|Native verification| E[Ask the user to launch and check]
     C --> F[com.muxy.dev]
     C --> G[~/.muxy-dev]
     D --> H[com.muxy.app]
     D --> I[~/.muxy]
-    E --> J[com.muxy.tests]
-    E --> K[target/test-verification/state]
+    E --> J[User reports observed behavior]
 ```
 
 | Goal | Command |
 |---|---|
 | Run normal development | `scripts/run.sh debug` |
 | Run the release profile | `scripts/run.sh release` |
-| Test debug without development state | `scripts/run-test-app.sh debug` |
-| Test release without production state | `scripts/run-test-app.sh release` |
+| Verify bundle structure without launch | `scripts/verify-bundle.sh target/debug/Muxy.app debug` |
+| Verify native or visual behavior | Ask the user to launch the app and report the result |
 
-Normal debug has its own bundle identity and storage root. It does not read release App Support or release defaults. The test runner creates a staged `MuxyTests` app with injected storage.
+Normal debug has its own bundle identity and storage root. It does not read release App Support or release defaults.
 
-`com.muxy.tests` and `target/test-verification` are permanent test infrastructure. Every phase reuses them instead of creating phase-numbered identities.
+Automated tests never launch `Muxy`, `Muxy Dev`, or `MuxyTests`. `scripts/run-test-app.sh` is disabled. Staged test bundles may be prepared for user-run manual checks, but agents and verifier scripts must not launch them. See [Testing policy](testing.md).
 
 ## Storage identities
 

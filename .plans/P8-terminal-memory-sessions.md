@@ -73,7 +73,7 @@ Planning was read-only except for this plan file. No build, test, bundle, app la
 26. **Protocol mismatch fails explicitly and safely.**
 27. **P8 scope is terminal and session work only:** idle sleeping, process-tree monitoring and status UI, tmux-like runtime and UX, CLI activation, security, profile isolation, packaging, tests, guardrails, and documentation.
 28. **Exclude unrelated Stage B extras:** general quit confirmation, generic relaunch-in-place, deferred startup ordering, and `ApplePressAndHoldEnabled` or tooltip defaults.
-29. **Execute incrementally.** Every phase ends with focused tests, full gates, a verified bundle, staged app launch and normal close, and process cleanup proof.
+29. **Execute incrementally.** Every phase ends with focused headless tests, full gates, verified bundle structure, and process cleanup proof. Native and visual checks are requested from the user and recorded separately.
 30. **Longest-lived constraints are portable protocol, policy, and model boundaries, stable profile/build-mode names, and target-gated PTY, peer-credential, proc/sysctl, and Ghostty code.**
 31. **Linux cross-target compilation is required.** Linux-host launch remains P15.
 32. **P2 remains stable.** Socket framing, accepted-head catalog, retained CLI source bytes, and the legacy CLI bundle path do not change.
@@ -81,6 +81,7 @@ Planning was read-only except for this plan file. No build, test, bundle, app la
 34. **The resource widget retains its existing default-on behavior.**
 35. **No global mutable singleton state.**
 36. **Repository rules remain binding.** Add no code comments, Python scripts, lint-suppressing `allow` or `expect`, caller-specific policy in shared code, or unrequested git history, worktree, commit, or publish activity.
+37. **Automated verification is headless.** Tests and verifiers never launch Muxy or a staged app bundle on the user's computer. Do not add replacement app-launching E2E modes. Ask the user to check visual, focus, accessibility, native lifecycle, and real OS behavior manually. This supersedes app-launch commands in completed phase gates; Progress retains them only as historical evidence.
 
 ## Resolved design details
 
@@ -881,38 +882,28 @@ The staged proof must exercise the retained CLI through its legacy bundle path a
 **Focused verification:**
 
 - Static gates pin dependency direction, protocol ownership, idle-policy ownership, no marker file, no `paneSessionID` adoption, exact keys/defaults, one renderer attach, and unchanged P2 contracts.
-- Verifier self-tests reject production roots, foreign ownership, unsafe modes, symlinks, stale owner markers, live-socket unlink, wrong profile helper, and cleanup outside owned roots.
-- Debug and release staged identities remain isolated from each other and production.
-- Full daemon stress covers repeated attach/detach, replay truncation, input/output bounds, startup races, shell exit, full process-tree termination, and daemon idle exit.
-- Documentation distinguishes observed automated behavior from manual/native acceptance.
+- Verifier self-tests reject production roots, foreign ownership, unsafe modes, symlinks, stale owner markers, live-socket unlink, and cleanup outside owned roots. Bundle-only staging guards reject wrong helper profiles.
+- Debug and release bundle identities and inventories remain isolated without launching either app.
+- Full headless daemon stress covers repeated attach/detach, replay truncation, input/output bounds, startup races, shell exit, full process-tree termination, and daemon idle exit.
+- Documentation distinguishes observed automated behavior from user-owned manual/native acceptance.
 
 **Phase gate:**
 
 ```bash
-cargo test --workspace --all-targets --all-features --locked --offline
-scripts/verify-p5-notifications.sh --self-test
-scripts/verify-p6-quick-terminal.sh --self-test
-scripts/verify-p7-composer.sh --self-test
-scripts/verify-p8-terminal-memory.sh --self-test
-scripts/verify-p8-terminal-memory.sh --fixture all
 scripts/check.sh
+scripts/verify-p8-terminal-memory.sh --source-checks
 cargo check -p muxy-proto --all-features --locked --offline --target x86_64-unknown-linux-gnu
 cargo check -p muxy-api --all-features --locked --offline --target x86_64-unknown-linux-gnu
 cargo check -p muxy-core --all-features --locked --offline --target x86_64-unknown-linux-gnu
 cargo check -p muxy-terminal --all-features --locked --offline --target x86_64-unknown-linux-gnu
 cargo check -p muxy-session --all-features --locked --offline --target x86_64-unknown-linux-gnu
 cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
-
-scripts/build-app.sh debug
-scripts/verify-bundle.sh target/debug/Muxy.app debug
-debug_app="$(scripts/stage-test-app.sh target/debug/Muxy.app p8-final-debug)"
-scripts/verify-p8-terminal-memory.sh --staged debug "$debug_app" final-debug
-
+PATH="$PWD/target/test-verification/p8/toolchain:$PATH" \
+AR_x86_64_unknown_linux_gnu='zig ar' \
+cargo check -p muxy --all-features --locked --offline \
+--target x86_64-unknown-linux-gnu
 scripts/build-app.sh release
 scripts/verify-bundle.sh target/release/Muxy.app release
-release_app="$(scripts/stage-test-app.sh target/release/Muxy.app p8-final-release)"
-scripts/verify-p8-terminal-memory.sh --staged release "$release_app" final-release
-
 cmp -s Muxy/Resources/scripts/muxy-cli target/debug/Muxy.app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli
 cmp -s Muxy/Resources/scripts/muxy-cli target/release/Muxy.app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli
 codesign --verify --deep --strict target/debug/Muxy.app
@@ -920,7 +911,7 @@ codesign --verify --deep --strict target/release/Muxy.app
 git diff --check
 ```
 
-Both staged profiles must complete enable, daemon-shell creation, hidden surface absence, renderer attach, app close with session survival, reopen/reattach, background/manager/CLI actions, idle sleep/wake, resource observation, confirmed disable, normal close, and zero owned process/socket residue. The release run must not touch debug state and vice versa.
+`scripts/check.sh` runs the workspace tests, verifier self-tests, headless fixtures, debug build, and debug bundle verification once. The exact full-app Linux cross-check may fail environmentally when the host lacks the GNU cross-compilers; record that failure and require the documented Zig-wrapper supplemental command to pass. No Phase 8 gate launches an app bundle. Debug and release bundle inventories, helper build modes, signatures, resources, and retained CLI bytes must match. Native lifecycle and visual behavior remain unverified until the user checks and reports them.
 
 ## Definition of done
 
@@ -958,7 +949,7 @@ Both staged profiles must complete enable, daemon-shell creation, hidden surface
 - Runtime leaf, socket, lock, and log follow ownership/mode/no-follow rules and stable debug/release names.
 - A live daemon socket is never unlinked. Singleton startup and stale recovery are race-safe.
 - Session supervision continuously tracks shell-session, process-group, TTY, ancestry, and PID/start identities; termination rescans to a fixed point, escalates boundedly, reaps direct children, and acknowledges only after every tracked identity is gone.
-- Debug, release, and staged test roots, daemons, sockets, and helpers are isolated.
+- Debug and release runtime roots remain isolated. Bundle-only staged artifacts use test identities and injected roots but are never launched by automation.
 - App/helper bundles contain correct architectures, executable modes, nested signatures, and all five shell integrations.
 
 ### CLI, UX, and compatibility
@@ -971,16 +962,16 @@ Both staged profiles must complete enable, daemon-shell creation, hidden surface
 
 ### Quality floor checked in every phase
 
-- `scripts/check.sh`, prior verifiers, P8 verifier, lint configuration, bundle checks, and architecture gates are updated for the new structure, never deleted or weakened.
+- `scripts/check.sh`, headless verifier paths, lint configuration, bundle checks, and architecture gates are updated for the new structure. App-launching E2E paths are deleted and mechanically prohibited.
 - No new `#[allow]`, `#[expect]`, Cargo lint weakening, code comment, `static mut`, global mutable state, or thread-local policy bypass is introduced.
 - `muxy-proto` remains independent. `muxy-api`, `muxy-core`, `muxy-terminal`, `muxy-session`, app, and Ghostty code follow the documented dependency direction. The app uses the sole public `muxy-session` client facade and has no duplicate transport.
 - Shared protocol, API, core, terminal, and UI locations carry no caller-specific project, window, route, Composer, or future-extension policy.
 - Idle/offline policy remains in `muxy-terminal`; app policy remains in `muxy`; FFI remains in `ghostty-host`.
 - No second session-mode marker file is introduced. Restart transition is derived idempotently from desired setting, Rust session IDs, and daemon truth.
 - No new test seam can target production paths or bypass same-user/path validation.
-- The P8 verifier installs signal/exit cleanup traps before spawning, supports owned-root cleanup-only recovery, records PID/start identities, and fails on residue even after an earlier assertion fails.
+- Headless helper-process tests own isolated roots, record PID/start identities, and clean only marker-validated paths. Automated verifiers never start an application bundle for setup, proof, or cleanup.
 - Every queue, task, timer, socket, renderer, PTY, child, and monitor has deterministic stop/drop behavior and rejects stale completions by identity/generation.
-- Every phase is a safe stopping point with focused proof, full gates, verified bundle, staged launch, normal close, daemon behavior proof appropriate to that phase, and explicit cleanup.
+- Every phase is a safe stopping point with focused headless proof, full gates, verified bundle structure, daemon behavior proof through isolated helpers, and explicit cleanup. User-reported native checks are tracked separately.
 - Linux cross-target checks cover every affected portable/headless package. Linux-host launch remains unclaimed P15 scope.
 
 ### Documentation and evidence
@@ -1008,16 +999,9 @@ Use the Phase 8 command block as the minimum complete automated proof. Also insp
 
 ### Manual native acceptance
 
-Prepare a staged debug app through the safe verifier:
+Automation may build and verify `target/debug/Muxy.app` or `target/release/Muxy.app`, but it must stop before launch. Ask the user to launch the verified bundle, provide the relevant checklist items, and record only what the user reports. Never use a verifier, `open`, `osascript`, or direct bundle executable invocation to perform these checks on the user's behalf.
 
-```bash
-scripts/build-app.sh debug
-scripts/verify-bundle.sh target/debug/Muxy.app debug
-manual_app="$(scripts/stage-test-app.sh target/debug/Muxy.app p8-manual-debug)"
-scripts/verify-p8-terminal-memory.sh --manual debug "$manual_app"
-```
-
-The verifier must print exact injected app-support/session/socket/log paths, daemon cleanup commands restricted to that owned root, and normal-close instructions. Record each result separately:
+Record each user-reported result separately:
 
 1. Persistence setting is off by default. Enabling explains replacement after Quit/reopen and does not affect current terminals.
 2. After Quit/reopen, every local workspace tab has a daemon session, but only visible split panes have renderer surfaces.
@@ -1042,7 +1026,7 @@ The verifier must print exact injected app-support/session/socket/log paths, dae
 21. Debug and release apps can coexist without seeing or killing each other's sessions.
 22. Final normal close plus explicit End All/disable cleanup leaves no staged app, attach proxy, daemon, shell, descendant, socket, lock holder, or monitor task.
 
-Unobserved items remain unverified and cannot be used to mark P8 fully accepted.
+Unobserved items remain explicitly unverified. They do not block completion of the automated Phase 8 gate, but no native or visual claim may be made until the user reports it.
 
 ### Post-implementation audit and hardening
 
@@ -1060,7 +1044,7 @@ After all eight phases complete, start a fresh read-only audit agent with this p
 - Bundle/signing/resource and verifier/check-script stale paths.
 - Documentation claims versus observed evidence.
 
-Judge findings independently. Convert material findings into a small numbered hardening list with one concern and concrete paths per task. Execute one task at a time, rerun its focused tests, `scripts/check.sh`, bundle/staged lifecycle, and update Progress before the next task. Independently run static checks and read changed seams after an agent reports completion. State plainly which builds or runtime behavior could not be verified and how the user can verify them.
+Judge findings independently. Convert material findings into a small numbered hardening list with one concern and concrete paths per task. Execute one task at a time, rerun its focused headless tests, `scripts/check.sh`, and bundle verification, then update Progress before the next task. Independently run static checks and read changed seams after an agent reports completion. State plainly which builds or runtime behavior could not be verified and ask the user to verify native or visual behavior manually.
 
 ## Known unverified facts
 
@@ -1726,3 +1710,129 @@ It passed with 21 existing Linux-only unused or dead-code warnings. The explicit
 - Hostile verifier matrices, final debug/release isolation, release staging, complete documentation, and roadmap closure remain assigned to Phase 8.
 
 **Publication target:** Phase 7 commit `P8 phase 7: add session manager and CLI control` on `p8-terminal-memory-sessions`, pushed to draft PR [#1106](https://github.com/muxy-app/muxy/pull/1106), base `2.x`.
+
+### Phase 8 - Hardening, documentation, full profile matrix, and roadmap closure
+
+**Completed:** 2026-08-31 21:16:03 UTC
+
+**Implemented:**
+
+- Completed architecture, roadmap, protocol, terminal, settings, CLI, and background-session documentation for the ninth `muxy-session` workspace crate, restart-only persistent sessions, one active renderer, idle sleeping, resource monitoring, cleanup, and current manual-native acceptance status.
+- Added exact typed bundle inventories, nested helper validation and signing checks, all five shell-integration inventory checks, staged bundle profile markers, and executable `muxy-session build-mode` validation for debug/release packaging without launching an app.
+- Added explicit `AcknowledgeExitedSession` protocol/client/daemon handling. Exited descriptor truth remains available until the app explicitly acknowledges its validated reconciliation or removal operation, running sessions reject acknowledgement with `stillRunning`, and daemon idle exit requires no sessions and no client connections.
+- Reworked app reconciliation, End, Remove, startup cleanup, and tests to acknowledge exited session descriptors through validated durable-state operations before removing links.
+- Corrected process-tree PID reuse handling so related replacement descendants can be adopted while a replaced root and stale exact identities remain rejected and are never signaled.
+- Strengthened P8 ownership, path, mode, UID, symlink, live-socket, exact inventory, profile, and cleanup checks. Cleanup remains restricted to marker-owned isolated roots.
+- Stabilized three unrelated `muxy-api` timing fixtures discovered by the full gate. AI cancellation tests now wait for an explicit operation-start marker before measuring cancellation response, the worktree-removal timeout fixture removes its target deterministically before sleeping, and the setup-timeout fixture gives Git a realistic shared deadline while retaining a deliberately timing-out hook.
+- Replaced app-launching E2E verification with a repository-wide headless policy at the user's direction. `scripts/run-test-app.sh` and `scripts/verify-cli-compat.sh` fail immediately. App-launch implementations were removed from the P2.5, P5, P6, P7, and P8 verifiers; their staged/manual launch modes fail immediately. `scripts/check.sh` mechanically rejects restored app lifecycle commands and pins the disabled entry points and testing policy.
+- Added `docs/development/testing.md` and repository rules requiring automated tests and verifiers to remain headless. Visual, focus, accessibility, native lifecycle, and real OS behavior must be requested from and checked by the user. Bundle building, inventory/signature validation, Rust tests, protocol helpers, and isolated helper-process fixtures remain permitted.
+- Revised the Phase 8 gate to run the workspace and verifier checks once through `scripts/check.sh`, perform source and Linux cross-target checks, and verify both bundles, retained CLI bytes, and signatures without launching either app.
+
+**Single read-only review and fixes:**
+
+The required single read-only Phase 8 review reported seven concerns. All were verified and fixed without a second review cycle:
+
+1. Verifier cleanup could reach an untrusted root before ownership validation. Cleanup now requires a regular current-UID `0600` marker with the exact value, rejects symlinked components and unsafe root modes, validates exact owned records, and has hostile self-test coverage.
+2. PID reuse handling permanently excluded legitimate replacement descendants. Related descendants can now be adopted after identity change while root replacement and stale exact identities remain unsafe.
+3. Daemon idle timeout discarded exited descriptor truth before durable app reconciliation. The protocol now has explicit exited-session acknowledgement and the daemon retains descriptors until acknowledgement.
+4. Staged helper profile validation trusted only a forgeable marker. The helper now reports its compiled `build-mode`, and staging/bundle validation checks it.
+5. Bundle inventories ignored symlinks and directories. Build and verify scripts now compare complete typed inventories and validate nested helper entries.
+6. Phase 8 Progress was missing. This entry records implementation, review, commands, results, failures, and unverified behavior.
+7. The architecture graph omitted the core-to-protocol dependency. `ARCHITECTURE.md` and `PLAN.md` now show the complete dependency direction.
+
+**Observed failures and fixes before the revised policy:**
+
+1. Sandboxed `scripts/verify-p8-terminal-memory.sh --self-test` failed with `error: live-socket self-test listener did not bind`. The unsandboxed run passed.
+2. Sandboxed `cargo test -p muxy-session --all-targets --locked --offline` failed four runtime-path tests with `Operation not permitted`. The unsandboxed run passed all tests.
+3. Sandboxed `scripts/check.sh` failed Unix socket bind tests with `SocketBind ... Operation not permitted`. Unsandboxed runs reached project checks and passed after the project fixes below.
+4. `scripts/check.sh` twice failed `repository::ai::tests::workflow_read_phases_honor_identity_cancellation`, once while waiting for `--porcelain=1` and once while waiting for `log -z --format=%s --max-count=12`, at the prior under-two-second assertion in `crates/muxy-api/src/repository/ai.rs`. Waiting for an explicit operation-start marker fixed the measurement boundary. Five consecutive exact focused runs passed.
+5. A later full check failed `git::tests::git_worktree_removal_fails_when_retained_and_reconciles_nonzero_or_timeout_when_gone` and `repository::ai::tests::cancellation_during_provider_execution_stops_after_staging`. The deterministic removal fixture and started-marker cancellation measurement fixed them; both exact focused tests passed.
+6. A later full check failed `worktree_lifecycle::tests::create_worktree_turns_every_setup_failure_into_a_nonrollback_warning`. Increasing the shared setup deadline from 100 ms to 2 seconds and the deliberately timing-out hook sleep from 1 to 30 seconds fixed it; the exact focused test passed.
+7. The exact full-app Linux cross-check failed before project code because this macOS host lacks `x86_64-linux-gnu-gcc` and `x86_64-linux-gnu-g++`. The documented Zig-wrapper supplemental command passed with 21 existing Linux-only warnings.
+8. Before the user replaced the app-launching gate, a debug staged run failed after Phase 3 with `error: app-owned Phase 4 daemon socket remained after End All`. Closing the exact test-owned app before waiting for socket removal fixed that verifier ordering issue, and a focused later run passed Phase 4.
+9. A later debug staged run failed with `error: safe hidden ordinary renderer remained after the idle timeout`. The verifier had treated typed screen text as proof a command executed and used fixed sleeps. It was changed to use an execution-owned readiness file and bounded polling. Headless terminal tests passed, and a later staged run reported the Phase 5 persistent/ordinary sleep matrix passed before timing out in later phases.
+10. A diagnostic command intended to override platform detection accidentally reached the staged debug path because the shell-function override did not prevent execution. It reached Phase 5 and timed out after 120 seconds. No matching staged debug app process was found afterward.
+11. One release staged matrix was started after the user's initial continue instruction. It reported Phase 3 passed, then was interrupted when the user replaced the requirement with the no-app-launch policy.
+12. Repeated staged runs opened many windows and interrupted the user. No additional app-launching verification was run after the replacement request. All app-launch implementations were then removed or disabled.
+13. During the revised final gate, the first sandboxed five-package Linux check attempt failed before compilation with `failed to open ... target/debug/.cargo-lock` and `Operation not permitted`. The same exact five commands were rerun unsandboxed and passed.
+14. During the revised final gate, the exact full-app Linux command again exited nonzero. That invocation emitted no captured text, while earlier invocations recorded the missing GNU C and C++ compiler errors. The required Zig-wrapper supplemental command then passed with the same 21 existing Linux-only warnings.
+
+**Focused and pre-policy verification already observed:**
+
+```text
+cargo test --workspace --all-targets --all-features --locked --offline
+scripts/verify-p5-notifications.sh --self-test
+scripts/verify-p6-quick-terminal.sh --self-test
+scripts/verify-p7-composer.sh --self-test
+scripts/verify-p8-terminal-memory.sh --self-test
+scripts/verify-p8-terminal-memory.sh --fixture all
+cargo test -p muxy --locked --offline terminal:: -- --nocapture
+cargo fmt --all -- --check
+bash -n scripts/verify-p8-terminal-memory.sh scripts/build-app.sh scripts/verify-bundle.sh scripts/stage-test-app.sh scripts/check.sh
+shellcheck scripts/verify-p8-terminal-memory.sh scripts/build-app.sh scripts/verify-bundle.sh scripts/stage-test-app.sh scripts/check.sh
+git diff --check
+```
+
+The workspace suite passed. All listed self-tests passed unsandboxed, the complete P8 fixture reported `P8 complete fixture matrix passed`, and the terminal filter passed 81 headless tests. Formatting, shell syntax, ShellCheck, and diff checks passed.
+
+The five portable/headless Linux package checks passed:
+
+```text
+cargo check -p muxy-proto --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy-api --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy-core --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy-terminal --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy-session --all-features --locked --offline --target x86_64-unknown-linux-gnu
+```
+
+The exact full-app command failed environmentally as documented:
+
+```text
+cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
+```
+
+The supplemental command passed with 21 existing warnings:
+
+```text
+PATH="$PWD/target/test-verification/p8/toolchain:$PATH" \
+AR_x86_64_unknown_linux_gnu='zig ar' \
+cargo check -p muxy --all-features --locked --offline \
+--target x86_64-unknown-linux-gnu
+```
+
+Debug and release `scripts/build-app.sh` and `scripts/verify-bundle.sh` runs passed without launching an app. Complete bundle inventories, nested helper profile/signature validation, and all five shell integrations passed.
+
+**Exact revised Phase 8 gate:**
+
+The no-app-launch gate was run in the revised plan order:
+
+```text
+scripts/check.sh
+scripts/verify-p8-terminal-memory.sh --source-checks
+cargo check -p muxy-proto --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy-api --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy-core --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy-terminal --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy-session --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
+PATH="$PWD/target/test-verification/p8/toolchain:$PATH" AR_x86_64_unknown_linux_gnu='zig ar' cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
+scripts/build-app.sh release
+scripts/verify-bundle.sh target/release/Muxy.app release
+cmp -s Muxy/Resources/scripts/muxy-cli target/debug/Muxy.app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli
+cmp -s Muxy/Resources/scripts/muxy-cli target/release/Muxy.app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli
+codesign --verify --deep --strict target/debug/Muxy.app
+codesign --verify --deep --strict target/release/Muxy.app
+git diff --check
+```
+
+`scripts/check.sh` passed the new headless policy gate, source and boundary checks, formatting, Clippy with warnings denied, workspace build, full workspace tests, verifier self-tests, debug bundle build, and debug bundle verification. It did not launch an app. Phase 8 source checks passed. After the documented sandbox retry, all five package Linux checks passed. The exact full-app check had the documented environmental failure and its Zig-wrapper supplement passed with 21 existing warnings. Release bundle build and verification, both retained CLI byte comparisons, both strict signature checks, and the final diff check passed. No revised gate command launched Muxy or a staged bundle.
+
+**Unverified or intentionally manual after Phase 8:**
+
+- No claim is made for the interrupted debug/release staged matrices. Automated app-launching E2E is disabled and was not completed.
+- Native app lifecycle, restart-only enable/disable behavior in a real window, renderer visibility and replay, interactive Session Manager actions, idle sleep/wake feel, real resource updates, debug/release coexistence, and native cleanup remain unverified until the user checks them.
+- Visual density, themes, UI scaling, narrow layouts, focus behavior, keyboard indication, confirmations, VoiceOver announcements, accessibility traversal, Finder/clipboard delivery, and other native OS behavior remain unverified until the user reports results.
+- Native Linux-host app behavior remains outside P8. The supplemental command proves cross-target compilation only.
+- The 21 Linux-only unused/dead-code warnings remain existing non-gate warnings under the supplemental cross-target command.
+
+**Publication target:** Phase 8 commit `P8 phase 8: harden sessions and disable app-launching E2E` on `p8-terminal-memory-sessions`, pushed to PR [#1106](https://github.com/muxy-app/muxy/pull/1106), base `2.x`. The PR becomes Ready only after this revised automated gate, Progress update, commit, push, and metadata verification complete.

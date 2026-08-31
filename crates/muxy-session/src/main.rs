@@ -11,6 +11,14 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     match arguments.as_slice() {
+        [command] if command == "build-mode" => {
+            let mode = match muxy_session::current_build_mode() {
+                muxy_proto::session::BuildMode::Development => "debug",
+                muxy_proto::session::BuildMode::Production => "release",
+            };
+            println!("{mode}");
+            Ok(())
+        }
         [command, flag, socket]
             if command == "daemon" && flag == "--socket" =>
         {
@@ -29,6 +37,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             muxy_session::run_attach(&PathBuf::from(socket), session_id)?;
             Ok(())
         }
-        _ => Err("usage: muxy-session daemon --socket PATH | muxy-session attach --socket PATH --session-id UUID".into()),
+        _ => Err("usage: muxy-session build-mode | muxy-session daemon --socket PATH | muxy-session attach --socket PATH --session-id UUID".into()),
     }
 }

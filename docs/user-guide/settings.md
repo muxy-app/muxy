@@ -161,21 +161,31 @@ Select the close button on a tip, then confirm **Hide Tips** to hide tips. Turn 
 
 ## Background sessions
 
-Open **Settings → Terminal → Background sessions** to keep terminals running after Muxy quits:
+Open **Settings → Terminal → Background sessions**. **Run new terminals in the background** is off by default and is stored as `muxy.terminalPersistentSession.enabled` in `settings.json`.
 
-- **Run new terminals in the background** starts each new terminal in a separate background process, like tmux. Quitting Muxy leaves those terminals running, and reopening it reconnects them along with their recent output.
-- Only terminals opened after the setting is switched on are affected. Terminals that are already open keep their current behavior.
-- Reopening Muxy reattaches every restored tab whose session is still running, without waiting for you to click the tab.
-- Closing a tab ends its session. Right-click an eligible local terminal and choose **Send to Background** to close its tab without stopping its processes; the session then stays available from the status bar.
-- If Muxy loses its connection to a still-running session, it reconnects on its own. A tab only closes when the session itself has ended; when reconnecting keeps failing the tab waits with a **Reconnect** button instead, and the session keeps running.
-- Turning the setting off asks for confirmation and then stops every terminal still running in the background.
-- Remote SSH terminals and the quick terminal are never run this way.
+This setting is restart-only. Enabling it does not adopt or replace terminals in the current process. After a normal Quit and fresh launch, Muxy creates or recovers daemon-backed sessions for eligible local workspace terminal tabs before creating renderers. Only visible panes receive a renderer; hidden tabs stay backed by their daemon shell without a Ghostty surface.
 
-The status bar shows how many background terminals in the current project and worktree are **not** open in a tab. Its popover lists those and can point the focused tab at one, open a new tab attached to one, or stop one. It disappears when nothing is waiting, so it only appears when you have something to recover.
+Disabling asks for confirmation with the number of sessions that will end. The current process keeps its applied mode. On the next fresh launch, Muxy ends every tracked session process tree before clearing saved session IDs and starting ordinary terminals. Remote terminals and Quick Terminal are always excluded.
 
-Background terminals keep working-directory tracking, tab titles, and AI progress in zsh, bash, fish, elvish, and nushell. Other shells run normally but lose those integrations, the same limitation tmux has.
+Closing a tab ends its persistent session. Use **Send to Background** when you want to remove a tab but keep its processes. Ordinary Quit only detaches renderers. The **Terminal Sessions** status item lists Workspace Sessions, Background Sessions, and Missing/Ended links, with state-dependent Focus, Reattach, End, Start New, and Remove actions. Its footer provides End All Sessions and Terminal Settings.
 
-The setting is stored as `muxy.terminalPersistentSession.enabled` in `settings.json`. Use `muxy list-sessions` and `muxy kill-session --session <id>` to inspect and stop sessions from a shell.
+Each session has one renderer at a time and replays at most 256 KiB of recent ordinary output when reattached. Older output can be omitted, and alternate-screen output is not retained as ordinary replay. zsh, bash, fish, elvish, and nushell receive the bundled shell integrations.
+
+Use `muxy list-sessions` and `muxy kill-session --session <id>` while Muxy is open. See [Background sessions](../features/background-sessions.md) for lifecycle, recovery, security, cleanup, and acceptance details.
+
+## Idle terminal memory
+
+Open **Settings → Terminal → Memory**. **Free idle inactive terminals** is off by default and is stored as `muxy.terminalOffline.enabled`. It applies only to hidden terminals. Visible panes, alternate-screen programs, active foreground or background descendants, pending input or resize work, and uncertain process state stay awake.
+
+The timeout is stored as `muxy.terminalOffline.idleThresholdSeconds` and defaults to 300 seconds. Available choices are 10 seconds, 30 seconds, 1 minute, 2 minutes, 5 minutes, 10 minutes, 15 minutes, and 30 minutes.
+
+A persistent terminal sleeps by releasing only its renderer and attach client. Its daemon shell continues, and wake reattaches with bounded replay. A safe ordinary terminal releases its shell and Ghostty surface. Wake restores its last working directory without rerunning a one-shot startup command, but ordinary scrollback is lost.
+
+## Resource usage
+
+Open **Settings → Appearance → Interface**. **Show Resource Usage in Status Bar** is on by default and is stored as `muxy.showResourceUsageInStatusBar`.
+
+The status item samples Muxy's app process tree plus authenticated session daemon, shell, and descendant trees. It reports CPU and resident memory, deduplicates overlapping identities, and distinguishes live, stale, and unavailable data. Turning it off stops polling immediately and clears the previous CPU baseline and displayed sample. Composer and Terminal Sessions remain available in the same trailing status group.
 
 ## Quick terminal
 

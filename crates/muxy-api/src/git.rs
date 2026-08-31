@@ -546,7 +546,7 @@ mod tests {
         let script = temp.path().join("git-wrapper");
         std::fs::write(
             &script,
-            b"#!/bin/sh\nmode=$MUXY_GIT_TEST_MODE\nif [ \"$3 $4\" = \"worktree remove\" ]; then\n  if [ \"$mode\" = retained ]; then exit 9; fi\n  /usr/bin/git \"$@\"\n  if [ \"$mode\" = timeout ]; then sleep 30; fi\n  exit 9\nfi\nexec /usr/bin/git \"$@\"\n",
+            b"#!/bin/sh\nmode=$MUXY_GIT_TEST_MODE\nif [ \"$3 $4\" = \"worktree remove\" ]; then\n  if [ \"$mode\" = retained ]; then exit 9; fi\n  if [ \"$mode\" = timeout ]; then\n    for target do :; done\n    /bin/rm -rf -- \"$target\"\n    sleep 30\n  fi\n  /usr/bin/git \"$@\"\n  exit 9\nfi\nexec /usr/bin/git \"$@\"\n",
         )
         .unwrap();
         let mut permissions = std::fs::metadata(&script).unwrap().permissions();

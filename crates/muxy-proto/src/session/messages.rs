@@ -289,6 +289,9 @@ pub enum ControlRequest {
     EndSession {
         session_id: SessionId,
     },
+    AcknowledgeExitedSession {
+        session_id: SessionId,
+    },
     EndSessionsByOwner {
         owner: SessionOwner,
     },

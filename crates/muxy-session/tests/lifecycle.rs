@@ -65,6 +65,7 @@ fn lifecycle_background_reattach_quit_exact_owner_cleanup_and_shell_exit_are_dis
     assert!(identity_is_alive(second.shell));
 
     let mut exited_request = daemon.request("lifecycle-exited");
+    exited_request.placement = None;
     exited_request.startup_command = Some("/bin/sh -c 'exit 7'".into());
     let exited = reopened.create_session(exited_request).unwrap();
     wait_until(|| {
@@ -77,11 +78,13 @@ fn lifecycle_background_reattach_quit_exact_owner_cleanup_and_shell_exit_are_dis
             })
     });
     assert!(reopened.get_session(exited.session_id).unwrap().is_some());
-    reopened.end_session(exited.session_id).unwrap();
+    reopened
+        .acknowledge_exited_session(exited.session_id)
+        .unwrap();
     reopened.end_all_sessions().unwrap();
     assert!(reopened.list_sessions().unwrap().is_empty());
     drop(reopened);
-    daemon.finish(false);
+    daemon.finish(true);
 }
 
 fn wait_until(mut predicate: impl FnMut() -> bool) {

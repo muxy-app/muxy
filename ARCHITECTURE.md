@@ -1,6 +1,6 @@
 # Architecture
 
-Muxy is a Cargo workspace of 8 crates, layered so that domain logic, protocols, and services are platform-agnostic and testable, while GPUI and macOS-specific code live at the edges.
+Muxy is a Cargo workspace of 9 crates, layered so that domain logic, protocols, and services are platform-agnostic and testable, while GPUI and macOS-specific code live at the edges.
 
 ## Crate graph
 
@@ -11,6 +11,7 @@ flowchart TD
     proto["muxy-proto\nportable wire codecs + framing"]
     core["muxy-core\ndomain model + persistence"]
     term["muxy-terminal\nterminal abstraction"]
+    session["muxy-session\nPTY daemon + attach client"]
     ui["muxy-ui\nreusable GPUI kit"]
     host["ghostty-host\nsafe libghostty wrapper"]
     sys["ghostty-sys\nbindgen FFI"]
@@ -20,15 +21,19 @@ flowchart TD
     muxy --> term
     muxy --> ui
     muxy --> core
+    muxy --> session
     api --> core
+    core --> proto
     term --> core
+    session --> core
+    session --> proto
     term -. macOS only .-> host
     muxy -. macOS only .-> host
     host --> sys
     sys --> lib["libghostty (C)"]
 ```
 
-`muxy-proto` is a headless downstream dependency for socket callers. It owns portable codecs, framing, session policy, extension correlation, and the Unix listener. The `muxy` binary owns command names, permissions, app state, terminal resolution, and lifecycle wiring. The protocol crate never depends back on `muxy`, GPUI, domain stores, terminal crates, Ghostty, or Objective-C libraries.
+`muxy-proto` is a headless downstream dependency for socket and session callers. It owns portable codecs, framing, session wire policy, extension correlation, and the app command Unix listener. `muxy-session` owns the private daemon transport, PTYs, shell integration, replay, and identity-safe process cleanup. The `muxy` binary owns command names, permissions, app state, terminal resolution, session coordination, and lifecycle wiring. The protocol crate never depends back on `muxy`, GPUI, domain stores, terminal crates, Ghostty, or Objective-C libraries.
 
 ## Responsibilities
 
@@ -38,7 +43,8 @@ flowchart TD
 | `muxy-api` | git, worktree lifecycle/hooks/locations, bounded subprocesses, project "truth", IDE detection, layouts, yaml, fs watcher, picker logic | no | Unix process-group edge only |
 | `muxy-proto` | portable wire types, strict codecs, framing, and transport policy | no | Unix transport edge only |
 | `muxy-core` | prefs, settings catalog, shortcuts, navigation history, notification model/store/coalescing, stores, workspace/tab tree model | no | migration-only user-defaults access |
-| `muxy-terminal` | backend trait, surface signals, search, scrollbar, confirmation | no | ghostty impl |
+| `muxy-terminal` | backend trait, surface signals, search, scrollbar, confirmation, portable idle policy and wake queue | no | ghostty impl and process facts |
+| `muxy-session` | private session protocol client, PTY daemon, replay, shell integration, secure runtime paths, exact process-tree cleanup | no | Unix PTY, peer credentials, and process adapters |
 | `muxy-ui` | theme, icons, components, controls, text input, scrollbar | yes | SF Symbols |
 | `ghostty-host` | runtime, surface, config, input, mouse — safe API over FFI | no | yes |
 | `ghostty-sys` | raw bindgen bindings | no | yes |
@@ -84,6 +90,32 @@ flowchart LR
 ```
 
 Events flow back asynchronously: libghostty callbacks → `ghostty-host` `RuntimeEvent` channel → `muxy::terminal::TerminalEvents` → GPUI views.
+
+## Terminal memory stack
+
+```mermaid
+flowchart LR
+    settings["typed settings\nrestart-only sessions · idle · resources"] --> coordinator["muxy session coordinator\nstartup barrier · reconciliation · lifecycle"]
+    coordinator --> client["muxy-session client facade"]
+    client --> daemon["private muxy-session daemon\nPTY · replay · one renderer"]
+    daemon --> shell["shell + exact descendant identities"]
+    coordinator --> renderer["visible Ghostty renderer\nmuxy-session attach"]
+    renderer --> daemon
+    idle["muxy-terminal idle policy\nhidden-only · fail awake · bounded wake"] --> renderer
+    sampler["macOS resource sampler\nPID + start identity"] --> aggregate["muxy-core resource aggregation"]
+    shell --> sampler
+    aggregate --> status["resource status item"]
+```
+
+Persistent sessions are off by default and apply only after a fresh launch. Startup reconciliation finishes before workspace renderers are materialized. Eligible local terminal tabs are daemon-backed, but only visible panes receive Ghostty renderers. Hidden tabs can remain renderer-free, ordinary Quit detaches renderers without ending daemon shells, and explicit close or manager operations clean exact session process trees before workspace mutation.
+
+The daemon protocol is versioned, bounded, and authenticated from operating-system peer credentials. Each session has one active renderer, a 256 KiB replay cap, and a daemon-owned PTY. Debug and release select separate runtime leaves, sockets, locks, logs, and build-mode handshakes. Linux keeps the protocol, PTY, peer-credential, and process adapters compileable; native Linux runtime acceptance remains later work.
+
+Idle sleeping is independent and off by default. Portable eligibility, generations, and bounded wake ordering live in `muxy-terminal`; the app owns visibility, activity, renderer lifecycle, and process sampling. Persistent sleep removes only the renderer and attach client. Safe ordinary sleep releases the shell and surface, restores cwd on wake, and loses scrollback.
+
+Resource monitoring is on by default. The app gathers authenticated app, daemon, and shell roots off the UI thread. `muxy-core` deduplicates descendants by PID and start identity and computes CPU deltas plus resident memory. The status item distinguishes live, stale, and unavailable samples, and disabling it stops polling and clears delta state.
+
+See [Session protocol](docs/development/session-protocol.md) and [Background sessions](docs/features/background-sessions.md) for limits, security, lifecycle, and user-visible behavior.
 
 ## Quick Terminal stack
 
@@ -203,12 +235,14 @@ flowchart LR
         RF["stores + ghostty.conf"]
         RP["preferences.json"]
         RN["notifications.json"]
+        RSESS["sessions/\ncontrol.sock · lock · daemon.log"]
         RS["swift-profile-migration.json"]
     end
     subgraph debug["Debug: ~/.muxy-dev"]
         DF["stores + ghostty.conf"]
         DP["preferences.json"]
         DN["notifications.json"]
+        DSESS["sessions-dev/\ncontrol.sock · lock · daemon.log"]
     end
     PY["project .muxy/layouts/*.yml"]
     GIT["git CLI\n(worktrees, status)"]

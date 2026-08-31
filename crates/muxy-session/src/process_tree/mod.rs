@@ -98,11 +98,10 @@ impl ProcessTracker {
         while changed {
             changed = false;
             for record in records {
-                let reused = self.tracked.iter().any(|identity| {
-                    identity.process_id == record.identity.process_id
-                        && *identity != record.identity
-                });
-                if record.identity.process_id == daemon_pid || reused {
+                if record.identity.process_id == daemon_pid
+                    || (record.identity.process_id == self.root.process_id
+                        && record.identity != self.root)
+                {
                     continue;
                 }
                 let related = record.identity == self.root
@@ -268,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn reused_process_identifiers_are_never_adopted() {
+    fn reused_process_identifiers_require_current_process_relationship() {
         let root = ProcessRecord {
             identity: ProcessIdentity {
                 process_id: 10,
@@ -291,7 +290,7 @@ mod tests {
         };
         let mut tracker = ProcessTracker::new(root.identity, 10, 10, 4).unwrap();
         tracker.observe_records(&[root, child]);
-        let reused = ProcessRecord {
+        let related_reuse = ProcessRecord {
             identity: ProcessIdentity {
                 process_id: 11,
                 start_identity: 3,
@@ -301,9 +300,35 @@ mod tests {
             process_session_id: 10,
             tty_device: 4,
         };
-        tracker.observe_records(&[root, reused]);
+        tracker.observe_records(&[root, related_reuse]);
         assert!(tracker.tracked.contains(&child.identity));
-        assert!(!tracker.tracked.contains(&reused.identity));
+        assert!(tracker.tracked.contains(&related_reuse.identity));
+
+        let unrelated_reuse = ProcessRecord {
+            identity: ProcessIdentity {
+                process_id: 11,
+                start_identity: 4,
+            },
+            parent_process_id: 1,
+            process_group_id: 77,
+            process_session_id: 77,
+            tty_device: 0,
+        };
+        tracker.observe_records(&[root, unrelated_reuse]);
+        assert!(!tracker.tracked.contains(&unrelated_reuse.identity));
+
+        let root_reuse = ProcessRecord {
+            identity: ProcessIdentity {
+                process_id: 10,
+                start_identity: 5,
+            },
+            parent_process_id: 1,
+            process_group_id: 10,
+            process_session_id: 10,
+            tty_device: 4,
+        };
+        tracker.observe_records(&[root_reuse]);
+        assert!(!tracker.tracked.contains(&root_reuse.identity));
     }
 
     #[test]

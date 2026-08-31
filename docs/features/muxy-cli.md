@@ -320,7 +320,7 @@ muxy close-pane --pane "$PANE"
 
 ### Background sessions
 
-When **Settings → Terminal → Background sessions** is on, terminals keep running after Muxy quits. List them:
+After **Settings → Terminal → Background sessions** is enabled and Muxy completes the required Quit and fresh launch, eligible local workspace terminals keep running after later quits. While Muxy is open, list them:
 
 ```bash
 muxy list-sessions
@@ -334,15 +334,15 @@ Output is tab-separated:
 
 `<attached>` is `true` while the session has a tab in a workspace and `false` while it runs in the background without workspace placement. Hidden tabs remain attached even when they have no terminal renderer. The last four columns identify which tab, project, and worktree the session belongs to, and are empty for a session that has never been attached from a worktree.
 
-A session ID matches its pane ID until a tab adopts someone else's session, so always take the ID from the first column rather than assuming it is a pane ID.
+A session ID is an independent uppercase UUID. Always take it from the first column rather than assuming it is a pane or tab ID.
 
-Stop a session and everything running inside it:
+Stop a session and its tracked process tree:
 
 ```bash
 muxy kill-session --session "$SESSION"
 ```
 
-Closing the session's tab in the app stops it too, so this is mainly for sessions that outlived their tab or that you want to end from a script.
+Closing the session's tab in the app stops it too. **Send to Background** removes workspace placement without stopping it. See [Background sessions](background-sessions.md) for lifecycle and recovery details.
 
 ## Tab control
 

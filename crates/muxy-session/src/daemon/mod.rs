@@ -87,11 +87,9 @@ pub fn run(config: DaemonConfig) -> io::Result<()> {
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
         }
-        let no_running_sessions = !sessions(&state)
-            .values()
-            .any(|session| session.is_running());
-        let no_connections = state.connections.load(Ordering::Acquire) == 0;
-        if no_running_sessions && no_connections {
+        let session_count = sessions(&state).len();
+        let connection_count = state.connections.load(Ordering::Acquire);
+        if daemon_is_idle(session_count, connection_count) {
             let since = idle_since.get_or_insert_with(Instant::now);
             if since.elapsed() >= config.idle_timeout {
                 return Ok(());
@@ -101,6 +99,10 @@ pub fn run(config: DaemonConfig) -> io::Result<()> {
         }
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn daemon_is_idle(session_count: usize, connection_count: usize) -> bool {
+    session_count == 0 && connection_count == 0
 }
 
 fn handle_connection(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<()> {
@@ -169,6 +171,9 @@ fn apply_control(state: &DaemonState, request: ControlRequest) -> ControlRespons
         ),
         ControlRequest::CreateSession(request) => create_session(state, *request),
         ControlRequest::EndSession { session_id } => end_session(state, session_id),
+        ControlRequest::AcknowledgeExitedSession { session_id } => {
+            acknowledge_exited_session(state, session_id)
+        }
         ControlRequest::EndSessionsByOwner { owner } => {
             let _mutation = state
                 .session_creation
@@ -265,13 +270,25 @@ fn end_session(state: &DaemonState, identifier: SessionId) -> ControlResponse {
         Some(session) => session,
         None => return control_error("notFound", "session was not found"),
     };
-    match session.terminate() {
-        Ok(()) => {
-            sessions(state).remove(&identifier);
-            ControlResponse::Acknowledged
-        }
-        Err(error) => control_error("cleanupFailed", error),
+    if session.is_running()
+        && let Err(error) = session.terminate()
+    {
+        return control_error("cleanupFailed", error);
     }
+    sessions(state).remove(&identifier);
+    ControlResponse::Acknowledged
+}
+
+fn acknowledge_exited_session(state: &DaemonState, identifier: SessionId) -> ControlResponse {
+    let mut held = sessions(state);
+    let Some(session) = held.get(&identifier) else {
+        return control_error("notFound", "session was not found");
+    };
+    if session.is_running() {
+        return control_error("stillRunning", "session is still running");
+    }
+    held.remove(&identifier);
+    ControlResponse::Acknowledged
 }
 
 fn handle_renderer(mut stream: UnixStream, state: Arc<DaemonState>) -> io::Result<()> {
@@ -440,4 +457,17 @@ fn invalid(message: impl Into<String>) -> io::Error {
 
 fn eof(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::UnexpectedEof, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::daemon_is_idle;
+
+    #[test]
+    fn daemon_idles_only_after_all_descriptors_and_connections_are_removed() {
+        assert!(daemon_is_idle(0, 0));
+        assert!(!daemon_is_idle(1, 0));
+        assert!(!daemon_is_idle(0, 1));
+        assert!(!daemon_is_idle(1, 1));
+    }
 }

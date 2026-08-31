@@ -116,6 +116,10 @@ impl SessionClient {
         self.expect_acknowledged(ControlRequest::EndSession { session_id })
     }
 
+    pub fn acknowledge_exited_session(&mut self, session_id: SessionId) -> io::Result<()> {
+        self.expect_acknowledged(ControlRequest::AcknowledgeExitedSession { session_id })
+    }
+
     pub fn end_sessions_by_owner(
         &mut self,
         owner: muxy_proto::session::SessionOwner,

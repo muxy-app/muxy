@@ -40,7 +40,7 @@ Creation is idempotent by immutable project, worktree, and original-tab ownershi
 
 A renderer sends `Attach` after `Hello`. The daemon assigns a unique attachment generation, applies the initial size before returning `Attached`, sends bounded replay, then sends ordered live output. Input frames are bounded. Resize frames carry the daemon-assigned attachment generation and a renderer resize generation, so an old renderer cannot resize or detach its replacement.
 
-Each session supports exactly one renderer. A new attachment closes the previous attachment. Renderer disconnect is detach, not shell exit. PTY draining continues without a renderer. If a renderer exceeds the pending-output limit, that attachment is closed while bounded replay and the daemon-owned shell continue.
+Each session supports one active renderer. A new attachment deterministically replaces and closes the previous attachment. Renderer disconnect is detach, not shell exit. PTY draining continues without a renderer. If a renderer exceeds the pending-output limit, that attachment is closed while bounded replay and the daemon-owned shell continue.
 
 Replay omits bytes from an active alternate screen. Entering or leaving alternate screen starts a new replay generation. Retained bytes are bounded and begin and end at safe terminal-stream boundaries.
 
@@ -56,7 +56,9 @@ The daemon owns the real shell PTY. The PTY root must stabilize as its own proce
 
 Ending a session sends signals only after revalidating each recorded PID/start identity. It rescans during a bounded TERM grace period, escalates surviving recorded identities to KILL, reaps the direct child, and acknowledges only after the tracked tree is gone. A reused PID is never adopted or signaled.
 
-The daemon exits after ten seconds with no running sessions or connections. The helper exposes only:
+Natural shell exit drains remaining PTY output, performs the same exact descendant cleanup, records the final status, and then marks the descriptor ended. Renderer loss, control connection loss, daemon unavailability, and shell exit are separate states. A client cannot infer shell exit from an attach transport failure.
+
+The daemon exits after ten seconds with no running sessions or connections. It does not use a launch agent, login item, or installed background service. The helper exposes only:
 
 ```text
 muxy-session daemon --socket PATH

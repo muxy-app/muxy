@@ -13,7 +13,7 @@ if (($# > 1)) || [[ "$PROFILE" != "debug" && "$PROFILE" != "release" ]]; then
     exit 2
 fi
 
-for command_name in bash cargo cmp codesign grep iconutil plutil sed xcode-select xcrun; do
+for command_name in bash cargo cmp codesign find grep iconutil plutil sed sort xcode-select xcrun; do
     command -v "$command_name" >/dev/null 2>&1 || {
         printf 'error: required command not found: %s\n' "$command_name" >&2
         exit 1
@@ -45,6 +45,28 @@ readonly DEVELOPMENT_SHELL_INTEGRATION="$PROJECT_ROOT/resources/muxy-shell-integ
 
 [[ -s "$GHOSTTY_RESOURCES/shell-integration/zsh/ghostty-integration" ]] || {
     printf 'error: Ghostty resources are missing; run scripts/setup.sh first\n' >&2
+    exit 1
+}
+entry_inventory() {
+    local root="$1" path type
+    find "$root" -mindepth 1 -print | while IFS= read -r path; do
+        if [[ -L "$path" ]]; then
+            type=L
+        elif [[ -d "$path" ]]; then
+            type=D
+        elif [[ -f "$path" ]]; then
+            type=F
+        else
+            type=O
+        fi
+        printf '%s %s\n' "$type" "${path#"$root"/}"
+    done | LC_ALL=C sort
+}
+shell_integration_inventory="$(entry_inventory "$GHOSTTY_RESOURCES/shell-integration")"
+expected_shell_integration_inventory=$'D bash\nD bash/elvish\nD bash/elvish/lib\nD fish\nD fish/vendor_conf.d\nD nushell\nD nushell/vendor\nD nushell/vendor/autoload\nD zsh\nF bash/bash-preexec.sh\nF bash/elvish/lib/ghostty-integration.elv\nF bash/ghostty.bash\nF fish/vendor_conf.d/ghostty-shell-integration.fish\nF nushell/vendor/autoload/ghostty.nu\nF zsh/.zshenv\nF zsh/ghostty-integration'
+[[ "$shell_integration_inventory" == "$expected_shell_integration_inventory" ]] || {
+    printf 'error: Ghostty shell integration inventory differs:\n%s\n' \
+        "$shell_integration_inventory" >&2
     exit 1
 }
 [[ -s "$TERMINFO_RESOURCES/67/ghostty" && -s "$TERMINFO_RESOURCES/78/xterm-ghostty" ]] || {

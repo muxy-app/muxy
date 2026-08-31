@@ -404,13 +404,37 @@ impl SessionCoordinator {
         Ok(())
     }
 
-    pub fn managed_sessions(&self, store: &WorkspaceStore) -> Result<Vec<ManagedSession>, String> {
+    pub fn managed_sessions(
+        &mut self,
+        store: &WorkspaceStore,
+    ) -> Result<Vec<ManagedSession>, String> {
         let linked = linked_sessions(store);
-        let descriptors = match self.existing_control()? {
-            Some(mut control) => control.list().map_err(display_error)?,
+        let mut control = self.existing_control()?;
+        let mut descriptors = match control.as_mut() {
+            Some(control) => control.list().map_err(display_error)?,
             None if linked.is_empty() => Vec::new(),
             None => return Err("persistent session runtime is unavailable".to_owned()),
         };
+        let linked_ids = linked
+            .iter()
+            .map(|session| session.session_id)
+            .collect::<HashSet<_>>();
+        let acknowledged = descriptors
+            .iter()
+            .filter(|descriptor| {
+                matches!(descriptor.status, SessionStatus::Exited { .. })
+                    && !linked_ids.contains(&descriptor.session_id)
+            })
+            .map(|descriptor| descriptor.session_id)
+            .collect::<Vec<_>>();
+        if let Some(control) = control.as_mut() {
+            for session_id in &acknowledged {
+                control
+                    .acknowledge_exited(*session_id)
+                    .map_err(display_error)?;
+            }
+        }
+        descriptors.retain(|descriptor| !acknowledged.contains(&descriptor.session_id));
         let descriptor_ids = descriptors
             .iter()
             .map(|descriptor| descriptor.session_id)
@@ -553,6 +577,9 @@ impl SessionCoordinator {
                     if descriptor.status == SessionStatus::Running {
                         return Err("the linked background session is still running".to_owned());
                     }
+                    control
+                        .acknowledge_exited(session_id)
+                        .map_err(display_error)?;
                 }
                 None if linked.owner != *expected_owner => {
                     return Err("workspace session link changed".to_owned());
@@ -755,9 +782,13 @@ impl SessionCoordinator {
     ) -> Result<(), String> {
         if let Some(mut control) = self.existing_control()?
             && let Some(descriptor) = control.get(session_id).map_err(display_error)?
-            && descriptor.status == SessionStatus::Running
         {
-            return Err("the linked background session is still running".to_owned());
+            if descriptor.status == SessionStatus::Running {
+                return Err("the linked background session is still running".to_owned());
+            }
+            control
+                .acknowledge_exited(session_id)
+                .map_err(display_error)?;
         }
         let mut updated = store.clone();
         let tab = updated
@@ -1128,6 +1159,7 @@ trait Control {
     ) -> io::Result<()>;
     fn clear_placement(&mut self, session_id: SessionId) -> io::Result<()>;
     fn end(&mut self, session_id: SessionId) -> io::Result<()>;
+    fn acknowledge_exited(&mut self, session_id: SessionId) -> io::Result<()>;
     fn end_all(&mut self) -> io::Result<()>;
 }
 
@@ -1337,8 +1369,11 @@ fn end_exact_session<C: Control>(
         .as_ref()
         .map(|tab_id| store_without_workspace_links(store, std::slice::from_ref(tab_id)))
         .transpose()?;
-    if descriptor.status == SessionStatus::Running {
-        control.end(session_id).map_err(display_error)?;
+    match descriptor.status {
+        SessionStatus::Running => control.end(session_id).map_err(display_error)?,
+        SessionStatus::Exited { .. } => control
+            .acknowledge_exited(session_id)
+            .map_err(display_error)?,
     }
     if let Some(updated) = updated {
         updated.save().map_err(display_error)?;
@@ -1416,6 +1451,7 @@ fn end_close_candidates<C: Control>(
 ) -> io::Result<()> {
     let descriptors = control.list()?;
     let mut running = Vec::new();
+    let mut exited = Vec::new();
     for candidate in candidates {
         let matches = descriptors
             .iter()
@@ -1432,7 +1468,7 @@ fn end_close_candidates<C: Control>(
             [descriptor] if descriptor.status == SessionStatus::Running => {
                 running.push(candidate.session_id);
             }
-            [_] => {}
+            [_] => exited.push(candidate.session_id),
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -1443,6 +1479,9 @@ fn end_close_candidates<C: Control>(
     }
     for session_id in running {
         control.end(session_id)?;
+    }
+    for session_id in exited {
+        control.acknowledge_exited(session_id)?;
     }
     Ok(())
 }
@@ -1588,6 +1627,10 @@ impl Control for FacadeControl {
         self.client.end_session(session_id)
     }
 
+    fn acknowledge_exited(&mut self, session_id: SessionId) -> io::Result<()> {
+        self.client.acknowledge_exited_session(session_id)
+    }
+
     fn end_all(&mut self) -> io::Result<()> {
         self.client.end_all_sessions()
     }
@@ -1663,6 +1706,11 @@ fn reconcile_persistent<C: Control>(
             }
         };
         statuses.insert(tab.tab_id.clone(), state);
+    }
+    for descriptor in current.iter().filter(|descriptor| {
+        descriptor.placement.is_none() && matches!(descriptor.status, SessionStatus::Exited { .. })
+    }) {
+        control.acknowledge_exited(descriptor.session_id)?;
     }
     if changed {
         updated.save()?;
@@ -1778,6 +1826,7 @@ mod tests {
         placements: Vec<(SessionId, WorkspacePlacement)>,
         cleared_placements: Vec<SessionId>,
         ended_ids: Vec<SessionId>,
+        acknowledged_ids: Vec<SessionId>,
         create_ids: VecDeque<SessionId>,
         ended: usize,
         end_fails: bool,
@@ -1855,6 +1904,21 @@ mod tests {
             {
                 session.status = SessionStatus::Exited { status: Some(0) };
             }
+            Ok(())
+        }
+
+        fn acknowledge_exited(&mut self, session_id: SessionId) -> io::Result<()> {
+            if self.end_fails {
+                return Err(io::Error::other("acknowledge failed"));
+            }
+            let Some(index) = self.sessions.iter().position(|session| {
+                session.session_id == session_id
+                    && matches!(session.status, SessionStatus::Exited { .. })
+            }) else {
+                return Err(io::Error::other("session is not exited"));
+            };
+            self.sessions.remove(index);
+            self.acknowledged_ids.push(session_id);
             Ok(())
         }
 
@@ -1961,6 +2025,33 @@ mod tests {
         assert_eq!(states[&tabs[0].tab_id], LinkedTabState::Missing);
         assert_eq!(states[&tabs[1].tab_id], LinkedTabState::Ended);
         assert!(control.created.is_empty());
+    }
+
+    #[test]
+    fn sessions_reconciliation_acknowledges_detached_exited_descriptor() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let mut store = store(temp.path(), &project_id, &worktree_id);
+        let tab = eligible_tabs(&[project(&project_id, false)], &store, &HashMap::new())
+            .into_iter()
+            .next()
+            .unwrap();
+        let mut request = create_request(&contract(temp.path()), &tab).unwrap();
+        request.session_id = session_id("273E4567-E89B-12D3-A456-426614174000");
+        let mut exited = descriptor(&request, SessionStatus::Exited { status: Some(0) });
+        exited.placement = None;
+        let mut control = FakeControl {
+            sessions: vec![exited],
+            ..Default::default()
+        };
+
+        let states =
+            reconcile_persistent(&mut control, &contract(temp.path()), &mut store, &[]).unwrap();
+
+        assert!(states.is_empty());
+        assert_eq!(control.acknowledged_ids, vec![request.session_id]);
+        assert!(control.sessions.is_empty());
     }
 
     #[test]
@@ -2230,6 +2321,37 @@ mod tests {
         assert!(store.states()[0].tab(&tab.tab_id).is_none());
         let reloaded = WorkspaceStore::load_from(temp.path().join("workspaces.json"));
         assert!(reloaded.states()[0].tab(&tab.tab_id).is_none());
+    }
+
+    #[test]
+    fn session_manager_end_acknowledges_exited_descriptor_before_removing_link() {
+        let temp = tempfile::tempdir().unwrap();
+        let project_id = muxy_core::store::new_uuid();
+        let worktree_id = muxy_core::store::new_uuid();
+        let mut store = store(temp.path(), &project_id, &worktree_id);
+        let tab = eligible_tabs(&[project(&project_id, false)], &store, &HashMap::new()).remove(0);
+        let id = session_id("F23E4567-E89B-12D3-A456-426614174000");
+        store.states_mut()[0]
+            .tab_mut(&tab.tab_id)
+            .unwrap()
+            .session_id = Some(id);
+        store.save().unwrap();
+        let mut request = create_request(&contract(temp.path()), &tab).unwrap();
+        request.session_id = id;
+        let descriptor = descriptor(&request, SessionStatus::Exited { status: Some(0) });
+        let mut control = FakeControl {
+            sessions: vec![descriptor.clone()],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            end_exact_session(&mut control, &mut store, id, &descriptor.owner).unwrap(),
+            Some(tab.tab_id.clone())
+        );
+        assert_eq!(control.acknowledged_ids, [id]);
+        assert!(control.ended_ids.is_empty());
+        assert!(control.sessions.is_empty());
+        assert!(store.states()[0].tab(&tab.tab_id).is_none());
     }
 
     #[test]

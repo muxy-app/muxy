@@ -38,6 +38,54 @@ if rg -n '^\s*#' scripts/ | rg -v '^[^:]+:1:#!/'; then
     exit 1
 fi
 
+printf '==> Checking headless automated verification policy\n'
+app_verifiers=(
+    scripts/run-test-app.sh
+    scripts/verify-cli-compat.sh
+    scripts/verify-p2-5-migration.sh
+    scripts/verify-p4-vcs.sh
+    scripts/verify-p5-notifications.sh
+    scripts/verify-p6-quick-terminal.sh
+    scripts/verify-p7-composer.sh
+    scripts/verify-p8-terminal-memory.sh
+)
+if rg -n '^\s*(open|osascript)(\s|$)|launch_app\(\)|APP_EXECUTABLE=' "${app_verifiers[@]}"; then
+    printf 'error: automated verifier contains an app-launch lifecycle path\n' >&2
+    exit 1
+fi
+direct_app_launches="$(rg -n '^\s*"\$[^"[:space:]]*/Contents/MacOS/(muxy|MuxyTests)"' "${app_verifiers[@]}" \
+    | rg -v '^scripts/verify-p4-vcs\.sh:.*"\$app/Contents/MacOS/MuxyTests"$' || true)"
+if [[ -n "$direct_app_launches" ]]; then
+    printf '%s\n' "$direct_app_launches"
+    printf 'error: automated verifier directly invokes an application bundle executable\n' >&2
+    exit 1
+fi
+for disabled_script in \
+    scripts/run-test-app.sh \
+    scripts/verify-cli-compat.sh \
+    scripts/verify-p2-5-migration.sh \
+    scripts/verify-p5-notifications.sh \
+    scripts/verify-p6-quick-terminal.sh \
+    scripts/verify-p7-composer.sh \
+    scripts/verify-p8-terminal-memory.sh; do
+    rg -q 'app-launching E2E verification is disabled' "$disabled_script" || {
+        printf 'error: disabled app-launching entry point was restored: %s\n' "$disabled_script" >&2
+        exit 1
+    }
+done
+[[ -s docs/development/testing.md ]] || {
+    printf 'error: automated testing policy is missing\n' >&2
+    exit 1
+}
+rg -q 'must never launch `Muxy\.app`, `MuxyTests\.app`, or an app executable' docs/development/testing.md || {
+    printf 'error: no-app-launch policy differs\n' >&2
+    exit 1
+}
+rg -q 'must be verified by asking the user to check it manually' AGENTS.md || {
+    printf 'error: manual visual verification policy differs\n' >&2
+    exit 1
+}
+
 printf '==> Checking production defaults isolation\n'
 production_defaults_domain='com.muxy.'
 production_defaults_domain+='app'
@@ -208,6 +256,28 @@ p8_terminal_boundary="$(rg -n 'gpui|objc2|ghostty|MainWindow|AppState' crates/mu
 if [[ -n "$p8_terminal_boundary" ]]; then
     printf '%s\n' "$p8_terminal_boundary"
     printf 'error: portable idle policy crossed an app or platform boundary\n' >&2
+    exit 1
+fi
+pane_session_files="$(rg -l 'paneSessionID|pane_session_id' crates || true)"
+if [[ "$pane_session_files" != crates/muxy-core/src/workspace_store.rs ]]; then
+    printf '%s\n' "$pane_session_files"
+    printf 'error: paneSessionID must remain raw workspace compatibility data\n' >&2
+    exit 1
+fi
+for exact_setting in \
+    'flag\("muxy\.showResourceUsageInStatusBar", true\)' \
+    'flag\("muxy\.terminalOffline\.enabled", false\)' \
+    'flag\("muxy\.terminalPersistentSession\.enabled", false\)' \
+    'double\("muxy\.terminalOffline\.idleThresholdSeconds", 300\.0\)'; do
+    rg -q "$exact_setting" crates/muxy-core/src/prefs/settings.rs || {
+        printf 'error: P8 setting key or default differs: %s\n' "$exact_setting" >&2
+        exit 1
+    }
+done
+if rg -ni 'launchd|launchctl|LaunchAgent|SMAppService' \
+    crates/muxy-session crates/muxy/src/sessions crates/muxy/src/resource_monitor \
+    crates/muxy/src/terminal/idle.rs; then
+    printf 'error: P8 introduced an unapproved daemon installer or relaunch mechanism\n' >&2
     exit 1
 fi
 "$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture portable

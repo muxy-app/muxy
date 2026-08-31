@@ -17,6 +17,8 @@ fn daemon_creates_idempotently_lists_and_exits_when_empty() {
     assert_eq!(first.session_id, second.session_id);
     assert_eq!(first.status, SessionStatus::Running);
     assert_eq!(client.list_sessions().unwrap().len(), 1);
+    assert!(client.acknowledge_exited_session(first.session_id).is_err());
+    assert_eq!(client.list_sessions().unwrap().len(), 1);
 
     let mut conflict = request;
     conflict.argv.push("different".into());

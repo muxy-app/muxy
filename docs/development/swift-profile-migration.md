@@ -60,11 +60,12 @@ The state records paths and error categories, not user values or copied contents
 
 ## Verification
 
-Run:
+Run the headless safety guard and focused Rust migration tests:
 
 ```bash
 scripts/verify-p2-5-migration.sh --self-test
-scripts/verify-p2-5-migration.sh
+cargo test -p muxy-core --locked --offline migration
+cargo test -p muxy --locked --offline migration
 ```
 
-The full verifier stages `com.muxy.tests` debug and release bundles under `target/test-verification`, uses an isolated `HOME`, hashes synthetic sources, and proves success, target-wins merge, source-missing completion, retry, abandonment, and terminal no-reinspection without touching real user state.
+The Rust tests use isolated synthetic roots and prove success, target-wins merge, source-missing completion, retry, abandonment, and terminal no-reinspection without touching real user state. App-launching migration E2E verification is disabled. Ask the user to verify native startup behavior manually when a migration change needs it.

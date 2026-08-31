@@ -19,7 +19,7 @@ fail() {
     exit 1
 }
 
-for command_name in cmp codesign find grep iconutil lipo plutil sed sort uname; do
+for command_name in cmp codesign find grep iconutil lipo plutil sort stat uname; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command not found: $command_name"
 done
 [[ -x /usr/libexec/PlistBuddy ]] || fail "required command not found: /usr/libexec/PlistBuddy"
@@ -35,12 +35,29 @@ readonly BUNDLED_CLI="$RESOURCES/Muxy_Muxy.bundle/scripts/muxy-cli"
 readonly DEVELOPMENT_CLI_SOURCE="$PROJECT_ROOT/resources/muxy-dev-bin/muxy"
 readonly BUNDLED_DEVELOPMENT_CLI="$RESOURCES/muxy-dev-bin/muxy"
 
+entry_inventory() {
+    local root="$1" path type
+    find "$root" -mindepth 1 -print | while IFS= read -r path; do
+        if [[ -L "$path" ]]; then
+            type=L
+        elif [[ -d "$path" ]]; then
+            type=D
+        elif [[ -f "$path" ]]; then
+            type=F
+        else
+            type=O
+        fi
+        printf '%s %s\n' "$type" "${path#"$root"/}"
+    done | LC_ALL=C sort
+}
+
 [[ -d "$APP_BUNDLE" ]] || fail "app bundle not found: $APP_BUNDLE"
 [[ -x "$EXECUTABLE" ]] || fail "bundle executable is missing or not executable"
 [[ -x "$SESSION_HELPER" ]] || fail "session helper is missing or not executable"
-macos_inventory="$(find "$CONTENTS/MacOS" -mindepth 1 -maxdepth 1 -type f -print \
-    | sed 's#^.*/##' | LC_ALL=C sort)"
-[[ "$macos_inventory" == $'muxy\nmuxy-session' ]] || {
+[[ "$(stat -f '%Lp' "$EXECUTABLE")" == 755 ]] || fail "bundle executable mode differs"
+[[ "$(stat -f '%Lp' "$SESSION_HELPER")" == 755 ]] || fail "session helper mode differs"
+macos_inventory="$(entry_inventory "$CONTENTS/MacOS")"
+[[ "$macos_inventory" == $'F muxy\nF muxy-session' ]] || {
     fail "Contents/MacOS inventory differs: $macos_inventory"
 }
 main_architectures="$(lipo -archs "$EXECUTABLE")"
@@ -52,16 +69,21 @@ case " $main_architectures " in
     *" $(uname -m) "*) ;;
     *) fail "bundle does not contain the current architecture: $(uname -m)" ;;
 esac
+if [[ -n "$PROFILE" && "$("$SESSION_HELPER" build-mode)" != "$PROFILE" ]]; then
+    fail "session helper build mode differs from bundle profile"
+fi
 [[ -f "$PLIST" ]] || fail "Info.plist is missing"
 [[ -s "$ICON" ]] || fail "AppIcon.icns is missing or empty"
 [[ -x "$BUNDLED_CLI" && -s "$BUNDLED_CLI" ]] || {
     fail "bundled legacy CLI is missing or not executable"
 }
+[[ "$(stat -f '%Lp' "$BUNDLED_CLI")" == 755 ]] || fail "bundled legacy CLI mode differs"
 cmp -s "$CLI_SOURCE" "$BUNDLED_CLI" || fail "bundled legacy CLI differs from retained source"
 if [[ "$PROFILE" == debug || -x "$BUNDLED_DEVELOPMENT_CLI" ]]; then
     [[ -x "$BUNDLED_DEVELOPMENT_CLI" && -s "$BUNDLED_DEVELOPMENT_CLI" ]] || {
         fail "bundled development CLI is missing or not executable"
     }
+    [[ "$(stat -f '%Lp' "$BUNDLED_DEVELOPMENT_CLI")" == 755 ]] || fail "bundled development CLI mode differs"
     cmp -s "$DEVELOPMENT_CLI_SOURCE" "$BUNDLED_DEVELOPMENT_CLI" || {
         fail "bundled development CLI differs from its source"
     }
@@ -112,6 +134,14 @@ readonly expected_name expected_identifier
 }
 [[ -s "$RESOURCES/ghostty/shell-integration/nushell/vendor/autoload/ghostty.nu" ]] || {
     fail "bundled nushell shell integration is missing"
+}
+shell_integration_inventory="$(entry_inventory "$RESOURCES/ghostty/shell-integration")"
+expected_shell_integration_inventory=$'D bash\nD bash/elvish\nD bash/elvish/lib\nD fish\nD fish/vendor_conf.d\nD nushell\nD nushell/vendor\nD nushell/vendor/autoload\nD zsh\nF bash/bash-preexec.sh\nF bash/elvish/lib/ghostty-integration.elv\nF bash/ghostty.bash\nF fish/vendor_conf.d/ghostty-shell-integration.fish\nF nushell/vendor/autoload/ghostty.nu\nF zsh/.zshenv\nF zsh/ghostty-integration'
+if [[ "$PROFILE" == debug || -x "$BUNDLED_DEVELOPMENT_CLI" ]]; then
+    expected_shell_integration_inventory=$'D bash\nD bash/elvish\nD bash/elvish/lib\nD fish\nD fish/vendor_conf.d\nD nushell\nD nushell/vendor\nD nushell/vendor/autoload\nD zsh\nF bash/bash-preexec.sh\nF bash/elvish/lib/ghostty-integration.elv\nF bash/ghostty.bash\nF fish/vendor_conf.d/ghostty-shell-integration.fish\nF fish/vendor_conf.d/zz-muxy-development-cli.fish\nF nushell/vendor/autoload/ghostty.nu\nF zsh/.zshenv\nF zsh/ghostty-integration'
+fi
+[[ "$shell_integration_inventory" == "$expected_shell_integration_inventory" ]] || {
+    fail "bundled shell integration inventory differs: $shell_integration_inventory"
 }
 readonly BUNDLED_DEVELOPMENT_FISH_INTEGRATION="$RESOURCES/ghostty/shell-integration/fish/vendor_conf.d/zz-muxy-development-cli.fish"
 if [[ "$PROFILE" == debug || -x "$BUNDLED_DEVELOPMENT_CLI" ]]; then

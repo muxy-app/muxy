@@ -1070,11 +1070,11 @@ mod tests {
 
         std::fs::write(
             &options.hook_options.global_config_path,
-            r#"{"setup":["sleep 1"]}"#,
+            r#"{"setup":["sleep 30"]}"#,
         )
         .unwrap();
         let mut timeout_options = options;
-        timeout_options.timeout = Duration::from_millis(100);
+        timeout_options.timeout = Duration::from_secs(2);
         let mut timed_out = request(&project, "Timeout", "timeout", temp.path().join("timeout"));
         timed_out.setup_policy = SetupPolicy::NativeApproved(ProjectHookApproval::default());
         let timed_out = create_worktree(timed_out, &timeout_options).unwrap();

@@ -1990,21 +1990,24 @@ exit 2
             "#!/bin/sh\n: > \"$HOME/provider-started\"\nsleep 2\n",
         );
         let control = RepositoryAiWorkflowControl::default();
-        let cancellation = control.cancellation();
-        let cancel = std::thread::spawn(move || {
-            for _ in 0..200 {
-                if started.exists() {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            cancellation.cancel();
+        let worker_control = control.clone();
+        let service = fixture.service.clone();
+        let repository = fixture.repository.clone();
+        let request = fixture.request.clone();
+        let operation = std::thread::spawn(move || {
+            service.ai_commit_and_push(&repository, &request, &worker_control)
         });
-        let error = fixture
-            .service
-            .ai_commit_and_push(&fixture.repository, &fixture.request, &control)
-            .unwrap_err();
-        cancel.join().unwrap();
+        let waiting = std::time::Instant::now();
+        while !started.exists() {
+            assert!(!operation.is_finished(), "provider did not start");
+            assert!(
+                waiting.elapsed() < Duration::from_secs(10),
+                "provider did not start"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        control.cancel();
+        let error = operation.join().unwrap().unwrap_err();
         assert_eq!(error.completed, RepositoryAiCompletedBoundary::Staged);
         assert_eq!(fixture.commit_count(), "1");
     }
@@ -2027,23 +2030,25 @@ exit 2
             let mut fixture = WorkflowFixture::new(true, false);
             let started = fixture.block_git_command(pattern);
             let control = RepositoryAiWorkflowControl::default();
-            let cancellation = control.clone();
-            let cancel = std::thread::spawn(move || {
-                for _ in 0..400 {
-                    if started.exists() {
-                        cancellation.cancel();
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(5));
-                }
-                panic!("blocked read did not start");
+            let worker_control = control.clone();
+            let service = fixture.service.clone();
+            let repository = fixture.repository.clone();
+            let request = fixture.request.clone();
+            let operation = std::thread::spawn(move || {
+                service.ai_commit_and_push(&repository, &request, &worker_control)
             });
+            let waiting = std::time::Instant::now();
+            while !started.exists() {
+                assert!(!operation.is_finished(), "blocked read did not start");
+                assert!(
+                    waiting.elapsed() < Duration::from_secs(10),
+                    "blocked read did not start"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
             let began = std::time::Instant::now();
-            let error = fixture
-                .service
-                .ai_commit_and_push(&fixture.repository, &fixture.request, &control)
-                .unwrap_err();
-            cancel.join().unwrap();
+            control.cancel();
+            let error = operation.join().unwrap().unwrap_err();
             assert_eq!(error.completed, completed, "{pattern}: {error:?}");
             assert!(began.elapsed() < Duration::from_secs(2), "{pattern}");
         }

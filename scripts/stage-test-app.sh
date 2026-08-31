@@ -11,6 +11,7 @@ readonly TEST_EXECUTABLE="MuxyTests"
 readonly VERIFICATION_ROOT="$PROJECT_ROOT/target/test-verification"
 readonly APPS_ROOT="$VERIFICATION_ROOT/apps"
 readonly OWNER_FILE=".muxy-stage-owner"
+readonly PROFILE_FILE=".muxy-stage-profile"
 
 fail() {
     printf 'error: %s\n' "$*" >&2
@@ -68,7 +69,7 @@ prepare_destination() {
 
 stage_app() {
     local source_app="$1" label="$2"
-    local source_plist source_executable_name source_executable destination destination_plist
+    local source_plist source_executable_name source_executable source_identifier source_profile source_helper expected_identifier destination destination_plist
 
     [[ "$label" =~ ^[A-Za-z0-9_-]+$ ]] || fail "invalid stage label: $label"
     [[ -d "$source_app" ]] || fail "source app not found: $source_app"
@@ -83,6 +84,22 @@ stage_app() {
     destination="$APPS_ROOT/$label/MuxyTests.app"
     [[ "$source_app" != "$destination" ]] || fail "source and destination must differ"
     prepare_destination "$destination"
+    source_identifier="$(plutil -extract CFBundleIdentifier raw -o - "$source_plist")"
+    source_helper="$source_app/Contents/MacOS/muxy-session"
+    source_profile=unknown
+    if [[ -x "$source_helper" ]]; then
+        source_profile="$("$source_helper" build-mode)"
+        case "$source_profile" in
+            debug) expected_identifier=com.muxy.dev ;;
+            release) expected_identifier="$(plutil -extract CFBundleIdentifier raw -o - "$PROJECT_ROOT/resources/Info.plist")" ;;
+            *) fail "source session helper returned an invalid build mode" ;;
+        esac
+        [[ "$source_identifier" == "$expected_identifier" ]] || {
+            fail "source app and session helper profiles differ"
+        }
+    fi
+    printf '%s\n' "$source_profile" > "$(dirname "$destination")/$PROFILE_FILE"
+    chmod 0600 "$(dirname "$destination")/$PROFILE_FILE"
     ditto "$source_app" "$destination"
 
     destination_plist="$destination/Contents/Info.plist"
@@ -119,6 +136,9 @@ stage_app() {
     [[ -x "$destination/Contents/MacOS/$TEST_EXECUTABLE" ]] || fail "staged executable not found"
     if [[ -e "$destination/Contents/MacOS/muxy-session" ]]; then
         codesign --verify --strict "$destination/Contents/MacOS/muxy-session"
+        [[ "$("$destination/Contents/MacOS/muxy-session" build-mode)" == "$source_profile" ]] || {
+            fail "staged app and session helper profiles differ"
+        }
     fi
     codesign --verify --deep --strict "$destination"
     printf '%s\n' "$destination"
@@ -157,6 +177,7 @@ self_test() {
     [[ "$(plutil -extract CFBundleIdentifier raw -o - "$staged/Contents/Info.plist")" == \
         "$TEST_BUNDLE_IDENTIFIER" ]] || fail "self-test bundle identifier mismatch"
     [[ -x "$staged/Contents/MacOS/$TEST_EXECUTABLE" ]] || fail "self-test executable is missing"
+    [[ "$(<"$(dirname "$staged")/$PROFILE_FILE")" == unknown ]] || fail "self-test source profile marker differs"
 
     real_parent="$fixture_root/real-parent"
     mkdir -p "$real_parent/MuxyTests.app"

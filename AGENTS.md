@@ -19,6 +19,8 @@ Fully rewrite Muxy in Rust according to User's guide per given task.
 - Avoid overengineering approaches
 - You are not allowed to make or run python scripts. use your built-in tools or ask user confirmation with explanatin of why do you need to run a python script.
 - Do not check git history or stash or other branches unless user specifically asks for
+- Automated tests and verifier scripts must never launch the Muxy app or any staged app bundle on the user's computer
+- Visual, focus, accessibility, and native window behavior must be verified by asking the user to check it manually
 
 ## Vision
 
