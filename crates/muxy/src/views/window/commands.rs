@@ -403,12 +403,25 @@ impl MainWindow {
                 self.state.command_shortcuts = muxy_core::store::CommandShortcuts::load();
                 self.rebind_shortcuts(cx);
             }
+            settings::Effect::SessionsRestartRequired => {
+                let prefs = Prefs::load();
+                self.state.prefs.terminal_memory = prefs.terminal_memory;
+                self.sessions.set_desired_persistent(
+                    self.state.prefs.terminal_memory.persistent_sessions_enabled,
+                );
+                cx.notify();
+            }
             settings::Effect::All => {
                 self.apply_scale_setting(cx);
                 self.apply_theme_setting(cx);
                 self.apply_chrome_settings(cx);
                 self.state.shortcuts = muxy_core::shortcuts::ShortcutMap::load();
                 self.state.command_shortcuts = muxy_core::store::CommandShortcuts::load();
+                let prefs = Prefs::load();
+                self.state.prefs.terminal_memory = prefs.terminal_memory;
+                self.sessions.set_desired_persistent(
+                    self.state.prefs.terminal_memory.persistent_sessions_enabled,
+                );
                 self.rebind_shortcuts(cx);
             }
         }

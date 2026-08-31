@@ -132,6 +132,7 @@ pub struct MainWindow {
     view: ViewState,
     pub(crate) window_handle: AnyWindowHandle,
     pub(crate) terminal_runtime: TerminalRuntime,
+    pub(crate) sessions: crate::sessions::SessionCoordinator,
     pub(crate) notification_coordinator: crate::notifications::NotificationCoordinator,
     pub(crate) native_response_receiver: Option<async_channel::Receiver<String>>,
     project_runtime: ProjectRuntime,
@@ -145,7 +146,7 @@ impl MainWindow {
     pub fn new(
         state: AppState,
         socket: SocketBootstrap,
-        mode: muxy_core::environment::BuildMode,
+        sessions: crate::sessions::SessionCoordinator,
         execution_environment: muxy_api::execution_environment::ExecutionEnvironmentSource,
         desktop_notifications: (
             crate::notifications::desktop::DesktopNotificationService,
@@ -156,6 +157,7 @@ impl MainWindow {
     ) -> Self {
         let menu_focus = cx.focus_handle();
         let workspace_focus = cx.focus_handle();
+        let mode = sessions.build_mode();
         let mut terminals = TerminalSurfaces::with_socket_path(socket.socket_path());
         let combos = terminal_shortcut_combos(&state);
         if let Err(error) = terminals.backend_mut().attach(
@@ -244,6 +246,7 @@ impl MainWindow {
             view,
             window_handle: window.window_handle(),
             terminal_runtime: TerminalRuntime::new(terminals, terminal_tasks),
+            sessions,
             notification_coordinator,
             native_response_receiver,
             project_runtime: ProjectRuntime::new(

@@ -42,7 +42,7 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
         category,
         "Background sessions",
         Some(
-            "Runs each new terminal in a separate background process, the way tmux does. Quitting Muxy leaves those terminals running and reopening reconnects them with their recent output. Closing a tab still ends its session. Use Send to Background from a terminal's context menu to close an eligible tab without stopping its processes. Terminals that are already open keep their current behaviour.",
+            "Runs local workspace terminals in separate background processes, the way tmux does. Quitting Muxy leaves those terminals running and reopening reconnects them with their recent output. Closing a tab still ends its session. Changing this setting requires restarting Muxy and does not affect the current terminal processes.",
         ),
         true,
         vec![toggle_row(

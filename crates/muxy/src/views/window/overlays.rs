@@ -15,6 +15,17 @@ fn desktop_authorization_failure(
     }
 }
 
+fn session_disable_confirmation(count: usize) -> String {
+    let (noun, pronoun) = if count == 1 {
+        ("session", "it")
+    } else {
+        ("sessions", "them")
+    };
+    format!(
+        "Restarting Muxy after this change will end {count} active background {noun} and every process running inside {pronoun}."
+    )
+}
+
 fn repository_ai_workflow_effect(
     result: &Result<
         muxy_api::repository::RepositoryAiWorkflowOutcome,
@@ -1897,6 +1908,7 @@ impl MainWindow {
         let subscription = cx.subscribe(&modal, |window: &mut Self, _, event, cx| match event {
             settings::SettingsEvent::Dismiss => window.dismiss_overlay(cx),
             settings::SettingsEvent::Applied(effect) => window.apply_settings(*effect, cx),
+            settings::SettingsEvent::ConfirmSessionsDisable => window.confirm_sessions_disable(cx),
             settings::SettingsEvent::SetDesktopNotifications(enabled) => {
                 window.set_desktop_notifications(*enabled, cx)
             }
@@ -1909,6 +1921,48 @@ impl MainWindow {
         self.view.subscriptions = vec![subscription];
         self.view.overlay = Overlay::Settings(modal);
         cx.notify();
+    }
+
+    fn confirm_sessions_disable(&mut self, cx: &mut Context<Self>) {
+        let count = match self.sessions.active_session_count() {
+            Ok(count) => count,
+            Err(error) => {
+                self.feedback(
+                    "Disable Background Sessions",
+                    format!("Could not verify active sessions: {error}"),
+                    crate::toast::ToastTone::Error,
+                    cx,
+                );
+                return;
+            }
+        };
+        if count == 0 {
+            self.persist_sessions_disabled(cx);
+            return;
+        }
+        let answer = self.ask(
+            "Disable Background Sessions?".to_owned(),
+            session_disable_confirmation(count),
+            &["Disable on Restart", "Cancel"],
+            cx,
+        );
+        cx.spawn(async move |window, cx| {
+            if answer.await == Some(0) {
+                let _ = window.update(cx, |window, cx| window.persist_sessions_disabled(cx));
+            }
+        })
+        .detach();
+    }
+
+    fn persist_sessions_disabled(&mut self, cx: &mut Context<Self>) {
+        muxy_core::prefs::Prefs::store_settings_value(
+            "muxy.terminalPersistentSession.enabled",
+            serde_json::Value::Bool(false),
+        );
+        self.apply_settings(settings::Effect::SessionsRestartRequired, cx);
+        if let Overlay::Settings(modal) = &self.view.overlay {
+            modal.update(cx, |modal, cx| modal.refresh(cx));
+        }
     }
 
     fn set_desktop_notifications(&mut self, enabled: bool, cx: &mut Context<Self>) {
@@ -3059,6 +3113,18 @@ fn app_layout_menu_items() -> Vec<Item> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sessions_disable_confirmation_counts_the_destructive_scope() {
+        assert_eq!(
+            session_disable_confirmation(1),
+            "Restarting Muxy after this change will end 1 active background session and every process running inside it."
+        );
+        assert_eq!(
+            session_disable_confirmation(3),
+            "Restarting Muxy after this change will end 3 active background sessions and every process running inside them."
+        );
+    }
 
     #[test]
     fn repository_ai_outcomes_preserve_exact_partial_effect_boundaries() {

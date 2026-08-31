@@ -8,6 +8,7 @@ mod transport;
 
 pub use client::{RendererClient, RendererEvent, SessionClient, sibling_helper};
 pub use process_tree::{identity_is_alive, process_identity};
+pub use runtime_paths::selected_socket_path;
 
 mod client;
 

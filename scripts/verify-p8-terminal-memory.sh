@@ -15,6 +15,10 @@ cleanup_active() {
     PROBE_PID=""
     stop_job_process "$APP_PID" || status=1
     APP_PID=""
+    if [[ -n "$ACTIVE_ROOT" && -f "$ACTIVE_ROOT/.phase3-runtime" ]] && ! cleanup_phase_three_runtime "$ACTIVE_ROOT"; then
+        printf 'error: Phase 3 owned runtime cleanup failed; preserving %s\n' "$ACTIVE_ROOT" >&2
+        return 1
+    fi
     if [[ -n "$ACTIVE_ROOT" ]] && root_is_owned "$ACTIVE_ROOT"; then
         cleanup_owned_root "$ACTIVE_ROOT" || status=1
     elif [[ -n "$ACTIVE_SOCKET" && -n "$ACTIVE_ROOT" && "$ACTIVE_SOCKET" == "$ACTIVE_ROOT"/* ]]; then
@@ -98,9 +102,9 @@ prepare_root() {
     chmod 0600 "$root/$OWNER_FILE"
 }
 
-prepare_unique_phase_two_root() {
-    local root
-    root="$(mktemp -d "$ISOLATED_TMP_ROOT/p8-isolated-test-staged-phase2.XXXXXX")"
+prepare_unique_tmp_root() {
+    local phase="$1" root
+    root="$(mktemp -d "$ISOLATED_TMP_ROOT/p8-isolated-test-staged-$phase.XXXXXX")"
     root_path_is_safe "$root" || fail "refusing unsafe P8 root: $root"
     chmod 0700 "$root"
     printf '%s\n' "$OWNER_VALUE" > "$root/$OWNER_FILE"
@@ -137,6 +141,75 @@ stop_job_process() {
         sleep 0.025
     done
     fail "owned shell job did not stop: $pid"
+}
+
+stop_phase_three_cleanup_app() {
+    local pid="$APP_PID"
+    stop_job_process "$pid"
+    wait "$pid" 2>/dev/null || true
+    APP_PID=""
+}
+
+cleanup_phase_three_runtime() {
+    local root="$1" executable profile app_support home tmp xdg app_socket session_socket attempt exit_status
+    executable="$(sed -n '1p' "$root/.phase3-runtime")"
+    profile="$(sed -n '2p' "$root/.phase3-runtime")"
+    [[ -x "$executable" && ( "$profile" == debug || "$profile" == release ) ]] || return 1
+    app_support="$root/app"
+    home="$root/home"
+    tmp="$root/tmp"
+    xdg="$root/xdg"
+    app_socket="$app_support/muxy.sock"
+    session_socket="$app_support/sessions/control.sock"
+    if [[ "$profile" == debug ]]; then
+        app_socket="$app_support/muxy-dev.sock"
+        session_socket="$app_support/sessions-dev/control.sock"
+    fi
+    printf '{"muxy.terminalPersistentSession.enabled":false}\n' > "$app_support/settings.json"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$root/cleanup-app.log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" ]] && break
+        if ! kill -0 "$APP_PID" 2>/dev/null; then
+            wait "$APP_PID" 2>/dev/null || true
+            APP_PID=""
+            return 1
+        fi
+        sleep 0.05
+    done
+    if [[ ! -S "$app_socket" ]]; then
+        stop_phase_three_cleanup_app
+        return 1
+    fi
+    if ! osascript -e 'tell application id "com.muxy.tests" to quit' >/dev/null 2>&1; then
+        stop_phase_three_cleanup_app
+        return 1
+    fi
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        ! kill -0 "$APP_PID" 2>/dev/null && break
+        sleep 0.05
+    done
+    if kill -0 "$APP_PID" 2>/dev/null; then
+        stop_phase_three_cleanup_app
+        return 1
+    fi
+    set +e
+    wait "$APP_PID" 2>/dev/null
+    exit_status=$?
+    set -e
+    APP_PID=""
+    [[ "$exit_status" == 0 ]] || return 1
+    for ((attempt = 0; attempt < 600; attempt++)); do
+        [[ ! -S "$session_socket" ]] && break
+        sleep 0.05
+    done
+    [[ ! -S "$session_socket" ]] || return 1
+    rm -f -- "$root/.phase3-runtime"
 }
 
 cleanup_recorded_processes() {
@@ -180,8 +253,6 @@ source_checks() {
     rg -q '"paneSessionID"' crates/muxy-core/src/workspace_store.rs || fail "paneSessionID preservation proof is missing"
     matches="$(find . -name terminal-session-mode.json -print)"
     [[ -z "$matches" ]] || fail "forbidden terminal session marker exists"
-    matches="$(rg -n 'muxy[-_]session' crates/muxy/Cargo.toml crates/muxy/src || true)"
-    [[ -z "$matches" ]] || fail "P8 app runtime behavior entered before Phase 3"
 }
 
 phase_two_source_checks() {
@@ -211,6 +282,29 @@ phase_two_source_checks() {
     rg -q 'Contents/MacOS/muxy-session' scripts/build-app.sh scripts/verify-bundle.sh || {
         fail "session helper bundle contract is missing"
     }
+}
+
+phase_three_source_checks() {
+    phase_two_source_checks
+    for path in \
+        crates/muxy/src/sessions/mod.rs \
+        crates/muxy/src/terminal/surfaces.rs \
+        crates/muxy/src/views/window/terminal.rs \
+        crates/muxy/src/views/window/render.rs \
+        crates/muxy/src/views/settings/categories/terminal.rs; do
+        [[ -f "$path" ]] || fail "missing Phase 3 source: $path"
+    done
+    rg -q '^muxy-session\.workspace = true$' crates/muxy/Cargo.toml || fail "muxy app session facade dependency is missing"
+    rg -q 'SessionCoordinator::start' crates/muxy/src/main.rs || fail "session startup coordinator is not wired"
+    rg -q 'if !self\.sessions\.is_ready\(\)' crates/muxy/src/views/window/terminal.rs || fail "workspace terminal startup barrier is missing"
+    rg -q 'spawn_attachment' crates/muxy/src/terminal/ghostty/mod.rs crates/muxy/src/terminal/surfaces.rs || fail "Ghostty attachment path is missing"
+    rg -q 'SessionsRestartRequired' crates/muxy/src/views/settings/mod.rs crates/muxy/src/views/window/commands.rs || fail "restart-required setting effect is missing"
+    rg -q 'ConfirmSessionsDisable' crates/muxy/src/views/settings/mod.rs crates/muxy/src/views/window/overlays.rs || fail "counted disable confirmation is missing"
+    rg -q 'retry_session_attachment' crates/muxy/src/views/window/terminal.rs crates/muxy/src/views/workspace_view.rs || fail "attachment retry action is missing"
+    rg -q 'Changing this setting requires restarting Muxy' crates/muxy/src/views/settings/categories/terminal.rs || fail "restart-required settings copy is missing"
+    rg -q 'Background session is missing' crates/muxy/src/views/window/terminal.rs || fail "missing-session presentation is absent"
+    rg -q 'Background session has ended' crates/muxy/src/views/window/terminal.rs || fail "ended-session presentation is absent"
+    ! rg -q 'terminal-session-mode\.json' crates || fail "forbidden session mode marker is referenced"
 }
 
 portable_fixture() {
@@ -253,6 +347,31 @@ shell_integration_fixture() {
     phase_two_source_checks
     cargo test -p muxy-session --lib --locked --offline shell
     printf 'P8 shell integration fixture passed\n'
+}
+
+transitions_fixture() {
+    phase_three_source_checks
+    cargo test -p muxy-core --locked --offline session::transition
+    cargo test -p muxy --locked --offline sessions_disable_acknowledges_cleanup_before_clearing_durable_links
+    cargo test -p muxy --locked --offline settings_persistent_disable_requires_confirmation_before_persistence
+    cargo test -p muxy --locked --offline sessions_disable_confirmation_counts_the_destructive_scope
+    cargo test -p muxy --locked --offline sessions_startup_barrier_and_restart_mode_are_explicit
+    printf 'P8 restart-only transition fixture passed\n'
+}
+
+renderer_attachment_fixture() {
+    phase_three_source_checks
+    cargo test -p muxy --locked --offline sessions_enable_links_every_local_terminal_before_surface_materialization
+    cargo test -p muxy --locked --offline sessions_attachment_retry_reuses_only_the_running_linked_session
+    cargo test -p muxy --locked --offline session_attachment_exit_drops_only_the_proxy_surface
+    printf 'P8 visible renderer attachment fixture passed\n'
+}
+
+exclusions_fixture() {
+    phase_three_source_checks
+    cargo test -p muxy --locked --offline sessions_exclude_remote_workspaces_and_escape_each_attach_argument
+    cargo test -p muxy --locked --offline quick_terminal_session_creates_lazily_and_retains_one_surface
+    printf 'P8 Quick Terminal and remote exclusion fixture passed\n'
 }
 
 validate_staged_app() {
@@ -335,6 +454,25 @@ staged_phase_one() {
     printf 'P8 staged Phase 1 passed with zero staged process residue\n'
 }
 
+close_phase_three_app() {
+    local log="$1" attempt exit_status
+    osascript -e 'tell application id "com.muxy.tests" to quit'
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        ! kill -0 "$APP_PID" 2>/dev/null && break
+        sleep 0.05
+    done
+    ! kill -0 "$APP_PID" 2>/dev/null || fail "staged Phase 3 app did not close normally"
+    set +e
+    wait "$APP_PID"
+    exit_status=$?
+    set -e
+    APP_PID=""
+    [[ "$exit_status" == 0 ]] || {
+        cat "$log"
+        fail "staged Phase 3 app exited with status $exit_status"
+    }
+}
+
 staged_phase_two() {
     local profile="$1" app="$2" case_name="$3" root app_support home tmp xdg app_socket
     local executable helper app_log probe_log cli exit_status probe_pid
@@ -344,7 +482,7 @@ staged_phase_two() {
     [[ "$case_name" == phase-2 ]] || fail "unsupported Phase 2 staged case: $case_name"
     validate_staged_app "$app"
     phase_two_source_checks
-    root="$(prepare_unique_phase_two_root)"
+    root="$(prepare_unique_tmp_root phase2)"
     ACTIVE_ROOT="$root"
     app_support="$root/app"
     home="$root/home"
@@ -437,6 +575,194 @@ staged_phase_two() {
     printf 'P8 staged Phase 2 detach, app-close survival, reattach, and cleanup passed\n'
 }
 
+staged_phase_three() {
+    local profile="$1" app="$2" case_name="$3" root app_support home tmp xdg app_socket
+    local session_socket executable cli project log attempt count=0 before_ids after_ids reopened_ids
+    local tabs visible_id hidden_id other_id screen visible_ready=0 token="P8_PHASE3_ATTACHMENT_OK"
+    [[ "$(uname -s)" == Darwin ]] || fail "staged verification requires macOS"
+    [[ "$profile" == debug || "$profile" == release ]] || fail "invalid staged profile: $profile"
+    [[ "$case_name" == phase-3 ]] || fail "unsupported Phase 3 staged case: $case_name"
+    validate_staged_app "$app"
+    phase_three_source_checks
+    root="$(prepare_unique_tmp_root phase3)"
+    ACTIVE_ROOT="$root"
+    app_support="$root/app"
+    home="$root/home"
+    tmp="$root/tmp"
+    xdg="$root/xdg"
+    project="$root/project"
+    mkdir -p "$app_support" "$home" "$tmp" "$xdg" "$project"
+    git -C "$project" init -q
+    app_socket="$app_support/muxy.sock"
+    session_socket="$app_support/sessions/control.sock"
+    if [[ "$profile" == debug ]]; then
+        app_socket="$app_support/muxy-dev.sock"
+        session_socket="$app_support/sessions-dev/control.sock"
+    fi
+    ACTIVE_SOCKET="$app_socket"
+    executable="$app/Contents/MacOS/MuxyTests"
+    cli="$app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+    printf '%s\n%s\n' "$executable" "$profile" > "$root/.phase3-runtime"
+    log="$root/ordinary.log"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$log"
+            fail "staged Phase 3 ordinary app exited before binding its socket"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" ]] || fail "staged Phase 3 ordinary app socket was not created"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" create-project "$project" --name P8Phase3 >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" new-tab >/dev/null
+    printf '{"muxy.terminalPersistentSession.enabled":true}\n' > "$app_support/settings.json"
+    sleep 0.2
+    [[ ! -S "$session_socket" ]] || fail "session mode changed without restart"
+    close_phase_three_app "$log"
+
+    log="$root/persistent.log"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" && -S "$session_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$log"
+            fail "staged Phase 3 persistent app exited during startup"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" && -S "$session_socket" ]] || {
+        cat "$log"
+        fail "persistent session sockets were not created"
+    }
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        count="$( (rg -o '"sessionId"[[:space:]]*:[[:space:]]*"[0-9A-F-]{36}"' "$app_support/workspaces.json" 2>/dev/null || true) | wc -l | tr -d ' ')"
+        ((count >= 2)) && break
+        sleep 0.05
+    done
+    ((count >= 2)) || {
+        cat "$log"
+        fail "eligible local tabs were not durably linked before renderer startup"
+    }
+    before_ids="$(rg -o '"sessionId"[[:space:]]*:[[:space:]]*"[0-9A-F-]{36}"' "$app_support/workspaces.json" | sort)"
+    tabs="$(MUXY_SOCKET_PATH="$app_socket" "$cli" list-tabs)"
+    visible_id="$(printf '%s\n' "$tabs" | awk -F $'\t' '$5 == "true" { print $2; exit }')"
+    hidden_id="$(printf '%s\n' "$tabs" | awk -F $'\t' '$5 == "false" { print $2; exit }')"
+    [[ "$visible_id" =~ ^[0-9A-F-]{36}$ && "$hidden_id" =~ ^[0-9A-F-]{36}$ ]] || fail "could not identify visible and hidden terminal tabs"
+    for ((attempt = 0; attempt < 20; attempt++)); do
+        if MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$visible_id" --lines 20 > "$root/visible-screen.txt" 2>/dev/null; then
+            visible_ready=1
+            break
+        fi
+        sleep 0.05
+    done
+    ((visible_ready == 1)) || fail "visible persistent renderer did not materialize"
+    if MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$hidden_id" --lines 20 > "$root/hidden-screen.txt" 2>&1; then
+        fail "hidden persistent tab unexpectedly had a renderer"
+    fi
+    rg -q 'pane surface not ready' "$root/hidden-screen.txt" || fail "hidden renderer absence was not observed"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" switch-tab "$hidden_id" >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send --pane "$hidden_id" "printf '$token\\n'" >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send-keys --pane "$hidden_id" Enter >/dev/null
+    for ((attempt = 0; attempt < 100; attempt++)); do
+        screen="$(MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$hidden_id" --lines 50 2>/dev/null || true)"
+        [[ "$screen" == *"$token"* ]] && break
+        sleep 0.05
+    done
+    [[ "$screen" == *"$token"* ]] || fail "selected hidden tab did not attach and return terminal output"
+    other_id="$visible_id"
+    close_phase_three_app "$log"
+    [[ -S "$session_socket" ]] || fail "background session daemon did not survive normal app close"
+
+    log="$root/reopen.log"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" && -S "$session_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$log"
+            fail "staged Phase 3 reopen app exited during startup"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" && -S "$session_socket" ]] || fail "staged Phase 3 reopen sockets were not created"
+    reopened_ids="$(rg -o '"sessionId"[[:space:]]*:[[:space:]]*"[0-9A-F-]{36}"' "$app_support/workspaces.json" | sort)"
+    [[ "$reopened_ids" == "$before_ids" ]] || fail "reopen changed durable session IDs"
+    for ((attempt = 0; attempt < 100; attempt++)); do
+        screen="$(MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$hidden_id" --lines 50 2>/dev/null || true)"
+        [[ "$screen" == *"$token"* ]] && break
+        sleep 0.05
+    done
+    [[ "$screen" == *"$token"* ]] || fail "reopen did not reattach the exact selected session with replay"
+    if MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$other_id" --lines 20 > "$root/reopen-hidden-screen.txt" 2>&1; then
+        fail "reopen materialized a hidden persistent renderer"
+    fi
+    rg -q 'pane surface not ready' "$root/reopen-hidden-screen.txt" || fail "visible-only renderer restoration was not observed"
+    printf '{"muxy.terminalPersistentSession.enabled":false}\n' > "$app_support/settings.json"
+    sleep 0.2
+    after_ids="$(rg -o '"sessionId"[[:space:]]*:[[:space:]]*"[0-9A-F-]{36}"' "$app_support/workspaces.json" | sort)"
+    [[ "$after_ids" == "$before_ids" && -S "$session_socket" ]] || fail "disable changed live sessions without restart"
+    close_phase_three_app "$log"
+    [[ -S "$session_socket" ]] || fail "background session daemon did not survive disable-request close"
+
+    log="$root/disable.log"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$log"
+            fail "staged Phase 3 disable app exited during startup"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" ]] || fail "staged Phase 3 disable app socket was not created"
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        if ! rg -q '"sessionId"[[:space:]]*:' "$app_support/workspaces.json"; then
+            break
+        fi
+        sleep 0.05
+    done
+    ! rg -q '"sessionId"[[:space:]]*:' "$app_support/workspaces.json" || {
+        cat "$log"
+        fail "disable did not clear durable session links after cleanup"
+    }
+    close_phase_three_app "$log"
+    for ((attempt = 0; attempt < 600; attempt++)); do
+        [[ ! -S "$session_socket" ]] && break
+        sleep 0.05
+    done
+    [[ ! -S "$session_socket" ]] || fail "disabled session daemon socket remained"
+    [[ ! -S "$app_socket" ]] || fail "staged Phase 3 app socket remained"
+    rm -f -- "$root/.phase3-runtime"
+    cleanup_owned_root "$root"
+    ACTIVE_SOCKET=""
+    ACTIVE_ROOT=""
+    printf 'P8 staged Phase 3 restart-only transition, hidden/visible renderer, attachment replay, exact-ID reopen, and disable cleanup passed\n'
+}
+
 self_test() {
     local nonce="$$" owned unowned mismatch linked target outside
     source_checks
@@ -492,6 +818,9 @@ case "${1:-}" in
             daemon-detach-attach) daemon_detach_attach_fixture ;;
             process-cleanup) process_cleanup_fixture ;;
             shell-integration) shell_integration_fixture ;;
+            transitions) transitions_fixture ;;
+            renderer-attachment) renderer_attachment_fixture ;;
+            exclusions) exclusions_fixture ;;
             *) fail "unknown P8 fixture: $2" ;;
         esac
         ;;
@@ -501,12 +830,13 @@ case "${1:-}" in
         ;;
     --staged)
         (($# == 4)) || fail "usage: scripts/verify-p8-terminal-memory.sh --staged PROFILE APP PHASE"
-        for command_name in awk cmp codesign osascript pgrep plutil ps shasum; do
+        for command_name in awk cmp codesign git osascript pgrep plutil ps shasum; do
             require_command "$command_name"
         done
         case "$4" in
             phase-1) staged_phase_one "$2" "$3" "$4" ;;
             phase-2) staged_phase_two "$2" "$3" "$4" ;;
+            phase-3) staged_phase_three "$2" "$3" "$4" ;;
             *) fail "unsupported staged P8 phase: $4" ;;
         esac
         ;;

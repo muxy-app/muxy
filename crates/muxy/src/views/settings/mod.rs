@@ -67,6 +67,7 @@ pub enum Effect {
     Theme,
     Shortcuts,
     CommandShortcuts,
+    SessionsRestartRequired,
     All,
 }
 
@@ -74,12 +75,17 @@ pub enum Effect {
 pub enum SettingsEvent {
     Dismiss,
     Applied(Effect),
+    ConfirmSessionsDisable,
     SetDesktopNotifications(bool),
     PreviewNotificationSound(String),
 }
 
 fn desktop_notification_event(enabled: bool, pending: bool) -> SettingsEvent {
     SettingsEvent::SetDesktopNotifications(if pending { false } else { !enabled })
+}
+
+fn requires_sessions_disable_confirmation(key: &str, value: &Value) -> bool {
+    key == "muxy.terminalPersistentSession.enabled" && value == &Value::Bool(false)
 }
 
 fn notification_sound_event(name: &str) -> Option<SettingsEvent> {
@@ -1122,9 +1128,16 @@ impl SettingsModal {
             cx.notify();
             return;
         }
+        if requires_sessions_disable_confirmation(key, &value) {
+            cx.emit(SettingsEvent::ConfirmSessionsDisable);
+            cx.notify();
+            return;
+        }
         Prefs::store_settings_value(key, value);
         if CHROME_KEYS.contains(&key) {
             cx.emit(SettingsEvent::Applied(Effect::Chrome));
+        } else if key == "muxy.terminalPersistentSession.enabled" {
+            cx.emit(SettingsEvent::Applied(Effect::SessionsRestartRequired));
         }
         cx.notify();
     }
@@ -1576,6 +1589,22 @@ mod tests {
             desktop_notification_event(false, true),
             SettingsEvent::SetDesktopNotifications(false)
         );
+    }
+
+    #[test]
+    fn settings_persistent_disable_requires_confirmation_before_persistence() {
+        assert!(requires_sessions_disable_confirmation(
+            "muxy.terminalPersistentSession.enabled",
+            &Value::Bool(false)
+        ));
+        assert!(!requires_sessions_disable_confirmation(
+            "muxy.terminalPersistentSession.enabled",
+            &Value::Bool(true)
+        ));
+        assert!(!requires_sessions_disable_confirmation(
+            "muxy.terminalIdle.enabled",
+            &Value::Bool(false)
+        ));
     }
 
     #[test]

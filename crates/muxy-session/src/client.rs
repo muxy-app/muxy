@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(3);
+
 pub struct SessionClient {
     stream: UnixStream,
     next_request_id: u64,
@@ -22,7 +24,9 @@ pub struct SessionClient {
 impl SessionClient {
     pub fn connect(socket_path: impl AsRef<Path>, build_mode: BuildMode) -> io::Result<Self> {
         let mut stream = UnixStream::connect(socket_path)?;
+        set_connection_timeout(&stream, Some(CONNECTION_TIMEOUT))?;
         let accepted = client_handshake(&mut stream, ClientKind::Control, build_mode)?;
+        set_connection_timeout(&stream, None)?;
         Ok(Self {
             stream,
             next_request_id: 1,
@@ -74,6 +78,10 @@ impl SessionClient {
 
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
         self.stream.set_read_timeout(timeout)
+    }
+
+    pub fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.stream.set_write_timeout(timeout)
     }
 
     pub fn list_sessions(&mut self) -> io::Result<Vec<SessionDescriptor>> {
@@ -194,6 +202,7 @@ impl RendererClient {
         request: AttachRequest,
     ) -> io::Result<Self> {
         let mut stream = UnixStream::connect(socket_path)?;
+        set_connection_timeout(&stream, Some(CONNECTION_TIMEOUT))?;
         client_handshake(&mut stream, ClientKind::Renderer, build_mode)?;
         write_structured(&mut stream, FrameKind::Attach, 0, &request)?;
         let response = read_frame(&mut stream)?.ok_or_else(|| {
@@ -212,11 +221,16 @@ impl RendererClient {
                 "attached identity differs",
             ));
         }
+        set_connection_timeout(&stream, None)?;
         Ok(Self { stream, attached })
     }
 
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
         self.stream.set_read_timeout(timeout)
+    }
+
+    pub fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+        self.stream.set_write_timeout(timeout)
     }
 
     pub fn send_input(&mut self, bytes: &[u8]) -> io::Result<()> {
@@ -287,6 +301,11 @@ fn spawn_daemon(helper_path: &Path, socket_path: &Path) -> io::Result<()> {
     }
     command.spawn()?;
     Ok(())
+}
+
+fn set_connection_timeout(stream: &UnixStream, timeout: Option<Duration>) -> io::Result<()> {
+    stream.set_read_timeout(timeout)?;
+    stream.set_write_timeout(timeout)
 }
 
 fn validate_helper(path: &Path) -> io::Result<()> {

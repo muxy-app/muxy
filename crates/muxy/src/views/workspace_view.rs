@@ -524,7 +524,14 @@ fn pane_content(
         .then(|| panes.element(&tab.id, true))
         .flatten();
     let Some(surface) = surface else {
-        return pane_placeholder(state, tab, area_id, cx);
+        return pane_placeholder(
+            state,
+            tab,
+            area_id,
+            panes.terminals.unavailable_reason(&tab.id),
+            panes.terminals.attachment_retry_available(&tab.id),
+            cx,
+        );
     };
     let tab_id = tab.id.clone();
     let area = area_id.to_owned();
@@ -785,9 +792,12 @@ fn pane_placeholder(
     state: &AppState,
     tab: &Tab,
     area_id: &str,
+    unavailable: Option<&str>,
+    retry_attachment: bool,
     cx: &mut Context<MainWindow>,
 ) -> AnyElement {
     let tab_id = tab.id.clone();
+    let retry_tab_id = tab.id.clone();
     let dragged_tab_id = tab.id.clone();
     let dragged_area_id = area_id.to_owned();
     let focused_area_id = area_id.to_owned();
@@ -831,8 +841,31 @@ fn pane_placeholder(
                 .text_size(state.metrics.font_body())
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(state.theme.fg_dim)
-                .child(SharedString::from(kind_title(tab.kind))),
+                .child(SharedString::from(
+                    unavailable
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| kind_title(tab.kind).to_owned()),
+                )),
         )
+        .when(retry_attachment, |placeholder| {
+            placeholder.child(
+                div()
+                    .id(ElementId::Name(SharedString::from(format!(
+                        "session-attachment-retry-{retry_tab_id}"
+                    ))))
+                    .px(state.metrics.spacing5())
+                    .py(state.metrics.spacing3())
+                    .rounded(state.metrics.radius_md())
+                    .bg(state.theme.surface)
+                    .text_color(state.theme.fg)
+                    .cursor_pointer()
+                    .child("Retry")
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(cx.listener(move |window, _, _, cx| {
+                        window.retry_session_attachment(&retry_tab_id, cx);
+                    })),
+            )
+        })
         .into_any_element()
 }
 

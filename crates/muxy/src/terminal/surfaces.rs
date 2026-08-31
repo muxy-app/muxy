@@ -179,12 +179,23 @@ impl StandaloneTerminal {
     }
 }
 
+pub struct PersistentReconciliation<'a> {
+    pub visible: &'a [TabId],
+    pub persistent_tabs: &'a HashSet<TabId>,
+    pub attachments: &'a HashMap<TabId, String>,
+    pub unavailable: HashMap<TabId, String>,
+    pub retryable: HashSet<TabId>,
+}
+
 pub struct TerminalSurfaces {
     backend: Backend,
     handles: HashMap<TabId, Box<dyn AppSurfaceHandle>>,
     pending_cwd: HashMap<TabId, PathBuf>,
     pending_command: HashMap<TabId, LaunchCommand>,
     materialization_requested: HashSet<TabId>,
+    session_attachments: HashMap<TabId, String>,
+    session_unavailable: HashMap<TabId, String>,
+    session_retryable: HashSet<TabId>,
     socket_path: Option<String>,
     pointer_tab: Option<TabId>,
     pub(crate) input_queue_generation: u64,
@@ -218,6 +229,9 @@ impl TerminalSurfaces {
             pending_cwd: HashMap::new(),
             pending_command: HashMap::new(),
             materialization_requested: HashSet::new(),
+            session_attachments: HashMap::new(),
+            session_unavailable: HashMap::new(),
+            session_retryable: HashSet::new(),
             socket_path: None,
             pointer_tab: None,
             input_queue_generation: 0,
@@ -363,6 +377,58 @@ impl TerminalSurfaces {
 
     pub fn queue_launch_command(&mut self, tab_id: impl Into<TabId>, command: LaunchCommand) {
         self.pending_command.insert(tab_id.into(), command);
+    }
+
+    pub fn pending_session_launches(
+        &self,
+        store: &WorkspaceStore,
+    ) -> HashMap<TabId, crate::sessions::PendingSessionLaunch> {
+        let mut tab_ids = self.pending_cwd.keys().cloned().collect::<HashSet<_>>();
+        tab_ids.extend(self.pending_command.keys().cloned());
+        tab_ids
+            .into_iter()
+            .filter_map(|tab_id| {
+                let directory = self.launch_directory(store, &tab_id)?;
+                Some((
+                    tab_id.clone(),
+                    crate::sessions::PendingSessionLaunch {
+                        directory,
+                        command: self.pending_command.get(&tab_id).cloned(),
+                    },
+                ))
+            })
+            .collect()
+    }
+
+    pub fn finish_session_reconciliation(&mut self, store: &WorkspaceStore) {
+        let linked = store
+            .states()
+            .iter()
+            .flat_map(|workspace| workspace.root.iter().flat_map(|root| root.tabs()))
+            .filter(|tab| tab.session_id.is_some())
+            .map(|tab| tab.id.clone())
+            .collect::<Vec<_>>();
+        for tab_id in linked {
+            self.pending_cwd.remove(&tab_id);
+            self.pending_command.remove(&tab_id);
+            self.materialization_requested.remove(&tab_id);
+        }
+    }
+
+    pub fn unavailable_reason(&self, tab_id: &str) -> Option<&str> {
+        self.session_unavailable.get(tab_id).map(String::as_str)
+    }
+
+    pub fn attachment_retry_available(&self, tab_id: &str) -> bool {
+        self.session_retryable.contains(tab_id)
+    }
+
+    pub fn take_session_attachment(&mut self, tab_id: &str) -> bool {
+        let attached = self.session_attachments.remove(tab_id).is_some();
+        if attached {
+            self.handles.remove(tab_id);
+        }
+        attached
     }
 
     pub fn set_shortcut_combos(&mut self, combos: Vec<muxy_core::shortcuts::KeyCombo>) {
@@ -514,6 +580,94 @@ impl TerminalSurfaces {
         }
     }
 
+    pub fn reconcile_persistent(
+        &mut self,
+        store: &WorkspaceStore,
+        reconciliation: PersistentReconciliation<'_>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Vec<TabId> {
+        let PersistentReconciliation {
+            visible,
+            persistent_tabs,
+            attachments,
+            unavailable,
+            retryable,
+        } = reconciliation;
+        self.session_unavailable = unavailable;
+        self.session_retryable = retryable;
+        let stale = self
+            .session_attachments
+            .iter()
+            .filter(|(tab_id, command)| attachments.get(*tab_id) != Some(*command))
+            .map(|(tab_id, _)| tab_id.clone())
+            .collect::<Vec<_>>();
+        for tab_id in stale {
+            self.session_attachments.remove(&tab_id);
+            self.handles.remove(&tab_id);
+        }
+        let mut candidates = visible.to_vec();
+        let mut requested = self
+            .materialization_requested
+            .iter()
+            .filter(|tab_id| !persistent_tabs.contains(*tab_id) && !visible.contains(tab_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        requested.sort_by_key(|tab_id| tab_id.to_ascii_uppercase());
+        candidates.extend(requested);
+        let mut failed = Vec::new();
+        for tab_id in candidates {
+            if self.handles.contains_key(&tab_id) {
+                self.materialization_requested.remove(&tab_id);
+                continue;
+            }
+            if self.session_unavailable.contains_key(&tab_id) {
+                continue;
+            }
+            let Some(directory) = self.launch_directory(store, &tab_id) else {
+                continue;
+            };
+            let Some(context) = self.launch_context(store, &tab_id) else {
+                continue;
+            };
+            if persistent_tabs.contains(&tab_id) {
+                let Some(command) = attachments.get(&tab_id) else {
+                    continue;
+                };
+                match self.backend.spawn_attachment(
+                    &tab_id,
+                    directory,
+                    command.clone(),
+                    &context,
+                    window,
+                    cx,
+                ) {
+                    Some(handle) => {
+                        self.materialization_requested.remove(&tab_id);
+                        self.session_attachments
+                            .insert(tab_id.clone(), command.clone());
+                        self.handles.insert(tab_id, handle);
+                    }
+                    None => failed.push(tab_id),
+                }
+                continue;
+            }
+            let command = self.pending_command.get(&tab_id).cloned();
+            if let Some(handle) = self
+                .backend
+                .spawn(&tab_id, directory, command, &context, window, cx)
+            {
+                self.pending_cwd.remove(&tab_id);
+                self.pending_command.remove(&tab_id);
+                self.materialization_requested.remove(&tab_id);
+                self.handles.insert(tab_id, handle);
+            }
+        }
+        self.occlude_hidden(visible);
+        self.retain_known(store);
+        failed
+    }
+
     pub fn reconcile(
         &mut self,
         store: &WorkspaceStore,
@@ -588,6 +742,12 @@ impl TerminalSurfaces {
         self.pending_command
             .retain(|tab_id, _| tab_is_known(store, tab_id));
         self.materialization_requested
+            .retain(|tab_id| tab_is_known(store, tab_id));
+        self.session_attachments
+            .retain(|tab_id, _| tab_is_known(store, tab_id));
+        self.session_unavailable
+            .retain(|tab_id, _| tab_is_known(store, tab_id));
+        self.session_retryable
             .retain(|tab_id| tab_is_known(store, tab_id));
         if self
             .pointer_tab
@@ -958,6 +1118,20 @@ mod tests {
         assert!(!surfaces.pending_cwd.contains_key(&tab_id));
         assert!(!surfaces.pending_command.contains_key(&tab_id));
         assert!(!surfaces.materialization_requested.contains(&tab_id));
+    }
+
+    #[test]
+    fn session_attachment_exit_drops_only_the_proxy_surface() {
+        let mut surfaces = TerminalSurfaces::new();
+        insert_fake(&mut surfaces, "persistent-tab");
+        surfaces
+            .session_attachments
+            .insert("persistent-tab".into(), "attach command".into());
+
+        assert!(surfaces.take_session_attachment("persistent-tab"));
+        assert!(!surfaces.handles.contains_key("persistent-tab"));
+        assert!(!surfaces.session_attachments.contains_key("persistent-tab"));
+        assert!(!surfaces.take_session_attachment("persistent-tab"));
     }
 
     #[test]

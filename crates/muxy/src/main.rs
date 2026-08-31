@@ -13,6 +13,7 @@ mod project_operations;
 pub mod quick_terminal;
 mod repository;
 mod resources;
+mod sessions;
 mod socket;
 mod state;
 mod terminal;
@@ -86,7 +87,17 @@ fn main() {
 
             let desktop_notifications =
                 notifications::desktop::DesktopNotificationService::prepare();
-            let state = AppState::load(cx);
+            let mut state = AppState::load(cx);
+            let current_executable = std::env::current_exe().unwrap_or_default();
+            let session_coordinator = sessions::SessionCoordinator::start(
+                mode,
+                &app_support,
+                &current_executable,
+                socket.socket_path(),
+                state.prefs.terminal_memory.persistent_sessions_enabled,
+                &state.workspace.projects,
+                &mut state.tab_workspaces,
+            );
             muxy_core::prefs::settings::sync();
             cx.bind_keys(keymap::key_bindings(&state.shortcuts));
             cx.bind_keys(keymap::command_bindings(&state.command_shortcuts));
@@ -124,7 +135,7 @@ fn main() {
                         MainWindow::new(
                             state,
                             socket,
-                            mode,
+                            session_coordinator,
                             execution_environment,
                             desktop_notifications,
                             window,

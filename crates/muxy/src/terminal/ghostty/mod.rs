@@ -636,6 +636,30 @@ impl GhosttyBackend {
         )
     }
 
+    pub fn spawn_attachment(
+        &mut self,
+        tab_id: &TabId,
+        directory: PathBuf,
+        command: String,
+        context: &PaneLaunchContext,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<Box<dyn AppSurfaceHandle>> {
+        let (environment, _) = self.surface_environment(None)?;
+        let environment = apply_pane_context(environment, context);
+        self.spawn_surface(
+            SurfaceSpawn {
+                identity: SurfaceIdentity::Workspace(tab_id.clone()),
+                working_directory: directory,
+                command: Some(command),
+                environment,
+                standalone_socket_path: None,
+            },
+            window,
+            cx,
+        )
+    }
+
     pub fn spawn_standalone(
         &mut self,
         context: &StandaloneLaunchContext,

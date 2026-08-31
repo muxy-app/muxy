@@ -1,9 +1,84 @@
 use super::*;
+use gpui::{
+    AnyElement, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, div,
+};
+
+impl MainWindow {
+    fn retry_session_startup(&mut self, cx: &mut Context<Self>) {
+        let prefs = Prefs::load();
+        self.state.prefs.terminal_memory = prefs.terminal_memory;
+        self.sessions.retry(
+            self.state.prefs.terminal_memory.persistent_sessions_enabled,
+            &self.state.workspace.projects,
+            &mut self.state.tab_workspaces,
+        );
+        cx.notify();
+    }
+
+    fn render_session_blocked(&self, message: String, cx: &mut Context<Self>) -> AnyElement {
+        let button = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .px(self.state.metrics.spacing5())
+                .py(self.state.metrics.spacing3())
+                .rounded(self.state.metrics.radius_md())
+                .bg(self.state.theme.surface)
+                .text_color(self.state.theme.fg)
+                .cursor_pointer()
+                .child(label)
+        };
+        div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .size_full()
+            .gap(self.state.metrics.spacing5())
+            .bg(self.state.theme.bg)
+            .child(
+                div()
+                    .text_size(self.state.metrics.font_title())
+                    .text_color(self.state.theme.fg)
+                    .child("Terminal sessions could not be restored"),
+            )
+            .child(
+                div()
+                    .text_size(self.state.metrics.font_body())
+                    .text_color(self.state.theme.fg_muted)
+                    .child(message),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap(self.state.metrics.spacing3())
+                    .child(
+                        button("session-startup-retry", "Retry").on_click(
+                            cx.listener(|window, _, _, cx| window.retry_session_startup(cx)),
+                        ),
+                    )
+                    .child(
+                        button("session-startup-settings", "Settings").on_click(cx.listener(
+                            |window, _, app_window, cx| window.open_settings(app_window, cx),
+                        )),
+                    )
+                    .child(
+                        button("session-startup-quit", "Quit")
+                            .on_click(cx.listener(|_, _, _, cx| cx.quit())),
+                    ),
+            )
+            .into_any_element()
+    }
+}
 
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_repository_context(cx);
         self.reconcile_terminals(window, cx);
+        if let crate::sessions::StartupBarrier::Blocked(message) = self.sessions.barrier()
+            && !matches!(self.view.overlay, Overlay::Settings(_))
+        {
+            return self.render_session_blocked(message.clone(), cx);
+        }
         self.sync_active_notification_read_state(cx);
         let project_ids = self
             .state
@@ -104,6 +179,6 @@ impl Render for MainWindow {
             window,
             cx,
         );
-        crate::panels::with_phase_3_component_proof(app, &theme, metrics, cx)
+        crate::panels::with_phase_3_component_proof(app, &theme, metrics, cx).into_any_element()
     }
 }

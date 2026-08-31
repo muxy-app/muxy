@@ -2,6 +2,7 @@ use muxy_proto::session::{
     CreateSessionRequest, EnvironmentEntry, SessionId, SessionOwner, WindowSize, WorkspacePlacement,
 };
 use muxy_session::{RendererClient, RendererEvent, SessionClient, current_build_mode};
+use std::cell::RefCell;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -13,6 +14,7 @@ pub struct TestDaemon {
     pub root: tempfile::TempDir,
     pub socket: PathBuf,
     child: Option<Child>,
+    startup_client: RefCell<Option<SessionClient>>,
 }
 
 impl TestDaemon {
@@ -25,28 +27,54 @@ impl TestDaemon {
         let socket = root.path().join("control.sock");
         let mut child = spawn_isolated_daemon(&socket);
         let deadline = Instant::now() + Duration::from_secs(3);
-        while !socket.exists() {
+        let startup_client = loop {
             assert!(
                 child.try_wait().unwrap().is_none(),
-                "isolated daemon exited before creating its socket"
+                "isolated daemon exited before accepting a client"
             );
-            assert!(Instant::now() < deadline, "daemon socket was not created");
+            assert!(
+                Instant::now() < deadline,
+                "daemon did not accept a client before the startup deadline"
+            );
+            match SessionClient::connect(&socket, current_build_mode()) {
+                Ok(mut client) => {
+                    if client.ping().is_ok() {
+                        break client;
+                    }
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::NotFound
+                            | io::ErrorKind::ConnectionRefused
+                            | io::ErrorKind::ConnectionReset
+                    ) => {}
+                Err(error) => panic!("isolated daemon startup connection failed: {error}"),
+            }
             std::thread::sleep(Duration::from_millis(5));
-        }
+        };
         Self {
             root,
             socket,
             child: Some(child),
+            startup_client: RefCell::new(Some(startup_client)),
         }
     }
 
     pub fn client(&self) -> SessionClient {
-        let mut client = SessionClient::connect(&self.socket, current_build_mode()).unwrap();
+        let mut client =
+            self.startup_client.borrow_mut().take().unwrap_or_else(|| {
+                SessionClient::connect(&self.socket, current_build_mode()).unwrap()
+            });
         client.ping().unwrap();
         client
             .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
         client
+    }
+
+    pub fn release_startup_client(&self) {
+        self.startup_client.borrow_mut().take();
     }
 
     pub fn request(&self, label: &str) -> CreateSessionRequest {
@@ -93,6 +121,7 @@ impl TestDaemon {
 
     pub fn finish(mut self, wait_for_idle: bool) {
         self.cleanup_sessions();
+        self.startup_client.get_mut().take();
         if wait_for_idle {
             let deadline = Instant::now() + Duration::from_secs(12);
             let child = self.child.as_mut().unwrap();
@@ -113,6 +142,13 @@ impl TestDaemon {
     }
 
     fn cleanup_sessions(&self) {
+        let mut startup_client = self.startup_client.borrow_mut();
+        if let Some(client) = startup_client.as_mut() {
+            let _ = client.set_read_timeout(Some(Duration::from_secs(3)));
+            client.end_all_sessions().unwrap();
+            return;
+        }
+        drop(startup_client);
         if let Ok(mut client) = SessionClient::connect(&self.socket, current_build_mode()) {
             let _ = client.set_read_timeout(Some(Duration::from_secs(3)));
             client.end_all_sessions().unwrap();
@@ -132,6 +168,7 @@ impl TestDaemon {
 impl Drop for TestDaemon {
     fn drop(&mut self) {
         self.cleanup_sessions();
+        self.startup_client.get_mut().take();
         self.stop_child();
     }
 }

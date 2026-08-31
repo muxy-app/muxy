@@ -9,6 +9,7 @@ gpui.workspace = true
 muxy-api.workspace = true
 muxy-core.workspace = true
 muxy-proto.workspace = true
+muxy-session.workspace = true
 muxy-terminal.workspace = true
 muxy-ui.workspace = true
 serde_json.workspace = true

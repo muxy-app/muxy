@@ -3261,6 +3261,7 @@ dependencies = [
  "muxy-api",
  "muxy-core",
  "muxy-proto",
+ "muxy-session",
  "muxy-terminal",
  "muxy-ui",
  "objc2",

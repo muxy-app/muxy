@@ -265,6 +265,14 @@ fn launch_environment(
     set_entry(&mut entries, "MUXY_PANE_ID", &request.owner.original_tab_id);
     set_entry(&mut entries, "MUXY_PROJECT_ID", &request.owner.project_id);
     set_entry(&mut entries, "MUXY_WORKTREE_ID", &request.owner.worktree_id);
+    if let Some(socket) = request
+        .environment
+        .iter()
+        .find(|entry| entry.key == "MUXY_SOCKET_PATH")
+        .map(|entry| entry.value.as_str())
+    {
+        set_entry(&mut entries, "MUXY_SOCKET_PATH", socket);
+    }
     set_entry(
         &mut entries,
         "MUXY_SESSION_ID",

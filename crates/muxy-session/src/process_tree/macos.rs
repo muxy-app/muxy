@@ -61,6 +61,25 @@ fn read_record(process_id: libc::pid_t) -> Option<ProcessRecord> {
         parent_process_id: info.pbi_ppid,
         process_group_id: info.pbi_pgid,
         process_session_id: process_session_id as u32,
-        tty_device: u64::from(info.e_tdev),
+        tty_device: tty_device(info.e_tdev),
     })
+}
+
+fn tty_device(device: u32) -> u64 {
+    if device == u32::MAX {
+        0
+    } else {
+        u64::from(device)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tty_device;
+
+    #[test]
+    fn no_device_sentinel_is_not_a_shared_tty_identity() {
+        assert_eq!(tty_device(u32::MAX), 0);
+        assert_eq!(tty_device(42), 42);
+    }
 }

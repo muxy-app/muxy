@@ -46,6 +46,18 @@ impl UnsupportedBackend {
         None
     }
 
+    pub fn spawn_attachment(
+        &mut self,
+        _tab_id: &TabId,
+        _directory: PathBuf,
+        _command: String,
+        _context: &PaneLaunchContext,
+        _window: &mut Window,
+        _cx: &mut App,
+    ) -> Option<Box<dyn AppSurfaceHandle>> {
+        None
+    }
+
     pub fn spawn_standalone(
         &mut self,
         _context: &StandaloneLaunchContext,

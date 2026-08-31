@@ -87,10 +87,39 @@ impl MainWindow {
                 );
             }
             SurfaceSignal::Exited => {
-                if self
+                let attachment = self
                     .terminal_runtime
                     .surfaces
-                    .handle_exit(&mut self.state.tab_workspaces, &tab_id)
+                    .take_session_attachment(&tab_id);
+                let close_tab = if attachment {
+                    let session_id = self
+                        .state
+                        .tab_workspaces
+                        .states()
+                        .iter()
+                        .find_map(|workspace| workspace.tab(&tab_id))
+                        .and_then(|tab| tab.session_id);
+                    match session_id {
+                        Some(session_id) => {
+                            match self.sessions.refresh_linked_tab(&tab_id, session_id) {
+                                Ok(crate::sessions::LinkedTabState::Ended) => true,
+                                Ok(_) => false,
+                                Err(_) => {
+                                    self.sessions.mark_attachment_failed(&tab_id);
+                                    false
+                                }
+                            }
+                        }
+                        None => false,
+                    }
+                } else {
+                    true
+                };
+                if close_tab
+                    && self
+                        .terminal_runtime
+                        .surfaces
+                        .handle_exit(&mut self.state.tab_workspaces, &tab_id)
                 {
                     let _ = self.state.persist_tab_workspaces();
                 }
@@ -229,7 +258,33 @@ impl MainWindow {
         }
     }
 
+    pub(crate) fn retry_session_attachment(&mut self, tab_id: &str, cx: &mut Context<Self>) {
+        let session_id = self
+            .state
+            .tab_workspaces
+            .states()
+            .iter()
+            .find_map(|workspace| workspace.tab(tab_id))
+            .and_then(|tab| tab.session_id);
+        let Some(session_id) = session_id else {
+            return;
+        };
+        if let Err(error) = self.sessions.retry_attachment(tab_id, session_id) {
+            self.feedback(
+                "Background Session Attachment",
+                format!("Could not retry attachment: {error}"),
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
+        cx.notify();
+    }
+
     pub(crate) fn reconcile_terminals(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.sessions.is_ready() {
+            return;
+        }
         let visible: Vec<String> = self
             .state
             .active_tab_workspace()
@@ -246,9 +301,97 @@ impl MainWindow {
                     .collect()
             })
             .unwrap_or_default();
-        self.terminal_runtime
-            .surfaces
-            .reconcile(&self.state.tab_workspaces, &visible, window, cx);
+        if self.sessions.applied_mode() == Some(crate::sessions::AppliedSessionMode::Persistent) {
+            if self
+                .sessions
+                .needs_reconcile(&self.state.workspace.projects, &self.state.tab_workspaces)
+            {
+                let launches = self
+                    .terminal_runtime
+                    .surfaces
+                    .pending_session_launches(&self.state.tab_workspaces);
+                if let Err(error) = self.sessions.reconcile_new_sessions(
+                    &self.state.workspace.projects,
+                    &mut self.state.tab_workspaces,
+                    &launches,
+                ) {
+                    self.sessions.block(error);
+                    cx.notify();
+                    return;
+                }
+                self.terminal_runtime
+                    .surfaces
+                    .finish_session_reconciliation(&self.state.tab_workspaces);
+            }
+            let mut persistent_tabs = HashSet::new();
+            let mut attachments = HashMap::new();
+            let mut unavailable = HashMap::new();
+            let mut retryable = HashSet::new();
+            for tab in self
+                .state
+                .tab_workspaces
+                .states()
+                .iter()
+                .flat_map(|workspace| workspace.root.iter().flat_map(|root| root.tabs()))
+            {
+                let Some(session_id) = tab.session_id else {
+                    continue;
+                };
+                let Some(status) = self.sessions.linked_tab_state(&tab.id) else {
+                    continue;
+                };
+                persistent_tabs.insert(tab.id.clone());
+                match status {
+                    crate::sessions::LinkedTabState::Present => {
+                        match self.sessions.attachment_command(session_id) {
+                            Ok(command) => {
+                                attachments.insert(tab.id.clone(), command);
+                            }
+                            Err(error) => {
+                                unavailable.insert(tab.id.clone(), error);
+                            }
+                        }
+                    }
+                    crate::sessions::LinkedTabState::Missing => {
+                        unavailable
+                            .insert(tab.id.clone(), "Background session is missing".to_owned());
+                    }
+                    crate::sessions::LinkedTabState::Ended => {
+                        unavailable
+                            .insert(tab.id.clone(), "Background session has ended".to_owned());
+                    }
+                    crate::sessions::LinkedTabState::AttachmentFailed => {
+                        unavailable.insert(
+                            tab.id.clone(),
+                            "Background session attachment failed".to_owned(),
+                        );
+                        retryable.insert(tab.id.clone());
+                    }
+                }
+            }
+            let failed = self.terminal_runtime.surfaces.reconcile_persistent(
+                &self.state.tab_workspaces,
+                crate::terminal::surfaces::PersistentReconciliation {
+                    visible: &visible,
+                    persistent_tabs: &persistent_tabs,
+                    attachments: &attachments,
+                    unavailable,
+                    retryable,
+                },
+                window,
+                cx,
+            );
+            for tab_id in failed {
+                self.sessions.mark_attachment_failed(&tab_id);
+            }
+        } else {
+            self.terminal_runtime.surfaces.reconcile(
+                &self.state.tab_workspaces,
+                &visible,
+                window,
+                cx,
+            );
+        }
         self.reconcile_search_bars(&visible, window, cx);
         self.view
             .terminal

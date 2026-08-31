@@ -1,4 +1,3 @@
-#[cfg(test)]
 use muxy_core::environment::{BuildMode, RuntimePathPolicy};
 use std::ffi::CString;
 use std::fs::{File, OpenOptions};
@@ -91,8 +90,7 @@ impl Drop for SecureRuntime {
     }
 }
 
-#[cfg(test)]
-fn selected_socket_path(
+pub fn selected_socket_path(
     mode: BuildMode,
     app_support_root: impl AsRef<Path>,
     fallback_root: impl AsRef<Path>,
