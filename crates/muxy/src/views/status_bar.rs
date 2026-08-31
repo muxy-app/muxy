@@ -21,7 +21,7 @@ pub fn status_bar(
     repository_controls: &[crate::repository::RepositoryControl],
     repository_mutation_busy: bool,
     repository_ai_menu_available: bool,
-    trailing: Option<AnyElement>,
+    trailing: Vec<AnyElement>,
     cx: &mut Context<MainWindow>,
 ) -> AnyElement {
     let metrics = &state.metrics;
@@ -122,8 +122,51 @@ pub fn status_bar(
         .border_t(px(1.0))
         .border_color(theme.border)
         .child(left)
-        .when_some(trailing, |bar, trailing| {
-            bar.child(status_separator(state)).child(trailing)
+        .when(!trailing.is_empty(), |bar| {
+            bar.child(status_separator(state))
+                .child(status_trailing_group(state, trailing))
+        })
+        .into_any_element()
+}
+
+fn status_trailing_group(state: &AppState, trailing: Vec<AnyElement>) -> AnyElement {
+    trailing
+        .into_iter()
+        .enumerate()
+        .fold(
+            div().flex().flex_row().flex_none().items_center().h_full(),
+            |group, (index, item)| {
+                group
+                    .when(index > 0, |group| group.child(status_separator(state)))
+                    .child(item)
+            },
+        )
+        .into_any_element()
+}
+
+pub fn resource_status_item(
+    state: &AppState,
+    snapshot: &crate::resource_monitor::ResourceMonitorSnapshot,
+) -> AnyElement {
+    let text = SharedString::from(crate::resource_monitor::compact_label(snapshot));
+    let tooltip = SharedString::from(crate::resource_monitor::tooltip_text(snapshot));
+    let background = state.theme.raised();
+    let foreground = state.theme.fg;
+    let border = state.theme.border;
+    div()
+        .id("status-resource-usage")
+        .flex()
+        .flex_none()
+        .items_center()
+        .h_full()
+        .px(px(8.0))
+        .text_size(state.metrics.font_footnote())
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(state.theme.fg_muted)
+        .child(text)
+        .tooltip(move |_, cx| {
+            cx.new(|_| Tooltip::new(tooltip.clone(), background, foreground, border))
+                .into()
         })
         .into_any_element()
 }

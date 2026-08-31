@@ -24,6 +24,7 @@ thiserror.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 ghostty-host.workspace = true
+libc.workspace = true
 async-channel.workspace = true
 raw-window-handle.workspace = true
 objc2.workspace = true

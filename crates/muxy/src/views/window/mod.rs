@@ -41,12 +41,22 @@ use project_picker::ProjectPicker;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 const BELL_FLASH_DURATION: Duration = Duration::from_millis(1250);
 const NOTIFICATION_SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 const TEST_CLOSE_REQUEST_ENV: &str = "MUXY_TEST_CLOSE_MAIN_WINDOW_REQUEST";
 const TEST_CLOSE_REQUEST_FILE: &str = ".muxy-test-close-main-window";
+const P8_STAGED_PHASE_SIX_ENV: &str = "MUXY_TEST_P8_PHASE6_CASE";
+const P8_STAGED_PHASE_SIX_STATUS: &str = ".muxy-p8-phase6-status.json";
+const P8_STAGED_PHASE_SIX_DISABLE: &str = ".muxy-p8-phase6-disable";
 const WATCHER_DEBOUNCE_MS: u64 = 300;
+
+#[derive(Clone)]
+struct StagedPhaseSixPaths {
+    status: PathBuf,
+    disable: PathBuf,
+    owned_processes: PathBuf,
+}
 
 fn test_close_request_path(
     is_test_process: bool,
@@ -99,6 +109,75 @@ fn staged_close_request_path() -> Option<PathBuf> {
     )
 }
 
+fn staged_phase_six_paths() -> Option<StagedPhaseSixPaths> {
+    if !muxy_core::prefs::is_test_process()
+        || std::env::var(P8_STAGED_PHASE_SIX_ENV).as_deref() != Ok("monitor")
+    {
+        return None;
+    }
+    let app_support = muxy_core::prefs::app_support_dir();
+    let injected = std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").map(PathBuf::from);
+    if injected.as_deref() != Some(app_support.as_path())
+        || !app_support.is_absolute()
+        || app_support.starts_with(muxy_core::prefs::home_dir())
+        || path_has_symlink_or_missing_component(&app_support)
+    {
+        return None;
+    }
+    let root = app_support.parent()?;
+    if std::fs::read_to_string(root.join(".muxy-p8-owner"))
+        .ok()?
+        .trim()
+        != "muxy-p8-terminal-memory-v1"
+    {
+        return None;
+    }
+    Some(StagedPhaseSixPaths {
+        status: root.join(P8_STAGED_PHASE_SIX_STATUS),
+        disable: root.join(P8_STAGED_PHASE_SIX_DISABLE),
+        owned_processes: root.join("owned-processes"),
+    })
+}
+
+fn write_staged_resource_processes(
+    path: &Path,
+    roots: &[muxy_core::resources::ProcessIdentity],
+    processes: &[muxy_core::resources::ProcessIdentity],
+) -> std::io::Result<()> {
+    let Some(daemon) = roots.first() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "staged resource runtime has no process roots",
+        ));
+    };
+    if processes.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "staged resource runtime has no sampled processes",
+        ));
+    }
+    let roots = roots.iter().copied().collect::<HashSet<_>>();
+    let contents = processes
+        .iter()
+        .map(|identity| {
+            let role = if identity == daemon {
+                "daemon"
+            } else if roots.contains(identity) {
+                "shell"
+            } else {
+                "descendant"
+            };
+            format!(
+                "{} {} {role}\n",
+                identity.process_id, identity.start_identity
+            )
+        })
+        .collect::<String>();
+    let temporary = path.with_extension("tmp");
+    std::fs::write(&temporary, contents)?;
+    std::fs::rename(temporary, path)
+}
+
 pub fn key_bindings() -> Vec<gpui::KeyBinding> {
     let mut bindings = muxy_ui::text_input::key_bindings();
     bindings.extend(muxy_ui::command_popover::key_bindings());
@@ -133,6 +212,10 @@ pub struct MainWindow {
     pub(crate) window_handle: AnyWindowHandle,
     pub(crate) terminal_runtime: TerminalRuntime,
     pub(crate) sessions: crate::sessions::SessionCoordinator,
+    pub(crate) resource_monitor: crate::resource_monitor::ResourceMonitor,
+    _resource_monitor_task: Option<Task<()>>,
+    resource_staged_paths: Option<StagedPhaseSixPaths>,
+    _resource_staged_task: Option<Task<()>>,
     pub(crate) notification_coordinator: crate::notifications::NotificationCoordinator,
     pub(crate) native_response_receiver: Option<async_channel::Receiver<String>>,
     project_runtime: ProjectRuntime,
@@ -241,6 +324,10 @@ impl MainWindow {
         });
         let socket_runtime = SocketRuntime::attach(socket, cx);
         let composer_store = crate::state::load_composer_store();
+        let resource_monitor = crate::resource_monitor::ResourceMonitor::new(
+            state.prefs.terminal_memory.resource_status_enabled,
+        );
+        let resource_staged_paths = staged_phase_six_paths();
         let mut main_window = Self {
             state,
             composer: crate::composer::ComposerController::default(),
@@ -251,6 +338,10 @@ impl MainWindow {
             window_handle: window.window_handle(),
             terminal_runtime: TerminalRuntime::new(terminals, terminal_tasks),
             sessions,
+            resource_monitor,
+            _resource_monitor_task: None,
+            resource_staged_paths,
+            _resource_staged_task: None,
             notification_coordinator,
             native_response_receiver,
             project_runtime: ProjectRuntime::new(
@@ -303,6 +394,8 @@ impl MainWindow {
                 window.apply_theme_setting(cx);
             },
         ));
+        main_window.restart_resource_monitor(cx);
+        main_window.prepare_staged_phase_six(cx);
         main_window.prepare_p7_composer_fixture(cx);
         main_window.prepare_staged_phase_four(cx);
         if let Some(request_path) = staged_close_request_path() {
@@ -324,6 +417,153 @@ impl MainWindow {
         main_window.refresh_project_truth(None, cx);
         cx.set_menus(menu_bar::menus(&main_window.state));
         main_window
+    }
+
+    pub(super) fn restart_resource_monitor(&mut self, cx: &mut Context<Self>) {
+        self._resource_monitor_task = None;
+        if !self.resource_monitor.enabled() {
+            return;
+        }
+        self._resource_monitor_task = Some(cx.spawn(async move |window, cx| {
+            loop {
+                let sessions = window.update(cx, |window, _| {
+                    window
+                        .resource_monitor
+                        .enabled()
+                        .then(|| window.sessions.clone())
+                });
+                let Ok(Some(sessions)) = sessions else {
+                    return;
+                };
+                let roots = cx
+                    .background_executor()
+                    .spawn(async move { sessions.resource_roots() })
+                    .await;
+                let request = window.update(cx, |window, _| {
+                    let (identities, session_count, error) = match roots {
+                        Ok(roots) => (roots.identities, roots.session_count, None),
+                        Err(error) => (Vec::new(), 0, Some(error)),
+                    };
+                    let request = window
+                        .resource_monitor
+                        .request(identities, session_count)
+                        .map(|request| (request, error));
+                    if request.is_none() {
+                        window.write_staged_resource_status();
+                    }
+                    request
+                });
+                let Ok(request) = request else {
+                    return;
+                };
+                let Some((request, root_error)) = request else {
+                    cx.background_executor()
+                        .timer(crate::resource_monitor::SAMPLE_INTERVAL)
+                        .await;
+                    continue;
+                };
+                let sample = match root_error {
+                    Some(error) => Err(error),
+                    None => {
+                        let poll = request.clone();
+                        cx.background_executor()
+                            .spawn(async move { crate::resource_monitor::collect(&poll) })
+                            .await
+                    }
+                };
+                if window
+                    .update(cx, |window, cx| {
+                        window
+                            .resource_monitor
+                            .apply(&request, sample, Instant::now());
+                        window.record_staged_resource_processes();
+                        window.write_staged_resource_status();
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                cx.background_executor()
+                    .timer(crate::resource_monitor::SAMPLE_INTERVAL)
+                    .await;
+            }
+        }));
+    }
+
+    fn prepare_staged_phase_six(&mut self, cx: &mut Context<Self>) {
+        let Some(paths) = self.resource_staged_paths.clone() else {
+            return;
+        };
+        self.write_staged_resource_status();
+        self._resource_staged_task = Some(cx.spawn(async move |window, cx| {
+            for _ in 0..1200 {
+                if paths.disable.is_file() {
+                    let _ = std::fs::remove_file(&paths.disable);
+                    let _ = window.update(cx, |window, cx| {
+                        Prefs::store_settings_value(
+                            muxy_core::prefs::RESOURCE_STATUS_ENABLED_KEY,
+                            Value::Bool(false),
+                        );
+                        window.apply_settings(settings::Effect::ResourceStatus, cx);
+                        window.write_staged_resource_status();
+                    });
+                    return;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(25))
+                    .await;
+            }
+        }));
+    }
+
+    fn record_staged_resource_processes(&self) {
+        let Some(paths) = &self.resource_staged_paths else {
+            return;
+        };
+        let snapshot = self.resource_monitor.snapshot();
+        if snapshot.total.availability != muxy_core::resources::ResourceAvailability::Live
+            || snapshot.session_count == 0
+            || snapshot.session_roots.len() < 2
+            || snapshot.session_processes.is_empty()
+        {
+            return;
+        }
+        let _ = write_staged_resource_processes(
+            &paths.owned_processes,
+            &snapshot.session_roots,
+            &snapshot.session_processes,
+        );
+    }
+
+    fn write_staged_resource_status(&self) {
+        let Some(paths) = &self.resource_staged_paths else {
+            return;
+        };
+        let snapshot = self.resource_monitor.snapshot();
+        let availability = match snapshot.total.availability {
+            muxy_core::resources::ResourceAvailability::Live => "live",
+            muxy_core::resources::ResourceAvailability::Stale => "stale",
+            muxy_core::resources::ResourceAvailability::Unavailable => "unavailable",
+        };
+        let totals = snapshot.total.totals;
+        let app_processes = snapshot.app.map(|totals| totals.process_count);
+        let session_processes = snapshot.sessions.map(|totals| totals.process_count);
+        let value = serde_json::json!({
+            "enabled": self.resource_monitor.enabled(),
+            "availability": availability,
+            "cpuPercent": totals.and_then(|totals| totals.cpu_percent),
+            "residentBytes": totals.map(|totals| totals.resident_bytes),
+            "processCount": totals.map(|totals| totals.process_count),
+            "appProcessCount": app_processes,
+            "sessionProcessCount": session_processes,
+            "sessionCount": snapshot.session_count,
+            "pollCount": snapshot.poll_count,
+        });
+        let temporary = paths.status.with_extension("json.tmp");
+        if std::fs::write(&temporary, serde_json::to_vec(&value).unwrap_or_default()).is_ok() {
+            let _ = std::fs::rename(temporary, &paths.status);
+        }
     }
 
     pub(crate) fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {

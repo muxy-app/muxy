@@ -12,6 +12,7 @@ mod platform;
 mod project_operations;
 pub mod quick_terminal;
 mod repository;
+mod resource_monitor;
 mod resources;
 mod sessions;
 mod socket;

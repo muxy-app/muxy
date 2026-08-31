@@ -1532,3 +1532,93 @@ bash -n scripts/verify-p8-terminal-memory.sh
 - Resource monitoring, status UI, Session Manager, CLI activation, profile hardening, and release acceptance remain assigned to Phases 6 through 8.
 
 **Publication target:** Phase 5 commit `P8 phase 5: sleep idle terminal surfaces` on `p8-terminal-memory-sessions`, pushed to draft PR [#1106](https://github.com/muxy-app/muxy/pull/1106), base `2.x`.
+
+### Phase 6 - Process-tree resource monitor and status item
+
+**Completed:** 2026-08-31 17:01:46 UTC
+
+**Implemented:**
+
+- Added portable exact-identity process-tree aggregation in `muxy-core`. Parent edges carry full PID/start identities, conflicting duplicate records fail closed, overlapping roots deduplicate, resident-byte sums saturate, and CPU deltas preserve unavailable state for missing baselines, PID reuse, regressions, and zero elapsed time.
+- Added a macOS one-second sampler using current-user `proc_listpids`, `proc_pidinfo`, and `proc_pid_rusage`. It validates child and parent identities around each sample, tolerates only exact process disappearance, and reports cumulative user plus system CPU time and resident bytes. Unsupported targets return an explicit unavailable result.
+- Added `ResourceMonitor` with generation-bound requests, fresh baselines after enable transitions, live, stale, and unavailable snapshots, app/session/total aggregates, transient app-identity retry, and immediate clearing plus poll cancellation when disabled.
+- Added authenticated daemon and running-shell roots from `SessionCoordinator`. Daemon IPC and process sampling run on the background executor rather than the GPUI thread.
+- Added the typed `muxy.showResourceUsageInStatusBar` runtime effect, neutral compact CPU/RAM status text, explicit stale/unavailable copy, detailed tooltip totals, and ordered coexistence with the Composer footer in both standalone and merged status bars.
+- Added portable math and process-tree fixtures plus a staged app proof. The staged verifier uses a unique owned `/tmp/p8-isolated-test-*` root, records exact daemon, shell, and sampled descendant PID/start identities atomically, creates a real session-owned CPU load, proves nonzero CPU/RAM and increased process count, disables sampling through the production setting effect, proves polling stops, and verifies every recorded identity is dead before removing the owned root.
+- Updated the prior Composer source guard only because the Phase 6 status group changed the shared trailing status API from one optional element to an ordered vector.
+
+**Observed failures and fixes:**
+
+1. The first `cargo check -p muxy --offline` updated `Cargo.lock` for the direct macOS `libc` dependency and then found an untyped `HashMap`; the map type was made explicit and the check passed.
+2. An initial macOS sampler test exposed short-lived process disappearance where the API result did not retain `ESRCH`. The sampler now rechecks only the exact PID with signal 0 and treats it as absent only when that exact identity has disappeared. Focused macOS tests then passed.
+3. The first `scripts/check.sh` found ShellCheck `SC2015` for an `A && B || C` expression. It was replaced with explicit conditional logic. The next run found the shifted `Cargo.toml` lint-baseline line, and the baseline was updated from 41 to 42. The following run found the prior Composer verifier's locked single trailing element; its integration guard was updated to the new vector API. The resulting full check passed.
+4. During the sampled-identity review fix, `cargo test -p muxy --locked --offline resource_monitor` failed because one test initializer lacked the new `session_roots` and `session_processes` fields. Both fields were added and the complete focused rerun passed.
+5. Two staged review-fix attempts tried to obtain the load PID through terminal output and then through `/tmp/p8-isolated-test-*/phase6-load-pid`. They failed with `staged Phase 6 descendant load did not report its PID` and `staged Phase 6 descendant load did not report its PID and terminal token`; the latter also printed a nonexistent-file redirection error. The test-only PID injection path was removed. Production process-tree samples now atomically publish every exact session-tree identity, including the descendant, and the staged proof passed.
+6. The final sandboxed `scripts/check.sh` attempt reached the P8 portable fixture but two existing `muxy-proto` server tests could not bind temporary Unix sockets under `target/test-verification`, returning `SocketBind` with `Operation not permitted`. The exact unsandboxed rerun passed the complete check.
+7. The exact full-app Linux cross-check failed before project code in `freetype-sys v0.20.1` and `psm v0.1.32` because `x86_64-linux-gnu-g++` and `x86_64-linux-gnu-gcc` are absent. Exit status was 101. The documented unsandboxed Zig-wrapper supplemental check passed with 21 existing Linux-only warnings.
+8. GitHub metadata lookup before implementation failed with `error connecting to api.github.com`; PR metadata remains to be verified after publication when connectivity is available.
+9. The first commit staging command named tracked `.plans/P8-terminal-memory-sessions.md` directly, but `.plans` is ignored and Git rejected that path without staging anything. The tracked plan update was staged with `git add -u` instead.
+
+**Read-only review and fixes:**
+
+The required one-time read-only Phase 6 review reported four material findings. All were verified and fixed without a second review cycle:
+
+1. Process-tree edges previously authenticated only the parent PID. Every edge now carries and revalidates the parent's exact PID/start identity, and reuse coverage proves a child cannot attach to a reused parent.
+2. The staged proof previously inferred descendant sampling without preserving its identity and could race before shell roots were recorded. Successful production samples now expose exact root and tree identities, atomically rewrite the owned identity record, and require one daemon, at least one shell, at least one descendant, and a record count equal to the sampled session process count before cleanup.
+3. Session-root daemon IPC previously ran synchronously on the GPUI thread. A cloned coordinator now performs it on the background executor before the UI-bound request is created.
+4. A transient initial app-identity failure previously ended monitoring permanently. Enabled monitors now retry identity acquisition once per interval and the monitor loop continues while no request is available.
+
+**Final focused and phase-gate evidence:**
+
+```text
+cargo fmt --all
+bash -n scripts/verify-p8-terminal-memory.sh
+cargo test -p muxy-core --locked --offline resources
+cargo test -p muxy --locked --offline resource_monitor
+cargo test -p muxy-session --test staged_helper --locked --offline
+scripts/verify-p8-terminal-memory.sh --fixture resource-math
+scripts/verify-p8-terminal-memory.sh --fixture resource-process-tree
+```
+
+Passed after the final review fix: core resources 6 passed, Muxy resource monitor 7 passed, staged helper 3 passed, and both fixtures reported success.
+
+The exact Phase 6 gate was then run in the plan's order:
+
+```text
+cargo test -p muxy-core --locked --offline resources
+cargo test -p muxy --locked --offline resource_monitor
+scripts/verify-p8-terminal-memory.sh --fixture resource-math
+scripts/verify-p8-terminal-memory.sh --fixture resource-process-tree
+scripts/check.sh
+cargo check -p muxy-core --all-features --locked --offline --target x86_64-unknown-linux-gnu
+cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
+scripts/build-app.sh debug
+scripts/verify-bundle.sh target/debug/Muxy.app debug
+staged_app="$(scripts/stage-test-app.sh target/debug/Muxy.app p8-phase-6)"
+scripts/verify-p8-terminal-memory.sh --staged debug "$staged_app" phase-6
+git diff --check
+```
+
+The first four commands passed with 6 core tests, 7 monitor tests, and both fixture success messages. The unsandboxed `scripts/check.sh` rerun passed shell and source guards, formatting, Clippy with warnings denied, workspace build/tests, all verifier self-tests, debug app build, helper-first signing, and bundle verification. The `muxy-core` Linux cross-check passed. The exact full-app Linux check produced the documented missing-GNU-compiler environmental failure.
+
+The supplemental command was run unsandboxed:
+
+```text
+PATH="$PWD/target/test-verification/p8/toolchain:$PATH" \
+AR_x86_64_unknown_linux_gnu='zig ar' \
+cargo check -p muxy --all-features --locked --offline \
+--target x86_64-unknown-linux-gnu
+```
+
+It passed with 21 existing Linux-only unused or dead-code warnings.
+
+The debug app build and strict bundle verification passed. Staging produced `/Users/saeed/Projects/muxy-2.x/target/test-verification/apps/p8-phase-6/MuxyTests.app`, and the verifier reported `P8 staged Phase 6 app, daemon, shell, descendant resource sampling, disable stop, and zero residue passed`. Final `git diff --check` passed.
+
+**Unverified or intentionally deferred after Phase 6:**
+
+- Native Linux-host process enumeration, daemon tree sampling, and app runtime behavior were not executed. Portable core code cross-target compiled directly, while the full app required the supplemental Zig wrappers.
+- Manual visual acceptance of status-bar density, tooltip presentation, live updates, stale/unavailable copy, and Composer coexistence remains unobserved. Focused tests and the staged runtime cover state, ordering, sampling, disable behavior, and cleanup.
+- A forced production sampling failure was covered by monitor tests but not induced in the staged app. The staged proof observed live sampling and disabled/unavailable clearing.
+- Session Manager, CLI activation, final profile hardening, release documentation, and release acceptance remain assigned to Phases 7 and 8.
+
+**Publication target:** Phase 6 commit `P8 phase 6: add process resource monitoring` on `p8-terminal-memory-sessions`, pushed to draft PR [#1106](https://github.com/muxy-app/muxy/pull/1106), base `2.x`.

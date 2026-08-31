@@ -85,6 +85,43 @@ fn merge_composer_footer_with_status_bar(
         })
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StatusTrailingSlot {
+    Composer,
+    Resource,
+}
+
+fn status_trailing_slots(
+    resource_enabled: bool,
+    composer_present: bool,
+) -> Vec<StatusTrailingSlot> {
+    let mut slots = Vec::new();
+    if composer_present {
+        slots.push(StatusTrailingSlot::Composer);
+    }
+    if resource_enabled {
+        slots.push(StatusTrailingSlot::Resource);
+    }
+    slots
+}
+
+fn status_trailing_items(
+    state: &AppState,
+    resource_snapshot: &crate::resource_monitor::ResourceMonitorSnapshot,
+    mut composer_footer: Option<AnyElement>,
+) -> Vec<AnyElement> {
+    status_trailing_slots(
+        state.prefs.terminal_memory.resource_status_enabled,
+        composer_footer.is_some(),
+    )
+    .into_iter()
+    .map(|slot| match slot {
+        StatusTrailingSlot::Composer => composer_footer.take().unwrap(),
+        StatusTrailingSlot::Resource => status_bar::resource_status_item(state, resource_snapshot),
+    })
+    .collect()
+}
+
 pub(crate) struct AppView<'a> {
     pub state: &'a AppState,
     pub repository_controls: &'a [crate::repository::RepositoryControl],
@@ -107,6 +144,7 @@ pub(crate) struct AppView<'a> {
     pub focused_working_directory: Option<String>,
     pub expanded_worktree_projects: &'a HashSet<String>,
     pub composer: &'a crate::composer::ComposerController,
+    pub resource_snapshot: &'a crate::resource_monitor::ResourceMonitorSnapshot,
 }
 
 pub(crate) fn render(
@@ -136,6 +174,7 @@ pub(crate) fn render(
         focused_working_directory,
         expanded_worktree_projects,
         composer,
+        resource_snapshot,
     } = view;
     let theme = state.theme.clone();
     let metrics = state.metrics;
@@ -249,7 +288,7 @@ pub(crate) fn render(
             repository_controls,
             repository_mutation_busy,
             repository_ai_menu_available,
-            None,
+            status_trailing_items(state, resource_snapshot, None),
             cx,
         ));
     }
@@ -290,7 +329,7 @@ pub(crate) fn render(
                         repository_controls,
                         repository_mutation_busy,
                         repository_ai_menu_available,
-                        Some(footer),
+                        status_trailing_items(state, resource_snapshot, Some(footer)),
                         cx,
                     ))
                 })
@@ -799,6 +838,23 @@ mod tests {
         assert!(shows_welcome(Some(&empty)));
         assert!(!shows_welcome(Some(&populated)));
         assert!(shows_welcome(None));
+    }
+
+    #[test]
+    fn resource_status_and_composer_use_distinct_ordered_trailing_slots() {
+        assert_eq!(
+            status_trailing_slots(true, true),
+            [StatusTrailingSlot::Composer, StatusTrailingSlot::Resource]
+        );
+        assert_eq!(
+            status_trailing_slots(false, true),
+            [StatusTrailingSlot::Composer]
+        );
+        assert_eq!(
+            status_trailing_slots(true, false),
+            [StatusTrailingSlot::Resource]
+        );
+        assert!(status_trailing_slots(false, false).is_empty());
     }
 
     #[test]

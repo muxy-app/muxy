@@ -247,7 +247,7 @@ panel_source_checks() {
     [[ "$(rg -c -F 'cx.focus_handle().tab_stop(true)' crates/muxy/src/composer/view.rs)" == 3 ]] || fail "Composer footer actions are not keyboard focusable"
     rg -q -F '.on_key_down(move |event, window, cx|' crates/muxy/src/composer/view.rs || fail "Composer footer actions are not keyboard activatable"
     rg -q -F 'merge_composer_footer_with_status_bar' crates/muxy/src/views/app.rs || fail "bottom Composer footer does not merge with the app status bar"
-    rg -q -F 'trailing: Option<AnyElement>' crates/muxy/src/views/status_bar.rs || fail "app status bar cannot host the bottom Composer footer"
+    rg -q -F 'trailing: Vec<AnyElement>' crates/muxy/src/views/status_bar.rs || fail "app status bar cannot host the bottom Composer footer"
     rg -q -F 'Some(footer)' crates/muxy/src/views/app.rs || fail "bottom Composer footer is not mounted in the app status bar"
     [[ "$(rg -U -c -F $'window.dismiss_overlay(cx);\n                        cx.stop_propagation();' crates/muxy/src/views/overlay.rs)" == 2 ]] || fail "overlay backdrop dismissal can reach floating Composer outside-click handling"
     rg -q -U -F $'.min_h(px(0.0))\n                .bg(theme.bg)\n                .child(input)' crates/muxy/src/composer/view.rs || fail "Composer editor is not borderless against the panel background"

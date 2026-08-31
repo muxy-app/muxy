@@ -175,6 +175,7 @@ impl Render for MainWindow {
                 focused_working_directory,
                 expanded_worktree_projects: self.view.worktrees.expanded_projects(),
                 composer: &self.composer,
+                resource_snapshot: self.resource_monitor.snapshot(),
             },
             window,
             cx,

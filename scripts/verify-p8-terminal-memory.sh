@@ -337,6 +337,22 @@ phase_five_source_checks() {
     rg -q 'Frees a hidden idle terminal' crates/muxy/src/views/settings/categories/terminal.rs || fail "idle sleeping disclosure is missing"
 }
 
+phase_six_source_checks() {
+    phase_five_source_checks
+    for path in \
+        crates/muxy/src/resource_monitor/mod.rs \
+        crates/muxy/src/resource_monitor/macos.rs \
+        crates/muxy/src/resource_monitor/unsupported.rs; do
+        [[ -f "$path" ]] || fail "missing Phase 6 source: $path"
+    done
+    rg -q 'process_tree_resources' crates/muxy-core/src/resources.rs crates/muxy/src/resource_monitor/mod.rs || fail "identity-safe resource tree aggregation is missing"
+    rg -q 'proc_pid_rusage' crates/muxy/src/resource_monitor/macos.rs || fail "macOS resource sampling is missing"
+    rg -q 'resource_roots' crates/muxy/src/sessions/mod.rs crates/muxy/src/views/window/mod.rs || fail "authenticated daemon and shell resource roots are missing"
+    rg -q 'Effect::ResourceStatus' crates/muxy/src/views/settings/mod.rs crates/muxy/src/views/window/commands.rs || fail "resource setting runtime effect is missing"
+    rg -q 'status_trailing_group' crates/muxy/src/views/status_bar.rs || fail "neutral status trailing group is missing"
+    rg -q 'status_trailing_items' crates/muxy/src/views/app.rs || fail "Composer and resource status composition is missing"
+}
+
 portable_fixture() {
     source_checks
     cargo test -p muxy-proto --locked --offline session
@@ -482,6 +498,24 @@ ordinary_sleep_wake_fixture() {
     cargo test -p muxy --locked --offline terminal_idle_ordinary_sleep_restores_runtime_cwd_without_startup_command
     cargo test -p muxy --locked --offline terminal_idle_ordinary_sleep_uses_latest_working_directory
     printf 'P8 ordinary safe sleep, cwd restore, and startup-command suppression fixture passed\n'
+}
+
+resource_math_fixture() {
+    phase_six_source_checks
+    cargo test -p muxy-core --locked --offline resources::tests::aggregation_deduplicates_overlapping_roots_and_sums_memory_once -- --exact
+    cargo test -p muxy-core --locked --offline resources::tests::pid_start_mismatch_cannot_contribute_reused_process_cpu -- --exact
+    cargo test -p muxy --locked --offline resource_monitor::tests::resource_monitor_aggregates_overlapping_app_daemon_shell_and_grandchild_once -- --exact
+    cargo test -p muxy --locked --offline resource_monitor::tests::resource_monitor_rejects_pid_reuse_and_reports_stale_without_false_zero -- --exact
+    cargo test -p muxy --locked --offline resource_monitor::tests::resource_monitor_disable_stops_requests_and_reenable_uses_fresh_baseline -- --exact
+    cargo test -p muxy --locked --offline views::app::tests::resource_status_and_composer_use_distinct_ordered_trailing_slots -- --exact
+    printf 'P8 resource delta, deduplication, identity, stale, enable transition, and status coexistence fixture passed\n'
+}
+
+resource_process_tree_fixture() {
+    phase_six_source_checks
+    cargo test -p muxy-core --locked --offline resources::tests::process_tree -- --nocapture
+    cargo test -p muxy --locked --offline resource_monitor::macos::tests::resource_monitor_macos_process_tree_contains_owned_child_once -- --exact --nocapture
+    printf 'P8 authenticated process-tree expansion and real owned-child fixture passed\n'
 }
 
 validate_staged_app() {
@@ -1196,6 +1230,178 @@ staged_phase_five() {
     printf 'P8 staged Phase 5 persistent sleep/replay identity, ordinary process safety, cwd wake, and zero residue passed\n'
 }
 
+staged_phase_six() {
+    local profile="$1" app="$2" case_name="$3" root app_support home tmp xdg app_socket session_socket
+    local executable cli project app_log status disable tabs visible_id screen attempt availability enabled
+    local resident process_count app_processes session_processes session_count cpu poll_count held_poll_count
+    local baseline_session_processes descendant_processes recorded_processes pid held role
+    [[ "$(uname -s)" == Darwin ]] || fail "staged verification requires macOS"
+    [[ "$profile" == debug || "$profile" == release ]] || fail "invalid staged profile: $profile"
+    [[ "$case_name" == phase-6 ]] || fail "unsupported Phase 6 staged case: $case_name"
+    validate_staged_app "$app"
+    phase_six_source_checks
+    root="$(prepare_unique_tmp_root phase6)"
+    ACTIVE_ROOT="$root"
+    app_support="$root/app"
+    home="$root/home"
+    tmp="$root/tmp"
+    xdg="$root/xdg"
+    project="$root/project"
+    mkdir -p "$app_support" "$home" "$tmp" "$xdg" "$project"
+    git -C "$project" init -q
+    app_socket="$app_support/muxy.sock"
+    session_socket="$app_support/sessions/control.sock"
+    if [[ "$profile" == debug ]]; then
+        app_socket="$app_support/muxy-dev.sock"
+        session_socket="$app_support/sessions-dev/control.sock"
+    fi
+    ACTIVE_SOCKET="$app_socket"
+    executable="$app/Contents/MacOS/MuxyTests"
+    cli="$app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+    app_log="$root/app.log"
+    status="$root/.muxy-p8-phase6-status.json"
+    disable="$root/.muxy-p8-phase6-disable"
+    printf '%s\n%s\n' "$executable" "$profile" > "$root/.phase3-runtime"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 6 seed app exited before binding its socket"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" ]] || fail "staged Phase 6 seed app socket was not created"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" create-project "$project" --name P8Phase6 >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" new-tab >/dev/null
+    printf '{"muxy.terminalPersistentSession.enabled":true,"muxy.showResourceUsageInStatusBar":true}\n' > "$app_support/settings.json"
+    close_phase_three_app "$app_log"
+
+    MUXY_TEST_P8_PHASE6_CASE=monitor \
+        MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" && -S "$session_socket" && -f "$status" && -f "$root/owned-processes" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 6 monitor app exited during startup"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" && -S "$session_socket" && -f "$status" && -f "$root/owned-processes" ]] || {
+        cat "$app_log"
+        fail "staged Phase 6 sockets, status, or identities were not created"
+    }
+    while IFS=' ' read -r pid held role; do
+        [[ "$pid" =~ ^[1-9][0-9]*$ ]] || fail "invalid owned $role PID"
+        [[ "$held" =~ ^[1-9][0-9]*$ ]] || fail "invalid owned $role start identity"
+        [[ "$role" == shell || "$role" == daemon || "$role" == descendant ]] || fail "invalid owned process role"
+    done < "$root/owned-processes"
+    [[ "$(awk '$3 == "daemon" { count++ } END { print count + 0 }' "$root/owned-processes")" == 1 ]] || fail "staged Phase 6 daemon identity was not recorded exactly once"
+    [[ "$(awk '$3 == "shell" { count++ } END { print count + 0 }' "$root/owned-processes")" =~ ^[1-9][0-9]*$ ]] || fail "staged Phase 6 shell identities were not recorded"
+    for ((attempt = 0; attempt < 240; attempt++)); do
+        availability="$(plutil -extract availability raw -o - "$status" 2>/dev/null || true)"
+        session_count="$(plutil -extract sessionCount raw -o - "$status" 2>/dev/null || true)"
+        resident="$(plutil -extract residentBytes raw -o - "$status" 2>/dev/null || true)"
+        session_processes="$(plutil -extract sessionProcessCount raw -o - "$status" 2>/dev/null || true)"
+        if [[ "$availability" == live && "$session_count" =~ ^[1-9][0-9]*$ && "$resident" =~ ^[1-9][0-9]*$ && "$session_processes" =~ ^[1-9][0-9]*$ ]]; then
+            break
+        fi
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 6 monitor app exited before its first live sample"
+        }
+        sleep 0.05
+    done
+    [[ "$availability" == live && "$session_count" =~ ^[1-9][0-9]*$ && "$resident" =~ ^[1-9][0-9]*$ && "$session_processes" =~ ^[1-9][0-9]*$ ]] || {
+        cat "$status"
+        cat "$app_log"
+        fail "staged Phase 6 did not publish a live nonzero session snapshot"
+    }
+    baseline_session_processes="$session_processes"
+    tabs="$(MUXY_SOCKET_PATH="$app_socket" "$cli" list-tabs)"
+    visible_id="$(printf '%s\n' "$tabs" | awk -F $'\t' '$5 == "true" { print $2; exit }')"
+    [[ "$visible_id" =~ ^[0-9A-F-]{36}$ ]] || fail "could not identify the staged Phase 6 visible tab"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send --pane "$visible_id" "yes > /dev/null & printf 'P8_PHASE6_LOAD\\n'" >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send-keys --pane "$visible_id" Enter >/dev/null
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        screen="$(MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$visible_id" --lines 30 2>/dev/null || true)"
+        availability="$(plutil -extract availability raw -o - "$status" 2>/dev/null || true)"
+        cpu="$(plutil -extract cpuPercent raw -o - "$status" 2>/dev/null || true)"
+        resident="$(plutil -extract residentBytes raw -o - "$status" 2>/dev/null || true)"
+        process_count="$(plutil -extract processCount raw -o - "$status" 2>/dev/null || true)"
+        app_processes="$(plutil -extract appProcessCount raw -o - "$status" 2>/dev/null || true)"
+        session_processes="$(plutil -extract sessionProcessCount raw -o - "$status" 2>/dev/null || true)"
+        session_count="$(plutil -extract sessionCount raw -o - "$status" 2>/dev/null || true)"
+        descendant_processes="$(awk '$3 == "descendant" { count++ } END { print count + 0 }' "$root/owned-processes")"
+        recorded_processes="$(awk 'NF == 3 { count++ } END { print count + 0 }' "$root/owned-processes")"
+        if [[ "$screen" == *P8_PHASE6_LOAD* && "$availability" == live && "$resident" =~ ^[1-9][0-9]*$ && "$process_count" =~ ^[1-9][0-9]*$ && "$process_count" == "$app_processes" && "$session_processes" =~ ^[1-9][0-9]*$ && "$session_count" =~ ^[1-9][0-9]*$ && "$descendant_processes" =~ ^[1-9][0-9]*$ && "$recorded_processes" == "$session_processes" ]] \
+            && ((session_processes > baseline_session_processes)) \
+            && awk -v value="$cpu" 'BEGIN { exit !(value + 0 > 0) }'; then
+            break
+        fi
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 6 monitor app exited during descendant sampling"
+        }
+        sleep 0.05
+    done
+    if ! [[ "$screen" == *P8_PHASE6_LOAD* && "$availability" == live && "$resident" =~ ^[1-9][0-9]*$ && "$process_count" =~ ^[1-9][0-9]*$ && "$process_count" == "$app_processes" && "$session_processes" =~ ^[1-9][0-9]*$ && "$session_count" =~ ^[1-9][0-9]*$ && "$descendant_processes" =~ ^[1-9][0-9]*$ && "$recorded_processes" == "$session_processes" ]] \
+        || ! ((session_processes > baseline_session_processes)) \
+        || ! awk -v value="$cpu" 'BEGIN { exit !(value + 0 > 0) }'; then
+        cat "$status"
+        cat "$root/owned-processes"
+        cat "$app_log"
+        fail "staged Phase 6 did not record and count the descendant load with nonzero CPU and RAM"
+    fi
+    [[ "$(awk '$3 == "daemon" { count++ } END { print count + 0 }' "$root/owned-processes")" == 1 ]] || fail "staged Phase 6 daemon identity count changed"
+    [[ "$(awk '$3 == "shell" { count++ } END { print count + 0 }' "$root/owned-processes")" =~ ^[1-9][0-9]*$ ]] || fail "staged Phase 6 shell identity count changed"
+    touch "$disable"
+    for ((attempt = 0; attempt < 240; attempt++)); do
+        enabled="$(plutil -extract enabled raw -o - "$status" 2>/dev/null || true)"
+        availability="$(plutil -extract availability raw -o - "$status" 2>/dev/null || true)"
+        poll_count="$(plutil -extract pollCount raw -o - "$status" 2>/dev/null || true)"
+        if [[ "$enabled" == false && "$availability" == unavailable && "$poll_count" =~ ^[0-9]+$ ]] \
+            && rg -q '"cpuPercent":null' "$status" \
+            && rg -q '"residentBytes":null' "$status"; then
+            break
+        fi
+        sleep 0.05
+    done
+    [[ "$enabled" == false && "$availability" == unavailable && "$poll_count" =~ ^[0-9]+$ ]] || {
+        cat "$status"
+        fail "staged Phase 6 resource disable did not clear prior state"
+    }
+    held_poll_count="$poll_count"
+    sleep 2
+    poll_count="$(plutil -extract pollCount raw -o - "$status" 2>/dev/null || true)"
+    [[ "$poll_count" == "$held_poll_count" ]] || fail "staged Phase 6 sampling continued after resource disable"
+    close_phase_three_app "$app_log"
+    [[ -S "$session_socket" ]] || fail "staged Phase 6 daemon did not survive normal app close"
+    printf '{"muxy.terminalPersistentSession.enabled":false}\n' > "$app_support/settings.json"
+    cleanup_phase_three_runtime "$root" || fail "staged Phase 6 persistent cleanup failed"
+    P8_STAGED_VERIFY_DEAD_ROOT="$root" \
+        cargo test -p muxy-session --test staged_helper --locked --offline \
+            staged_recorded_processes_are_dead -- --exact >/dev/null
+    [[ ! -e "$root/owned-processes" ]] || fail "staged Phase 6 process identities remained"
+    [[ ! -S "$app_socket" && ! -S "$session_socket" ]] || fail "staged Phase 6 sockets remained"
+    cleanup_owned_root "$root"
+    ACTIVE_SOCKET=""
+    ACTIVE_ROOT=""
+    printf 'P8 staged Phase 6 app, daemon, shell, descendant resource sampling, disable stop, and zero residue passed\n'
+}
+
 self_test() {
     local nonce="$$" owned unowned mismatch linked target outside
     source_checks
@@ -1265,6 +1471,8 @@ case "${1:-}" in
             idle-process-safety) idle_process_safety_fixture ;;
             persistent-sleep-wake) persistent_sleep_wake_fixture ;;
             ordinary-sleep-wake) ordinary_sleep_wake_fixture ;;
+            resource-math) resource_math_fixture ;;
+            resource-process-tree) resource_process_tree_fixture ;;
             *) fail "unknown P8 fixture: $2" ;;
         esac
         ;;
@@ -1283,6 +1491,7 @@ case "${1:-}" in
             phase-3) staged_phase_three "$2" "$3" "$4" ;;
             phase-4) staged_phase_four "$2" "$3" "$4" ;;
             phase-5) staged_phase_five "$2" "$3" "$4" ;;
+            phase-6) staged_phase_six "$2" "$3" "$4" ;;
             *) fail "unsupported staged P8 phase: $4" ;;
         esac
         ;;

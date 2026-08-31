@@ -1,5 +1,6 @@
 use crate::resources::AppResources;
 use muxy_core::environment::BuildMode;
+use muxy_core::resources::ProcessIdentity as ResourceProcessIdentity;
 use muxy_core::session::transition::DesiredSessionMode;
 use muxy_core::store::Project;
 use muxy_core::workspace::{CloseMode, Tab, TabKind, WorkspaceState};
@@ -97,6 +98,12 @@ pub struct ManagedSession {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionResourceRoots {
+    pub identities: Vec<ResourceProcessIdentity>,
+    pub session_count: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SessionReattachOutcome {
     Focused(WorkspacePlacement),
     Reattached(WorkspacePlacement),
@@ -140,6 +147,7 @@ struct LinkedSession {
     working_directory: String,
 }
 
+#[derive(Clone)]
 pub struct SessionCoordinator {
     barrier: StartupBarrier,
     desired: DesiredSessionMode,
@@ -539,15 +547,17 @@ impl SessionCoordinator {
         self.end_owner_cleanup_plan(&plan)
     }
 
-    pub fn runtime_process_identities(&self) -> Result<Vec<ProcessIdentity>, String> {
+    pub fn resource_roots(&self) -> Result<SessionResourceRoots, String> {
         let Some(mut control) = self.existing_control()? else {
-            return Ok(Vec::new());
+            return Ok(SessionResourceRoots {
+                identities: Vec::new(),
+                session_count: 0,
+            });
         };
         let daemon = control.daemon_identity();
-        let mut shells = control
-            .list()
-            .map_err(display_error)?
-            .into_iter()
+        let descriptors = control.list().map_err(display_error)?;
+        let mut shells = descriptors
+            .iter()
             .filter(|descriptor| descriptor.status == SessionStatus::Running)
             .map(|descriptor| descriptor.shell)
             .collect::<Vec<_>>();
@@ -557,7 +567,32 @@ impl SessionCoordinator {
         let mut identities = Vec::with_capacity(shells.len() + 1);
         identities.push(daemon);
         identities.extend(shells);
-        Ok(identities)
+        Ok(SessionResourceRoots {
+            identities: identities
+                .into_iter()
+                .map(|identity| ResourceProcessIdentity {
+                    process_id: identity.process_id,
+                    start_identity: identity.start_identity,
+                })
+                .collect(),
+            session_count: descriptors
+                .iter()
+                .filter(|descriptor| descriptor.status == SessionStatus::Running)
+                .count(),
+        })
+    }
+
+    pub fn runtime_process_identities(&self) -> Result<Vec<ProcessIdentity>, String> {
+        self.resource_roots().map(|roots| {
+            roots
+                .identities
+                .into_iter()
+                .map(|identity| ProcessIdentity {
+                    process_id: identity.process_id,
+                    start_identity: identity.start_identity,
+                })
+                .collect()
+        })
     }
 
     pub fn end_all_sessions(&mut self) -> Result<(), String> {

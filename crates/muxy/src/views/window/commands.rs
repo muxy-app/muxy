@@ -416,6 +416,15 @@ impl MainWindow {
                 );
                 cx.notify();
             }
+            settings::Effect::ResourceStatus => {
+                let prefs = Prefs::load();
+                self.state.prefs.terminal_memory.resource_status_enabled =
+                    prefs.terminal_memory.resource_status_enabled;
+                self.resource_monitor
+                    .set_enabled(self.state.prefs.terminal_memory.resource_status_enabled);
+                self.restart_resource_monitor(cx);
+                cx.notify();
+            }
             settings::Effect::SessionsRestartRequired => {
                 let prefs = Prefs::load();
                 self.state.prefs.terminal_memory = prefs.terminal_memory;
@@ -439,6 +448,9 @@ impl MainWindow {
                     self.state.prefs.terminal_memory.idle_sleeping_enabled,
                     self.state.prefs.terminal_memory.idle_timeout.seconds(),
                 );
+                self.resource_monitor
+                    .set_enabled(self.state.prefs.terminal_memory.resource_status_enabled);
+                self.restart_resource_monitor(cx);
                 self.rebind_shortcuts(cx);
             }
         }

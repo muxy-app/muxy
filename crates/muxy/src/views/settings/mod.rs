@@ -68,6 +68,7 @@ pub enum Effect {
     Shortcuts,
     CommandShortcuts,
     TerminalIdle,
+    ResourceStatus,
     SessionsRestartRequired,
     All,
 }
@@ -1142,6 +1143,8 @@ impl SettingsModal {
             "muxy.terminalOffline.enabled" | "muxy.terminalOffline.idleThresholdSeconds"
         ) {
             cx.emit(SettingsEvent::Applied(Effect::TerminalIdle));
+        } else if key == "muxy.showResourceUsageInStatusBar" {
+            cx.emit(SettingsEvent::Applied(Effect::ResourceStatus));
         } else if key == "muxy.terminalPersistentSession.enabled" {
             cx.emit(SettingsEvent::Applied(Effect::SessionsRestartRequired));
         }

@@ -241,6 +241,14 @@ fn write_owned_processes(root: &Path, shell: ProcessIdentity, daemon: ProcessIde
 }
 
 fn write_owned_process_records(root: &Path, records: &[(ProcessIdentity, &str)]) {
+    let entries = records
+        .iter()
+        .map(|(identity, role)| (*identity, (*role).to_owned()))
+        .collect::<Vec<_>>();
+    write_owned_process_entries(root, &entries);
+}
+
+fn write_owned_process_entries(root: &Path, records: &[(ProcessIdentity, String)]) {
     let contents = records
         .iter()
         .map(|(identity, role)| {
@@ -250,7 +258,10 @@ fn write_owned_process_records(root: &Path, records: &[(ProcessIdentity, &str)])
             )
         })
         .collect::<String>();
-    std::fs::write(root.join("owned-processes"), contents).unwrap();
+    let path = root.join("owned-processes");
+    let temporary = root.join("owned-processes.tmp");
+    std::fs::write(&temporary, contents).unwrap();
+    std::fs::rename(temporary, path).unwrap();
 }
 
 fn validate_owned_root(root: &Path) {
@@ -280,7 +291,7 @@ fn read_owned_processes(root: &Path) -> Vec<(ProcessIdentity, String)> {
                 start_identity: fields.next().unwrap().parse().unwrap(),
             };
             let role = fields.next().unwrap().to_owned();
-            assert!(matches!(role.as_str(), "shell" | "daemon"));
+            assert!(matches!(role.as_str(), "shell" | "daemon" | "descendant"));
             assert!(fields.next().is_none());
             (identity, role)
         })
