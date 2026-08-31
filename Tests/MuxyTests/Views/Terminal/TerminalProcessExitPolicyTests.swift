@@ -12,6 +12,14 @@ struct TerminalProcessExitPolicyTests {
         ) == .recoverRemoteConnection)
     }
 
+    @Test("remote recovery takes precedence over persistent session recovery")
+    func prioritizesRemoteRecovery() {
+        #expect(TerminalProcessExitPolicy.disposition(
+            isRemote: true,
+            persistentSessionID: UUID()
+        ) == .recoverRemoteConnection)
+    }
+
     @Test("recovers persistent local sessions")
     func recoversPersistentLocalSession() {
         let sessionID = UUID()

@@ -107,7 +107,7 @@ final class GhosttyTerminalNSView: NSView,
     private var rawOutputToken: Int?
     private var surfaceConfigurationOverlay: ((ghostty_surface_t) -> Void)?
     private let terminalInputQueue = TerminalInputQueue()
-    private var surfaceGeneration = 0
+    nonisolated(unsafe) private(set) var surfaceGeneration = 0
     private static let imagePasteDelay: Duration = .milliseconds(300)
     private let remoteUploadSession = RemoteUploadSession()
     private var precedingRemoteUploadCleanup: Task<Void, Never>?
@@ -658,9 +658,7 @@ final class GhosttyTerminalNSView: NSView,
 
     func reconnect() {
         guard persistentSessionID != nil || workspaceContext.isRemote else { return }
-        if workspaceContext.isRemote {
-            guard isSessionRecoveryFailed else { return }
-        }
+        guard !workspaceContext.isRemote || isSessionRecoveryFailed else { return }
         destroySurface()
         isSessionRecoveryFailed = false
         onSessionRecoveryFailed?(false)
