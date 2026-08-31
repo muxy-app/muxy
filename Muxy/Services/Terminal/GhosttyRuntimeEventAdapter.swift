@@ -161,7 +161,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
     func closeSurface(userdata: UnsafeMutableRawPointer?, needsConfirm: Bool) {
         guard let userdata else { return }
         let view = Unmanaged<GhosttyTerminalNSView>.fromOpaque(userdata).takeUnretainedValue()
+        let sourceSurface = view.surface
         DispatchQueue.main.async {
+            guard sourceSurface == view.surface else { return }
             guard !view.processExitHandled else { return }
             view.processExitHandled = true
             view.onProcessExit?()
@@ -191,7 +193,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
 
     private func handleCommandExit(target: ghostty_target_s) {
         guard let view = surfaceView(from: target) else { return }
+        guard let sourceSurface = target.target.surface else { return }
         DispatchQueue.main.async {
+            guard sourceSurface == view.surface else { return }
             if let paneID = TerminalViewRegistry.shared.paneID(for: view) {
                 DetectedAgentStore.shared.clearProvisionalAgent(for: paneID)
                 AgentStatusStore.shared.commandExited(

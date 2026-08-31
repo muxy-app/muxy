@@ -656,8 +656,11 @@ final class GhosttyTerminalNSView: NSView,
         onOfflineChange?(true)
     }
 
-    func reattachPersistentSession() {
-        guard persistentSessionID != nil else { return }
+    func reconnect() {
+        guard persistentSessionID != nil || workspaceContext.isRemote else { return }
+        if workspaceContext.isRemote {
+            guard isSessionRecoveryFailed else { return }
+        }
         destroySurface()
         isSessionRecoveryFailed = false
         onSessionRecoveryFailed?(false)
@@ -667,7 +670,8 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     func reportSessionRecoveryFailure() {
-        guard persistentSessionID != nil, !isSessionRecoveryFailed else { return }
+        guard persistentSessionID != nil || workspaceContext.isRemote else { return }
+        guard !isSessionRecoveryFailed else { return }
         destroySurface()
         isSessionRecoveryFailed = true
         onSessionRecoveryFailed?(true)

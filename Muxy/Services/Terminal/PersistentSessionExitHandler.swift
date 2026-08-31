@@ -47,7 +47,7 @@ final class PersistentSessionExitHandler {
                 logger.info("reattaching background session after attempt \(attempt)")
                 try? await Task.sleep(for: Self.backoff(attempt: attempt))
                 guard TerminalViewRegistry.shared.hasPersistentSession(for: paneID, sessionID: sessionID) else { return }
-                recoverySurface(paneID: paneID)?.reattachPersistentSession()
+                recoverySurface(paneID: paneID)?.reconnect()
             case .reportFailure:
                 logger.error("giving up on reattaching a background session after \(attempt - 1) attempt(s)")
                 recoveries.removeValue(forKey: paneID)
