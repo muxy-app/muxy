@@ -202,11 +202,19 @@ impl MainWindow {
         self.view.workspace.tab_bounds.insert(id.to_owned(), bounds);
     }
 
-    pub(crate) fn record_area_bounds(&mut self, id: &str, bounds: Bounds<Pixels>) {
+    pub(crate) fn record_area_bounds(
+        &mut self,
+        id: &str,
+        terminal_tab_id: Option<&str>,
+        bounds: Bounds<Pixels>,
+    ) {
         self.view
             .workspace
             .area_bounds
             .insert(id.to_owned(), bounds);
+        if let Some(tab_id) = terminal_tab_id {
+            self.terminal_runtime.surfaces.record_grid_resize(tab_id);
+        }
     }
 
     pub(crate) fn record_group_bounds(&mut self, id: &str, bounds: Bounds<Pixels>) {

@@ -59,7 +59,7 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
         category,
         "Memory",
         Some(
-            "Frees an idle terminal you are not actively using to reclaim memory, including visible split panes that are not focused. It reopens in the same folder when you return. Tabs running a process or a full-screen app are never touched.",
+            "Frees a hidden idle terminal to reclaim memory. Visible split panes stay live even when they are not focused. Background sessions reconnect with recent output. Ordinary terminals reopen in the same folder without scrollback, and their startup command does not run again. Tabs running a process or a full-screen app are never touched.",
         ),
         false,
         vec![

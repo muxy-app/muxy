@@ -169,6 +169,10 @@ impl MainWindow {
         ) {
             log::warn!("terminal backend unavailable: {error}");
         }
+        terminals.apply_idle_settings(
+            state.prefs.terminal_memory.idle_sleeping_enabled,
+            state.prefs.terminal_memory.idle_timeout.seconds(),
+        );
         let terminal_tasks = lifecycle::spawn_terminal_pumps(&mut terminals, cx);
         let (watchers, watcher_events) = muxy_api::watcher::Watchers::new();
         let watcher_task = cx.spawn(async move |window, cx| {

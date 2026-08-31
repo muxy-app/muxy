@@ -321,6 +321,22 @@ phase_four_source_checks() {
     rg -q 'StartNewTerminal' crates/muxy/src/views/workspace_view.rs || fail "Start New Terminal action is missing"
 }
 
+phase_five_source_checks() {
+    phase_four_source_checks
+    for path in \
+        crates/muxy-terminal/src/offline/process.rs \
+        crates/muxy/src/terminal/idle.rs; do
+        [[ -f "$path" ]] || fail "missing Phase 5 source: $path"
+    done
+    rg -q 'pub struct WakeQueue' crates/muxy-terminal/src/offline/state.rs || fail "bounded wake operation queue is missing"
+    rg -q 'terminal_root_from_snapshot' crates/muxy-terminal/src/offline/process.rs || fail "terminal process root resolution is missing"
+    rg -q 'cell_facts' crates/ghostty-host/src/surface.rs crates/muxy-terminal/src/ghostty/host_view.rs || fail "neutral Ghostty cell facts are missing"
+    rg -q 'idle_reconcile_requested' crates/muxy/src/terminal/surfaces.rs crates/muxy/src/views/window/lifecycle.rs || fail "idle wake reconciliation is missing"
+    rg -q 'session_identities' crates/muxy/src/terminal/surfaces.rs crates/muxy/src/views/window/terminal.rs || fail "persistent idle backing does not use immutable session identity"
+    rg -q 'pending_command\.remove\(&request\.tab_id\)' crates/muxy/src/terminal/surfaces.rs || fail "ordinary wake can rerun a startup command"
+    rg -q 'Frees a hidden idle terminal' crates/muxy/src/views/settings/categories/terminal.rs || fail "idle sleeping disclosure is missing"
+}
+
 portable_fixture() {
     source_checks
     cargo test -p muxy-proto --locked --offline session
@@ -428,6 +444,44 @@ startup_command_once_fixture() {
     cargo test -p muxy-session --test lifecycle --locked --offline lifecycle_background_reattach_quit_exact_owner_cleanup_and_shell_exit_are_distinct -- --exact
     cargo test -p muxy --locked --offline session_lifecycle_background_and_reattach_preserve_identity_and_startup_command
     printf 'P8 one-shot startup command fixture passed\n'
+}
+
+idle_policy_fixture() {
+    phase_five_source_checks
+    cargo test -p muxy-terminal --locked --offline offline_policy_requires_every_sleep_predicate
+    cargo test -p muxy --locked --offline terminal_idle_only_sleeps_hidden_surfaces
+    cargo test -p muxy --locked --offline terminal_idle_all_activity_sources_advance_the_generation
+    printf 'P8 hidden-only idle policy and activity fixture passed\n'
+}
+
+idle_races_fixture() {
+    phase_five_source_checks
+    cargo test -p muxy-terminal --locked --offline stale_timer_cannot_sleep_replaced_or_active_surface
+    cargo test -p muxy-terminal --locked --offline wake_queue_orders_input_and_resize_and_bounds_bytes_and_operations
+    cargo test -p muxy --locked --offline terminal_idle_stale_generation_surface_and_selection_fail_awake
+    cargo test -p muxy --locked --offline terminal_idle_wake_queue_preserves_input_resize_order_and_bounds
+    printf 'P8 stale timer and bounded wake ordering fixture passed\n'
+}
+
+idle_process_safety_fixture() {
+    phase_five_source_checks
+    cargo test -p muxy-terminal --locked --offline offline_process -- --nocapture
+    cargo test -p muxy --locked --offline terminal_idle_transactions_and_unknown_process_facts_fail_awake
+    printf 'P8 foreground, descendant, alternate-screen, unknown, and transaction safety fixture passed\n'
+}
+
+persistent_sleep_wake_fixture() {
+    phase_five_source_checks
+    cargo test -p muxy --locked --offline terminal_idle_persistent_sleep_drops_only_renderer_and_retains_attachment
+    cargo test -p muxy --locked --offline terminal_idle_persistent_wake_preserves_session_identity_and_input
+    printf 'P8 persistent renderer sleep and same-session wake fixture passed\n'
+}
+
+ordinary_sleep_wake_fixture() {
+    phase_five_source_checks
+    cargo test -p muxy --locked --offline terminal_idle_ordinary_sleep_restores_runtime_cwd_without_startup_command
+    cargo test -p muxy --locked --offline terminal_idle_ordinary_sleep_uses_latest_working_directory
+    printf 'P8 ordinary safe sleep, cwd restore, and startup-command suppression fixture passed\n'
 }
 
 validate_staged_app() {
@@ -966,6 +1020,182 @@ staged_phase_four() {
     printf 'P8 staged Phase 4 app-owned Background survival, exact reattach, project deletion cleanup, End All, and zero residue passed\n'
 }
 
+staged_phase_five() {
+    local profile="$1" app="$2" case_name="$3" root app_support home tmp xdg app_socket session_socket
+    local executable cli project app_log tabs visible_id hidden_id target_id other_id screen attempt ready=0
+    [[ "$(uname -s)" == Darwin ]] || fail "staged verification requires macOS"
+    [[ "$profile" == debug || "$profile" == release ]] || fail "invalid staged profile: $profile"
+    [[ "$case_name" == phase-5 ]] || fail "unsupported Phase 5 staged case: $case_name"
+    validate_staged_app "$app"
+    phase_five_source_checks
+    root="$(prepare_unique_tmp_root phase5)"
+    ACTIVE_ROOT="$root"
+    app_support="$root/app"
+    home="$root/home"
+    tmp="$root/tmp"
+    xdg="$root/xdg"
+    project="$root/project"
+    mkdir -p "$app_support" "$home" "$tmp" "$xdg" "$project"
+    git -C "$project" init -q
+    app_socket="$app_support/muxy.sock"
+    session_socket="$app_support/sessions/control.sock"
+    if [[ "$profile" == debug ]]; then
+        app_socket="$app_support/muxy-dev.sock"
+        session_socket="$app_support/sessions-dev/control.sock"
+    fi
+    ACTIVE_SOCKET="$app_socket"
+    executable="$app/Contents/MacOS/MuxyTests"
+    cli="$app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+    app_log="$root/app.log"
+    printf '%s\n%s\n' "$executable" "$profile" > "$root/.phase3-runtime"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 5 seed app exited before binding its socket"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" ]] || fail "staged Phase 5 seed app socket was not created"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" create-project "$project" --name P8Phase5 >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" new-tab >/dev/null
+    printf '{"muxy.terminalPersistentSession.enabled":true,"muxy.terminalOffline.enabled":true,"muxy.terminalOffline.idleThresholdSeconds":10}\n' > "$app_support/settings.json"
+    close_phase_three_app "$app_log"
+
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" && -S "$session_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 5 persistent app exited during startup"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" && -S "$session_socket" ]] || fail "staged Phase 5 persistent sockets were not created"
+    tabs="$(MUXY_SOCKET_PATH="$app_socket" "$cli" list-tabs)"
+    visible_id="$(printf '%s\n' "$tabs" | awk -F $'\t' '$5 == "true" { print $2; exit }')"
+    hidden_id="$(printf '%s\n' "$tabs" | awk -F $'\t' '$5 == "false" { print $2; exit }')"
+    [[ "$visible_id" =~ ^[0-9A-F-]{36}$ && "$hidden_id" =~ ^[0-9A-F-]{36}$ ]] || fail "could not identify Phase 5 persistent tabs"
+    target_id="$visible_id"
+    other_id="$hidden_id"
+    for ((attempt = 0; attempt < 100; attempt++)); do
+        if MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$target_id" --lines 20 >/dev/null 2>&1; then
+            ready=1
+            break
+        fi
+        sleep 0.05
+    done
+    ((ready == 1)) || fail "persistent target renderer did not materialize"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send --pane "$target_id" "printf 'P8_PHASE5_REPLAY\\n'" >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send-keys --pane "$target_id" Enter >/dev/null
+    for ((attempt = 0; attempt < 100; attempt++)); do
+        screen="$(MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$target_id" --lines 30 2>/dev/null || true)"
+        [[ "$screen" == *P8_PHASE5_REPLAY* ]] && break
+        sleep 0.05
+    done
+    [[ "$screen" == *P8_PHASE5_REPLAY* ]] || fail "persistent replay token was not emitted"
+    P8_STAGED_PHASE5_ROOT="$root" \
+        P8_STAGED_PHASE5_SOCKET="$session_socket" \
+        P8_STAGED_PHASE5_MODE=snapshot \
+        cargo test -p muxy-session --test staged_helper --locked --offline \
+            staged_phase_five_session_identities_are_stable -- --exact >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" switch-tab "$other_id" >/dev/null
+    for ((attempt = 0; attempt < 100; attempt++)); do
+        if MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$other_id" --lines 20 >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.05
+    done
+    sleep 12
+    if MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$target_id" --lines 20 > "$root/persistent-sleep.txt" 2>&1; then
+        cat "$app_log"
+        fail "hidden persistent renderer remained after the idle timeout"
+    fi
+    rg -q 'pane surface not ready' "$root/persistent-sleep.txt" || fail "persistent renderer sleep was not observed"
+    P8_STAGED_PHASE5_ROOT="$root" \
+        P8_STAGED_PHASE5_SOCKET="$session_socket" \
+        P8_STAGED_PHASE5_MODE=verify \
+        cargo test -p muxy-session --test staged_helper --locked --offline \
+            staged_phase_five_session_identities_are_stable -- --exact >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" switch-tab "$target_id" >/dev/null
+    for ((attempt = 0; attempt < 120; attempt++)); do
+        screen="$(MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$target_id" --lines 40 2>/dev/null || true)"
+        [[ "$screen" == *P8_PHASE5_REPLAY* ]] && break
+        sleep 0.05
+    done
+    [[ "$screen" == *P8_PHASE5_REPLAY* ]] || fail "persistent wake did not reattach with replay"
+    close_phase_three_app "$app_log"
+    printf '{"muxy.terminalPersistentSession.enabled":false}\n' > "$app_support/settings.json"
+    cleanup_phase_three_runtime "$root" || fail "staged Phase 5 persistent cleanup failed"
+
+    printf '{"muxy.terminalPersistentSession.enabled":false,"muxy.terminalOffline.enabled":true,"muxy.terminalOffline.idleThresholdSeconds":10}\n' > "$app_support/settings.json"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        HOME="$home" \
+        CFFIXED_USER_HOME="$home" \
+        TMPDIR="$tmp" \
+        XDG_CONFIG_HOME="$xdg" \
+        "$executable" > "$app_log" 2>&1 &
+    APP_PID=$!
+    for ((attempt = 0; attempt < 400; attempt++)); do
+        [[ -S "$app_socket" ]] && break
+        kill -0 "$APP_PID" 2>/dev/null || {
+            cat "$app_log"
+            fail "staged Phase 5 ordinary app exited during startup"
+        }
+        sleep 0.05
+    done
+    [[ -S "$app_socket" && ! -S "$session_socket" ]] || fail "ordinary Phase 5 runtime paths differ"
+    tabs="$(MUXY_SOCKET_PATH="$app_socket" "$cli" list-tabs)"
+    target_id="$(printf '%s\n' "$tabs" | awk -F $'\t' '$5 == "true" { print $2; exit }')"
+    other_id="$(printf '%s\n' "$tabs" | awk -F $'\t' -v held="$target_id" '$2 != held { print $2; exit }')"
+    [[ "$target_id" =~ ^[0-9A-F-]{36}$ && "$other_id" =~ ^[0-9A-F-]{36}$ ]] || fail "could not identify Phase 5 ordinary tabs"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send --pane "$target_id" "cd '$project'; sleep 30" >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send-keys --pane "$target_id" Enter >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" switch-tab "$other_id" >/dev/null
+    sleep 12
+    MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$target_id" --lines 20 >/dev/null 2>&1 || fail "active child did not keep an ordinary renderer awake"
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send-keys --pane "$target_id" 'Ctrl+C' >/dev/null
+    sleep 1
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send --pane "$target_id" "cd '$project'; printf 'P8_ORDINARY_READY\\n'" >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send-keys --pane "$target_id" Enter >/dev/null
+    sleep 1
+    MUXY_SOCKET_PATH="$app_socket" "$cli" switch-tab "$other_id" >/dev/null
+    sleep 12
+    if ! rg -q "P8_PHASE5_SLEEP $target_id" "$app_log"; then
+        cat "$app_log"
+        fail "safe hidden ordinary renderer remained after the idle timeout"
+    fi
+    MUXY_SOCKET_PATH="$app_socket" "$cli" switch-tab "$target_id" >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send --pane "$target_id" 'pwd' >/dev/null
+    MUXY_SOCKET_PATH="$app_socket" "$cli" send-keys --pane "$target_id" Enter >/dev/null
+    for ((attempt = 0; attempt < 120; attempt++)); do
+        screen="$(MUXY_SOCKET_PATH="$app_socket" "$cli" read-screen --pane "$target_id" --lines 30 2>/dev/null || true)"
+        [[ "$screen" == *"$project"* ]] && break
+        sleep 0.05
+    done
+    [[ "$screen" == *"$project"* ]] || fail "ordinary wake did not restore the runtime cwd"
+    close_phase_three_app "$app_log"
+    [[ ! -S "$app_socket" && ! -S "$session_socket" ]] || fail "staged Phase 5 sockets remained"
+    rm -f -- "$root/phase5-session-identities"
+    cleanup_owned_root "$root"
+    ACTIVE_SOCKET=""
+    ACTIVE_ROOT=""
+    printf 'P8 staged Phase 5 persistent sleep/replay identity, ordinary process safety, cwd wake, and zero residue passed\n'
+}
+
 self_test() {
     local nonce="$$" owned unowned mismatch linked target outside
     source_checks
@@ -1030,6 +1260,11 @@ case "${1:-}" in
             external-owner-truth) external_owner_truth_fixture ;;
             quit-crash-missing) quit_crash_missing_fixture ;;
             startup-command-once) startup_command_once_fixture ;;
+            idle-policy) idle_policy_fixture ;;
+            idle-races) idle_races_fixture ;;
+            idle-process-safety) idle_process_safety_fixture ;;
+            persistent-sleep-wake) persistent_sleep_wake_fixture ;;
+            ordinary-sleep-wake) ordinary_sleep_wake_fixture ;;
             *) fail "unknown P8 fixture: $2" ;;
         esac
         ;;
@@ -1047,6 +1282,7 @@ case "${1:-}" in
             phase-2) staged_phase_two "$2" "$3" "$4" ;;
             phase-3) staged_phase_three "$2" "$3" "$4" ;;
             phase-4) staged_phase_four "$2" "$3" "$4" ;;
+            phase-5) staged_phase_five "$2" "$3" "$4" ;;
             *) fail "unsupported staged P8 phase: $4" ;;
         esac
         ;;

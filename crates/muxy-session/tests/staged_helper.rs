@@ -90,6 +90,48 @@ fn staged_bundle_helper_detaches_survives_app_close_and_cleans() {
 }
 
 #[test]
+fn staged_phase_five_session_identities_are_stable() {
+    let Some(root) = std::env::var_os("P8_STAGED_PHASE5_ROOT") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    validate_owned_root(&root);
+    let socket = PathBuf::from(std::env::var_os("P8_STAGED_PHASE5_SOCKET").unwrap());
+    let app_support = root.join("app");
+    assert_eq!(
+        socket.parent().and_then(Path::parent),
+        Some(app_support.as_path())
+    );
+    let snapshot = root.join("phase5-session-identities");
+    let mut client = SessionClient::connect(&socket, current_build_mode()).unwrap();
+    let mut identities = client
+        .list_sessions()
+        .unwrap()
+        .into_iter()
+        .map(|session| (session.session_id, session.shell))
+        .collect::<Vec<_>>();
+    identities.sort_by_key(|(session_id, _)| *session_id);
+    assert!(!identities.is_empty());
+    for (_, shell) in &identities {
+        assert!(identity_is_alive(*shell));
+    }
+    let contents = identities
+        .iter()
+        .map(|(session_id, shell)| {
+            format!(
+                "{session_id} {} {}\n",
+                shell.process_id, shell.start_identity
+            )
+        })
+        .collect::<String>();
+    match std::env::var("P8_STAGED_PHASE5_MODE").as_deref() {
+        Ok("snapshot") => std::fs::write(snapshot, contents).unwrap(),
+        Ok("verify") => assert_eq!(std::fs::read_to_string(snapshot).unwrap(), contents),
+        _ => panic!("invalid staged Phase 5 identity probe mode"),
+    }
+}
+
+#[test]
 fn staged_recorded_processes_are_dead() {
     let Some(root) = std::env::var_os("P8_STAGED_VERIFY_DEAD_ROOT") else {
         return;

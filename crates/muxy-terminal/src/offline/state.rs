@@ -2,6 +2,72 @@ use super::policy::OfflineCandidate;
 use std::collections::VecDeque;
 
 pub const MAX_WAKE_INPUT_BYTES: usize = 1024 * 1024;
+pub const MAX_WAKE_OPERATIONS: usize = 1024;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WakeOperation {
+    Input(Vec<u8>),
+    Resize { columns: u16, rows: u16 },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WakeQueue {
+    operations: VecDeque<WakeOperation>,
+    input_bytes: usize,
+    input_capacity: usize,
+    operation_capacity: usize,
+}
+
+impl WakeQueue {
+    pub fn new(input_capacity: usize, operation_capacity: usize) -> Self {
+        Self {
+            operations: VecDeque::new(),
+            input_bytes: 0,
+            input_capacity: input_capacity.min(MAX_WAKE_INPUT_BYTES),
+            operation_capacity: operation_capacity.min(MAX_WAKE_OPERATIONS),
+        }
+    }
+
+    pub fn push(&mut self, operation: WakeOperation) -> Result<(), WakeQueueError> {
+        if matches!(&operation, WakeOperation::Resize { .. })
+            && matches!(self.operations.back(), Some(WakeOperation::Resize { .. }))
+        {
+            self.operations.pop_back();
+            self.operations.push_back(operation);
+            return Ok(());
+        }
+        if self.operations.len() >= self.operation_capacity {
+            return Err(WakeQueueError::Overflow);
+        }
+        let added = match &operation {
+            WakeOperation::Input(bytes) => bytes.len(),
+            WakeOperation::Resize { .. } => 0,
+        };
+        let next = self
+            .input_bytes
+            .checked_add(added)
+            .ok_or(WakeQueueError::Overflow)?;
+        if next > self.input_capacity {
+            return Err(WakeQueueError::Overflow);
+        }
+        self.input_bytes = next;
+        self.operations.push_back(operation);
+        Ok(())
+    }
+
+    pub fn drain(&mut self) -> Vec<WakeOperation> {
+        self.input_bytes = 0;
+        self.operations.drain(..).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.operations.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.operations.is_empty()
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OfflineTimer {
@@ -65,6 +131,19 @@ impl OfflineStateMachine {
                 surface_identity: timer.surface_identity,
             };
         }
+    }
+
+    pub fn cancel_sleep(&mut self, timer: &OfflineTimer) -> bool {
+        let SurfaceLifecycle::SleepPending { timer: held } = &self.lifecycle else {
+            return false;
+        };
+        if held != timer {
+            return false;
+        }
+        self.lifecycle = SurfaceLifecycle::Live {
+            surface_identity: timer.surface_identity,
+        };
+        true
     }
 
     pub fn schedule_sleep(&mut self) -> Option<OfflineTimer> {
@@ -262,5 +341,64 @@ mod tests {
         assert_eq!(queue.push(b"f"), Err(WakeQueueError::Overflow));
         assert_eq!(queue.drain(), vec![b"ab".to_vec(), b"cde".to_vec()]);
         assert_eq!(queue.byte_count(), 0);
+    }
+
+    #[test]
+    fn wake_queue_coalesces_adjacent_resizes_without_reordering_input() {
+        let mut queue = WakeQueue::new(4, 2);
+        queue
+            .push(WakeOperation::Resize {
+                columns: 80,
+                rows: 24,
+            })
+            .unwrap();
+        queue
+            .push(WakeOperation::Resize {
+                columns: 100,
+                rows: 30,
+            })
+            .unwrap();
+        queue.push(WakeOperation::Input(b"x".to_vec())).unwrap();
+        assert_eq!(
+            queue.drain(),
+            vec![
+                WakeOperation::Resize {
+                    columns: 100,
+                    rows: 30,
+                },
+                WakeOperation::Input(b"x".to_vec()),
+            ]
+        );
+    }
+
+    #[test]
+    fn wake_queue_orders_input_and_resize_and_bounds_bytes_and_operations() {
+        let mut queue = WakeQueue::new(4, 3);
+        queue.push(WakeOperation::Input(b"ab".to_vec())).unwrap();
+        queue
+            .push(WakeOperation::Resize {
+                columns: 80,
+                rows: 24,
+            })
+            .unwrap();
+        queue.push(WakeOperation::Input(b"cd".to_vec())).unwrap();
+        assert_eq!(
+            queue.push(WakeOperation::Resize {
+                columns: 100,
+                rows: 30,
+            }),
+            Err(WakeQueueError::Overflow)
+        );
+        assert_eq!(
+            queue.drain(),
+            vec![
+                WakeOperation::Input(b"ab".to_vec()),
+                WakeOperation::Resize {
+                    columns: 80,
+                    rows: 24,
+                },
+                WakeOperation::Input(b"cd".to_vec()),
+            ]
+        );
     }
 }

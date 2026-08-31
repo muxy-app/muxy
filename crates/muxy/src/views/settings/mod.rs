@@ -67,6 +67,7 @@ pub enum Effect {
     Theme,
     Shortcuts,
     CommandShortcuts,
+    TerminalIdle,
     SessionsRestartRequired,
     All,
 }
@@ -1136,6 +1137,11 @@ impl SettingsModal {
         Prefs::store_settings_value(key, value);
         if CHROME_KEYS.contains(&key) {
             cx.emit(SettingsEvent::Applied(Effect::Chrome));
+        } else if matches!(
+            key,
+            "muxy.terminalOffline.enabled" | "muxy.terminalOffline.idleThresholdSeconds"
+        ) {
+            cx.emit(SettingsEvent::Applied(Effect::TerminalIdle));
         } else if key == "muxy.terminalPersistentSession.enabled" {
             cx.emit(SettingsEvent::Applied(Effect::SessionsRestartRequired));
         }

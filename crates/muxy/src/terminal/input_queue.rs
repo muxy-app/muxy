@@ -71,8 +71,11 @@ impl TerminalSurfaces {
         let start_worker = queue.state.is_idle();
         let id = queue.state.enqueue(transaction);
         queue.completions.insert(id, sender);
-        if start_worker && let Some(handle) = self.handle(tab_id) {
-            handle.set_input_transaction_active(true);
+        if start_worker {
+            self.set_idle_input_transaction(tab_id, true);
+            if let Some(handle) = self.handle(tab_id) {
+                handle.set_input_transaction_active(true);
+            }
         }
         (receiver, start_worker.then_some(generation))
     }
@@ -248,6 +251,7 @@ impl TerminalSurfaces {
         }
         if queue.state.is_idle() {
             self.input_queues.remove(tab_id);
+            self.set_idle_input_transaction(tab_id, false);
             if let Some(handle) = self.handle(tab_id) {
                 handle.set_input_transaction_active(false);
             }
@@ -294,6 +298,7 @@ impl TerminalSurfaces {
                 let _ = completion.try_send(Err(TerminalInputError::Cancelled));
             }
         }
+        self.set_idle_input_transaction(tab_id, false);
         if let Some(handle) = self.handle(tab_id) {
             handle.cancel_input_transaction();
         }

@@ -18,6 +18,8 @@ use crate::runtime::{
 
 static NEXT_SURFACE_ID: AtomicU64 = AtomicU64::new(1);
 
+pub type SurfaceDataCallback = unsafe extern "C" fn(*mut c_void, *const u8, usize);
+
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SurfaceId(NonZeroU64);
 
@@ -188,6 +190,12 @@ impl From<ffi::ghostty_surface_size_s> for SurfaceSize {
             cell_height_px: value.cell_height_px,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SurfaceCellFacts {
+    pub alternate_screen: bool,
+    pub fingerprint: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -375,6 +383,15 @@ impl GhosttySurface {
     pub fn set_occluded(&self, occluded: bool) {
         self.assert_owner_thread();
         unsafe { ffi::ghostty_surface_set_occlusion(self.as_raw(), occluded) };
+    }
+
+    pub unsafe fn set_data_callback(
+        &self,
+        callback: Option<SurfaceDataCallback>,
+        userdata: *mut c_void,
+    ) {
+        self.assert_owner_thread();
+        unsafe { ffi::ghostty_surface_set_data_callback(self.as_raw(), callback, userdata) };
     }
 
     pub fn refresh(&self) {
@@ -566,7 +583,27 @@ impl GhosttySurface {
         })
     }
 
+    pub fn cell_facts(&self) -> Option<SurfaceCellFacts> {
+        self.with_cells(|raw, cells| SurfaceCellFacts {
+            alternate_screen: raw.alt_screen,
+            fingerprint: cell_fingerprint(raw, cells),
+        })
+    }
+
     pub fn read_screen_text(&self, last_lines: usize) -> Option<String> {
+        self.with_cells(|raw, cells| {
+            let cols = usize::try_from(raw.cols).ok()?;
+            if cols == 0 {
+                return Some(String::new());
+            }
+            Some(format_screen_cells(cells, cols, last_lines))
+        })?
+    }
+
+    fn with_cells<T>(
+        &self,
+        read: impl FnOnce(&ffi::ghostty_cells_s, &[ffi::ghostty_cell_s]) -> T,
+    ) -> Option<T> {
         self.assert_owner_thread();
         let mut raw = ffi::ghostty_cells_s::default();
         if !unsafe { ffi::ghostty_surface_read_cells(self.as_raw(), &mut raw) } {
@@ -579,11 +616,15 @@ impl GhosttySurface {
         let cols = usize::try_from(raw.cols).ok()?;
         let rows = usize::try_from(raw.rows).ok()?;
         let len = cols.checked_mul(rows)?;
-        if cols == 0 || rows == 0 || raw.cells.is_null() || len > raw.cells_len {
-            return Some(String::new());
-        }
-        let cells = unsafe { std::slice::from_raw_parts(raw.cells, len) };
-        Some(format_screen_cells(cells, cols, last_lines))
+        let cells = if len == 0 {
+            &[]
+        } else {
+            if raw.cells.is_null() || len > raw.cells_len {
+                return None;
+            }
+            unsafe { std::slice::from_raw_parts(raw.cells, len) }
+        };
+        Some(read(&raw, cells))
     }
 
     pub fn quicklook_word(&self) -> Result<Option<SurfaceText>, SurfaceTextError> {
@@ -634,6 +675,34 @@ impl Drop for GhosttySurface {
         let _storage_must_outlive_surface = &self.storage;
         unsafe { ffi::ghostty_surface_free(self.as_raw()) };
     }
+}
+
+fn cell_fingerprint(raw: &ffi::ghostty_cells_s, cells: &[ffi::ghostty_cell_s]) -> u64 {
+    let mut value = 0xcbf29ce484222325_u64;
+    for byte in raw
+        .cols
+        .to_ne_bytes()
+        .into_iter()
+        .chain(raw.rows.to_ne_bytes())
+        .chain(raw.cursor_x.to_ne_bytes())
+        .chain(raw.cursor_y.to_ne_bytes())
+        .chain([u8::from(raw.cursor_visible), u8::from(raw.alt_screen)])
+    {
+        value = (value ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+    }
+    for cell in cells {
+        for byte in cell
+            .codepoint
+            .to_ne_bytes()
+            .into_iter()
+            .chain(cell.fg_rgb.to_ne_bytes())
+            .chain(cell.bg_rgb.to_ne_bytes())
+            .chain(cell.flags.to_ne_bytes())
+        {
+            value = (value ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        }
+    }
+    value
 }
 
 fn format_screen_cells(cells: &[ffi::ghostty_cell_s], cols: usize, last_lines: usize) -> String {

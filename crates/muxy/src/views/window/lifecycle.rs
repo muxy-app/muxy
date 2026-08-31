@@ -1337,6 +1337,27 @@ pub(super) fn spawn_terminal_pumps(
     cx: &mut Context<MainWindow>,
 ) -> Vec<Task<()>> {
     let mut tasks = Vec::new();
+    tasks.push(cx.spawn(async move |window, cx| {
+        loop {
+            cx.background_executor().timer(Duration::from_secs(1)).await;
+            if window
+                .update(cx, |window, cx| {
+                    let slept = window
+                        .terminal_runtime
+                        .surfaces
+                        .poll_idle(&window.state.tab_workspaces);
+                    if !slept.is_empty()
+                        || window.terminal_runtime.surfaces.idle_reconcile_requested()
+                    {
+                        cx.notify();
+                    }
+                })
+                .is_err()
+            {
+                return;
+            }
+        }
+    }));
     if let Some(wakeups) = terminals.wakeups() {
         tasks.push(cx.spawn(async move |window, cx| {
             while wakeups.recv().await {

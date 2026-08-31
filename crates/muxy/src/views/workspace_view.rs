@@ -488,6 +488,10 @@ fn render_physical_area(
     cx: &mut Context<MainWindow>,
 ) -> AnyElement {
     let area_id = area.id.clone();
+    let terminal_tab_id = area
+        .active_tab()
+        .filter(|tab| tab.kind == TabKind::Terminal)
+        .map(|tab| tab.id.clone());
     let view = cx.weak_entity();
     let content = area
         .active_tab()
@@ -507,7 +511,7 @@ fn render_physical_area(
                 return;
             };
             let _ = view.update(cx, |window, _| {
-                window.record_area_bounds(&area_id, bounds);
+                window.record_area_bounds(&area_id, terminal_tab_id.as_deref(), bounds);
             });
         })
         .into_any_element()

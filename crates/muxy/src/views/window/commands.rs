@@ -405,6 +405,17 @@ impl MainWindow {
                 self.state.command_shortcuts = muxy_core::store::CommandShortcuts::load();
                 self.rebind_shortcuts(cx);
             }
+            settings::Effect::TerminalIdle => {
+                let prefs = Prefs::load();
+                self.state.prefs.terminal_memory.idle_sleeping_enabled =
+                    prefs.terminal_memory.idle_sleeping_enabled;
+                self.state.prefs.terminal_memory.idle_timeout = prefs.terminal_memory.idle_timeout;
+                self.terminal_runtime.surfaces.apply_idle_settings(
+                    self.state.prefs.terminal_memory.idle_sleeping_enabled,
+                    self.state.prefs.terminal_memory.idle_timeout.seconds(),
+                );
+                cx.notify();
+            }
             settings::Effect::SessionsRestartRequired => {
                 let prefs = Prefs::load();
                 self.state.prefs.terminal_memory = prefs.terminal_memory;
@@ -423,6 +434,10 @@ impl MainWindow {
                 self.state.prefs.terminal_memory = prefs.terminal_memory;
                 self.sessions.set_desired_persistent(
                     self.state.prefs.terminal_memory.persistent_sessions_enabled,
+                );
+                self.terminal_runtime.surfaces.apply_idle_settings(
+                    self.state.prefs.terminal_memory.idle_sleeping_enabled,
+                    self.state.prefs.terminal_memory.idle_timeout.seconds(),
                 );
                 self.rebind_shortcuts(cx);
             }

@@ -1,4 +1,7 @@
 use crate::terminal::Backend;
+use crate::terminal::idle::{
+    IdleActivity, IdleMaterialization, InputDisposition, TerminalIdleCoordinator,
+};
 use gpui::{AnyElement, App, Window};
 use muxy_core::workspace::{CloseMode, TabId, TabKind};
 use muxy_core::workspace_store::WorkspaceStore;
@@ -182,6 +185,7 @@ impl StandaloneTerminal {
 pub struct PersistentReconciliation<'a> {
     pub visible: &'a [TabId],
     pub persistent_tabs: &'a HashSet<TabId>,
+    pub session_identities: &'a HashMap<TabId, String>,
     pub attachments: &'a HashMap<TabId, String>,
     pub unavailable: HashMap<TabId, String>,
     pub retryable: HashSet<TabId>,
@@ -204,6 +208,8 @@ pub struct TerminalSurfaces {
     pub(crate) pasteboard_waiting: VecDeque<crate::terminal::input_queue::PasteboardInputId>,
     staged_input_bytes: RefCell<Option<HashMap<TabId, Vec<Vec<u8>>>>>,
     staged_image_failure: RefCell<Option<TabId>>,
+    idle: RefCell<TerminalIdleCoordinator>,
+    idle_started_at: std::time::Instant,
 }
 
 fn captures_staged_input_bytes() -> bool {
@@ -240,6 +246,8 @@ impl TerminalSurfaces {
             pasteboard_waiting: VecDeque::new(),
             staged_input_bytes: RefCell::new(captures_staged_input_bytes().then(HashMap::new)),
             staged_image_failure: RefCell::new(None),
+            idle: RefCell::new(TerminalIdleCoordinator::new()),
+            idle_started_at: std::time::Instant::now(),
         }
     }
 
@@ -363,6 +371,87 @@ impl TerminalSurfaces {
         self.backend.tick();
     }
 
+    pub fn apply_idle_settings(&self, enabled: bool, timeout_seconds: u64) {
+        self.idle
+            .borrow_mut()
+            .set_settings(enabled, timeout_seconds);
+    }
+
+    pub fn poll_idle(&mut self, store: &WorkspaceStore) -> Vec<TabId> {
+        let now = self.idle_now();
+        let facts = self
+            .handles
+            .iter()
+            .map(|(tab_id, handle)| {
+                (
+                    tab_id.clone(),
+                    handle.lifecycle_facts(),
+                    handle
+                        .metadata()
+                        .working_directory
+                        .as_ref()
+                        .map(PathBuf::from),
+                )
+            })
+            .collect::<Vec<_>>();
+        let requests = facts
+            .into_iter()
+            .filter_map(|(tab_id, facts, working_directory)| {
+                let mut idle = self.idle.borrow_mut();
+                idle.update_working_directory(&tab_id, working_directory);
+                idle.observe_lifecycle(&tab_id, facts, now)
+            })
+            .collect::<Vec<_>>();
+        let mut slept = Vec::new();
+        for request in requests {
+            if self.handles.remove(&request.tab_id).is_none() {
+                continue;
+            }
+            if muxy_core::prefs::is_test_process()
+                && std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").is_some()
+            {
+                eprintln!("P8_PHASE5_SLEEP {}", request.tab_id);
+            }
+            if !request.persistent {
+                let directory = request
+                    .working_directory
+                    .or_else(|| self.launch_directory(store, &request.tab_id));
+                if let Some(directory) = directory {
+                    self.pending_cwd.insert(request.tab_id.clone(), directory);
+                }
+                self.pending_command.remove(&request.tab_id);
+            }
+            slept.push(request.tab_id);
+        }
+        slept
+    }
+
+    pub fn idle_reconcile_requested(&self) -> bool {
+        !self.idle.borrow().wake_requested_tabs().is_empty()
+    }
+
+    pub(crate) fn idle_now(&self) -> u64 {
+        u64::try_from(self.idle_started_at.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    pub(crate) fn set_idle_input_transaction(&self, tab_id: &str, active: bool) {
+        self.idle
+            .borrow_mut()
+            .set_input_transaction_active(tab_id, active, self.idle_now());
+    }
+
+    pub fn record_grid_resize(&self, tab_id: &str) {
+        let Some((columns, rows)) = self.handle(tab_id).and_then(|handle| handle.grid_size())
+        else {
+            return;
+        };
+        let now = self.idle_now();
+        let mut idle = self.idle.borrow_mut();
+        idle.set_resize_active(tab_id, true, now);
+        let _ = idle.queue_resize(tab_id, columns, rows, now);
+        idle.set_resize_active(tab_id, false, now);
+    }
+
     pub fn set_window_active(&self, active: bool) {
         self.backend.set_window_active(active);
     }
@@ -457,14 +546,82 @@ impl TerminalSurfaces {
         true
     }
 
+    fn begin_idle_materialization(
+        &self,
+        tab_id: &str,
+        backing_identity: Option<String>,
+        persistent: bool,
+    ) {
+        self.idle.borrow_mut().begin_materialization(
+            tab_id,
+            backing_identity,
+            persistent,
+            self.idle_now(),
+        );
+    }
+
+    fn install_handle(
+        &mut self,
+        tab_id: TabId,
+        handle: Box<dyn AppSurfaceHandle>,
+        persistent: bool,
+        backing_identity: Option<String>,
+        working_directory: Option<PathBuf>,
+    ) {
+        let facts = handle.lifecycle_facts();
+        let now_milliseconds = self.idle_now();
+        let operations = self.idle.borrow_mut().take_wake_operations(&tab_id);
+        let mut operations = operations.into_iter();
+        while let Some(operation) = operations.next() {
+            let applied = match &operation {
+                muxy_terminal::offline::state::WakeOperation::Input(bytes) => {
+                    handle.send_bytes(bytes)
+                }
+                muxy_terminal::offline::state::WakeOperation::Resize { columns, rows } => {
+                    handle.resize_grid(*columns, *rows)
+                }
+            };
+            if !applied {
+                let pending = std::iter::once(operation).chain(operations).collect();
+                self.idle
+                    .borrow_mut()
+                    .restore_wake_operations(&tab_id, pending)
+                    .expect("drained wake operations must fit when restored");
+                return;
+            }
+        }
+        let remaining = self.idle.borrow_mut().materialized(
+            &tab_id,
+            IdleMaterialization {
+                backing_identity,
+                persistent,
+                surface_identity: facts.surface_identity,
+                working_directory,
+                host_activity_generation: facts.activity_generation,
+                now_milliseconds,
+            },
+        );
+        debug_assert!(remaining.is_empty());
+        self.handles.insert(tab_id, handle);
+    }
+
     pub fn has_native_scrollbar(&self, tab_id: &str) -> bool {
         self.handle(tab_id)
             .is_some_and(|handle| handle.has_native_scrollbar())
     }
 
     pub fn send_text(&self, tab_id: &str, text: &str) -> bool {
-        self.handle(tab_id)
-            .is_some_and(|handle| handle.send_text(text))
+        let disposition =
+            self.idle
+                .borrow_mut()
+                .queue_input(tab_id, text.as_bytes(), self.idle_now());
+        match disposition {
+            Ok(InputDisposition::QueuedForWake) => true,
+            Ok(InputDisposition::SendNow) => self
+                .handle(tab_id)
+                .is_some_and(|handle| handle.send_text(text)),
+            Err(_) => false,
+        }
     }
 
     pub fn send_bytes(&self, tab_id: &str, bytes: &[u8]) -> bool {
@@ -475,9 +632,17 @@ impl TerminalSurfaces {
             self.staged_image_failure.borrow_mut().take();
             return false;
         }
-        let sent = self
-            .handle(tab_id)
-            .is_some_and(|handle| handle.send_bytes(bytes));
+        let disposition = self
+            .idle
+            .borrow_mut()
+            .queue_input(tab_id, bytes, self.idle_now());
+        let sent = match disposition {
+            Ok(InputDisposition::QueuedForWake) => true,
+            Ok(InputDisposition::SendNow) => self
+                .handle(tab_id)
+                .is_some_and(|handle| handle.send_bytes(bytes)),
+            Err(_) => false,
+        };
         if sent && let Some(captured) = self.staged_input_bytes.borrow_mut().as_mut() {
             captured
                 .entry(tab_id.to_owned())
@@ -527,6 +692,9 @@ impl TerminalSurfaces {
     }
 
     pub fn perform(&mut self, tab_id: &str, action: SurfaceAction) -> bool {
+        self.idle
+            .borrow_mut()
+            .record_activity(tab_id, IdleActivity::Action, self.idle_now());
         let Some(handle) = self.handles.get_mut(tab_id) else {
             return false;
         };
@@ -535,6 +703,9 @@ impl TerminalSurfaces {
     }
 
     pub fn forward_pointer(&mut self, tab_id: &str, input: PointerInput) -> bool {
+        self.idle
+            .borrow_mut()
+            .record_activity(tab_id, IdleActivity::Input, self.idle_now());
         if matches!(input, PointerInput::Moved { .. }) {
             self.set_pointer_tab(Some(tab_id));
         }
@@ -570,6 +741,9 @@ impl TerminalSurfaces {
     }
 
     pub fn apply(&mut self, tab_id: &str, signal: crate::terminal::SurfaceSignal) -> bool {
+        self.idle
+            .borrow_mut()
+            .record_activity(tab_id, IdleActivity::Output, self.idle_now());
         self.handles
             .get_mut(tab_id)
             .is_some_and(|handle| handle.apply(signal))
@@ -582,6 +756,7 @@ impl TerminalSurfaces {
     }
 
     pub fn set_focused_tab(&self, focused: Option<&str>) {
+        self.idle.borrow_mut().set_focused(focused, self.idle_now());
         for (tab_id, handle) in &self.handles {
             handle.set_focused(Some(tab_id.as_str()) == focused);
         }
@@ -597,6 +772,7 @@ impl TerminalSurfaces {
         let PersistentReconciliation {
             visible,
             persistent_tabs,
+            session_identities,
             attachments,
             unavailable,
             retryable,
@@ -620,7 +796,15 @@ impl TerminalSurfaces {
             .filter(|tab_id| !persistent_tabs.contains(*tab_id) && !visible.contains(tab_id))
             .cloned()
             .collect::<Vec<_>>();
+        requested.extend(
+            self.idle
+                .borrow()
+                .wake_requested_tabs()
+                .into_iter()
+                .filter(|tab_id| !visible.contains(tab_id)),
+        );
         requested.sort_by_key(|tab_id| tab_id.to_ascii_uppercase());
+        requested.dedup();
         candidates.extend(requested);
         let mut failed = Vec::new();
         for tab_id in candidates {
@@ -641,9 +825,13 @@ impl TerminalSurfaces {
                 let Some(command) = attachments.get(&tab_id) else {
                     continue;
                 };
+                let Some(session_identity) = session_identities.get(&tab_id) else {
+                    continue;
+                };
+                self.begin_idle_materialization(&tab_id, Some(session_identity.clone()), true);
                 match self.backend.spawn_attachment(
                     &tab_id,
-                    directory,
+                    directory.clone(),
                     command.clone(),
                     &context,
                     window,
@@ -653,21 +841,28 @@ impl TerminalSurfaces {
                         self.materialization_requested.remove(&tab_id);
                         self.session_attachments
                             .insert(tab_id.clone(), command.clone());
-                        self.handles.insert(tab_id, handle);
+                        self.install_handle(
+                            tab_id,
+                            handle,
+                            true,
+                            Some(session_identity.clone()),
+                            Some(directory),
+                        );
                     }
                     None => failed.push(tab_id),
                 }
                 continue;
             }
             let command = self.pending_command.get(&tab_id).cloned();
-            if let Some(handle) = self
-                .backend
-                .spawn(&tab_id, directory, command, &context, window, cx)
+            self.begin_idle_materialization(&tab_id, None, false);
+            if let Some(handle) =
+                self.backend
+                    .spawn(&tab_id, directory.clone(), command, &context, window, cx)
             {
                 self.pending_cwd.remove(&tab_id);
                 self.pending_command.remove(&tab_id);
                 self.materialization_requested.remove(&tab_id);
-                self.handles.insert(tab_id, handle);
+                self.install_handle(tab_id, handle, false, None, Some(directory));
             }
         }
         self.occlude_hidden(visible);
@@ -695,14 +890,15 @@ impl TerminalSurfaces {
                 continue;
             };
             let command = self.pending_command.get(&tab_id).cloned();
-            if let Some(handle) = self
-                .backend
-                .spawn(&tab_id, directory, command, &context, window, cx)
+            self.begin_idle_materialization(&tab_id, None, false);
+            if let Some(handle) =
+                self.backend
+                    .spawn(&tab_id, directory.clone(), command, &context, window, cx)
             {
                 self.pending_cwd.remove(&tab_id);
                 self.pending_command.remove(&tab_id);
                 self.materialization_requested.remove(&tab_id);
-                self.handles.insert(tab_id, handle);
+                self.install_handle(tab_id, handle, false, None, Some(directory));
             }
         }
         self.occlude_hidden(visible);
@@ -721,6 +917,9 @@ impl TerminalSurfaces {
     }
 
     fn occlude_hidden(&mut self, visible: &[TabId]) {
+        self.idle
+            .borrow_mut()
+            .sync_visibility(visible, self.idle_now());
         if self
             .pointer_tab
             .as_ref()
@@ -756,6 +955,9 @@ impl TerminalSurfaces {
             .retain(|tab_id, _| tab_is_known(store, tab_id));
         self.session_retryable
             .retain(|tab_id| tab_is_known(store, tab_id));
+        self.idle
+            .borrow_mut()
+            .remove_unknown(|tab_id| tab_is_known(store, tab_id));
         if self
             .pointer_tab
             .as_ref()
@@ -770,10 +972,12 @@ impl TerminalSurfaces {
         let mut requested = self
             .materialization_requested
             .iter()
-            .filter(|tab_id| !visible.contains(tab_id))
             .cloned()
+            .chain(self.idle.borrow().wake_requested_tabs())
+            .filter(|tab_id| !visible.contains(tab_id))
             .collect::<Vec<_>>();
         requested.sort_by_key(|tab_id| tab_id.to_ascii_uppercase());
+        requested.dedup();
         candidates.extend(requested);
         candidates
     }
@@ -883,6 +1087,23 @@ mod tests {
         fn foreground_pid(&self) -> Option<u64> {
             self.foreground_pid
         }
+        fn lifecycle_facts(&self) -> muxy_terminal::backend::TerminalLifecycleFacts {
+            use muxy_terminal::offline::policy::{
+                ForegroundState, ProcessSafety, TerminalSafetyFacts,
+            };
+            match self.foreground_pid {
+                Some(surface_identity) => muxy_terminal::backend::TerminalLifecycleFacts {
+                    surface_identity,
+                    activity_generation: 1,
+                    safety: TerminalSafetyFacts {
+                        foreground: ForegroundState::Idle,
+                        process_safety: ProcessSafety::SafeToLoseOrdinaryShell,
+                        alternate_screen: false,
+                    },
+                },
+                None => muxy_terminal::backend::TerminalLifecycleFacts::unknown(0, 0),
+            }
+        }
         fn metadata(&self) -> &SurfaceMetadata {
             &self.metadata
         }
@@ -961,6 +1182,81 @@ mod tests {
             }),
         );
         input
+    }
+
+    #[test]
+    fn terminal_idle_persistent_sleep_drops_only_renderer_and_retains_attachment() {
+        let (store, _, _, tab_id) = contextual_store();
+        let mut surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
+        surfaces.apply_idle_settings(true, 0);
+        surfaces
+            .session_attachments
+            .insert(tab_id.clone(), "attach-command".to_owned());
+        let handle = Box::new(FakeHandle {
+            occluded: Rc::new(Cell::new(true)),
+            pointer_inside: Rc::new(Cell::new(false)),
+            input: Rc::new(FakeInput::default()),
+            metadata: SurfaceMetadata::default(),
+            foreground_pid: Some(7),
+        });
+        surfaces.begin_idle_materialization(&tab_id, Some("session-one".to_owned()), true);
+        surfaces.install_handle(
+            tab_id.clone(),
+            handle,
+            true,
+            Some("session-one".to_owned()),
+            Some(PathBuf::from("/tmp/runtime-cwd")),
+        );
+
+        assert_eq!(surfaces.poll_idle(&store), vec![tab_id.clone()]);
+        assert!(!surfaces.handles.contains_key(&tab_id));
+        assert_eq!(
+            surfaces
+                .session_attachments
+                .get(&tab_id)
+                .map(String::as_str),
+            Some("attach-command")
+        );
+    }
+
+    #[test]
+    fn terminal_idle_ordinary_sleep_restores_runtime_cwd_without_startup_command() {
+        let (store, _, _, tab_id) = contextual_store();
+        let mut surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
+        surfaces.apply_idle_settings(true, 0);
+        surfaces.pending_command.insert(
+            tab_id.clone(),
+            LaunchCommand {
+                command: "printf startup".to_owned(),
+                keeps_shell_open: true,
+            },
+        );
+        let handle = Box::new(FakeHandle {
+            occluded: Rc::new(Cell::new(true)),
+            pointer_inside: Rc::new(Cell::new(false)),
+            input: Rc::new(FakeInput::default()),
+            metadata: SurfaceMetadata {
+                working_directory: Some("/tmp/runtime-cwd".to_owned()),
+                ..SurfaceMetadata::default()
+            },
+            foreground_pid: Some(7),
+        });
+        surfaces.begin_idle_materialization(&tab_id, None, false);
+        surfaces.install_handle(
+            tab_id.clone(),
+            handle,
+            false,
+            None,
+            Some(PathBuf::from("/tmp/launch-cwd")),
+        );
+
+        assert_eq!(surfaces.poll_idle(&store), vec![tab_id.clone()]);
+        assert!(!surfaces.handles.contains_key(&tab_id));
+        assert_eq!(
+            surfaces.pending_cwd.get(&tab_id),
+            Some(&PathBuf::from("/tmp/runtime-cwd"))
+        );
+        assert!(!surfaces.pending_command.contains_key(&tab_id));
     }
 
     #[test]

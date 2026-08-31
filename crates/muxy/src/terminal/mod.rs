@@ -1,3 +1,4 @@
+pub mod idle;
 pub mod input_queue;
 pub mod surfaces;
 

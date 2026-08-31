@@ -1440,3 +1440,95 @@ bash -n scripts/verify-p8-terminal-memory.sh
 - Idle renderer sleeping, resource monitoring, status UI, Session Manager, CLI session activation, profile hardening, and release acceptance remain assigned to Phases 5 through 8.
 
 **Publication target:** Phase 4 commit `P8 phase 4: complete session lifecycle` on `p8-terminal-memory-sessions`, pushed to draft PR [#1106](https://github.com/muxy-app/muxy/pull/1106), base `2.x`.
+
+### Phase 5 - Idle Ghostty surface sleeping and wake
+
+**Completed:** 2026-08-31 15:41:49 UTC
+
+**Implemented:**
+
+- Added a hidden-only idle coordinator with generation-bound timers, complete eligibility rechecks, bounded FIFO wake operations, adjacent resize coalescing, and production resize-before-input replay.
+- Counted input, output, focus, visibility, resize, action, and materialization as activity. Runtime proof showed Ghostty redraw state alone can miss output deliveries, so the narrow data callback increments only activity generation.
+- Added immutable process identities and macOS process sampling using current-user enumeration plus exact foreground ancestry. Foreground children, related background descendants, alternate screen, incomplete samples, duplicate PIDs, PID reuse, and ambiguous surviving roots fail awake.
+- Added support for protected or short-lived terminal session launchers. A shell below an unavailable launcher can be identified from exact session and TTY facts, while an ended launcher is replaced only by one unambiguous surviving shell root.
+- Persistent sleep drops only the renderer and attach proxy while retaining the session ID and daemon shell identity. Wake reattaches with replay.
+- Ordinary sleep is allowed only for a safe idle shell, records the latest cwd, suppresses the original startup command, and documents scrollback loss. Visible unfocused panes remain live.
+- Added typed settings, one-second polling, workspace visibility and focus synchronization, and isolated Phase 5 fixtures plus staged app verification.
+- All staged runtime paths used unique `/tmp/p8-isolated-test-*` roots. Cleanup used only exact test-owned roots and recorded PID/start identities. No production or Swift Muxy runtime path was queried, signaled, or cleaned.
+
+**Observed failures and fixes:**
+
+1. Early staged runs reported `hidden persistent renderer remained after the idle timeout`. Process sampling initially queried inaccessible unrelated processes, then treated exited short-lived attach proxies as unknown. Sampling now uses current-user enumeration, exact ancestry expansion, immutable start identities, and a safe ended-proxy result only when the stale foreground PID is absent. Present reused PIDs remain unknown.
+2. A sandboxed staged run failed to bind `/private/tmp/p8-isolated-test-*/app/muxy-dev.sock` with `Operation not permitted`. The preserved root was inspected and removed only after its ownership marker matched. Unsandboxed staged runs reached the feature proof.
+3. Ordinary staged runs initially remained awake because protected session launchers were absent from current-user snapshots. Exact parent, session, TTY, and user facts now identify the shell below that boundary and retain ambiguity as unknown.
+4. The staged ordinary sleep check produced a false failure after sleeping because `read-screen` is an action that wakes and synchronously rematerializes an ordinary shell. The isolated verifier now observes the exact test-only sleep event before issuing the wake action, then still proves cwd restoration.
+5. The first final Linux terminal check emitted one unused-function warning for a macOS-only replacement helper. The helper is now target-gated and the exact check reran cleanly.
+6. The exact full-app Linux cross-check failed before project code because this host lacks `x86_64-linux-gnu-gcc` and `x86_64-linux-gnu-g++`. `freetype-sys` and `psm` reported the missing tools. A sandboxed Zig fallback also failed because Zig could not write `~/.cache/zig`; the unsandboxed fallback passed with 21 existing Linux-only warnings.
+7. A final shell wrapper reported exit 1 after `scripts/check.sh` completed successfully because zsh reserves the variable name `status`. The check itself passed. The earlier exact invocation also passed.
+
+**Read-only review and fixes:**
+
+The required one-time Phase 5 review reported Phase 5 as partially achieved with three findings. All were fixed without a second review cycle:
+
+1. Ordinary process sampling could miss reparented or background descendants, incomplete samples, and PID reuse. Exact immutable roots, session/group/TTY association, recursive descendants, truncation failure, ambiguity rejection, and replacement-root rules now fail safe.
+2. Final-grid fingerprint polling could miss output activity. Runtime proof reproduced that gap, so the Ghostty data callback now increments an atomic activity generation and is unregistered before its backing allocation is dropped.
+3. Resize wake ordering existed only in tests. Production now records grid size, queues resize before wake input, applies operations in order during materialization, coalesces only adjacent resizes, and restores failed and remaining operations.
+
+**Final phase-gate evidence:**
+
+```text
+cargo test -p muxy-terminal --all-targets --all-features --locked --offline offline
+cargo test -p muxy --locked --offline terminal_idle
+scripts/verify-p8-terminal-memory.sh --fixture idle-policy
+scripts/verify-p8-terminal-memory.sh --fixture idle-races
+scripts/verify-p8-terminal-memory.sh --fixture idle-process-safety
+scripts/verify-p8-terminal-memory.sh --fixture persistent-sleep-wake
+scripts/verify-p8-terminal-memory.sh --fixture ordinary-sleep-wake
+scripts/check.sh
+```
+
+The terminal offline suite passed 17 tests, the Muxy idle suite passed 11 tests, all five fixtures reported success, and `scripts/check.sh` completed all source guards, workspace tests, verifier self-tests, debug bundle build, signing, and bundle verification.
+
+```text
+cargo check -p muxy-terminal --all-features --locked --offline --target x86_64-unknown-linux-gnu
+```
+
+Passed cleanly.
+
+```text
+cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
+```
+
+Failed before project code because the required GNU cross C and C++ compilers are absent.
+
+```text
+PATH="$PWD/target/test-verification/p8/toolchain:$PATH" AR_x86_64_unknown_linux_gnu='zig ar' cargo check -p muxy --all-features --locked --offline --target x86_64-unknown-linux-gnu
+```
+
+The supplemental unsandboxed cross-check passed with 21 existing Linux-only warnings.
+
+```text
+scripts/build-app.sh debug
+scripts/verify-bundle.sh target/debug/Muxy.app debug
+staged_app="$(scripts/stage-test-app.sh target/debug/Muxy.app p8-phase-5)"
+scripts/verify-p8-terminal-memory.sh --staged debug "$staged_app" phase-5
+git diff --check
+find /private/tmp -maxdepth 1 -name 'p8-isolated-test-*' -print
+```
+
+All executable checks passed. The staged app path was `/Users/saeed/Projects/muxy-2.x/target/test-verification/apps/p8-phase-5/MuxyTests.app`. The verifier reported `P8 staged Phase 5 persistent sleep/replay identity, ordinary process safety, cwd wake, and zero residue passed`. `git diff --check` passed and the final isolated-root search returned no output.
+
+Supplemental strict checks also passed:
+
+```text
+cargo clippy -p muxy-terminal -p muxy --all-targets --all-features --locked --offline -- -D warnings
+bash -n scripts/verify-p8-terminal-memory.sh
+```
+
+**Unverified or intentionally deferred after Phase 5:**
+
+- Native Linux-host renderer, process-tree sampling, sleeping, and wake behavior were not executed. The terminal crate cross-target compiled natively, while the full app required the supplemental Zig wrappers.
+- Manual UI interaction for the idle settings disclosure, visible-unfocused panes, ordinary scrollback loss, and wake latency remains unobserved. Focused tests, fixtures, and the staged app cover the underlying state and runtime paths.
+- Resource monitoring, status UI, Session Manager, CLI activation, profile hardening, and release acceptance remain assigned to Phases 6 through 8.
+
+**Publication target:** Phase 5 commit `P8 phase 5: sleep idle terminal surfaces` on `p8-terminal-memory-sessions`, pushed to draft PR [#1106](https://github.com/muxy-app/muxy/pull/1106), base `2.x`.

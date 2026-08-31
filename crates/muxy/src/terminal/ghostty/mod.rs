@@ -20,7 +20,7 @@ use muxy_core::workspace::TabId;
 use muxy_terminal::backend::{
     LaunchCommand, PointerButton, PointerInput, PointerModifiers, SearchTotals, ShortcutGate,
     SurfaceAction, SurfaceMetadata, SurfaceProgress, SurfaceProgressKind, SurfaceSignal,
-    TerminalSurfaceHandle, startup_shell_command, user_shell,
+    TerminalLifecycleFacts, TerminalSurfaceHandle, startup_shell_command, user_shell,
 };
 use muxy_terminal::confirmation::{
     ConfirmationDecision, ConfirmationId, ConfirmationKind, ConfirmationQueue,
@@ -855,6 +855,7 @@ impl TerminalSurfaceHandle for GhosttySurfaceHandle {
 
     fn set_occluded(&self, occluded: bool) {
         self.registration.set_visible(!occluded);
+        self.host.set_occluded(occluded);
     }
 
     fn set_pointer_inside(&self, inside: bool) {
@@ -885,12 +886,24 @@ impl TerminalSurfaceHandle for GhosttySurfaceHandle {
         self.host.send_bytes(bytes)
     }
 
+    fn grid_size(&self) -> Option<(u16, u16)> {
+        self.host.grid_size()
+    }
+
+    fn resize_grid(&self, columns: u16, rows: u16) -> bool {
+        self.host.resize_grid(columns, rows)
+    }
+
     fn read_screen_text(&self, last_lines: usize) -> Option<String> {
         self.host.read_screen_text(last_lines)
     }
 
     fn foreground_pid(&self) -> Option<u64> {
         self.host.foreground_pid()
+    }
+
+    fn lifecycle_facts(&self) -> TerminalLifecycleFacts {
+        self.host.lifecycle_facts()
     }
 
     fn metadata(&self) -> &SurfaceMetadata {

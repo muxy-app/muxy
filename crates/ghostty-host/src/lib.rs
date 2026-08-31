@@ -20,7 +20,7 @@ pub use runtime::{
     ProgressState, RgbColor, RuntimeEvent, Scrollbar, SurfaceProcessState, initialize_ghostty,
 };
 pub use surface::{
-    BindingFlags, ClipboardCompletionError, GhosttySurface, ImeRect, SurfaceContext,
-    SurfaceEnvironmentVariable, SurfaceError, SurfaceId, SurfaceOptions, SurfacePoint, SurfaceSize,
-    SurfaceText, SurfaceTextError,
+    BindingFlags, ClipboardCompletionError, GhosttySurface, ImeRect, SurfaceCellFacts,
+    SurfaceContext, SurfaceEnvironmentVariable, SurfaceError, SurfaceId, SurfaceOptions,
+    SurfacePoint, SurfaceSize, SurfaceText, SurfaceTextError,
 };

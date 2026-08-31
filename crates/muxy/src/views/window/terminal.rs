@@ -324,6 +324,7 @@ impl MainWindow {
                     .finish_session_reconciliation(&self.state.tab_workspaces);
             }
             let mut persistent_tabs = HashSet::new();
+            let mut session_identities = HashMap::new();
             let mut attachments = HashMap::new();
             let mut unavailable = HashMap::new();
             let mut retryable = HashSet::new();
@@ -341,6 +342,7 @@ impl MainWindow {
                     continue;
                 };
                 persistent_tabs.insert(tab.id.clone());
+                session_identities.insert(tab.id.clone(), session_id.to_string());
                 match status {
                     crate::sessions::LinkedTabState::Present => {
                         match self.sessions.attachment_command(session_id) {
@@ -374,6 +376,7 @@ impl MainWindow {
                 crate::terminal::surfaces::PersistentReconciliation {
                     visible: &visible,
                     persistent_tabs: &persistent_tabs,
+                    session_identities: &session_identities,
                     attachments: &attachments,
                     unavailable,
                     retryable,

@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_channel::{Receiver, Sender};
 use ghostty_host::{
@@ -28,7 +30,8 @@ use objc2_foundation::{
 use thiserror::Error;
 
 use super::scrollbar::NativeScrollbar;
-use crate::backend::{ExternalDrop, ShortcutGate};
+use crate::backend::{ExternalDrop, ShortcutGate, TerminalLifecycleFacts};
+use crate::offline::process::{TerminalProcessRoot, sample_terminal_safety};
 use crate::scrollbar::ScrollbarMetrics;
 
 const APPKIT_CAPS_LOCK: usize = 1 << 16;
@@ -51,6 +54,17 @@ const GHOSTTY_SHIFT_RIGHT: u32 = 1 << 6;
 const GHOSTTY_CONTROL_RIGHT: u32 = 1 << 7;
 const GHOSTTY_ALT_RIGHT: u32 = 1 << 8;
 const GHOSTTY_SUPER_RIGHT: u32 = 1 << 9;
+
+unsafe extern "C" fn record_surface_data_activity(
+    userdata: *mut c_void,
+    _bytes: *const u8,
+    _len: usize,
+) {
+    let Some(activity) = NonNull::new(userdata.cast::<AtomicU64>()) else {
+        return;
+    };
+    unsafe { activity.as_ref() }.fetch_add(1, Ordering::Relaxed);
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HostViewPoint {
@@ -133,6 +147,11 @@ pub struct HostIvars {
     event_receiver: Receiver<HostViewEvent>,
     window_active: Cell<bool>,
     overlay_active: Cell<bool>,
+    surface_focused: Cell<bool>,
+    surface_occluded: Cell<bool>,
+    activity_generation: Arc<AtomicU64>,
+    last_cell_fingerprint: Cell<Option<u64>>,
+    terminal_process_root: Cell<Option<TerminalProcessRoot>>,
     deferred_key_events: RefCell<DeferredKeyEvents<DeferredNativeKeyEvent>>,
     forwarded_keys: RefCell<HashSet<u16>>,
     forwarded_mouse_buttons: Cell<u16>,
@@ -167,6 +186,11 @@ impl Default for HostIvars {
             event_receiver,
             window_active: Cell::new(false),
             overlay_active: Cell::new(false),
+            surface_focused: Cell::new(false),
+            surface_occluded: Cell::new(false),
+            activity_generation: Arc::new(AtomicU64::new(0)),
+            last_cell_fingerprint: Cell::new(None),
+            terminal_process_root: Cell::new(None),
             deferred_key_events: RefCell::new(DeferredKeyEvents::default()),
             forwarded_keys: RefCell::new(HashSet::new()),
             forwarded_mouse_buttons: Cell::new(0),
@@ -365,6 +389,7 @@ define_class!(
             );
             if let Some(surface) = self.ivars().surface.borrow().as_ref() {
                 surface.send_mouse_scroll(event.scrollingDeltaX(), event.scrollingDeltaY(), metadata);
+                self.record_activity();
             }
             self.flash_scrollbar();
         }
@@ -377,6 +402,7 @@ define_class!(
             let stage = mouse_pressure_stage(event.stage());
             if let Some(surface) = self.ivars().surface.borrow().as_ref() {
                 surface.send_mouse_pressure(stage, f64::from(event.pressure()));
+                self.record_activity();
             }
         }
 
@@ -552,6 +578,9 @@ define_class!(
 
 impl Drop for GhosttyHostView {
     fn drop(&mut self) {
+        if let Some(surface) = self.ivars().surface.borrow().as_ref() {
+            unsafe { surface.set_data_callback(None, std::ptr::null_mut()) };
+        }
         if let Some(monitor) = self.ivars().event_monitor.borrow_mut().take() {
             unsafe { NSEvent::removeMonitor(&monitor) };
         }
@@ -613,11 +642,18 @@ impl GhosttyHostView {
         options.scale_factor = self.backing_scale();
         let view_pointer = NonNull::from(self).cast::<c_void>();
         let surface = unsafe { GhosttySurface::new(app, view_pointer, options) }?;
+        let activity = Arc::as_ptr(&self.ivars().activity_generation)
+            .cast_mut()
+            .cast::<c_void>();
+        unsafe { surface.set_data_callback(Some(record_surface_data_activity), activity) };
         let id = surface.id();
         app.set_color_scheme(self.color_scheme());
         surface.set_color_scheme(self.color_scheme());
         self.ivars().app.replace(Some(app.clone()));
         self.ivars().surface.replace(Some(surface));
+        self.ivars().last_cell_fingerprint.set(None);
+        self.ivars().terminal_process_root.set(None);
+        self.record_activity();
         self.install_event_monitor();
         self.sync_surface_geometry();
         self.sync_focus();
@@ -768,11 +804,16 @@ impl GhosttyHostView {
     }
 
     pub fn binding_action(&self, action: &str) -> bool {
-        self.ivars()
+        let performed = self
+            .ivars()
             .surface
             .borrow()
             .as_ref()
-            .is_some_and(|surface| surface.perform_binding_action(action))
+            .is_some_and(|surface| surface.perform_binding_action(action));
+        if performed {
+            self.record_activity();
+        }
+        performed
     }
 
     pub fn update_scrollbar(&self, metrics: ScrollbarMetrics) {
@@ -828,6 +869,7 @@ impl GhosttyHostView {
             return false;
         };
         surface.send_text(text);
+        self.record_activity();
         true
     }
 
@@ -837,6 +879,33 @@ impl GhosttyHostView {
             return false;
         };
         surface.send_input_raw(bytes);
+        self.record_activity();
+        true
+    }
+
+    pub fn grid_size(&self) -> Option<(u16, u16)> {
+        let surface = self.ivars().surface.borrow();
+        let size = surface.as_ref()?.size();
+        (size.columns > 0 && size.rows > 0).then_some((size.columns, size.rows))
+    }
+
+    pub fn resize_grid(&self, columns: u16, rows: u16) -> bool {
+        if columns == 0 || rows == 0 {
+            return false;
+        }
+        let surface = self.ivars().surface.borrow();
+        let Some(surface) = surface.as_ref() else {
+            return false;
+        };
+        let size = surface.size();
+        let Some(width) = size.cell_width_px.checked_mul(u32::from(columns)) else {
+            return false;
+        };
+        let Some(height) = size.cell_height_px.checked_mul(u32::from(rows)) else {
+            return false;
+        };
+        surface.set_size(width, height);
+        self.record_activity();
         true
     }
 
@@ -850,6 +919,70 @@ impl GhosttyHostView {
 
     pub fn foreground_pid(&self) -> Option<u64> {
         self.ivars().surface.borrow().as_ref()?.foreground_pid()
+    }
+
+    pub fn set_occluded(&self, occluded: bool) {
+        if self.ivars().surface_occluded.replace(occluded) == occluded {
+            return;
+        }
+        if let Some(surface) = self.ivars().surface.borrow().as_ref() {
+            surface.set_occluded(occluded);
+            self.record_activity();
+        }
+    }
+
+    pub fn lifecycle_facts(&self) -> TerminalLifecycleFacts {
+        let surface = self.ivars().surface.borrow();
+        let Some(surface) = surface.as_ref() else {
+            return TerminalLifecycleFacts::unknown(
+                0,
+                self.ivars().activity_generation.load(Ordering::Relaxed),
+            );
+        };
+        let surface_identity = surface.id().get();
+        let Some(cell_facts) = surface.cell_facts() else {
+            return TerminalLifecycleFacts::unknown(
+                surface_identity,
+                self.ivars().activity_generation.load(Ordering::Relaxed),
+            );
+        };
+        if self
+            .ivars()
+            .last_cell_fingerprint
+            .replace(Some(cell_facts.fingerprint))
+            != Some(cell_facts.fingerprint)
+        {
+            self.record_activity();
+        }
+        let Some(foreground_process_id) = surface.foreground_pid() else {
+            return TerminalLifecycleFacts {
+                surface_identity,
+                activity_generation: self.ivars().activity_generation.load(Ordering::Relaxed),
+                safety: crate::offline::policy::TerminalSafetyFacts::unknown_with_alternate_screen(
+                    cell_facts.alternate_screen,
+                ),
+            };
+        };
+        let sample = sample_terminal_safety(
+            std::process::id(),
+            u32::try_from(foreground_process_id).unwrap_or(0),
+            self.ivars().terminal_process_root.get(),
+            cell_facts.alternate_screen,
+        );
+        if self.ivars().terminal_process_root.get().is_none() {
+            self.ivars().terminal_process_root.set(sample.root);
+        }
+        TerminalLifecycleFacts {
+            surface_identity,
+            activity_generation: self.ivars().activity_generation.load(Ordering::Relaxed),
+            safety: sample.facts,
+        }
+    }
+
+    fn record_activity(&self) {
+        self.ivars()
+            .activity_generation
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn resolve_clipboard_request(
@@ -976,6 +1109,9 @@ impl GhosttyHostView {
                 surface.set_mouse_position(point, modifiers);
                 surface.send_mouse_button(state, button, modifiers)
             });
+        if consumed {
+            self.record_activity();
+        }
         match state {
             MouseButtonState::Press => self
                 .ivars()
@@ -1011,6 +1147,7 @@ impl GhosttyHostView {
             physical_pixels(bounds.size.width, scale),
             physical_pixels(bounds.size.height, scale),
         );
+        self.record_activity();
         if let Some(scrollbar) = self.ivars().scrollbar.borrow().as_ref() {
             scrollbar.update_cell_height(f64::from(surface.size().cell_height_px) / scale);
         }
@@ -1032,6 +1169,9 @@ impl GhosttyHostView {
         let focused = !self.ivars().overlay_active.get()
             && self.ivars().window_active.get()
             && self.is_terminal_first_responder();
+        if self.ivars().surface_focused.replace(focused) != focused {
+            self.record_activity();
+        }
         if let Some(app) = self.ivars().app.borrow().as_ref() {
             app.set_focus(focused);
         }
@@ -1233,6 +1373,7 @@ impl GhosttyHostView {
             return false;
         };
         surface.send_key(input);
+        self.record_activity();
         true
     }
 
@@ -2082,6 +2223,15 @@ mod tests {
     use objc2_app_kit::NSPasteboardItem;
 
     use super::*;
+
+    #[test]
+    fn surface_data_callback_records_every_output_delivery() {
+        let activity = AtomicU64::new(4);
+        let userdata = std::ptr::from_ref(&activity).cast_mut().cast::<c_void>();
+        unsafe { record_surface_data_activity(userdata, std::ptr::null(), 0) };
+        unsafe { record_surface_data_activity(userdata, std::ptr::null(), 0) };
+        assert_eq!(activity.load(Ordering::Relaxed), 6);
+    }
 
     #[test]
     fn physical_pixel_conversion_scales_rounds_and_clamps() {

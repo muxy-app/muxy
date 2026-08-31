@@ -21,10 +21,14 @@ pub struct TerminalSafetyFacts {
 
 impl TerminalSafetyFacts {
     pub const fn unknown() -> Self {
+        Self::unknown_with_alternate_screen(false)
+    }
+
+    pub const fn unknown_with_alternate_screen(alternate_screen: bool) -> Self {
         Self {
             foreground: ForegroundState::Unknown,
             process_safety: ProcessSafety::Unknown,
-            alternate_screen: false,
+            alternate_screen,
         }
     }
 }

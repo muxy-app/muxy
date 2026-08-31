@@ -142,6 +142,12 @@ pub trait TerminalSurfaceHandle {
     fn send_bytes(&self, _bytes: &[u8]) -> bool {
         false
     }
+    fn grid_size(&self) -> Option<(u16, u16)> {
+        None
+    }
+    fn resize_grid(&self, _columns: u16, _rows: u16) -> bool {
+        false
+    }
     fn read_screen_text(&self, _last_lines: usize) -> Option<String> {
         None
     }
