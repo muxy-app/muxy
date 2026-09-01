@@ -76,6 +76,7 @@ pub enum SettingsEvent {
     Applied(Effect),
     SetDesktopNotifications(bool),
     PreviewNotificationSound(String),
+    SetPersistentSessions(bool),
 }
 
 fn desktop_notification_event(enabled: bool, pending: bool) -> SettingsEvent {
@@ -1102,6 +1103,15 @@ impl SettingsModal {
 
     pub fn write(&mut self, key: &str, value: Value, cx: &mut Context<Self>) {
         self.close_picker(cx);
+        if key == crate::terminal::session::PERSISTENT_SESSION_SETTING {
+            if let Some(enabled) = value.as_bool()
+                && enabled != settings::bool_value(key, false)
+            {
+                cx.emit(SettingsEvent::SetPersistentSessions(enabled));
+            }
+            cx.notify();
+            return;
+        }
         if key.starts_with("muxy.quickTerminal.") {
             let result = if key == "muxy.quickTerminal.enabled" {
                 cx.update_global::<QuickTerminalRuntime, _>(|runtime, cx| {

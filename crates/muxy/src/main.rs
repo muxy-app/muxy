@@ -11,6 +11,7 @@ mod pasteboard;
 mod platform;
 mod project_operations;
 pub mod quick_terminal;
+mod relaunch;
 mod repository;
 mod resources;
 mod socket;
@@ -55,6 +56,9 @@ const TRAFFIC_LIGHT_HEIGHT: f32 = 14.0;
 const TRAFFIC_LIGHT_X: f32 = 9.0;
 
 fn main() {
+    if relaunch::run_helper_if_requested() {
+        return;
+    }
     if let Err(error) = muxy_core::migration::run_startup() {
         eprintln!("failed to migrate Swift profile: {error}");
         std::process::exit(1);

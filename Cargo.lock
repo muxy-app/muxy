@@ -3257,6 +3257,7 @@ dependencies = [
  "ghostty-host",
  "gpui",
  "image",
+ "libc",
  "log",
  "muxy-api",
  "muxy-core",

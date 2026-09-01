@@ -20,6 +20,31 @@ fn terminal_input_overlay_active(
     overlay_open || search_open || composer_input_focused
 }
 
+fn clear_persistent_flags(store: &mut muxy_core::workspace_store::WorkspaceStore) {
+    for workspace in store.states_mut() {
+        let tab_ids = workspace
+            .root
+            .as_ref()
+            .map(|root| root.tabs())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|tab| tab.kind == muxy_core::workspace::TabKind::Terminal)
+            .map(|tab| tab.id.clone())
+            .collect::<Vec<_>>();
+        for tab_id in tab_ids {
+            if let Some(tab) = workspace.tab_mut(&tab_id) {
+                tab.rust_persistent_session = false;
+            }
+        }
+    }
+}
+
+fn staged_restart_failure(point: &str) -> bool {
+    muxy_core::prefs::is_test_process()
+        && std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").is_some()
+        && std::env::var("MUXY_TEST_P8_RESTART_FAILURE").as_deref() == Ok(point)
+}
+
 pub(crate) struct TerminalRuntime {
     pub(crate) surfaces: TerminalSurfaces,
     pub(super) _tasks: Vec<Task<()>>,
@@ -35,6 +60,303 @@ impl TerminalRuntime {
 }
 
 impl MainWindow {
+    pub(crate) fn request_persistent_sessions(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        let answer = self.ask(
+            "Restart Muxy?".to_owned(),
+            "Changing persistent terminal sessions requires restarting the whole app.".to_owned(),
+            &["Restart Now", "Cancel"],
+            cx,
+        );
+        cx.spawn(async move |window, cx| {
+            if answer.await != Some(0) {
+                return;
+            }
+            let _ = window.update(cx, |window, cx| {
+                window.begin_persistent_sessions_change(enabled, cx);
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn begin_persistent_sessions_change(
+        &mut self,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |window, cx| {
+            let prepared = cx
+                .background_executor()
+                .spawn(async { crate::relaunch::PreparedRelaunch::prepare() })
+                .await;
+            let prepared = match prepared {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    let _ = window.update(cx, |window, cx| {
+                        window.feedback(
+                            "Unable to restart Muxy",
+                            error,
+                            crate::toast::ToastTone::Error,
+                            cx,
+                        );
+                    });
+                    return;
+                }
+            };
+            if enabled {
+                let _ = window.update(cx, |window, cx| {
+                    window.enable_persistent_sessions(prepared, cx);
+                });
+                return;
+            }
+            let client = window
+                .update(cx, |window, cx| {
+                    if let Err(error) = window.capture_terminal_directories() {
+                        window.feedback(
+                            "Unable to disable terminal persistence",
+                            format!("The latest terminal folders could not be saved: {error}"),
+                            crate::toast::ToastTone::Error,
+                            cx,
+                        );
+                        return None;
+                    }
+                    let client = window.terminal_runtime.surfaces.persistent_client();
+                    if client.is_none() {
+                        window.feedback(
+                            "Unable to disable terminal persistence",
+                            "Muxy can't reach the terminal session service. Persistence remains enabled.",
+                            crate::toast::ToastTone::Error,
+                            cx,
+                        );
+                    } else {
+                        window
+                            .terminal_runtime
+                            .surfaces
+                            .begin_persistent_termination();
+                    }
+                    client
+                })
+                .ok()
+                .flatten();
+            let Some(client) = client else {
+                return;
+            };
+            let outcome = cx
+                .background_executor()
+                .spawn(async move { client.terminate_all() })
+                .await;
+            let _ = window.update(cx, |window, cx| match outcome {
+                crate::terminal::session::client::TerminateOutcome::Terminated
+                | crate::terminal::session::client::TerminateOutcome::NoSessions => {
+                    window.disable_persistent_sessions(prepared, cx)
+                }
+                crate::terminal::session::client::TerminateOutcome::Unreachable(error) => {
+                    window
+                        .terminal_runtime
+                        .surfaces
+                        .fail_persistent_termination();
+                    window.feedback(
+                        "Unable to disable terminal persistence",
+                        format!("{error}. Terminal persistence remains enabled."),
+                        crate::toast::ToastTone::Error,
+                        cx,
+                    );
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn enable_persistent_sessions(
+        &mut self,
+        prepared: crate::relaunch::PreparedRelaunch,
+        cx: &mut Context<Self>,
+    ) {
+        if let Err(error) = muxy_core::prefs::settings::try_set(
+            crate::terminal::session::PERSISTENT_SESSION_SETTING,
+            serde_json::Value::Bool(true),
+        ) {
+            self.feedback(
+                "Unable to enable terminal persistence",
+                format!("The setting could not be saved: {error}"),
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
+        let commit = if staged_restart_failure("enable-after-setting") {
+            Err("injected failure after the persistent setting write".to_owned())
+        } else {
+            prepared.commit()
+        };
+        if let Err(error) = commit {
+            let rollback = muxy_core::prefs::settings::try_set(
+                crate::terminal::session::PERSISTENT_SESSION_SETTING,
+                serde_json::Value::Bool(false),
+            );
+            self.feedback(
+                "Unable to enable terminal persistence",
+                match rollback {
+                    Ok(()) => error,
+                    Err(rollback) => format!("{error}; setting rollback failed: {rollback}"),
+                },
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
+        self.flush_notification_store();
+        self.flush_composer_store();
+        cx.quit();
+    }
+
+    fn disable_persistent_sessions(
+        &mut self,
+        prepared: crate::relaunch::PreparedRelaunch,
+        cx: &mut Context<Self>,
+    ) {
+        let snapshot = self.state.tab_workspaces.clone();
+        clear_persistent_flags(&mut self.state.tab_workspaces);
+        if let Err(error) = self.state.persist_tab_workspaces() {
+            self.state.tab_workspaces = snapshot;
+            self.post_termination_disable_failure(
+                format!("The terminal layout could not be saved: {error}"),
+                cx,
+            );
+            return;
+        }
+        if staged_restart_failure("disable-after-workspace") {
+            self.restore_disabled_transaction(
+                snapshot,
+                "injected failure after the workspace write".to_owned(),
+                cx,
+            );
+            return;
+        }
+        if let Err(error) = muxy_core::prefs::settings::try_set(
+            crate::terminal::session::PERSISTENT_SESSION_SETTING,
+            serde_json::Value::Bool(false),
+        ) {
+            self.restore_disabled_transaction(snapshot, format!("The setting failed: {error}"), cx);
+            return;
+        }
+        if staged_restart_failure("disable-after-setting") {
+            self.restore_disabled_transaction(
+                snapshot,
+                "injected failure after the persistent setting write".to_owned(),
+                cx,
+            );
+            return;
+        }
+        if let Err(error) = prepared.commit() {
+            self.restore_disabled_transaction(snapshot, error, cx);
+            return;
+        }
+        self.flush_notification_store();
+        self.flush_composer_store();
+        cx.quit();
+    }
+
+    fn restore_disabled_transaction(
+        &mut self,
+        snapshot: muxy_core::workspace_store::WorkspaceStore,
+        error: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.state.tab_workspaces = snapshot;
+        let workspace_rollback = self.state.persist_tab_workspaces();
+        let setting_rollback = muxy_core::prefs::settings::try_set(
+            crate::terminal::session::PERSISTENT_SESSION_SETTING,
+            serde_json::Value::Bool(true),
+        );
+        let mut message = error;
+        if let Err(rollback) = workspace_rollback {
+            message.push_str(&format!("; workspace rollback failed: {rollback}"));
+        }
+        if let Err(rollback) = setting_rollback {
+            message.push_str(&format!("; setting rollback failed: {rollback}"));
+        }
+        self.post_termination_disable_failure(message, cx);
+    }
+
+    fn post_termination_disable_failure(&mut self, error: String, cx: &mut Context<Self>) {
+        self.terminal_runtime
+            .surfaces
+            .mark_persistent_sessions_missing();
+        self.feedback(
+            "Terminal sessions were already stopped",
+            format!("{error}. Persistence remains enabled; use Start Fresh for affected tabs."),
+            crate::toast::ToastTone::Error,
+            cx,
+        );
+    }
+
+    fn capture_terminal_directories(&mut self) -> Result<(), std::io::Error> {
+        let previous = self.state.tab_workspaces.clone();
+        let tab_ids = self
+            .state
+            .tab_workspaces
+            .states()
+            .iter()
+            .flat_map(|workspace| {
+                workspace
+                    .root
+                    .as_ref()
+                    .map(|root| root.tabs())
+                    .unwrap_or_default()
+            })
+            .filter(|tab| tab.kind == muxy_core::workspace::TabKind::Terminal)
+            .map(|tab| tab.id.clone())
+            .collect::<Vec<_>>();
+        let mut changed = false;
+        for tab_id in tab_ids {
+            let directory = self
+                .terminal_runtime
+                .surfaces
+                .handle(&tab_id)
+                .and_then(|handle| handle.metadata().working_directory.clone())
+                .filter(|directory| std::path::Path::new(directory).is_absolute());
+            let Some(directory) = directory else {
+                continue;
+            };
+            for workspace in self.state.tab_workspaces.states_mut() {
+                if let Some(tab) = workspace.tab_mut(&tab_id)
+                    && tab.terminal_resume_directory.as_deref() != Some(directory.as_str())
+                {
+                    tab.terminal_resume_directory = Some(directory.clone());
+                    changed = true;
+                }
+            }
+        }
+        if changed && let Err(error) = self.state.persist_tab_workspaces() {
+            self.state.tab_workspaces = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn reconnect_terminal(&mut self, tab_id: &str, cx: &mut Context<Self>) {
+        if self.terminal_runtime.surfaces.retry_persistent(tab_id) {
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn start_fresh_terminal(&mut self, tab_id: &str, cx: &mut Context<Self>) {
+        match self
+            .terminal_runtime
+            .surfaces
+            .start_fresh(&mut self.state.tab_workspaces, tab_id)
+        {
+            Ok(true) => cx.notify(),
+            Ok(false) => {}
+            Err(error) => self.feedback(
+                "Unable to start terminal",
+                format!("The terminal state could not be saved: {error}"),
+                crate::toast::ToastTone::Error,
+                cx,
+            ),
+        }
+    }
+
     pub(crate) fn submit_quick_terminal_notification(
         &mut self,
         title: String,
@@ -87,12 +409,57 @@ impl MainWindow {
                 );
             }
             SurfaceSignal::Exited => {
-                if self
+                let disposition = self
                     .terminal_runtime
                     .surfaces
-                    .handle_exit(&mut self.state.tab_workspaces, &tab_id)
-                {
-                    let _ = self.state.persist_tab_workspaces();
+                    .persistent_surface_exited(&tab_id);
+                match disposition {
+                    crate::terminal::surfaces::PersistentExitDisposition::Direct => {
+                        if self
+                            .terminal_runtime
+                            .surfaces
+                            .handle_exit(&mut self.state.tab_workspaces, &tab_id)
+                        {
+                            let _ = self.state.persist_tab_workspaces();
+                        }
+                    }
+                    crate::terminal::surfaces::PersistentExitDisposition::Retain => {}
+                    crate::terminal::surfaces::PersistentExitDisposition::Recover => {
+                        let Some(client) = self.terminal_runtime.surfaces.persistent_client()
+                        else {
+                            let _ = self.terminal_runtime.surfaces.finish_persistent_exit(
+                                &mut self.state.tab_workspaces,
+                                &tab_id,
+                                crate::terminal::session::client::QueryOutcome::Unreachable(
+                                    "terminal session service is unavailable".to_owned(),
+                                ),
+                            );
+                            cx.notify();
+                            return;
+                        };
+                        cx.spawn(async move |window, cx| {
+                            let query_tab_id = tab_id.clone();
+                            let outcome = cx
+                                .background_executor()
+                                .spawn(async move { client.query(&query_tab_id) })
+                                .await;
+                            let _ = window.update(cx, |window, cx| {
+                                if let Err(error) =
+                                    window.terminal_runtime.surfaces.finish_persistent_exit(
+                                        &mut window.state.tab_workspaces,
+                                        &tab_id,
+                                        outcome,
+                                    )
+                                {
+                                    log::warn!(
+                                        "failed to reconcile persistent session exit {tab_id}: {error}"
+                                    );
+                                }
+                                cx.notify();
+                            });
+                        })
+                        .detach();
+                    }
                 }
                 cx.notify();
             }
@@ -206,19 +573,29 @@ impl MainWindow {
     }
 
     pub(super) fn sync_tab_metadata(&mut self, tab_id: &str) {
-        let Some(title) = self
+        let Some(metadata) = self
             .terminal_runtime
             .surfaces
             .handle(tab_id)
-            .and_then(|handle| handle.metadata().title.clone())
+            .map(|handle| handle.metadata().clone())
         else {
             return;
         };
         let mut changed = false;
         for state in self.state.tab_workspaces.states_mut() {
             if let Some(tab) = state.tab_mut(tab_id) {
-                if tab.pane_title.as_deref() != Some(title.as_str()) {
+                if let Some(title) = metadata.title
+                    && tab.pane_title.as_deref() != Some(title.as_str())
+                {
                     tab.pane_title = Some(title);
+                    changed = true;
+                }
+                if let Some(directory) = metadata
+                    .working_directory
+                    .filter(|directory| std::path::Path::new(directory).is_absolute())
+                    && tab.terminal_resume_directory.as_deref() != Some(directory.as_str())
+                {
+                    tab.terminal_resume_directory = Some(directory);
                     changed = true;
                 }
                 break;
@@ -246,9 +623,35 @@ impl MainWindow {
                     .collect()
             })
             .unwrap_or_default();
-        self.terminal_runtime
-            .surfaces
-            .reconcile(&self.state.tab_workspaces, &visible, window, cx);
+        let probes = self.terminal_runtime.surfaces.reconcile(
+            &self.state.tab_workspaces,
+            &visible,
+            window,
+            cx,
+        );
+        if let Some(client) = self.terminal_runtime.surfaces.persistent_client() {
+            for tab_id in probes {
+                let client = client.clone();
+                cx.spawn(async move |window, cx| {
+                    let query_tab_id = tab_id.clone();
+                    let outcome = cx
+                        .background_executor()
+                        .spawn(async move { client.wait_for_session(&query_tab_id) })
+                        .await;
+                    let _ = window.update(cx, |window, cx| {
+                        if let Err(error) = window.terminal_runtime.surfaces.finish_establishment(
+                            &mut window.state.tab_workspaces,
+                            &tab_id,
+                            outcome,
+                        ) {
+                            log::warn!("failed to publish persistent session {tab_id}: {error}");
+                        }
+                        cx.notify();
+                    });
+                })
+                .detach();
+            }
+        }
         self.reconcile_search_bars(&visible, window, cx);
         self.view
             .terminal

@@ -3,7 +3,24 @@ use crate::socket::commands::target::{self, ResolvedTarget};
 use crate::views::window::MainWindow;
 use muxy_core::workspace::{CloseMode, Tab, TabKind, WorkspaceState};
 
-pub fn handle(head: &str, parts: &[&str], window: &mut MainWindow) -> Option<CommandResult> {
+pub enum TabCommand {
+    Immediate(CommandResult),
+    Close(TabCloseCommand),
+}
+
+pub struct TabCloseCommand {
+    state_index: usize,
+    tab_id: String,
+    pub persistent_tabs: Vec<String>,
+}
+
+pub fn handle(head: &str, parts: &[&str], window: &mut MainWindow) -> Option<TabCommand> {
+    if head == "tab-close" {
+        return Some(match close_request(parts, window) {
+            Ok(command) => TabCommand::Close(command),
+            Err(error) => TabCommand::Immediate(CommandResult::reply(format!("error:{error}"))),
+        });
+    }
     let result = match head {
         "list-tabs" => list(parts, window),
         "switch-tab" => switch_tab(parts, window),
@@ -15,11 +32,12 @@ pub fn handle(head: &str, parts: &[&str], window: &mut MainWindow) -> Option<Com
         "tab-set-icon" => metadata(parts, window, Metadata::Icon),
         "tab-pin" => pin(parts, window, true),
         "tab-unpin" => pin(parts, window, false),
-        "tab-close" => close(parts, window),
         "tab-move" => move_tab(parts, window),
         _ => return None,
     };
-    Some(result.unwrap_or_else(|error| CommandResult::reply(format!("error:{error}"))))
+    Some(TabCommand::Immediate(result.unwrap_or_else(|error| {
+        CommandResult::reply(format!("error:{error}"))
+    })))
 }
 
 fn list(parts: &[&str], window: &MainWindow) -> Result<CommandResult, String> {
@@ -174,23 +192,44 @@ fn pin(parts: &[&str], window: &mut MainWindow, pinned: bool) -> Result<CommandR
     Ok(CommandResult::changed("ok"))
 }
 
-fn close(parts: &[&str], window: &mut MainWindow) -> Result<CommandResult, String> {
+fn close_request(parts: &[&str], window: &MainWindow) -> Result<TabCloseCommand, String> {
     if parts.len() < 2 {
         return Err("usage tab-close|<index-or-id-or-title>".to_owned());
     }
     let (index, location) =
         locate(window, parts[1]).ok_or_else(|| format!("tab not found {}", parts[1]))?;
+    let mut workspace = window.state.tab_workspaces.states()[index].clone();
+    let removed = workspace.close_tab(&location.tab_id, CloseMode::Single);
+    let persistent_tabs = removed
+        .into_iter()
+        .filter(|tab_id| window.terminal_runtime.surfaces.is_persistent_tab(tab_id))
+        .collect();
+    Ok(TabCloseCommand {
+        state_index: index,
+        tab_id: location.tab_id,
+        persistent_tabs,
+    })
+}
+
+pub fn finish_close(window: &mut MainWindow, command: &TabCloseCommand) -> CommandResult {
     let mut removed = Vec::new();
-    mutate(window, |states| {
-        removed = states[index].close_tab(&location.tab_id, CloseMode::Single);
+    if let Err(error) = mutate(window, |states| {
+        removed = states[command.state_index].close_tab(&command.tab_id, CloseMode::Single);
         Ok(())
-    })?;
+    }) {
+        return CommandResult::reply(format!("error:{error}"));
+    }
     for tab_id in removed {
-        if let Some(handle) = window.terminal_runtime.surfaces.handle(&tab_id) {
+        if window.terminal_runtime.surfaces.is_persistent_tab(&tab_id) {
+            window
+                .terminal_runtime
+                .surfaces
+                .forget_persistent_tab(&tab_id);
+        } else if let Some(handle) = window.terminal_runtime.surfaces.handle(&tab_id) {
             handle.request_close();
         }
     }
-    Ok(CommandResult::changed("ok"))
+    CommandResult::changed("ok")
 }
 
 fn move_tab(parts: &[&str], window: &mut MainWindow) -> Result<CommandResult, String> {

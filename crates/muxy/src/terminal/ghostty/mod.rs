@@ -18,9 +18,10 @@ use muxy_core::environment::BuildMode;
 use muxy_core::shortcuts::{COMMAND, KeyCombo};
 use muxy_core::workspace::TabId;
 use muxy_terminal::backend::{
-    LaunchCommand, PointerButton, PointerInput, PointerModifiers, SearchTotals, ShortcutGate,
-    SurfaceAction, SurfaceMetadata, SurfaceProgress, SurfaceProgressKind, SurfaceSignal,
-    TerminalSurfaceHandle, startup_shell_command, user_shell,
+    LaunchCommand, PersistentSessionLaunch, PointerButton, PointerInput, PointerModifiers,
+    SearchTotals, ShortcutGate, SurfaceAction, SurfaceMetadata, SurfaceProgress,
+    SurfaceProgressKind, SurfaceSignal, TerminalSurfaceHandle, shell_escape, startup_shell_command,
+    user_shell,
 };
 use muxy_terminal::confirmation::{
     ConfirmationDecision, ConfirmationId, ConfirmationKind, ConfirmationQueue,
@@ -128,9 +129,48 @@ fn apply_pane_context(
     environment.extend(
         context
             .environment()
+            .into_iter()
             .map(|(key, value)| SurfaceEnvironmentVariable::new(key, value)),
     );
+    if let Some(persistent) = context.persistent() {
+        apply_persistent_context(&mut environment, persistent);
+    }
     environment
+}
+
+fn apply_persistent_context(
+    environment: &mut Vec<SurfaceEnvironmentVariable>,
+    launch: &PersistentSessionLaunch,
+) {
+    let values = [
+        ("MUXY_SESSION_SOCKET", Some(launch.socket_path.as_str())),
+        ("MUXY_SESSION_ID", Some(launch.session_id.as_str())),
+        (
+            "MUXY_SESSION_CREATE_POLICY",
+            Some(launch.create_policy.environment_value()),
+        ),
+        ("MUXY_SESSION_PROJECT_ID", Some(launch.project_id.as_str())),
+        ("MUXY_SESSION_WORKTREE_ID", launch.worktree_id.as_deref()),
+        ("MUXY_SESSION_TITLE", Some(launch.title.as_str())),
+        ("MUXY_SESSION_SHELL", Some(launch.shell.as_str())),
+        (
+            "MUXY_SESSION_RESOURCES",
+            Some(launch.resources_directory.as_str()),
+        ),
+        (
+            "MUXY_SESSION_DIRECTORY",
+            Some(launch.working_directory.as_str()),
+        ),
+        (
+            "MUXY_SESSION_STARTUP_COMMAND",
+            launch.startup_command.as_deref(),
+        ),
+    ];
+    environment.extend(
+        values.into_iter().filter_map(|(key, value)| {
+            value.map(|value| SurfaceEnvironmentVariable::new(key, value))
+        }),
+    );
 }
 
 fn apply_standalone_context(
@@ -145,13 +185,23 @@ fn apply_standalone_context(
     environment
 }
 
-const MUXY_CONTEXT_KEYS: [&str; 6] = [
+const MUXY_CONTEXT_KEYS: [&str; 16] = [
     "MUXY_PANE_ID",
     "MUXY_PROJECT_ID",
     "MUXY_WORKTREE_ID",
     "MUXY_SOCKET_PATH",
     "MUXY_HOOK_BIN",
     "MUXY_HOOK_SCRIPT",
+    "MUXY_SESSION_SOCKET",
+    "MUXY_SESSION_ID",
+    "MUXY_SESSION_CREATE_POLICY",
+    "MUXY_SESSION_PROJECT_ID",
+    "MUXY_SESSION_WORKTREE_ID",
+    "MUXY_SESSION_TITLE",
+    "MUXY_SESSION_SHELL",
+    "MUXY_SESSION_RESOURCES",
+    "MUXY_SESSION_DIRECTORY",
+    "MUXY_SESSION_STARTUP_COMMAND",
 ];
 
 fn scrub_muxy_context(environment: &mut Vec<SurfaceEnvironmentVariable>) {
@@ -635,7 +685,16 @@ impl GhosttyBackend {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<Box<dyn AppSurfaceHandle>> {
-        let (environment, launch) = self.surface_environment(command)?;
+        let persistent = context.persistent();
+        let (environment, launch) = if let Some(persistent) = persistent {
+            let (environment, _) = self.surface_environment(None)?;
+            (
+                environment,
+                Some(format!("{} attach", shell_escape(&persistent.executable))),
+            )
+        } else {
+            self.surface_environment(command)?
+        };
         let environment = apply_pane_context(environment, context);
         self.spawn_surface(
             SurfaceSpawn {

@@ -3,6 +3,36 @@ use crate::scrollbar::ScrollbarMetrics;
 use muxy_core::shortcuts::KeyCombo;
 pub use muxy_core::terminal_launch::{shell_escape, startup_shell_command, user_shell};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PersistentCreatePolicy {
+    CreateOrAttach,
+    Existing,
+}
+
+impl PersistentCreatePolicy {
+    pub const fn environment_value(self) -> &'static str {
+        match self {
+            Self::CreateOrAttach => "create-or-attach",
+            Self::Existing => "existing",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PersistentSessionLaunch {
+    pub executable: String,
+    pub socket_path: String,
+    pub session_id: String,
+    pub project_id: String,
+    pub worktree_id: Option<String>,
+    pub title: String,
+    pub shell: String,
+    pub resources_directory: String,
+    pub working_directory: String,
+    pub startup_command: Option<String>,
+    pub create_policy: PersistentCreatePolicy,
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SearchTotals {
     pub active: bool,

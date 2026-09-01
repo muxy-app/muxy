@@ -20,6 +20,7 @@ base64.workspace = true
 rfd.workspace = true
 log.workspace = true
 thiserror.workspace = true
+libc.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 ghostty-host.workspace = true

@@ -152,6 +152,56 @@ impl MainWindow {
     }
 
     pub(super) fn close_tab_confirmed(&mut self, tab_id: &str, cx: &mut Context<Self>) {
+        if self.terminal_runtime.surfaces.is_persistent_tab(tab_id) {
+            let Some(client) = self.terminal_runtime.surfaces.persistent_client() else {
+                self.feedback(
+                    "Unable to close terminal",
+                    "Muxy can't reach the terminal session service. The tab was kept open.",
+                    crate::toast::ToastTone::Error,
+                    cx,
+                );
+                return;
+            };
+            let tab_id = tab_id.to_owned();
+            self.terminal_runtime
+                .surfaces
+                .begin_persistent_termination_for(std::slice::from_ref(&tab_id));
+            cx.spawn(async move |window, cx| {
+                let target = tab_id.clone();
+                let outcome = cx
+                    .background_executor()
+                    .spawn(async move { client.terminate_one(&target) })
+                    .await;
+                let _ = window.update(cx, |window, cx| match outcome {
+                    crate::terminal::session::client::TerminateOutcome::Terminated
+                    | crate::terminal::session::client::TerminateOutcome::NoSessions => {
+                        window
+                            .terminal_runtime
+                            .surfaces
+                            .forget_persistent_tab(&tab_id);
+                        window.close_tab_after_termination(&tab_id, cx);
+                    }
+                    crate::terminal::session::client::TerminateOutcome::Unreachable(error) => {
+                        window
+                            .terminal_runtime
+                            .surfaces
+                            .fail_persistent_termination_for(std::slice::from_ref(&tab_id));
+                        window.feedback(
+                            "Unable to close terminal",
+                            format!("{error}. The tab was kept open."),
+                            crate::toast::ToastTone::Error,
+                            cx,
+                        );
+                    }
+                });
+            })
+            .detach();
+            return;
+        }
+        self.close_tab_after_termination(tab_id, cx);
+    }
+
+    fn close_tab_after_termination(&mut self, tab_id: &str, cx: &mut Context<Self>) {
         let project = self.state.active_project().map(|project| {
             let workspace_path = self
                 .state
@@ -629,12 +679,96 @@ impl MainWindow {
         mode: muxy_core::workspace::CloseMode,
         cx: &mut Context<Self>,
     ) {
+        let candidates = self
+            .state
+            .active_tab_workspace()
+            .cloned()
+            .map(|mut workspace| workspace.close_tab(tab_id, mode))
+            .unwrap_or_default();
+        let persistent = candidates
+            .iter()
+            .filter(|tab_id| self.terminal_runtime.surfaces.is_persistent_tab(tab_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !persistent.is_empty() {
+            let Some(client) = self.terminal_runtime.surfaces.persistent_client() else {
+                self.feedback(
+                    "Unable to close terminals",
+                    "Muxy can't reach the terminal session service. The tabs were kept open.",
+                    crate::toast::ToastTone::Error,
+                    cx,
+                );
+                self.dismiss_overlay(cx);
+                return;
+            };
+            let owner = tab_id.to_owned();
+            self.terminal_runtime
+                .surfaces
+                .begin_persistent_termination_for(&persistent);
+            let persistent_for_failure = persistent.clone();
+            cx.spawn(async move |window, cx| {
+                let outcome = cx
+                    .background_executor()
+                    .spawn(async move {
+                        for tab_id in &persistent {
+                            if let crate::terminal::session::client::TerminateOutcome::Unreachable(
+                                error,
+                            ) = client.terminate_one(tab_id)
+                            {
+                                return Err(error);
+                            }
+                        }
+                        Ok(persistent)
+                    })
+                    .await;
+                let _ = window.update(cx, |window, cx| match outcome {
+                    Ok(persistent) => {
+                        for tab_id in persistent {
+                            window
+                                .terminal_runtime
+                                .surfaces
+                                .forget_persistent_tab(&tab_id);
+                        }
+                        window.close_tabs_after_termination(&owner, mode, cx);
+                    }
+                    Err(error) => {
+                        window
+                            .terminal_runtime
+                            .surfaces
+                            .fail_persistent_termination_for(&persistent_for_failure);
+                        window.feedback(
+                            "Unable to close terminals",
+                            format!("{error}. The tabs were kept open."),
+                            crate::toast::ToastTone::Error,
+                            cx,
+                        );
+                    }
+                });
+            })
+            .detach();
+            self.dismiss_overlay(cx);
+            return;
+        }
+        self.close_tabs_after_termination(tab_id, mode, cx);
+    }
+
+    fn close_tabs_after_termination(
+        &mut self,
+        tab_id: &str,
+        mode: muxy_core::workspace::CloseMode,
+        cx: &mut Context<Self>,
+    ) {
         let removed = self
             .state
             .active_tab_workspace_mut()
             .map(|workspace| workspace.close_tab(tab_id, mode))
             .unwrap_or_default();
         if !removed.is_empty() {
+            for closed in &removed {
+                if let Some(handle) = self.terminal_runtime.surfaces.handle(closed) {
+                    handle.request_close();
+                }
+            }
             let _ = self.state.persist_tab_workspaces();
         }
         self.dismiss_overlay(cx);

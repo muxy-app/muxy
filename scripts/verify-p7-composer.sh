@@ -98,7 +98,11 @@ prepare_case() {
 p8_may_change_p7_locked_path() {
     case "$1" in
         Muxy/Resources/scripts/muxy-cli|\
+        crates/muxy-core/src/migration.rs|\
+        crates/muxy/src/socket/commands/panes.rs|\
+        crates/muxy/src/socket/commands/tabs.rs|\
         crates/muxy/src/socket/catalog.rs|\
+        crates/muxy/src/socket/runtime.rs|\
         crates/muxy-proto/src/lib.rs|\
         crates/muxy-proto/src/session/codec.rs|\
         crates/muxy-proto/src/session/message.rs|\

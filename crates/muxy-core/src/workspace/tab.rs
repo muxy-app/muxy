@@ -32,6 +32,10 @@ pub struct Tab {
     pub pinned: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_title: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub rust_persistent_session: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_resume_directory: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub static_title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -46,6 +50,10 @@ pub struct Tab {
     pub extension_data: Option<Value>,
 }
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
 impl Tab {
     pub fn new(kind: TabKind) -> Self {
         Self {
@@ -58,6 +66,8 @@ impl Tab {
             custom_icon: None,
             pinned: false,
             pane_title: None,
+            rust_persistent_session: false,
+            terminal_resume_directory: None,
             static_title: None,
             browser_url: None,
             browser_profile: None,

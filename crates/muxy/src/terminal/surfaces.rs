@@ -1,9 +1,16 @@
 use crate::terminal::Backend;
+use crate::terminal::session::PersistentStartup;
+use crate::terminal::session::client::{QueryOutcome, SessionClient};
 use gpui::{AnyElement, App, Window};
 use muxy_core::workspace::{CloseMode, TabId, TabKind};
 use muxy_core::workspace_store::WorkspaceStore;
-use muxy_terminal::backend::{LaunchCommand, PointerInput, SurfaceAction, TerminalSurfaceHandle};
+use muxy_proto::session::SessionDescriptor;
+use muxy_terminal::backend::{
+    LaunchCommand, PersistentCreatePolicy, PersistentSessionLaunch, PointerInput, SurfaceAction,
+    TerminalSurfaceHandle, user_shell,
+};
 use muxy_terminal::confirmation::{ConfirmationId, ConfirmationKind};
+use muxy_terminal::offline::RecoveryState;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -16,11 +23,13 @@ pub trait AppSurfaceHandle: TerminalSurfaceHandle {
 pub struct PaneLaunchContext {
     pane_id: String,
     project_id: String,
-    worktree_id: String,
+    worktree_id: Option<String>,
     socket_path: String,
+    persistent: Option<PersistentSessionLaunch>,
 }
 
 impl PaneLaunchContext {
+    #[cfg(test)]
     pub(crate) fn new(
         pane_id: impl Into<String>,
         project_id: impl Into<String>,
@@ -30,18 +39,45 @@ impl PaneLaunchContext {
         Self {
             pane_id: pane_id.into(),
             project_id: project_id.into(),
-            worktree_id: worktree_id.into(),
+            worktree_id: Some(worktree_id.into()),
             socket_path: socket_path.into(),
+            persistent: None,
         }
     }
 
-    pub fn environment(&self) -> [(&'static str, &str); 4] {
-        [
-            ("MUXY_PANE_ID", &self.pane_id),
-            ("MUXY_PROJECT_ID", &self.project_id),
-            ("MUXY_WORKTREE_ID", &self.worktree_id),
-            ("MUXY_SOCKET_PATH", &self.socket_path),
-        ]
+    pub(crate) fn with_optional_worktree(
+        pane_id: impl Into<String>,
+        project_id: impl Into<String>,
+        worktree_id: Option<String>,
+        socket_path: impl Into<String>,
+    ) -> Self {
+        Self {
+            pane_id: pane_id.into(),
+            project_id: project_id.into(),
+            worktree_id,
+            socket_path: socket_path.into(),
+            persistent: None,
+        }
+    }
+
+    pub(crate) fn set_persistent(&mut self, persistent: PersistentSessionLaunch) {
+        self.persistent = Some(persistent);
+    }
+
+    pub fn persistent(&self) -> Option<&PersistentSessionLaunch> {
+        self.persistent.as_ref()
+    }
+
+    pub fn environment(&self) -> Vec<(&'static str, &str)> {
+        let mut environment = vec![
+            ("MUXY_PANE_ID", self.pane_id.as_str()),
+            ("MUXY_PROJECT_ID", self.project_id.as_str()),
+        ];
+        if let Some(worktree_id) = &self.worktree_id {
+            environment.push(("MUXY_WORKTREE_ID", worktree_id));
+        }
+        environment.push(("MUXY_SOCKET_PATH", self.socket_path.as_str()));
+        environment
     }
 }
 
@@ -205,6 +241,26 @@ pub struct TerminalSurfaces {
     pub(crate) pasteboard_waiting: VecDeque<crate::terminal::input_queue::PasteboardInputId>,
     staged_input_bytes: RefCell<Option<HashMap<TabId, Vec<Vec<u8>>>>>,
     staged_image_failure: RefCell<Option<TabId>>,
+    persistent: PersistentRuntime,
+}
+
+#[derive(Default)]
+struct PersistentRuntime {
+    enabled: bool,
+    configuration: Option<crate::terminal::session::SessionConfiguration>,
+    client: Option<SessionClient>,
+    eligible_tabs: HashSet<TabId>,
+    remote_projects: HashSet<String>,
+    recovery: HashMap<TabId, RecoveryState>,
+    in_flight: HashSet<TabId>,
+    terminating: HashSet<TabId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PersistentExitDisposition {
+    Direct,
+    Retain,
+    Recover,
 }
 
 fn captures_staged_input_bytes() -> bool {
@@ -238,6 +294,7 @@ impl TerminalSurfaces {
             pasteboard_waiting: VecDeque::new(),
             staged_input_bytes: RefCell::new(captures_staged_input_bytes().then(HashMap::new)),
             staged_image_failure: RefCell::new(None),
+            persistent: PersistentRuntime::default(),
         }
     }
 
@@ -249,6 +306,31 @@ impl TerminalSurfaces {
 
     pub fn backend_mut(&mut self) -> &mut Backend {
         &mut self.backend
+    }
+
+    pub(crate) fn configure_persistent(&mut self, startup: PersistentStartup) {
+        self.persistent = PersistentRuntime {
+            enabled: startup.enabled,
+            configuration: startup.configuration,
+            client: startup.client,
+            eligible_tabs: startup.eligible_tabs,
+            remote_projects: startup.remote_projects,
+            recovery: startup.recovery,
+            in_flight: HashSet::new(),
+            terminating: HashSet::new(),
+        };
+    }
+
+    pub fn persistent_client(&self) -> Option<SessionClient> {
+        self.persistent.client.clone()
+    }
+
+    pub fn recovery_state(&self, tab_id: &str) -> Option<&RecoveryState> {
+        self.persistent.recovery.get(tab_id)
+    }
+
+    pub fn is_persistent_tab(&self, tab_id: &str) -> bool {
+        self.persistent.enabled && self.persistent.eligible_tabs.contains(tab_id)
     }
 
     #[cfg(target_os = "macos")]
@@ -401,7 +483,21 @@ impl TerminalSurfaces {
         if self.handles.contains_key(tab_id) {
             return true;
         }
-        if self.launch_context(store, tab_id).is_none() {
+        if self.is_persistent_tab(tab_id)
+            && !matches!(
+                self.persistent.recovery.get(tab_id),
+                Some(RecoveryState::Ready | RecoveryState::Reconnecting { .. })
+            )
+        {
+            return false;
+        }
+        let Some(directory) = self.launch_directory(store, tab_id) else {
+            return false;
+        };
+        if self
+            .launch_context(store, tab_id, &directory, self.pending_command.get(tab_id))
+            .is_none()
+        {
             return false;
         }
         self.materialization_requested.insert(tab_id.to_owned());
@@ -544,7 +640,9 @@ impl TerminalSurfaces {
         visible: &[TabId],
         window: &mut Window,
         cx: &mut App,
-    ) {
+    ) -> Vec<TabId> {
+        self.refresh_persistent_tabs(store);
+        let mut probes = Vec::new();
         let candidates = self.materialization_candidates(visible);
         for tab_id in candidates {
             if self.handles.contains_key(&tab_id) {
@@ -554,10 +652,11 @@ impl TerminalSurfaces {
             let Some(directory) = self.launch_directory(store, &tab_id) else {
                 continue;
             };
-            let Some(context) = self.launch_context(store, &tab_id) else {
+            let command = self.pending_command.get(&tab_id).cloned();
+            let Some(context) = self.launch_context(store, &tab_id, &directory, command.as_ref())
+            else {
                 continue;
             };
-            let command = self.pending_command.get(&tab_id).cloned();
             if let Some(handle) = self
                 .backend
                 .spawn(&tab_id, directory, command, &context, window, cx)
@@ -565,11 +664,221 @@ impl TerminalSurfaces {
                 self.pending_cwd.remove(&tab_id);
                 self.pending_command.remove(&tab_id);
                 self.materialization_requested.remove(&tab_id);
+                if context.persistent().is_some()
+                    && self.persistent.in_flight.insert(tab_id.clone())
+                {
+                    probes.push(tab_id.clone());
+                }
                 self.handles.insert(tab_id, handle);
             }
         }
         self.occlude_hidden(visible);
         self.retain_known(store);
+        probes
+    }
+
+    pub fn finish_establishment(
+        &mut self,
+        store: &mut WorkspaceStore,
+        tab_id: &str,
+        outcome: QueryOutcome,
+    ) -> Result<bool, std::io::Error> {
+        self.persistent.in_flight.remove(tab_id);
+        match outcome {
+            QueryOutcome::Found(descriptor) => {
+                let changed = match publish_persistent_descriptor(store, tab_id, &descriptor) {
+                    Ok(changed) => changed,
+                    Err(error) => {
+                        self.handles.remove(tab_id);
+                        self.persistent
+                            .recovery
+                            .insert(tab_id.to_owned(), RecoveryState::Unreachable);
+                        return Err(error);
+                    }
+                };
+                self.persistent
+                    .recovery
+                    .insert(tab_id.to_owned(), RecoveryState::Ready);
+                Ok(changed)
+            }
+            QueryOutcome::Missing => {
+                self.handles.remove(tab_id);
+                self.persistent
+                    .recovery
+                    .insert(tab_id.to_owned(), RecoveryState::Missing);
+                Ok(false)
+            }
+            QueryOutcome::Unreachable(_) => {
+                self.handles.remove(tab_id);
+                self.persistent
+                    .recovery
+                    .insert(tab_id.to_owned(), RecoveryState::Unreachable);
+                Ok(false)
+            }
+        }
+    }
+
+    pub fn retry_persistent(&mut self, tab_id: &str) -> bool {
+        if !self.is_persistent_tab(tab_id) {
+            return false;
+        }
+        self.handles.remove(tab_id);
+        self.persistent.in_flight.remove(tab_id);
+        self.persistent.recovery.insert(
+            tab_id.to_owned(),
+            RecoveryState::Reconnecting { attempt: 0 },
+        );
+        self.materialization_requested.insert(tab_id.to_owned());
+        true
+    }
+
+    pub fn start_fresh(
+        &mut self,
+        store: &mut WorkspaceStore,
+        tab_id: &str,
+    ) -> Result<bool, std::io::Error> {
+        if !matches!(
+            self.persistent.recovery.get(tab_id),
+            Some(RecoveryState::Missing)
+        ) {
+            return Ok(false);
+        }
+        let previous = store.clone();
+        let mut changed = false;
+        for workspace in store.states_mut() {
+            if let Some(tab) = workspace.tab_mut(tab_id)
+                && tab.rust_persistent_session
+            {
+                tab.rust_persistent_session = false;
+                changed = true;
+            }
+        }
+        if changed && let Err(error) = store.save() {
+            *store = previous;
+            return Err(error);
+        }
+        self.retry_persistent(tab_id);
+        Ok(true)
+    }
+
+    pub fn persistent_surface_exited(&mut self, tab_id: &str) -> PersistentExitDisposition {
+        if !self.is_persistent_tab(tab_id) {
+            return PersistentExitDisposition::Direct;
+        }
+        self.handles.remove(tab_id);
+        if self.persistent.terminating.contains(tab_id) {
+            return PersistentExitDisposition::Retain;
+        }
+        self.persistent.recovery.insert(
+            tab_id.to_owned(),
+            RecoveryState::Reconnecting { attempt: 0 },
+        );
+        PersistentExitDisposition::Recover
+    }
+
+    pub fn finish_persistent_exit(
+        &mut self,
+        store: &mut WorkspaceStore,
+        tab_id: &str,
+        outcome: QueryOutcome,
+    ) -> Result<bool, std::io::Error> {
+        match outcome {
+            QueryOutcome::Found(descriptor) => {
+                if let Err(error) = publish_persistent_descriptor(store, tab_id, &descriptor) {
+                    self.persistent
+                        .recovery
+                        .insert(tab_id.to_owned(), RecoveryState::Unreachable);
+                    return Err(error);
+                }
+                self.persistent.recovery.insert(
+                    tab_id.to_owned(),
+                    RecoveryState::Reconnecting { attempt: 0 },
+                );
+                self.materialization_requested.insert(tab_id.to_owned());
+                Ok(false)
+            }
+            QueryOutcome::Missing => {
+                let previous = store.clone();
+                if !self.handle_exit(store, tab_id) {
+                    if tab_is_known(store, tab_id) {
+                        self.persistent
+                            .recovery
+                            .insert(tab_id.to_owned(), RecoveryState::Missing);
+                    } else {
+                        self.forget_persistent_tab(tab_id);
+                    }
+                    return Ok(false);
+                }
+                if let Err(error) = store.save() {
+                    *store = previous;
+                    self.persistent
+                        .recovery
+                        .insert(tab_id.to_owned(), RecoveryState::Missing);
+                    return Err(error);
+                }
+                self.forget_persistent_tab(tab_id);
+                Ok(true)
+            }
+            QueryOutcome::Unreachable(_) => {
+                self.persistent
+                    .recovery
+                    .insert(tab_id.to_owned(), RecoveryState::Unreachable);
+                Ok(false)
+            }
+        }
+    }
+
+    pub fn remove_handle(&mut self, tab_id: &str) {
+        self.handles.remove(tab_id);
+        self.persistent.in_flight.remove(tab_id);
+    }
+
+    pub fn forget_persistent_tab(&mut self, tab_id: &str) {
+        self.remove_handle(tab_id);
+        self.persistent.eligible_tabs.remove(tab_id);
+        self.persistent.recovery.remove(tab_id);
+        self.persistent.terminating.remove(tab_id);
+    }
+
+    pub fn mark_persistent_sessions_missing(&mut self) {
+        let tab_ids = self.persistent.eligible_tabs.clone();
+        self.persistent.terminating.clear();
+        for tab_id in tab_ids {
+            self.handles.remove(&tab_id);
+            self.persistent.in_flight.remove(&tab_id);
+            self.persistent
+                .recovery
+                .insert(tab_id, RecoveryState::Missing);
+        }
+    }
+
+    pub fn begin_persistent_termination(&mut self) {
+        self.persistent.terminating = self.persistent.eligible_tabs.clone();
+    }
+
+    pub fn begin_persistent_termination_for(&mut self, tab_ids: &[String]) {
+        self.persistent.terminating.extend(tab_ids.iter().cloned());
+    }
+
+    pub fn fail_persistent_termination(&mut self) {
+        let tab_ids = self
+            .persistent
+            .terminating
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        self.fail_persistent_termination_for(&tab_ids);
+    }
+
+    pub fn fail_persistent_termination_for(&mut self, tab_ids: &[String]) {
+        for tab_id in tab_ids {
+            self.persistent.terminating.remove(tab_id);
+            self.handles.remove(tab_id);
+            self.persistent.in_flight.remove(tab_id);
+            self.persistent
+                .recovery
+                .insert(tab_id.clone(), RecoveryState::Unreachable);
+        }
     }
 
     pub fn handle_exit(&mut self, store: &mut WorkspaceStore, tab_id: &str) -> bool {
@@ -632,10 +941,31 @@ impl TerminalSurfaces {
             .collect::<Vec<_>>();
         requested.sort_by_key(|tab_id| tab_id.to_ascii_uppercase());
         candidates.extend(requested);
+        let mut persistent = self
+            .persistent
+            .eligible_tabs
+            .iter()
+            .filter(|tab_id| {
+                !candidates.contains(tab_id)
+                    && matches!(
+                        self.persistent.recovery.get(*tab_id),
+                        Some(RecoveryState::Ready | RecoveryState::Reconnecting { .. })
+                    )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        persistent.sort_by_key(|tab_id| tab_id.to_ascii_uppercase());
+        candidates.extend(persistent);
         candidates
     }
 
-    fn launch_context(&self, store: &WorkspaceStore, tab_id: &str) -> Option<PaneLaunchContext> {
+    fn launch_context(
+        &self,
+        store: &WorkspaceStore,
+        tab_id: &str,
+        directory: &Path,
+        command: Option<&LaunchCommand>,
+    ) -> Option<PaneLaunchContext> {
         let socket_path = self.socket_path.clone()?;
         let (state, tab) = store
             .states()
@@ -644,25 +974,126 @@ impl TerminalSurfaces {
         if tab.kind != TabKind::Terminal {
             return None;
         }
-        Some(PaneLaunchContext::new(
+        if self.is_persistent_tab(tab_id)
+            && !matches!(
+                self.persistent.recovery.get(tab_id),
+                Some(RecoveryState::Ready | RecoveryState::Reconnecting { .. })
+            )
+        {
+            return None;
+        }
+        let mut context = PaneLaunchContext::with_optional_worktree(
             canonical_uuid(&tab.id)?,
             canonical_uuid(&state.project_id)?,
-            canonical_uuid(state.worktree_id.as_deref()?)?,
+            state.worktree_id.as_deref().and_then(canonical_uuid),
             socket_path,
-        ))
+        );
+        if self.is_persistent_tab(tab_id) {
+            let configuration = self.persistent.configuration.as_ref()?;
+            context.set_persistent(PersistentSessionLaunch {
+                executable: configuration.executable.to_string_lossy().into_owned(),
+                socket_path: configuration.socket_path.to_string_lossy().into_owned(),
+                session_id: canonical_uuid(&tab.id)?,
+                project_id: canonical_uuid(&state.project_id)?,
+                worktree_id: state.worktree_id.as_deref().and_then(canonical_uuid),
+                title: tab.title().to_owned(),
+                shell: user_shell(),
+                resources_directory: configuration
+                    .resources_directory
+                    .to_string_lossy()
+                    .into_owned(),
+                working_directory: directory.to_string_lossy().into_owned(),
+                startup_command: command.map(|command| command.command.clone()),
+                create_policy: if tab.rust_persistent_session {
+                    PersistentCreatePolicy::Existing
+                } else {
+                    PersistentCreatePolicy::CreateOrAttach
+                },
+            });
+        }
+        Some(context)
     }
 
     fn launch_directory(&self, store: &WorkspaceStore, tab_id: &str) -> Option<PathBuf> {
-        if let Some(directory) = self.pending_cwd.get(tab_id) {
-            return Some(directory.clone());
-        }
         let tab = store
             .states()
             .iter()
             .find_map(|state| state.tab(tab_id))
             .filter(|tab| tab.kind == TabKind::Terminal)?;
+        if let Some(directory) = tab
+            .terminal_resume_directory
+            .as_deref()
+            .map(PathBuf::from)
+            .filter(|directory| directory.is_absolute())
+        {
+            return Some(directory);
+        }
+        if let Some(directory) = self.pending_cwd.get(tab_id) {
+            return Some(directory.clone());
+        }
         tab.project_path.as_ref().map(PathBuf::from)
     }
+
+    fn refresh_persistent_tabs(&mut self, store: &WorkspaceStore) {
+        if !self.persistent.enabled {
+            return;
+        }
+        let issues = store
+            .terminal_identity_issues()
+            .into_iter()
+            .map(|issue| issue.tab_id)
+            .collect::<HashSet<_>>();
+        for workspace in store.states() {
+            let remote = self
+                .persistent
+                .remote_projects
+                .contains(&workspace.project_id.to_ascii_uppercase());
+            for tab in workspace
+                .root
+                .as_ref()
+                .map(|root| root.tabs())
+                .unwrap_or_default()
+            {
+                if tab.kind != TabKind::Terminal || remote || issues.contains(&tab.id) {
+                    continue;
+                }
+                if self.persistent.eligible_tabs.insert(tab.id.clone()) {
+                    self.persistent
+                        .recovery
+                        .insert(tab.id.clone(), RecoveryState::Reconnecting { attempt: 0 });
+                }
+            }
+        }
+    }
+}
+
+fn publish_persistent_descriptor(
+    store: &mut WorkspaceStore,
+    tab_id: &str,
+    descriptor: &SessionDescriptor,
+) -> Result<bool, std::io::Error> {
+    let previous = store.clone();
+    let mut changed = false;
+    for workspace in store.states_mut() {
+        if let Some(tab) = workspace.tab_mut(tab_id) {
+            if !tab.rust_persistent_session {
+                tab.rust_persistent_session = true;
+                changed = true;
+            }
+            if Path::new(&descriptor.working_directory).is_absolute()
+                && tab.terminal_resume_directory.as_deref()
+                    != Some(descriptor.working_directory.as_str())
+            {
+                tab.terminal_resume_directory = Some(descriptor.working_directory.clone());
+                changed = true;
+            }
+        }
+    }
+    if changed && let Err(error) = store.save() {
+        *store = previous;
+        return Err(error);
+    }
+    Ok(changed)
 }
 
 fn canonical_uuid(value: &str) -> Option<String> {
@@ -824,11 +1255,13 @@ mod tests {
     fn pane_launch_context_uses_real_uppercase_ids_and_selected_socket() {
         let (store, project_id, worktree_id, tab_id) = contextual_store();
         let surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
-        let context = surfaces.launch_context(&store, &tab_id).unwrap();
+        let context = surfaces
+            .launch_context(&store, &tab_id, Path::new("/project"), None)
+            .unwrap();
 
         assert_eq!(
             context.environment(),
-            [
+            vec![
                 ("MUXY_PANE_ID", tab_id.as_str()),
                 ("MUXY_PROJECT_ID", project_id.as_str()),
                 ("MUXY_WORKTREE_ID", worktree_id.as_str()),
@@ -850,6 +1283,26 @@ mod tests {
 
         let (missing_context, tabs) = store_with(&[("not-a-uuid", "/tmp/missing")]);
         assert!(!surfaces.request_materialization(&missing_context, &tabs[0]));
+    }
+
+    #[test]
+    fn recovery_placeholders_require_an_explicit_action_before_materialization() {
+        let (store, _, _, tab_id) = contextual_store();
+        let mut surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
+        surfaces.persistent.enabled = true;
+        surfaces.persistent.eligible_tabs.insert(tab_id.clone());
+        surfaces
+            .persistent
+            .recovery
+            .insert(tab_id.clone(), RecoveryState::Missing);
+
+        assert!(!surfaces.request_materialization(&store, &tab_id));
+        assert!(surfaces.retry_persistent(&tab_id));
+        assert!(matches!(
+            surfaces.recovery_state(&tab_id),
+            Some(RecoveryState::Reconnecting { attempt: 0 })
+        ));
+        assert!(surfaces.materialization_requested.contains(&tab_id));
     }
 
     #[test]
@@ -993,6 +1446,83 @@ mod tests {
 
         assert!(!tab_is_known(&store, &tabs[1]));
         assert!(tab_is_known(&store, &tabs[0]));
+    }
+
+    #[test]
+    fn destructive_persistent_shutdown_retains_tab_ownership() {
+        let (store, tabs) = store_with(&[("p1", "/tmp/p1")]);
+        let tab_id = tabs[0].clone();
+        let mut surfaces = TerminalSurfaces::new();
+        surfaces.persistent.enabled = true;
+        surfaces.persistent.eligible_tabs.insert(tab_id.clone());
+        surfaces
+            .persistent
+            .recovery
+            .insert(tab_id.clone(), RecoveryState::Ready);
+        insert_fake(&mut surfaces, &tab_id);
+
+        surfaces.begin_persistent_termination();
+
+        assert_eq!(
+            surfaces.persistent_surface_exited(&tab_id),
+            PersistentExitDisposition::Retain
+        );
+        assert!(tab_is_known(&store, &tab_id));
+    }
+
+    #[test]
+    fn unexpected_persistent_attach_exit_recovers_instead_of_closing_the_tab() {
+        let (store, tabs) = store_with(&[("p1", "/tmp/p1")]);
+        let tab_id = tabs[0].clone();
+        let mut surfaces = TerminalSurfaces::new();
+        surfaces.persistent.enabled = true;
+        surfaces.persistent.eligible_tabs.insert(tab_id.clone());
+        surfaces
+            .persistent
+            .recovery
+            .insert(tab_id.clone(), RecoveryState::Ready);
+        insert_fake(&mut surfaces, &tab_id);
+
+        assert_eq!(
+            surfaces.persistent_surface_exited(&tab_id),
+            PersistentExitDisposition::Recover
+        );
+        assert!(matches!(
+            surfaces.recovery_state(&tab_id),
+            Some(RecoveryState::Reconnecting { attempt: 0 })
+        ));
+        assert!(tab_is_known(&store, &tab_id));
+    }
+
+    #[test]
+    fn confirmed_persistent_exit_keeps_a_pinned_tab_as_missing() {
+        let (mut store, tabs) = store_with(&[("p1", "/tmp/p1")]);
+        let tab_id = tabs[0].clone();
+        store.states_mut()[0].tab_mut(&tab_id).unwrap().pinned = true;
+        let mut surfaces = TerminalSurfaces::new();
+        surfaces.persistent.enabled = true;
+        surfaces.persistent.eligible_tabs.insert(tab_id.clone());
+        surfaces
+            .persistent
+            .recovery
+            .insert(tab_id.clone(), RecoveryState::Ready);
+        insert_fake(&mut surfaces, &tab_id);
+
+        assert_eq!(
+            surfaces.persistent_surface_exited(&tab_id),
+            PersistentExitDisposition::Recover
+        );
+        assert!(
+            !surfaces
+                .finish_persistent_exit(&mut store, &tab_id, QueryOutcome::Missing)
+                .unwrap()
+        );
+        assert!(tab_is_known(&store, &tab_id));
+        assert!(surfaces.is_persistent_tab(&tab_id));
+        assert_eq!(
+            surfaces.recovery_state(&tab_id),
+            Some(&RecoveryState::Missing)
+        );
     }
 
     #[test]

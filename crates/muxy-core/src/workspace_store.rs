@@ -1,7 +1,7 @@
 use crate::store;
 use crate::workspace::{Axis, SplitNode, Tab, TabArea, TabKind, TopLevelTabNode, WorkspaceState};
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -12,6 +12,21 @@ pub struct WorkspaceStore {
     snapshots: Vec<RawSnapshot>,
     raw_tabs: HashMap<String, Map<String, Value>>,
     unparsed: Vec<Value>,
+    loaded_terminal_identity_issues: Vec<TerminalIdentityIssue>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TerminalIdentityProblem {
+    Malformed,
+    Duplicate,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TerminalIdentityIssue {
+    pub tab_id: String,
+    pub project_id: String,
+    pub worktree_id: Option<String>,
+    pub problem: TerminalIdentityProblem,
 }
 
 #[derive(Debug, Clone)]
@@ -42,10 +57,12 @@ impl WorkspaceStore {
         let mut snapshots = Vec::new();
         let mut raw_tabs = HashMap::new();
         let mut unparsed = Vec::new();
+        let mut stored_terminal_ids = BTreeMap::<String, Vec<(String, Option<String>)>>::new();
         if let Ok(contents) = std::fs::read(&path)
             && let Ok(Value::Array(workspaces)) = serde_json::from_slice::<Value>(&contents)
         {
             for workspace in workspaces {
+                collect_stored_terminal_ids(&workspace, &mut stored_terminal_ids);
                 if let Some((state, snapshot)) = decode_workspace(workspace.clone()) {
                     for (id, tab) in &snapshot.tabs {
                         raw_tabs.entry(id.clone()).or_insert_with(|| tab.clone());
@@ -63,6 +80,7 @@ impl WorkspaceStore {
             snapshots,
             raw_tabs,
             unparsed,
+            loaded_terminal_identity_issues: identity_issues(stored_terminal_ids),
         }
     }
 
@@ -261,6 +279,47 @@ impl WorkspaceStore {
         store::write_atomic(&self.path, &contents)
     }
 
+    pub fn terminal_identity_issues(&self) -> Vec<TerminalIdentityIssue> {
+        let mut occurrences = BTreeMap::<String, Vec<(String, Option<String>)>>::new();
+        for state in &self.states {
+            let Some(root) = &state.root else {
+                continue;
+            };
+            for tab in root.tabs() {
+                if tab.kind == TabKind::Terminal {
+                    occurrences
+                        .entry(tab.id.clone())
+                        .or_default()
+                        .push((state.project_id.clone(), state.worktree_id.clone()));
+                }
+            }
+        }
+        let mut issues = self.loaded_terminal_identity_issues.clone();
+        for issue in identity_issues(occurrences) {
+            if !issues
+                .iter()
+                .any(|loaded| loaded.tab_id == issue.tab_id && loaded.problem == issue.problem)
+            {
+                issues.push(issue);
+            }
+        }
+        issues.sort_by(|left, right| {
+            (
+                &left.tab_id,
+                &left.project_id,
+                &left.worktree_id,
+                problem_rank(left.problem),
+            )
+                .cmp(&(
+                    &right.tab_id,
+                    &right.project_id,
+                    &right.worktree_id,
+                    problem_rank(right.problem),
+                ))
+        });
+        issues
+    }
+
     fn project_index(&self, project_id: &str) -> Option<usize> {
         self.states
             .iter()
@@ -444,6 +503,11 @@ fn decode_tab(value: &Value, area_project_path: &str) -> Option<Tab> {
             .and_then(Value::as_bool)
             .unwrap_or(false),
         pane_title: optional_string_field(stored, "paneTitle"),
+        rust_persistent_session: stored
+            .get("rustPersistentSession")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        terminal_resume_directory: optional_string_field(stored, "terminalResumeDirectory"),
         static_title: None,
         browser_url: optional_string_field(stored, "browserURL"),
         browser_profile: optional_string_field(stored, "browserProfileID"),
@@ -769,6 +833,16 @@ fn encode_tab(
         ),
     );
     set_optional_string(&mut stored, "paneTitle", tab.pane_title.as_ref());
+    if tab.rust_persistent_session {
+        stored.insert("rustPersistentSession".into(), Value::Bool(true));
+    } else {
+        stored.remove("rustPersistentSession");
+    }
+    set_optional_string(
+        &mut stored,
+        "terminalResumeDirectory",
+        tab.terminal_resume_directory.as_ref(),
+    );
     set_optional_string(&mut stored, "extensionID", tab.extension_id.as_ref());
     set_optional_string(
         &mut stored,
@@ -891,6 +965,123 @@ fn set_optional_string(object: &mut Map<String, Value>, key: &str, value: Option
         object.insert(key.into(), Value::String(value.clone()));
     } else {
         object.remove(key);
+    }
+}
+
+fn is_canonical_uppercase_uuid(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_digit() || (b'A'..=b'F').contains(&byte),
+        })
+}
+
+fn collect_stored_terminal_ids(
+    workspace: &Value,
+    occurrences: &mut BTreeMap<String, Vec<(String, Option<String>)>>,
+) {
+    let Some(workspace) = workspace.as_object() else {
+        return;
+    };
+    let Some(project_id) = workspace.get("projectID").and_then(Value::as_str) else {
+        return;
+    };
+    let worktree_id = workspace
+        .get("worktreeID")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let Some(root) = workspace.get("root") else {
+        return;
+    };
+    collect_stored_terminal_ids_from_node(root, project_id, worktree_id.as_deref(), occurrences);
+}
+
+fn collect_stored_terminal_ids_from_node(
+    node: &Value,
+    project_id: &str,
+    worktree_id: Option<&str>,
+    occurrences: &mut BTreeMap<String, Vec<(String, Option<String>)>>,
+) {
+    let Some(node) = node.as_object() else {
+        return;
+    };
+    match node.get("type").and_then(Value::as_str) {
+        Some("tabArea") => {
+            let Some(tabs) = node
+                .get("tabArea")
+                .and_then(Value::as_object)
+                .and_then(|area| area.get("tabs"))
+                .and_then(Value::as_array)
+            else {
+                return;
+            };
+            for tab in tabs {
+                let Some(tab) = tab.as_object() else {
+                    continue;
+                };
+                let kind = tab.get("kind").and_then(Value::as_str);
+                if matches!(kind, Some("browser" | "extensionWebView" | "extension")) {
+                    continue;
+                }
+                let Some(id) = tab
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                else {
+                    continue;
+                };
+                occurrences
+                    .entry(id.to_owned())
+                    .or_default()
+                    .push((project_id.to_owned(), worktree_id.map(str::to_owned)));
+            }
+        }
+        Some("split") => {
+            let Some(split) = node.get("split").and_then(Value::as_object) else {
+                return;
+            };
+            if let Some(first) = split.get("first") {
+                collect_stored_terminal_ids_from_node(first, project_id, worktree_id, occurrences);
+            }
+            if let Some(second) = split.get("second") {
+                collect_stored_terminal_ids_from_node(second, project_id, worktree_id, occurrences);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn identity_issues(
+    occurrences: BTreeMap<String, Vec<(String, Option<String>)>>,
+) -> Vec<TerminalIdentityIssue> {
+    occurrences
+        .into_iter()
+        .flat_map(|(tab_id, owners)| {
+            let problem = if !is_canonical_uppercase_uuid(&tab_id) {
+                Some(TerminalIdentityProblem::Malformed)
+            } else if owners.len() > 1 {
+                Some(TerminalIdentityProblem::Duplicate)
+            } else {
+                None
+            };
+            owners
+                .into_iter()
+                .filter_map(move |(project_id, worktree_id)| {
+                    Some(TerminalIdentityIssue {
+                        tab_id: tab_id.clone(),
+                        project_id,
+                        worktree_id,
+                        problem: problem?,
+                    })
+                })
+        })
+        .collect()
+}
+
+const fn problem_rank(problem: TerminalIdentityProblem) -> u8 {
+    match problem {
+        TerminalIdentityProblem::Malformed => 0,
+        TerminalIdentityProblem::Duplicate => 1,
     }
 }
 
@@ -1120,6 +1311,11 @@ mod tests {
             .tab_mut("terminal")
             .unwrap()
             .custom_title = Some("Changed".into());
+        let terminal = store.states_mut()[0].tab_mut("terminal").unwrap();
+        assert!(!terminal.rust_persistent_session);
+        assert_eq!(terminal.terminal_resume_directory, None);
+        terminal.rust_persistent_session = true;
+        terminal.terminal_resume_directory = Some("/rust/cwd".into());
         store.save().unwrap();
         let tab = &file.read()[0]["root"]["tabArea"]["tabs"][0];
         assert_eq!(tab["customTitle"], "Changed");
@@ -1129,6 +1325,58 @@ mod tests {
         assert_eq!(tab["filePath"], "/old/file");
         assert_eq!(tab["currentWorkingDirectory"], "/old/cwd");
         assert_eq!(tab["engineVersion"], 7);
+        assert_eq!(tab["rustPersistentSession"], true);
+        assert_eq!(tab["terminalResumeDirectory"], "/rust/cwd");
+
+        let terminal = store.states_mut()[0].tab_mut("terminal").unwrap();
+        terminal.rust_persistent_session = false;
+        terminal.terminal_resume_directory = None;
+        store.save().unwrap();
+        let tab = &file.read()[0]["root"]["tabArea"]["tabs"][0];
+        assert!(tab.get("rustPersistentSession").is_none());
+        assert!(tab.get("terminalResumeDirectory").is_none());
+        assert_eq!(tab["paneSessionID"], "old-session");
+        assert_eq!(tab["currentWorkingDirectory"], "/old/cwd");
+    }
+
+    #[test]
+    fn terminal_identity_validation_retains_stored_malformed_and_global_duplicates() {
+        let file = TempFile::new();
+        let duplicate = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA";
+        let lowercase = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        file.write(&json!([
+            {
+                "projectID": "PROJECT-A",
+                "root": area(
+                    "area-a",
+                    "/a",
+                    vec![terminal_tab(duplicate), terminal_tab(duplicate), terminal_tab(lowercase)],
+                    0
+                )
+            },
+            {
+                "projectID": "PROJECT-B",
+                "root": area("area-b", "/b", vec![terminal_tab(duplicate)], 0)
+            }
+        ]));
+        let store = WorkspaceStore::load_from(&file.path);
+        let issues = store.terminal_identity_issues();
+        assert_eq!(
+            issues
+                .iter()
+                .filter(|issue| issue.tab_id == duplicate)
+                .count(),
+            3
+        );
+        assert!(
+            issues
+                .iter()
+                .filter(|issue| issue.tab_id == duplicate)
+                .all(|issue| issue.problem == TerminalIdentityProblem::Duplicate)
+        );
+        assert!(issues.iter().any(|issue| {
+            issue.tab_id == lowercase && issue.problem == TerminalIdentityProblem::Malformed
+        }));
     }
 
     #[test]

@@ -1903,6 +1903,9 @@ impl MainWindow {
             settings::SettingsEvent::PreviewNotificationSound(name) => {
                 window.preview_notification_sound(name)
             }
+            settings::SettingsEvent::SetPersistentSessions(enabled) => {
+                window.request_persistent_sessions(*enabled, cx)
+            }
         });
 
         window.focus(&modal.focus_handle(cx));

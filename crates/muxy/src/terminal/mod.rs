@@ -1,4 +1,5 @@
 pub mod input_queue;
+pub mod session;
 pub mod surfaces;
 
 #[cfg(target_os = "macos")]

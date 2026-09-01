@@ -524,7 +524,7 @@ fn pane_content(
         .then(|| panes.element(&tab.id, true))
         .flatten();
     let Some(surface) = surface else {
-        return pane_placeholder(state, tab, area_id, cx);
+        return pane_placeholder(state, panes, tab, area_id, cx);
     };
     let tab_id = tab.id.clone();
     let area = area_id.to_owned();
@@ -783,6 +783,7 @@ fn search_button(
 
 fn pane_placeholder(
     state: &AppState,
+    panes: &Panes,
     tab: &Tab,
     area_id: &str,
     cx: &mut Context<MainWindow>,
@@ -794,8 +795,57 @@ fn pane_placeholder(
     let color = icon_color(tab.color_id.as_deref())
         .map(Hsla::from)
         .unwrap_or(state.theme.fg_dim);
+    let recovery = panes.terminals.recovery_state(&tab.id);
+    let recovery_message = recovery.map(|state| match state {
+        muxy_terminal::offline::RecoveryState::Ready
+        | muxy_terminal::offline::RecoveryState::Reconnecting { .. } => {
+            "Reconnecting to this terminal session…".to_owned()
+        }
+        muxy_terminal::offline::RecoveryState::Unreachable => {
+            "Muxy can't reach this terminal session.".to_owned()
+        }
+        muxy_terminal::offline::RecoveryState::Missing => {
+            "This terminal session no longer exists.".to_owned()
+        }
+        muxy_terminal::offline::RecoveryState::InvalidIdentity { reason } => reason.clone(),
+    });
+    let recovery_action = recovery.and_then(muxy_terminal::offline::RecoveryState::action);
+    let action_tab_id = tab.id.clone();
+    let action = recovery_action.map(|action| {
+        let label = match action {
+            muxy_terminal::offline::RecoveryAction::Reconnect => "Reconnect",
+            muxy_terminal::offline::RecoveryAction::StartFresh => "Start Fresh",
+        };
+        div()
+            .id(ElementId::Name(SharedString::from(format!(
+                "terminal-recovery-action-{action_tab_id}"
+            ))))
+            .px(state.metrics.spacing4())
+            .py(state.metrics.spacing2())
+            .rounded(state.metrics.radius_sm())
+            .bg(state.theme.surface)
+            .border_1()
+            .border_color(state.theme.border)
+            .text_size(state.metrics.font_caption())
+            .text_color(state.theme.fg)
+            .cursor_pointer()
+            .hover(|style| style.bg(state.theme.hover))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(
+                cx.listener(move |window: &mut MainWindow, _, _, cx| match action {
+                    muxy_terminal::offline::RecoveryAction::Reconnect => {
+                        window.reconnect_terminal(&action_tab_id, cx)
+                    }
+                    muxy_terminal::offline::RecoveryAction::StartFresh => {
+                        window.start_fresh_terminal(&action_tab_id, cx)
+                    }
+                }),
+            )
+            .child(SharedString::from(label))
+            .into_any_element()
+    });
 
-    div()
+    let placeholder = div()
         .id(ElementId::Name(SharedString::from(format!(
             "pane-placeholder-{tab_id}"
         ))))
@@ -831,8 +881,12 @@ fn pane_placeholder(
                 .text_size(state.metrics.font_body())
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(state.theme.fg_dim)
-                .child(SharedString::from(kind_title(tab.kind))),
-        )
+                .child(SharedString::from(
+                    recovery_message.unwrap_or_else(|| kind_title(tab.kind).to_owned()),
+                )),
+        );
+    placeholder
+        .when_some(action, |placeholder, action| placeholder.child(action))
         .into_any_element()
 }
 

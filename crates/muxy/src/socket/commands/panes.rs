@@ -7,6 +7,12 @@ use std::path::PathBuf;
 pub enum PaneCommand {
     Immediate(CommandResult),
     Surface(SurfaceCommand),
+    Close(CloseCommand),
+}
+
+pub struct CloseCommand {
+    pub state_index: usize,
+    pub pane_id: String,
 }
 
 pub struct SurfaceCommand {
@@ -27,7 +33,7 @@ pub fn handle(head: &str, parts: &[&str], window: &mut MainWindow) -> Option<Pan
         "send" => surface(parts, window, SurfaceKind::Send),
         "send-keys" => surface(parts, window, SurfaceKind::Keys),
         "read-screen" => surface(parts, window, SurfaceKind::Read),
-        "close-pane" => immediate(close(parts, window)),
+        "close-pane" => close(parts, window),
         "rename-pane" => immediate(rename(parts, window)),
         "list-panes" => immediate(Ok(CommandResult::reply(list(window)))),
         _ => return None,
@@ -161,7 +167,14 @@ fn surface(parts: &[&str], window: &MainWindow, kind: SurfaceKind) -> PaneComman
     })
 }
 
-fn close(parts: &[&str], window: &mut MainWindow) -> Result<CommandResult, String> {
+fn close(parts: &[&str], window: &mut MainWindow) -> PaneCommand {
+    match close_request(parts, window) {
+        Ok(command) => PaneCommand::Close(command),
+        Err(error) => immediate(Err(error)),
+    }
+}
+
+fn close_request(parts: &[&str], window: &MainWindow) -> Result<CloseCommand, String> {
     if parts.len() < 2 {
         return Err("usage close-pane|paneID".to_owned());
     }
@@ -171,22 +184,29 @@ fn close(parts: &[&str], window: &mut MainWindow) -> Result<CommandResult, Strin
     let Some((state_index, _, pane_id)) = locate_pane(window, parts[1]) else {
         return Err(format!("pane not found {}", parts[1]));
     };
+    Ok(CloseCommand {
+        state_index,
+        pane_id,
+    })
+}
+
+pub fn finish_close(window: &mut MainWindow, command: &CloseCommand) -> CommandResult {
     let previous = window.state.tab_workspaces.clone();
-    let removed = window.state.tab_workspaces.states_mut()[state_index]
-        .close_tab(&pane_id, CloseMode::Single);
+    let removed = window.state.tab_workspaces.states_mut()[command.state_index]
+        .close_tab(&command.pane_id, CloseMode::Single);
     if removed.is_empty() {
-        return Ok(CommandResult::reply("ok"));
+        return CommandResult::reply("ok");
     }
     if let Err(error) = window.state.persist_tab_workspaces() {
         window.state.tab_workspaces = previous;
-        return Err(error.to_string());
+        return CommandResult::reply(format!("error:{error}"));
     }
     for pane_id in removed {
         if let Some(handle) = window.terminal_runtime.surfaces.handle(&pane_id) {
             handle.request_close();
         }
     }
-    Ok(CommandResult::changed("ok"))
+    CommandResult::changed("ok")
 }
 
 fn rename(parts: &[&str], window: &mut MainWindow) -> Result<CommandResult, String> {

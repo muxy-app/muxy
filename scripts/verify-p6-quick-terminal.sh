@@ -324,7 +324,11 @@ p8_may_change_p6_locked_path() {
         Muxy/Resources/skills/muxy-cli/SKILL.md|\
         Muxy/Resources/skills/muxy-extension/SKILL.md|\
         Muxy/Resources/tips.json|\
+        crates/muxy-core/src/migration.rs|\
+        crates/muxy/src/socket/commands/panes.rs|\
+        crates/muxy/src/socket/commands/tabs.rs|\
         crates/muxy/src/socket/catalog.rs|\
+        crates/muxy/src/socket/runtime.rs|\
         crates/muxy-proto/src/lib.rs|\
         crates/muxy-proto/src/session/codec.rs|\
         crates/muxy-proto/src/session/message.rs|\

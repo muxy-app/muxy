@@ -46,6 +46,13 @@ const BELL_FLASH_DURATION: Duration = Duration::from_millis(1250);
 const NOTIFICATION_SAVE_DEBOUNCE: Duration = Duration::from_secs(2);
 const TEST_CLOSE_REQUEST_ENV: &str = "MUXY_TEST_CLOSE_MAIN_WINDOW_REQUEST";
 const TEST_CLOSE_REQUEST_FILE: &str = ".muxy-test-close-main-window";
+const TEST_P8_DISABLE_REQUEST_ENV: &str = "MUXY_TEST_P8_DISABLE_RESTART";
+const TEST_P8_DISABLE_REQUEST_FILE: &str = ".muxy-test-p8-disable-restart";
+const TEST_P8_ENABLE_REQUEST_ENV: &str = "MUXY_TEST_P8_ENABLE_RESTART";
+const TEST_P8_ENABLE_REQUEST_FILE: &str = ".muxy-test-p8-enable-restart";
+const TEST_P8_RECOVERY_REQUEST_ENV: &str = "MUXY_TEST_P8_RECOVERY_ACTION";
+const TEST_P8_RECONNECT_REQUEST_FILE: &str = ".muxy-test-p8-reconnect";
+const TEST_P8_START_FRESH_REQUEST_FILE: &str = ".muxy-test-p8-start-fresh";
 const WATCHER_DEBOUNCE_MS: u64 = 300;
 
 fn test_close_request_path(
@@ -54,6 +61,24 @@ fn test_close_request_path(
     app_support: &Path,
     injected_app_support: Option<&Path>,
     home: &Path,
+) -> Option<PathBuf> {
+    test_owned_request_path(
+        is_test_process,
+        enabled,
+        app_support,
+        injected_app_support,
+        home,
+        TEST_CLOSE_REQUEST_FILE,
+    )
+}
+
+fn test_owned_request_path(
+    is_test_process: bool,
+    enabled: bool,
+    app_support: &Path,
+    injected_app_support: Option<&Path>,
+    home: &Path,
+    filename: &str,
 ) -> Option<PathBuf> {
     if !is_test_process || !enabled || injected_app_support != Some(app_support) {
         return None;
@@ -70,7 +95,7 @@ fn test_close_request_path(
     {
         return None;
     }
-    Some(app_support.join(TEST_CLOSE_REQUEST_FILE))
+    Some(app_support.join(filename))
 }
 
 fn path_has_symlink_or_missing_component(path: &Path) -> bool {
@@ -96,6 +121,37 @@ fn staged_close_request_path() -> Option<PathBuf> {
         &app_support,
         injected.as_deref(),
         &muxy_core::prefs::home_dir(),
+    )
+}
+
+fn staged_p8_disable_request_path() -> Option<PathBuf> {
+    staged_owned_request_path(TEST_P8_DISABLE_REQUEST_ENV, TEST_P8_DISABLE_REQUEST_FILE)
+}
+
+fn staged_p8_enable_request_path() -> Option<PathBuf> {
+    staged_owned_request_path(TEST_P8_ENABLE_REQUEST_ENV, TEST_P8_ENABLE_REQUEST_FILE)
+}
+
+fn staged_p8_recovery_request_paths() -> Option<(PathBuf, PathBuf)> {
+    Some((
+        staged_owned_request_path(TEST_P8_RECOVERY_REQUEST_ENV, TEST_P8_RECONNECT_REQUEST_FILE)?,
+        staged_owned_request_path(
+            TEST_P8_RECOVERY_REQUEST_ENV,
+            TEST_P8_START_FRESH_REQUEST_FILE,
+        )?,
+    ))
+}
+
+fn staged_owned_request_path(environment: &str, filename: &str) -> Option<PathBuf> {
+    let app_support = muxy_core::prefs::app_support_dir();
+    let injected = std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").map(PathBuf::from);
+    test_owned_request_path(
+        muxy_core::prefs::is_test_process(),
+        matches!(std::env::var(environment).as_deref(), Ok("1")),
+        &app_support,
+        injected.as_deref(),
+        &muxy_core::prefs::home_dir(),
+        filename,
     )
 }
 
@@ -154,9 +210,12 @@ impl MainWindow {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let mut state = state;
         let menu_focus = cx.focus_handle();
         let workspace_focus = cx.focus_handle();
+        let persistent_startup = crate::terminal::session::prepare_startup(&mut state, mode);
         let mut terminals = TerminalSurfaces::with_socket_path(socket.socket_path());
+        terminals.configure_persistent(persistent_startup);
         let combos = terminal_shortcut_combos(&state);
         if let Err(error) = terminals.backend_mut().attach(
             combos,
@@ -303,6 +362,81 @@ impl MainWindow {
                     if request_path.is_file() {
                         let _ = std::fs::remove_file(&request_path);
                         let _ = window_handle.update(cx, |_, _, cx| cx.quit());
+                        return;
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                }
+            })
+            .detach();
+        }
+        if let Some(request_path) = staged_p8_disable_request_path() {
+            let window_handle = main_window.window_handle.downcast::<MainWindow>();
+            cx.spawn(async move |_, cx| {
+                for _ in 0..1200 {
+                    if request_path.is_file() {
+                        let _ = std::fs::remove_file(&request_path);
+                        if let Some(window_handle) = window_handle {
+                            let _ = window_handle.update(cx, |window, _, cx| {
+                                window.begin_persistent_sessions_change(false, cx);
+                            });
+                        }
+                        return;
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                }
+            })
+            .detach();
+        }
+        if let Some(request_path) = staged_p8_enable_request_path() {
+            let window_handle = main_window.window_handle.downcast::<MainWindow>();
+            cx.spawn(async move |_, cx| {
+                for _ in 0..1200 {
+                    if request_path.is_file() {
+                        let _ = std::fs::remove_file(&request_path);
+                        if let Some(window_handle) = window_handle {
+                            let _ = window_handle.update(cx, |window, _, cx| {
+                                window.begin_persistent_sessions_change(true, cx);
+                            });
+                        }
+                        return;
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                }
+            })
+            .detach();
+        }
+        if let Some((reconnect_path, start_fresh_path)) = staged_p8_recovery_request_paths() {
+            let window_handle = main_window.window_handle.downcast::<MainWindow>();
+            cx.spawn(async move |_, cx| {
+                for _ in 0..1200 {
+                    let action = if reconnect_path.is_file() {
+                        Some((&reconnect_path, false))
+                    } else if start_fresh_path.is_file() {
+                        Some((&start_fresh_path, true))
+                    } else {
+                        None
+                    };
+                    if let Some((request_path, start_fresh)) = action {
+                        let tab_id = std::fs::read_to_string(request_path)
+                            .unwrap_or_default()
+                            .trim()
+                            .to_owned();
+                        let _ = std::fs::remove_file(request_path);
+                        if let Some(window_handle) = window_handle {
+                            let _ = window_handle.update(cx, |window, _, cx| {
+                                if start_fresh {
+                                    window.start_fresh_terminal(&tab_id, cx);
+                                } else {
+                                    window.reconnect_terminal(&tab_id, cx);
+                                }
+                            });
+                        }
                         return;
                     }
                     cx.background_executor()

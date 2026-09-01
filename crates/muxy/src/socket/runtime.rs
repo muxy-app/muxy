@@ -145,11 +145,127 @@ impl MainWindow {
                             })
                             .detach();
                         }
+                        PaneCommand::Close(command) => {
+                            if !self
+                                .terminal_runtime
+                                .surfaces
+                                .is_persistent_tab(&command.pane_id)
+                            {
+                                let result = panes::finish_close(self, &command);
+                                self.finish_socket_command(result, request.responder, cx);
+                                return;
+                            }
+                            let Some(client) = self.terminal_runtime.surfaces.persistent_client()
+                            else {
+                                request.responder.respond(CommandReply::new(
+                                    "error:terminal session service is unreachable",
+                                ));
+                                return;
+                            };
+                            let pane_id = command.pane_id.clone();
+                            self.terminal_runtime
+                                .surfaces
+                                .begin_persistent_termination_for(std::slice::from_ref(&pane_id));
+                            cx.spawn(async move |window, cx| {
+                                let outcome = cx
+                                    .background_executor()
+                                    .spawn(async move { client.terminate_one(&pane_id) })
+                                    .await;
+                                let _ = window.update(cx, |window, cx| match outcome {
+                                    crate::terminal::session::client::TerminateOutcome::Terminated
+                                    | crate::terminal::session::client::TerminateOutcome::NoSessions => {
+                                        window
+                                            .terminal_runtime
+                                            .surfaces
+                                            .forget_persistent_tab(&command.pane_id);
+                                        let result = panes::finish_close(window, &command);
+                                        window.finish_socket_command(
+                                            result,
+                                            request.responder,
+                                            cx,
+                                        );
+                                    }
+                                    crate::terminal::session::client::TerminateOutcome::Unreachable(
+                                        error,
+                                    ) => {
+                                        window
+                                            .terminal_runtime
+                                            .surfaces
+                                            .fail_persistent_termination_for(
+                                                std::slice::from_ref(&command.pane_id),
+                                            );
+                                        request.responder.respond(CommandReply::new(format!(
+                                            "error:{error}; pane kept open"
+                                        )));
+                                    }
+                                });
+                            })
+                            .detach();
+                        }
                     }
                     return;
                 }
-                if let Some(result) = tabs::handle(head, &parts, self) {
-                    self.finish_socket_command(result, request.responder, cx);
+                if let Some(command) = tabs::handle(head, &parts, self) {
+                    match command {
+                        tabs::TabCommand::Immediate(result) => {
+                            self.finish_socket_command(result, request.responder, cx);
+                        }
+                        tabs::TabCommand::Close(command) => {
+                            if command.persistent_tabs.is_empty() {
+                                let result = tabs::finish_close(self, &command);
+                                self.finish_socket_command(result, request.responder, cx);
+                                return;
+                            }
+                            let Some(client) = self.terminal_runtime.surfaces.persistent_client()
+                            else {
+                                request.responder.respond(CommandReply::new(
+                                    "error:terminal session service is unreachable",
+                                ));
+                                return;
+                            };
+                            self.terminal_runtime
+                                .surfaces
+                                .begin_persistent_termination_for(&command.persistent_tabs);
+                            let persistent_tabs = command.persistent_tabs.clone();
+                            cx.spawn(async move |window, cx| {
+                                let outcome = cx
+                                    .background_executor()
+                                    .spawn(async move {
+                                        for tab_id in &persistent_tabs {
+                                            if let crate::terminal::session::client::TerminateOutcome::Unreachable(error) =
+                                                client.terminate_one(tab_id)
+                                            {
+                                                return Err(error);
+                                            }
+                                        }
+                                        Ok(())
+                                    })
+                                    .await;
+                                let _ = window.update(cx, |window, cx| match outcome {
+                                    Ok(()) => {
+                                        let result = tabs::finish_close(window, &command);
+                                        window.finish_socket_command(
+                                            result,
+                                            request.responder,
+                                            cx,
+                                        );
+                                    }
+                                    Err(error) => {
+                                        window
+                                            .terminal_runtime
+                                            .surfaces
+                                            .fail_persistent_termination_for(
+                                                &command.persistent_tabs,
+                                            );
+                                        request.responder.respond(CommandReply::new(format!(
+                                            "error:{error}; tabs kept open"
+                                        )));
+                                    }
+                                });
+                            })
+                            .detach();
+                        }
+                    }
                     return;
                 }
                 if let Some(result) = workspaces::handle(head, &parts, &mut self.state) {

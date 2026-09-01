@@ -7,6 +7,10 @@ use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -49,6 +53,10 @@ const DEFAULT_DICTIONARY_KEYS: [&str; 1] = ["muxy.activeWorktreeIDs"];
 const TEST_SOURCE: &str = "MUXY_TEST_SWIFT_APPLICATION_SUPPORT_DIRECTORY";
 const TEST_DEFAULTS: &str = "MUXY_TEST_SWIFT_DEFAULTS_PATH";
 const TEST_FAILURE: &str = "MUXY_TEST_MIGRATION_FAIL_PATH";
+const TEST_LEGACY_ROOT: &str = "MUXY_TEST_LEGACY_SESSION_ROOT";
+const LEGACY_CLEANUP_FILE: &str = "legacy-session-cleanup-v2.json";
+const LEGACY_KILL_ALL: [u8; 5] = [0x24, 0, 0, 0, 0];
+const LEGACY_ACKNOWLEDGED: [u8; 5] = [0x32, 0, 0, 0, 0];
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -84,6 +92,20 @@ pub struct MigrationState {
     pub missing_paths: Vec<String>,
     pub failure: Option<MigrationFailure>,
     pub defaults_import_completed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LegacyCleanupOutcome {
+    NoDaemon,
+    Terminated,
+    Unconfirmed,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct LegacyCleanupState {
+    pub attempted_at: f64,
+    pub outcome: LegacyCleanupOutcome,
 }
 
 impl Default for MigrationState {
@@ -174,6 +196,17 @@ pub fn run_startup() -> Result<(), MigrationError> {
     #[cfg(target_os = "macos")]
     {
         let test_process = crate::prefs::is_test_process();
+        let test_legacy_root = test_process
+            .then(|| std::env::var_os(TEST_LEGACY_ROOT))
+            .flatten()
+            .map(PathBuf::from);
+        if !test_process || test_legacy_root.is_some() {
+            let candidates = legacy_socket_candidates(
+                &crate::environment::StoragePathPolicy::swift_source(crate::prefs::home_dir()),
+                test_legacy_root.as_deref(),
+            );
+            schedule_legacy_cleanup(root.clone(), candidates);
+        }
         let test_source = test_process
             .then(|| std::env::var_os(TEST_SOURCE))
             .flatten()
@@ -201,6 +234,100 @@ pub fn run_startup() -> Result<(), MigrationError> {
         })
         .map(|_| ())
     }
+}
+
+fn legacy_cleanup_path(root: &Path) -> PathBuf {
+    root.join(LEGACY_CLEANUP_FILE)
+}
+
+fn legacy_socket_candidates(swift_root: &Path, injected_root: Option<&Path>) -> Vec<PathBuf> {
+    if let Some(root) = injected_root {
+        return vec![
+            root.join("preferred/control.sock"),
+            root.join("fallback/control.sock"),
+        ];
+    }
+    let uid = unsafe { libc::geteuid() };
+    vec![
+        swift_root.join("sessions/control.sock"),
+        PathBuf::from(format!("/tmp/muxy-{uid}/control.sock")),
+    ]
+}
+
+fn run_legacy_cleanup(root: &Path, candidates: &[PathBuf]) -> std::io::Result<LegacyCleanupState> {
+    let marker = legacy_cleanup_path(root);
+    if let Ok(contents) = fs::read(&marker)
+        && let Ok(state) = serde_json::from_slice::<LegacyCleanupState>(&contents)
+    {
+        return Ok(state);
+    }
+    let outcome = attempt_legacy_cleanup(candidates);
+    let state = LegacyCleanupState {
+        attempted_at: crate::store::reference_now(),
+        outcome,
+    };
+    let contents = serde_json::to_vec_pretty(&state)?;
+    crate::store::write_private(&marker, &contents)?;
+    Ok(state)
+}
+
+fn schedule_legacy_cleanup(root: PathBuf, candidates: Vec<PathBuf>) {
+    if let Err(error) = std::thread::Builder::new()
+        .name("legacy-session-cleanup".to_owned())
+        .spawn(move || {
+            if let Err(error) = run_legacy_cleanup(&root, &candidates) {
+                log::warn!("legacy terminal session cleanup failed: {error}");
+            }
+        })
+    {
+        log::warn!("legacy terminal session cleanup could not start: {error}");
+    }
+}
+
+#[cfg(unix)]
+fn attempt_legacy_cleanup(candidates: &[PathBuf]) -> LegacyCleanupOutcome {
+    use std::time::Duration;
+
+    let mut found = false;
+    for candidate in candidates {
+        let metadata = match fs::symlink_metadata(candidate) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return LegacyCleanupOutcome::Unconfirmed,
+        };
+        found = true;
+        if metadata.file_type().is_symlink()
+            || !metadata.file_type().is_socket()
+            || metadata.uid() != unsafe { libc::geteuid() }
+        {
+            return LegacyCleanupOutcome::Unconfirmed;
+        }
+        let mut stream = match UnixStream::connect(candidate) {
+            Ok(stream) => stream,
+            Err(_) => continue,
+        };
+        let timeout = Some(Duration::from_millis(750));
+        if stream.set_read_timeout(timeout).is_err()
+            || stream.set_write_timeout(timeout).is_err()
+            || stream.write_all(&LEGACY_KILL_ALL).is_err()
+        {
+            continue;
+        }
+        let mut response = [0u8; 5];
+        if stream.read_exact(&mut response).is_ok() && response == LEGACY_ACKNOWLEDGED {
+            return LegacyCleanupOutcome::Terminated;
+        }
+    }
+    if found {
+        LegacyCleanupOutcome::Unconfirmed
+    } else {
+        LegacyCleanupOutcome::NoDaemon
+    }
+}
+
+#[cfg(not(unix))]
+fn attempt_legacy_cleanup(_candidates: &[PathBuf]) -> LegacyCleanupOutcome {
+    LegacyCleanupOutcome::NoDaemon
 }
 
 fn run_with<F>(
@@ -786,13 +913,17 @@ fn read_production_defaults() -> Result<Map<String, Value>, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MigrationOptions, MigrationOutcome, eligible, filter_defaults, read_state, run_with,
-        state_path, write_state,
+        LEGACY_ACKNOWLEDGED, LEGACY_KILL_ALL, LegacyCleanupOutcome, MigrationOptions,
+        MigrationOutcome, eligible, filter_defaults, read_state, run_legacy_cleanup, run_with,
+        schedule_legacy_cleanup, state_path, write_state,
     };
     use crate::environment::BuildMode;
     use serde_json::{Map, Value, json};
     use std::cell::Cell;
     use std::fs;
+    use std::io::{Read, Write};
+    #[cfg(unix)]
+    use std::os::unix::net::UnixListener;
     use std::path::Path;
 
     fn write(path: &Path, contents: &str) {
@@ -814,6 +945,93 @@ mod tests {
             },
             || Ok(defaults),
         )
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn legacy_cleanup_records_no_daemon_once() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("rust");
+        fs::create_dir(&root).unwrap();
+        let socket = directory.path().join("missing.sock");
+        let first = run_legacy_cleanup(&root, std::slice::from_ref(&socket)).unwrap();
+        assert_eq!(first.outcome, LegacyCleanupOutcome::NoDaemon);
+        let listener = UnixListener::bind(&socket).unwrap();
+        let second = run_legacy_cleanup(&root, std::slice::from_ref(&socket)).unwrap();
+        assert_eq!(second, first);
+        drop(listener);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn legacy_cleanup_sends_only_kill_all_and_requires_exact_acknowledgement() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("rust");
+        fs::create_dir(&root).unwrap();
+        let socket = directory.path().join("control.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 5];
+            stream.read_exact(&mut request).unwrap();
+            assert_eq!(request, LEGACY_KILL_ALL);
+            stream.write_all(&LEGACY_ACKNOWLEDGED).unwrap();
+        });
+        let state = run_legacy_cleanup(&root, &[socket]).unwrap();
+        server.join().unwrap();
+        assert_eq!(state.outcome, LegacyCleanupOutcome::Terminated);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn legacy_cleanup_records_an_unconfirmed_response_without_retrying() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("rust");
+        fs::create_dir(&root).unwrap();
+        let socket = directory.path().join("control.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 5];
+            stream.read_exact(&mut request).unwrap();
+            stream.write_all(&[0x31, 0, 0, 0, 0]).unwrap();
+        });
+        let state = run_legacy_cleanup(&root, &[socket]).unwrap();
+        server.join().unwrap();
+        assert_eq!(state.outcome, LegacyCleanupOutcome::Unconfirmed);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn legacy_cleanup_does_not_block_startup() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("rust");
+        fs::create_dir(&root).unwrap();
+        let socket = directory.path().join("control.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 5];
+            stream.read_exact(&mut request).unwrap();
+            assert_eq!(request, LEGACY_KILL_ALL);
+            let _ = release_rx.recv_timeout(std::time::Duration::from_secs(1));
+            stream.write_all(&LEGACY_ACKNOWLEDGED).unwrap();
+        });
+        let started = std::time::Instant::now();
+        schedule_legacy_cleanup(root.clone(), vec![socket]);
+        let elapsed = started.elapsed();
+        let _ = release_tx.send(());
+        assert!(elapsed < std::time::Duration::from_millis(500));
+        server.join().unwrap();
+        for _ in 0..100 {
+            if super::legacy_cleanup_path(&root).is_file() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let state = run_legacy_cleanup(&root, &[]).unwrap();
+        assert_eq!(state.outcome, LegacyCleanupOutcome::Terminated);
     }
 
     #[test]
