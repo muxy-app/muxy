@@ -1,6 +1,6 @@
 # Architecture
 
-Muxy is a Cargo workspace of 8 crates, layered so that domain logic, protocols, and services are platform-agnostic and testable, while GPUI and macOS-specific code live at the edges.
+Muxy is a Cargo workspace of 9 crates, layered so that domain logic, protocols, and services are platform-agnostic and testable, while GPUI and macOS-specific code live at the edges.
 
 ## Crate graph
 
@@ -9,6 +9,7 @@ flowchart TD
     muxy["muxy (binary)\nGPUI app, views, wiring"]
     api["muxy-api\nheadless services"]
     proto["muxy-proto\nportable wire codecs + framing"]
+    session["muxy-session-v2\nprivate PTY session daemon + attach bridge"]
     core["muxy-core\ndomain model + persistence"]
     term["muxy-terminal\nterminal abstraction"]
     ui["muxy-ui\nreusable GPUI kit"]
@@ -20,6 +21,8 @@ flowchart TD
     muxy --> term
     muxy --> ui
     muxy --> core
+    session --> proto
+    session --> core
     api --> core
     term --> core
     term -. macOS only .-> host
@@ -37,6 +40,7 @@ flowchart TD
 | `muxy` | app entry, `AppState`, all views, commands, keymap, terminal glue, notification coordination and platform delivery | yes | terminal backend, UserNotifications, NSSound |
 | `muxy-api` | git, worktree lifecycle/hooks/locations, bounded subprocesses, project "truth", IDE detection, layouts, yaml, fs watcher, picker logic | no | Unix process-group edge only |
 | `muxy-proto` | portable wire types, strict app/session codecs, framing, and transport policy | no | Unix transport edge only |
+| `muxy-session` | private attach/daemon executable, PTYs, bounded replay, same-UID socket security, and full OS-session termination | no | Unix PTY and peer-credential edges |
 | `muxy-core` | prefs, settings catalog, shortcuts, navigation history, notification model/store/coalescing, stores, workspace/tab tree model | no | migration-only user-defaults access |
 | `muxy-terminal` | backend trait, surface signals, search, scrollbar, confirmation, idle and process policy | no | ghostty and process-inspection edges |
 | `muxy-ui` | theme, icons, components, controls, text input, scrollbar | yes | SF Symbols |
@@ -88,6 +92,8 @@ Events flow back asynchronously: libghostty callbacks → `ghostty-host` `Runtim
 ## Terminal memory boundaries
 
 `muxy-proto::session` owns the Rust-only `MXS2` header, versioned JSON control payloads, raw terminal byte frames, bounded streaming decoder, and private recovery/control messages. It has no GPUI, workspace, or daemon policy. The application socket remains a separate pipe/NUL protocol and exposes no public session-management verbs.
+
+`muxy-session-v2` is a separately signed bundle executable with no GPUI, AppKit, Ghostty, repository, or network dependencies. Its attach mode is the in-app Ghostty child; its detached daemon mode owns one PTY OS session per terminal, a 256 KiB ordered replay tail, bounded per-client queues, same-UID private socket access, and terminate-one/all completion only after every targeted OS-session member is gone. The versioned socket roots come only from `muxy-core::environment`.
 
 `muxy-terminal::offline` owns retained-parity eligibility, scan interval, interactive-shell classification, OSC 133 activity tracking with generation invalidation, persistent activity decisions, and neutral recovery states. `muxy-terminal::process` owns the process-inspection trait and pure foreground-TTY selection. Platform records and syscalls stay behind its target-gated system edge.
 

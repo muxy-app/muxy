@@ -83,8 +83,8 @@ impl RuntimePathPolicy {
 
     pub const fn session_directory_name(self) -> &'static str {
         match self.mode {
-            BuildMode::Development => "sessions-dev",
-            BuildMode::Production => "sessions",
+            BuildMode::Development => "sessions-v2-dev",
+            BuildMode::Production => "sessions-v2",
         }
     }
 
@@ -94,8 +94,8 @@ impl RuntimePathPolicy {
 
     pub fn fallback_session_directory_name(self, uid: u32) -> String {
         match self.mode {
-            BuildMode::Development => format!("muxy-dev-{uid}"),
-            BuildMode::Production => format!("muxy-{uid}"),
+            BuildMode::Development => format!("muxy-sessions-v2-dev-{uid}"),
+            BuildMode::Production => format!("muxy-sessions-v2-{uid}"),
         }
     }
 
@@ -366,15 +366,18 @@ mod tests {
         assert_eq!(production.main_socket_filename(), "muxy.sock");
         assert_eq!(development.hook_default_socket_filename(), "muxy-dev.sock");
         assert_eq!(production.hook_default_socket_filename(), "muxy.sock");
-        assert_eq!(development.session_directory_name(), "sessions-dev");
-        assert_eq!(production.session_directory_name(), "sessions");
+        assert_eq!(development.session_directory_name(), "sessions-v2-dev");
+        assert_eq!(production.session_directory_name(), "sessions-v2");
         assert_eq!(development.session_socket_filename(), "control.sock");
         assert_eq!(production.session_socket_filename(), "control.sock");
         assert_eq!(
             development.fallback_session_directory_name(501),
-            "muxy-dev-501"
+            "muxy-sessions-v2-dev-501"
         );
-        assert_eq!(production.fallback_session_directory_name(501), "muxy-501");
+        assert_eq!(
+            production.fallback_session_directory_name(501),
+            "muxy-sessions-v2-501"
+        );
         assert_eq!(development.hook_staging_directory_name(), "hooks-dev");
         assert_eq!(production.hook_staging_directory_name(), "hooks");
 
@@ -396,19 +399,19 @@ mod tests {
         );
         assert_eq!(
             development.preferred_session_socket_path(app_support),
-            app_support.join("sessions-dev/control.sock")
+            app_support.join("sessions-v2-dev/control.sock")
         );
         assert_eq!(
             production.preferred_session_socket_path(app_support),
-            app_support.join("sessions/control.sock")
+            app_support.join("sessions-v2/control.sock")
         );
         assert_eq!(
             development.fallback_session_socket_path(fallback_root, 501),
-            fallback_root.join("muxy-dev-501/control.sock")
+            fallback_root.join("muxy-sessions-v2-dev-501/control.sock")
         );
         assert_eq!(
             production.fallback_session_socket_path(fallback_root, 501),
-            fallback_root.join("muxy-501/control.sock")
+            fallback_root.join("muxy-sessions-v2-501/control.sock")
         );
         assert_eq!(
             development.hook_staging_path(app_support),

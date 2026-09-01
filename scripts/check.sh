@@ -70,7 +70,7 @@ environment_owner='crates/muxy-core/src/environment.rs'
 policy_literals=(
     'muxy-dev.sock'
     'muxy.sock'
-    'sessions-dev'
+    'sessions-v2-dev'
     'hooks-dev'
     'app.muxy.mobile.serverEnabled.dev'
     'app.muxy.mobile.serverPort.dev'
@@ -81,7 +81,9 @@ policy_literals=(
 )
 for literal in "${policy_literals[@]}"; do
     matches="$(rg -n -F --glob '*.rs' "$literal" crates/ \
-        | rg -v "^${environment_owner}:" || true)"
+        | rg -v "^${environment_owner}:" \
+        | rg -v '^crates/muxy-session/tests/session_process.rs:.*sessions-v2(-dev)?/control\.sock' \
+        || true)"
     if [[ -n "$matches" ]]; then
         printf '%s\n' "$matches"
         printf 'error: environment policy literal is owned by %s: %s\n' \
@@ -89,7 +91,7 @@ for literal in "${policy_literals[@]}"; do
         exit 1
     fi
 done
-fallback_pattern='"muxy-dev-(\{[^}]*\}|[0-9]+)|"muxy-(\{[^}]*\}|[0-9]+)'
+fallback_pattern='"muxy-sessions-v2-dev-(\{[^}]*\}|[0-9]+)|"muxy-sessions-v2-(\{[^}]*\}|[0-9]+)'
 fallback_matches="$(rg -n --glob '*.rs' "$fallback_pattern" crates/ \
     | rg -v "^${environment_owner}:" || true)"
 if [[ -n "$fallback_matches" ]]; then

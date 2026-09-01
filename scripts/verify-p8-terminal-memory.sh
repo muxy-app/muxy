@@ -304,7 +304,7 @@ scope_checks() {
     }
     [[ "$(printf '%s\n' "$resource_key_matches" | cut -d: -f1 | sort -u)" == \
         "crates/muxy-core/src/prefs/settings.rs" ]] || fail "removed resource setting remains in production surface"
-    [[ ! -e "$PROJECT_ROOT/crates/muxy-session" ]] || fail "Phase 1 must not add muxy-session"
+    [[ -d "$PROJECT_ROOT/crates/muxy-session" ]] || fail "Phase 2 session crate is missing"
     rg -q 'pub mod session;' crates/muxy-proto/src/lib.rs || fail "private session protocol is not exported"
     rg -q -F '*b"MXS2"' crates/muxy-proto/src/session/codec.rs || fail "MXS2 protocol magic is missing"
     rg -q 'pub mod offline;' crates/muxy-terminal/src/lib.rs || fail "portable offline policy is not exported"
@@ -314,7 +314,7 @@ scope_checks() {
 }
 
 validate_staged_app() {
-    local app="$1" plist executable marker parent
+    local app="$1" plist executable session_executable marker parent
     [[ "$app" == /* && -d "$app" && ! -L "$app" ]] || fail "staged app path is invalid"
     [[ "$app" == "$STAGED_APPS_ROOT/"*/MuxyTests.app ]] || fail "staged app is outside the staging root"
     parent="$(dirname "$app")"
@@ -325,6 +325,10 @@ validate_staged_app() {
     [[ "$(plutil -extract CFBundleExecutable raw -o - "$plist")" == "MuxyTests" ]] || fail "staged executable name differs"
     executable="$app/Contents/MacOS/MuxyTests"
     [[ -x "$executable" ]] || fail "staged executable is missing"
+    session_executable="$app/Contents/MacOS/muxy-session-v2"
+    [[ -x "$session_executable" ]] || fail "staged session executable is missing"
+    [[ "$(stat -f '%Lp' "$session_executable")" == 755 ]] || fail "staged session executable mode is not 0755"
+    codesign --verify --strict "$session_executable"
     codesign --verify --deep --strict "$app"
 }
 
@@ -394,6 +398,32 @@ run_launch_close() {
     snapshot_production "$after"
     compare_snapshots "$before" "$after"
     printf 'P8 staged %s launch-close passed\n' "$mode"
+}
+
+run_daemon_harness() {
+    local mode="$1" source_app staged_app case_root case_code session_executable resources
+    local before after
+    source_app="$PROJECT_ROOT/target/$mode/Muxy.app"
+    [[ -d "$source_app" ]] || fail "bundle not found: $source_app"
+    staged_app="$("$SCRIPT_DIR/stage-test-app.sh" "$source_app" "p8-$mode-daemon-harness")"
+    validate_staged_app "$staged_app"
+    case_code="sd"
+    [[ "$mode" == release ]] && case_code="sr"
+    case_root="$VERIFICATION_ROOT/$case_code"
+    prepare_case "$case_root"
+    session_executable="$staged_app/Contents/MacOS/muxy-session-v2"
+    resources="$staged_app/Contents/Resources"
+    before="$case_root/production-before"
+    after="$case_root/production-after"
+    snapshot_production "$before"
+    MUXY_TEST_SESSION_BINARY="$session_executable" \
+        MUXY_TEST_SESSION_RESOURCES="$resources" \
+        cargo test -p muxy-session --test session_process --locked --offline \
+        daemon_replays_detached_output_replaces_clients_resizes_and_exits_idle -- \
+        --exact --nocapture
+    snapshot_production "$after"
+    compare_snapshots "$before" "$after"
+    printf 'P8 staged %s daemon harness passed\n' "$mode"
 }
 
 self_test() {
@@ -471,13 +501,18 @@ case "${1:-}" in
     --mode)
         (($# == 4)) || fail "usage: scripts/verify-p8-terminal-memory.sh --mode PROFILE --case CASE"
         [[ "$2" == debug || "$2" == release ]] || fail "profile must be debug or release"
-        [[ "$3" == --case && "$4" == launch-close ]] || fail "unsupported Phase 1 staged case"
-        for command_name in codesign plutil; do
+        [[ "$3" == --case ]] || fail "missing staged case"
+        [[ "$4" == launch-close || "$4" == daemon-harness ]] || fail "unsupported staged case"
+        for command_name in cargo codesign plutil; do
             require_command "$command_name"
         done
-        run_launch_close "$2"
+        if [[ "$4" == launch-close ]]; then
+            run_launch_close "$2"
+        else
+            run_daemon_harness "$2"
+        fi
         ;;
     *)
-        fail "usage: scripts/verify-p8-terminal-memory.sh --self-test | --fixture scope | --mode PROFILE --case launch-close"
+        fail "usage: scripts/verify-p8-terminal-memory.sh --self-test | --fixture scope | --mode PROFILE --case CASE"
         ;;
 esac

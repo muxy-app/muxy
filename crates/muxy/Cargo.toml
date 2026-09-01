@@ -7,7 +7,7 @@ rust-version.workspace = true
 [dependencies]
 gpui.workspace = true
 muxy-api.workspace = true
-muxy-core.workspace = true
+muxy-core = { workspace = true, features = ["application"] }
 muxy-proto.workspace = true
 muxy-terminal.workspace = true
 muxy-ui.workspace = true

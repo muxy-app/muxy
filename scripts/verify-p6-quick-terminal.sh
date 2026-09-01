@@ -328,7 +328,9 @@ p8_may_change_p6_locked_path() {
         crates/muxy-proto/src/lib.rs|\
         crates/muxy-proto/src/session/codec.rs|\
         crates/muxy-proto/src/session/message.rs|\
-        crates/muxy-proto/src/session/mod.rs)
+        crates/muxy-proto/src/session/mod.rs|\
+        scripts/build-app.sh|\
+        scripts/verify-bundle.sh)
             return 0
             ;;
     esac
@@ -336,7 +338,7 @@ p8_may_change_p6_locked_path() {
 }
 
 phase_6_scope_checks() {
-    local expected_manifests actual_manifests expected_bins actual_bins locked path
+    local expected_manifests actual_manifests expected_bins actual_bins explicit_bins locked path
     if rg -n 'static mut|thread_local!' \
         crates/muxy-core/src/quick_terminal crates/muxy-core/src/prefs/settings.rs \
         crates/muxy/src/quick_terminal; then
@@ -379,6 +381,7 @@ phase_6_scope_checks() {
         crates/muxy-api/Cargo.toml \
         crates/muxy-core/Cargo.toml \
         crates/muxy-proto/Cargo.toml \
+        crates/muxy-session/Cargo.toml \
         crates/muxy-terminal/Cargo.toml \
         crates/muxy-ui/Cargo.toml \
         crates/muxy/Cargo.toml)"
@@ -387,14 +390,20 @@ phase_6_scope_checks() {
         printf 'expected crate manifests:\n%s\nactual crate manifests:\n%s\n' "$expected_manifests" "$actual_manifests"
         fail "P6 introduced a new crate"
     }
-    expected_bins='crates/muxy/src/main.rs'
+    expected_bins="$(printf '%s\n' \
+        crates/muxy-session/src/main.rs \
+        crates/muxy/src/main.rs)"
     actual_bins="$(find crates -type f \( -path '*/src/bin/*' -o -name main.rs \) -print | sort)"
     [[ "$actual_bins" == "$expected_bins" ]] || {
         printf 'expected binaries:\n%s\nactual binaries:\n%s\n' "$expected_bins" "$actual_bins"
         fail "P6 introduced a new executable"
     }
-    if rg -n '^\s*\[\[bin\]\]' Cargo.toml crates --glob Cargo.toml; then
-        fail "P6 introduced an explicit binary target"
+    explicit_bins="$(rg -n '^\s*\[\[bin\]\]' Cargo.toml crates --glob Cargo.toml || true)"
+    if [[ "$(printf '%s\n' "$explicit_bins" | sed '/^$/d' | cut -d: -f1 | sort -u)" != \
+        crates/muxy-session/Cargo.toml ]] \
+        || [[ "$(printf '%s\n' "$explicit_bins" | sed '/^$/d' | wc -l | tr -d '[:space:]')" != 1 ]]; then
+        printf '%s\n' "$explicit_bins"
+        fail "an unexpected explicit binary target exists"
     fi
     for locked in \
         crates/muxy-core/src/migration.rs \

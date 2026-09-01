@@ -59,13 +59,13 @@ rm -rf target/test-verification
 flowchart TB
     D[Debug] --> DR[~/.muxy-dev]
     D --> DS[muxy-dev.sock]
-    D --> DP[sessions-dev]
+    D --> DP[sessions-v2-dev]
     D --> DH[hooks-dev]
     D --> DM[Mobile .dev keys and port 4866]
 
     R[Release] --> RR[~/.muxy]
     R --> RS[muxy.sock]
-    R --> RP[sessions]
+    R --> RP[sessions-v2]
     R --> RH[hooks]
     R --> RM[Mobile production keys and port 4865]
 ```

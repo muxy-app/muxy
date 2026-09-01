@@ -3324,6 +3324,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "muxy-session"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "muxy-core",
+ "muxy-proto",
+ "tempfile",
+ "thiserror 2.0.20",
+ "uuid",
+]
+
+[[package]]
 name = "muxy-terminal"
 version = "0.1.0"
 dependencies = [

@@ -159,7 +159,9 @@ p8_may_change_p5_locked_path() {
         crates/muxy-proto/src/lib.rs|\
         crates/muxy-proto/src/session/codec.rs|\
         crates/muxy-proto/src/session/message.rs|\
-        crates/muxy-proto/src/session/mod.rs)
+        crates/muxy-proto/src/session/mod.rs|\
+        scripts/build-app.sh|\
+        scripts/verify-bundle.sh)
             return 0
             ;;
     esac

@@ -74,7 +74,13 @@ if [[ "$PROFILE" == debug ]]; then
 fi
 plutil -lint "$INFO_PLIST" >/dev/null
 
-cargo_arguments=(build --package muxy --locked --target-dir "$PROJECT_ROOT/target")
+cargo_arguments=(
+    build
+    --package muxy
+    --package muxy-session
+    --locked
+    --target-dir "$PROJECT_ROOT/target"
+)
 if [[ "$PROFILE" == "release" ]]; then
     cargo_arguments+=(--release)
 fi
@@ -97,6 +103,8 @@ trap cleanup EXIT
 mkdir -p "$STAGING_BUNDLE/Contents/MacOS" \
     "$STAGING_BUNDLE/Contents/Resources/Muxy_Muxy.bundle/scripts"
 install -m 0755 "$PROFILE_DIRECTORY/muxy" "$STAGING_BUNDLE/Contents/MacOS/muxy"
+install -m 0755 "$PROFILE_DIRECTORY/muxy-session-v2" \
+    "$STAGING_BUNDLE/Contents/MacOS/muxy-session-v2"
 install -m 0755 "$CLI_SOURCE" \
     "$STAGING_BUNDLE/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
 if [[ "$PROFILE" == debug ]]; then
@@ -133,6 +141,15 @@ if [[ "$PROFILE" == debug ]]; then
 fi
 
 readonly BUNDLED_CLI="$STAGING_BUNDLE/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+readonly BUNDLED_SESSION="$STAGING_BUNDLE/Contents/MacOS/muxy-session-v2"
+[[ -x "$BUNDLED_SESSION" ]] || {
+    printf 'error: bundled session executable is not executable before signing\n' >&2
+    exit 1
+}
+cmp -s "$PROFILE_DIRECTORY/muxy-session-v2" "$BUNDLED_SESSION" || {
+    printf 'error: bundled session executable differs before signing\n' >&2
+    exit 1
+}
 [[ -x "$BUNDLED_CLI" ]] || {
     printf 'error: bundled legacy CLI is not executable before signing\n' >&2
     exit 1
@@ -157,6 +174,8 @@ elif [[ -e "$BUNDLED_DEVELOPMENT_CLI" ]]; then
 fi
 
 printf '==> Ad-hoc signing Muxy.app\n'
+codesign --force --sign - --timestamp=none "$BUNDLED_SESSION"
+codesign --verify --strict "$BUNDLED_SESSION"
 codesign --force --sign - --timestamp=none "$STAGING_BUNDLE"
 "$SCRIPT_DIR/verify-bundle.sh" "$STAGING_BUNDLE" "$PROFILE"
 

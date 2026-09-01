@@ -1,5 +1,7 @@
 use std::env;
 use std::io;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
@@ -26,7 +28,9 @@ impl AppResources {
         }
 
         let executable = env::current_exe().map_err(ResourceError::CurrentExecutable)?;
-        Self::from_executable(executable)
+        let resources = Self::from_executable(executable)?;
+        resources.session_executable()?;
+        Ok(resources)
     }
 
     pub fn from_executable(executable: impl AsRef<Path>) -> Result<Self, ResourceError> {
@@ -94,6 +98,26 @@ impl AppResources {
             self.terminfo.join(XTERM_GHOSTTY_TERMINFO_ENTRY),
         ]
     }
+
+    pub fn session_executable(&self) -> Result<PathBuf, ResourceError> {
+        let contents = self
+            .root
+            .parent()
+            .filter(|path| path.file_name().is_some_and(|name| name == "Contents"))
+            .ok_or_else(|| ResourceError::InvalidBundleResources(self.root.clone()))?;
+        let executable = contents.join("MacOS/muxy-session-v2");
+        let metadata =
+            std::fs::symlink_metadata(&executable).map_err(|_| ResourceError::MissingFile {
+                kind: "Muxy session executable",
+                path: executable.clone(),
+            })?;
+        #[cfg(unix)]
+        if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.mode() & 0o111 == 0
+        {
+            return Err(ResourceError::InvalidSessionExecutable(executable));
+        }
+        Ok(executable)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -105,6 +129,12 @@ pub enum ResourceError {
         "executable {0} is not under Contents/MacOS; set MUXY_RESOURCE_DIR for an unbundled launch"
     )]
     InvalidBundleExecutable(PathBuf),
+
+    #[error("resource root is not under a Contents directory: {0}")]
+    InvalidBundleResources(PathBuf),
+
+    #[error("session executable is not a real executable: {0}")]
+    InvalidSessionExecutable(PathBuf),
 
     #[error("missing {kind} directory at {path}")]
     MissingDirectory { kind: &'static str, path: PathBuf },
@@ -173,6 +203,10 @@ mod tests {
         let resources = contents.join("Resources");
         fs::create_dir_all(executable.parent().unwrap()).unwrap();
         fs::write(&executable, b"synthetic executable").unwrap();
+        let session_executable = contents.join("MacOS/muxy-session-v2");
+        fs::write(&session_executable, b"synthetic session executable").unwrap();
+        #[cfg(unix)]
+        fs::set_permissions(&session_executable, fs::Permissions::from_mode(0o755)).unwrap();
         create_valid_resources(&resources);
         (executable, resources)
     }
@@ -198,6 +232,13 @@ mod tests {
             resources_root.join("ghostty-overrides/transparent-surface.conf")
         );
         assert_eq!(resources.terminfo_entries().len(), 2);
+        assert_eq!(
+            resources.session_executable().unwrap(),
+            resources_root
+                .parent()
+                .unwrap()
+                .join("MacOS/muxy-session-v2")
+        );
     }
 
     #[test]
@@ -224,6 +265,30 @@ mod tests {
         assert!(
             matches!(error, ResourceError::InvalidBundleExecutable(path) if path == executable)
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn session_executable_rejects_symlinks_and_non_bundle_roots() {
+        let temp = TempDir::new().unwrap();
+        let (executable, _) = synthetic_bundle(&temp);
+        let resources = AppResources::from_executable(executable).unwrap();
+        let session = resources.session_executable().unwrap();
+        fs::remove_file(&session).unwrap();
+        fs::write(temp.path().join("outside"), b"outside").unwrap();
+        std::os::unix::fs::symlink(temp.path().join("outside"), &session).unwrap();
+        assert!(matches!(
+            resources.session_executable(),
+            Err(ResourceError::InvalidSessionExecutable(path)) if path == session
+        ));
+
+        let override_root = temp.path().join("resources");
+        create_valid_resources(&override_root);
+        let resources = AppResources::from_resource_dir(override_root.clone()).unwrap();
+        assert!(matches!(
+            resources.session_executable(),
+            Err(ResourceError::InvalidBundleResources(path)) if path == override_root
+        ));
     }
 
     #[cfg(unix)]

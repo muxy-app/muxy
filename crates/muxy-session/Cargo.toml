@@ -1,0 +1,22 @@
+[package]
+name = "muxy-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "muxy-session-v2"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true
+muxy-core.workspace = true
+muxy-proto.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

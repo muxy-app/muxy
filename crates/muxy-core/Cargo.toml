@@ -4,17 +4,30 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["application"]
+application = [
+    "dep:image",
+    "dep:libc",
+    "dep:log",
+    "dep:objc2",
+    "dep:objc2-foundation",
+    "dep:resvg",
+    "dep:serde",
+    "dep:serde_json",
+]
+
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
-image.workspace = true
-resvg.workspace = true
-log.workspace = true
-libc.workspace = true
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+resvg = { workspace = true, optional = true }
+log = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2.workspace = true
-objc2-foundation.workspace = true
+objc2 = { workspace = true, optional = true }
+objc2-foundation = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

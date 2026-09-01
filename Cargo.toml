@@ -6,6 +6,7 @@ members = [
     "crates/muxy",
     "crates/muxy-core",
     "crates/muxy-proto",
+    "crates/muxy-session",
     "crates/muxy-terminal",
     "crates/muxy-ui",
     "crates/muxy-api",
@@ -20,8 +21,9 @@ rust-version = "1.92"
 ghostty-host = { path = "crates/ghostty-host" }
 ghostty-sys = { path = "crates/ghostty-sys" }
 muxy-api = { path = "crates/muxy-api" }
-muxy-core = { path = "crates/muxy-core" }
+muxy-core = { path = "crates/muxy-core", default-features = false }
 muxy-proto = { path = "crates/muxy-proto" }
+muxy-session = { path = "crates/muxy-session" }
 muxy-terminal = { path = "crates/muxy-terminal" }
 muxy-ui = { path = "crates/muxy-ui" }
 gpui = "=0.2.2"

@@ -19,7 +19,7 @@ fail() {
     exit 1
 }
 
-for command_name in cmp codesign grep iconutil plutil; do
+for command_name in cmp codesign grep iconutil lipo plutil stat uname; do
     command -v "$command_name" >/dev/null 2>&1 || fail "required command not found: $command_name"
 done
 [[ -x /usr/libexec/PlistBuddy ]] || fail "required command not found: /usr/libexec/PlistBuddy"
@@ -28,6 +28,7 @@ readonly CONTENTS="$APP_BUNDLE/Contents"
 readonly PLIST="$CONTENTS/Info.plist"
 readonly RESOURCES="$CONTENTS/Resources"
 readonly EXECUTABLE="$CONTENTS/MacOS/muxy"
+readonly SESSION_EXECUTABLE="$CONTENTS/MacOS/muxy-session-v2"
 readonly ICON="$RESOURCES/AppIcon.icns"
 readonly CLI_SOURCE="$PROJECT_ROOT/Muxy/Resources/scripts/muxy-cli"
 readonly BUNDLED_CLI="$RESOURCES/Muxy_Muxy.bundle/scripts/muxy-cli"
@@ -36,6 +37,16 @@ readonly BUNDLED_DEVELOPMENT_CLI="$RESOURCES/muxy-dev-bin/muxy"
 
 [[ -d "$APP_BUNDLE" ]] || fail "app bundle not found: $APP_BUNDLE"
 [[ -x "$EXECUTABLE" ]] || fail "bundle executable is missing or not executable"
+[[ -x "$SESSION_EXECUTABLE" && -s "$SESSION_EXECUTABLE" ]] || {
+    fail "bundle session executable is missing or not executable"
+}
+[[ "$(stat -f '%Lp' "$SESSION_EXECUTABLE")" == 755 ]] || {
+    fail "bundle session executable mode is not 0755"
+}
+host_architecture="$(uname -m)"
+[[ " $(lipo -archs "$SESSION_EXECUTABLE") " == *" $host_architecture "* ]] || {
+    fail "bundle session executable does not contain $host_architecture"
+}
 [[ -f "$PLIST" ]] || fail "Info.plist is missing"
 [[ -s "$ICON" ]] || fail "AppIcon.icns is missing or empty"
 [[ -x "$BUNDLED_CLI" && -s "$BUNDLED_CLI" ]] || {
@@ -141,6 +152,11 @@ for icon_name in \
 done
 
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
+codesign --verify --strict --verbose=2 "$SESSION_EXECUTABLE"
+session_signature_details="$(codesign --display --verbose=4 "$SESSION_EXECUTABLE" 2>&1)"
+grep -q '^Signature=adhoc$' <<<"$session_signature_details" || {
+    fail "bundle session executable signature is not ad-hoc"
+}
 signature_details="$(codesign --display --verbose=4 "$APP_BUNDLE" 2>&1)"
 grep -q '^Signature=adhoc$' <<<"$signature_details" || fail "bundle signature is not ad-hoc"
 
