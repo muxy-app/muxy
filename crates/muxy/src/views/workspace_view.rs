@@ -795,55 +795,87 @@ fn pane_placeholder(
     let color = icon_color(tab.color_id.as_deref())
         .map(Hsla::from)
         .unwrap_or(state.theme.fg_dim);
-    let recovery = panes.terminals.recovery_state(&tab.id);
-    let recovery_message = recovery.map(|state| match state {
-        muxy_terminal::offline::RecoveryState::Ready
-        | muxy_terminal::offline::RecoveryState::Reconnecting { .. } => {
-            "Reconnecting to this terminal session…".to_owned()
-        }
-        muxy_terminal::offline::RecoveryState::Unreachable => {
-            "Muxy can't reach this terminal session.".to_owned()
-        }
-        muxy_terminal::offline::RecoveryState::Missing => {
-            "This terminal session no longer exists.".to_owned()
-        }
-        muxy_terminal::offline::RecoveryState::InvalidIdentity { reason } => reason.clone(),
-    });
+    let offline = panes.terminals.is_offline(&tab.id);
+    let recovery = (!offline)
+        .then(|| panes.terminals.recovery_state(&tab.id))
+        .flatten();
+    let recovery_message = if offline {
+        Some("This terminal was freed to save memory.".to_owned())
+    } else {
+        recovery.map(|state| match state {
+            muxy_terminal::offline::RecoveryState::Ready
+            | muxy_terminal::offline::RecoveryState::Reconnecting { .. } => {
+                "Reconnecting to this terminal session…".to_owned()
+            }
+            muxy_terminal::offline::RecoveryState::Unreachable => {
+                "Muxy can't reach this terminal session.".to_owned()
+            }
+            muxy_terminal::offline::RecoveryState::Missing => {
+                "This terminal session no longer exists.".to_owned()
+            }
+            muxy_terminal::offline::RecoveryState::InvalidIdentity { reason } => reason.clone(),
+        })
+    };
     let recovery_action = recovery.and_then(muxy_terminal::offline::RecoveryState::action);
     let action_tab_id = tab.id.clone();
-    let action = recovery_action.map(|action| {
-        let label = match action {
-            muxy_terminal::offline::RecoveryAction::Reconnect => "Reconnect",
-            muxy_terminal::offline::RecoveryAction::StartFresh => "Start Fresh",
-        };
-        div()
-            .id(ElementId::Name(SharedString::from(format!(
-                "terminal-recovery-action-{action_tab_id}"
-            ))))
-            .px(state.metrics.spacing4())
-            .py(state.metrics.spacing2())
-            .rounded(state.metrics.radius_sm())
-            .bg(state.theme.surface)
-            .border_1()
-            .border_color(state.theme.border)
-            .text_size(state.metrics.font_caption())
-            .text_color(state.theme.fg)
-            .cursor_pointer()
-            .hover(|style| style.bg(state.theme.hover))
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .on_click(
-                cx.listener(move |window: &mut MainWindow, _, _, cx| match action {
-                    muxy_terminal::offline::RecoveryAction::Reconnect => {
-                        window.reconnect_terminal(&action_tab_id, cx)
-                    }
-                    muxy_terminal::offline::RecoveryAction::StartFresh => {
-                        window.start_fresh_terminal(&action_tab_id, cx)
-                    }
-                }),
-            )
-            .child(SharedString::from(label))
-            .into_any_element()
-    });
+    let action = if offline {
+        Some(
+            div()
+                .id(ElementId::Name(SharedString::from(format!(
+                    "terminal-wake-action-{action_tab_id}"
+                ))))
+                .px(state.metrics.spacing4())
+                .py(state.metrics.spacing2())
+                .rounded(state.metrics.radius_sm())
+                .bg(state.theme.surface)
+                .border_1()
+                .border_color(state.theme.border)
+                .text_size(state.metrics.font_caption())
+                .text_color(state.theme.fg)
+                .cursor_pointer()
+                .hover(|style| style.bg(state.theme.hover))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(move |window: &mut MainWindow, _, _, cx| {
+                    window.wake_terminal(&action_tab_id, cx);
+                }))
+                .child(SharedString::from("Wake"))
+                .into_any_element(),
+        )
+    } else {
+        recovery_action.map(|action| {
+            let label = match action {
+                muxy_terminal::offline::RecoveryAction::Reconnect => "Reconnect",
+                muxy_terminal::offline::RecoveryAction::StartFresh => "Start Fresh",
+            };
+            div()
+                .id(ElementId::Name(SharedString::from(format!(
+                    "terminal-recovery-action-{action_tab_id}"
+                ))))
+                .px(state.metrics.spacing4())
+                .py(state.metrics.spacing2())
+                .rounded(state.metrics.radius_sm())
+                .bg(state.theme.surface)
+                .border_1()
+                .border_color(state.theme.border)
+                .text_size(state.metrics.font_caption())
+                .text_color(state.theme.fg)
+                .cursor_pointer()
+                .hover(|style| style.bg(state.theme.hover))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(
+                    cx.listener(move |window: &mut MainWindow, _, _, cx| match action {
+                        muxy_terminal::offline::RecoveryAction::Reconnect => {
+                            window.reconnect_terminal(&action_tab_id, cx)
+                        }
+                        muxy_terminal::offline::RecoveryAction::StartFresh => {
+                            window.start_fresh_terminal(&action_tab_id, cx)
+                        }
+                    }),
+                )
+                .child(SharedString::from(label))
+                .into_any_element()
+        })
+    };
 
     let placeholder = div()
         .id(ElementId::Name(SharedString::from(format!(

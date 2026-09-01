@@ -77,6 +77,7 @@ pub enum SettingsEvent {
     SetDesktopNotifications(bool),
     PreviewNotificationSound(String),
     SetPersistentSessions(bool),
+    ReloadTerminalOffline,
 }
 
 fn desktop_notification_event(enabled: bool, pending: bool) -> SettingsEvent {
@@ -1127,6 +1128,23 @@ impl SettingsModal {
                 }
                 Err(error) => {
                     self.errors.insert(key.to_owned(), error);
+                }
+            }
+            cx.notify();
+            return;
+        }
+        if matches!(
+            key,
+            crate::terminal::offline::ENABLED_SETTING
+                | crate::terminal::offline::IDLE_THRESHOLD_SETTING
+        ) {
+            match settings::try_set(key, value) {
+                Ok(()) => {
+                    self.errors.remove(key);
+                    cx.emit(SettingsEvent::ReloadTerminalOffline);
+                }
+                Err(error) => {
+                    self.errors.insert(key.to_owned(), error.to_string());
                 }
             }
             cx.notify();

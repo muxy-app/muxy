@@ -622,3 +622,24 @@ fn parse_pid_after(bytes: &[u8], marker: &[u8]) -> Option<i32> {
         .collect::<Vec<_>>();
     std::str::from_utf8(&digits).ok()?.parse().ok()
 }
+
+#[test]
+fn aborted_connections_never_stop_the_daemon() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let daemon = Daemon::start(&root);
+    let session_id = canonical_id();
+    let mut client = daemon.attach(request(&session_id, &root, Some("printf 'SHELL_READY\\n'")));
+    client.output_until(b"SHELL_READY");
+    for _ in 0..500 {
+        let _ = UnixStream::connect(&daemon.socket);
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(matches!(
+        daemon.request(SessionMessage::Query(SessionQuery {
+            session_id: session_id.clone(),
+        })),
+        SessionMessage::QueryResult(QueryResult::Found(_))
+    ));
+    drop(client);
+}

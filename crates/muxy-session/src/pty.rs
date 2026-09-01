@@ -149,18 +149,22 @@ pub fn wait_for_child(pid: i32) -> ExitStatus {
 }
 
 pub fn terminate_session(session_id: i32) -> bool {
-    if signal_until_empty(session_id, libc::SIGTERM, Duration::from_secs(2)) {
+    if signal_until_empty(
+        session_id,
+        &[libc::SIGHUP, libc::SIGTERM],
+        Duration::from_secs(2),
+    ) {
         return true;
     }
     for _ in 0..3 {
-        if signal_until_empty(session_id, libc::SIGKILL, Duration::from_secs(2)) {
+        if signal_until_empty(session_id, &[libc::SIGKILL], Duration::from_secs(2)) {
             return true;
         }
     }
     session_members(session_id).is_empty()
 }
 
-fn signal_until_empty(session_id: i32, signal: i32, timeout: Duration) -> bool {
+fn signal_until_empty(session_id: i32, signals: &[i32], timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
         let members = session_members(session_id);
@@ -168,7 +172,9 @@ fn signal_until_empty(session_id: i32, signal: i32, timeout: Duration) -> bool {
             return true;
         }
         for process_id in members {
-            unsafe { libc::kill(process_id, signal) };
+            for signal in signals {
+                unsafe { libc::kill(process_id, *signal) };
+            }
         }
         if Instant::now() >= deadline {
             return false;

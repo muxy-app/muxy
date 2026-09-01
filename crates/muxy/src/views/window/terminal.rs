@@ -45,9 +45,24 @@ fn staged_restart_failure(point: &str) -> bool {
         && std::env::var("MUXY_TEST_P8_RESTART_FAILURE").as_deref() == Ok(point)
 }
 
+fn record_staged_restart_failure_complete() {
+    if muxy_core::prefs::is_test_process()
+        && std::env::var_os("MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY").is_some()
+        && std::env::var_os("MUXY_TEST_P8_RESTART_FAILURE").is_some()
+    {
+        let _ = std::fs::write(
+            muxy_core::prefs::app_support_dir().join(".muxy-test-p8-restart-failure-complete"),
+            b"complete\n",
+        );
+    }
+}
+
 pub(crate) struct TerminalRuntime {
     pub(crate) surfaces: TerminalSurfaces,
     pub(super) _tasks: Vec<Task<()>>,
+    offline_scan_task: Option<Task<()>>,
+    offline_scan_in_flight: bool,
+    offline_scan_generation: u64,
 }
 
 impl TerminalRuntime {
@@ -55,11 +70,160 @@ impl TerminalRuntime {
         Self {
             surfaces,
             _tasks: tasks,
+            offline_scan_task: None,
+            offline_scan_in_flight: false,
+            offline_scan_generation: 0,
         }
     }
 }
 
 impl MainWindow {
+    pub(crate) fn reload_terminal_offline(&mut self, cx: &mut Context<Self>) {
+        let enabled = muxy_core::prefs::settings::bool_value(
+            crate::terminal::offline::ENABLED_SETTING,
+            false,
+        );
+        let seconds = muxy_core::prefs::settings::f64_value(
+            crate::terminal::offline::IDLE_THRESHOLD_SETTING,
+            crate::terminal::offline::DEFAULT_IDLE_THRESHOLD.as_secs_f64(),
+        );
+        let idle_threshold = if seconds.is_finite() && seconds > 0.0 {
+            Duration::from_secs_f64(seconds)
+        } else {
+            crate::terminal::offline::DEFAULT_IDLE_THRESHOLD
+        };
+        self.terminal_runtime.offline_scan_generation = self
+            .terminal_runtime
+            .offline_scan_generation
+            .wrapping_add(1);
+        self.terminal_runtime.offline_scan_task = None;
+        self.terminal_runtime.offline_scan_in_flight = false;
+        self.terminal_runtime
+            .surfaces
+            .configure_offline(enabled, idle_threshold);
+        if !enabled {
+            if self.terminal_runtime.surfaces.wake_all_offline() {
+                cx.notify();
+            }
+            return;
+        }
+        let interval = muxy_terminal::offline::scan_interval(idle_threshold);
+        self.terminal_runtime.offline_scan_task = Some(cx.spawn(async move |window, cx| {
+            loop {
+                cx.background_executor().timer(interval).await;
+                if window
+                    .update(cx, |window, cx| window.scan_terminal_offline(cx))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        }));
+    }
+
+    pub(super) fn scan_terminal_offline(&mut self, cx: &mut Context<Self>) {
+        if !self.terminal_runtime.surfaces.offline_enabled()
+            || self.terminal_runtime.offline_scan_in_flight
+        {
+            return;
+        }
+        let probes = self
+            .terminal_runtime
+            .surfaces
+            .offline_probes(&self.state.tab_workspaces, self.elapsed());
+        if probes.is_empty() {
+            return;
+        }
+        let generation = self.terminal_runtime.offline_scan_generation;
+        self.terminal_runtime.offline_scan_in_flight = true;
+        cx.spawn(async move |window, cx| {
+            let decisions = cx
+                .background_executor()
+                .spawn(async move {
+                    probes
+                        .into_iter()
+                        .map(crate::terminal::offline::evaluate_probe)
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            let _ = window.update(cx, |window, cx| {
+                if window.terminal_runtime.offline_scan_generation != generation {
+                    return;
+                }
+                window.terminal_runtime.offline_scan_in_flight = false;
+                let now = window.elapsed();
+                let visible = window
+                    .state
+                    .active_tab_workspace()
+                    .map(|workspace| {
+                        workspace
+                            .visible_area_tabs()
+                            .into_iter()
+                            .filter(|(_, tab_id)| {
+                                workspace.tab(tab_id).is_some_and(|tab| {
+                                    tab.kind == muxy_core::workspace::TabKind::Terminal
+                                })
+                            })
+                            .map(|(_, tab_id)| tab_id)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let focused = if window.view.window_active && !window.view.terminal.overlay_was_open
+                {
+                    window.state.active_tab_workspace().and_then(|workspace| {
+                        let area_id = workspace.focused_area_id.as_deref()?;
+                        workspace.area(area_id)?.active_tab_id.clone()
+                    })
+                } else {
+                    None
+                };
+                window.terminal_runtime.surfaces.observe_offline(
+                    &window.state.tab_workspaces,
+                    &visible,
+                    focused.as_deref(),
+                    window.view.window_active,
+                    now,
+                );
+                let mut changed = false;
+                for decision in decisions.into_iter().filter(|decision| decision.is_idle) {
+                    let previous = window.state.tab_workspaces.clone();
+                    let mut directory_changed = false;
+                    for workspace in window.state.tab_workspaces.states_mut() {
+                        if let Some(tab) = workspace.tab_mut(&decision.tab_id) {
+                            let directory = decision.directory.to_string_lossy().into_owned();
+                            if tab.terminal_resume_directory.as_deref() != Some(directory.as_str())
+                            {
+                                tab.terminal_resume_directory = Some(directory);
+                                directory_changed = true;
+                            }
+                            break;
+                        }
+                    }
+                    if directory_changed && let Err(error) = window.state.persist_tab_workspaces() {
+                        window.state.tab_workspaces = previous;
+                        log::warn!(
+                            "failed to preserve terminal directory before idle freeing: {error}"
+                        );
+                        continue;
+                    }
+                    changed |= window.terminal_runtime.surfaces.take_offline(decision, now);
+                }
+                if changed {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn wake_terminal(&mut self, tab_id: &str, cx: &mut Context<Self>) -> bool {
+        let woke = self.terminal_runtime.surfaces.wake_offline(tab_id);
+        if woke {
+            cx.notify();
+        }
+        woke
+    }
+
     pub(crate) fn request_persistent_sessions(&mut self, enabled: bool, cx: &mut Context<Self>) {
         let answer = self.ask(
             "Restart Muxy?".to_owned(),
@@ -193,6 +357,7 @@ impl MainWindow {
                 crate::terminal::session::PERSISTENT_SESSION_SETTING,
                 serde_json::Value::Bool(false),
             );
+            record_staged_restart_failure_complete();
             self.feedback(
                 "Unable to enable terminal persistence",
                 match rollback {
@@ -282,6 +447,7 @@ impl MainWindow {
         self.terminal_runtime
             .surfaces
             .mark_persistent_sessions_missing();
+        record_staged_restart_failure_complete();
         self.feedback(
             "Terminal sessions were already stopped",
             format!("{error}. Persistence remains enabled; use Start Fresh for affected tabs."),
@@ -704,9 +870,23 @@ impl MainWindow {
                 })
                 .or_else(|| visible.first().cloned())
         };
+        if self.view.window_active
+            && focused
+                .as_deref()
+                .is_some_and(|tab_id| self.terminal_runtime.surfaces.wake_offline(tab_id))
+        {
+            cx.notify();
+        }
         self.terminal_runtime
             .surfaces
             .set_focused_tab(focused.as_deref());
+        self.terminal_runtime.surfaces.observe_offline(
+            &self.state.tab_workspaces,
+            &visible,
+            focused.as_deref(),
+            self.view.window_active,
+            self.elapsed(),
+        );
         if window.is_window_active()
             && let Some(tab_id) = focused
         {
@@ -812,6 +992,7 @@ impl MainWindow {
     }
 
     pub(crate) fn focus_pane(&mut self, tab_id: &str, area_id: &str, cx: &mut Context<Self>) {
+        self.wake_terminal(tab_id, cx);
         self.close_search_except(Some(tab_id), cx);
         self.focus_area(area_id, cx);
     }

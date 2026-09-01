@@ -407,6 +407,7 @@ impl MainWindow {
                 self.apply_scale_setting(cx);
                 self.apply_theme_setting(cx);
                 self.apply_chrome_settings(cx);
+                self.reload_terminal_offline(cx);
                 self.state.shortcuts = muxy_core::shortcuts::ShortcutMap::load();
                 self.state.command_shortcuts = muxy_core::store::CommandShortcuts::load();
                 self.rebind_shortcuts(cx);

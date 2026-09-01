@@ -386,7 +386,7 @@ impl GhosttySurface {
 
     pub fn set_occluded(&self, occluded: bool) {
         self.assert_owner_thread();
-        unsafe { ffi::ghostty_surface_set_occlusion(self.as_raw(), occluded) };
+        unsafe { ffi::ghostty_surface_set_occlusion(self.as_raw(), !occluded) };
     }
 
     pub fn refresh(&self) {

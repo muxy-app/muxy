@@ -184,9 +184,15 @@ fn serve(bound: BoundSocket, idle: Duration) -> Result<(), DaemonError> {
     loop {
         match bound.listener.accept() {
             Ok((stream, _)) => {
-                stream.set_nonblocking(false)?;
-                stream.set_read_timeout(Some(OPENER_READ_TIMEOUT))?;
-                stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT))?;
+                if stream
+                    .set_nonblocking(false)
+                    .and_then(|()| stream.set_read_timeout(Some(OPENER_READ_TIMEOUT)))
+                    .and_then(|()| stream.set_write_timeout(Some(CLIENT_WRITE_TIMEOUT)))
+                    .is_err()
+                {
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    continue;
+                }
                 if connections.fetch_add(1, Ordering::AcqRel) >= MAX_CONNECTIONS {
                     connections.fetch_sub(1, Ordering::AcqRel);
                     let _ = stream.shutdown(std::net::Shutdown::Both);
@@ -200,9 +206,8 @@ fn serve(bound: BoundSocket, idle: Duration) -> Result<(), DaemonError> {
                     let _ = handle_connection(stream, state);
                 });
             }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error.into()),
+            Err(_) => {}
         }
         {
             let state = lock(&state);

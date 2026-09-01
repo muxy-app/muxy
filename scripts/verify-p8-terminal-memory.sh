@@ -135,7 +135,7 @@ pid_descends_from() {
     local candidate="$1" ancestor="$2" parent
     while [[ "$candidate" =~ ^[1-9][0-9]*$ ]] && ((candidate > 1)); do
         [[ "$candidate" == "$ancestor" ]] && return 0
-        parent="$(ps -o ppid= -p "$candidate" 2>/dev/null | tr -d '[:space:]')"
+        parent="$(ps -o ppid= -p "$candidate" 2>/dev/null | tr -d '[:space:]' || true)"
         [[ "$parent" =~ ^[1-9][0-9]*$ && "$parent" != "$candidate" ]] || return 1
         candidate="$parent"
     done
@@ -293,6 +293,23 @@ snapshot_production() {
     snapshot_path "$PRODUCTION_DEBUG_PROFILE" "$destination/debug-profile"
     snapshot_path "$PRODUCTION_RELEASE_PROFILE" "$destination/release-profile"
     snapshot_path "$LEGACY_SWIFT_PROFILE" "$destination/legacy-profile" "$LEGACY_VOLATILE_PROFILER"
+}
+
+running_app_pids() {
+    ps -axo pid,command |
+        rg -N "^\\s*[0-9]+ $1\$" |
+        awk '{ print $1 }' |
+        tr '\n' ' '
+}
+
+require_quiet_profiles() {
+    local pids
+    pids="$(running_app_pids '/Applications/Muxy\.app/Contents/MacOS/Muxy')"
+    [[ -z "${pids// /}" ]] ||
+        fail "quit the installed Muxy 1.x app (pids: ${pids% }) before staged verification: it writes $LEGACY_SWIFT_PROFILE while a case runs"
+    pids="$(running_app_pids '.*/target/(debug|release)/Muxy\.app/Contents/MacOS/muxy')"
+    [[ -z "${pids// /}" ]] ||
+        fail "quit the development Muxy app (pids: ${pids% }) before staged verification: it writes $PRODUCTION_DEBUG_PROFILE while a case runs"
 }
 
 compare_snapshots() {
@@ -453,6 +470,294 @@ persistent_contracts() {
     cargo test -p muxy terminal::session --locked --offline
     cargo test -p muxy migration --locked --offline
     printf 'P8 persistent contracts passed\n'
+}
+
+idle_parity() {
+    cargo test -p muxy-terminal offline --locked --offline
+    cargo test -p muxy terminal::offline --locked --offline
+    cargo test -p muxy terminal::surfaces --locked --offline
+    if rg -n 'terminal::offline|OfflineRuntime|terminalOffline' crates/muxy/src/quick_terminal; then
+        fail "Quick Terminal entered the workspace idle-freeing runtime"
+    fi
+    ! rg -q 'worktree\.offline' crates/muxy/src crates/muxy-core/src crates/muxy-terminal/src || \
+        fail "P8 added a worktree offline event"
+    ! rg -q 'proc_pid_rusage|showResourceUsageInStatusBar' crates/muxy/src crates/muxy-terminal/src || \
+        fail "P8 added a terminal resource monitor"
+    printf 'P8 idle parity contracts passed\n'
+}
+
+idle_control() {
+    local app_support="$1" request="$2" request_path pending_path result_path
+    request_path="$app_support/.muxy-test-p8-idle"
+    pending_path="$app_support/.muxy-test-p8-idle.pending"
+    result_path="$app_support/.muxy-test-p8-idle-result"
+    rm -f -- "$pending_path" "$result_path"
+    printf '%s\n' "$request" > "$pending_path"
+    mv -- "$pending_path" "$request_path"
+    wait_for_path "$result_path" file 200 || fail "idle control request timed out: $request"
+    printf '%s\n' "$(<"$result_path")"
+}
+
+wait_for_idle_status() {
+    local app_support="$1" pane_id="$2" expected="$3" attempt observed
+    attempt=0
+    while ((attempt < 200)); do
+        observed="$(idle_control "$app_support" "status|$pane_id")"
+        [[ "$observed" == "$expected" ]] && return 0
+        sleep 0.05
+        ((attempt += 1))
+    done
+    printf 'last idle state for %s: %s\n' "$pane_id" "$observed" >&2
+    return 1
+}
+
+enable_idle_fixture() {
+    local app_support="$1" persistent="$2" output="$1/preferences-idle.json"
+    jq --argjson persistent "$persistent" \
+        '."muxy.terminalPersistentSession.enabled" = $persistent |
+         ."muxy.terminalOffline.enabled" = true |
+         ."muxy.terminalOffline.idleThresholdSeconds" = 300' \
+        "$app_support/preferences.json" > "$output"
+    chmod 0600 "$output"
+    mv "$output" "$app_support/preferences.json"
+}
+
+close_idle_app() {
+    local app_support="$1" app_pid="$2" log="$3" status
+    printf '%s\n' close > "$app_support/.muxy-test-close-main-window"
+    for _ in {1..600}; do
+        ! kill -0 "$app_pid" 2>/dev/null && break
+        sleep 0.05
+    done
+    kill -0 "$app_pid" 2>/dev/null && fail "idle staged app did not close normally"
+    status=0
+    wait "$app_pid" || status=$?
+    [[ "$status" == 0 ]] || {
+        sed -n '1,240p' "$log"
+        fail "idle staged app exited with status $status"
+    }
+}
+
+run_idle_direct() {
+    local mode="$1" source_app staged_app case_root app_support executable cli socket log app_pid
+    local pane_id idle_pane focus_pane running_pane alternate_pane idle_directory before after
+    pane_id="22222222-3333-4444-8555-666666666666"
+    source_app="$PROJECT_ROOT/target/$mode/Muxy.app"
+    [[ -d "$source_app" ]] || fail "bundle not found: $source_app"
+    staged_app="$("$SCRIPT_DIR/stage-test-app.sh" "$source_app" "p8-$mode-idle-direct")"
+    validate_staged_app "$staged_app"
+    case_root="$VERIFICATION_ROOT/id"
+    [[ "$mode" == release ]] && case_root="$VERIFICATION_ROOT/rid"
+    prepare_case "$case_root"
+    app_support="$case_root/s"
+    mkdir -p "$app_support/home" "$app_support/tmp" "$app_support/xdg"
+    write_persistent_fixture "$app_support"
+    enable_idle_fixture "$app_support" false
+    idle_directory="$app_support/direct-cwd"
+    mkdir -p "$idle_directory"
+    executable="$staged_app/Contents/MacOS/MuxyTests"
+    cli="$staged_app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+    socket="$app_support/muxy-dev.sock"
+    [[ "$mode" == release ]] && socket="$app_support/muxy.sock"
+    log="$case_root/app.log"
+    before="$case_root/production-before"
+    after="$case_root/production-after"
+    snapshot_production "$before"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        MUXY_TEST_CLOSE_MAIN_WINDOW_REQUEST=1 \
+        MUXY_TEST_P8_IDLE=1 \
+        HOME="$app_support/home" \
+        CFFIXED_USER_HOME="$app_support/home" \
+        TMPDIR="$app_support/tmp/" \
+        XDG_CONFIG_HOME="$app_support/xdg" \
+    "$executable" > "$log" 2>&1 &
+    app_pid=$!
+    track_pid "$app_pid"
+    trap cleanup_tracked EXIT
+    wait_for_cli "$cli" "$socket" "$case_root/panes.txt" || {
+        sed -n '1,240p' "$log"
+        fail "direct idle app did not become ready"
+    }
+    wait_for_screen_text "$cli" "$socket" "$pane_id" '.' "$case_root/initial.txt" || \
+        fail "direct fixture terminal did not materialize"
+    idle_pane="$pane_id"
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$idle_pane" \
+        ":; if cd '$idle_directory'; then echo P8_DIRECT_CWD_SET; else echo P8_DIRECT_CWD_BAD; fi; echo P8_DIRECT_SCROLLBACK; :"
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$idle_pane" Enter
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" '^P8_DIRECT_CWD_SET$' \
+        "$case_root/direct-before.txt" || fail "direct idle pane did not enter its fixture directory"
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" '^P8_DIRECT_SCROLLBACK$' \
+        "$case_root/direct-before.txt" || fail "direct idle pane did not execute its fixture command"
+    focus_pane="$(MUXY_SOCKET_PATH="$socket" "$cli" split-right --from "$pane_id")"
+    [[ "$focus_pane" =~ ^[0-9A-F-]{36}$ ]] || fail "direct focus split did not return a pane ID"
+    MUXY_SOCKET_PATH="$socket" "$cli" switch-tab "$focus_pane" >/dev/null
+    wait_for_screen_text "$cli" "$socket" "$focus_pane" '.' "$case_root/focus.txt" || \
+        fail "direct focus pane did not materialize"
+    [[ "$(idle_control "$app_support" "status|$focus_pane")" == live ]] || \
+        fail "focused pane was not live before the idle scan"
+    [[ "$(idle_control "$app_support" "age|$idle_pane|400")" == ok ]] || \
+        fail "direct idle pane could not be aged"
+    if ! wait_for_idle_status "$app_support" "$idle_pane" offline; then
+        idle_control "$app_support" "probe|$idle_pane" >&2
+        fail "direct idle pane was not freed"
+    fi
+    [[ "$(idle_control "$app_support" "status|$focus_pane")" == live ]] || \
+        fail "focused pane was freed"
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" '.' "$case_root/direct-after.txt" || \
+        fail "external read did not wake the direct pane"
+    rg -q 'P8_DIRECT_SCROLLBACK' "$case_root/direct-after.txt" && \
+        fail "direct wake retained old scrollback"
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$idle_pane" \
+        ":; if test \"\$PWD\" = '$idle_directory'; then echo P8_DIRECT_CWD_OK; else echo P8_DIRECT_CWD_BAD; fi; :"
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$idle_pane" Enter
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" '^P8_DIRECT_CWD_OK$' \
+        "$case_root/direct-cwd.txt" || \
+        fail "direct wake did not restore the latest directory"
+    MUXY_SOCKET_PATH="$socket" "$cli" switch-tab "$focus_pane" >/dev/null
+    [[ "$(idle_control "$app_support" "age|$idle_pane|400")" == ok ]] || \
+        fail "direct pane could not be aged before disable"
+    wait_for_idle_status "$app_support" "$idle_pane" offline || fail "direct pane did not free before disable"
+    [[ "$(idle_control "$app_support" disable)" == ok ]] || fail "idle freeing could not be disabled"
+    [[ "$(idle_control "$app_support" "status|$idle_pane")" != offline ]] || \
+        fail "disable retained the direct pane's offline record"
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" '.' "$case_root/disable-wake.txt" || \
+        fail "disable did not rematerialize the direct pane"
+    wait_for_idle_status "$app_support" "$idle_pane" live || \
+        fail "disabled direct pane did not become live"
+    [[ "$(idle_control "$app_support" 'enable|300')" == ok ]] || fail "idle freeing could not be re-enabled"
+    running_pane="$(MUXY_SOCKET_PATH="$socket" "$cli" split-right --from "$focus_pane")"
+    wait_for_screen_text "$cli" "$socket" "$running_pane" '.' "$case_root/running-ready.txt" || \
+        fail "running-process pane did not materialize"
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$running_pane" ':; sleep 60; :'
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$running_pane" Enter
+    wait_for_screen_text "$cli" "$socket" "$running_pane" 'sleep 60' "$case_root/running.txt" || \
+        fail "running-process command was not entered"
+    sleep 0.5
+    MUXY_SOCKET_PATH="$socket" "$cli" switch-tab "$focus_pane" >/dev/null
+    [[ "$(idle_control "$app_support" "age|$running_pane|400")" == ok ]] || \
+        fail "running pane could not be aged"
+    sleep 1
+    [[ "$(idle_control "$app_support" "status|$running_pane")" == live ]] || \
+        fail "running process pane was freed"
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$running_pane" Ctrl+C
+    alternate_pane="$(MUXY_SOCKET_PATH="$socket" "$cli" split-right --from "$focus_pane")"
+    wait_for_screen_text "$cli" "$socket" "$alternate_pane" '.' "$case_root/alternate-ready.txt" || \
+        fail "alternate-screen pane did not materialize"
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$alternate_pane" ':; tput smcup; :'
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$alternate_pane" Enter
+    sleep 0.5
+    MUXY_SOCKET_PATH="$socket" "$cli" switch-tab "$focus_pane" >/dev/null
+    [[ "$(idle_control "$app_support" "age|$alternate_pane|400")" == ok ]] || \
+        fail "alternate-screen pane could not be aged"
+    sleep 1
+    [[ "$(idle_control "$app_support" "status|$alternate_pane")" == live ]] || \
+        fail "alternate-screen pane was freed"
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$alternate_pane" ':; tput rmcup; :'
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$alternate_pane" Enter
+    close_idle_app "$app_support" "$app_pid" "$log"
+    cleanup_tracked
+    trap - EXIT
+    snapshot_production "$after"
+    compare_snapshots "$before" "$after"
+    printf 'P8 staged %s direct idle freeing passed\n' "$mode"
+}
+
+run_idle_persistent() {
+    local mode="$1" source_app staged_app case_root app_support session_root session_socket
+    local executable cli socket log app_pid daemon_pid shell_pid pane_id idle_pane focus_pane idle_directory count_file before after
+    pane_id="22222222-3333-4444-8555-666666666666"
+    source_app="$PROJECT_ROOT/target/$mode/Muxy.app"
+    [[ -d "$source_app" ]] || fail "bundle not found: $source_app"
+    staged_app="$("$SCRIPT_DIR/stage-test-app.sh" "$source_app" "p8-$mode-idle-persistent")"
+    validate_staged_app "$staged_app"
+    case_root="$VERIFICATION_ROOT/ip"
+    [[ "$mode" == release ]] && case_root="$VERIFICATION_ROOT/rip"
+    prepare_case "$case_root"
+    app_support="$case_root/s"
+    mkdir -p "$app_support/home" "$app_support/tmp" "$app_support/xdg"
+    write_persistent_fixture "$app_support"
+    enable_idle_fixture "$app_support" true
+    idle_directory="$app_support/persistent-cwd"
+    mkdir -p "$idle_directory"
+    count_file="$case_root/startup-count.txt"
+    session_root="$(prepare_session_root)"
+    session_socket="$session_root/control.sock"
+    executable="$staged_app/Contents/MacOS/MuxyTests"
+    cli="$staged_app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
+    socket="$app_support/muxy-dev.sock"
+    [[ "$mode" == release ]] && socket="$app_support/muxy.sock"
+    log="$case_root/app.log"
+    before="$case_root/production-before"
+    after="$case_root/production-after"
+    snapshot_production "$before"
+    MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
+        MUXY_TEST_P8_SESSION_SOCKET_PATH="$session_socket" \
+        MUXY_TEST_CLOSE_MAIN_WINDOW_REQUEST=1 \
+        MUXY_TEST_P8_IDLE=1 \
+        HOME="$app_support/home" \
+        CFFIXED_USER_HOME="$app_support/home" \
+        TMPDIR="$app_support/tmp/" \
+        XDG_CONFIG_HOME="$app_support/xdg" \
+    "$executable" > "$log" 2>&1 &
+    app_pid=$!
+    track_pid "$app_pid"
+    trap cleanup_tracked EXIT
+    wait_for_cli "$cli" "$socket" "$case_root/panes.txt" || {
+        sed -n '1,240p' "$log"
+        fail "persistent idle app did not become ready"
+    }
+    wait_for_screen_text "$cli" "$socket" "$pane_id" '.' "$case_root/initial.txt" || \
+        fail "persistent fixture terminal did not materialize"
+    wait_for_path "$session_socket" socket 200 || fail "persistent idle daemon was not created"
+    idle_pane="$(MUXY_SOCKET_PATH="$socket" "$cli" split-right --from "$pane_id" \
+        "printf 'started\\n' >> '$count_file'")"
+    [[ "$idle_pane" =~ ^[0-9A-F-]{36}$ ]] || fail "persistent idle split did not return a pane ID"
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$idle_pane" \
+        ":; if cd '$idle_directory'; then echo P8_PERSISTENT_CWD_SET; else echo P8_PERSISTENT_CWD_BAD; fi; echo P8_PERSISTENT_SCROLLBACK; :"
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$idle_pane" Enter
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" '^P8_PERSISTENT_CWD_SET$' \
+        "$case_root/persistent-before.txt" || fail "persistent idle pane did not enter its fixture directory"
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" '^P8_PERSISTENT_SCROLLBACK$' \
+        "$case_root/persistent-before.txt" || fail "persistent idle pane did not execute its fixture command"
+    focus_pane="$(MUXY_SOCKET_PATH="$socket" "$cli" split-right --from "$pane_id")"
+    [[ "$focus_pane" =~ ^[0-9A-F-]{36}$ ]] || fail "persistent focus split did not return a pane ID"
+    MUXY_SOCKET_PATH="$socket" "$cli" switch-tab "$focus_pane" >/dev/null
+    wait_for_screen_text "$cli" "$socket" "$focus_pane" '.' "$case_root/focus.txt" || \
+        fail "persistent focus pane did not materialize"
+    daemon_pid="$(ps -axo pid=,command= | awk -v socket="$session_socket" \
+        '!found && $0 ~ /muxy-session-v2 daemon/ && $0 ~ /--socket/ && index($0, socket) { print $1; found = 1 }')"
+    [[ "$daemon_pid" =~ ^[1-9][0-9]*$ ]] || fail "persistent idle daemon PID was not found"
+    track_session_daemon "$daemon_pid" "$staged_app/Contents/MacOS/muxy-session-v2" "$session_socket"
+    shell_pid="$(session_shell_for_directory "$daemon_pid" "$idle_directory" || true)"
+    [[ "$shell_pid" =~ ^[1-9][0-9]*$ ]] || fail "persistent idle shell PID was not found"
+    track_pid "$shell_pid" "$daemon_pid"
+    [[ "$(idle_control "$app_support" "age|$idle_pane|400")" == ok ]] || \
+        fail "persistent idle pane could not be aged"
+    if ! wait_for_idle_status "$app_support" "$idle_pane" offline; then
+        idle_control "$app_support" "probe|$idle_pane" >&2
+        fail "persistent idle pane was not freed"
+    fi
+    kill -0 "$shell_pid" 2>/dev/null || fail "persistent shell died when its surface was freed"
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" 'P8_PERSISTENT_SCROLLBACK' \
+        "$case_root/persistent-after.txt" || fail "persistent wake did not replay output"
+    [[ "$(wc -l < "$count_file" | tr -d '[:space:]')" == 1 ]] || \
+        fail "persistent wake reran the one-shot startup command"
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$idle_pane" \
+        ":; if test \"\$PWD\" = '$idle_directory'; then echo P8_PERSISTENT_CWD_OK; else echo P8_PERSISTENT_CWD_BAD; fi; :"
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$idle_pane" Enter
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" '^P8_PERSISTENT_CWD_OK$' \
+        "$case_root/persistent-cwd.txt" || \
+        fail "persistent wake lost the daemon directory"
+    close_pane_checked "$cli" "$socket" "$focus_pane" >/dev/null
+    close_pane_checked "$cli" "$socket" "$idle_pane" >/dev/null
+    close_pane_checked "$cli" "$socket" "$pane_id" >/dev/null
+    close_idle_app "$app_support" "$app_pid" "$log"
+    cleanup_tracked
+    trap - EXIT
+    remove_session_root "$session_root"
+    snapshot_production "$after"
+    compare_snapshots "$before" "$after"
+    printf 'P8 staged %s persistent idle freeing passed\n' "$mode"
 }
 
 write_persistent_fixture() {
@@ -658,8 +963,13 @@ run_session_recovery() {
     jq -e --arg pane "$pane_id" \
         '.. | objects | select(.id? == $pane) | .rustPersistentSession == true' \
         "$app_support/workspaces.json" >/dev/null || fail "session establishment was not published"
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$pane_id" Ctrl+C
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$pane_id" ':; echo P8_SESSION_READY; :'
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$pane_id" Enter
+    wait_for_screen_text "$cli" "$socket" "$pane_id" '^P8_SESSION_READY$' \
+        "$case_root/session-ready.txt" || fail "session shell did not become ready"
     MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$pane_id" \
-        "i=0; while [ \$i -lt 120 ]; do echo P8_ABSENT_\$i; i=\$((i+1)); sleep 0.05; done"
+        ":; i=0; while [ \$i -lt 120 ]; do echo P8_ABSENT_\$i; i=\$((i+1)); sleep 0.05; done; :"
     MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$pane_id" Enter
     wait_for_screen_text "$cli" "$socket" "$pane_id" 'P8_ABSENT_[0-9]+' \
         "$case_root/before-crash.txt" || fail "session command did not start"
@@ -706,7 +1016,7 @@ run_session_recovery() {
     rg -q "^$pane_id" "$case_root/second-panes.txt" || fail "recovered tab identity changed"
     wait_for_screen_text "$cli" "$socket" "$pane_id" 'P8_ABSENT_(1[0-9]|[2-9][0-9])' \
         "$case_root/after-crash.txt" || fail "absent-period output did not replay"
-    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$pane_id" 'echo P8_POST_RECOVERY'
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$pane_id" ':; echo P8_POST_RECOVERY; :'
     MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$pane_id" Enter
     wait_for_screen_text "$cli" "$socket" "$pane_id" 'P8_POST_RECOVERY' \
         "$case_root/post-recovery.txt" || fail "post-recovery input/output failed"
@@ -1188,7 +1498,7 @@ run_disable_restart() {
 
 run_restart_failure_case() {
     local mode="$1" point="$2" initially_enabled="$3" staged_app="$4" case_root="$5" before="$6"
-    local app_support session_root session_socket executable helper cli socket pane_id app_pid daemon_pid shell_pid status log expected
+    local app_support session_root session_socket executable helper cli socket pane_id app_pid daemon_pid shell_pid status log expected completion
     pane_id="22222222-3333-4444-8555-666666666666"
     prepare_case "$case_root"
     app_support="$case_root/s"
@@ -1207,6 +1517,7 @@ run_restart_failure_case() {
     cli="$staged_app/Contents/Resources/Muxy_Muxy.bundle/scripts/muxy-cli"
     socket="$app_support/muxy-dev.sock"
     [[ "$mode" == release ]] && socket="$app_support/muxy.sock"
+    completion="$app_support/.muxy-test-p8-restart-failure-complete"
     log="$case_root/app.log"
     MUXY_TEST_APPLICATION_SUPPORT_DIRECTORY="$app_support" \
         MUXY_TEST_P8_SESSION_SOCKET_PATH="$session_socket" \
@@ -1255,9 +1566,9 @@ run_restart_failure_case() {
         printf '%s\n' enable > "$app_support/.muxy-test-p8-enable-restart"
         wait_for_path "$app_support/.muxy-test-p8-enable-restart" missing 100 || \
             fail "$point enable request was not handled"
-        sleep 2.5
         expected=false
     fi
+    wait_for_path "$completion" file 600 || fail "$point transaction did not complete"
     kill -0 "$app_pid" 2>/dev/null || fail "$point restarted the app after an injected failure"
     for _ in {1..200}; do
         jq -e --argjson expected "$expected" \
@@ -1387,9 +1698,11 @@ case "${1:-}" in
         ;;
     --fixture)
         (($# == 2)) || fail "usage: scripts/verify-p8-terminal-memory.sh --fixture CASE"
-        [[ "$2" == scope || "$2" == persistent-contracts ]] || fail "unsupported fixture: $2"
+        [[ "$2" == scope || "$2" == persistent-contracts || "$2" == idle-parity ]] || fail "unsupported fixture: $2"
         if [[ "$2" == scope ]]; then
             scope_checks
+        elif [[ "$2" == idle-parity ]]; then
+            idle_parity
         else
             persistent_contracts
         fi
@@ -1398,10 +1711,11 @@ case "${1:-}" in
         (($# == 4)) || fail "usage: scripts/verify-p8-terminal-memory.sh --mode PROFILE --case CASE"
         [[ "$2" == debug || "$2" == release ]] || fail "profile must be debug or release"
         [[ "$3" == --case ]] || fail "missing staged case"
-        [[ "$4" == launch-close || "$4" == daemon-harness || "$4" == crash-recovery || "$4" == normal-recovery || "$4" == recovery-states || "$4" == fallback-recovery || "$4" == enable-restart || "$4" == disable-restart || "$4" == restart-failures ]] || fail "unsupported staged case"
+        [[ "$4" == launch-close || "$4" == daemon-harness || "$4" == crash-recovery || "$4" == normal-recovery || "$4" == recovery-states || "$4" == fallback-recovery || "$4" == enable-restart || "$4" == disable-restart || "$4" == restart-failures || "$4" == idle-direct || "$4" == idle-persistent ]] || fail "unsupported staged case"
         for command_name in cargo codesign plutil; do
             require_command "$command_name"
         done
+        require_quiet_profiles
         case "$4" in
             launch-close) run_launch_close "$2" ;;
             daemon-harness) run_daemon_harness "$2" ;;
@@ -1412,9 +1726,11 @@ case "${1:-}" in
             enable-restart) run_enable_restart "$2" ;;
             disable-restart) run_disable_restart "$2" ;;
             restart-failures) run_restart_failures "$2" ;;
+            idle-direct) run_idle_direct "$2" ;;
+            idle-persistent) run_idle_persistent "$2" ;;
         esac
         ;;
     *)
-        fail "usage: scripts/verify-p8-terminal-memory.sh --self-test | --fixture scope|persistent-contracts | --mode PROFILE --case CASE"
+        fail "usage: scripts/verify-p8-terminal-memory.sh --self-test | --fixture scope|persistent-contracts|idle-parity | --mode PROFILE --case CASE"
         ;;
 esac

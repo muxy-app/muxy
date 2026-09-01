@@ -54,7 +54,10 @@ impl TerminalSurfaces {
         transaction: TerminalInputTransaction,
     ) -> (async_channel::Receiver<TerminalInputResult>, Option<u64>) {
         let (sender, receiver) = async_channel::bounded(1);
-        if self.handle(tab_id).is_none() {
+        if self.handle(tab_id).is_none()
+            && !self.wake_offline(tab_id)
+            && !self.materialization_pending(tab_id)
+        {
             let _ = sender.try_send(Err(TerminalInputError::MissingSurface));
             return (receiver, None);
         }
@@ -313,6 +316,7 @@ impl MainWindow {
             .enqueue_input_transaction(&tab_id, transaction);
         if let Some(generation) = worker_generation {
             self.start_terminal_input_worker(tab_id, generation, cx);
+            cx.notify();
         }
         completion
     }
@@ -325,6 +329,20 @@ impl MainWindow {
     ) {
         cx.spawn(async move |window, cx| {
             loop {
+                let mut surface_ready = false;
+                for _ in 0..40 {
+                    surface_ready = window
+                        .update(cx, |window, _| {
+                            window.terminal_runtime.surfaces.handle(&tab_id).is_some()
+                        })
+                        .unwrap_or(false);
+                    if surface_ready {
+                        break;
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                }
                 let active = window
                     .update(cx, |window, _| {
                         window
@@ -337,6 +355,17 @@ impl MainWindow {
                 let Some(active) = active else {
                     return;
                 };
+                if !surface_ready {
+                    let _ = window.update(cx, |window, _| {
+                        window.terminal_runtime.surfaces.complete_input_transaction(
+                            &tab_id,
+                            generation,
+                            active.id,
+                            Err(TerminalInputError::MissingSurface),
+                        )
+                    });
+                    return;
+                }
                 let mut result = Ok(());
                 let mut submitted_lines = 0;
                 for step in &active.transaction.steps {

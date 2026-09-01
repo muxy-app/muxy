@@ -53,6 +53,9 @@ const TEST_P8_ENABLE_REQUEST_FILE: &str = ".muxy-test-p8-enable-restart";
 const TEST_P8_RECOVERY_REQUEST_ENV: &str = "MUXY_TEST_P8_RECOVERY_ACTION";
 const TEST_P8_RECONNECT_REQUEST_FILE: &str = ".muxy-test-p8-reconnect";
 const TEST_P8_START_FRESH_REQUEST_FILE: &str = ".muxy-test-p8-start-fresh";
+const TEST_P8_IDLE_REQUEST_ENV: &str = "MUXY_TEST_P8_IDLE";
+const TEST_P8_IDLE_REQUEST_FILE: &str = ".muxy-test-p8-idle";
+const TEST_P8_IDLE_RESULT_FILE: &str = ".muxy-test-p8-idle-result";
 const WATCHER_DEBOUNCE_MS: u64 = 300;
 
 fn test_close_request_path(
@@ -139,6 +142,13 @@ fn staged_p8_recovery_request_paths() -> Option<(PathBuf, PathBuf)> {
             TEST_P8_RECOVERY_REQUEST_ENV,
             TEST_P8_START_FRESH_REQUEST_FILE,
         )?,
+    ))
+}
+
+fn staged_p8_idle_request_paths() -> Option<(PathBuf, PathBuf)> {
+    Some((
+        staged_owned_request_path(TEST_P8_IDLE_REQUEST_ENV, TEST_P8_IDLE_REQUEST_FILE)?,
+        staged_owned_request_path(TEST_P8_IDLE_REQUEST_ENV, TEST_P8_IDLE_RESULT_FILE)?,
     ))
 }
 
@@ -446,6 +456,124 @@ impl MainWindow {
             })
             .detach();
         }
+        if let Some((request_path, result_path)) = staged_p8_idle_request_paths() {
+            let staged_result_path =
+                result_path.with_file_name(".muxy-test-p8-idle-result.pending");
+            let window_handle = main_window.window_handle.downcast::<MainWindow>();
+            cx.spawn(async move |_, cx| {
+                for _ in 0..2400 {
+                    if request_path.is_file() {
+                        let request = std::fs::read_to_string(&request_path).unwrap_or_default();
+                        let _ = std::fs::remove_file(&request_path);
+                        let result = if let Some(window_handle) = window_handle {
+                            window_handle
+                                .update(cx, |window, _, cx| {
+                                    let fields = request.trim().split('|').collect::<Vec<_>>();
+                                    match fields.as_slice() {
+                                        ["status", tab_id] => {
+                                            if window.terminal_runtime.surfaces.is_offline(tab_id) {
+                                                "offline".to_owned()
+                                            } else if window
+                                                .terminal_runtime
+                                                .surfaces
+                                                .handle(tab_id)
+                                                .is_some()
+                                            {
+                                                "live".to_owned()
+                                            } else {
+                                                "missing".to_owned()
+                                            }
+                                        }
+                                        ["probe", tab_id] => {
+                                            let now = window.elapsed();
+                                            window
+                                                .terminal_runtime
+                                                .surfaces
+                                                .offline_probes(
+                                                    &window.state.tab_workspaces,
+                                                    now,
+                                                )
+                                                .into_iter()
+                                                .find(|probe| probe.tab_id == *tab_id)
+                                                .map(|probe| {
+                                                    format!(
+                                                        "pid={:?}|alternate={:?}|activity={:?}|confirm={}|persistent={}",
+                                                        probe.foreground_pid,
+                                                        probe.alternate_screen,
+                                                        probe.direct_activity,
+                                                        probe.needs_confirm_close,
+                                                        probe.persistent
+                                                    )
+                                                })
+                                                .unwrap_or_else(|| "not-candidate".to_owned())
+                                        }
+                                        ["age", tab_id, seconds] => match seconds.parse::<u64>() {
+                                            Ok(seconds) => {
+                                                let now = window.elapsed();
+                                                window
+                                                    .terminal_runtime
+                                                    .surfaces
+                                                    .stage_invisible_for(
+                                                        tab_id,
+                                                        Duration::from_secs(seconds),
+                                                        now,
+                                                    );
+                                                window.scan_terminal_offline(cx);
+                                                "ok".to_owned()
+                                            }
+                                            Err(_) => "error:invalid duration".to_owned(),
+                                        },
+                                        ["enable", seconds] => match seconds.parse::<f64>() {
+                                            Ok(seconds) if seconds.is_finite() && seconds > 0.0 => {
+                                                let enabled = muxy_core::prefs::settings::try_set(
+                                                    crate::terminal::offline::ENABLED_SETTING,
+                                                    serde_json::Value::Bool(true),
+                                                );
+                                                let threshold = muxy_core::prefs::settings::try_set(
+                                                    crate::terminal::offline::IDLE_THRESHOLD_SETTING,
+                                                    serde_json::Value::from(seconds),
+                                                );
+                                                match enabled.and(threshold) {
+                                                    Ok(()) => {
+                                                        window.reload_terminal_offline(cx);
+                                                        "ok".to_owned()
+                                                    }
+                                                    Err(error) => format!("error:{error}"),
+                                                }
+                                            }
+                                            _ => "error:invalid duration".to_owned(),
+                                        },
+                                        ["disable"] => {
+                                            match muxy_core::prefs::settings::try_set(
+                                                crate::terminal::offline::ENABLED_SETTING,
+                                                serde_json::Value::Bool(false),
+                                            ) {
+                                                Ok(()) => {
+                                                    window.reload_terminal_offline(cx);
+                                                    "ok".to_owned()
+                                                }
+                                                Err(error) => format!("error:{error}"),
+                                            }
+                                        }
+                                        _ => "error:invalid request".to_owned(),
+                                    }
+                                })
+                                .unwrap_or_else(|_| "error:window unavailable".to_owned())
+                        } else {
+                            "error:window unavailable".to_owned()
+                        };
+                        if std::fs::write(&staged_result_path, result).is_ok() {
+                            let _ = std::fs::rename(&staged_result_path, &result_path);
+                        }
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                }
+            })
+            .detach();
+        }
+        main_window.reload_terminal_offline(cx);
         main_window.refresh_project_truth(None, cx);
         cx.set_menus(menu_bar::menus(&main_window.state));
         main_window

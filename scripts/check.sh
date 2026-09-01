@@ -201,7 +201,7 @@ check_boundary muxy-terminal 'gpui|muxy[-_]api|muxy[-_]ui'
 check_boundary muxy-ui 'muxy[-_]core|muxy[-_]api|muxy[-_]terminal|ghostty'
 
 printf '==> Checking the terminal backend boundary\n'
-if rg -n 'objc2|ghostty_host|ghostty_sys|NativeView|NSView' \
+if rg -n 'objc2|ghostty_host|ghostty_sys|NativeView|NSView|SystemProcessInspector|ProcessInspector|ProcessInfo|TtyProcessEntry|muxy_terminal::process' \
     crates/muxy/src/views crates/muxy-core/src/workspace; then
     printf 'error: views and workspace must not name backend types\n' >&2
     exit 1
@@ -265,6 +265,9 @@ printf '==> Checking P6 integrated ownership and scope\n'
 
 printf '==> Checking P8 terminal-memory scope and boundaries\n'
 "$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture scope
+
+printf '==> Checking P8 idle-freeing parity\n'
+"$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture idle-parity
 
 printf '==> Checking Rust formatting\n'
 cargo fmt --all -- --check

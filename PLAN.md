@@ -83,8 +83,8 @@ flowchart TD
 | Notifications (toast/panel/desktop/sounds/navigation, OSC 9/777) | ❌ missing |
 | Quick Terminal (global hotkey, panel) | ⚠️ implemented; manual native acceptance pending |
 | Composer / rich input (+ drafts, attachments, broadcast) | ⚠️ implemented panel-only; manual native acceptance pending |
-| Idle terminal surface freeing | 🚧 P8 portable policy and Ghostty seams complete; app lifecycle pending |
-| Persistent tab-owned sessions (`muxy-session-v2` daemon + attach) | 🚧 P8 Rust protocol complete; runtime pending |
+| Idle terminal surface freeing | 🚧 P8 implemented and staged; final audit pending |
+| Persistent tab-owned sessions (`muxy-session-v2` daemon + attach) | 🚧 P8 implemented and staged; final audit pending |
 | `muxy.sock` server + verb dispatcher (3 entry surfaces) + CLI | ✅ P2 complete |
 | Extension platform (host, manifests, permissions, consent, audit, marketplace, surfaces) | ❌ missing |
 | Embedded browser (WKWebView, profiles, history, automation, cookie import) | ❌ missing |
@@ -186,6 +186,7 @@ Wire every inert control that has a backing feature: titlebar split/new-tab butt
 (b) Persistent sessions exist only for restart/crash continuity. Every local session is owned by its stable terminal-tab UUID, every recoverable tab reattaches automatically, and closing the tab terminates the complete session first. Recovery keeps layout and distinguishes unreachable **Reconnect** from daemon-confirmed missing **Start Fresh**. Enable and destructive disable require a native Restart Now/Cancel transaction and both default off. There is no tabless workflow, monitoring UI, manual reassignment, or public session CLI.
 (c) `muxy-session-v2` is clean Rust and uses a private `MXS2` bounded protocol, 256 KiB replay, versioned selected-profile socket namespace, same-UID peers, singleton locking, bounded queues/connections, full OS-session process reaping, and five-shell integration. It is not wire compatible with Swift. First production 2.x launch makes one bounded, terminally recorded legacy kill-all request without changing the Swift profile.
 The Phase 1 precondition exposes raw data, cell/alternate-screen reads, foreground PID, raw input, and occlusion through safe backend-neutral seams. Resource sampling, its setting, and any CPU/RAM status UI are removed.
+*Implementation status:* protocol, daemon, tab recovery, restart transactions, and live idle freeing are implemented. Combined debug/release verification and the P8 post-implementation audit remain before completion is declared.
 **Stage B extras outside P8:** general quit confirmation, general terminate-later cleanup, general relaunch infrastructure, deferred-startup ordering, press-and-hold registration, and tooltip defaults.
 *Stage B exit:* you live on the Rust app daily.
 

@@ -34,21 +34,28 @@ pub struct PersistentStartup {
 }
 
 impl PersistentStartup {
-    pub fn disabled() -> Self {
+    pub fn disabled(remote_projects: HashSet<String>) -> Self {
         Self {
             enabled: false,
             configuration: None,
             client: None,
             eligible_tabs: HashSet::new(),
-            remote_projects: HashSet::new(),
+            remote_projects,
             recovery: HashMap::new(),
         }
     }
 }
 
 pub fn prepare_startup(state: &mut AppState, mode: BuildMode) -> PersistentStartup {
+    let remote_projects = state
+        .workspace
+        .projects
+        .iter()
+        .filter(|project| project.is_remote())
+        .map(|project| project.id.to_ascii_uppercase())
+        .collect::<HashSet<_>>();
     if !muxy_core::prefs::settings::bool_value(PERSISTENT_SESSION_SETTING, false) {
-        return PersistentStartup::disabled();
+        return PersistentStartup::disabled(remote_projects);
     }
     let configuration =
         match SessionConfiguration::resolve(mode, &muxy_core::prefs::app_support_dir()) {
@@ -69,13 +76,6 @@ pub fn prepare_startup(state: &mut AppState, mode: BuildMode) -> PersistentStart
         .collect::<HashSet<_>>();
     let blocked = blocked_identities(state);
     let mut eligible_tabs = HashSet::new();
-    let remote_projects = state
-        .workspace
-        .projects
-        .iter()
-        .filter(|project| project.is_remote())
-        .map(|project| project.id.to_ascii_uppercase())
-        .collect::<HashSet<_>>();
     let mut recovery = HashMap::new();
     for workspace in state.tab_workspaces.states() {
         let remote = state

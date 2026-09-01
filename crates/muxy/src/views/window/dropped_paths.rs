@@ -108,7 +108,11 @@ impl MainWindow {
         cx: &mut Context<Self>,
     ) -> Option<async_channel::Receiver<muxy_terminal::input::TerminalInputResult>> {
         let payload = terminal_drop_payload(&dropped)?;
-        self.terminal_runtime.surfaces.handle(tab_id)?;
+        if self.terminal_runtime.surfaces.handle(tab_id).is_none()
+            && !self.terminal_runtime.surfaces.wake_offline(tab_id)
+        {
+            return None;
+        }
         let target = terminal_drop_target(self.state.tab_workspaces.states(), tab_id)?;
         if !self
             .state

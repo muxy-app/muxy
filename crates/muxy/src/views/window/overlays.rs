@@ -1906,6 +1906,7 @@ impl MainWindow {
             settings::SettingsEvent::SetPersistentSessions(enabled) => {
                 window.request_persistent_sessions(*enabled, cx)
             }
+            settings::SettingsEvent::ReloadTerminalOffline => window.reload_terminal_offline(cx),
         });
 
         window.focus(&modal.focus_handle(cx));
