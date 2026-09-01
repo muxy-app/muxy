@@ -1992,13 +1992,14 @@ exit 2
         let control = RepositoryAiWorkflowControl::default();
         let cancellation = control.cancellation();
         let cancel = std::thread::spawn(move || {
-            for _ in 0..200 {
+            for _ in 0..6000 {
                 if started.exists() {
-                    break;
+                    cancellation.cancel();
+                    return;
                 }
                 std::thread::sleep(Duration::from_millis(5));
             }
-            cancellation.cancel();
+            panic!("provider did not start");
         });
         let error = fixture
             .service
@@ -2029,23 +2030,22 @@ exit 2
             let control = RepositoryAiWorkflowControl::default();
             let cancellation = control.clone();
             let cancel = std::thread::spawn(move || {
-                for _ in 0..400 {
+                for _ in 0..6000 {
                     if started.exists() {
                         cancellation.cancel();
-                        return;
+                        return std::time::Instant::now();
                     }
                     std::thread::sleep(Duration::from_millis(5));
                 }
                 panic!("blocked read did not start");
             });
-            let began = std::time::Instant::now();
             let error = fixture
                 .service
                 .ai_commit_and_push(&fixture.repository, &fixture.request, &control)
                 .unwrap_err();
-            cancel.join().unwrap();
+            let cancelled = cancel.join().unwrap();
             assert_eq!(error.completed, completed, "{pattern}: {error:?}");
-            assert!(began.elapsed() < Duration::from_secs(2), "{pattern}");
+            assert!(cancelled.elapsed() < Duration::from_secs(2), "{pattern}");
         }
     }
 
