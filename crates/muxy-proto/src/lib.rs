@@ -2,6 +2,7 @@ pub mod extension;
 pub mod framing;
 pub mod hook;
 pub mod server;
+pub mod session;
 
 pub use extension::{
     EXTENSION_BROADCAST_HEAD, EXTENSION_LOCAL_EVENT_HEAD, EXTENSION_LOCAL_EVENT_MAX_NAME_LENGTH,

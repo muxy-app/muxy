@@ -28,7 +28,7 @@ flowchart TD
     sys --> lib["libghostty (C)"]
 ```
 
-`muxy-proto` is a headless downstream dependency for socket callers. It owns portable codecs, framing, session policy, extension correlation, and the Unix listener. The `muxy` binary owns command names, permissions, app state, terminal resolution, and lifecycle wiring. The protocol crate never depends back on `muxy`, GPUI, domain stores, terminal crates, Ghostty, or Objective-C libraries.
+`muxy-proto` is a headless downstream dependency for socket callers. It owns portable codecs, app-socket framing, the private Rust session protocol, extension correlation, and the Unix listener. The `muxy` binary owns command names, permissions, app state, terminal resolution, and lifecycle wiring. The protocol crate never depends back on `muxy`, GPUI, domain stores, terminal crates, Ghostty, or Objective-C libraries.
 
 ## Responsibilities
 
@@ -36,9 +36,9 @@ flowchart TD
 |---|---|---|---|
 | `muxy` | app entry, `AppState`, all views, commands, keymap, terminal glue, notification coordination and platform delivery | yes | terminal backend, UserNotifications, NSSound |
 | `muxy-api` | git, worktree lifecycle/hooks/locations, bounded subprocesses, project "truth", IDE detection, layouts, yaml, fs watcher, picker logic | no | Unix process-group edge only |
-| `muxy-proto` | portable wire types, strict codecs, framing, and transport policy | no | Unix transport edge only |
+| `muxy-proto` | portable wire types, strict app/session codecs, framing, and transport policy | no | Unix transport edge only |
 | `muxy-core` | prefs, settings catalog, shortcuts, navigation history, notification model/store/coalescing, stores, workspace/tab tree model | no | migration-only user-defaults access |
-| `muxy-terminal` | backend trait, surface signals, search, scrollbar, confirmation | no | ghostty impl |
+| `muxy-terminal` | backend trait, surface signals, search, scrollbar, confirmation, idle and process policy | no | ghostty and process-inspection edges |
 | `muxy-ui` | theme, icons, components, controls, text input, scrollbar | yes | SF Symbols |
 | `ghostty-host` | runtime, surface, config, input, mouse — safe API over FFI | no | yes |
 | `ghostty-sys` | raw bindgen bindings | no | yes |
@@ -83,7 +83,15 @@ flowchart LR
     RT -- "RuntimeEvent (async-channel)" --> BE
 ```
 
-Events flow back asynchronously: libghostty callbacks → `ghostty-host` `RuntimeEvent` channel → `muxy::terminal::TerminalEvents` → GPUI views.
+Events flow back asynchronously: libghostty callbacks → `ghostty-host` `RuntimeEvent` channel → `muxy::terminal::TerminalEvents` → GPUI views. Raw terminal output is copied into bounded neutral data events. Cell reads expose alternate-screen state, and surface teardown unregisters the raw-data callback before freeing libghostty ownership.
+
+## Terminal memory boundaries
+
+`muxy-proto::session` owns the Rust-only `MXS2` header, versioned JSON control payloads, raw terminal byte frames, bounded streaming decoder, and private recovery/control messages. It has no GPUI, workspace, or daemon policy. The application socket remains a separate pipe/NUL protocol and exposes no public session-management verbs.
+
+`muxy-terminal::offline` owns retained-parity eligibility, scan interval, interactive-shell classification, OSC 133 activity tracking with generation invalidation, persistent activity decisions, and neutral recovery states. `muxy-terminal::process` owns the process-inspection trait and pure foreground-TTY selection. Platform records and syscalls stay behind its target-gated system edge.
+
+`ghostty-host` owns raw callback lifetime and alternate-screen reads. `muxy` owns future timer scheduling, workspace/tab mutation, surface release and recreation, persistent recovery presentation, and settings transactions. Quick Terminal and remote terminals are excluded from the workspace idle owner.
 
 ## Quick Terminal stack
 
@@ -100,7 +108,7 @@ flowchart LR
 
 The shortcut service starts a replacement registration before publishing it, generation-guards callbacks, and stops the previous backend only after persistence succeeds. Double Shift always has a local monitor on macOS. An authorized listen-only event tap upgrades it to system-wide monitoring; denial or revocation leaves local monitoring available. Conventional key combinations use Carbon and do not require Input Monitoring.
 
-The Quick Terminal shell is not a workspace terminal or a background session. It starts in the user's home directory, receives only the selected app socket from Muxy's identity environment, and creates no project, worktree, pane, tab, hook, or daemon-session identity. One surface is retained while the panel is hidden, recreated after process exit, and terminated on disable or app shutdown.
+The Quick Terminal shell is not a workspace terminal or a persistent workspace session. It starts in the user's home directory, receives only the selected app socket from Muxy's identity environment, and creates no project, worktree, pane, tab, hook, or daemon-session identity. One surface is retained while the panel is hidden, recreated after process exit, and terminated on disable or app shutdown.
 
 The panel and terminal surface are prepared at their final constrained dimensions while hidden before every opening. Show and hide animate one Core Animation clipping mask around both GPUI chrome and the native terminal, so presentation does not resize the terminal viewport. The gear hides the panel and opens the main app's Quick Terminal settings category. Size, transparency, and blur writes are persisted without mutating the visible panel, then loaded during the next hidden preparation. Transparency is a continuous tint-alpha setting. GPUI exposes only opaque, transparent, and blurred window backgrounds, so a stored blur of zero selects transparent mode and any nonzero blur selects the same window-level blurred mode. Reduce Transparency or Increase Contrast forces an opaque effective appearance without rewriting stored values.
 

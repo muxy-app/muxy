@@ -85,7 +85,6 @@
 "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data." = "Anonymous crash reports help us fix bugs. Reports never include project paths, file contents, or personal data.";
 "An agent is waiting for your attention." = "An agent is waiting for your attention.";
 "App" = "App";
-"App & subprocess resource usage" = "App & subprocess resource usage";
 "App Default" = "App Default";
 "App Language" = "App Language";
 "App Transparency" = "App Transparency";
@@ -416,7 +415,6 @@
 "Hide Tips?" = "Hide Tips?";
 "Hide Home" = "Hide Home";
 "Hide from status bar" = "Hide from status bar";
-"Hide resource usage. Re-enable it in Settings → Interface." = "Hide resource usage. Re-enable it in Settings → Interface.";
 "Home Page" = "Home Page";
 "Horizontal Split Divider" = "Horizontal Split Divider";
 "Horizontal Tab Group Divider" = "Horizontal Tab Group Divider";
@@ -743,7 +741,6 @@
 "Reset from Current Settings" = "Reset from Current Settings";
 "Reset to Default" = "Reset to Default";
 "Reset to Defaults" = "Reset to Defaults";
-"Resource usage" = "Resource usage";
 "Resources" = "Resources";
 "Restore Default" = "Restore Default";
 "Restore Pane" = "Restore Pane";
@@ -765,7 +762,6 @@
 "Revoking removes the device's access. It will need to request approval again to reconnect." = "Revoking removes the device's access. It will need to request approval again to reconnect.";
 "Rich Input" = "Rich Input";
 "Right" = "Right";
-"After enabling background sessions and opening a new local terminal, right-click inside its unpinned terminal-only tab and choose Send to Background to close the tab without stopping its processes." = "After enabling background sessions and opening a new local terminal, right-click inside its unpinned terminal-only tab and choose Send to Background to close the tab without stopping its processes.";
 "Run New Terminals in the Background" = "Run New Terminals in the Background";
 "Run new terminals in the background" = "Run new terminals in the background";
 "Enable Run new terminals in the background in Settings → Terminal before opening a local terminal to keep it running after Muxy quits." = "Enable Run new terminals in the background in Settings → Terminal before opening a local terminal to keep it running after Muxy quits.";
@@ -806,7 +802,6 @@
 "Selected" = "Selected";
 "Selection" = "Selection";
 "Send" = "Send";
-"Send to Background" = "Send to Background";
 "Send Without Enter" = "Send Without Enter";
 "Send anonymous crash reports" = "Send anonymous crash reports";
 "Send to Active Pane" = "Send to Active Pane";
@@ -831,7 +826,6 @@
 "Show Home" = "Show Home";
 "Show Muxy Tip" = "Show Muxy Tip";
 "Show Tips" = "Show Tips";
-"Show Resource Usage in Status Bar" = "Show Resource Usage in Status Bar";
 "Show Status Bar" = "Show Status Bar";
 "Show Top Bar Actions" = "Show Top Bar Actions";
 "Show unread notification indicator on worktrees" = "Show unread notification indicator on worktrees";
@@ -1454,7 +1448,6 @@
 "Show Worktree Unread Indicator" = "Show Worktree Unread Indicator";
 "Shows a dot on worktrees with unread notifications in the worktree switcher." = "Shows a dot on worktrees with unread notifications in the worktree switcher.";
 "Shows a macOS notification when Muxy is not frontmost." = "Shows a macOS notification when Muxy is not frontmost.";
-"Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling." = "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling.";
 "Shows or hides the status bar." = "Shows or hides the status bar.";
 "Shows or hides the window-level controls on the right side of the top bar." = "Shows or hides the window-level controls on the right side of the top bar.";
 "Shows visible togglePanel extension icons in a right-hand rail below the title bar. Other topbar icons stay in the title bar. Off by default." = "Shows visible togglePanel extension icons in a right-hand rail below the title bar. Other topbar icons stay in the title bar. Off by default.";

@@ -317,8 +317,26 @@ phase_6_documentation_checks() {
     fi
 }
 
+p8_may_change_p6_locked_path() {
+    case "$1" in
+        Muxy/Resources/Localization/en.lproj/Localizable.strings|\
+        Muxy/Resources/scripts/muxy-cli|\
+        Muxy/Resources/skills/muxy-cli/SKILL.md|\
+        Muxy/Resources/skills/muxy-extension/SKILL.md|\
+        Muxy/Resources/tips.json|\
+        crates/muxy/src/socket/catalog.rs|\
+        crates/muxy-proto/src/lib.rs|\
+        crates/muxy-proto/src/session/codec.rs|\
+        crates/muxy-proto/src/session/message.rs|\
+        crates/muxy-proto/src/session/mod.rs)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 phase_6_scope_checks() {
-    local expected_manifests actual_manifests expected_bins actual_bins locked untracked
+    local expected_manifests actual_manifests expected_bins actual_bins locked path
     if rg -n 'static mut|thread_local!' \
         crates/muxy-core/src/quick_terminal crates/muxy-core/src/prefs/settings.rs \
         crates/muxy/src/quick_terminal; then
@@ -388,13 +406,21 @@ phase_6_scope_checks() {
         scripts/verify-bundle.sh \
         resources/Info.plist \
         .github; do
-        git diff --quiet -- "$locked" || fail "P6 changed locked path: $locked"
-        git diff --cached --quiet -- "$locked" || fail "P6 staged a change to locked path: $locked"
-        untracked="$(git ls-files --others --exclude-standard -- "$locked")"
-        [[ -z "$untracked" ]] || {
-            printf 'untracked locked paths:\n%s\n' "$untracked"
-            fail "P6 added an untracked file under locked path: $locked"
-        }
+        while IFS= read -r path; do
+            [[ -n "$path" ]] || continue
+            p8_may_change_p6_locked_path "$path" || fail "P6 changed locked path: $path"
+        done < <(git diff --name-only -- "$locked")
+        while IFS= read -r path; do
+            [[ -n "$path" ]] || continue
+            p8_may_change_p6_locked_path "$path" || fail "P6 staged a change to locked path: $path"
+        done < <(git diff --cached --name-only -- "$locked")
+        while IFS= read -r path; do
+            [[ -n "$path" ]] || continue
+            if ! p8_may_change_p6_locked_path "$path"; then
+                printf 'untracked locked path:\n%s\n' "$path"
+                fail "P6 added an untracked file under locked path: $locked"
+            fi
+        done < <(git ls-files --others --exclude-standard -- "$locked")
     done
 }
 

@@ -152,8 +152,22 @@ JSON
     chmod 0600 "$path"
 }
 
+p8_may_change_p5_locked_path() {
+    case "$1" in
+        Muxy/Resources/scripts/muxy-cli|\
+        crates/muxy/src/socket/catalog.rs|\
+        crates/muxy-proto/src/lib.rs|\
+        crates/muxy-proto/src/session/codec.rs|\
+        crates/muxy-proto/src/session/message.rs|\
+        crates/muxy-proto/src/session/mod.rs)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 source_checks() {
-    local changes matches
+    local changes matches line path remaining=""
     changes="$(git status --short --untracked-files=all -- \
         crates/muxy-proto \
         crates/muxy/src/socket/catalog.rs \
@@ -162,8 +176,13 @@ source_checks() {
         scripts/build-app.sh \
         scripts/verify-bundle.sh \
         .github || true)"
-    [[ -z "$changes" ]] || {
-        printf '%s\n' "$changes"
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        path="${line:3}"
+        p8_may_change_p5_locked_path "$path" || remaining+="${remaining:+$'\n'}$line"
+    done <<< "$changes"
+    [[ -z "$remaining" ]] || {
+        printf '%s\n' "$remaining"
         fail "a locked protocol, catalog, migration, CLI, bundle, or CI path changed"
     }
     "$PROJECT_ROOT/scripts/stage-test-app.sh" --self-test >/dev/null

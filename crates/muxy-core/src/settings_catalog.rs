@@ -142,7 +142,7 @@ const fn item(
     }
 }
 
-pub const fn items(mode: BuildMode) -> [Item; 73] {
+pub const fn items(mode: BuildMode) -> [Item; 72] {
     let mobile_keys = MobileSettingsPolicy::new(mode).keys();
     [
         item(
@@ -434,14 +434,6 @@ pub const fn items(mode: BuildMode) -> [Item; 73] {
             &[],
         ),
         item(
-            "muxy.showResourceUsageInStatusBar",
-            "Show Resource Usage in Status Bar",
-            "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling.",
-            Category::Appearance,
-            "Interface",
-            &[],
-        ),
-        item(
             "muxy.theme.light",
             "Light Terminal Theme",
             "Chooses the terminal theme for light appearance.",
@@ -545,8 +537,8 @@ pub const fn items(mode: BuildMode) -> [Item; 73] {
         ),
         item(
             "muxy.terminalPersistentSession.enabled",
-            "Run New Terminals in the Background",
-            "Runs new terminals in a background process so they survive quitting Muxy.",
+            "Preserve Terminals Across Restarts",
+            "Preserves local terminal sessions across app restarts and crashes. Changing it requires a restart.",
             Category::Terminal,
             "Background sessions",
             &[],
@@ -767,7 +759,7 @@ pub const fn items(mode: BuildMode) -> [Item; 73] {
     ]
 }
 
-pub const ITEMS: [Item; 73] = items(crate::build_mode!());
+pub const ITEMS: [Item; 72] = items(crate::build_mode!());
 
 fn haystack(item: &Item) -> String {
     let mut parts = vec![
@@ -889,8 +881,8 @@ mod tests {
             .enumerate()
             .filter_map(|(index, (left, right))| (left != right).then_some(index))
             .collect();
-        assert_eq!(development.len(), 73);
-        assert_eq!(production.len(), 73);
+        assert_eq!(development.len(), 72);
+        assert_eq!(production.len(), 72);
         assert_eq!(differences.len(), 3);
         for index in differences {
             assert!(development[index].key.ends_with(".dev"));

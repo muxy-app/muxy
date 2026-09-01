@@ -14,6 +14,7 @@ use crate::input::{KeyboardInput, Modifiers};
 use crate::mouse::{MouseButton, MouseButtonState, MousePressureStage, ScrollMetadata};
 use crate::runtime::{
     ClipboardRequestToken, GhosttyApp, MainThreadError, SurfaceUserdata, require_main_thread,
+    surface_data_callback,
 };
 
 static NEXT_SURFACE_ID: AtomicU64 = AtomicU64::new(1);
@@ -298,7 +299,11 @@ impl GhosttySurface {
             .collect::<Vec<_>>();
 
         let id = SurfaceId::allocate();
-        let userdata = Box::new(SurfaceUserdata::new(id, app.surface_event_sender()));
+        let userdata = Box::new(SurfaceUserdata::new(
+            id,
+            app.surface_event_sender(),
+            app.surface_data_event_sender(),
+        ));
         let mut storage = SurfaceStorage {
             working_directory,
             command,
@@ -339,6 +344,13 @@ impl GhosttySurface {
         let _environment_must_outlive_call = &storage.environment;
         let raw = unsafe { ffi::ghostty_surface_new(app.as_raw(), &config) };
         let raw = NonNull::new(raw).ok_or(SurfaceError::CreationReturnedNull)?;
+        unsafe {
+            ffi::ghostty_surface_set_data_callback(
+                raw.as_ptr(),
+                Some(surface_data_callback),
+                std::ptr::from_mut(storage.userdata.as_mut()).cast(),
+            )
+        };
 
         Ok(Self {
             raw,
@@ -567,23 +579,20 @@ impl GhosttySurface {
     }
 
     pub fn read_screen_text(&self, last_lines: usize) -> Option<String> {
-        self.assert_owner_thread();
-        let mut raw = ffi::ghostty_cells_s::default();
-        if !unsafe { ffi::ghostty_surface_read_cells(self.as_raw(), &mut raw) } {
-            return None;
-        }
-        let _guard = GhosttyCellsGuard {
-            surface: self.as_raw(),
-            cells: &mut raw,
-        };
-        let cols = usize::try_from(raw.cols).ok()?;
-        let rows = usize::try_from(raw.rows).ok()?;
-        let len = cols.checked_mul(rows)?;
-        if cols == 0 || rows == 0 || raw.cells.is_null() || len > raw.cells_len {
-            return Some(String::new());
-        }
-        let cells = unsafe { std::slice::from_raw_parts(raw.cells, len) };
-        Some(format_screen_cells(cells, cols, last_lines))
+        self.with_cells(|raw| {
+            let cols = usize::try_from(raw.cols).ok()?;
+            let rows = usize::try_from(raw.rows).ok()?;
+            let len = cols.checked_mul(rows)?;
+            if cols == 0 || rows == 0 || raw.cells.is_null() || len > raw.cells_len {
+                return Some(String::new());
+            }
+            let cells = unsafe { std::slice::from_raw_parts(raw.cells, len) };
+            Some(format_screen_cells(cells, cols, last_lines))
+        })?
+    }
+
+    pub fn is_alternate_screen(&self) -> Option<bool> {
+        self.with_cells(|raw| raw.alt_screen)
     }
 
     pub fn quicklook_word(&self) -> Result<Option<SurfaceText>, SurfaceTextError> {
@@ -619,6 +628,19 @@ impl GhosttySurface {
         unsafe { copy_surface_text(&raw, operation) }.map(Some)
     }
 
+    fn with_cells<T>(&self, read: impl FnOnce(&ffi::ghostty_cells_s) -> T) -> Option<T> {
+        self.assert_owner_thread();
+        let mut raw = ffi::ghostty_cells_s::default();
+        if !unsafe { ffi::ghostty_surface_read_cells(self.as_raw(), &mut raw) } {
+            return None;
+        }
+        let guard = GhosttyCellsGuard {
+            surface: self.as_raw(),
+            cells: &mut raw,
+        };
+        Some(read(guard.as_ref()))
+    }
+
     pub(crate) fn as_raw(&self) -> ffi::ghostty_surface_t {
         self.raw.as_ptr()
     }
@@ -632,8 +654,25 @@ impl Drop for GhosttySurface {
     fn drop(&mut self) {
         self.assert_owner_thread();
         let _storage_must_outlive_surface = &self.storage;
-        unsafe { ffi::ghostty_surface_free(self.as_raw()) };
+        release_surface(
+            self.as_raw(),
+            |surface| unsafe {
+                ffi::ghostty_surface_set_data_callback(surface, None, ptr::null_mut())
+            },
+            |surface| unsafe { ffi::ghostty_surface_free(surface) },
+        );
     }
+}
+
+impl GhosttyCellsGuard {
+    fn as_ref(&self) -> &ffi::ghostty_cells_s {
+        unsafe { &*self.cells }
+    }
+}
+
+fn release_surface<T: Copy>(surface: T, unregister: impl FnOnce(T), free: impl FnOnce(T)) {
+    unregister(surface);
+    free(surface);
 }
 
 fn format_screen_cells(cells: &[ffi::ghostty_cell_s], cols: usize, last_lines: usize) -> String {
@@ -811,5 +850,61 @@ mod tests {
             .collect();
         assert_eq!(format_screen_cells(&cells, 3, 50), "a\nbc");
         assert_eq!(format_screen_cells(&cells, 3, 1), "bc");
+    }
+
+    #[test]
+    fn release_unregisters_the_data_callback_before_freeing_the_surface() {
+        let order = std::cell::RefCell::new(Vec::new());
+        release_surface(
+            7,
+            |surface| order.borrow_mut().push(("unregister", surface)),
+            |surface| order.borrow_mut().push(("free", surface)),
+        );
+        assert_eq!(order.into_inner(), [("unregister", 7), ("free", 7)]);
+    }
+
+    #[test]
+    fn cross_thread_data_callback_quiesces_before_surface_storage_is_released() {
+        static OUTPUT: &[u8] = b"shell output";
+
+        let (events, _event_receiver) = async_channel::unbounded();
+        let (data_events, data_event_receiver) = async_channel::bounded(1);
+        let mut userdata = Box::new(SurfaceUserdata::new(
+            SurfaceId::allocate(),
+            events,
+            data_events,
+        ));
+        let userdata_address = std::ptr::from_mut(userdata.as_mut()) as usize;
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let callback_barrier = barrier.clone();
+        let mut callback = Some(std::thread::spawn(move || {
+            callback_barrier.wait();
+            unsafe {
+                surface_data_callback(
+                    userdata_address as *mut c_void,
+                    OUTPUT.as_ptr(),
+                    OUTPUT.len(),
+                )
+            };
+        }));
+
+        release_surface(
+            7,
+            |_| {
+                barrier.wait();
+                callback
+                    .take()
+                    .expect("callback thread exists")
+                    .join()
+                    .expect("callback thread finishes");
+            },
+            |_| {
+                assert!(matches!(
+                    data_event_receiver.try_recv(),
+                    Ok(crate::runtime::RuntimeEvent::Data { bytes, .. }) if bytes == OUTPUT
+                ));
+            },
+        );
+        drop(userdata);
     }
 }

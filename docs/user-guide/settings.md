@@ -161,21 +161,17 @@ Select the close button on a tip, then confirm **Hide Tips** to hide tips. Turn 
 
 ## Background sessions
 
-Open **Settings → Terminal → Background sessions** to keep terminals running after Muxy quits:
+Open **Settings → Terminal → Background sessions** to preserve local terminal sessions across Muxy restarts and crashes. The feature is off by default. Changing **Preserve local terminals across restarts** presents **Restart Now** and **Cancel**; Cancel changes nothing, and the new value takes effect only after the whole app restarts.
 
-- **Run new terminals in the background** starts each new terminal in a separate background process, like tmux. Quitting Muxy leaves those terminals running, and reopening it reconnects them along with their recent output.
-- Only terminals opened after the setting is switched on are affected. Terminals that are already open keep their current behavior.
-- Reopening Muxy reattaches every restored tab whose session is still running, without waiting for you to click the tab.
-- Closing a tab ends its session. Right-click an eligible local terminal and choose **Send to Background** to close its tab without stopping its processes; the session then stays available from the status bar.
-- If Muxy loses its connection to a still-running session, it reconnects on its own. A tab only closes when the session itself has ended; when reconnecting keeps failing the tab waits with a **Reconnect** button instead, and the session keeps running.
-- Turning the setting off asks for confirmation and then stops every terminal still running in the background.
-- Remote SSH terminals and the quick terminal are never run this way.
+Each persistent session belongs to its existing terminal tab. Muxy restores all eligible local terminal tabs on startup, including hidden tabs, and replays bounded output produced while the app was absent. Closing a tab ends its complete session. An unreachable session keeps its tab and offers **Reconnect**; a daemon-confirmed missing session keeps its tab and offers **Start Fresh**. Remote SSH terminals and Quick Terminal are excluded.
 
-The status bar shows how many background terminals in the current project and worktree are **not** open in a tab. Its popover lists those and can point the focused tab at one, open a new tab attached to one, or stop one. It disappears when nothing is waiting, so it only appears when you have something to recover.
+Turning the setting off first stops every Rust session, then restarts into fresh ordinary shells while preserving projects, worktrees, tab and split layout, and the latest working directories. The setting is stored as `muxy.terminalPersistentSession.enabled` in `settings.json`. Sessions are managed only through their tabs; there are no session-management CLI commands.
 
-Background terminals keep working-directory tracking, tab titles, and AI progress in zsh, bash, fish, elvish, and nushell. Other shells run normally but lose those integrations, the same limitation tmux has.
+## Idle terminal freeing
 
-The setting is stored as `muxy.terminalPersistentSession.enabled` in `settings.json`. Use `muxy list-sessions` and `muxy kill-session --session <id>` to inspect and stop sessions from a shell.
+**Settings → Terminal → Memory → Free idle inactive terminals** is off by default and applies live. Its timeout measures time spent not both visible and focused. Muxy leaves running commands, unknown session activity, alternate-screen programs, remote panes, and Quick Terminal alone.
+
+Waking an ordinary freed terminal starts a fresh shell in the latest saved directory without old scrollback. Waking a persistent terminal reconnects to the same shell and receives its bounded replay. One-shot startup commands do not run again. Turning the setting off wakes every freed terminal.
 
 ## Quick terminal
 

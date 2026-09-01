@@ -18,6 +18,7 @@ objc2-foundation.workspace = true
 objc2-app-kit.workspace = true
 objc2-core-foundation.workspace = true
 objc2-core-text.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

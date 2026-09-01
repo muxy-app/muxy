@@ -387,6 +387,10 @@ impl GhosttyBackend {
         self.app.as_ref().map(GhosttyApp::event_receiver)
     }
 
+    pub fn data_event_receiver(&self) -> Option<Receiver<RuntimeEvent>> {
+        self.app.as_ref().map(GhosttyApp::data_event_receiver)
+    }
+
     pub fn standalone_shortcut_receiver(&self) -> Receiver<()> {
         self.standalone_shortcut_receiver.clone()
     }
@@ -462,6 +466,16 @@ impl GhosttyBackend {
 
     pub fn route(&mut self, event: RuntimeEvent, cx: &mut App) -> Option<RoutedTerminalEvent> {
         match event {
+            RuntimeEvent::Data { surface_id, bytes } => {
+                let surfaces = self.surfaces.borrow();
+                let surface = surfaces.get(&surface_id.get())?;
+                Some(surface.identity.route(SurfaceSignal::Data(bytes)))
+            }
+            RuntimeEvent::DataGap { surface_id } => {
+                let surfaces = self.surfaces.borrow();
+                let surface = surfaces.get(&surface_id.get())?;
+                Some(surface.identity.route(SurfaceSignal::DataGap))
+            }
             RuntimeEvent::Action(action) => self.route_action(action, cx),
             RuntimeEvent::ClipboardRead {
                 surface_id, token, ..
@@ -831,6 +845,7 @@ impl TerminalSurfaceHandle for GhosttySurfaceHandle {
 
     fn set_occluded(&self, occluded: bool) {
         self.registration.set_visible(!occluded);
+        self.host.set_occluded(occluded);
     }
 
     fn set_pointer_inside(&self, inside: bool) {
@@ -867,6 +882,10 @@ impl TerminalSurfaceHandle for GhosttySurfaceHandle {
 
     fn foreground_pid(&self) -> Option<u64> {
         self.host.foreground_pid()
+    }
+
+    fn is_alternate_screen(&self) -> Option<bool> {
+        self.host.is_alternate_screen()
     }
 
     fn metadata(&self) -> &SurfaceMetadata {
@@ -961,6 +980,8 @@ impl TerminalSurfaceHandle for GhosttySurfaceHandle {
 
     fn apply(&mut self, signal: SurfaceSignal) -> bool {
         match signal {
+            SurfaceSignal::Data(_) => false,
+            SurfaceSignal::DataGap => false,
             SurfaceSignal::Metadata(metadata) => {
                 if metadata == self.metadata {
                     return false;

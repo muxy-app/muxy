@@ -8,45 +8,23 @@ Muxy currently ships Ghostty as its terminal backend. Pane hosting, remote contr
 
 ## Background sessions
 
-**Settings → Terminal → Background sessions** runs each new terminal in a detached process so it survives quitting Muxy, the way tmux does. It is off by default and only affects terminals opened after it is switched on; terminals that are already open keep their current behavior.
+**Settings → Terminal → Background sessions** preserves local terminal sessions across an app restart or crash. It is off by default. Changing it presents **Restart Now** and **Cancel**, and the new value takes effect only after the whole app restarts. Remote terminals and Quick Terminal are excluded.
 
-libghostty owns the PTY of every surface it creates and offers no way to hand a surface an existing PTY, so a background terminal cannot simply be adopted. Muxy uses the same split tmux does. A `muxy-session` daemon owns the real PTY of every background session and lives in its own session (`setsid`), which is what lets it outlive the app. The surface runs `muxy-session attach`, a small client that proxies bytes, window size, and the final exit status over a unix socket. Quitting Muxy kills the clients and leaves the daemon and its shells running.
-
-Each pane carries a session ID that defaults to its own pane ID and is persisted in workspace snapshots, so reopening Muxy reattaches each restored pane to its own session. Because the two IDs are separate, a pane can also adopt a session that started somewhere else. On reattach the daemon replays a capped 256 KB buffer of recent ordinary output and sends `SIGWINCH` to the foreground process group so full-screen programs repaint. Replay is sanitized and best-effort: incomplete UTF-8 and terminal control sequences are dropped instead of sent to the new surface. Alternate-screen programs skip raw replay while they are active and rely on redraw. The daemon exits on its own once it has been idle with no sessions.
-
-The attach client starts a daemon on demand and keeps retrying the whole connect-and-launch cycle until it succeeds or its budget runs out, so a terminal opened while an idle daemon is shutting down does not fail. A connection that drops before the session is handed over is retried on a fresh socket rather than reported as an exit, and a daemon that is idling out accepts anything still waiting in its listen backlog before it closes.
-
-Every attach carries metadata identifying the project, worktree, tab, and title the session belongs to, and the daemon refreshes it each time a client reattaches. That is what lets Muxy group sessions by worktree and show which tab owns one. The attach also carries a protocol version; a session started by a different version of Muxy is refused with a clear message rather than being misread.
+Every persistent session belongs to exactly one terminal tab and uses that tab's stable uppercase UUID. The Rust `muxy-session-v2` daemon owns the PTY and a bounded 256 KiB replay buffer while the in-app Ghostty surface connects through its private attach client. The daemon and app use a Rust-owned `MXS2` protocol and a versioned socket namespace selected from the active Rust profile; Swift sessions are not compatible peers.
 
 ### Recovering sessions
 
-Reopening Muxy reattaches every restored pane whose session is still running, without waiting for you to click the tab, so output keeps flowing and scrollback keeps building from the moment the window appears.
+On startup Muxy reattaches every recoverable local terminal tab, including hidden tabs and panes. Output produced while the app was absent is replayed before live output, and the same shell continues accepting input. An unexpected daemon descriptor without a surviving tab is restored into a normal fallback terminal tab.
 
-Closing a tab ends its session. To keep a local background-backed tab running without its visible terminal, right-click inside the terminal and choose **Send to Background**. The tab closes without stopping its processes and its sessions appear in the status bar as detached. A split tab moves all of its terminal sessions together. The action is unavailable for pinned tabs, mixed-content splits, remote terminals, and terminals opened without background sessions enabled.
+Recovery never removes or restructures a tab. A transport failure shows **Reconnect**. Only a daemon-confirmed missing session shows **Start Fresh**, which starts a new shell with the same tab identity and latest saved working directory. Closing a persistent tab first terminates its complete shell session and removes the tab only after a safe acknowledgement. Quitting or crashing Muxy does not terminate sessions.
 
-Sessions are never killed behind your back otherwise: one whose tab is gone keeps running and shows up in the status bar as detached, where you can reattach or stop it. Sending the final visible tab to the background keeps its project and worktree open so the status-bar entry remains accessible.
+Turning the feature off terminates all Rust sessions before persisting the setting. Projects, worktrees, tab and split layout, and latest working directories remain; after restart the tabs open fresh ordinary shells. Persistent sessions have no public CLI commands, status item, manual reassignment flow, or tabless workflow.
 
-When an attach client goes away, Muxy asks the daemon what actually happened before touching the tab. Only a session the daemon reports as gone closes its tab; a session that is still running, or a daemon that cannot be reached, is treated as a dropped connection and reattached with a short backoff. If several attempts in a row fail, the tab stays open showing a **Reconnect** placeholder and the session keeps running, so a daemon crash or a version mismatch after an update can never close tabs or discard work. A tab that has been healthy for a while starts its retry budget over.
+## Idle terminal freeing
 
-The status bar lists only the sessions in the current project and worktree that **no tab currently owns**, since a session already open in a tab is not something you need to recover. Ownership is decided by the pane pointing at the session, not by whether a client happens to be connected, so a tab whose terminal was freed by the idle-memory setting still counts as owning its session. When every session in the worktree is open in a tab, the status bar item disappears entirely.
+**Settings → Terminal → Memory → Free idle inactive terminals** is also off by default, but its toggle and timeout apply live without restarting Muxy. A terminal's idle clock runs whenever it is not both visible on screen and focused. Muxy preserves terminals with a running command, unknown activity, or an alternate-screen program, and never frees remote terminals or Quick Terminal.
 
-Each row shows the session's title and working directory with three actions:
-
-- **Active tab** points the focused terminal tab at that session. The session the tab was showing keeps running and becomes detached, so it takes the vacated slot in the list.
-- **New tab** opens a tab in the current worktree attached to that session.
-- **Stop** ends the session and everything running inside it.
-
-A session can only ever be owned by one tab, because the daemon accepts a single attached client. Adopting a session hands its previous owner back a fresh session of its own rather than leaving that tab looking at a dead terminal.
-
-Ghostty only injects its shell integration into shells it spawns itself, so the daemon reproduces that injection using the contract the bundled scripts document: `ZDOTDIR` plus `GHOSTTY_ZSH_ZDOTDIR` for zsh, `ENV` plus `GHOSTTY_BASH_INJECT` and POSIX mode for bash, and `XDG_DATA_DIRS` plus `GHOSTTY_SHELL_INTEGRATION_XDG_DIR` for fish, elvish, and nushell. Background terminals in those shells keep working-directory tracking, tab titles, prompt marks, and AI progress. Other shells run normally but lose those integrations, exactly as they do under tmux.
-
-Because the surface's own foreground process is the attach client, Muxy resolves the real foreground process from the session's tty through `sysctl(KERN_PROC_TTY)`. Agent detection, the running-process close confirmation, the idle-memory sweep, and AI hook to pane mapping behave the same as in a normal terminal. Idleness in particular has to come from the session rather than the surface: the attach client is not a shell, so judging it locally would keep every background terminal awake forever and disable the idle-memory setting app-wide. A session whose state cannot be resolved is treated as busy and left running.
-
-The control socket lives in Muxy's Application Support directory with `0700` on the directory and `0600` on the socket, falling back to a user-scoped `/tmp/muxy-<uid>` only when the primary path exceeds the 104-byte `sun_path` limit. The daemon verifies the peer's uid with `LOCAL_PEERCRED` and refuses connections from other users. A development build uses its own `sessions-dev` directory and `/tmp/muxy-dev-<uid>` fallback, so running a dev build alongside the release app keeps two fully separate daemons — neither build can list, adopt, or stop the other's sessions.
-
-Remote SSH panes and the quick terminal are never backed by a background session.
-
-`muxy list-sessions` and `muxy kill-session --session <id>` manage sessions from a shell. See [Muxy CLI](muxy-cli.md).
+Freeing drops the in-app Ghostty surface. Returning focus, selecting **Wake**, typing, searching, scrolling, or other external I/O recreates it in the latest known working directory. An ordinary terminal starts a fresh shell and loses its old scrollback. A persistent terminal reconnects to its existing shell and receives bounded replay. A one-shot startup command is never run again on wake. Turning idle freeing off cancels its scan and wakes every freed terminal. Worktree-wide offline aggregation remains deferred to P10.
 
 ## Quick terminal
 
@@ -212,7 +190,7 @@ the control that was focused before recording and can optionally press Return af
 
 ## Right-click menu
 
-Inside a terminal pane: **Paste**, **Send to Background**, **Split Right**, **Split Left**, **Split Down**, **Split Up**, and **Terminal Settings…**. Terminal Settings opens Muxy's settings directly on the Terminal section. Send to Background closes an eligible local background-backed tab while leaving its processes running.
+Inside a terminal pane: **Paste**, **Split Right**, **Split Left**, **Split Down**, **Split Up**, and **Terminal Settings…**. Terminal Settings opens Muxy's settings directly on the Terminal section.
 
 Opening the menu never selects terminal text. While a program has mouse reporting enabled the right button belongs to that program, so hold `Shift` to open the menu instead.
 

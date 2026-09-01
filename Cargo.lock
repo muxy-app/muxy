@@ -3330,6 +3330,7 @@ dependencies = [
  "async-channel 2.5.0",
  "block2",
  "ghostty-host",
+ "libc",
  "muxy-core",
  "objc2",
  "objc2-app-kit",

@@ -149,13 +149,12 @@ Target-aware split and tab commands accept trailing `--project` and `--worktree`
 
 ## Recognition status and owners
 
-The app recognition catalog contains exactly 169 heads.
+The app recognition catalog contains exactly 167 heads.
 
 | Direct category | Count | Status and owner |
 |---|---:|---|
 | P2 aliases listed above | 33 | Implemented in P2 |
 | `create-worktree` | 1 | Implemented in P3 |
-| `list-sessions`, `kill-session` | 2 | Recognized, deferred to P8 |
 | `open-tab` | 1 | Recognized, deferred to P10 |
 | Browser heads | 36 | Recognized, deferred to P9 |
 | Extension/API heads | 96 | Recognized, deferred to P10 |
@@ -182,13 +181,13 @@ Canonical dispatcher names are documentation and permission-mapping inputs. They
 
 ## Outside-dispatcher surface
 
-The retained 15-name canonical outside-dispatcher surface is:
+The retained 13-name canonical outside-dispatcher surface is:
 
-`panes.split`, `sessions.list`, `sessions.kill`, `worktrees.create`, `tabs.rename`, `tabs.setColor`, `tabs.setPin`, `tabs.close`, `tabs.move`, `extension.settings.get`, `extension.settings.set`, `extension.statusbar.set`, `lifecycle.ackBeforeClose`, `lifecycle.resolveBeforeClose`, `lifecycle.closeSelf`.
+`panes.split`, `worktrees.create`, `tabs.rename`, `tabs.setColor`, `tabs.setPin`, `tabs.close`, `tabs.move`, `extension.settings.get`, `extension.settings.set`, `extension.statusbar.set`, `lifecycle.ackBeforeClose`, `lifecycle.resolveBeforeClose`, `lifecycle.closeSelf`.
 
-P2 implements backing behavior through its accepted direct aliases. P3 implements `worktrees.create` behavior through the retained `create-worktree` alias. P8 owns sessions, and P10 owns extension settings and lifecycle APIs.
+P2 implements backing behavior through its accepted direct aliases. P3 implements `worktrees.create` behavior through the retained `create-worktree` alias. P10 owns extension settings and lifecycle APIs.
 
-The following transport or ingress forms are outside the 169 app-command count:
+The following transport or ingress forms are outside the 167 app-command count:
 
 | Form | Direction and status |
 |---|---|
@@ -200,7 +199,7 @@ The following transport or ingress forms are outside the 169 app-command count:
 | Agent Hook v3 JSON | Incoming acknowledgement plus typed sink in P2; known-provider notification delivery and history implemented in P5 |
 | Legacy `type|paneID|title|body` | Incoming one-way typed sink in P2; notification delivery and history implemented in P5 |
 | `invoke`, `modal-result`, `modal-query`, `event` | Outbound extension pushes, transport implemented in P2 |
-| `config-export`, `config-import` | Retained recognition oddity, handler-like wrapper forms not present in the 169-name recognition set; deferred to P14 |
+| `config-export`, `config-import` | Retained recognition oddity, handler-like wrapper forms not present in the 167-name recognition set; deferred to P14 |
 | `install-skills` | Executes locally in the CLI; deferred to P14 |
 
 ## Portability boundary

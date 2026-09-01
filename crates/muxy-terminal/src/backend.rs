@@ -58,6 +58,8 @@ pub enum SurfaceAction {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SurfaceSignal {
+    Data(Vec<u8>),
+    DataGap,
     Metadata(SurfaceMetadata),
     DesktopNotification {
         title: String,
@@ -128,6 +130,9 @@ pub trait TerminalSurfaceHandle {
         None
     }
     fn foreground_pid(&self) -> Option<u64> {
+        None
+    }
+    fn is_alternate_screen(&self) -> Option<bool> {
         None
     }
     fn metadata(&self) -> &SurfaceMetadata;

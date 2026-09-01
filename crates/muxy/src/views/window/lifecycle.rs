@@ -924,6 +924,13 @@ pub(super) fn spawn_terminal_pumps(
             }
         }));
     }
+    if let Some(events) = terminals.data_events() {
+        tasks.push(cx.spawn(async move |window, cx| {
+            while let Some(event) = events.recv().await {
+                let _ = window.update(cx, |window, cx| window.on_runtime_event(event, cx));
+            }
+        }));
+    }
     if let Some(events) = terminals.navigation_events() {
         tasks.push(cx.spawn(async move |window, cx| {
             while let Ok(direction) = events.recv().await {

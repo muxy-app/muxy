@@ -95,8 +95,22 @@ prepare_case() {
     printf '%s\n' "$CASE_OWNER" > "$path/$CASE_MARKER"
 }
 
+p8_may_change_p7_locked_path() {
+    case "$1" in
+        Muxy/Resources/scripts/muxy-cli|\
+        crates/muxy/src/socket/catalog.rs|\
+        crates/muxy-proto/src/lib.rs|\
+        crates/muxy-proto/src/session/codec.rs|\
+        crates/muxy-proto/src/session/message.rs|\
+        crates/muxy-proto/src/session/mod.rs)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 source_checks() {
-    local changes matches
+    local changes matches line path remaining=""
     changes="$(git status --short --untracked-files=all -- \
         crates/muxy-core/src/migration.rs \
         crates/muxy-proto \
@@ -106,8 +120,13 @@ source_checks() {
         scripts/stage-test-app.sh \
         crates/muxy/src/socket \
         .github || true)"
-    [[ -z "$changes" ]] || {
-        printf '%s\n' "$changes"
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        path="${line:3}"
+        p8_may_change_p7_locked_path "$path" || remaining+="${remaining:+$'\n'}$line"
+    done <<< "$changes"
+    [[ -z "$remaining" ]] || {
+        printf '%s\n' "$remaining"
         fail "a locked migration, protocol, CLI, bundle, staging, or CI path changed"
     }
     matches="$(rg -n 'rich-input-drafts|RichInputImages|richInput' crates/muxy-core/src/migration.rs || true)"

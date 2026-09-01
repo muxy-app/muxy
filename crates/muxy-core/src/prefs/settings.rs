@@ -68,7 +68,7 @@ const fn special(key: &'static str, source: Source) -> Entry {
     Entry { key, source }
 }
 
-pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 68] {
+pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 67] {
     let mobile_policy = MobileSettingsPolicy::new(mode);
     let mobile_keys = mobile_policy.keys();
     [
@@ -87,7 +87,6 @@ pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 68] {
         flag("SUAutomaticallyUpdate", true),
         flag("muxy.showTopBarActions", true),
         flag("muxy.showStatusBar", true),
-        flag("muxy.showResourceUsageInStatusBar", true),
         flag("muxy.richInput.clearAfterSending", false),
         flag("muxy.richInput.clearOnClose", false),
         flag("muxy.terminalOffline.enabled", false),
@@ -161,7 +160,7 @@ pub const fn mirror(mode: crate::environment::BuildMode) -> [Entry; 68] {
     ]
 }
 
-pub const MIRROR: [Entry; 68] = mirror(crate::build_mode!());
+pub const MIRROR: [Entry; 67] = mirror(crate::build_mode!());
 
 pub const NOTIFICATION_SOUNDS: [&str; 15] = [
     "None",
@@ -1398,13 +1397,13 @@ mod tests {
             .enumerate()
             .filter_map(|(index, (left, right))| (left != right).then_some(index))
             .collect();
-        assert_eq!(development.len(), 68);
-        assert_eq!(production.len(), 68);
+        assert_eq!(development.len(), 67);
+        assert_eq!(production.len(), 67);
         for entries in [&development, &production] {
             let mut keys: Vec<&str> = entries.iter().map(|entry| entry.key).collect();
             keys.sort_unstable();
             keys.dedup();
-            assert_eq!(keys.len(), 68);
+            assert_eq!(keys.len(), 67);
         }
         assert_eq!(differences.len(), 3);
         for index in differences {
@@ -1454,7 +1453,7 @@ mod tests {
             let inactive = crate::environment::MobileSettingsPolicy::new(mode.other()).keys();
             let root: Value = serde_json::from_str(&super::system_defaults_text_for(mode)).unwrap();
             let root = root.as_object().unwrap();
-            assert_eq!(root.len(), 68);
+            assert_eq!(root.len(), 67);
             for key in [active.enabled, active.port, active.scrollback_cap] {
                 assert!(root.contains_key(key));
             }
@@ -1756,6 +1755,21 @@ mod tests {
             !super::ALLOWED_STRINGS
                 .iter()
                 .any(|(key, _)| *key == "muxy.richInput.presentationMode")
+        );
+    }
+
+    #[test]
+    fn removed_resource_usage_setting_is_preserved_as_unknown_data() {
+        let (_dir, path) = sync_fixture(
+            "{\"muxy.showResourceUsageInStatusBar\":false,\"muxy.showStatusBar\":true}",
+        );
+        assert!(super::sync_at(&path, crate::build_mode!()));
+        let root: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(root["muxy.showResourceUsageInStatusBar"], json!(false));
+        assert!(
+            !super::MIRROR
+                .iter()
+                .any(|entry| entry.key == "muxy.showResourceUsageInStatusBar")
         );
     }
 

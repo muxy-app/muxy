@@ -179,13 +179,6 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
                 cx,
             ),
             toggle_row(style, "Show Status Bar", "muxy.showStatusBar", true, cx),
-            toggle_row(
-                style,
-                "Show Resource Usage in Status Bar",
-                "muxy.showResourceUsageInStatusBar",
-                true,
-                cx,
-            ),
         ],
     ));
 

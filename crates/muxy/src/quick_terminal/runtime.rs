@@ -162,6 +162,7 @@ pub struct QuickTerminalRuntime {
     trigger_task: Option<Task<()>>,
     wakeup_task: Option<Task<()>>,
     event_task: Option<Task<()>>,
+    data_event_task: Option<Task<()>>,
     terminal_shortcut_task: Option<Task<()>>,
     system_observers: Option<super::platform::SystemObservers>,
     system_task: Option<Task<()>>,
@@ -216,6 +217,7 @@ impl QuickTerminalRuntime {
             trigger_task: None,
             wakeup_task: None,
             event_task: None,
+            data_event_task: None,
             terminal_shortcut_task: None,
             system_observers: None,
             system_task: None,
@@ -635,6 +637,7 @@ impl QuickTerminalRuntime {
         self.deny_pending_confirmations();
         self.wakeup_task.take();
         self.event_task.take();
+        self.data_event_task.take();
         self.terminal_shortcut_task.take();
         self.staged_control_task.take();
         self.terminal.set_window_active(false);
@@ -835,6 +838,7 @@ impl QuickTerminalRuntime {
         self.deny_pending_confirmations();
         self.wakeup_task.take();
         self.event_task.take();
+        self.data_event_task.take();
         self.terminal_shortcut_task.take();
         self.terminal.set_window_active(false);
         self.session.terminate();
@@ -874,6 +878,22 @@ impl QuickTerminalRuntime {
         }
         if let Some(events) = self.terminal.events() {
             self.event_task = Some(cx.spawn(async move |cx| {
+                while let Some(event) = events.recv().await {
+                    if cx
+                        .update_global::<Self, _>(|runtime, cx| {
+                            if let Some(signal) = runtime.terminal.route(event, cx) {
+                                runtime.handle_terminal_signal(signal, cx);
+                            }
+                        })
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            }));
+        }
+        if let Some(events) = self.terminal.data_events() {
+            self.data_event_task = Some(cx.spawn(async move |cx| {
                 while let Some(event) = events.recv().await {
                     if cx
                         .update_global::<Self, _>(|runtime, cx| {
@@ -964,6 +984,8 @@ impl QuickTerminalRuntime {
 
     fn handle_terminal_signal(&mut self, signal: SurfaceSignal, cx: &mut App) {
         match signal {
+            SurfaceSignal::Data(_) => {}
+            SurfaceSignal::DataGap => {}
             SurfaceSignal::Exited => {
                 let generation = self.session.generation();
                 if self.session.process_exited(generation) {

@@ -1,12 +1,12 @@
 [
   {
-    "description": "Enable Run new terminals in the background in Settings → Terminal before opening a local terminal to keep it running after Muxy quits."
+    "description": "Enable Preserve local terminals across restarts in Settings → Terminal, then choose Restart Now, to recover local terminal tabs after an app restart or crash."
   },
   {
-    "description": "After enabling background sessions and opening a new local terminal, right-click inside its unpinned terminal-only tab and choose Send to Background to close the tab without stopping its processes."
+    "description": "Persistent terminal sessions always belong to their tabs. Closing a tab ends its session; quitting or crashing Muxy leaves it available for automatic recovery."
   },
   {
-    "description": "Enable Free idle inactive terminals in Settings → Terminal to reclaim memory. Local terminals without a background session reopen a fresh shell in the same folder; background-session terminals reattach."
+    "description": "Enable Free idle inactive terminals in Settings → Terminal to reclaim memory. Ordinary terminals wake with a fresh shell in the same folder; persistent terminals reconnect with recent output."
   },
   {
     "description": "Enable Auto-copy selected text in Settings → Terminal to copy a terminal selection as soon as you release the mouse."

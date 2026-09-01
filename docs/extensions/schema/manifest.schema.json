@@ -49,7 +49,7 @@
         },
         "events": {
           "type": "array",
-          "description": "Workspace events this extension may subscribe to (e.g. pane.created, pane.closed, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, project.switched, projects.changed, worktree.switched, worktree.offline, notification.posted, agent.status, file.changed). Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
+          "description": "Workspace events this extension may subscribe to (e.g. pane.created, pane.closed, tab.created, tab.updated, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, project.switched, projects.changed, worktree.switched, notification.posted, agent.status, file.changed). Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
           "items": { "type": "string" },
           "uniqueItems": true
         },

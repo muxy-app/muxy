@@ -122,6 +122,18 @@ impl StandaloneTerminal {
             .map(crate::terminal::wrap_events)
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn data_events(&self) -> Option<crate::terminal::TerminalEvents> {
+        self.backend
+            .data_event_receiver()
+            .map(crate::terminal::wrap_events)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn data_events(&self) -> Option<crate::terminal::TerminalEvents> {
+        None
+    }
+
     #[cfg(not(target_os = "macos"))]
     pub fn events(&self) -> Option<crate::terminal::TerminalEvents> {
         None
@@ -260,6 +272,18 @@ impl TerminalSurfaces {
 
     #[cfg(not(target_os = "macos"))]
     pub fn events(&self) -> Option<crate::terminal::TerminalEvents> {
+        None
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn data_events(&self) -> Option<crate::terminal::TerminalEvents> {
+        self.backend
+            .data_event_receiver()
+            .map(crate::terminal::wrap_events)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub fn data_events(&self) -> Option<crate::terminal::TerminalEvents> {
         None
     }
 

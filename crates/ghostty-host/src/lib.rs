@@ -16,8 +16,9 @@ pub use mouse::{
 pub use runtime::{
     Action, ActionEvent, ActionTarget, AppError, ClipboardContent, ClipboardLocation,
     ClipboardRequest, ClipboardRequestToken, ColorChange, ColorKind, DesktopNotification,
-    GhosttyApp, InitializationError, MainThreadError, OpenUrl, OpenUrlKind, ProgressReport,
-    ProgressState, RgbColor, RuntimeEvent, Scrollbar, SurfaceProcessState, initialize_ghostty,
+    GhosttyApp, InitializationError, MAX_SURFACE_DATA_CHUNK_BYTES, MainThreadError, OpenUrl,
+    OpenUrlKind, ProgressReport, ProgressState, RgbColor, RuntimeEvent, Scrollbar,
+    SurfaceProcessState, initialize_ghostty,
 };
 pub use surface::{
     BindingFlags, ClipboardCompletionError, GhosttySurface, ImeRect, SurfaceContext,

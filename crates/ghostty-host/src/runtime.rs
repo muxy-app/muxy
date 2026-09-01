@@ -9,6 +9,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::ptr::{self, NonNull};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread::{self, ThreadId};
 
@@ -225,6 +226,13 @@ pub enum SurfaceProcessState {
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum RuntimeEvent {
+    Data {
+        surface_id: SurfaceId,
+        bytes: Vec<u8>,
+    },
+    DataGap {
+        surface_id: SurfaceId,
+    },
     Action(ActionEvent),
     ClipboardRead {
         surface_id: SurfaceId,
@@ -259,14 +267,22 @@ struct RuntimeCallbackState {
 pub(crate) struct SurfaceUserdata {
     pub(crate) id: SurfaceId,
     events: Sender<RuntimeEvent>,
+    data_events: Sender<RuntimeEvent>,
+    data_gap_reported: AtomicBool,
     clipboard_requests: Mutex<HashSet<NonZeroUsize>>,
 }
 
 impl SurfaceUserdata {
-    pub(crate) fn new(id: SurfaceId, events: Sender<RuntimeEvent>) -> Self {
+    pub(crate) fn new(
+        id: SurfaceId,
+        events: Sender<RuntimeEvent>,
+        data_events: Sender<RuntimeEvent>,
+    ) -> Self {
         Self {
             id,
             events,
+            data_events,
+            data_gap_reported: AtomicBool::new(false),
             clipboard_requests: Mutex::new(HashSet::new()),
         }
     }
@@ -297,9 +313,55 @@ impl SurfaceUserdata {
         token.surface_id == self.id && self.clipboard_requests().remove(&token.state)
     }
 
-    fn dispatch(&self, event: RuntimeEvent) -> bool {
+    pub(crate) fn dispatch(&self, event: RuntimeEvent) -> bool {
         self.events.try_send(event).is_ok()
     }
+
+    fn dispatch_data(&self, bytes: &[u8]) -> bool {
+        match self.data_events.try_send(RuntimeEvent::Data {
+            surface_id: self.id,
+            bytes: bytes.to_vec(),
+        }) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => {
+                if !self.data_gap_reported.swap(true, Ordering::AcqRel) {
+                    let _ = self.events.try_send(RuntimeEvent::DataGap {
+                        surface_id: self.id,
+                    });
+                }
+                false
+            }
+            Err(TrySendError::Closed(_)) => false,
+        }
+    }
+}
+
+pub const MAX_SURFACE_DATA_CHUNK_BYTES: usize = 64 * 1024;
+const MAX_PENDING_SURFACE_DATA_EVENTS: usize = 256;
+
+pub(crate) unsafe extern "C" fn surface_data_callback(
+    userdata: *mut c_void,
+    bytes: *const u8,
+    len: usize,
+) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if len == 0 || len > isize::MAX as usize {
+            return;
+        }
+        let Some(userdata) = NonNull::new(userdata).map(NonNull::cast::<SurfaceUserdata>) else {
+            return;
+        };
+        if bytes.is_null() {
+            return;
+        }
+        let userdata = unsafe { userdata.as_ref() };
+        let bytes = unsafe { std::slice::from_raw_parts(bytes, len) };
+        for chunk in bytes.chunks(MAX_SURFACE_DATA_CHUNK_BYTES) {
+            if !userdata.dispatch_data(chunk) {
+                return;
+            }
+        }
+    }));
 }
 
 #[derive(Debug)]
@@ -307,12 +369,16 @@ struct RuntimeBridge {
     callback_state: Box<RuntimeCallbackState>,
     wakeup_receiver: Receiver<()>,
     event_receiver: Receiver<RuntimeEvent>,
+    data_event_sender: Sender<RuntimeEvent>,
+    data_event_receiver: Receiver<RuntimeEvent>,
 }
 
 impl RuntimeBridge {
     fn new() -> Self {
         let (wakeup_sender, wakeup_receiver) = async_channel::bounded(1);
         let (event_sender, event_receiver) = async_channel::unbounded();
+        let (data_event_sender, data_event_receiver) =
+            async_channel::bounded(MAX_PENDING_SURFACE_DATA_EVENTS);
         Self {
             callback_state: Box::new(RuntimeCallbackState {
                 wakeups: wakeup_sender,
@@ -320,6 +386,8 @@ impl RuntimeBridge {
             }),
             wakeup_receiver,
             event_receiver,
+            data_event_sender,
+            data_event_receiver,
         }
     }
 
@@ -349,6 +417,14 @@ impl RuntimeBridge {
 
     fn event_sender(&self) -> Sender<RuntimeEvent> {
         self.callback_state.events.clone()
+    }
+
+    fn data_event_receiver(&self) -> Receiver<RuntimeEvent> {
+        self.data_event_receiver.clone()
+    }
+
+    fn data_event_sender(&self) -> Sender<RuntimeEvent> {
+        self.data_event_sender.clone()
     }
 }
 
@@ -394,6 +470,11 @@ impl GhosttyApp {
     pub fn event_receiver(&self) -> Receiver<RuntimeEvent> {
         self.assert_owner_thread();
         self.inner.bridge.event_receiver()
+    }
+
+    pub fn data_event_receiver(&self) -> Receiver<RuntimeEvent> {
+        self.assert_owner_thread();
+        self.inner.bridge.data_event_receiver()
     }
 
     pub fn tick(&self) {
@@ -468,6 +549,10 @@ impl GhosttyApp {
 
     pub(crate) fn surface_event_sender(&self) -> Sender<RuntimeEvent> {
         self.inner.bridge.event_sender()
+    }
+
+    pub(crate) fn surface_data_event_sender(&self) -> Sender<RuntimeEvent> {
+        self.inner.bridge.data_event_sender()
     }
 
     pub(crate) fn assert_owner_thread(&self) {
@@ -980,6 +1065,97 @@ mod tests {
     }
 
     #[test]
+    fn surface_data_callback_copies_bytes_into_bounded_owned_chunks() {
+        let bridge = RuntimeBridge::new();
+        let surface_id = SurfaceId::allocate();
+        let mut userdata = Box::new(SurfaceUserdata::new(
+            surface_id,
+            bridge.callback_state.events.clone(),
+            bridge.data_event_sender(),
+        ));
+        let userdata_ptr = std::ptr::from_mut(userdata.as_mut()).cast();
+        let bytes = vec![7; MAX_SURFACE_DATA_CHUNK_BYTES + 3];
+        unsafe { surface_data_callback(userdata_ptr, bytes.as_ptr(), bytes.len()) };
+        drop(bytes);
+        assert_eq!(
+            bridge.data_event_receiver.try_recv(),
+            Ok(RuntimeEvent::Data {
+                surface_id,
+                bytes: vec![7; MAX_SURFACE_DATA_CHUNK_BYTES],
+            })
+        );
+        assert_eq!(
+            bridge.data_event_receiver.try_recv(),
+            Ok(RuntimeEvent::Data {
+                surface_id,
+                bytes: vec![7; 3],
+            })
+        );
+        assert_eq!(
+            bridge.data_event_receiver.try_recv(),
+            Err(TryRecvError::Empty)
+        );
+    }
+
+    #[test]
+    fn surface_data_callback_rejects_invalid_and_empty_inputs() {
+        let bridge = RuntimeBridge::new();
+        let surface_id = SurfaceId::allocate();
+        let mut userdata = Box::new(SurfaceUserdata::new(
+            surface_id,
+            bridge.callback_state.events.clone(),
+            bridge.data_event_sender(),
+        ));
+        let userdata_ptr = std::ptr::from_mut(userdata.as_mut()).cast();
+        unsafe {
+            surface_data_callback(std::ptr::null_mut(), std::ptr::null(), 1);
+            surface_data_callback(userdata_ptr, std::ptr::null(), 1);
+            surface_data_callback(userdata_ptr, std::ptr::null(), 0);
+            surface_data_callback(userdata_ptr, std::ptr::dangling(), usize::MAX);
+        }
+        assert_eq!(
+            bridge.data_event_receiver.try_recv(),
+            Err(TryRecvError::Empty)
+        );
+    }
+
+    #[test]
+    fn surface_data_overflow_is_reported_once_without_blocking_control_events() {
+        let bridge = RuntimeBridge::new();
+        let surface_id = SurfaceId::allocate();
+        let userdata = SurfaceUserdata::new(
+            surface_id,
+            bridge.callback_state.events.clone(),
+            bridge.data_event_sender(),
+        );
+        for _ in 0..MAX_PENDING_SURFACE_DATA_EVENTS {
+            assert!(userdata.dispatch_data(&[]));
+        }
+        assert!(!userdata.dispatch_data(&[]));
+        assert!(!userdata.dispatch_data(&[]));
+        assert!(userdata.dispatch(RuntimeEvent::Close {
+            surface_id,
+            process: SurfaceProcessState::Alive,
+        }));
+        assert_eq!(
+            bridge.event_receiver.try_recv(),
+            Ok(RuntimeEvent::DataGap { surface_id })
+        );
+        assert_eq!(
+            bridge.event_receiver.try_recv(),
+            Ok(RuntimeEvent::Close {
+                surface_id,
+                process: SurfaceProcessState::Alive,
+            })
+        );
+        assert_eq!(bridge.event_receiver.try_recv(), Err(TryRecvError::Empty));
+        assert_eq!(
+            bridge.data_event_receiver.len(),
+            MAX_PENDING_SURFACE_DATA_EVENTS
+        );
+    }
+
+    #[test]
     fn supported_string_action_is_owned_and_handled() {
         let bridge = RuntimeBridge::new();
         let title = CString::new("shell title").expect("literal has no NUL");
@@ -1197,7 +1373,7 @@ mod tests {
     fn clipboard_request_requires_nonzero_unique_state() {
         let bridge = RuntimeBridge::new();
         let id = SurfaceId::allocate();
-        let userdata = SurfaceUserdata::new(id, bridge.event_sender());
+        let userdata = SurfaceUserdata::new(id, bridge.event_sender(), bridge.data_event_sender());
         assert!(userdata.begin_clipboard_request(ptr::null_mut()).is_none());
 
         let state = NonNull::<u8>::dangling().as_ptr().cast::<c_void>();
@@ -1213,7 +1389,8 @@ mod tests {
     fn clipboard_read_callback_owns_token_and_returns_handled() {
         let bridge = RuntimeBridge::new();
         let id = SurfaceId::allocate();
-        let mut userdata = SurfaceUserdata::new(id, bridge.event_sender());
+        let mut userdata =
+            SurfaceUserdata::new(id, bridge.event_sender(), bridge.data_event_sender());
         let state = NonNull::<u8>::dangling().as_ptr().cast::<c_void>();
         let handled = unsafe {
             read_clipboard_callback(
@@ -1266,7 +1443,8 @@ mod tests {
     fn confirmation_callback_copies_content_and_registers_token() {
         let bridge = RuntimeBridge::new();
         let id = SurfaceId::allocate();
-        let mut userdata = SurfaceUserdata::new(id, bridge.event_sender());
+        let mut userdata =
+            SurfaceUserdata::new(id, bridge.event_sender(), bridge.data_event_sender());
         let content = CString::new("unsafe\npaste").expect("literal has no NUL");
         let state = NonNull::<u8>::dangling().as_ptr().cast::<c_void>();
         unsafe {
@@ -1301,7 +1479,8 @@ mod tests {
     fn callback_panics_are_contained() {
         let (sender, receiver) = async_channel::unbounded();
         drop(receiver);
-        let userdata = SurfaceUserdata::new(SurfaceId::allocate(), sender);
+        let (data_sender, _data_receiver) = async_channel::bounded(1);
+        let userdata = SurfaceUserdata::new(SurfaceId::allocate(), sender, data_sender);
         let pointer = std::ptr::from_ref(&userdata).cast_mut().cast();
         let result = catch_unwind(AssertUnwindSafe(|| {
             unsafe { close_surface_callback(pointer, true) };

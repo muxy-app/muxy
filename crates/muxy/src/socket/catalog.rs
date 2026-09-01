@@ -83,11 +83,7 @@ pub const P2_PERMISSION_REQUIREMENTS: [(&str, Option<&str>); 33] = [
 pub const P3_PERMISSION_REQUIREMENTS: [(&str, Option<&str>); 1] =
     [("create-worktree", Some("worktrees:write"))];
 
-pub const ROADMAP_DEFERRED_LEGACY_HEADS: [(&str, &str); 3] = [
-    ("list-sessions", "P8"),
-    ("kill-session", "P8"),
-    ("open-tab", "P10"),
-];
+pub const ROADMAP_DEFERRED_LEGACY_HEADS: [(&str, &str); 1] = [("open-tab", "P10")];
 
 pub const P9_BROWSER_HEADS: [&str; 36] = [
     "browser.open",
@@ -256,7 +252,7 @@ pub fn recognized_command_heads() -> HashSet<String> {
         .chain(P10_EXTENSION_API_HEADS)
         .map(str::to_owned)
         .collect::<HashSet<_>>();
-    assert_eq!(recognized.len(), 169);
+    assert_eq!(recognized.len(), 167);
     for head in TRANSPORT_STICKY_HEADS
         .into_iter()
         .chain(TRANSPORT_IDENTIFIED_INGRESS_HEADS)
@@ -344,11 +340,11 @@ mod tests {
         assert_eq!(P2_PHASE4_HEADS.len(), 8);
         assert_eq!(P2_PHASE5_HEADS.len(), 12);
         assert_eq!(p2.len(), 33);
-        assert_eq!(legacy.len(), 37);
+        assert_eq!(legacy.len(), 35);
         assert_eq!(P9_BROWSER_HEADS.len(), 36);
         assert_eq!(P10_EXTENSION_API_HEADS.len(), 96);
         let recognized = recognized_command_heads();
-        assert_eq!(recognized.len(), 169);
+        assert_eq!(recognized.len(), 167);
         let sorted = recognized
             .iter()
             .map(String::as_str)
@@ -367,7 +363,7 @@ mod tests {
             .fold(14_695_981_039_346_656_037_u64, |hash, byte| {
                 (hash ^ u64::from(byte)).wrapping_mul(1_099_511_628_211)
             });
-        assert_eq!(fingerprint, 16_943_492_558_170_763_262);
+        assert_eq!(fingerprint, 12_577_360_927_175_044_145);
         assert!(P3_IMPLEMENTED_LEGACY_HEADS.contains(&"create-worktree"));
         assert!(
             !ROADMAP_DEFERRED_LEGACY_HEADS
@@ -461,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn special_routes_are_exact_and_outside_the_169_app_commands() {
+    fn special_routes_are_exact_and_outside_the_167_app_commands() {
         assert_eq!(TRANSPORT_STICKY_HEADS, ["identify", "subscribe"]);
         assert_eq!(
             TRANSPORT_IDENTIFIED_INGRESS_HEADS,
@@ -500,7 +496,7 @@ mod tests {
 
     #[test]
     fn socket_catalog_marks_create_worktree_implemented_without_changing_recognition() {
-        assert_eq!(recognized_command_heads().len(), 169);
+        assert_eq!(recognized_command_heads().len(), 167);
         assert_eq!(P3_IMPLEMENTED_LEGACY_HEADS, ["create-worktree"]);
         assert_eq!(
             required_permissions("create-worktree|name|branch||||"),

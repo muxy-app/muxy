@@ -852,6 +852,20 @@ impl GhosttyHostView {
         self.ivars().surface.borrow().as_ref()?.foreground_pid()
     }
 
+    pub fn is_alternate_screen(&self) -> Option<bool> {
+        self.ivars()
+            .surface
+            .borrow()
+            .as_ref()?
+            .is_alternate_screen()
+    }
+
+    pub fn set_occluded(&self, occluded: bool) {
+        if let Some(surface) = self.ivars().surface.borrow().as_ref() {
+            surface.set_occluded(occluded);
+        }
+    }
+
     pub fn resolve_clipboard_request(
         &self,
         token: ClipboardRequestToken,

@@ -150,6 +150,10 @@ printf '==> Checking P4 repository ownership\n'
     printf 'error: P7 verification script must be executable\n' >&2
     exit 1
 }
+[[ -x scripts/verify-p8-terminal-memory.sh ]] || {
+    printf 'error: P8 verification script must be executable\n' >&2
+    exit 1
+}
 provider_catalog_owner='crates/muxy-core/src/repository_ai.rs'
 provider_catalog_matches="$(rg -n 'ProviderDescriptor\s*\{' crates/ --glob '*.rs' \
     | rg -v "^${provider_catalog_owner}:" || true)"
@@ -257,6 +261,9 @@ printf '==> Checking P6 shortcut service ownership\n'
 printf '==> Checking P6 integrated ownership and scope\n'
 "$SCRIPT_DIR/verify-p6-quick-terminal.sh" --fixture guardrails
 
+printf '==> Checking P8 terminal-memory scope and boundaries\n'
+"$SCRIPT_DIR/verify-p8-terminal-memory.sh" --fixture scope
+
 printf '==> Checking Rust formatting\n'
 cargo fmt --all -- --check
 
@@ -278,6 +285,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 
     printf '==> Checking P7 Composer verification guards\n'
     "$SCRIPT_DIR/verify-p7-composer.sh" --self-test
+
+    printf '==> Checking P8 terminal-memory verification guards\n'
+    "$SCRIPT_DIR/verify-p8-terminal-memory.sh" --self-test
 
     printf '==> Checking staged migration safety guards\n'
     "$SCRIPT_DIR/verify-p2-5-migration.sh" --self-test
