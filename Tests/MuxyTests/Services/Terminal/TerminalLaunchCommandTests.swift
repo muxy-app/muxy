@@ -1,9 +1,12 @@
+import Foundation
 import Testing
 
 @testable import Muxy
 
 @Suite("TerminalLaunchCommand")
 struct TerminalLaunchCommandTests {
+    private let recoveryToken = UUID(uuidString: "06D7D8FB-BAA8-4465-991B-8CBEEFD79E94")!
+
     @Test("Builds non-interactive login shell command")
     func buildsNonInteractiveLoginShellCommand() {
         let command = TerminalLaunchCommand.shellCommand(interactive: false, shell: "/bin/zsh")
@@ -80,12 +83,151 @@ struct TerminalLaunchCommandTests {
             destination: SSHDestination(host: "prod"),
             workingDirectory: "~/code/api",
             startupCommand: nil,
-            interactive: true,
-            keepsShellOpen: false
+            configuration: remoteConfiguration()
         )
-        #expect(command.hasPrefix("/usr/bin/ssh "))
+        #expect(command.hasPrefix("/bin/sh -c "))
+        #expect(command.contains("/usr/bin/ssh "))
         #expect(command.contains("-tt"))
-        #expect(command.contains("'export TERM=xterm-256color; cd ~/code/api && exec \"${SHELL:-/bin/sh}\" -l -i'"))
+        #expect(command.contains("export TERM=xterm-256color; cd ~/code/api && exec \"${SHELL:-/bin/sh}\" -l -i"))
+    }
+
+    @Test("Remote shell retries transport failures with bounded backoff")
+    func remoteShellRetriesTransportFailures() {
+        let command = TerminalLaunchCommand.remoteShellCommand(
+            destination: SSHDestination(host: "prod"),
+            workingDirectory: "~",
+            startupCommand: nil,
+            configuration: remoteConfiguration()
+        )
+
+        #expect(command.contains("[ \"$muxy_status\" -eq 255 ]"))
+        #expect(command.contains("[ \"$muxy_attempt\" -gt 5 ]"))
+        #expect(command.contains("muxy_elapsed\" -lt 60"))
+        #expect(command.contains("1) muxy_delay=1"))
+        #expect(command.contains("2) muxy_delay=2"))
+        #expect(command.contains("3) muxy_delay=4"))
+        #expect(command.contains("*) muxy_delay=8"))
+        #expect(command.contains("SSH connection lost. Reconnecting"))
+    }
+
+    @Test("Remote shell waits for manual retry after automatic recovery is exhausted")
+    func remoteShellWaitsForManualRetry() {
+        let script = TerminalLaunchCommand.remoteReconnectScript(
+            initialSSH: "exit 255",
+            reconnectSSH: "exit 255",
+            recoveryToken: recoveryToken
+        )
+
+        let recoveryTitle = TerminalLaunchCommand.remoteReconnectRequiredTitle(recoveryToken: recoveryToken)
+        #expect(script.contains(recoveryTitle))
+        #expect(script.contains("while :; do sleep 3600; done"))
+    }
+
+    @Test("Remote reconnect wrapper is valid POSIX shell")
+    func remoteReconnectWrapperIsValidShell() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-n",
+            "-c",
+            TerminalLaunchCommand.remoteReconnectScript(
+                initialSSH: "exit 0",
+                reconnectSSH: "exit 0",
+                recoveryToken: recoveryToken
+            ),
+        ]
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+    }
+
+    @Test("Immediate SSH failures wait for manual recovery without automatic retries")
+    func immediateSSHFailuresWaitForManualRecovery() throws {
+        let script = executableRecoveryScript(TerminalLaunchCommand.remoteReconnectScript(
+            initialSSH: "/bin/sh -c 'printf [INITIAL]; exit 255'",
+            reconnectSSH: "/bin/sh -c 'printf [RECONNECT]; exit 255'",
+            recoveryToken: recoveryToken
+        ))
+
+        let result = try runShell(script)
+
+        #expect(result.status == 75)
+        #expect(occurrences(of: "[INITIAL]", in: result.output) == 1)
+        #expect(!result.output.contains("[RECONNECT]"))
+        #expect(result.output.contains(TerminalLaunchCommand.remoteReconnectRequiredTitle(recoveryToken: recoveryToken)))
+    }
+
+    @Test("Established SSH failures consume the bounded automatic retry budget")
+    func establishedSSHFailuresRetryWithinBudget() throws {
+        let script = executableRecoveryScript(TerminalLaunchCommand.remoteReconnectScript(
+            initialSSH: "/bin/sh -c 'printf [INITIAL]; exit 255'",
+            reconnectSSH: "/bin/sh -c 'printf [RECONNECT]; exit 255'",
+            recoveryToken: recoveryToken,
+            attemptLimit: 2,
+            minimumSessionDuration: 0
+        ))
+
+        let result = try runShell(script)
+
+        #expect(result.status == 75)
+        #expect(occurrences(of: "[INITIAL]", in: result.output) == 1)
+        #expect(occurrences(of: "[RECONNECT]", in: result.output) == 2)
+    }
+
+    @Test("Non-transport SSH exits preserve status without retrying")
+    func nonTransportSSHExitsWithoutRetrying() throws {
+        let script = TerminalLaunchCommand.remoteReconnectScript(
+            initialSSH: "/bin/sh -c 'printf [INITIAL]; exit 42'",
+            reconnectSSH: "/bin/sh -c 'printf [RECONNECT]; exit 255'",
+            recoveryToken: recoveryToken
+        )
+
+        let result = try runShell(script)
+
+        #expect(result.status == 42)
+        #expect(occurrences(of: "[INITIAL]", in: result.output) == 1)
+        #expect(!result.output.contains("[RECONNECT]"))
+        #expect(!result.output.contains(TerminalLaunchCommand.remoteReconnectRequiredTitle(recoveryToken: recoveryToken)))
+    }
+
+    @Test("Remote command status 255 is reserved for SSH transport failures")
+    func remoteCommandStatus255IsRemapped() throws {
+        let command = TerminalLaunchCommand.remoteCommandReservingTransportFailureStatus("exit 255")
+
+        let result = try runShell(command)
+
+        #expect(result.status == 254)
+    }
+
+    @Test("Local cancellation does not trigger SSH recovery")
+    func localCancellationDoesNotTriggerRecovery() throws {
+        let script = TerminalLaunchCommand.remoteReconnectScript(
+            initialSSH: "kill -INT $$",
+            reconnectSSH: "printf [RECONNECT]",
+            recoveryToken: recoveryToken
+        )
+
+        let result = try runShell(script)
+
+        #expect(result.status == 130)
+        #expect(!result.output.contains("[RECONNECT]"))
+        #expect(!result.output.contains(TerminalLaunchCommand.remoteReconnectRequiredTitle(recoveryToken: recoveryToken)))
+    }
+
+    @Test("Remote shell does not replay startup command after reconnecting")
+    func remoteShellDoesNotReplayStartupCommand() {
+        let startupCommand = "printf MUXY_UNIQUE_STARTUP"
+        let command = TerminalLaunchCommand.remoteShellCommand(
+            destination: SSHDestination(host: "prod"),
+            workingDirectory: "~",
+            startupCommand: startupCommand,
+            configuration: remoteConfiguration(keepsShellOpen: true)
+        )
+
+        #expect(command.components(separatedBy: startupCommand).count == 2)
+        #expect(command.contains("muxy_initial"))
     }
 
     @Test("Remote shell escapes an injected startup command so it cannot break out")
@@ -95,8 +237,7 @@ struct TerminalLaunchCommandTests {
             destination: SSHDestination(host: "prod"),
             workingDirectory: "~",
             startupCommand: payload,
-            interactive: false,
-            keepsShellOpen: false
+            configuration: remoteConfiguration(interactive: false)
         )
         #expect(command.contains("export MUXY_STARTUP_COMMAND="))
         #expect(command.contains("export TERM=xterm-256color"))
@@ -110,8 +251,7 @@ struct TerminalLaunchCommandTests {
             destination: SSHDestination(host: "prod"),
             workingDirectory: "~",
             startupCommand: "printf REMOTE_FISH",
-            interactive: true,
-            keepsShellOpen: true
+            configuration: remoteConfiguration(keepsShellOpen: true)
         )
 
         #expect(command.contains("exec /bin/sh -c"))
@@ -130,9 +270,46 @@ struct TerminalLaunchCommandTests {
             destination: SSHDestination(host: "prod", environment: ["TERM": "screen-256color", "LANG": "C.UTF-8"]),
             workingDirectory: "~",
             startupCommand: nil,
-            interactive: true,
-            keepsShellOpen: false
+            configuration: remoteConfiguration()
         )
-        #expect(command.contains("'export LANG=C.UTF-8; export TERM=screen-256color; cd ~ && exec \"${SHELL:-/bin/sh}\" -l -i'"))
+        #expect(command.contains("export LANG=C.UTF-8; export TERM=screen-256color; cd ~ && exec \"${SHELL:-/bin/sh}\" -l -i"))
+    }
+
+    private func executableRecoveryScript(_ script: String) -> String {
+        precondition(script.contains("sleep \"$muxy_delay\""))
+        precondition(script.contains("while :; do sleep 3600; done"))
+        return script
+            .replacingOccurrences(of: "sleep \"$muxy_delay\"", with: ":")
+            .replacingOccurrences(of: "while :; do sleep 3600; done", with: "exit 75")
+    }
+
+    private func remoteConfiguration(
+        interactive: Bool = true,
+        keepsShellOpen: Bool = false
+    ) -> TerminalLaunchCommand.RemoteShellConfiguration {
+        TerminalLaunchCommand.RemoteShellConfiguration(
+            interactive: interactive,
+            keepsShellOpen: keepsShellOpen,
+            recoveryToken: recoveryToken
+        )
+    }
+
+    private func runShell(_ script: String) throws -> (status: Int32, output: String) {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        process.standardOutput = output
+        process.standardError = output
+
+        try process.run()
+        process.waitUntilExit()
+
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    private func occurrences(of needle: String, in haystack: String) -> Int {
+        haystack.components(separatedBy: needle).count - 1
     }
 }

@@ -114,6 +114,11 @@
 "Back (%@)" = "Back (%@)";
 "Back to Extensions" = "Back to Extensions";
 "Background session unreachable" = "Background session unreachable";
+"Muxy could not restore this remote terminal automatically." = "Muxy could not restore this remote terminal automatically.";
+"Remote Device Settings…" = "Remote Device Settings…";
+"Retry" = "Retry";
+"Retry the remote terminal connection" = "Retry the remote terminal connection";
+"SSH connection unavailable" = "SSH connection unavailable";
 "Background sessions" = "Background sessions";
 "Background vibrancy" = "Background vibrancy";
 "Backup" = "Backup";
