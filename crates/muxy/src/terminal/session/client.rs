@@ -1,9 +1,9 @@
 use muxy_proto::session::{
-    Empty, HEADER_BYTES, MAX_FRAME_PAYLOAD_BYTES, QueryResult, SessionCodec, SessionDescriptor,
-    SessionMessage, SessionQuery, TerminationOutcome,
+    Empty, HEADER_BYTES, QueryResult, SessionCodec, SessionDescriptor, SessionMessage,
+    SessionQuery, TerminationOutcome,
 };
 use std::io::{Read, Write};
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -94,6 +94,18 @@ impl SessionClient {
         self.termination_exchange(request)
     }
 
+    pub fn terminate_each(&self, session_ids: &[String]) -> TerminateOutcome {
+        let mut outcome = TerminateOutcome::NoSessions;
+        for session_id in session_ids {
+            match self.terminate_one(session_id) {
+                TerminateOutcome::Terminated => outcome = TerminateOutcome::Terminated,
+                TerminateOutcome::NoSessions => {}
+                unreachable => return unreachable,
+            }
+        }
+        outcome
+    }
+
     pub fn terminate_all(&self) -> TerminateOutcome {
         if !self.socket_exists() {
             return TerminateOutcome::NoSessions;
@@ -130,8 +142,14 @@ impl SessionClient {
         if metadata.file_type().is_symlink() || !metadata.file_type().is_socket() {
             return Err("session socket is not a real Unix socket".to_owned());
         }
+        if metadata.uid() != current_uid() || metadata.permissions().mode() & 0o777 != 0o600 {
+            return Err("session socket has an invalid owner or permissions".to_owned());
+        }
         let mut stream = UnixStream::connect(&self.socket_path)
             .map_err(|error| format!("session daemon connection failed: {error}"))?;
+        if peer_uid(&stream)? != current_uid() {
+            return Err("session daemon belongs to another user".to_owned());
+        }
         stream
             .set_read_timeout(Some(timeout))
             .map_err(|error| format!("session daemon read timeout failed: {error}"))?;
@@ -147,17 +165,38 @@ impl SessionClient {
     }
 }
 
+fn current_uid() -> u32 {
+    unsafe { libc::geteuid() }
+}
+
+#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+fn peer_uid(stream: &UnixStream) -> Result<u32, String> {
+    use std::os::fd::AsRawFd;
+
+    let mut uid = 0;
+    let mut gid = 0;
+    if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } == 0 {
+        Ok(uid)
+    } else {
+        Err(format!(
+            "session daemon identity failed: {}",
+            std::io::Error::last_os_error()
+        ))
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "freebsd")))]
+fn peer_uid(_stream: &UnixStream) -> Result<u32, String> {
+    Ok(current_uid())
+}
+
 fn read_message(stream: &mut UnixStream) -> Result<SessionMessage, String> {
     let mut header = [0u8; HEADER_BYTES];
     stream
         .read_exact(&mut header)
         .map_err(|error| format!("session response header failed: {error}"))?;
-    let payload_len = u32::from_be_bytes([header[8], header[9], header[10], header[11]]) as usize;
-    if payload_len > MAX_FRAME_PAYLOAD_BYTES {
-        return Err(format!(
-            "session response exceeds {MAX_FRAME_PAYLOAD_BYTES} bytes"
-        ));
-    }
+    let payload_len = muxy_proto::session::validated_payload_length(&header)
+        .map_err(|error| format!("session response header is invalid: {error}"))?;
     let mut frame = Vec::with_capacity(HEADER_BYTES + payload_len);
     frame.extend_from_slice(&header);
     frame.resize(HEADER_BYTES + payload_len, 0);
@@ -186,6 +225,7 @@ mod tests {
         let root = tempfile::TempDir::new().unwrap();
         let socket = root.path().join("control.sock");
         let listener = UnixListener::bind(&socket).unwrap();
+        std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).unwrap();
         let response = Arc::new(response);
         std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();

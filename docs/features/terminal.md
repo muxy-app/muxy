@@ -22,7 +22,7 @@ Turning the feature off terminates all Rust sessions before persisting the setti
 
 ## Idle terminal freeing
 
-**Settings → Terminal → Memory → Free idle inactive terminals** is also off by default, but its toggle and timeout apply live without restarting Muxy. A terminal's idle clock runs whenever it is not both visible on screen and focused. Muxy preserves terminals with a running command, unknown activity, or an alternate-screen program, and never frees remote terminals or Quick Terminal.
+**Settings → Terminal → Memory → Free idle inactive terminals** is also off by default, but its toggle and timeout apply live without restarting Muxy. A terminal's idle clock runs whenever it is not both visible on screen and focused; a window that is merely behind another app still counts as visible, while a minimized or fully covered window does not. Muxy preserves terminals with a running command, unknown activity, or an alternate-screen program, and never frees remote terminals or Quick Terminal.
 
 Freeing drops the in-app Ghostty surface. Returning focus, selecting **Wake**, typing, searching, scrolling, or other external I/O recreates it in the latest known working directory. An ordinary terminal starts a fresh shell and loses its old scrollback. A persistent terminal reconnects to its existing shell and receives bounded replay. A one-shot startup command is never run again on wake. Turning idle freeing off cancels its scan and wakes every freed terminal. Worktree-wide offline aggregation remains deferred to P10.
 

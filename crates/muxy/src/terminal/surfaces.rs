@@ -327,6 +327,12 @@ impl TerminalSurfaces {
         };
     }
 
+    pub fn set_remote_projects(&mut self, remote: HashSet<String>) {
+        if self.persistent.remote_projects != remote {
+            self.persistent.remote_projects = remote;
+        }
+    }
+
     pub fn persistent_client(&self) -> Option<SessionClient> {
         self.persistent.client.clone()
     }
@@ -367,21 +373,23 @@ impl TerminalSurfaces {
         self.offline.observe(known, &awake, now);
     }
 
-    pub fn offline_probes(&self, store: &WorkspaceStore, now: Duration) -> Vec<OfflineProbe> {
+    fn offline_candidate(&self, store: &WorkspaceStore, tab_id: &str, now: Duration) -> bool {
         let confirming_tab = self
             .backend
             .active_confirmation()
             .map(|(tab_id, _, _)| tab_id);
+        !self.input_queues.contains_key(tab_id)
+            && !self.persistent.in_flight.contains(tab_id)
+            && !self.persistent.terminating.contains(tab_id)
+            && confirming_tab.as_deref() != Some(tab_id)
+            && !tab_is_remote(store, tab_id, &self.persistent.remote_projects)
+            && self.offline.should_probe(tab_id, now, true)
+    }
+
+    pub fn offline_probes(&self, store: &WorkspaceStore, now: Duration) -> Vec<OfflineProbe> {
         self.handles
             .iter()
-            .filter(|(tab_id, _)| {
-                !self.input_queues.contains_key(*tab_id)
-                    && !self.persistent.in_flight.contains(*tab_id)
-                    && !self.persistent.terminating.contains(*tab_id)
-                    && confirming_tab.as_ref() != Some(*tab_id)
-                    && !tab_is_remote(store, tab_id, &self.persistent.remote_projects)
-                    && self.offline.should_probe(tab_id, now, true)
-            })
+            .filter(|(tab_id, _)| self.offline_candidate(store, tab_id, now))
             .filter_map(|(tab_id, handle)| {
                 let directory = handle
                     .metadata()
@@ -405,8 +413,32 @@ impl TerminalSurfaces {
             .collect()
     }
 
-    pub fn take_offline(&mut self, decision: OfflineDecision, now: Duration) -> bool {
-        if !self.handles.contains_key(&decision.tab_id)
+    pub(crate) fn can_take_offline(
+        &self,
+        store: &WorkspaceStore,
+        decision: &OfflineDecision,
+        now: Duration,
+    ) -> bool {
+        let Some(handle) = self.handles.get(&decision.tab_id) else {
+            return false;
+        };
+        crate::terminal::offline::ObservedState {
+            foreground_pid: handle.foreground_pid(),
+            alternate_screen: handle.is_alternate_screen(),
+            direct_activity: self.offline.direct_activity(&decision.tab_id),
+            needs_confirm_close: handle.needs_confirm_close(),
+        } == decision.observed
+            && self.is_persistent_tab(&decision.tab_id) == decision.persistent
+            && self.offline_candidate(store, &decision.tab_id, now)
+    }
+
+    pub fn take_offline(
+        &mut self,
+        store: &WorkspaceStore,
+        decision: OfflineDecision,
+        now: Duration,
+    ) -> bool {
+        if !self.can_take_offline(store, &decision, now)
             || !self.offline.take_offline(decision.clone(), now)
         {
             return false;
@@ -866,8 +898,12 @@ impl TerminalSurfaces {
         }
     }
 
+    pub fn persistent_service_available(&self) -> bool {
+        self.persistent.configuration.is_some()
+    }
+
     pub fn retry_persistent(&mut self, tab_id: &str) -> bool {
-        if !self.is_persistent_tab(tab_id) {
+        if !self.is_persistent_tab(tab_id) || !self.persistent_service_available() {
             return false;
         }
         self.handles.remove(tab_id);
@@ -1050,9 +1086,14 @@ impl TerminalSurfaces {
         {
             self.set_pointer_tab(None);
         }
+        let window_visible = self.backend.window_is_visible();
         for (tab_id, handle) in &self.handles {
-            handle.set_occluded(!visible.contains(tab_id));
+            handle.set_occluded(!(window_visible && visible.contains(tab_id)));
         }
+    }
+
+    pub fn window_is_visible(&self) -> bool {
+        self.backend.window_is_visible()
     }
 
     fn retain_known(&mut self, store: &WorkspaceStore) {
@@ -1131,9 +1172,20 @@ impl TerminalSurfaces {
         if tab.kind != TabKind::Terminal {
             return None;
         }
+        let recovery = self.persistent.recovery.get(tab_id);
+        if matches!(
+            recovery,
+            Some(
+                RecoveryState::InvalidIdentity { .. }
+                    | RecoveryState::Unreachable
+                    | RecoveryState::Missing
+            )
+        ) {
+            return None;
+        }
         if self.is_persistent_tab(tab_id)
             && !matches!(
-                self.persistent.recovery.get(tab_id),
+                recovery,
                 Some(RecoveryState::Ready | RecoveryState::Reconnecting { .. })
             )
         {
@@ -1398,6 +1450,15 @@ mod tests {
         insert_fake_pair(surfaces, tab_id).0
     }
 
+    fn fake_observed() -> crate::terminal::offline::ObservedState {
+        crate::terminal::offline::ObservedState {
+            foreground_pid: None,
+            alternate_screen: None,
+            direct_activity: muxy_core::terminal_activity::PersistentCommandActivity::Unknown,
+            needs_confirm_close: false,
+        }
+    }
+
     fn insert_fake_pair(
         surfaces: &mut TerminalSurfaces,
         tab_id: &str,
@@ -1471,6 +1532,11 @@ mod tests {
         let (store, _, _, tab_id) = contextual_store();
         let mut surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
         surfaces.persistent.enabled = true;
+        surfaces.persistent.configuration = Some(crate::terminal::session::SessionConfiguration {
+            executable: PathBuf::from("/tmp/muxy-session-v2"),
+            resources_directory: PathBuf::from("/tmp/resources"),
+            socket_path: PathBuf::from("/tmp/sessions/control.sock"),
+        });
         surfaces.persistent.eligible_tabs.insert(tab_id.clone());
         surfaces
             .persistent
@@ -1487,6 +1553,26 @@ mod tests {
     }
 
     #[test]
+    fn an_unavailable_session_service_refuses_reconnect_instead_of_hanging() {
+        let (_, _, _, tab_id) = contextual_store();
+        let mut surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
+        surfaces.persistent.enabled = true;
+        surfaces.persistent.eligible_tabs.insert(tab_id.clone());
+        surfaces
+            .persistent
+            .recovery
+            .insert(tab_id.clone(), RecoveryState::Unreachable);
+
+        assert!(!surfaces.persistent_service_available());
+        assert!(!surfaces.retry_persistent(&tab_id));
+        assert!(matches!(
+            surfaces.recovery_state(&tab_id),
+            Some(RecoveryState::Unreachable)
+        ));
+        assert!(!surfaces.materialization_requested.contains(&tab_id));
+    }
+
+    #[test]
     fn invalid_terminal_identity_cannot_fall_back_to_a_direct_surface() {
         let (store, _, _, tab_id) = contextual_store();
         let mut surfaces = TerminalSurfaces::with_socket_path(Path::new("/tmp/selected.socket"));
@@ -1499,6 +1585,11 @@ mod tests {
 
         assert!(!surfaces.request_materialization(&store, &tab_id));
         assert!(!surfaces.materialization_requested.contains(&tab_id));
+        assert!(
+            surfaces
+                .launch_context(&store, &tab_id, Path::new("/tmp"), None)
+                .is_none()
+        );
     }
 
     #[test]
@@ -1519,11 +1610,13 @@ mod tests {
         surfaces.observe_offline(&store, &[], None, true, Duration::ZERO);
 
         assert!(surfaces.take_offline(
+            &store,
             OfflineDecision {
                 tab_id: tab_id.clone(),
                 directory: PathBuf::from("/tmp/latest"),
                 persistent: false,
                 is_idle: true,
+                observed: fake_observed(),
             },
             Duration::from_secs(10),
         ));
@@ -1554,11 +1647,13 @@ mod tests {
         surfaces.configure_offline(true, Duration::from_secs(10));
         surfaces.observe_offline(&store, &[], None, true, Duration::ZERO);
         assert!(surfaces.take_offline(
+            &store,
             OfflineDecision {
                 tab_id: tab_id.clone(),
                 directory: PathBuf::from("/tmp/p1"),
                 persistent: false,
                 is_idle: true,
+                observed: fake_observed(),
             },
             Duration::from_secs(10),
         ));
@@ -1569,11 +1664,13 @@ mod tests {
 
         insert_fake(&mut surfaces, &tab_id);
         assert!(surfaces.take_offline(
+            &store,
             OfflineDecision {
                 tab_id: tab_id.clone(),
                 directory: PathBuf::from("/tmp/p1"),
                 persistent: false,
                 is_idle: true,
+                observed: fake_observed(),
             },
             Duration::from_secs(10),
         ));
@@ -1584,6 +1681,37 @@ mod tests {
         let (_, generation) = surfaces.enqueue_input_transaction(&tab_id, transaction);
         assert!(generation.is_some());
         assert!(!surfaces.is_offline(&tab_id));
+    }
+
+    #[test]
+    fn a_decision_that_no_longer_matches_the_pane_never_frees_it() {
+        let (store, tabs) = store_with(&[("p1", "/tmp/p1")]);
+        let tab_id = tabs[0].clone();
+        let mut surfaces = TerminalSurfaces::new();
+        insert_fake(&mut surfaces, &tab_id);
+        surfaces.configure_offline(true, Duration::from_secs(10));
+        surfaces.observe_offline(&store, &[], None, true, Duration::ZERO);
+        let decision = OfflineDecision {
+            tab_id: tab_id.clone(),
+            directory: PathBuf::from("/tmp/p1"),
+            persistent: false,
+            is_idle: true,
+            observed: fake_observed(),
+        };
+
+        surfaces.offline.begin_direct_session(&tab_id);
+        surfaces.offline.record_output(&tab_id, b"\x1b]133;C\x07");
+        assert!(!surfaces.take_offline(&store, decision.clone(), Duration::from_secs(10)));
+        assert!(surfaces.handle(&tab_id).is_some());
+
+        surfaces.offline.record_output(&tab_id, b"\x1b]133;D;0\x07");
+        let transaction = TerminalInputTransaction::new(
+            vec![TerminalInputStep::BracketedText("hold".to_owned())],
+            false,
+        );
+        surfaces.enqueue_input_transaction(&tab_id, transaction);
+        assert!(!surfaces.take_offline(&store, decision, Duration::from_secs(10)));
+        assert!(surfaces.handle(&tab_id).is_some());
     }
 
     #[test]
@@ -1911,6 +2039,41 @@ mod tests {
         );
         surfaces.cancel_input_queue("pane");
         assert_eq!(input.cancellations.get(), 2);
+    }
+
+    #[test]
+    fn a_missing_surface_releases_every_queued_transaction_for_the_pane() {
+        let mut surfaces = TerminalSurfaces::new();
+        insert_input_fake(&mut surfaces, "pane");
+        let transaction =
+            || TerminalInputTransaction::new(vec![TerminalInputStep::RawBytes(vec![1])], false);
+        let (first, worker) = surfaces.enqueue_input_transaction("pane", transaction());
+        let generation = worker.unwrap();
+        let (second, follow_up) = surfaces.enqueue_input_transaction("pane", transaction());
+        assert!(follow_up.is_none());
+        let active = surfaces
+            .active_input_transaction("pane", generation)
+            .unwrap()
+            .id;
+
+        surfaces.remove_handle("pane");
+        surfaces.complete_input_transaction(
+            "pane",
+            generation,
+            active,
+            Err(TerminalInputError::MissingSurface),
+        );
+        surfaces.cancel_input_queue("pane");
+
+        assert_eq!(
+            first.try_recv(),
+            Ok(Err(TerminalInputError::MissingSurface))
+        );
+        assert_eq!(second.try_recv(), Ok(Err(TerminalInputError::Cancelled)));
+        assert!(!surfaces.input_queues.contains_key("pane"));
+        insert_input_fake(&mut surfaces, "pane");
+        let (_, restarted) = surfaces.enqueue_input_transaction("pane", transaction());
+        assert!(restarted.is_some());
     }
 
     #[test]

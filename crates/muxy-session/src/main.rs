@@ -42,17 +42,7 @@ pub(crate) fn write_message(
 pub(crate) fn read_message(stream: &mut UnixStream) -> Result<SessionMessage, WireError> {
     let mut header = [0u8; HEADER_BYTES];
     stream.read_exact(&mut header)?;
-    let payload_len = usize::try_from(u32::from_be_bytes([
-        header[8], header[9], header[10], header[11],
-    ]))
-    .expect("u32 fits usize on supported targets");
-    if payload_len > muxy_proto::session::MAX_FRAME_PAYLOAD_BYTES {
-        return Err(SessionCodecError::PayloadTooLarge {
-            maximum: muxy_proto::session::MAX_FRAME_PAYLOAD_BYTES,
-            actual: payload_len,
-        }
-        .into());
-    }
+    let payload_len = muxy_proto::session::validated_payload_length(&header)?;
     let mut frame = Vec::with_capacity(HEADER_BYTES + payload_len);
     frame.extend_from_slice(&header);
     frame.resize(HEADER_BYTES + payload_len, 0);

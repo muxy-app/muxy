@@ -3,7 +3,7 @@ mod message;
 
 pub use codec::{
     HEADER_BYTES, SESSION_MAGIC, SESSION_PAYLOAD_VERSION, SESSION_PROTOCOL_VERSION, SessionCodec,
-    SessionCodecError, SessionDecoder,
+    SessionCodecError, SessionDecoder, validated_payload_length,
 };
 pub use message::{
     AttachExisting, AttachRequest, Attached, CommandActivity, CommandActivityQuery,

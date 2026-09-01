@@ -56,6 +56,15 @@ pub struct OfflineDecision {
     pub directory: PathBuf,
     pub persistent: bool,
     pub is_idle: bool,
+    pub observed: ObservedState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ObservedState {
+    pub foreground_pid: Option<u64>,
+    pub alternate_screen: Option<bool>,
+    pub direct_activity: PersistentCommandActivity,
+    pub needs_confirm_close: bool,
 }
 
 impl OfflineRuntime {
@@ -232,6 +241,12 @@ pub fn evaluate_probe(probe: OfflineProbe) -> OfflineDecision {
         directory,
         persistent: probe.persistent,
         is_idle,
+        observed: ObservedState {
+            foreground_pid: probe.foreground_pid,
+            alternate_screen: probe.alternate_screen,
+            direct_activity: probe.direct_activity,
+            needs_confirm_close: probe.needs_confirm_close,
+        },
     }
 }
 
@@ -295,6 +310,12 @@ mod tests {
                 directory: PathBuf::from("/tmp"),
                 persistent: false,
                 is_idle: true,
+                observed: ObservedState {
+                    foreground_pid: None,
+                    alternate_screen: None,
+                    direct_activity: PersistentCommandActivity::Unknown,
+                    needs_confirm_close: false,
+                },
             },
             Duration::from_secs(61),
         ));
@@ -316,6 +337,12 @@ mod tests {
                     directory: PathBuf::from("/tmp"),
                     persistent: pane == "second",
                     is_idle: true,
+                    observed: ObservedState {
+                        foreground_pid: None,
+                        alternate_screen: None,
+                        direct_activity: PersistentCommandActivity::Unknown,
+                        needs_confirm_close: false,
+                    },
                 },
                 Duration::from_secs(10),
             ));

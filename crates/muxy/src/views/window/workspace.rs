@@ -151,8 +151,27 @@ impl MainWindow {
         self.close_tab_confirmed(tab_id, cx);
     }
 
+    pub(crate) fn persistent_sessions_removed_by_close(
+        &self,
+        workspace: Option<&muxy_core::workspace::WorkspaceState>,
+        tab_id: &str,
+    ) -> Vec<muxy_core::workspace::TabId> {
+        workspace
+            .map(|workspace| {
+                workspace
+                    .clone()
+                    .close_tab(tab_id, muxy_core::workspace::CloseMode::Single)
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|removed| self.terminal_runtime.surfaces.is_persistent_tab(removed))
+            .collect()
+    }
+
     pub(super) fn close_tab_confirmed(&mut self, tab_id: &str, cx: &mut Context<Self>) {
-        if self.terminal_runtime.surfaces.is_persistent_tab(tab_id) {
+        let targets =
+            self.persistent_sessions_removed_by_close(self.state.active_tab_workspace(), tab_id);
+        if !targets.is_empty() {
             let Some(client) = self.terminal_runtime.surfaces.persistent_client() else {
                 self.feedback(
                     "Unable to close terminal",
@@ -165,27 +184,29 @@ impl MainWindow {
             let tab_id = tab_id.to_owned();
             self.terminal_runtime
                 .surfaces
-                .begin_persistent_termination_for(std::slice::from_ref(&tab_id));
+                .begin_persistent_termination_for(&targets);
             cx.spawn(async move |window, cx| {
-                let target = tab_id.clone();
+                let requested = targets.clone();
                 let outcome = cx
                     .background_executor()
-                    .spawn(async move { client.terminate_one(&target) })
+                    .spawn(async move { client.terminate_each(&requested) })
                     .await;
                 let _ = window.update(cx, |window, cx| match outcome {
                     crate::terminal::session::client::TerminateOutcome::Terminated
                     | crate::terminal::session::client::TerminateOutcome::NoSessions => {
-                        window
-                            .terminal_runtime
-                            .surfaces
-                            .forget_persistent_tab(&tab_id);
+                        for target in &targets {
+                            window
+                                .terminal_runtime
+                                .surfaces
+                                .forget_persistent_tab(target);
+                        }
                         window.close_tab_after_termination(&tab_id, cx);
                     }
                     crate::terminal::session::client::TerminateOutcome::Unreachable(error) => {
                         window
                             .terminal_runtime
                             .surfaces
-                            .fail_persistent_termination_for(std::slice::from_ref(&tab_id));
+                            .fail_persistent_termination_for(&targets);
                         window.feedback(
                             "Unable to close terminal",
                             format!("{error}. The tab was kept open."),

@@ -579,6 +579,15 @@ impl AppState {
         })
     }
 
+    pub fn remote_project_ids(&self) -> std::collections::HashSet<String> {
+        self.workspace
+            .projects
+            .iter()
+            .filter(|project| project.is_remote())
+            .map(|project| project.id.to_ascii_uppercase())
+            .collect()
+    }
+
     pub fn active_tab_workspace(&self) -> Option<&WorkspaceState> {
         let project = self.active_project()?;
         if let Some(worktree_id) = self.prefs.active_worktree_ids.get(&project.id) {

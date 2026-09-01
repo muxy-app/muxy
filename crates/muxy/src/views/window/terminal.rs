@@ -168,24 +168,31 @@ impl MainWindow {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
-                let focused = if window.view.window_active && !window.view.terminal.overlay_was_open
-                {
+                let focused = if window.view.terminal.overlay_was_open {
+                    None
+                } else {
                     window.state.active_tab_workspace().and_then(|workspace| {
                         let area_id = workspace.focused_area_id.as_deref()?;
                         workspace.area(area_id)?.active_tab_id.clone()
                     })
-                } else {
-                    None
                 };
+                let window_visible = window.terminal_runtime.surfaces.window_is_visible();
                 window.terminal_runtime.surfaces.observe_offline(
                     &window.state.tab_workspaces,
                     &visible,
                     focused.as_deref(),
-                    window.view.window_active,
+                    window_visible,
                     now,
                 );
                 let mut changed = false;
                 for decision in decisions.into_iter().filter(|decision| decision.is_idle) {
+                    if !window.terminal_runtime.surfaces.can_take_offline(
+                        &window.state.tab_workspaces,
+                        &decision,
+                        now,
+                    ) {
+                        continue;
+                    }
                     let previous = window.state.tab_workspaces.clone();
                     let mut directory_changed = false;
                     for workspace in window.state.tab_workspaces.states_mut() {
@@ -206,7 +213,11 @@ impl MainWindow {
                         );
                         continue;
                     }
-                    changed |= window.terminal_runtime.surfaces.take_offline(decision, now);
+                    changed |= window.terminal_runtime.surfaces.take_offline(
+                        &window.state.tab_workspaces,
+                        decision,
+                        now,
+                    );
                 }
                 if changed {
                     cx.notify();
@@ -224,7 +235,58 @@ impl MainWindow {
         woke
     }
 
+    pub(crate) fn terminate_removed_sessions(
+        &mut self,
+        tab_ids: &[String],
+        cx: &mut Context<Self>,
+    ) {
+        let targets = tab_ids
+            .iter()
+            .filter(|tab_id| self.terminal_runtime.surfaces.is_persistent_tab(tab_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        if targets.is_empty() {
+            return;
+        }
+        let Some(client) = self.terminal_runtime.surfaces.persistent_client() else {
+            return;
+        };
+        for target in &targets {
+            self.terminal_runtime.surfaces.forget_persistent_tab(target);
+        }
+        cx.background_executor()
+            .spawn(async move {
+                if let crate::terminal::session::client::TerminateOutcome::Unreachable(error) =
+                    client.terminate_each(&targets)
+                {
+                    log::warn!("removed terminal sessions could not be terminated: {error}");
+                }
+            })
+            .detach();
+    }
+
     pub(crate) fn request_persistent_sessions(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if enabled && let Some(issue) = self.state.tab_workspaces.terminal_identity_issues().first()
+        {
+            let problem = match issue.problem {
+                muxy_core::workspace_store::TerminalIdentityProblem::Malformed => {
+                    "is not a canonical uppercase UUID"
+                }
+                muxy_core::workspace_store::TerminalIdentityProblem::Duplicate => {
+                    "is duplicated across terminal tabs"
+                }
+            };
+            self.feedback(
+                "Unable to enable terminal persistence",
+                format!(
+                    "Terminal ID {} {problem}. Close or recreate that terminal tab and try again.",
+                    issue.tab_id
+                ),
+                crate::toast::ToastTone::Error,
+                cx,
+            );
+            return;
+        }
         let answer = self.ask(
             "Restart Muxy?".to_owned(),
             "Changing persistent terminal sessions requires restarting the whole app.".to_owned(),
@@ -285,23 +347,36 @@ impl MainWindow {
                     }
                     let client = window.terminal_runtime.surfaces.persistent_client();
                     if client.is_none() {
-                        window.feedback(
-                            "Unable to disable terminal persistence",
-                            "Muxy can't reach the terminal session service. Persistence remains enabled.",
-                            crate::toast::ToastTone::Error,
-                            cx,
-                        );
-                    } else {
-                        window
+                        if window
                             .terminal_runtime
                             .surfaces
-                            .begin_persistent_termination();
+                            .persistent_service_available()
+                        {
+                            window.feedback(
+                                "Unable to disable terminal persistence",
+                                "Muxy can't reach the terminal session service. Persistence remains enabled.",
+                                crate::toast::ToastTone::Error,
+                                cx,
+                            );
+                            return None;
+                        }
+                        return Some(None);
                     }
-                    client
+                    window
+                        .terminal_runtime
+                        .surfaces
+                        .begin_persistent_termination();
+                    Some(client)
                 })
                 .ok()
                 .flatten();
             let Some(client) = client else {
+                return;
+            };
+            let Some(client) = client else {
+                let _ = window.update(cx, |window, cx| {
+                    window.disable_persistent_sessions(prepared, cx);
+                });
                 return;
             };
             let outcome = cx
@@ -503,6 +578,19 @@ impl MainWindow {
     pub(crate) fn reconnect_terminal(&mut self, tab_id: &str, cx: &mut Context<Self>) {
         if self.terminal_runtime.surfaces.retry_persistent(tab_id) {
             cx.notify();
+            return;
+        }
+        if !self
+            .terminal_runtime
+            .surfaces
+            .persistent_service_available()
+        {
+            self.feedback(
+                "Terminal session service is unavailable",
+                "Muxy could not start its terminal session service. Turn off persistent terminal sessions in Settings to use ordinary terminals.",
+                crate::toast::ToastTone::Error,
+                cx,
+            );
         }
     }
 
@@ -870,7 +958,7 @@ impl MainWindow {
                 })
                 .or_else(|| visible.first().cloned())
         };
-        if self.view.window_active
+        if self.terminal_runtime.surfaces.window_is_visible()
             && focused
                 .as_deref()
                 .is_some_and(|tab_id| self.terminal_runtime.surfaces.wake_offline(tab_id))
@@ -880,11 +968,15 @@ impl MainWindow {
         self.terminal_runtime
             .surfaces
             .set_focused_tab(focused.as_deref());
+        let window_visible = self.terminal_runtime.surfaces.window_is_visible();
+        self.terminal_runtime
+            .surfaces
+            .set_remote_projects(self.state.remote_project_ids());
         self.terminal_runtime.surfaces.observe_offline(
             &self.state.tab_workspaces,
             &visible,
             focused.as_deref(),
-            self.view.window_active,
+            window_visible,
             self.elapsed(),
         );
         if window.is_window_active()

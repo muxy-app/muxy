@@ -71,6 +71,10 @@ impl UnsupportedBackend {
 }
 
 impl UnsupportedBackend {
+    pub fn window_is_visible(&self) -> bool {
+        true
+    }
+
     pub fn set_window_active(&self, _active: bool) {}
 
     pub fn set_overlay_active(&self, _active: bool) {}

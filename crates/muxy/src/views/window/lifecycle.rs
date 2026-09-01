@@ -583,6 +583,7 @@ impl MainWindow {
                                 handle.request_close();
                             }
                         }
+                        window.terminate_removed_sessions(&effects.tab_ids, cx);
                         if !effects.warnings.is_empty() {
                             window.feedback(
                                 "Worktree Removed",

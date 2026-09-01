@@ -59,7 +59,7 @@ pub(super) fn content(modal: &SettingsModal, cx: &mut Context<SettingsModal>) ->
         category,
         "Memory",
         Some(
-            "Frees an idle terminal you are not actively using to reclaim memory, including visible split panes that are not focused. It reopens in the same folder when you return. Tabs running a process or a full-screen app are never touched.",
+            "Frees an idle terminal you are not actively using to reclaim memory, including visible split panes that are not focused. An ordinary terminal ends its shell and loses its scrollback, then reopens with a fresh shell in the same folder when you return; a persistent terminal keeps its shell and replays recent output. Tabs running a process or a full-screen app are never touched.",
         ),
         false,
         vec![

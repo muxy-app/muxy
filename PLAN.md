@@ -14,7 +14,7 @@ Muxy 1.x is a Swift/SwiftUI macOS app — far more than a terminal: terminal emu
 | 2 | **Dev/prod isolation** mirrored from Swift — added early, essential for development. |
 | 3 | **Webview:** direct WKWebView via objc2, hosted through the existing `native_compositor`. |
 | 4 | **Extension host:** out-of-process Rust binary using **system JavaScriptCore** — exact engine parity with 1.x extensions. |
-| 5 | **Persistent sessions + idle offline freeing:** both rebuilt (both default **off** in 1.x — verified). Rust daemon uses the same paths and framed protocol. |
+| 5 | **Persistent sessions + idle offline freeing:** both rebuilt (both default **off** in 1.x — verified). The Rust daemon is clean Rust on a private `MXS2` protocol in its own versioned socket namespace, not wire or path compatible with Swift. |
 | 6 | **Updates:** Sparkle is NOT carried over. 2.x ships a unified Rust-native updater (Mac now, Linux later). Bundle id stays `com.muxy.app`; existing users upgrade by manual download-and-replace. |
 | 7 | **CLI:** keep the bash wrapper untouched — "the installed CLI just works" is an acceptance test of the socket server's fidelity. |
 | 8 | **Sentry: dropped entirely.** Local diagnostics (logs, profiler, Diagnostics menu, export) stay. |
@@ -83,8 +83,8 @@ flowchart TD
 | Notifications (toast/panel/desktop/sounds/navigation, OSC 9/777) | ❌ missing |
 | Quick Terminal (global hotkey, panel) | ⚠️ implemented; manual native acceptance pending |
 | Composer / rich input (+ drafts, attachments, broadcast) | ⚠️ implemented panel-only; manual native acceptance pending |
-| Idle terminal surface freeing | 🚧 P8 implemented and staged; final audit pending |
-| Persistent tab-owned sessions (`muxy-session-v2` daemon + attach) | 🚧 P8 implemented and staged; final audit pending |
+| Idle terminal surface freeing | ✅ P8 complete |
+| Persistent tab-owned sessions (`muxy-session-v2` daemon + attach) | ✅ P8 complete |
 | `muxy.sock` server + verb dispatcher (3 entry surfaces) + CLI | ✅ P2 complete |
 | Extension platform (host, manifests, permissions, consent, audit, marketplace, surfaces) | ❌ missing |
 | Embedded browser (WKWebView, profiles, history, automation, cookie import) | ❌ missing |
@@ -181,12 +181,12 @@ Wire every inert control that has a backing feature: titlebar split/new-tab butt
 *Acceptance: complete.* Portable capped history, typed socket/hook and OSC ingress, delivery/coalescing policy, toast and panel presentation, unread synchronization, stable-ID navigation, target-gated UserNotifications/NSSound edges, persistence lifecycle, Linux core portability, CLI compatibility, and isolated debug/release lifecycle verification are green. Native authorization/banner/click behavior, sound audibility, and rendered visual/accessibility acceptance remain user-owned.
 **P6 — Quick Terminal. IMPLEMENTED; MANUAL NATIVE ACCEPTANCE PENDING.** Global hotkey (Carbon `RegisterEventHotKey` + double-Shift with Input Monitoring), slide-out panel window, persistent home shell, size/transparency/blur settings, `quick-terminal-shortcut.json` conflict validation.
 **P7 — Composer. IMPLEMENTED PANEL-ONLY; MANUAL NATIVE ACCEPTANCE PENDING.** `⌘I` on macOS and `Alt+I` elsewhere toggle one in-window panel that docks right/bottom, resizes, pins to displace the workspace, or floats as an in-window overlay. The multiline editor, image/file attachments (`RichInputImages/` plus reference sweep), pane broadcast, per-worktree drafts (`rich-input-drafts.json`), transactional Return/no-Return submission, editor typography, native pasteboard adapter, and shared parser-backed Composer/terminal/sidebar path drops are implemented. There is no standalone Composer window or modal. Automated debug/release staged lifecycle and exact-byte proof are complete; physical Finder/clipboard delivery, real TUI image interpretation, visual/focus/accessibility quality, and Linux-host launch remain manual or later-platform acceptance.
-**P8 — Terminal memory features.**
+**P8 — Terminal memory features. COMPLETE.**
 (a) Idle terminal freeing destroys and recreates the in-app Ghostty surface. Ordinary terminals wake with a fresh shell in their latest directory and no old scrollback; persistent terminals reconnect and replay bounded output. Eligibility matches retained focus/visibility, running-command, OSC 133, alternate-screen, remote-exclusion, and one-shot startup-command behavior. Settings apply live and default off. Worktree-wide offline aggregation remains P10.
 (b) Persistent sessions exist only for restart/crash continuity. Every local session is owned by its stable terminal-tab UUID, every recoverable tab reattaches automatically, and closing the tab terminates the complete session first. Recovery keeps layout and distinguishes unreachable **Reconnect** from daemon-confirmed missing **Start Fresh**. Enable and destructive disable require a native Restart Now/Cancel transaction and both default off. There is no tabless workflow, monitoring UI, manual reassignment, or public session CLI.
 (c) `muxy-session-v2` is clean Rust and uses a private `MXS2` bounded protocol, 256 KiB replay, versioned selected-profile socket namespace, same-UID peers, singleton locking, bounded queues/connections, full OS-session process reaping, and five-shell integration. It is not wire compatible with Swift. First production 2.x launch makes one bounded, terminally recorded legacy kill-all request without changing the Swift profile.
 The Phase 1 precondition exposes raw data, cell/alternate-screen reads, foreground PID, raw input, and occlusion through safe backend-neutral seams. Resource sampling, its setting, and any CPU/RAM status UI are removed.
-*Implementation status:* protocol, daemon, tab recovery, restart transactions, and live idle freeing are implemented. Combined debug/release verification and the P8 post-implementation audit remain before completion is declared.
+*Acceptance: complete.* The private protocol, bundled daemon, tab-owned recovery, restart transactions, and live idle freeing are implemented and verified. The fresh post-implementation audit is closed with every Medium-or-higher finding fixed at its root cause. Proof: the shared gates, the complete debug staged matrix, and release launch/close, daemon harness, and recovery, all with injected roots and unchanged production profiles. Native visual, focus, and accessibility acceptance remains user-owned.
 **Stage B extras outside P8:** general quit confirmation, general terminate-later cleanup, general relaunch infrastructure, deferred-startup ordering, press-and-hold registration, and tooltip defaults.
 *Stage B exit:* you live on the Rust app daily.
 

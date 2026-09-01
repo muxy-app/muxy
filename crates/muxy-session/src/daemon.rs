@@ -29,6 +29,8 @@ pub const MAX_SESSION_INPUT_BYTES: usize = 1024 * 1024;
 pub const REPLAY_BYTES: usize = 256 * 1024;
 const OUTPUT_CHUNK_BYTES: usize = 16 * 1024;
 const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+const EMPTY_READ_BACKOFF: Duration = Duration::from_millis(5);
+const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(200);
 const MAX_SESSIONS: usize = 128;
 const DEFAULT_IDLE: Duration = Duration::from_secs(30);
 const OPENER_READ_TIMEOUT: Duration = Duration::from_secs(3);
@@ -201,7 +203,7 @@ fn serve(bound: BoundSocket, idle: Duration) -> Result<(), DaemonError> {
                 lock(&state).last_activity = Instant::now();
                 let state = state.clone();
                 let guard = ConnectionGuard(connections.clone());
-                std::thread::spawn(move || {
+                let _ = std::thread::Builder::new().spawn(move || {
                     let _guard = guard;
                     let _ = handle_connection(stream, state);
                 });
@@ -218,7 +220,7 @@ fn serve(bound: BoundSocket, idle: Duration) -> Result<(), DaemonError> {
                 return Ok(());
             }
         }
-        std::thread::sleep(Duration::from_millis(20));
+        pty::wait_ready(bound.listener.as_raw_fd(), false, ACCEPT_POLL_INTERVAL);
     }
 }
 
@@ -308,10 +310,15 @@ fn handle_connection(
                 );
             }
             let mut complete = true;
+            let mut workers = Vec::new();
             for target in targets {
-                if !pty::terminate_session(target) {
-                    complete = false;
+                match std::thread::Builder::new().spawn(move || pty::terminate_session(target)) {
+                    Ok(worker) => workers.push(worker),
+                    Err(_) => complete &= pty::terminate_session(target),
                 }
+            }
+            for worker in workers {
+                complete &= worker.join().unwrap_or(false);
             }
             if complete {
                 write_message(
@@ -401,7 +408,7 @@ fn handle_attach(
     let writer_stream = stream.try_clone()?;
     let shutdown = stream.try_clone()?;
     let messages = Arc::new(ClientQueue::new());
-    let generation = {
+    let (generation, master) = {
         let mut daemon = lock(&state);
         let Some(session) = daemon.sessions.get_mut(&session_id) else {
             return protocol_error(
@@ -410,7 +417,7 @@ fn handle_attach(
                 "session exited during attach",
             );
         };
-        let _ = pty::resize(lock(&session.master).as_raw_fd(), size);
+        let master = session.master.clone();
         session.next_generation = session.next_generation.wrapping_add(1);
         let generation = session.next_generation;
         if let Some(old) = session.client.take() {
@@ -433,8 +440,9 @@ fn handle_attach(
             messages: messages.clone(),
             shutdown,
         });
-        generation
+        (generation, master)
     };
+    let _ = pty::resize(lock(&master).as_raw_fd(), size);
     let writer_messages = messages.clone();
     std::thread::spawn(move || client_writer(writer_stream, writer_messages));
 
@@ -545,21 +553,29 @@ fn start_session_threads(
     });
 }
 
+fn session_finished(state: &Arc<Mutex<DaemonState>>, session_id: &str) -> bool {
+    lock(state)
+        .sessions
+        .get(session_id)
+        .is_none_or(|session| session.exiting)
+}
+
 fn read_output(mut reader: File, state: Arc<Mutex<DaemonState>>, session_id: String) {
     let mut buffer = [0u8; OUTPUT_CHUNK_BYTES];
     loop {
         match reader.read(&mut buffer) {
-            Ok(0) => return,
-            Ok(length) => broadcast_output(&state, &session_id, &buffer[..length]),
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                if lock(&state)
-                    .sessions
-                    .get(&session_id)
-                    .is_none_or(|session| session.exiting)
-                {
+            Ok(0) => {
+                if session_finished(&state, &session_id) {
                     return;
                 }
-                std::thread::sleep(Duration::from_millis(5));
+                std::thread::sleep(EMPTY_READ_BACKOFF);
+            }
+            Ok(length) => broadcast_output(&state, &session_id, &buffer[..length]),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                if session_finished(&state, &session_id) {
+                    return;
+                }
+                std::thread::sleep(EMPTY_READ_BACKOFF);
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(_) => return,
@@ -609,10 +625,11 @@ fn write_input(master: &Arc<Mutex<File>>, bytes: &[u8]) -> io::Result<()> {
             Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
             Ok(length) => offset += length,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                if Instant::now() >= deadline {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
                     return Err(io::ErrorKind::TimedOut.into());
                 }
-                std::thread::sleep(Duration::from_millis(5));
+                pty::wait_ready(master.as_raw_fd(), true, remaining);
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error),

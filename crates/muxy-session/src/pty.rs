@@ -47,6 +47,18 @@ pub fn spawn(launch: &LaunchSpecification, size: Resize) -> Result<PtyChild, Pty
         return Err(io::Error::last_os_error().into());
     }
 
+    for descriptor in [master, slave] {
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
+        if flags < 0
+            || unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0
+        {
+            let error = io::Error::last_os_error();
+            close_fd(master);
+            close_fd(slave);
+            return Err(error.into());
+        }
+    }
+
     let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
     if unsafe { libc::fstat(slave, &mut stat) } != 0 {
         close_fd(master);
@@ -76,6 +88,10 @@ pub fn spawn(launch: &LaunchSpecification, size: Resize) -> Result<PtyChild, Pty
     if pid == 0 {
         unsafe {
             libc::close(master);
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+            let mut empty = std::mem::zeroed::<libc::sigset_t>();
+            libc::sigemptyset(&mut empty);
+            libc::sigprocmask(libc::SIG_SETMASK, &empty, std::ptr::null_mut());
             if libc::setsid() < 0
                 || libc::ioctl(slave, libc::TIOCSCTTY.into(), 0) < 0
                 || libc::dup2(slave, libc::STDIN_FILENO) < 0
@@ -106,6 +122,33 @@ pub fn spawn(launch: &LaunchSpecification, size: Resize) -> Result<PtyChild, Pty
         pid,
         tty_device,
     })
+}
+
+pub fn wait_ready(fd: RawFd, writable: bool, timeout: Duration) -> bool {
+    if fd < 0 || fd as usize >= libc::FD_SETSIZE {
+        std::thread::sleep(timeout.min(Duration::from_millis(5)));
+        return false;
+    }
+    let mut set = unsafe { std::mem::zeroed::<libc::fd_set>() };
+    unsafe { libc::FD_SET(fd, &mut set) };
+    let mut window = libc::timeval {
+        tv_sec: timeout.as_secs() as libc::time_t,
+        tv_usec: timeout.subsec_micros() as libc::suseconds_t,
+    };
+    let (read_set, write_set) = if writable {
+        (std::ptr::null_mut(), &mut set as *mut libc::fd_set)
+    } else {
+        (&mut set as *mut libc::fd_set, std::ptr::null_mut())
+    };
+    unsafe {
+        libc::select(
+            fd + 1,
+            read_set,
+            write_set,
+            std::ptr::null_mut(),
+            &mut window,
+        ) > 0
+    }
 }
 
 pub fn resize(fd: RawFd, size: Resize) -> io::Result<()> {

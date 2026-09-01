@@ -169,7 +169,7 @@ Turning the setting off first stops every Rust session, then restarts into fresh
 
 ## Idle terminal freeing
 
-**Settings → Terminal → Memory → Free idle inactive terminals** is off by default and applies live. Its timeout measures time spent not both visible and focused. Muxy leaves running commands, unknown session activity, alternate-screen programs, remote panes, and Quick Terminal alone.
+**Settings → Terminal → Memory → Free idle inactive terminals** is off by default and applies live. Its timeout measures time spent not both visible and focused, where visible means the pane is on screen in a window that is not minimized or covered; another app being frontmost does not start the clock. Muxy leaves running commands, unknown session activity, alternate-screen programs, remote panes, and Quick Terminal alone.
 
 Waking an ordinary freed terminal starts a fresh shell in the latest saved directory without old scrollback. Waking a persistent terminal reconnects to the same shell and receives its bounded replay. One-shot startup commands do not run again. Turning the setting off wakes every freed terminal.
 

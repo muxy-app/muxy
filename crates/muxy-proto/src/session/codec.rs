@@ -189,6 +189,10 @@ struct Header {
     payload_len: usize,
 }
 
+pub fn validated_payload_length(header: &[u8]) -> Result<usize, SessionCodecError> {
+    parse_header(header).map(|header| header.payload_len)
+}
+
 fn parse_header(frame: &[u8]) -> Result<Header, SessionCodecError> {
     if frame.len() < HEADER_BYTES {
         return Err(SessionCodecError::Truncated {

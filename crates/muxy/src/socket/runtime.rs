@@ -146,11 +146,11 @@ impl MainWindow {
                             .detach();
                         }
                         PaneCommand::Close(command) => {
-                            if !self
-                                .terminal_runtime
-                                .surfaces
-                                .is_persistent_tab(&command.pane_id)
-                            {
+                            let targets = self.persistent_sessions_removed_by_close(
+                                self.state.tab_workspaces.states().get(command.state_index),
+                                &command.pane_id,
+                            );
+                            if targets.is_empty() {
                                 let result = panes::finish_close(self, &command);
                                 self.finish_socket_command(result, request.responder, cx);
                                 return;
@@ -162,22 +162,24 @@ impl MainWindow {
                                 ));
                                 return;
                             };
-                            let pane_id = command.pane_id.clone();
+                            let requested = targets.clone();
                             self.terminal_runtime
                                 .surfaces
-                                .begin_persistent_termination_for(std::slice::from_ref(&pane_id));
+                                .begin_persistent_termination_for(&targets);
                             cx.spawn(async move |window, cx| {
                                 let outcome = cx
                                     .background_executor()
-                                    .spawn(async move { client.terminate_one(&pane_id) })
+                                    .spawn(async move { client.terminate_each(&requested) })
                                     .await;
                                 let _ = window.update(cx, |window, cx| match outcome {
                                     crate::terminal::session::client::TerminateOutcome::Terminated
                                     | crate::terminal::session::client::TerminateOutcome::NoSessions => {
-                                        window
-                                            .terminal_runtime
-                                            .surfaces
-                                            .forget_persistent_tab(&command.pane_id);
+                                        for target in &targets {
+                                            window
+                                                .terminal_runtime
+                                                .surfaces
+                                                .forget_persistent_tab(target);
+                                        }
                                         let result = panes::finish_close(window, &command);
                                         window.finish_socket_command(
                                             result,
@@ -191,9 +193,7 @@ impl MainWindow {
                                         window
                                             .terminal_runtime
                                             .surfaces
-                                            .fail_persistent_termination_for(
-                                                std::slice::from_ref(&command.pane_id),
-                                            );
+                                            .fail_persistent_termination_for(&targets);
                                         request.responder.respond(CommandReply::new(format!(
                                             "error:{error}; pane kept open"
                                         )));

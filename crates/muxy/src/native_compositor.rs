@@ -13,7 +13,7 @@ use objc2::runtime::NSObjectProtocol;
 use objc2::{DefinedClass, MainThreadOnly, Message as _, define_class, msg_send};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSColor, NSRectFill, NSTrackingArea, NSTrackingAreaOptions, NSView,
-    NSWindowOrderingMode,
+    NSWindowOcclusionState, NSWindowOrderingMode,
 };
 use objc2_foundation::{MainThreadMarker, NSArray, NSPoint, NSRect, NSSize};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -242,6 +242,14 @@ impl NativeViewCompositor {
 
     pub fn focus_gpui(&self) -> bool {
         self.inner.focus_gpui()
+    }
+
+    pub fn window_is_visible(&self) -> bool {
+        self.inner.gpui_view.window().is_none_or(|window| {
+            window
+                .occlusionState()
+                .contains(NSWindowOcclusionState::Visible)
+        })
     }
 
     pub fn gpui_view(&self) -> Retained<NSView> {

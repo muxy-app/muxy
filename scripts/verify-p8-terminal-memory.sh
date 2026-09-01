@@ -17,6 +17,7 @@ readonly PRODUCTION_DEBUG_PROFILE="$HOME/.muxy-dev"
 readonly PRODUCTION_RELEASE_PROFILE="$HOME/.muxy"
 readonly LEGACY_SWIFT_PROFILE="$HOME/Library/Application Support/Muxy"
 readonly LEGACY_VOLATILE_PROFILER="$LEGACY_SWIFT_PROFILE/Diagnostics/profiler.jsonl"
+readonly LEGACY_VOLATILE_HOOK_LOG="$LEGACY_SWIFT_PROFILE/hooks.log"
 TRACKED_PIDS=(0)
 
 fail() {
@@ -239,6 +240,16 @@ assert_tracked_stopped() {
     fail "staged app descendants survived normal close"
 }
 
+wait_for_dead_pid() {
+    local pid="$1" attempt=0
+    while ((attempt < 100)); do
+        kill -0 "$pid" 2>/dev/null || return 0
+        sleep 0.05
+        ((attempt += 1))
+    done
+    return 1
+}
+
 wait_for_path() {
     local path="$1" kind="$2" attempts="$3" attempt
     attempt=0
@@ -256,14 +267,20 @@ wait_for_path() {
 }
 
 snapshot_path() {
-    local path="$1" destination="$2" excluded="${3:-}" entry relative kind detail
+    local path="$1" destination="$2" entry relative kind detail excluded skip
+    shift 2
+    excluded=("$@")
     if [[ ! -e "$path" && ! -L "$path" ]]; then
         printf 'missing\n' > "$destination"
         return
     fi
     {
         while IFS= read -r -d '' entry; do
-            [[ -n "$excluded" && "$entry" == "$excluded" ]] && continue
+            skip=false
+            for relative in ${excluded[@]+"${excluded[@]}"}; do
+                [[ -n "$relative" && "$entry" == "$relative" ]] && skip=true
+            done
+            [[ "$skip" == true ]] && continue
             relative="${entry#"$path"}"
             [[ -n "$relative" ]] || relative="."
             if [[ -L "$entry" ]]; then
@@ -292,12 +309,12 @@ snapshot_production() {
     mkdir -p "$destination"
     snapshot_path "$PRODUCTION_DEBUG_PROFILE" "$destination/debug-profile"
     snapshot_path "$PRODUCTION_RELEASE_PROFILE" "$destination/release-profile"
-    snapshot_path "$LEGACY_SWIFT_PROFILE" "$destination/legacy-profile" "$LEGACY_VOLATILE_PROFILER"
+    snapshot_path "$LEGACY_SWIFT_PROFILE" "$destination/legacy-profile" \
+        "$LEGACY_VOLATILE_PROFILER" "$LEGACY_VOLATILE_HOOK_LOG"
 }
 
 running_app_pids() {
-    ps -axo pid,command |
-        rg -N "^\\s*[0-9]+ $1\$" |
+    { ps -axo pid,command | rg -N "^\\s*[0-9]+ $1\$" || true; } |
         awk '{ print $1 }' |
         tr '\n' ' '
 }
@@ -540,7 +557,7 @@ close_idle_app() {
 
 run_idle_direct() {
     local mode="$1" source_app staged_app case_root app_support executable cli socket log app_pid
-    local pane_id idle_pane focus_pane running_pane alternate_pane idle_directory before after
+    local pane_id idle_pane focus_pane running_pane alternate_pane idle_directory before after direct_shell_pid
     pane_id="22222222-3333-4444-8555-666666666666"
     source_app="$PROJECT_ROOT/target/$mode/Muxy.app"
     [[ -d "$source_app" ]] || fail "bundle not found: $source_app"
@@ -588,6 +605,10 @@ run_idle_direct() {
         "$case_root/direct-before.txt" || fail "direct idle pane did not enter its fixture directory"
     wait_for_screen_text "$cli" "$socket" "$idle_pane" '^P8_DIRECT_SCROLLBACK$' \
         "$case_root/direct-before.txt" || fail "direct idle pane did not execute its fixture command"
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$idle_pane" ':; echo P8_DIRECT_SHELL=$$; :'
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$idle_pane" Enter
+    wait_for_screen_text "$cli" "$socket" "$idle_pane" '^P8_DIRECT_SHELL=[1-9][0-9]*$' \
+        "$case_root/direct-shell.txt" || fail "direct idle pane did not report its shell PID"
     focus_pane="$(MUXY_SOCKET_PATH="$socket" "$cli" split-right --from "$pane_id")"
     [[ "$focus_pane" =~ ^[0-9A-F-]{36}$ ]] || fail "direct focus split did not return a pane ID"
     MUXY_SOCKET_PATH="$socket" "$cli" switch-tab "$focus_pane" >/dev/null
@@ -600,6 +621,13 @@ run_idle_direct() {
     if ! wait_for_idle_status "$app_support" "$idle_pane" offline; then
         idle_control "$app_support" "probe|$idle_pane" >&2
         fail "direct idle pane was not freed"
+    fi
+    direct_shell_pid="$(sed -n 's/.*P8_DIRECT_SHELL=\([1-9][0-9]*\).*/\1/p' \
+        "$case_root/direct-shell.txt" | head -1)"
+    [[ "$direct_shell_pid" =~ ^[1-9][0-9]*$ ]] || fail "direct shell PID was not captured"
+    if ! wait_for_dead_pid "$direct_shell_pid"; then
+        ps -o pid=,ppid=,state=,command= -p "$direct_shell_pid" >&2 || true
+        fail "freed direct surface left its shell process alive"
     fi
     [[ "$(idle_control "$app_support" "status|$focus_pane")" == live ]] || \
         fail "focused pane was freed"
@@ -910,7 +938,7 @@ remove_session_root() {
 
 run_session_recovery() {
     local mode="$1" termination="$2" source_app staged_app case_root app_support socket session_root session_socket
-    local executable cli pane_id app_pid app_pid_two daemon_pid shell_pid status before after log close_reply
+    local executable cli pane_id app_pid app_pid_two daemon_pid shell_pid status before after log close_reply split_pane split_shell_pid
     pane_id="22222222-3333-4444-8555-666666666666"
     source_app="$PROJECT_ROOT/target/$mode/Muxy.app"
     [[ -d "$source_app" ]] || fail "bundle not found: $source_app"
@@ -1020,6 +1048,18 @@ run_session_recovery() {
     MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$pane_id" Enter
     wait_for_screen_text "$cli" "$socket" "$pane_id" 'P8_POST_RECOVERY' \
         "$case_root/post-recovery.txt" || fail "post-recovery input/output failed"
+    split_pane="$(MUXY_SOCKET_PATH="$socket" "$cli" split-right --from "$pane_id")"
+    [[ "$split_pane" =~ ^[0-9A-F-]{36}$ ]] || fail "persistent split did not return a pane ID"
+    wait_for_screen_text "$cli" "$socket" "$split_pane" '.' "$case_root/split-ready.txt" || \
+        fail "persistent split pane did not materialize"
+    MUXY_SOCKET_PATH="$socket" "$cli" send --pane "$split_pane" ':; echo P8_SPLIT_SHELL=$$; :'
+    MUXY_SOCKET_PATH="$socket" "$cli" send-keys --pane "$split_pane" Enter
+    wait_for_screen_text "$cli" "$socket" "$split_pane" '^P8_SPLIT_SHELL=[1-9][0-9]*$' \
+        "$case_root/split-shell.txt" || fail "persistent split did not report its shell PID"
+    split_shell_pid="$(sed -n 's/.*P8_SPLIT_SHELL=\([1-9][0-9]*\).*/\1/p' \
+        "$case_root/split-shell.txt" | head -1)"
+    [[ "$split_shell_pid" =~ ^[1-9][0-9]*$ ]] || fail "persistent split shell PID was not captured"
+    track_pid "$split_shell_pid" "$daemon_pid"
     close_reply="$(close_pane_checked "$cli" "$socket" "$pane_id")"
     for _ in {1..200}; do
         ! kill -0 "$shell_pid" 2>/dev/null && break
@@ -1030,6 +1070,11 @@ run_session_recovery() {
         ps -o pid=,ppid=,pgid=,sess=,state=,command= -p "$shell_pid" >&2 || true
         ps -o pid=,ppid=,pgid=,sess=,state=,command= -p "$daemon_pid" >&2 || true
         fail "tab close did not terminate the session shell"
+    fi
+    if ! wait_for_dead_pid "$split_shell_pid"; then
+        printf 'close reply: %s\n' "$close_reply" >&2
+        ps -o pid=,ppid=,pgid=,sess=,state=,command= -p "$split_shell_pid" >&2 || true
+        fail "tab close left the split pane's session shell alive"
     fi
     printf '%s\n' close > "$app_support/.muxy-test-close-main-window"
     for _ in {1..600}; do

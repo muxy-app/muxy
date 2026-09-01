@@ -316,8 +316,8 @@ impl MainWindow {
             .enqueue_input_transaction(&tab_id, transaction);
         if let Some(generation) = worker_generation {
             self.start_terminal_input_worker(tab_id, generation, cx);
-            cx.notify();
         }
+        cx.notify();
         completion
     }
 
@@ -362,7 +362,8 @@ impl MainWindow {
                             generation,
                             active.id,
                             Err(TerminalInputError::MissingSurface),
-                        )
+                        );
+                        window.terminal_runtime.surfaces.cancel_input_queue(&tab_id);
                     });
                     return;
                 }

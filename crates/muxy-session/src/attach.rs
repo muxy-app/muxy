@@ -102,11 +102,7 @@ impl AttachConfiguration {
         let message = match env::var("MUXY_SESSION_CREATE_POLICY").as_deref() {
             Ok("existing") => SessionMessage::AttachExisting(AttachExisting { session_id, size }),
             Ok("create-or-attach") => {
-                let environment = env::vars()
-                    .filter(|(key, _)| !key.starts_with("MUXY_SESSION_"))
-                    .take(muxy_proto::session::MAX_ENVIRONMENT_ENTRIES)
-                    .map(|(key, value)| EnvironmentEntry { key, value })
-                    .collect();
+                let environment = forwarded_environment();
                 SessionMessage::AttachCreateOrAttach(AttachRequest {
                     session_id,
                     owner: OwnerMetadata {
@@ -140,8 +136,38 @@ impl AttachConfiguration {
     }
 }
 
+fn forwarded_environment() -> Vec<EnvironmentEntry> {
+    use muxy_proto::session::{
+        MAX_ENVIRONMENT_BYTES, MAX_ENVIRONMENT_ENTRIES, MAX_FIELD_BYTES, MAX_PATH_BYTES,
+    };
+
+    let mut entries = env::vars_os()
+        .filter_map(|(key, value)| {
+            let key = key.to_str()?.to_owned();
+            let value = value.to_str()?.to_owned();
+            (!key.starts_with("MUXY_SESSION_")
+                && key.len() <= MAX_FIELD_BYTES
+                && value.len() <= MAX_PATH_BYTES)
+                .then_some(EnvironmentEntry { key, value })
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| !entry.key.starts_with("MUXY_"));
+    entries.truncate(MAX_ENVIRONMENT_ENTRIES);
+    let mut total = entries
+        .iter()
+        .map(|entry| entry.key.len() + entry.value.len())
+        .sum::<usize>();
+    while total > MAX_ENVIRONMENT_BYTES {
+        let Some(dropped) = entries.pop() else {
+            break;
+        };
+        total -= dropped.key.len() + dropped.value.len();
+    }
+    entries
+}
+
 fn connect_or_spawn(configuration: &AttachConfiguration) -> Result<UnixStream, AttachError> {
-    if let Ok(stream) = UnixStream::connect(&configuration.socket) {
+    if let Ok(stream) = security::connect(&configuration.socket) {
         return Ok(stream);
     }
     let executable = env::current_exe()?;
@@ -168,7 +194,7 @@ fn connect_or_spawn(configuration: &AttachConfiguration) -> Result<UnixStream, A
     command.spawn().map_err(AttachError::DaemonSpawn)?;
     let deadline = Instant::now() + CONNECT_TIMEOUT;
     loop {
-        match UnixStream::connect(&configuration.socket) {
+        match security::connect(&configuration.socket) {
             Ok(stream) => return Ok(stream),
             Err(_) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(20));

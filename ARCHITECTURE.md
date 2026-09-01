@@ -97,7 +97,7 @@ Events flow back asynchronously: libghostty callbacks → `ghostty-host` `Runtim
 
 `muxy-terminal::offline` owns retained-parity eligibility, scan interval, interactive-shell classification, OSC 133 activity tracking with generation invalidation, persistent activity decisions, and neutral recovery states. `muxy-terminal::process` owns the process-inspection trait and pure foreground-TTY selection. Platform records and syscalls stay behind its target-gated system edge.
 
-`ghostty-host` owns raw callback lifetime and alternate-screen reads. `muxy` owns the window-scoped live settings timer, per-tab inactivity clocks, runtime offline records, workspace/tab mutation, surface release and recreation, persistent recovery presentation, and settings transactions. Timer rescheduling preserves inactivity clocks; disabling cancels the scan and wakes every offline record. Quick Terminal and remote terminals are excluded from the workspace idle owner.
+`ghostty-host` owns raw callback lifetime and alternate-screen reads. `muxy` owns the window-scoped live settings timer, per-tab inactivity clocks, runtime offline records, workspace/tab mutation, surface release and recreation, persistent recovery presentation, and settings transactions. Timer rescheduling preserves inactivity clocks; disabling cancels the scan and wakes every offline record. Window visibility comes from the native compositor's occlusion state rather than app activation, and every decision computed off the main thread is revalidated against the pane's live state before its surface is freed. Quick Terminal and remote terminals are excluded from the workspace idle owner, and remote ownership is resolved from the current project list.
 
 ## Quick Terminal stack
 

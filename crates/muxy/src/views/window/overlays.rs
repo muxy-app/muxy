@@ -2521,6 +2521,22 @@ impl MainWindow {
             );
             return;
         }
+        let removed = self
+            .state
+            .tab_workspaces
+            .states()
+            .iter()
+            .filter(|state| state.project_id.eq_ignore_ascii_case(project_id))
+            .flat_map(|state| {
+                state
+                    .root
+                    .as_ref()
+                    .map(|root| root.tabs())
+                    .unwrap_or_default()
+            })
+            .map(|tab| tab.id.clone())
+            .collect::<Vec<_>>();
+        self.terminate_removed_sessions(&removed, cx);
         self.state.remove_project(project_id);
     }
 

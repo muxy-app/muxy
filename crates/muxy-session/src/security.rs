@@ -80,6 +80,20 @@ impl Drop for BoundSocket {
     }
 }
 
+pub fn connect(path: &Path) -> Result<UnixStream, SecurityError> {
+    validate_socket_path(path)?;
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_socket()
+        || metadata.uid() != current_uid()
+        || metadata.mode() & 0o777 != 0o600
+    {
+        return Err(SecurityError::InvalidSocket(path.to_path_buf()));
+    }
+    let stream = UnixStream::connect(path)?;
+    validate_peer(&stream)?;
+    Ok(stream)
+}
+
 pub fn validate_peer(stream: &UnixStream) -> Result<(), SecurityError> {
     let expected = current_uid();
     let actual = peer_uid(stream)?;

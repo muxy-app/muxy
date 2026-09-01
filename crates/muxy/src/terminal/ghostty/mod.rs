@@ -1365,6 +1365,12 @@ fn apply_background_blur_to(app: Option<&GhosttyApp>, host: &GhosttyHostView) {
 }
 
 impl GhosttyBackend {
+    pub fn window_is_visible(&self) -> bool {
+        self.compositor
+            .as_ref()
+            .is_none_or(NativeViewCompositor::window_is_visible)
+    }
+
     pub fn set_window_active(&self, active: bool) {
         for surface in self.surfaces.borrow().values() {
             surface.host.set_window_active(active);
