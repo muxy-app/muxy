@@ -23,7 +23,9 @@ final class GhosttyTerminalNSView: NSView,
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
     private let workspaceContext: WorkspaceContext
-    let persistentSessionID: UUID?
+    let sessionBacking: TerminalSessionBacking
+    private let createsRemoteTmuxSessionIfMissing: Bool
+    var persistentSessionID: UUID? { sessionBacking.localSessionID }
     var envVars: [(key: String, value: String)] = []
     var sessionMetadata: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
@@ -118,14 +120,16 @@ final class GhosttyTerminalNSView: NSView,
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
         workspaceContext: WorkspaceContext = .local,
-        persistentSessionID: UUID? = nil
+        sessionBacking: TerminalSessionBacking = .direct,
+        createsRemoteTmuxSessionIfMissing: Bool = true
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
         commandClosesOnExit = closesOnCommandExit
         self.workspaceContext = workspaceContext
-        self.persistentSessionID = persistentSessionID
+        self.sessionBacking = sessionBacking
+        self.createsRemoteTmuxSessionIfMissing = createsRemoteTmuxSessionIfMissing
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -218,13 +222,15 @@ final class GhosttyTerminalNSView: NSView,
                 workingDirectory: localWorkingDirectory
             )
 
-        if let destination = workspaceContext.sshDestination {
+        if let destination = effectiveSSHDestination {
             if let remoteWrapped = strdup(TerminalLaunchCommand.remoteShellCommand(
                 destination: destination,
                 workingDirectory: workingDirectory,
                 startupCommand: launchCommand,
                 interactive: commandInteractive,
-                keepsShellOpen: !commandClosesOnExit
+                keepsShellOpen: !commandClosesOnExit,
+                tmuxSession: remoteTmuxSession,
+                createsTmuxSessionIfMissing: createsRemoteTmuxSessionIfMissing && !hasMaterializedOnce
             )) {
                 surfaceCStringPointers.append(remoteWrapped)
                 config.command = UnsafePointer(remoteWrapped)
@@ -656,8 +662,8 @@ final class GhosttyTerminalNSView: NSView,
         onOfflineChange?(true)
     }
 
-    func reattachPersistentSession() {
-        guard persistentSessionID != nil else { return }
+    func reattachSession() {
+        guard sessionBacking != .direct else { return }
         destroySurface()
         isSessionRecoveryFailed = false
         onSessionRecoveryFailed?(false)
@@ -667,10 +673,19 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     func reportSessionRecoveryFailure() {
-        guard persistentSessionID != nil, !isSessionRecoveryFailed else { return }
+        guard sessionBacking != .direct, !isSessionRecoveryFailed else { return }
         destroySurface()
         isSessionRecoveryFailed = true
         onSessionRecoveryFailed?(true)
+    }
+
+    private var remoteTmuxSession: RemoteTmuxSession? {
+        guard case let .remoteTmux(session) = sessionBacking else { return nil }
+        return session
+    }
+
+    var effectiveSSHDestination: SSHDestination? {
+        remoteTmuxSession?.destination ?? workspaceContext.sshDestination
     }
 
     func applyColorScheme(isDark: Bool) {
@@ -2089,7 +2104,7 @@ final class GhosttyTerminalNSView: NSView,
     }
 
     var uploadDestination: SSHDestination? {
-        if let destination = workspaceContext.sshDestination {
+        if let destination = effectiveSSHDestination {
             return destination
         }
         return detectedSSHDestination()

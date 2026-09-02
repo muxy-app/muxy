@@ -1,7 +1,71 @@
 import AppKit
 import SwiftUI
 
+@MainActor
+@Observable
+final class RemoteDeviceProbeController {
+    enum State: Equatable {
+        case idle
+        case testing
+        case succeeded
+        case failed(String)
+    }
+
+    enum Outcome: Equatable {
+        case succeeded
+        case failed(String)
+        case superseded
+    }
+
+    private(set) var state: State = .idle
+    private var activeRequestID: UUID?
+    private var activeDestination: SSHDestination?
+    private var activeTask: Task<Void, Never>?
+
+    @discardableResult
+    func run(
+        destination: SSHDestination,
+        operation: @escaping @MainActor (SSHDestination) async -> Outcome
+    ) -> Task<Void, Never> {
+        invalidate()
+        let requestID = UUID()
+        activeRequestID = requestID
+        activeDestination = destination
+        state = .testing
+        let task = Task { @MainActor [weak self] in
+            let outcome = await operation(destination)
+            guard let self,
+                  !Task.isCancelled,
+                  activeRequestID == requestID,
+                  activeDestination == destination
+            else { return }
+            activeTask = nil
+            switch outcome {
+            case .succeeded:
+                state = .succeeded
+            case let .failed(message):
+                state = .failed(message)
+            case .superseded:
+                state = .idle
+            }
+        }
+        activeTask = task
+        return task
+    }
+
+    func invalidate() {
+        activeTask?.cancel()
+        activeTask = nil
+        activeRequestID = nil
+        activeDestination = nil
+        state = .idle
+    }
+}
+
 struct RemoteDeviceEditorSheet: View {
+    private static let tmuxHelp = "New terminals on this device keep running through SSH disconnects and when Muxy quits, "
+        + "then reconnect when available. Requires tmux on the remote device. Existing terminals are not affected."
+
     let mode: RemoteDeviceEditorMode
     let onSave: (_ name: String, _ ssh: SSHWorkspaceData) -> Void
     let onCancel: () -> Void
@@ -15,16 +79,10 @@ struct RemoteDeviceEditorSheet: View {
     @State private var user: String = ""
     @State private var identityFile: String = ""
     @State private var environmentText: String = ""
+    @State private var keepsSessionsRunningWithTmux = false
     @State private var showAdvanced = false
-    @State private var probeState: ProbeState = .idle
+    @State private var probe = RemoteDeviceProbeController()
     @FocusState private var hostFocused: Bool
-
-    private enum ProbeState: Equatable {
-        case idle
-        case testing
-        case succeeded
-        case failed(String)
-    }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
     private var trimmedHost: String { host.trimmingCharacters(in: .whitespaces) }
@@ -44,7 +102,7 @@ struct RemoteDeviceEditorSheet: View {
     }
 
     private var canProbe: Bool {
-        SSHDestination.isValidHost(trimmedHost) && isPortValid && environmentErrorMessage == nil && probeState != .testing
+        SSHDestination.isValidHost(trimmedHost) && isPortValid && environmentErrorMessage == nil && probe.state != .testing
     }
 
     private var canSave: Bool {
@@ -77,9 +135,11 @@ struct RemoteDeviceEditorSheet: View {
                 text: $name
             )
             field(label: L10n.string("SSH Host"), placeholder: L10n.string("host or ~/.ssh/config alias"), text: $host, focused: true)
-                .onChange(of: host) { probeState = .idle }
+                .onChange(of: host) { invalidateProbe() }
             field(label: L10n.string("Remote Root"), placeholder: L10n.string("~"), text: $root)
-                .onChange(of: root) { probeState = .idle }
+                .onChange(of: root) { invalidateProbe() }
+
+            tmuxSessionToggle
 
             advancedSection
 
@@ -93,7 +153,7 @@ struct RemoteDeviceEditorSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button(L10n.string("Save"), action: save)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!canSave || probeState == .testing)
+                    .disabled(!canSave || probe.state == .testing)
             }
         }
         .padding(UIMetrics.spacing8)
@@ -107,11 +167,25 @@ struct RemoteDeviceEditorSheet: View {
             user = ssh.user ?? ""
             identityFile = ssh.identityFile ?? ""
             environmentText = SSHEnvironmentText.format(ssh.environment)
+            keepsSessionsRunningWithTmux = ssh.remoteSessionMode == .tmux
             showAdvanced = ssh.port != nil
                 || ssh.user != nil
                 || ssh.identityFile != nil
                 || ssh.environment != SSHEnvironmentVariables.default
             hostFocused = true
+        }
+        .onDisappear { probe.invalidate() }
+    }
+
+    private var tmuxSessionToggle: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+            Toggle(L10n.resource("Keep terminal sessions running with tmux"), isOn: $keepsSessionsRunningWithTmux)
+                .onChange(of: keepsSessionsRunningWithTmux) { invalidateProbe() }
+                .accessibilityHint(L10n.string("Requires tmux on the remote device and affects new terminals only."))
+            Text(L10n.resource(key: Self.tmuxHelp))
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -120,10 +194,10 @@ struct RemoteDeviceEditorSheet: View {
             VStack(alignment: .leading, spacing: UIMetrics.scaled(10)) {
                 HStack(spacing: UIMetrics.spacing4) {
                     field(label: L10n.string("User"), placeholder: L10n.string("optional"), text: $user)
-                        .onChange(of: user) { probeState = .idle }
+                        .onChange(of: user) { invalidateProbe() }
                     VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
                         field(label: L10n.string("Port"), placeholder: L10n.string("22"), text: $port)
-                            .onChange(of: port) { probeState = .idle }
+                            .onChange(of: port) { invalidateProbe() }
                         if !isPortValid {
                             Text(L10n.resource("Port must be between 1 and 65535."))
                                 .font(.system(size: UIMetrics.fontFootnote))
@@ -139,7 +213,7 @@ struct RemoteDeviceEditorSheet: View {
                     HStack(spacing: UIMetrics.spacing3) {
                         TextField(L10n.string("~/.ssh/id_ed25519"), text: $identityFile)
                             .textFieldStyle(.roundedBorder)
-                            .onChange(of: identityFile) { probeState = .idle }
+                            .onChange(of: identityFile) { invalidateProbe() }
                         Button(L10n.string("Browse…"), action: chooseIdentityFile)
                             .fixedSize(horizontal: true, vertical: false)
                     }
@@ -166,7 +240,7 @@ struct RemoteDeviceEditorSheet: View {
                 .background(MuxyTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
                 .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
-                .onChange(of: environmentText) { probeState = .idle }
+                .onChange(of: environmentText) { invalidateProbe() }
             if let environmentErrorMessage {
                 Text(environmentErrorMessage)
                     .font(.system(size: UIMetrics.fontFootnote))
@@ -177,7 +251,7 @@ struct RemoteDeviceEditorSheet: View {
 
     @ViewBuilder
     private var statusRow: some View {
-        switch probeState {
+        switch probe.state {
         case .idle:
             Text(L10n.resource("Muxy uses your system SSH config, keys, and agent. No passwords are stored."))
                 .font(.system(size: UIMetrics.fontFootnote))
@@ -185,14 +259,14 @@ struct RemoteDeviceEditorSheet: View {
         case .testing:
             HStack(spacing: UIMetrics.spacing2) {
                 ProgressView().controlSize(.small)
-                Text(L10n.resource("Testing connection…"))
+                Text(L10n.resource(key: keepsSessionsRunningWithTmux ? "Testing connection and tmux…" : "Testing connection…"))
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
         case .succeeded:
             HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text(L10n.resource("Connection succeeded"))
+                Text(L10n.resource(key: keepsSessionsRunningWithTmux ? "Connection and tmux are ready" : "Connection succeeded"))
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fg)
             }
@@ -238,7 +312,7 @@ struct RemoteDeviceEditorSheet: View {
         panel.message = L10n.string("Select an SSH private key")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         identityFile = url.path
-        probeState = .idle
+        invalidateProbe()
     }
 
     private var sshData: SSHWorkspaceData {
@@ -248,21 +322,26 @@ struct RemoteDeviceEditorSheet: View {
             port: parsedPort,
             user: user,
             identityFile: identityFile,
-            environment: (try? environmentResult.get()) ?? [:]
+            environment: (try? environmentResult.get()) ?? [:],
+            remoteSessionMode: keepsSessionsRunningWithTmux ? .tmux : .direct
         )
     }
 
     private func runTest() {
-        probeState = .testing
-        let destination = sshData.destination
-        Task {
-            let success = await sshConnections.test(destination: destination)
-            if success {
-                probeState = .succeeded
-            } else {
-                probeState = .failed(failureMessage(for: destination))
+        probe.run(destination: sshData.destination) { destination in
+            switch await sshConnections.test(destination: destination) {
+            case .succeeded:
+                .succeeded
+            case .failed:
+                .failed(failureMessage(for: destination))
+            case .superseded:
+                .superseded
             }
         }
+    }
+
+    private func invalidateProbe() {
+        probe.invalidate()
     }
 
     private func save() {

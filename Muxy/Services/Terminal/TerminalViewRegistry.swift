@@ -31,6 +31,9 @@ final class TerminalViewRegistry {
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
         workspaceContext: WorkspaceContext = .local,
+        remoteSessionMode: SSHRemoteSessionMode? = nil,
+        remoteTmuxDestination: SSHDestination? = nil,
+        createsRemoteTmuxSessionIfMissing: Bool = true,
         backend: TerminalBackend = .fallback
     ) -> any TerminalSurface {
         if let existing = views[paneID] {
@@ -39,13 +42,22 @@ final class TerminalViewRegistry {
         let usesPersistentSession = TerminalPersistentSessionPolicy.usesPersistentSession(
             workspaceContext: workspaceContext
         )
+        let sessionBacking = TerminalSessionBacking.resolve(
+            paneID: paneID,
+            sessionID: sessionID,
+            workspaceContext: workspaceContext,
+            usesLocalPersistentSession: usesPersistentSession,
+            remoteSessionMode: remoteSessionMode,
+            remoteTmuxDestination: remoteTmuxDestination
+        )
         let view = backend.makeSurface(launch: TerminalLaunchRequest(
             workingDirectory: workingDirectory,
             command: command,
             commandInteractive: commandInteractive,
             closesOnCommandExit: closesOnCommandExit,
             workspaceContext: workspaceContext,
-            persistentSessionID: usesPersistentSession ? (sessionID ?? paneID) : nil
+            sessionBacking: sessionBacking,
+            createsRemoteTmuxSessionIfMissing: createsRemoteTmuxSessionIfMissing
         ))
         views[paneID] = view
         paneIDs[ObjectIdentifier(view.terminalView)] = paneID
@@ -58,8 +70,13 @@ final class TerminalViewRegistry {
 
     func removeView(for paneID: UUID) {
         guard let view = releaseView(for: paneID) else { return }
-        if let sessionID = view.persistentSessionID {
+        switch view.sessionBacking {
+        case let .local(sessionID):
             PersistentSessionService.shared.endSession(sessionID: sessionID)
+        case .remoteTmux:
+            break
+        case .direct:
+            break
         }
     }
 
@@ -74,6 +91,10 @@ final class TerminalViewRegistry {
 
     func hasPersistentSession(for paneID: UUID, sessionID: UUID) -> Bool {
         views[paneID]?.persistentSessionID == sessionID
+    }
+
+    func hasSessionBacking(for paneID: UUID, backing: TerminalSessionBacking) -> Bool {
+        views[paneID]?.sessionBacking == backing
     }
 
     func releaseViewPreservingSession(for paneID: UUID) {

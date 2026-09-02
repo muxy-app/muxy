@@ -337,6 +337,44 @@ struct WorkspaceSnapshotTests {
         #expect(results.isEmpty)
     }
 
+    @Test("WorkspaceRestorer.restoreAll rejects duplicate persisted pane IDs")
+    func restoreAllRejectsDuplicatePaneIDs() {
+        let project = Project(name: "Test", path: testPath)
+        let worktree = Worktree(name: "main", path: testPath, isPrimary: true)
+        let paneID = UUID()
+        let tabs = ["First", "Second"].map { title in
+            TerminalTabSnapshot(
+                kind: .terminal,
+                customTitle: nil,
+                colorID: nil,
+                isPinned: false,
+                projectPath: testPath,
+                paneTitle: title,
+                paneID: paneID
+            )
+        }
+        let snapshot = WorkspaceSnapshot(
+            projectID: project.id,
+            worktreeID: worktree.id,
+            worktreePath: testPath,
+            focusedAreaID: nil,
+            root: .tabArea(TabAreaSnapshot(
+                id: UUID(),
+                projectPath: testPath,
+                tabs: tabs,
+                activeTabIndex: 0
+            ))
+        )
+
+        let results = WorkspaceRestorer.restoreAll(
+            from: [snapshot],
+            projects: [project],
+            worktrees: [project.id: [worktree]]
+        )
+
+        #expect(results.isEmpty)
+    }
+
     @Test("WorkspaceRestorer.restoreAll falls back to primary worktree")
     func restoreAllFallbackToPrimary() {
         let project = Project(name: "Test", path: testPath)

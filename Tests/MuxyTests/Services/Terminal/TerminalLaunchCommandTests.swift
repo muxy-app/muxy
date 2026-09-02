@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import Muxy
@@ -134,5 +135,82 @@ struct TerminalLaunchCommandTests {
             keepsShellOpen: false
         )
         #expect(command.contains("'export LANG=C.UTF-8; export TERM=screen-256color; cd ~ && exec \"${SHELL:-/bin/sh}\" -l -i'"))
+    }
+
+    @Test("Remote tmux initial launch wraps the remote login command with its exact target")
+    func remoteTmuxInitialLaunchWrapsRemoteLoginCommand() throws {
+        let identifier = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let destination = SSHDestination(host: "prod", remoteSessionMode: .tmux)
+        let session = RemoteTmuxSession(id: identifier, destination: destination)
+        let command = TerminalLaunchCommand.remoteShellCommand(
+            destination: destination,
+            workingDirectory: "~/code/api",
+            startupCommand: "npm run dev",
+            interactive: true,
+            keepsShellOpen: false,
+            tmuxSession: session
+        )
+        #expect(command.contains("tmux new-session -d -s muxy-0123456789abcdef0123456789abcdef"))
+        #expect(command.contains("tmux has-session -t '\\''=muxy-0123456789abcdef0123456789abcdef'\\''"))
+        #expect(command.contains("__muxy_shell_name=${__muxy_shell##*/}"))
+        #expect(command.contains("MUXY_STARTUP_COMMAND"))
+    }
+
+    @Test("Remote tmux recovery attaches without creating or restarting the startup command")
+    func remoteTmuxRecoveryOnlyAttaches() throws {
+        let identifier = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let destination = SSHDestination(host: "prod", remoteSessionMode: .tmux)
+        let command = TerminalLaunchCommand.remoteShellCommand(
+            destination: destination,
+            workingDirectory: "~/code/api",
+            startupCommand: "npm run dev",
+            interactive: true,
+            keepsShellOpen: false,
+            tmuxSession: RemoteTmuxSession(id: identifier, destination: destination),
+            createsTmuxSessionIfMissing: false
+        )
+
+        #expect(command.contains("attach-session"))
+        #expect(command.contains("muxy-0123456789abcdef0123456789abcdef"))
+        #expect(!command.contains("new-session"))
+        #expect(!command.contains("npm run dev"))
+    }
+
+    @Test("Remote tmux paths bypass tmux format expansion")
+    func remoteTmuxPathBypassesTmuxFormats() throws {
+        let identifier = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let destination = SSHDestination(host: "prod", remoteSessionMode: .tmux)
+        let command = TerminalLaunchCommand.remoteShellCommand(
+            destination: destination,
+            workingDirectory: "/srv/#(touch /tmp/pwn)",
+            startupCommand: nil,
+            interactive: true,
+            keepsShellOpen: false,
+            tmuxSession: RemoteTmuxSession(id: identifier, destination: destination)
+        )
+
+        #expect(!command.contains("new-session -d -s muxy-0123456789abcdef0123456789abcdef -c"))
+        #expect(command.contains("#(touch /tmp/pwn)"))
+    }
+
+    @Test("Remote tmux preserves outer TERM without overriding its child TERM")
+    func remoteTmuxOwnsChildTerm() throws {
+        let identifier = try #require(UUID(uuidString: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        let destination = SSHDestination(
+            host: "prod",
+            environment: ["TERM": "xterm-256color", "TMUX_TMPDIR": "/tmp/custom"],
+            remoteSessionMode: .tmux
+        )
+        let command = TerminalLaunchCommand.remoteShellCommand(
+            destination: destination,
+            workingDirectory: "~/code",
+            startupCommand: nil,
+            interactive: true,
+            keepsShellOpen: false,
+            tmuxSession: RemoteTmuxSession(id: identifier, destination: destination)
+        )
+
+        #expect(command.components(separatedBy: "export TERM=xterm-256color").count == 2)
+        #expect(command.contains("export TMUX_TMPDIR=/tmp/custom"))
     }
 }

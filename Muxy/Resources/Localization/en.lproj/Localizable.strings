@@ -113,7 +113,6 @@
 "Back" = "Back";
 "Back (%@)" = "Back (%@)";
 "Back to Extensions" = "Back to Extensions";
-"Background session unreachable" = "Background session unreachable";
 "Background sessions" = "Background sessions";
 "Background vibrancy" = "Background vibrancy";
 "Backup" = "Backup";
@@ -232,6 +231,7 @@
 "Conflicts" = "Conflicts";
 "Conflicts with \"%@\". Press a different shortcut or Esc to cancel." = "Conflicts with \"%@\". Press a different shortcut or Esc to cancel.";
 "Connection succeeded" = "Connection succeeded";
+"Connection and tmux are ready" = "Connection and tmux are ready";
 "Controlled by %@" = "Controlled by %@";
 "Copied" = "Copied";
 "Copy" = "Copy";
@@ -451,6 +451,7 @@
 "JSON" = "JSON";
 "JSON Settings" = "JSON Settings";
 "Keep projects open after closing the last tab" = "Keep projects open after closing the last tab";
+"Keep terminal sessions running with tmux" = "Keep terminal sessions running with tmux";
 "Keyboard shortcut: %@" = "Keyboard shortcut: %@";
 "Language" = "Language";
 "Large" = "Large";
@@ -507,7 +508,7 @@
 "Muxy Picker can use Finder or Muxy's picker. Projects can stay in the sidebar after closing their last tab." = "Muxy Picker can use Finder or Muxy's picker. Projects can stay in the sidebar after closing their last tab.";
 "Muxy Picker searches this location by folder name. Use App Default to search your home folder. Projects can stay in the sidebar after closing their last tab." = "Muxy Picker searches this location by folder name. Use App Default to search your home folder. Projects can stay in the sidebar after closing their last tab.";
 "Muxy can only add folders as projects. Choose a folder or type a new folder path." = "Muxy can only add folders as projects. Choose a folder or type a new folder path.";
-"Muxy could not reconnect to this terminal. The session was left running." = "Muxy could not reconnect to this terminal. The session was left running.";
+"Muxy could not reconnect to this terminal. The session may still be running." = "Muxy could not reconnect to this terminal. The session may still be running.";
 "Muxy can send anonymous crash and error reports so we can fix bugs faster. No personal data, no project contents, no file paths are sent — only crash details and an anonymous installation ID.\n\nYou can change this anytime in Settings → General → Diagnostics." = "Muxy can send anonymous crash and error reports so we can fix bugs faster. No personal data, no project contents, no file paths are sent — only crash details and an anonymous installation ID.\n\nYou can change this anytime in Settings → General → Diagnostics.";
 "Muxy couldn't add \"%@\". Check that the folder exists and you have permission to use it." = "Muxy couldn't add \"%@\". Check that the folder exists and you have permission to use it.";
 "Muxy couldn't create and add \"%@\". Check that you have permission to use this location." = "Muxy couldn't create and add \"%@\". Check that you have permission to use this location.";
@@ -538,6 +539,7 @@
 "New Workspace" = "New Workspace";
 "New Worktree" = "New Worktree";
 "New tab" = "New tab";
+"New terminals on this device keep running through SSH disconnects and when Muxy quits, then reconnect when available. Requires tmux on the remote device. Existing terminals are not affected." = "New terminals on this device keep running through SSH disconnects and when Muxy quits, then reconnect when available. Requires tmux on the remote device. Existing terminals are not affected.";
 "New Worktree…" = "New Worktree…";
 "New branch" = "New branch";
 "New browser tabs open to a blank page. Turn on the toggle to open them to a website instead." = "New browser tabs open to a blank page. Turn on the toggle to open them to a website instead.";
@@ -732,7 +734,8 @@
 "Repository unavailable" = "Repository unavailable";
 "Repository unavailable. Click to retry." = "Repository unavailable. Click to retry.";
 "Reconnect" = "Reconnect";
-"Reconnect to the background terminal session" = "Reconnect to the background terminal session";
+"Reconnect to the terminal session" = "Reconnect to the terminal session";
+"Requires tmux on the remote device and affects new terminals only." = "Requires tmux on the remote device and affects new terminals only.";
 "Reset" = "Reset";
 "Reset All" = "Reset All";
 "Reset Composer Size" = "Reset Composer Size";
@@ -1025,6 +1028,7 @@
 "Screwdriver" = "Screwdriver";
 "Screwdriver Fill" = "Screwdriver Fill";
 "Server Rack" = "Server Rack";
+"Session unreachable" = "Session unreachable";
 "Shield" = "Shield";
 "Shield Fill" = "Shield Fill";
 "Sparkle" = "Sparkle";
@@ -1154,6 +1158,7 @@
 "Test" = "Test";
 "Test Connection" = "Test Connection";
 "Testing connection…" = "Testing connection…";
+"Testing connection and tmux…" = "Testing connection and tmux…";
 "Testing…" = "Testing…";
 "That key cannot be used as a global shortcut." = "That key cannot be used as a global shortcut.";
 "The Beta channel ships every change merged to main and may be unstable. Switch back to Stable to receive only tagged releases." = "The Beta channel ships every change merged to main and may be unstable. Switch back to Stable to receive only tagged releases.";

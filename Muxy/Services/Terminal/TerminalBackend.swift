@@ -39,7 +39,8 @@ enum TerminalBackend: String, CaseIterable, Identifiable, Sendable {
                 commandInteractive: launch.commandInteractive,
                 closesOnCommandExit: launch.closesOnCommandExit,
                 workspaceContext: launch.workspaceContext,
-                persistentSessionID: launch.persistentSessionID
+                sessionBacking: launch.sessionBacking,
+                createsRemoteTmuxSessionIfMissing: launch.createsRemoteTmuxSessionIfMissing
             )
         }
         precondition(surface.backend == self)
@@ -63,7 +64,8 @@ struct TerminalLaunchRequest {
     let commandInteractive: Bool
     let closesOnCommandExit: Bool
     let workspaceContext: WorkspaceContext
-    let persistentSessionID: UUID?
+    let sessionBacking: TerminalSessionBacking
+    let createsRemoteTmuxSessionIfMissing: Bool
 
     init(
         workingDirectory: String,
@@ -71,13 +73,15 @@ struct TerminalLaunchRequest {
         commandInteractive: Bool,
         closesOnCommandExit: Bool,
         workspaceContext: WorkspaceContext,
-        persistentSessionID: UUID? = nil
+        sessionBacking: TerminalSessionBacking = .direct,
+        createsRemoteTmuxSessionIfMissing: Bool = true
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
         self.closesOnCommandExit = closesOnCommandExit
         self.workspaceContext = workspaceContext
-        self.persistentSessionID = persistentSessionID
+        self.sessionBacking = sessionBacking
+        self.createsRemoteTmuxSessionIfMissing = createsRemoteTmuxSessionIfMissing
     }
 }

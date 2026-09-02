@@ -18,6 +18,7 @@ enum SSHCommandRunner {
         remoteCommand: String,
         batch: Bool = true,
         lineLimit: Int? = nil,
+        outputByteLimit: Int? = nil,
         timeout: TimeInterval = defaultTimeout,
         input: Data? = nil
     ) async throws -> GitProcessResult {
@@ -30,7 +31,12 @@ enum SSHCommandRunner {
             workingDirectory: nil
         )
         return try await withTimeout(timeout) {
-            try await GitProcessRunner.runResolved(resolved, lineLimit: lineLimit, stdinData: input)
+            try await GitProcessRunner.runResolved(
+                resolved,
+                lineLimit: lineLimit,
+                stdinData: input,
+                outputByteLimit: outputByteLimit
+            )
         }
     }
 

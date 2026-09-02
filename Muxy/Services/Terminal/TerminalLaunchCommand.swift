@@ -18,9 +18,14 @@ enum TerminalLaunchCommand {
         workingDirectory: String,
         startupCommand: String?,
         interactive: Bool,
-        keepsShellOpen: Bool
+        keepsShellOpen: Bool,
+        tmuxSession: RemoteTmuxSession? = nil,
+        createsTmuxSessionIfMissing: Bool = true
     ) -> String {
-        let command: String
+        let shellEnvironment = tmuxSession == nil
+            ? destination.environment
+            : destination.environment.filter { $0.key != "TERM" }
+        var command: String
         if let startupCommand, !startupCommand.isEmpty {
             let inner = remoteLoginShell(
                 startupCommand: startupCommand,
@@ -28,7 +33,7 @@ enum TerminalLaunchCommand {
                 keepsShellOpen: keepsShellOpen
             )
             let remoteCommand = RemoteCommandBuilder.changeDirectoryPrefix(workingDirectory) + inner
-            let bootstrap = RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand
+            let bootstrap = RemoteCommandBuilder.environmentPrefix(shellEnvironment) + remoteCommand
             command = RemoteLoginShellCommand.bootstrap(bootstrap)
         } else {
             let inner = remoteLoginShell(
@@ -37,7 +42,15 @@ enum TerminalLaunchCommand {
                 keepsShellOpen: keepsShellOpen
             )
             let remoteCommand = RemoteCommandBuilder.changeDirectoryPrefix(workingDirectory) + inner
-            command = RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand
+            command = RemoteCommandBuilder.environmentPrefix(shellEnvironment) + remoteCommand
+        }
+        if let tmuxSession {
+            command = RemoteTmuxCommandBuilder.attachOrCreateCommand(
+                for: tmuxSession,
+                initialCommand: command,
+                createIfMissing: createsTmuxSessionIfMissing
+            )
+            command = RemoteCommandBuilder.environmentPrefix(destination.environment) + command
         }
         let options = SSHDestination.terminalOptions
         let arguments = destination.connectionArguments + options + ["-tt", destination.target, "--", command]

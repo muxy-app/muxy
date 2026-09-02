@@ -4,6 +4,11 @@ enum RemoteDeviceKind: String, Codable, Hashable {
     case ssh
 }
 
+enum SSHRemoteSessionMode: String, Codable, Hashable, CaseIterable {
+    case direct
+    case tmux
+}
+
 struct SSHWorkspaceData: Codable, Hashable {
     var host: String
     var remoteRoot: String
@@ -11,6 +16,7 @@ struct SSHWorkspaceData: Codable, Hashable {
     var user: String?
     var identityFile: String?
     var environment: [String: String]
+    var remoteSessionMode: SSHRemoteSessionMode
 
     init(
         host: String,
@@ -18,7 +24,8 @@ struct SSHWorkspaceData: Codable, Hashable {
         port: Int? = nil,
         user: String? = nil,
         identityFile: String? = nil,
-        environment: [String: String] = SSHEnvironmentVariables.default
+        environment: [String: String] = SSHEnvironmentVariables.default,
+        remoteSessionMode: SSHRemoteSessionMode = .direct
     ) {
         self.host = SSHFieldSanitizer.host(host)
         self.remoteRoot = SSHFieldSanitizer.root(remoteRoot)
@@ -26,6 +33,7 @@ struct SSHWorkspaceData: Codable, Hashable {
         self.user = SSHFieldSanitizer.optionalArgument(user)
         self.identityFile = SSHFieldSanitizer.identityFile(identityFile)
         self.environment = SSHEnvironmentVariables.sanitize(environment)
+        self.remoteSessionMode = remoteSessionMode
     }
 
     init(from decoder: Decoder) throws {
@@ -36,6 +44,7 @@ struct SSHWorkspaceData: Codable, Hashable {
         user = try SSHFieldSanitizer.optionalArgument(container.decodeIfPresent(String.self, forKey: .user))
         identityFile = try SSHFieldSanitizer.identityFile(container.decodeIfPresent(String.self, forKey: .identityFile))
         environment = try SSHEnvironmentVariables.defaulting(container.decodeIfPresent([String: String].self, forKey: .environment))
+        remoteSessionMode = try container.decodeIfPresent(SSHRemoteSessionMode.self, forKey: .remoteSessionMode) ?? .direct
     }
 
     var destination: SSHDestination {
@@ -45,7 +54,8 @@ struct SSHWorkspaceData: Codable, Hashable {
             port: port,
             user: user,
             identityFile: identityFile,
-            environment: environment
+            environment: environment,
+            remoteSessionMode: remoteSessionMode
         )
     }
 }

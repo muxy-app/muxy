@@ -136,7 +136,7 @@ protocol TerminalSessionRecoverySurface: AnyObject {
     var onSessionRecoveryFailed: ((Bool) -> Void)? { get set }
     var isSessionRecoveryFailed: Bool { get }
 
-    func reattachPersistentSession()
+    func reattachSession()
     func reportSessionRecoveryFailure()
 }
 
@@ -176,6 +176,7 @@ protocol TerminalSurface: TerminalInputTransactionTarget {
     var overlayActive: Bool { get set }
     var foregroundProcessID: Int32? { get }
     var hasLiveSurface: Bool { get }
+    var sessionBacking: TerminalSessionBacking { get }
     var persistentSessionID: UUID? { get }
 
     func tearDown()
@@ -199,6 +200,8 @@ protocol TerminalSurface: TerminalInputTransactionTarget {
 
 @MainActor
 extension TerminalSurface {
+    var sessionBacking: TerminalSessionBacking { .direct }
+
     var persistentSessionID: UUID? { nil }
 
     var usesPersistentSession: Bool { persistentSessionID != nil }

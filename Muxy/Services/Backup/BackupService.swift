@@ -161,6 +161,8 @@ struct BackupService {
             try BackupSanitizer.sanitizedRemoteDevices(at: url)
         case "settings.json":
             try BackupSanitizer.sanitizedSettings(at: url)
+        case "workspaces.json":
+            try BackupSanitizer.sanitizedWorkspaces(at: url)
         default:
             nil
         }

@@ -42,6 +42,16 @@ struct TerminalPersistentSessionPolicyTests {
             isAvailable: true
         ))
     }
+
+    @Test("never applies muxy-session to tmux remote panes")
+    func excludesTmuxRemotePanes() {
+        let destination = SSHDestination(host: "example.com", user: "test", remoteSessionMode: .tmux)
+        #expect(!TerminalPersistentSessionPolicy.usesPersistentSession(
+            preferenceEnabled: true,
+            workspaceContext: .ssh(destination),
+            isAvailable: true
+        ))
+    }
 }
 
 @Suite("TerminalTTYForegroundProcess")

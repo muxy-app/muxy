@@ -21,6 +21,9 @@ final class TerminalPaneState: Identifiable {
     let startupCommandInteractive: Bool
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
+    private(set) var remoteSessionMode: SSHRemoteSessionMode?
+    private(set) var remoteTmuxDestination: SSHDestination?
+    let createsRemoteTmuxSessionIfMissing: Bool
     var isOffline = false
     var sessionRecoveryFailed = false
     let searchState = TerminalSearchState()
@@ -36,7 +39,10 @@ final class TerminalPaneState: Identifiable {
         startupCommand: String? = nil,
         startupCommandInteractive: Bool = false,
         closesOnStartupCommandExit: Bool = true,
-        externalEditorFilePath: String? = nil
+        externalEditorFilePath: String? = nil,
+        remoteSessionMode: SSHRemoteSessionMode? = nil,
+        remoteTmuxDestination: SSHDestination? = nil,
+        createsRemoteTmuxSessionIfMissing: Bool = true
     ) {
         self.id = id
         self.sessionID = sessionID ?? id
@@ -48,6 +54,9 @@ final class TerminalPaneState: Identifiable {
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
+        self.remoteSessionMode = remoteSessionMode
+        self.remoteTmuxDestination = remoteTmuxDestination
+        self.createsRemoteTmuxSessionIfMissing = createsRemoteTmuxSessionIfMissing
     }
 
     func consumeRestoredLaunch() -> TerminalPaneLaunch {
@@ -56,6 +65,21 @@ final class TerminalPaneState: Identifiable {
             interactive: startupCommandInteractive,
             closesOnCommandExit: closesOnStartupCommandExit
         )
+    }
+
+    func resolveRemoteSessionMode(in workspaceContext: WorkspaceContext) {
+        guard let destination = workspaceContext.sshDestination else { return }
+        if remoteSessionMode == nil {
+            remoteSessionMode = destination.remoteSessionMode
+        }
+        if remoteSessionMode == .tmux, remoteTmuxDestination == nil {
+            remoteTmuxDestination = destination
+        }
+    }
+
+    var remoteTmuxSession: RemoteTmuxSession? {
+        guard remoteSessionMode == .tmux, let remoteTmuxDestination else { return nil }
+        return RemoteTmuxSession(id: sessionID, destination: remoteTmuxDestination)
     }
 
     func setTitle(_ newTitle: String) {

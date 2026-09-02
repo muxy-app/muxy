@@ -11,7 +11,7 @@ struct TerminalContextMenuTests {
         let flag = TerminalBackgroundActionFlag()
         let view = GhosttyTerminalNSView(
             workingDirectory: "/tmp",
-            persistentSessionID: UUID()
+            sessionBacking: .local(UUID())
         )
         view.canSendToBackground = { true }
         view.onSendToBackground = {
@@ -42,7 +42,7 @@ struct TerminalContextMenuTests {
     func sendToBackgroundRequiresEligibleTab() throws {
         let view = GhosttyTerminalNSView(
             workingDirectory: "/tmp",
-            persistentSessionID: UUID()
+            sessionBacking: .local(UUID())
         )
         view.canSendToBackground = { false }
         view.onSendToBackground = {}
