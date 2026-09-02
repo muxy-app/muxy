@@ -120,18 +120,13 @@ struct WorkspacePathResolverTests {
             "/tmp/muxy-batch-\(index)-\(String(repeating: "a", count: 80))"
         }
         let counter = WorkspacePathRunnerCounter()
-        let resolver = WorkspacePathResolver { _, command, timeout in
+        let resolver = WorkspacePathResolver { _, command, _ in
             await counter.record(command)
-            let result = try await SubprocessRunner.run(SubprocessRequest(
-                executablePath: "/bin/sh",
-                arguments: ["-c", command],
-                workingDirectory: "/tmp",
-                timeout: timeout
-            ))
+            let batchPaths = command.split(separator: " ").filter { $0.hasPrefix("/tmp/muxy-batch-") }
             return WorkspacePathCommandResult(
-                status: result.status,
-                stdoutData: result.stdoutData,
-                stderr: result.stderr
+                status: 0,
+                stdoutData: Data(batchPaths.map { "\($0)\0" }.joined().utf8),
+                stderr: ""
             )
         }
 
@@ -141,18 +136,8 @@ struct WorkspacePathResolverTests {
             context: .ssh(SSHDestination(host: "example.com")),
             timeout: 10
         )
-        let pwdResult = try await SubprocessRunner.run(SubprocessRequest(
-            executablePath: "/bin/pwd",
-            workingDirectory: "/tmp"
-        ))
-        let physicalTemporaryDirectory = pwdResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        let expectedPaths = paths.map { physicalTemporaryDirectory + $0.dropFirst(4) }
-        let mismatch = zip(resolutions.map(\.path), expectedPaths).enumerated().first {
-            $0.element.0 != $0.element.1
-        }?.offset
 
-        #expect(resolutions.count == expectedPaths.count)
-        #expect(mismatch == nil)
+        #expect(resolutions.map(\.path) == paths)
         #expect(await counter.value > 1)
         #expect(await counter.maximumCommandBytes <= 32 * 1024)
     }

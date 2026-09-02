@@ -36,6 +36,20 @@ actor GitWorktreeService: GitWorktreeListing {
         _ context: WorkspaceContext,
         _ timeout: TimeInterval
     ) async throws -> GitProcessResult
+    typealias ProcessQuiescer = @Sendable (
+        _ path: String,
+        _ identity: WorktreeProcessQuiescer.DirectoryIdentity,
+        _ timeout: TimeInterval
+    ) async throws -> Void
+
+    private struct RemovalTarget {
+        let canonicalPath: String
+        let residualPath: String
+        let repoPath: String
+        let context: WorkspaceContext
+        let wasRegistered: Bool
+        let originalDirectoryIdentity: WorktreeProcessQuiescer.DirectoryIdentity?
+    }
 
     static let shared = GitWorktreeService()
     static let defaultWorktreeRemovalTimeout: TimeInterval = 300
@@ -47,12 +61,15 @@ actor GitWorktreeService: GitWorktreeListing {
 
     enum GitWorktreeError: LocalizedError {
         case notGitRepository
+        case notRegistered
         case commandFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .notGitRepository:
                 "This folder is not a Git repository."
+            case .notRegistered:
+                "Worktree is not registered with this repository."
             case let .commandFailed(message):
                 message
             }
@@ -187,7 +204,10 @@ actor GitWorktreeService: GitWorktreeListing {
         force: Bool = false,
         context: WorkspaceContext = .local,
         timeout: TimeInterval = defaultWorktreeRemovalTimeout,
-        removalRunner: RemovalRunner = runRemoval
+        removalRunner: RemovalRunner = runRemoval,
+        processQuiescer: ProcessQuiescer = { path, identity, timeout in
+            try await WorktreeProcessQuiescer.quiesce(path: path, matching: identity, timeout: timeout)
+        }
     ) async throws -> String {
         let deadline = OperationDeadline(timeout: timeout)
         let records = try await listWorktrees(
@@ -208,8 +228,45 @@ actor GitWorktreeService: GitWorktreeListing {
         let wasRegistered = resolutions.dropFirst().contains {
             Self.canonicalPath($0.path, context: context) == target
         }
+        let primaryTarget = resolutions.dropFirst().first.map {
+            Self.canonicalPath($0.path, context: context)
+        }
+        if target == primaryTarget {
+            throw GitWorktreeError.commandFailed("The primary worktree cannot be removed.")
+        }
         if !wasRegistered, try await context.fileOps.exists(at: removalPath, timeout: deadline.remaining()) {
-            throw GitWorktreeError.commandFailed("Worktree is not registered with this repository.")
+            throw GitWorktreeError.notRegistered
+        }
+        let residualPath = removalPath
+        let originalDirectoryIdentity = context.isRemote
+            ? nil
+            : WorktreeProcessQuiescer.directoryIdentity(at: residualPath)
+        let removalTarget = RemovalTarget(
+            canonicalPath: target,
+            residualPath: residualPath,
+            repoPath: repoPath,
+            context: context,
+            wasRegistered: wasRegistered,
+            originalDirectoryIdentity: originalDirectoryIdentity
+        )
+        if wasRegistered, !context.isRemote {
+            if try await context.fileOps.exists(at: residualPath, timeout: deadline.remaining()) {
+                guard Self.isOwnedLocalCheckout(
+                    originalPath: path,
+                    checkoutPath: residualPath,
+                    repoPath: repoPath
+                )
+                else {
+                    throw GitWorktreeError.commandFailed("Worktree ownership could not be verified.")
+                }
+                guard let originalDirectoryIdentity else {
+                    throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
+                }
+                try await processQuiescer(residualPath, originalDirectoryIdentity, deadline.remaining())
+                guard WorktreeProcessQuiescer.directoryIdentity(at: residualPath) == originalDirectoryIdentity else {
+                    throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
+                }
+            }
         }
 
         var args: [String] = ["worktree", "remove"]
@@ -221,38 +278,109 @@ actor GitWorktreeService: GitWorktreeListing {
         do {
             result = try await removalRunner(repoPath, args, context, deadline.remaining())
         } catch {
-            guard Self.isTimeout(error), try await !isRegistered(
-                target: target,
-                repoPath: repoPath,
-                context: context,
-                timeout: Self.removalReconciliationTimeout
+            guard Self.isTimeout(error) else { throw error }
+            try await reconcileRemoval(
+                removalTarget,
+                processQuiescer: processQuiescer,
+                timeout: Self.removalReconciliationTimeout,
+                failureMessage: error.localizedDescription
             )
-            else { throw error }
             return removalPath
         }
-        guard result.status != 0 else { return removalPath }
-        if try await context.fileOps.exists(at: removalPath, timeout: deadline.remaining()) {
-            throw GitWorktreeError.commandFailed(
-                result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
-            )
-        }
-
-        if let remaining = try? deadline.remaining() {
+        if result.status != 0, let remaining = try? deadline.remaining() {
             try? await pruneWorktrees(repoPath: repoPath, context: context, timeout: remaining)
         }
         try Task.checkCancellation()
-        let verificationTimeout = (try? deadline.remaining()) ?? Self.removalReconciliationTimeout
+        let verificationTimeout = max(
+            (try? deadline.remaining()) ?? 0,
+            Self.removalReconciliationTimeout
+        )
+        try await reconcileRemoval(
+            removalTarget,
+            processQuiescer: processQuiescer,
+            timeout: verificationTimeout,
+            failureMessage: result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
+        )
+        return removalPath
+    }
+
+    private func reconcileRemoval(
+        _ target: RemovalTarget,
+        processQuiescer: ProcessQuiescer,
+        timeout: TimeInterval,
+        failureMessage: String
+    ) async throws {
+        let deadline = OperationDeadline(timeout: timeout)
         let stillRegistered = try await isRegistered(
-            target: target,
+            target: target.canonicalPath,
+            repoPath: target.repoPath,
+            context: target.context,
+            timeout: deadline.remaining()
+        )
+        guard !stillRegistered else {
+            throw GitWorktreeError.commandFailed(failureMessage)
+        }
+
+        guard try await target.context.fileOps.exists(
+            at: target.residualPath,
+            timeout: deadline.remaining()
+        )
+        else { return }
+        guard target.wasRegistered else {
+            throw GitWorktreeError.commandFailed(failureMessage)
+        }
+        guard !target.context.isRemote, let originalDirectoryIdentity = target.originalDirectoryIdentity else {
+            throw GitWorktreeError.commandFailed("\(failureMessage) The remaining directory could not be verified.")
+        }
+        guard WorktreeProcessQuiescer.directoryIdentity(at: target.residualPath) == originalDirectoryIdentity else {
+            throw GitWorktreeError.commandFailed("\(failureMessage) The remaining directory changed during removal.")
+        }
+
+        do {
+            try await processQuiescer(target.residualPath, originalDirectoryIdentity, deadline.remaining())
+            guard WorktreeProcessQuiescer.directoryIdentity(at: target.residualPath) == originalDirectoryIdentity else {
+                throw WorktreeProcessQuiescerError.directoryChanged(recoveryPath: nil)
+            }
+            try await WorktreeProcessQuiescer.removeDirectory(
+                at: target.residualPath,
+                matching: originalDirectoryIdentity,
+                timeout: deadline.remaining()
+            )
+        } catch {
+            throw GitWorktreeError.commandFailed("\(failureMessage) Residual cleanup failed: \(error.localizedDescription)")
+        }
+        guard try await !target.context.fileOps.exists(
+            at: target.residualPath,
+            timeout: deadline.remaining()
+        )
+        else {
+            throw GitWorktreeError.commandFailed("\(failureMessage) The worktree directory still exists.")
+        }
+    }
+
+    func isWorktreeRegistered(
+        repoPath: String,
+        path: String,
+        context: WorkspaceContext = .local,
+        timeout: TimeInterval = defaultWorktreeRemovalTimeout
+    ) async throws -> Bool {
+        let deadline = OperationDeadline(timeout: timeout)
+        let records = try await listWorktrees(
             repoPath: repoPath,
             context: context,
-            timeout: verificationTimeout
+            timeout: deadline.remaining()
         )
-        guard stillRegistered else { return removalPath }
-
-        throw GitWorktreeError.commandFailed(
-            result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
+        let resolutions = try await WorkspacePathResolver.live.resolve(
+            paths: [path] + records.map(\.path),
+            relativeTo: repoPath,
+            context: context,
+            timeout: deadline.remaining()
         )
+        guard let resolvedPath = resolutions.first?.path else { return false }
+        let target = Self.canonicalPath(resolvedPath, context: context)
+        return resolutions.dropFirst().contains {
+            Self.canonicalPath($0.path, context: context) == target
+        }
     }
 
     private func pruneWorktrees(repoPath: String, context: WorkspaceContext, timeout: TimeInterval) async throws {
@@ -312,6 +440,77 @@ actor GitWorktreeService: GitWorktreeListing {
             return true
         }
         return false
+    }
+
+    private static func isOwnedLocalCheckout(originalPath: String, checkoutPath: String, repoPath: String) -> Bool {
+        let inputPath = localInputPath(originalPath, relativeTo: repoPath)
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: inputPath)) == nil else { return false }
+        let checkout = URL(fileURLWithPath: checkoutPath, isDirectory: true).standardizedFileURL
+        let checkoutGit = checkout.appendingPathComponent(".git")
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: checkoutGit.path)) == nil,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: checkoutGit.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let size = attributes[.size] as? NSNumber,
+              size.intValue <= 4096,
+              let gitdir = gitDirectoryReference(at: checkoutGit)
+        else { return false }
+        guard let commonGitDirectory = commonGitDirectory(repoPath: repoPath) else { return false }
+        let worktrees = commonGitDirectory.appendingPathComponent("worktrees", isDirectory: true)
+        guard gitdir.deletingLastPathComponent() == worktrees else { return false }
+        let adminGitdir = gitdir.appendingPathComponent("gitdir")
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: adminGitdir.path)) == nil,
+              let backlink = adminGitdirBacklink(at: adminGitdir),
+              backlink == checkoutGit.resolvingSymlinksInPath().standardizedFileURL
+        else { return false }
+        return true
+    }
+
+    private static func commonGitDirectory(repoPath: String) -> URL? {
+        let dotGit = URL(fileURLWithPath: repoPath, isDirectory: true).appendingPathComponent(".git")
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: dotGit.path)) == nil else { return nil }
+        if (try? dotGit.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            return dotGit.resolvingSymlinksInPath().standardizedFileURL
+        }
+        guard let gitdir = gitDirectoryReference(at: dotGit) else { return nil }
+        if gitdir.deletingLastPathComponent().lastPathComponent == "worktrees" {
+            return gitdir.deletingLastPathComponent().deletingLastPathComponent()
+        }
+        return gitdir
+    }
+
+    private static func localInputPath(_ path: String, relativeTo repoPath: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        guard !expanded.hasPrefix("/") else {
+            return URL(fileURLWithPath: expanded).standardizedFileURL.path
+        }
+        return URL(fileURLWithPath: repoPath, isDirectory: true)
+            .appendingPathComponent(expanded)
+            .standardizedFileURL.path
+    }
+
+    private static func gitDirectoryReference(at file: URL) -> URL? {
+        guard let contents = try? String(contentsOf: file, encoding: .utf8),
+              let firstLine = contents.split(whereSeparator: \Character.isNewline).first,
+              firstLine.hasPrefix("gitdir: ")
+        else { return nil }
+        let reference = firstLine.dropFirst("gitdir: ".count).trimmingCharacters(in: .whitespaces)
+        guard !reference.isEmpty else { return nil }
+        return URL(fileURLWithPath: reference, relativeTo: file.deletingLastPathComponent())
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+    }
+
+    private static func adminGitdirBacklink(at file: URL) -> URL? {
+        guard let contents = try? String(contentsOf: file, encoding: .utf8),
+              let firstLine = contents.split(whereSeparator: \Character.isNewline).first
+        else { return nil }
+        let reference = firstLine.trimmingCharacters(in: .whitespaces)
+        guard !reference.isEmpty else { return nil }
+        return URL(fileURLWithPath: reference, relativeTo: file.deletingLastPathComponent())
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
     }
 
     private func listWorktrees(

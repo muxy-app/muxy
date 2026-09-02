@@ -10,6 +10,7 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     var selectProjectCalls: [UUID] = []
     var terminalInputCalls: [(paneID: UUID, bytes: Data, clientID: UUID)] = []
     var takeOverCalls: [(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32)] = []
+    var takeOverHandler: (() -> Void)?
     var releasePaneCalls: [(paneID: UUID, clientID: UUID)] = []
     var setClientThemeCalls: [(theme: ClientThemeDTO?, clientID: UUID)] = []
     var registerDeviceCalls: [(clientID: UUID, name: String)] = []
@@ -79,6 +80,7 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     func getTerminalContent(paneID _: UUID) -> TerminalCellsDTO? { stubTerminalContent }
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
+        takeOverHandler?()
         takeOverCalls.append((paneID, clientID, cols, rows))
     }
 
@@ -491,6 +493,35 @@ struct MuxyRemoteServerRoutingTests {
         #expect(call?.clientID == clientID)
         #expect(call?.cols == 80)
         #expect(call?.rows == 24)
+    }
+
+    @Test("takeOverPane acknowledges before starting replay")
+    func takeOverPaneAcknowledgesFirst() {
+        let (server, delegate) = makeServer()
+        let clientID = authedClient(on: server)
+        let paneID = UUID()
+        var acknowledged = false
+        delegate.takeOverHandler = {
+            #expect(acknowledged)
+        }
+
+        server.processTakeOverRequest(
+            MuxyRequest(
+                id: "takeover-order",
+                method: .takeOverPane,
+                params: .takeOverPane(TakeOverPaneParams(paneID: paneID, cols: 80, rows: 24))
+            ),
+            clientID: clientID
+        ) { response in
+            guard case .ok = response.result else {
+                Issue.record("expected ok")
+                return
+            }
+            acknowledged = true
+        }
+
+        #expect(acknowledged)
+        #expect(delegate.takeOverCalls.count == 1)
     }
 
     @Test("setClientTheme threads theme and clientID through")

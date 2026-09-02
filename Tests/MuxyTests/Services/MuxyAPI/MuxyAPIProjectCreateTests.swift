@@ -296,6 +296,55 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
         #expect(groupStore.groups.first?.projectIDs == [project.id])
     }
 
+    @Test("attach adds a device-backed remote project to a local workspace")
+    func attachDeviceBackedRemoteProject() {
+        let project = Project(name: "Remote", path: "~/code/remote", remoteDeviceID: UUID())
+        let group = ProjectGroup(name: "Work")
+        let env = ProjectManagementEnvironment(projects: [project])
+        let groupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(initial: [group]),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+
+        let result = MuxyAPI.Projects.attach(
+            projectIdentifier: project.name,
+            workspaceIdentifier: group.name,
+            projectStore: env.projectStore,
+            projectGroupStore: groupStore,
+            appState: env.appState
+        )
+
+        #expect(result.isSuccess)
+        #expect(groupStore.groups.first?.projectIDs == [project.id])
+    }
+
+    @Test("attach rejects a project owned by an SSH workspace")
+    func attachSSHWorkspaceProject() {
+        let project = Project(name: "Remote", path: "~/code/remote", remoteWorkspaceID: UUID())
+        let group = ProjectGroup(name: "Work")
+        let env = ProjectManagementEnvironment(projects: [project])
+        let groupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(initial: [group]),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+
+        let result = MuxyAPI.Projects.attach(
+            projectIdentifier: project.name,
+            workspaceIdentifier: group.name,
+            projectStore: env.projectStore,
+            projectGroupStore: groupStore,
+            appState: env.appState
+        )
+
+        guard case .failure(.invalidArguments) = result else {
+            Issue.record("expected invalidArguments when attaching an SSH workspace project")
+            return
+        }
+        #expect(groupStore.groups.first?.projectIDs.isEmpty == true)
+    }
+
     @Test("attach fails when project is not found")
     func attachFailsWhenProjectMissing() {
         let group = ProjectGroup(name: "Work")
@@ -410,6 +459,53 @@ struct MuxyAPIProjectWorkspaceRoutingTests {
 
         #expect(result.isSuccess)
         #expect(groupStore.groups.first?.projectIDs.isEmpty == true)
+    }
+
+    @Test("detach removes a device-backed remote project from local workspaces")
+    func detachDeviceBackedRemoteProject() {
+        let project = Project(name: "Remote", path: "~/code/remote", remoteDeviceID: UUID())
+        let group = ProjectGroup(name: "Work", projectIDs: [project.id])
+        let env = ProjectManagementEnvironment(projects: [project])
+        let groupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(initial: [group]),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+
+        let result = MuxyAPI.Projects.detach(
+            projectIdentifier: project.name,
+            projectStore: env.projectStore,
+            projectGroupStore: groupStore,
+            appState: env.appState
+        )
+
+        #expect(result.isSuccess)
+        #expect(groupStore.groups.first?.projectIDs.isEmpty == true)
+    }
+
+    @Test("detach rejects a project owned by an SSH workspace")
+    func detachSSHWorkspaceProject() {
+        let project = Project(name: "Remote", path: "~/code/remote", remoteWorkspaceID: UUID())
+        let group = ProjectGroup(name: "Work", projectIDs: [project.id])
+        let env = ProjectManagementEnvironment(projects: [project])
+        let groupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(initial: [group]),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+
+        let result = MuxyAPI.Projects.detach(
+            projectIdentifier: project.name,
+            projectStore: env.projectStore,
+            projectGroupStore: groupStore,
+            appState: env.appState
+        )
+
+        guard case .failure(.invalidArguments) = result else {
+            Issue.record("expected invalidArguments when detaching an SSH workspace project")
+            return
+        }
+        #expect(groupStore.groups.first?.projectIDs == [project.id])
     }
 
     @Test("detach fails when project is not found")

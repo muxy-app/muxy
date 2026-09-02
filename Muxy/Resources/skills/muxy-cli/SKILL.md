@@ -138,6 +138,9 @@ muxy attach-project "My App" --workspace "Work"   # move project into workspace
 muxy detach-project "My App"                      # remove from all workspaces
 ```
 
+Non-home local and device-backed remote projects can join local workspaces. The Home project and projects owned by an
+SSH workspace cannot be moved to a local workspace.
+
 ## Tabs
 
 A tab is a whole surface (terminal, source control, an extension) within the active worktree; panes split *inside* a tab. Open one, move between them, or jump straight to a known tab:

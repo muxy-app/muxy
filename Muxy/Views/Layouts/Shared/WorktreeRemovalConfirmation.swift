@@ -16,7 +16,8 @@ struct WorktreeRemovalConfirmation: Identifiable, Equatable {
         worktree: Worktree,
         hasUncommittedChanges: Bool,
         teardownCommands: [WorktreeConfig.ResolvedCommand] = [],
-        approvesProjectHooks: Bool = false
+        approvesProjectHooks: Bool = false,
+        stopsLocalProcesses: Bool = true
     ) {
         self.worktree = worktree
         title = "Remove worktree \"\(worktree.name)\"?"
@@ -27,7 +28,8 @@ struct WorktreeRemovalConfirmation: Identifiable, Equatable {
             : nil
         message = Self.message(
             hasUncommittedChanges: hasUncommittedChanges,
-            teardownCommands: normalizedCommands
+            teardownCommands: normalizedCommands,
+            stopsLocalProcesses: stopsLocalProcesses
         )
     }
 
@@ -44,7 +46,8 @@ struct WorktreeRemovalConfirmation: Identifiable, Equatable {
         guard !context.isRemote, !worktree.isExternallyManaged else {
             return WorktreeRemovalConfirmation(
                 worktree: worktree,
-                hasUncommittedChanges: hasChanges
+                hasUncommittedChanges: hasChanges,
+                stopsLocalProcesses: !context.isRemote
             )
         }
         let commands = try WorktreeConfig.resolvedTeardownCommands(
@@ -55,19 +58,26 @@ struct WorktreeRemovalConfirmation: Identifiable, Equatable {
             worktree: worktree,
             hasUncommittedChanges: hasChanges,
             teardownCommands: commands,
-            approvesProjectHooks: true
+            approvesProjectHooks: true,
+            stopsLocalProcesses: true
         )
     }
 
     @MainActor
     private static func message(
         hasUncommittedChanges: Bool,
-        teardownCommands: [WorktreeConfig.ResolvedCommand]
+        teardownCommands: [WorktreeConfig.ResolvedCommand],
+        stopsLocalProcesses: Bool
     ) -> String {
         let removalMessage = hasUncommittedChanges
             ? L10n.string("This worktree has uncommitted changes. Removing it will permanently discard them.")
             : L10n.string("This will remove the worktree from Muxy and delete its files on disk.")
-        guard !teardownCommands.isEmpty else { return removalMessage }
+        let processMessage = stopsLocalProcesses
+            ? L10n.string("Local processes running from this worktree will be stopped.")
+            : nil
+        guard !teardownCommands.isEmpty else {
+            return [removalMessage, processMessage].compactMap(\.self).joined(separator: "\n\n")
+        }
         let heading = L10n.string("The following teardown commands will run before removal:")
         let commands = teardownCommands.map { command in
             let source = switch command.source {
@@ -76,7 +86,7 @@ struct WorktreeRemovalConfirmation: Identifiable, Equatable {
             }
             return "\(source): \(command.command.command)"
         }
-        return ([removalMessage, heading] + commands).joined(separator: "\n\n")
+        return ([removalMessage, processMessage, heading].compactMap(\.self) + commands).joined(separator: "\n\n")
     }
 }
 

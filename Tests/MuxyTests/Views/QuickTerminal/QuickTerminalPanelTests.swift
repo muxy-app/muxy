@@ -6,6 +6,19 @@ import Testing
 @MainActor
 @Suite("Quick terminal panel")
 struct QuickTerminalPanelTests {
+    @Test("notifies when the panel resigns key status")
+    func notifiesWhenPanelResignsKeyStatus() {
+        let panel = QuickTerminalPanel(contentRect: .zero)
+        var notificationCount = 0
+        panel.onResignKey = {
+            notificationCount += 1
+        }
+
+        panel.resignKey()
+
+        #expect(notificationCount == 1)
+    }
+
     @Test("routes key-down events to the handler instead of dismissing")
     func routesKeyDownToHandler() throws {
         let panel = QuickTerminalPanel(contentRect: .zero)

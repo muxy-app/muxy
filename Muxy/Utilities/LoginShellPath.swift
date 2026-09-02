@@ -30,6 +30,8 @@ final class LoginShellPath: @unchecked Sendable {
     private var cached: String?
     private var cachedCopilotHome: String?
     private var environmentHydrated = false
+    private var environmentHydrationTask: (generation: UInt, task: Task<Void, Never>)?
+    private var environmentHydrationGeneration: UInt = 0
 
     init() {}
 
@@ -51,6 +53,14 @@ final class LoginShellPath: @unchecked Sendable {
 
     static func hydrate() async {
         await shared.hydrateEnvironment()
+    }
+
+    static func hydrateIfNeeded() async {
+        await shared.hydrateEnvironment(forceRefresh: false)
+    }
+
+    static func hydrateIfNeeded(timeout: TimeInterval) async throws {
+        try await shared.hydrateEnvironmentIfNeeded(timeout: timeout)
     }
 
     var value: String {
@@ -76,22 +86,85 @@ final class LoginShellPath: @unchecked Sendable {
     }
 
     func hydrateEnvironment(
+        forceRefresh: Bool = true,
         readFromLoginShell: @escaping @Sendable () -> LoginShellEnvironmentValues? = LoginShellPath
             .readEnvironmentFromLoginShell
     ) async {
-        let resolved = await Task.detached(priority: .utility) {
-            readFromLoginShell()
-        }.value
-        guard let resolved else {
-            logger.info("Login shell environment lookup yielded no value; keeping launch environment")
-            return
+        let task = environmentHydrationTask(
+            forceRefresh: forceRefresh,
+            readFromLoginShell: readFromLoginShell
+        )
+        await task?.value
+    }
+
+    func environmentHydrationTask(
+        forceRefresh: Bool,
+        readFromLoginShell: @escaping @Sendable () -> LoginShellEnvironmentValues?
+    ) -> Task<Void, Never>? {
+        environmentHydrationSelection(
+            forceRefresh: forceRefresh,
+            readFromLoginShell: readFromLoginShell
+        )?.task
+    }
+
+    func hydrateEnvironmentIfNeeded(
+        timeout: TimeInterval,
+        readFromLoginShell: @escaping @Sendable () -> LoginShellEnvironmentValues? = LoginShellPath
+            .readEnvironmentFromLoginShell
+    ) async throws {
+        guard let selection = environmentHydrationSelection(
+            forceRefresh: false,
+            readFromLoginShell: readFromLoginShell
+        )
+        else { return }
+
+        let deadline = OperationDeadline(timeout: timeout)
+        while isEnvironmentHydrationInProgress(generation: selection.generation) {
+            try await Task.sleep(for: .seconds(min(deadline.remaining(), 0.01)))
         }
-        lock.withLock {
+    }
+
+    private func environmentHydrationSelection(
+        forceRefresh: Bool,
+        readFromLoginShell: @escaping @Sendable () -> LoginShellEnvironmentValues?
+    ) -> (generation: UInt, task: Task<Void, Never>)? {
+        lock.withLock { () -> (generation: UInt, task: Task<Void, Never>)? in
+            if let environmentHydrationTask {
+                return environmentHydrationTask
+            }
+            if !forceRefresh, environmentHydrated {
+                return nil
+            }
+            environmentHydrationGeneration &+= 1
+            let generation = environmentHydrationGeneration
+            let task = Task.detached(priority: .utility) { [self] in
+                let resolved = readFromLoginShell()
+                finishEnvironmentHydration(generation: generation, resolved: resolved)
+            }
+            environmentHydrationTask = (generation, task)
+            return (generation, task)
+        }
+    }
+
+    private func isEnvironmentHydrationInProgress(generation: UInt) -> Bool {
+        lock.withLock { environmentHydrationTask?.generation == generation }
+    }
+
+    private func finishEnvironmentHydration(generation: UInt, resolved: LoginShellEnvironmentValues?) {
+        let didHydrate = lock.withLock {
+            guard environmentHydrationTask?.generation == generation else { return false }
+            environmentHydrationTask = nil
+            guard let resolved else { return false }
             cached = resolved.path
             cachedCopilotHome = resolved.copilotHome
             environmentHydrated = true
+            return true
         }
-        logger.info("Hydrated environment from login shell")
+        if didHydrate {
+            logger.info("Hydrated environment from login shell")
+        } else {
+            logger.info("Login shell environment lookup yielded no value; keeping launch environment")
+        }
     }
 
     private func hydrateInBackground() {

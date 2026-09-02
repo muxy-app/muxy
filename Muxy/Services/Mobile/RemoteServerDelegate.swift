@@ -795,6 +795,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
         try await WorktreeStore.cleanupOnDisk(
             worktree: worktree,
+            projectID: projectID,
             repoPath: project.path,
             context: projectGroupStore.workspaceContext(for: project),
             teardownEmit: { line in

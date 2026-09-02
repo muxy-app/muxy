@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os
 
@@ -22,13 +23,15 @@ enum WorktreeCleanupResult: Equatable {
     case retained
     case unknown
     case preservedMissingRepository
+    case preservedUnverifiedDirectory
 
     var directoryRemoved: Bool? {
         switch self {
         case .removed:
             true
         case .retained,
-             .preservedMissingRepository:
+             .preservedMissingRepository,
+             .preservedUnverifiedDirectory:
             false
         case .unknown:
             nil
@@ -76,6 +79,29 @@ struct WorktreeRemovalRequest {
 @Observable
 final class WorktreeStore {
     private static let maxRefreshAttempts = 3
+
+    private typealias FileIdentity = WorktreeProcessQuiescer.DirectoryIdentity
+
+    private enum CleanupPlan {
+        case registered
+        case staleManaged(projectID: UUID, identity: FileIdentity)
+        case finished(WorktreeCleanupResult)
+    }
+
+    private enum StaleRemovalResult {
+        case removedPath(String)
+        case finished(WorktreeCleanupResult)
+    }
+
+    private struct CleanupOperation {
+        let worktree: Worktree
+        let projectID: UUID?
+        let repoPath: String
+        let context: WorkspaceContext
+        let force: Bool
+        let deadline: OperationDeadline
+    }
+
     private(set) var worktrees: [UUID: [Worktree]] = [:]
     private(set) var preparingRemovalWorktreeIDs: Set<UUID> = []
     private(set) var removingWorktreeIDs: Set<UUID> = []
@@ -392,6 +418,7 @@ final class WorktreeStore {
             do {
                 let cleanupResult = try await WorktreeStore.cleanupOnDisk(
                     worktree: worktree,
+                    projectID: projectID,
                     repoPath: request.repoPath,
                     context: request.context,
                     projectHookApproval: request.projectHookApproval
@@ -403,6 +430,11 @@ final class WorktreeStore {
                     ToastState.shared.show(
                         title: L10n.string("Worktree removed from Muxy"),
                         body: L10n.string("The main repository is missing, so files were preserved at \"\(worktree.path)\".")
+                    )
+                } else if cleanupResult == .preservedUnverifiedDirectory {
+                    ToastState.shared.show(
+                        title: L10n.string("Worktree removed from Muxy"),
+                        body: L10n.string("Git ownership could not be verified, so files were preserved at \"\(worktree.path)\".")
                     )
                 }
             } catch {
@@ -619,9 +651,11 @@ final class WorktreeStore {
     @discardableResult
     static func cleanupOnDisk(
         worktree: Worktree,
+        projectID: UUID? = nil,
         repoPath: String,
         context: WorkspaceContext = .local,
         projectHookApproval: WorktreeConfig.ProjectHookApproval? = nil,
+        teardownGlobalConfigURL: URL = WorktreeConfig.globalConfigURL(),
         force: Bool = true,
         timeout: TimeInterval = GitWorktreeService.defaultWorktreeRemovalTimeout,
         teardownEmit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in }
@@ -633,22 +667,52 @@ final class WorktreeStore {
             return .preservedMissingRepository
         }
         let deadline = OperationDeadline(timeout: timeout)
+        let operation = CleanupOperation(
+            worktree: worktree,
+            projectID: projectID,
+            repoPath: repoPath,
+            context: context,
+            force: force,
+            deadline: deadline
+        )
+        let plan = try await cleanupPlan(for: operation)
+        if case let .finished(result) = plan {
+            return result
+        }
         if !context.isRemote {
             try await WorktreeTeardownRunner.run(
                 sourceProjectPath: repoPath,
                 worktree: worktree,
                 projectHookApproval: projectHookApproval,
                 timeout: deadline.remaining(),
-                emit: teardownEmit
+                emit: teardownEmit,
+                globalConfigURL: teardownGlobalConfigURL
             )
         }
-        let removedPath = try await GitWorktreeService.shared.removeWorktree(
-            repoPath: repoPath,
-            path: worktree.path,
-            force: force,
-            context: context,
-            timeout: deadline.remaining()
-        )
+        let removedPath: String
+        switch plan {
+        case .registered:
+            removedPath = try await GitWorktreeService.shared.removeWorktree(
+                repoPath: repoPath,
+                path: worktree.path,
+                force: force,
+                context: context,
+                timeout: deadline.remaining()
+            )
+        case let .staleManaged(projectID, identity):
+            switch try await removeStaleManagedCheckout(
+                operation: operation,
+                projectID: projectID,
+                identity: identity
+            ) {
+            case let .removedPath(path):
+                removedPath = path
+            case let .finished(result):
+                return result
+            }
+        case let .finished(result):
+            return result
+        }
 
         let directoryRemoved = await (try? context.fileOps.exists(
             at: removedPath,
@@ -661,17 +725,237 @@ final class WorktreeStore {
         return .removed
     }
 
+    private static func cleanupPlan(for operation: CleanupOperation) async throws -> CleanupPlan {
+        let worktree = operation.worktree
+        if !operation.context.isRemote, !isUnambiguousLocalPath(worktree.path) {
+            throw GitWorktreeService.GitWorktreeError.notRegistered
+        }
+        let isRegistered = try await GitWorktreeService.shared.isWorktreeRegistered(
+            repoPath: operation.repoPath,
+            path: worktree.path,
+            context: operation.context,
+            timeout: operation.deadline.remaining()
+        )
+        guard !isRegistered else { return .registered }
+        guard !operation.context.isRemote else {
+            throw GitWorktreeService.GitWorktreeError.notRegistered
+        }
+        guard try await operation.context.fileOps.exists(
+            at: worktree.path,
+            timeout: operation.deadline.remaining()
+        )
+        else {
+            await removeParentDirectoryIfEmpty(for: worktree.path)
+            return .finished(.removed)
+        }
+        guard operation.force,
+              let projectID = operation.projectID,
+              isMuxyManagedCheckout(worktree, projectID: projectID)
+        else {
+            throw GitWorktreeService.GitWorktreeError.notRegistered
+        }
+        guard checkoutReferencesRepository(worktreePath: worktree.path, repoPath: operation.repoPath),
+              let identity = fileIdentity(at: worktree.path)
+        else {
+            return .finished(.preservedUnverifiedDirectory)
+        }
+        return .staleManaged(projectID: projectID, identity: identity)
+    }
+
+    private static func removeStaleManagedCheckout(
+        operation: CleanupOperation,
+        projectID: UUID,
+        identity: FileIdentity
+    ) async throws -> StaleRemovalResult {
+        let worktree = operation.worktree
+        let isNowRegistered = try await GitWorktreeService.shared.isWorktreeRegistered(
+            repoPath: operation.repoPath,
+            path: worktree.path,
+            context: operation.context,
+            timeout: operation.deadline.remaining()
+        )
+        guard !isNowRegistered else {
+            throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
+        }
+        guard try await operation.context.fileOps.exists(
+            at: worktree.path,
+            timeout: operation.deadline.remaining()
+        )
+        else {
+            await removeParentDirectoryIfEmpty(for: worktree.path)
+            return .finished(.removed)
+        }
+        guard isMuxyManagedCheckout(worktree, projectID: projectID),
+              checkoutReferencesRepository(worktreePath: worktree.path, repoPath: operation.repoPath),
+              fileIdentity(at: worktree.path) == identity
+        else {
+            return .finished(.preservedUnverifiedDirectory)
+        }
+        try await WorktreeProcessQuiescer.quiesce(
+            path: worktree.path,
+            matching: identity,
+            timeout: operation.deadline.remaining()
+        )
+        guard isMuxyManagedCheckout(worktree, projectID: projectID),
+              checkoutReferencesRepository(worktreePath: worktree.path, repoPath: operation.repoPath),
+              fileIdentity(at: worktree.path) == identity
+        else {
+            return .finished(.preservedUnverifiedDirectory)
+        }
+        let isRegisteredAfterQuiescing = try await GitWorktreeService.shared.isWorktreeRegistered(
+            repoPath: operation.repoPath,
+            path: worktree.path,
+            context: operation.context,
+            timeout: operation.deadline.remaining()
+        )
+        guard !isRegisteredAfterQuiescing else {
+            throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
+        }
+        let quarantine = try await quarantineManagedCheckout(
+            worktree.path,
+            projectID: projectID,
+            matching: identity
+        )
+        guard fileIdentity(at: quarantine.path) == identity else {
+            try await restoreOrReport(quarantine, to: worktree.path)
+            return .finished(.preservedUnverifiedDirectory)
+        }
+        do {
+            try await operation.context.fileOps.removeItem(
+                at: quarantine.path,
+                timeout: operation.deadline.remaining()
+            )
+        } catch {
+            if await operation.context.fileOps.exists(at: quarantine.path) {
+                try await restoreOrReport(quarantine, to: worktree.path)
+                throw error
+            }
+        }
+        return .removedPath(worktree.path)
+    }
+
     private static func cleanupResult(directoryRemoved: Bool?) -> WorktreeCleanupResult {
         guard let directoryRemoved else { return .unknown }
         return directoryRemoved ? .removed : .retained
     }
 
+    private static func isMuxyManagedCheckout(_ worktree: Worktree, projectID: UUID) -> Bool {
+        guard worktree.source == .muxy, !worktree.isPrimary else { return false }
+        let expectedRoot = MuxyFileStorage.worktreeRoot(forProjectID: projectID, create: false)
+            .standardizedFileURL
+        let target = URL(fileURLWithPath: worktree.path, isDirectory: true).standardizedFileURL
+        guard target.deletingLastPathComponent() == expectedRoot,
+              (try? FileManager.default.destinationOfSymbolicLink(atPath: expectedRoot.path)) == nil,
+              (try? FileManager.default.destinationOfSymbolicLink(atPath: target.path)) == nil
+        else { return false }
+        let canonicalRoot = expectedRoot
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let canonicalTarget = target
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        let checkoutsRoot = expectedRoot.deletingLastPathComponent()
+        let canonicalCheckoutsRoot = checkoutsRoot.resolvingSymlinksInPath().standardizedFileURL
+        return canonicalRoot.deletingLastPathComponent() == canonicalCheckoutsRoot
+            && canonicalTarget.deletingLastPathComponent() == canonicalRoot
+            && (try? FileManager.default.destinationOfSymbolicLink(atPath: checkoutsRoot.path)) == nil
+    }
+
+    private static func isUnambiguousLocalPath(_ path: String) -> Bool {
+        guard path.hasPrefix("/") else { return false }
+        let components = NSString(string: path).pathComponents
+        guard !components.contains("."), !components.contains("..") else { return false }
+        return (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) == nil
+    }
+
+    nonisolated private static func fileIdentity(at path: String) -> FileIdentity? {
+        WorktreeProcessQuiescer.directoryIdentity(at: path)
+    }
+
+    private static func quarantineManagedCheckout(
+        _ path: String,
+        projectID: UUID,
+        matching identity: FileIdentity
+    ) async throws -> URL {
+        let quarantine = MuxyFileStorage.worktreeRoot(forProjectID: projectID, create: false)
+            .appendingPathComponent(".muxy-removing-\(UUID().uuidString)", isDirectory: true)
+        guard fileIdentity(at: path) == identity else {
+            throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
+        }
+        try await GitProcessRunner.offMainThrowing {
+            guard fileIdentity(at: path) == identity else {
+                throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
+            }
+            try FileManager.default.moveItem(atPath: path, toPath: quarantine.path)
+        }
+        return quarantine
+    }
+
+    private static func restoreQuarantinedCheckout(_ quarantine: URL, to path: String) async throws {
+        try await GitProcessRunner.offMainThrowing {
+            guard !FileManager.default.fileExists(atPath: path) else {
+                throw GitWorktreeService.GitWorktreeError.commandFailed("Worktree changed during removal.")
+            }
+            try FileManager.default.moveItem(atPath: quarantine.path, toPath: path)
+        }
+    }
+
+    private static func restoreOrReport(_ quarantine: URL, to path: String) async throws {
+        do {
+            try await restoreQuarantinedCheckout(quarantine, to: path)
+        } catch {
+            logger.error(
+                "Could not restore worktree to \(path, privacy: .public); files remain at \(quarantine.path, privacy: .public)"
+            )
+            throw GitWorktreeService.GitWorktreeError.commandFailed(
+                "Worktree changed during removal. Files remain at \"\(quarantine.path)\"."
+            )
+        }
+    }
+
+    private static func checkoutReferencesRepository(worktreePath: String, repoPath: String) -> Bool {
+        guard let checkoutGitDirectory = gitDirectoryReference(checkoutPath: worktreePath),
+              let commonGitDirectory = commonGitDirectory(repoPath: repoPath)
+        else { return false }
+        return checkoutGitDirectory.deletingLastPathComponent()
+            == commonGitDirectory.appendingPathComponent("worktrees", isDirectory: true)
+    }
+
+    private static func commonGitDirectory(repoPath: String) -> URL? {
+        let dotGit = URL(fileURLWithPath: repoPath, isDirectory: true).appendingPathComponent(".git")
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: dotGit.path)) == nil else { return nil }
+        if (try? dotGit.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            return dotGit.resolvingSymlinksInPath().standardizedFileURL
+        }
+        guard let adminDirectory = gitDirectoryReference(checkoutPath: repoPath),
+              adminDirectory.deletingLastPathComponent().lastPathComponent == "worktrees"
+        else { return nil }
+        return adminDirectory.deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    private static func gitDirectoryReference(checkoutPath: String) -> URL? {
+        let checkout = URL(fileURLWithPath: checkoutPath, isDirectory: true).standardizedFileURL
+        let dotGit = checkout.appendingPathComponent(".git")
+        guard (try? FileManager.default.destinationOfSymbolicLink(atPath: dotGit.path)) == nil,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: dotGit.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let size = attributes[.size] as? NSNumber,
+              size.intValue <= 4096,
+              let contents = try? String(contentsOf: dotGit, encoding: .utf8),
+              let firstLine = contents.split(whereSeparator: \Character.isNewline).first,
+              firstLine.hasPrefix("gitdir: ")
+        else { return nil }
+        let reference = firstLine.dropFirst("gitdir: ".count).trimmingCharacters(in: .whitespaces)
+        guard !reference.isEmpty else { return nil }
+        return URL(fileURLWithPath: reference, relativeTo: checkout)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+    }
+
     nonisolated private static func removeParentDirectoryIfEmpty(for path: String) async {
         await GitProcessRunner.offMain {
             let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
-            let children = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
-            guard children.isEmpty else { return }
-            try? FileManager.default.removeItem(at: parent)
+            _ = parent.path.withCString { Darwin.rmdir($0) }
         }
     }
 
@@ -682,23 +966,20 @@ final class WorktreeStore {
     ) async throws {
         let secondaryWorktrees = knownWorktrees.filter { $0.canBeRemoved && !$0.isExternallyManaged }
         for worktree in secondaryWorktrees {
-            try await cleanupOnDisk(worktree: worktree, repoPath: project.path, context: context)
+            try await cleanupOnDisk(
+                worktree: worktree,
+                projectID: project.id,
+                repoPath: project.path,
+                context: context
+            )
         }
 
         guard !context.isRemote, FileManager.default.fileExists(atPath: project.path) else { return }
         let root = MuxyFileStorage.worktreeRoot(forProjectID: project.id)
         guard FileManager.default.fileExists(atPath: root.path) else { return }
         let children = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
-        for child in children {
-            let childPath = root.appendingPathComponent(child).path
-            _ = try? await GitWorktreeService.shared.removeWorktree(
-                repoPath: project.path,
-                path: childPath,
-                force: true
-            )
-            try? FileManager.default.removeItem(atPath: childPath)
-        }
-        try? FileManager.default.removeItem(at: root)
+        guard children.isEmpty else { return }
+        _ = root.path.withCString { Darwin.rmdir($0) }
     }
 
     func rename(worktreeID: UUID, in projectID: UUID, to newName: String) {
