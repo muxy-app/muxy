@@ -72,6 +72,7 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         guard let titlePtr = title.title else { return }
         let titleString = String(cString: titlePtr)
         DispatchQueue.main.async {
+            guard !view.handleRemoteSessionRecoveryTitle(titleString) else { return }
             if let paneID = TerminalViewRegistry.shared.paneID(for: view) {
                 TerminalCommandTracker.shared.recordShellCommandCandidate(titleString, paneID: paneID)
             }

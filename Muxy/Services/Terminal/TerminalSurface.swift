@@ -141,6 +141,15 @@ protocol TerminalSessionRecoverySurface: AnyObject {
 }
 
 @MainActor
+protocol TerminalRemoteSessionRecoverySurface: AnyObject {
+    var onRemoteSessionRecoveryFailed: ((Bool) -> Void)? { get set }
+    var isRemoteSessionRecoveryFailed: Bool { get }
+
+    func handleRemoteSessionRecoveryTitle(_ title: String) -> Bool
+    func retryRemoteSession()
+}
+
+@MainActor
 protocol TerminalInputSubmissionTarget: AnyObject {
     func sendRemoteBytes(_ bytes: Data)
     func submitRichInput(text: String)
