@@ -24,6 +24,7 @@ final class GhosttyService {
         resolveGhosttyResources()
 
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
+        restoreAppKitCompatibleNumericLocale()
         guard result == GHOSTTY_SUCCESS else {
             logger.error("ghostty_init failed: \(String(describing: result))")
             return
@@ -64,6 +65,10 @@ final class GhosttyService {
 
         self.app = createdApp
         self.config = cfg
+    }
+
+    private func restoreAppKitCompatibleNumericLocale() {
+        setlocale(LC_NUMERIC, "C")
     }
 
     func applyInitialColorScheme() {
