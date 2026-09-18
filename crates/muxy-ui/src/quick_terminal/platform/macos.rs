@@ -338,6 +338,7 @@ impl PanelAdapter {
         unsafe {
             AnyObject::set_class(&native_window, class);
         }
+        native_window.makeFirstResponder(Some(&view));
         let mask_host = unsafe { view.superview() }
             .ok_or_else(|| "GPUI Quick Terminal content view is detached".to_owned())?;
         mask_host.setWantsLayer(true);

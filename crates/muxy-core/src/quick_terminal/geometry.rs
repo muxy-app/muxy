@@ -32,13 +32,11 @@ impl Rect {
     }
 }
 
-pub const PANEL_TOP_GAP: f64 = 12.0;
-
 pub fn panel_frame(screen: Rect, visible: Rect, preferred: Size) -> Rect {
     if screen.size.width <= 0.0
         || screen.size.height <= 0.0
         || visible.size.width <= 0.0
-        || visible.size.height <= PANEL_TOP_GAP
+        || visible.size.height <= 0.0
         || preferred.width <= 0.0
         || preferred.height <= 0.0
     {
@@ -46,14 +44,14 @@ pub fn panel_frame(screen: Rect, visible: Rect, preferred: Size) -> Rect {
     }
     let size = Size {
         width: preferred.width.min(visible.size.width),
-        height: preferred.height.min(visible.size.height - PANEL_TOP_GAP),
+        height: preferred.height.min(visible.size.height),
     };
     let centered_x = screen.origin.x + screen.size.width / 2.0 - size.width / 2.0;
     let minimum_x = visible.origin.x;
     let maximum_x = minimum_x.max(visible.origin.x + visible.size.width - size.width);
     Rect::new(
         centered_x.clamp(minimum_x, maximum_x),
-        visible.origin.y + visible.size.height - PANEL_TOP_GAP - size.height,
+        visible.origin.y + visible.size.height - size.height,
         size.width,
         size.height,
     )
@@ -126,6 +124,7 @@ mod tests {
         };
         let frame = panel_frame(screen, visible, preferred);
         assert_eq!(frame.size, preferred);
+        assert_eq!(frame.origin.x, 340.0);
         let clamped = panel_frame(
             screen,
             visible,
@@ -135,13 +134,16 @@ mod tests {
             },
         );
         assert_eq!(clamped.origin, visible.origin);
-        assert_eq!(clamped.size.width, visible.size.width);
+        assert_eq!(clamped.size, visible.size);
         for frame in [frame, clamped] {
             assert!(frame.size.height > 0.0);
             assert!(frame.origin.x >= visible.origin.x);
             assert!(frame.origin.y >= visible.origin.y);
             assert!(frame.origin.x + frame.size.width <= visible.origin.x + visible.size.width);
-            assert!(frame.origin.y + frame.size.height <= visible.origin.y + visible.size.height);
+            assert_eq!(
+                frame.origin.y + frame.size.height,
+                visible.origin.y + visible.size.height
+            );
         }
         assert_eq!(
             panel_frame(
