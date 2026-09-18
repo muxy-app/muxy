@@ -550,3 +550,5 @@ fn linked_worktree_watch_detects_common_refs_and_stops_when_dropped() {
             .is_err()
     );
 }
+
+mod extensions;

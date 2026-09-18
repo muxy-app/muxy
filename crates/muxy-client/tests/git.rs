@@ -190,3 +190,73 @@ fn filesystem_watches_debounce_without_polling_and_follow_the_selected_project()
     serving.join().map_err(|_| "server panicked")??;
     Ok(())
 }
+
+#[test]
+fn extension_git_operations_and_validation_round_trip_over_a_live_connection() -> TestResult {
+    use muxy_protocol::{GitDiffRequest, GitPullRequestAction};
+    let directory = tempfile::tempdir()?;
+    let (send, server_events) = mpsc::channel();
+    let registry = Arc::new(Registry::new(ServerSettings::default(), send));
+    let (local, remote) = UnixStream::pair()?;
+    let serving_registry = registry.clone();
+    let serving = std::thread::spawn(move || {
+        connection::serve(Box::new(remote), serving_registry, server_events)
+    });
+    let client = Client::from_stream(Box::new(local))?;
+    let project = register_repository(&client, directory.path())?;
+    for args in [
+        vec!["config", "user.name", "Test"],
+        vec!["config", "user.email", "test@example.invalid"],
+        vec!["config", "commit.gpgsign", "false"],
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(directory.path())
+                .status()?
+                .success()
+        );
+    }
+    let git = |action| client.git(GitRequest { project, action });
+    std::fs::write(directory.path().join("file"), "before\n")?;
+    assert!(matches!(
+        git(GitAction::Commit {
+            message: "initial".into(),
+            stage_all: true
+        })?,
+        GitReply::Commit(_)
+    ));
+    std::fs::write(directory.path().join("file"), "after\n")?;
+    let GitReply::Status(status) = git(GitAction::Status { local: true })? else {
+        return Err("wrong status reply".into());
+    };
+    assert_eq!(status.files.len(), 1);
+    assert_eq!(status.files[0].unstaged.additions, Some(1));
+    assert!(matches!(git(GitAction::RepoInfo)?, GitReply::RepoInfo(_)));
+    assert!(
+        matches!(git(GitAction::Log { max_count: 100, skip: 0 })?, GitReply::Log(log) if log.len() == 1)
+    );
+    let GitReply::Diff(diff) = git(GitAction::Diff(GitDiffRequest {
+        path: Some(ServerPath(b"file".to_vec())),
+        ..GitDiffRequest::default()
+    }))?
+    else {
+        return Err("wrong diff reply".into());
+    };
+    assert_eq!((diff.additions, diff.deletions), (1, 1));
+    assert!(
+        git(GitAction::PullRequest(GitPullRequestAction::Close {
+            number: 0
+        }))
+        .is_err()
+    );
+    client.ping()?;
+    assert!(matches!(
+        git(GitAction::Summary)?,
+        GitReply::Summary(Some(_))
+    ));
+    client.disconnect();
+    registry.shutdown();
+    serving.join().map_err(|_| "server panicked")??;
+    Ok(())
+}

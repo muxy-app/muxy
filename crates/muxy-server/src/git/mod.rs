@@ -1,4 +1,8 @@
 mod command;
+mod details;
+mod diff;
+mod github;
+mod mutate;
 mod processes;
 mod read;
 #[cfg(test)]
@@ -34,6 +38,7 @@ fn server_path(path: &Path) -> ServerPath {
 #[derive(Debug, Default)]
 pub(crate) struct Git {
     locks: Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>,
+    github: github::Github,
 }
 impl Git {
     fn lock_for(&self, path: &Path) -> Result<Arc<Mutex<()>>> {
@@ -70,6 +75,18 @@ impl Registry {
         if !directory.is_dir() {
             return Err(error("Project directory is missing"));
         }
+        if request.action == GitAction::Init {
+            if project.kind == Some(ProjectKind::Worktree) {
+                return Err(error("Cannot initialize a registered worktree"));
+            }
+            let _operation = self
+                .operations
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            self.catalog.project(request.project)?;
+            run(directory, &["init"])?;
+            return Ok(GitReply::Done);
+        }
         if !is_repository(directory)? {
             return if matches!(request.action, GitAction::Summary)
                 && project.kind != Some(ProjectKind::Worktree)
@@ -96,10 +113,58 @@ impl Registry {
         let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         // The project may have been deleted while waiting for another repository operation.
         self.catalog.project(request.project)?;
-        match &request.action {
+        self.dispatch_git(&project, directory, &request.action)
+    }
+
+    fn dispatch_git(
+        &self,
+        project: &muxy_protocol::ProjectDescriptor,
+        directory: &Path,
+        action: &GitAction,
+    ) -> Result<GitReply> {
+        match action {
             GitAction::Summary => Ok(GitReply::Summary(Some(read::summary(directory)?))),
             GitAction::Branches => Ok(GitReply::Branches(read::branches(directory)?)),
             GitAction::Changes => Ok(GitReply::Changes(read::changes(directory)?)),
+            GitAction::Status { local } => {
+                let pull_request = if *local {
+                    None
+                } else {
+                    match self
+                        .git
+                        .github
+                        .apply(directory, &muxy_protocol::GitPullRequestAction::Info)
+                    {
+                        Ok(GitReply::PullRequest(pr)) => pr.map(|pr| *pr),
+                        _ => None,
+                    }
+                };
+                Ok(GitReply::Status(Box::new(muxy_protocol::GitStatus {
+                    summary: read::summary(directory)?,
+                    default_branch: self.git.github.default_branch(directory),
+                    branches: read::branches(directory)?,
+                    files: read::file_status(directory)?,
+                    pull_request,
+                })))
+            }
+            GitAction::RepoInfo => Ok(GitReply::RepoInfo(details::repo_info(directory)?)),
+            GitAction::RemoteBranches => Ok(GitReply::RemoteBranches(details::remote_branches(
+                directory,
+            )?)),
+            GitAction::Log { max_count, skip } => {
+                Ok(GitReply::Log(details::log(directory, *max_count, *skip)?))
+            }
+            GitAction::Diff(request) => diff::read(directory, request),
+            GitAction::PullRequest(action) => self.git.github.apply(directory, action),
+            GitAction::Commit { .. }
+            | GitAction::Push { .. }
+            | GitAction::Pull
+            | GitAction::Checkout(_)
+            | GitAction::CherryPick(_)
+            | GitAction::Revert(_)
+            | GitAction::DeleteLocalBranch { .. }
+            | GitAction::DeleteRemoteBranch(_)
+            | GitAction::CreateTag { .. } => mutate::apply(directory, action),
             GitAction::Worktrees => {
                 let mut worktrees = read::worktrees(directory)?;
                 for worktree in &mut worktrees {
@@ -108,12 +173,12 @@ impl Registry {
                 }
                 Ok(GitReply::Worktrees(worktrees))
             }
-            GitAction::InspectRemoval => Ok(GitReply::Removal(self.inspect_removal(&project)?)),
+            GitAction::InspectRemoval => Ok(GitReply::Removal(self.inspect_removal(project)?)),
             GitAction::SwitchBranch(branch)
             | GitAction::CreateBranch(branch)
             | GitAction::DeleteBranch(branch) => {
                 validate_branch(directory, branch)?;
-                match request.action {
+                match action {
                     GitAction::SwitchBranch(_) => {
                         run(directory, &["switch", "--", branch])?;
                     }
@@ -127,10 +192,10 @@ impl Registry {
                 Ok(GitReply::Done)
             }
             GitAction::Stage(paths) | GitAction::Unstage(paths) | GitAction::Discard(paths) => {
-                mutate_files(directory, &request.action, paths)?;
+                mutate_files(directory, action, paths)?;
                 Ok(GitReply::Done)
             }
-            GitAction::Worktree(_) => unreachable!(),
+            GitAction::Worktree(_) | GitAction::Init => unreachable!(),
             GitAction::Watch => Err(error("Git watches require a client connection")),
         }
     }
@@ -178,6 +243,25 @@ fn safe_path(repository: &Path, relative: &ServerPath) -> Result<PathBuf> {
     Ok(repository.join(relative))
 }
 fn mutate_files(repository: &Path, action: &GitAction, paths: &[ServerPath]) -> Result<()> {
+    if paths.is_empty() {
+        match action {
+            GitAction::Stage(_) => {
+                run(repository, &["add", "-A"])?;
+            }
+            GitAction::Unstage(_) => {
+                if read::summary(repository)?.head.is_some() {
+                    run(repository, &["reset", "HEAD", "--", "."])?;
+                } else {
+                    run(
+                        repository,
+                        &["rm", "--cached", "-r", "-f", "--ignore-unmatch", "--", "."],
+                    )?;
+                }
+            }
+            _ => (),
+        }
+        return Ok(());
+    }
     let current = read::files(&read::status(repository)?)?;
     let mut tracked = Vec::new();
     let mut untracked = Vec::new();

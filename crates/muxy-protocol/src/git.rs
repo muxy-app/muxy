@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ErrorCode, OperationId, ProjectDescriptor, ProjectId, ServerPath};
 
+mod extension;
+pub use extension::*;
+
 /// Git operations always resolve their repository through a server project.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GitRequest {
@@ -25,6 +28,38 @@ pub enum GitAction {
     Worktree(WorktreeIntent),
     /// Replace this connection's filesystem watch with the requested project.
     Watch,
+    Status {
+        local: bool,
+    },
+    RepoInfo,
+    RemoteBranches,
+    Log {
+        max_count: u32,
+        skip: u32,
+    },
+    Diff(GitDiffRequest),
+    Init,
+    Commit {
+        message: String,
+        stage_all: bool,
+    },
+    Push {
+        set_upstream: bool,
+    },
+    Pull,
+    Checkout(String),
+    CherryPick(String),
+    Revert(String),
+    DeleteLocalBranch {
+        name: String,
+        force: bool,
+    },
+    DeleteRemoteBranch(String),
+    CreateTag {
+        name: String,
+        hash: String,
+    },
+    PullRequest(GitPullRequestAction),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -48,6 +83,11 @@ pub enum WorktreeAction {
     },
     Remove {
         expected: WorktreeRemoval,
+    },
+    CheckoutPullRequest {
+        project: ProjectId,
+        directory: ServerPath,
+        number: u64,
     },
 }
 
@@ -101,12 +141,19 @@ impl GitFile {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Independent flags from Git worktree porcelain"
+)]
 pub struct GitWorktree {
     pub directory: ServerPath,
     pub head: Option<String>,
     pub branch: Option<String>,
     pub primary: bool,
     pub locked: bool,
+    pub bare: bool,
+    pub detached: bool,
+    pub prunable: bool,
     pub registered: Option<ProjectId>,
 }
 
@@ -132,6 +179,16 @@ pub enum GitReply {
     Removal(WorktreeRemoval),
     Project(ProjectDescriptor),
     Done,
+    Status(Box<GitStatus>),
+    RepoInfo(GitRepoInfo),
+    RemoteBranches(Vec<String>),
+    Log(Vec<GitCommit>),
+    RawDiff(GitRawDiff),
+    Diff(GitDiff),
+    Commit(String),
+    PullRequest(Option<Box<GitPullRequest>>),
+    PullRequestNumber(Option<u64>),
+    PullRequests(Vec<GitPullRequest>),
 }
 
 impl GitRequest {
@@ -157,9 +214,28 @@ impl GitRequest {
         match &self.action {
             GitAction::SwitchBranch(s)
             | GitAction::CreateBranch(s)
-            | GitAction::DeleteBranch(s) => text(s),
+            | GitAction::DeleteBranch(s)
+            | GitAction::DeleteRemoteBranch(s)
+            | GitAction::DeleteLocalBranch { name: s, .. } => text(s),
+            GitAction::Checkout(hash) | GitAction::CherryPick(hash) | GitAction::Revert(hash) => {
+                validate_hash(hash)
+            }
+            GitAction::CreateTag { name, hash } => {
+                text(name)?;
+                validate_hash(hash)
+            }
+            GitAction::Commit { message, .. } => validate_message(message, 64 * 1024),
+            GitAction::Log { max_count, .. } if *max_count > 1000 => Err(ErrorCode::BadRequest),
+            GitAction::Diff(request) => {
+                if !request.raw && request.path.is_none() {
+                    return Err(ErrorCode::BadRequest);
+                }
+                validate_line_limit(request.line_limit)?;
+                request.path.as_ref().map_or(Ok(()), path)
+            }
+            GitAction::PullRequest(action) => action.validate(),
             GitAction::Stage(paths) | GitAction::Unstage(paths) | GitAction::Discard(paths) => {
-                if paths.is_empty() || paths.len() > 4096 {
+                if paths.len() > 4096 {
                     return Err(ErrorCode::BadRequest);
                 }
                 paths.iter().try_for_each(path)
@@ -176,6 +252,12 @@ impl GitRequest {
                     base.as_deref().map_or(Ok(()), text)
                 }
                 WorktreeAction::Register { directory, .. } => path(directory),
+                WorktreeAction::CheckoutPullRequest {
+                    directory, number, ..
+                } => {
+                    validate_number(*number)?;
+                    path(directory)
+                }
                 WorktreeAction::Remove { expected } => {
                     if expected.status.len() > 4 * 1024 * 1024 {
                         return Err(ErrorCode::BadRequest);

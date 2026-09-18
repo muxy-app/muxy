@@ -162,6 +162,52 @@ pub(super) fn changes(path: &Path) -> Result<Vec<GitFile>> {
 }
 
 type LineStats = HashMap<Vec<u8>, (Option<u64>, Option<u64>)>;
+
+pub(super) fn file_status(path: &Path) -> Result<Vec<muxy_protocol::GitFileStatus>> {
+    use muxy_protocol::{GitFileStatus, GitLineStat};
+    let files = changes(path)?;
+    let staged = line_stats(path, true)?;
+    let unstaged = line_stats(path, false)?;
+    let stat = |value: Option<&(Option<u64>, Option<u64>)>| {
+        let (additions, deletions) = value.copied().unwrap_or((Some(0), Some(0)));
+        GitLineStat {
+            additions,
+            deletions,
+            binary: additions.is_none() && deletions.is_none(),
+        }
+    };
+    Ok(files
+        .into_iter()
+        .map(|file| {
+            let staged = stat(staged.get(&file.path.0));
+            let unstaged = if file.untracked() {
+                GitLineStat {
+                    additions: file.added,
+                    deletions: file.removed,
+                    binary: untracked_binary(&path.join(super::path(&file.path))),
+                }
+            } else {
+                stat(unstaged.get(&file.path.0))
+            };
+            GitFileStatus {
+                file,
+                staged,
+                unstaged,
+            }
+        })
+        .collect())
+}
+
+fn untracked_binary(path: &Path) -> bool {
+    use std::io::Read;
+    if !std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file()) {
+        return false;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .is_ok_and(|file| file.take(8000).read_to_end(&mut bytes).is_ok() && bytes.contains(&0))
+}
+
 fn line_stats(path: &Path, staged: bool) -> Result<LineStats> {
     let mut args = vec![
         "diff",
@@ -219,6 +265,9 @@ pub(super) fn worktrees(path: &Path) -> Result<Vec<GitWorktree>> {
                 branch: None,
                 primary: result.is_empty(),
                 locked: false,
+                bare: false,
+                detached: false,
+                prunable: false,
                 registered: None,
             });
         } else if let Some(entry) = result.last_mut() {
@@ -231,6 +280,9 @@ pub(super) fn worktrees(path: &Path) -> Result<Vec<GitWorktree>> {
             if record == b"locked" || record.starts_with(b"locked ") {
                 entry.locked = true;
             }
+            entry.bare |= record == b"bare";
+            entry.detached |= record == b"detached";
+            entry.prunable |= record == b"prunable" || record.starts_with(b"prunable ");
         }
     }
     Ok(result)

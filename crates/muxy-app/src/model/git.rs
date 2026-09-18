@@ -253,7 +253,6 @@ impl AppModel {
                     operation: muxy_protocol::OperationId::new(), action: muxy_protocol::WorktreeAction::Remove { expected: expected.clone() },
                 }), if expected.dirty { "Remove worktree and permanently discard its uncommitted changes? Local processes running from this worktree will stop and its files will be deleted." } else { "Remove worktree and delete its files? Local processes running from this worktree will stop." }.into(), cx);
             }
-            Ok(GitReply::Removal(_)) => (),
             Ok(GitReply::Project(project)) => {
                 if context_matches {
                     self.dismiss_overlay(cx);
@@ -280,6 +279,7 @@ impl AppModel {
                 }
                 self.queue_git_refresh(request.project, actions, cx);
             }
+            Ok(_) => (),
             Err(error) => {
                 if let Some(slot) = read_slot(&request.action) {
                     repository.read_errors[slot] = Some(error.to_string());

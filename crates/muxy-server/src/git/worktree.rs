@@ -91,6 +91,22 @@ impl Registry {
         let lock = self.git.lock_for(path(&parent.directory))?;
         let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         let receipt = match &intent.action {
+            WorktreeAction::CheckoutPullRequest {
+                project,
+                directory,
+                number,
+            } => {
+                self.validate_worktree_parent(&parent, *project, directory)?;
+                if path(directory).try_exists().map_err(error)? {
+                    return Err(error("Worktree directory already exists"));
+                }
+                let branch = self
+                    .git
+                    .github
+                    .prepare_worktree(path(&parent.directory), *number)?;
+                std::fs::create_dir(path(directory)).map_err(error)?;
+                Self::new_worktree_receipt(owner, intent, &parent, *project, directory, &branch)?
+            }
             WorktreeAction::Create {
                 project,
                 directory,
@@ -212,7 +228,12 @@ impl Registry {
                 .catalog
                 .git_receipt(receipt.intent.operation)
                 .unwrap_or(receipt);
-            if !current.applied && matches!(current.intent.action, WorktreeAction::Create { .. }) {
+            if !current.applied
+                && matches!(
+                    current.intent.action,
+                    WorktreeAction::Create { .. } | WorktreeAction::CheckoutPullRequest { .. }
+                )
+            {
                 let target = path(&current.project.directory);
                 if std::fs::symlink_metadata(target)
                     .is_ok_and(|m| m.dev() == current.device && m.ino() == current.inode)
@@ -261,6 +282,9 @@ impl Registry {
                 return Err(error("Reserved worktree directory is missing"));
             }
             match &receipt.intent.action {
+                WorktreeAction::CheckoutPullRequest { .. } => {
+                    create_worktree(repository, &receipt, &receipt.project.name, None)?;
+                }
                 WorktreeAction::Create { branch, base, .. } => {
                     create_worktree(repository, &receipt, branch, base.as_deref())?;
                 }
