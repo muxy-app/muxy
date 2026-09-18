@@ -199,7 +199,12 @@ fn node(layout: &Layout, tab: TabId, path: Vec<Branch>, model: &AppModel) -> Any
         .min_w(px(0.0))
         .min_h(px(0.0))
         .child(first)
-        .child(divider.relative().flex_none().bg(model.theme.border))
+        .child(
+            divider
+                .relative()
+                .flex_none()
+                .bg(model.theme.border_solid()),
+        )
         .child(second)
         .child(hit)
         .child(
