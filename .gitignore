@@ -4,4 +4,7 @@
 .DS_Store
 /spikes-archive.tar.gz
 /.plans
+/.agents/
+/.claude/
+/skills-lock.json
 __pycache__/
