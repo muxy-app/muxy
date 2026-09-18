@@ -445,7 +445,7 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
                 .flex()
                 .flex_col()
                 .px(if wide { m.spacing3() } else { m.spacing4() })
-                .when(!wide, |list| list.gap(m.spacing3()))
+                .gap(m.spacing3())
                 .pt(if wide { m.spacing5() } else { m.spacing2() })
                 .pb(m.spacing3())
                 .when(!wide, Styled::items_center)
@@ -487,33 +487,7 @@ fn project_row(
     let active = model.state.current_project().id == id;
     let group = SharedString::from(format!("project-{id}"));
     let tile = project_tile(project, model, group.clone());
-    let includes_project = |candidate| {
-        candidate == id
-            || model
-                .state
-                .project(candidate)
-                .is_some_and(|p| p.parent_id == Some(id))
-    };
-    let sessions: std::collections::HashSet<_> = model
-        .activity
-        .snapshot
-        .agents
-        .iter()
-        .filter(|a| includes_project(a.project))
-        .map(|a| a.session)
-        .chain(
-            model
-                .activity
-                .snapshot
-                .events
-                .iter()
-                .filter(|e| includes_project(e.project))
-                .map(|e| e.session),
-        )
-        .collect();
-    let activity = muxy_app_core::activity::indicator(&model.activity.snapshot, |session| {
-        sessions.contains(&session)
-    });
+    let activity = super::tab_activity::project_status(id, model);
     let drag = DraggedProject {
         id,
         last_target: Cell::new(None),
@@ -530,9 +504,8 @@ fn project_row(
             row.ml(m.spacing5())
         })
         .when(wide, |row| {
-            row.px(m.spacing2())
-                .my(m.spacing1())
-                .h(m.control_large())
+            row.p(m.spacing2())
+                .h(m.icon_xxl() + m.spacing2() * 2.0)
                 .gap(m.spacing4())
                 .rounded(m.radius_lg())
                 .when(active, |row| row.bg(theme.surface))
@@ -574,7 +547,7 @@ fn project_row(
                     .flex_1()
                     .min_w(px(0.0))
                     .truncate()
-                    .text_size(m.font_headline())
+                    .text_size(m.font_emphasis())
                     .font_weight(if active {
                         FontWeight::SEMIBOLD
                     } else {
@@ -584,27 +557,26 @@ fn project_row(
                     .child(project.name.clone()),
             )
         })
-        .when(
-            matches!(
-                activity,
-                muxy_app_core::activity::ActivityIndicator::Working
-                    | muxy_app_core::activity::ActivityIndicator::Blocked
-                    | muxy_app_core::activity::ActivityIndicator::Completed
-            ),
-            |row| {
-                row.child(
-                    div()
-                        .flex_none()
-                        .when(!wide, |badge| badge.absolute().right_0().top_0())
-                        .child(super::tab_activity::activity_glyph(
-                            format!("project-agent-{id}"),
-                            activity,
-                            m.scaled(12.0),
-                            model,
-                        )),
-                )
-            },
-        )
+        .when(activity != super::tab_activity::Status::None, |row| {
+            row.child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .min_w(m.scaled(18.0))
+                    .h(m.scaled(18.0))
+                    .when(!wide, |badge| {
+                        badge.absolute().right(m.scaled(-3.0)).top(m.scaled(-3.0))
+                    })
+                    .child(super::tab_activity::status_glyph(
+                        format!("project-activity-{id}"),
+                        activity,
+                        m.icon_sm(),
+                        model,
+                    )),
+            )
+        })
         .when(!wide && active, |row| {
             row.child(
                 div()

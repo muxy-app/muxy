@@ -7,7 +7,7 @@ use muxy_app_core::{Project, ProjectId, ProjectStatus, Tab, TabId, settings::App
 use muxy_ui::components::{IconButton, IconGlyph, SymbolGlyph};
 use muxy_ui::icon::Icon;
 
-use super::{tab_strip, titlebar};
+use super::{tab_activity, tab_strip, titlebar};
 use crate::model::AppModel;
 
 impl AppModel {
@@ -180,7 +180,9 @@ fn project_group(
     let mut group = div()
         .flex()
         .flex_col()
-        .when(project.parent_id.is_some(), |group| group.ml(px(12.0)))
+        .when(project.parent_id.is_some(), |group| {
+            group.ml(model.metrics.spacing6())
+        })
         .child(project_header(project, model, cx));
     if expanded && !missing {
         let ids: Vec<_> = project.tabs.iter().map(|tab| tab.id).collect();
@@ -268,26 +270,14 @@ fn project_header(project: &Project, model: &AppModel, cx: &mut Context<AppModel
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(if active { theme.fg } else { theme.fg_muted })
                 .when(model.appearance.sidebar_focus, |label| {
-                    label.pr(m.scaled(44.0))
+                    label.pr(m.control_small() * 2.0)
                 })
                 .group_hover(group.clone(), |style| {
-                    style.text_color(theme.fg).pr(m.scaled(44.0))
+                    style.text_color(theme.fg).pr(m.control_small() * 2.0)
                 })
                 .child(project.name.clone()),
         )
-        .child(
-            div()
-                .absolute()
-                .right(m.spacing3())
-                .top(m.spacing3())
-                .opacity(if model.appearance.sidebar_focus {
-                    1.0
-                } else {
-                    0.0
-                })
-                .group_hover(group, |style| style.opacity(1.0))
-                .child(project_controls(project, model, cx)),
-        )
+        .child(project_accessory(project, group, model, cx))
         .into_any_element()
 }
 
@@ -339,6 +329,55 @@ fn project_disclosure(
         .into_any_element()
 }
 
+fn project_accessory(
+    project: &Project,
+    group: SharedString,
+    model: &AppModel,
+    cx: &mut Context<AppModel>,
+) -> AnyElement {
+    let id = project.id;
+    let m = model.metrics;
+    let activity = tab_activity::project_status(id, model);
+    let has_activity = activity != tab_activity::Status::None;
+    div()
+        .relative()
+        .flex()
+        .flex_none()
+        .items_center()
+        .h(m.control_small())
+        .child(
+            div()
+                .absolute()
+                .right_full()
+                .top_0()
+                .opacity(if model.appearance.sidebar_focus {
+                    1.0
+                } else {
+                    0.0
+                })
+                .group_hover(group, |style| style.opacity(1.0))
+                .child(project_controls(project, model, cx)),
+        )
+        .when(has_activity, |row| {
+            row.child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .min_w(m.control_small())
+                    .h(m.control_small())
+                    .child(tab_activity::status_glyph(
+                        format!("project-activity-{id}"),
+                        activity,
+                        m.icon_sm(),
+                        model,
+                    )),
+            )
+        })
+        .into_any_element()
+}
+
 fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
     let id = project.id;
     let theme = &model.theme;
@@ -353,8 +392,8 @@ fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppMod
                     IconButton::new(
                         SharedString::from(format!("focus-project-{id}")),
                         Icon::Eye,
-                        px(12.0),
-                        px(20.0),
+                        model.metrics.icon_sm(),
+                        model.metrics.control_small(),
                         theme.fg_muted,
                         theme.fg,
                     )
@@ -391,8 +430,8 @@ fn project_controls(project: &Project, model: &AppModel, cx: &mut Context<AppMod
                         IconButton::new(
                             SharedString::from(format!("project-new-tab-{id}")),
                             Icon::Plus,
-                            px(12.0),
-                            px(20.0),
+                            model.metrics.icon_sm(),
+                            model.metrics.control_small(),
                             theme.fg_muted,
                             theme.fg,
                         )
@@ -439,7 +478,6 @@ fn tab_row(
         .id(group.clone())
         .debug_selector(move || format!("sidebar-tab-{id}"))
         .when(!model.tab_drag.is_active(), |row| row.group(group.clone()))
-        .relative()
         .mx(m.spacing3())
         .my(m.spacing1())
         .pl(m.control_small() + m.spacing3() * 2.0)
@@ -487,15 +525,16 @@ fn tab_row(
             div()
                 .debug_selector(move || format!("sidebar-tab-icon-{id}"))
                 .size(m.icon_md())
+                .flex_none()
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(super::tab_activity::glyph(
+                .child(tab_activity::icon(
                     tab,
                     model,
                     m.icon_md(),
                     SymbolGlyph::new(
-                        if tab.pinned { "pin" } else { "terminal" },
+                        "terminal",
                         m.font_footnote(),
                         if active { theme.fg } else { theme.fg_muted },
                     )
@@ -504,6 +543,7 @@ fn tab_row(
         )
         .child(
             div()
+                .debug_selector(move || format!("sidebar-tab-title-{id}"))
                 .flex_1()
                 .min_w(px(0.0))
                 .truncate()
@@ -638,23 +678,36 @@ fn close_tab_button(
     div()
         .id(SharedString::from(format!("sidebar-close-{id}")))
         .debug_selector(move || format!("sidebar-close-{id}"))
-        .size(px(18.0))
+        .size(model.metrics.control_small())
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(4.0))
+        .rounded(model.metrics.radius_sm())
         .absolute()
         .inset_0()
         .opacity(0.0)
         .group_hover(group, |style| style.opacity(1.0))
-        .hover(|style| style.bg(theme.hover))
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .on_click(cx.listener(move |model, _, window, cx| {
             cx.stop_propagation();
             model.close_tab(id, cx);
             model.focus_active(window, cx);
         }))
-        .child(IconGlyph::new(Icon::X, px(10.0), theme.fg_muted))
+        .child(
+            div()
+                .id(SharedString::from(format!("sidebar-close-glyph-{id}")))
+                .size(model.metrics.icon_md())
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(model.metrics.radius_sm())
+                .hover(|style| style.bg(theme.hover))
+                .child(IconGlyph::new(
+                    Icon::X,
+                    model.metrics.icon_xs(),
+                    theme.fg_muted,
+                )),
+        )
         .into_any_element()
 }
 
@@ -682,7 +735,34 @@ fn tab_accessory(
 ) -> AnyElement {
     let id = tab.id;
     let m = model.metrics;
-    let show_bell = bell && shortcut.is_none();
+    let status = tab_activity::tab_status(tab, model);
+    let content = if tab.pinned {
+        div()
+            .debug_selector(move || format!("sidebar-tab-pin-{id}"))
+            .child(SymbolGlyph::new(
+                "pin.fill",
+                m.font_xs(),
+                model.theme.fg_muted,
+            ))
+            .into_any_element()
+    } else if let Some(shortcut) = shortcut {
+        div()
+            .debug_selector(move || format!("sidebar-tab-shortcut-{id}"))
+            .text_size(m.font_caption())
+            .text_color(model.theme.fg_muted)
+            .child(shortcut)
+            .into_any_element()
+    } else if status != tab_activity::Status::None {
+        tab_activity::status_glyph(format!("tab-{id}"), status, m.icon_sm(), model)
+    } else if bell {
+        div()
+            .size(m.scaled(7.0))
+            .rounded_full()
+            .bg(model.theme.warning)
+            .into_any_element()
+    } else {
+        div().into_any_element()
+    };
     div()
         .relative()
         .flex_none()
@@ -697,22 +777,7 @@ fn tab_accessory(
                 .when(!tab.pinned, |slot| {
                     slot.group_hover(group.clone(), |style| style.opacity(0.0))
                 })
-                .when_some(shortcut, |slot, shortcut| {
-                    slot.child(
-                        div()
-                            .text_size(m.font_caption())
-                            .text_color(model.theme.fg_muted)
-                            .child(shortcut),
-                    )
-                })
-                .when(show_bell, |slot| {
-                    slot.child(
-                        div()
-                            .size(m.scaled(7.0))
-                            .rounded(m.radius_sm())
-                            .bg(model.theme.warning),
-                    )
-                }),
+                .child(content),
         )
         .when(!tab.pinned, |slot| {
             slot.child(close_tab_button(id, group, model, cx))

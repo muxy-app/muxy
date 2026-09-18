@@ -418,6 +418,14 @@ fn closing_an_inactive_project_tab_does_not_steal_focus_and_new_tabs_use_their_p
                 .is_empty()
         );
     });
+    let header = cx
+        .debug_bounds(format!("tab-project-{project}").leak())
+        .expect("project header");
+    cx.simulate_event(MouseMoveEvent {
+        position: header.center(),
+        ..Default::default()
+    });
+    cx.run_until_parked();
     click(cx, &format!("project-new-tab-{project}"));
     view.read_with(cx, |model, _| {
         assert_eq!(model.state.current_project().id, project);

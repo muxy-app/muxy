@@ -294,3 +294,24 @@ fn an_open_overlay_prevents_project_reordering(cx: &mut TestAppContext) {
     release(cx, to);
     assert_eq!(order(&view, cx), ids);
 }
+
+#[gpui::test]
+fn expanded_project_rows_match_main_padding_and_spacing_at_every_scale(cx: &mut TestAppContext) {
+    for scale in [1.0, 1.5] {
+        let (state, _) = projects();
+        let (mut boot, _requests) = stub_boot(state);
+        boot.settings.appearance.sidebar_expanded = true;
+        let (_view, window) = cx.add_window_view(|window, cx| {
+            let mut model = AppModel::new(boot, window, cx);
+            model.metrics = Metrics::new(scale);
+            model
+        });
+        window.run_until_parked();
+        for index in 0..3 {
+            let current = row(window, index);
+            let next = row(window, index + 1);
+            assert_eq!(current.size.height, px(36.0 * scale));
+            assert_eq!(next.top() - current.bottom(), px(6.0 * scale));
+        }
+    }
+}
