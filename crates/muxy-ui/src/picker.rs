@@ -830,6 +830,15 @@ impl Picker {
         cx.notify();
     }
 
+    pub fn set_current_row(&mut self, id: &str, cx: &mut Context<Self>) {
+        for item in &mut self.state.active.items {
+            if let PickerItem::Row(row) = item {
+                row.current = row.id == id;
+            }
+        }
+        cx.notify();
+    }
+
     pub fn set_footer_actions(&mut self, actions: Vec<PickerAction>, cx: &mut Context<Self>) {
         if self.config.footer_actions == actions {
             return;
@@ -1239,7 +1248,7 @@ impl Picker {
                 content = content.child(
                     div()
                         .min_w(px(0.0))
-                        .flex_grow()
+                        .flex_1()
                         .flex()
                         .items_center()
                         .gap(self.metrics.spacing4())
@@ -1277,15 +1286,30 @@ impl Picker {
                         }),
                 );
                 if !swatches.is_empty() {
-                    let mut preview = div()
-                        .w(self.metrics.scaled(112.0))
-                        .h(self.metrics.scaled(10.0))
-                        .flex_none()
-                        .flex()
-                        .rounded(self.metrics.radius_sm())
-                        .overflow_hidden();
-                    for color in swatches {
-                        preview = preview.child(div().h_full().flex_grow().bg(color));
+                    let diameter = self.metrics.scaled(20.0);
+                    let step = diameter / 2.0;
+                    let width = swatches
+                        .iter()
+                        .skip(1)
+                        .fold(diameter, |width, _| width + step);
+                    let mut preview = div().relative().w(width).h(diameter).flex_none();
+                    let mut left = px(0.0);
+                    for (index, color) in swatches.into_iter().enumerate() {
+                        preview = preview.child(
+                            div()
+                                .debug_selector({
+                                    let id = row.id.clone();
+                                    move || format!("picker-swatch-{id}-{index}")
+                                })
+                                .absolute()
+                                .left(left)
+                                .top_0()
+                                .size(diameter)
+                                .rounded_full()
+                                .shadow_sm()
+                                .bg(color),
+                        );
+                        left += step;
                     }
                     content = content.child(preview);
                 }
@@ -2306,6 +2330,88 @@ mod gpui_regression_tests {
             assert!(detail.left() >= title.right());
             assert!(row.right() <= px(390.0) && row.bottom() <= px(240.0));
         }
+    }
+
+    #[gpui::test]
+    fn theme_swatches_fit_beside_left_aligned_names_and_overlap_by_half(cx: &mut TestAppContext) {
+        let (host, cx) = open(cx, PickerPresentation::Modal, false);
+        let picker = host.read_with(cx, |host, _| host.popover.clone());
+        for (width, scale) in [(1000.0, 1.0), (390.0, 1.0), (390.0, 1.5)] {
+            let metrics = Metrics::new(scale);
+            picker.update(cx, |picker, cx| {
+                let mut row = PickerRow::new("theme", "A theme with a very long descriptive name");
+                row.selection_style = PickerSelectionStyle::Highlight;
+                row.current = true;
+                row.swatches = vec![gpui::rgb(0x12_34_56).into(); 16];
+                picker.set_items(vec![PickerItem::Row(row)], cx);
+                picker.set_appearance(Theme::from_scheme(&ColorScheme::default()), metrics, cx);
+            });
+            cx.simulate_resize(gpui::size(px(width), px(600.0)));
+            cx.run_until_parked();
+            let row = cx.debug_bounds("picker-row-theme").expect("theme row");
+            let title = cx.debug_bounds("picker-title-theme").expect("theme name");
+            assert_eq!(title.left(), row.left() + metrics.scaled(8.0));
+            assert!(title.size.width > px(0.0));
+            let mut previous = None;
+            for index in 0..16 {
+                let swatch = cx
+                    .debug_bounds(format!("picker-swatch-theme-{index}").leak())
+                    .expect("color circle");
+                assert_eq!(
+                    swatch.size,
+                    gpui::size(metrics.scaled(20.0), metrics.scaled(20.0))
+                );
+                assert!(swatch.left() >= title.right());
+                assert!(swatch.right() <= row.right() - metrics.scaled(8.0));
+                assert!(swatch.top() >= row.top() && swatch.bottom() <= row.bottom());
+                if let Some(left) = previous {
+                    assert_eq!(swatch.left() - left, metrics.scaled(10.0));
+                }
+                previous = Some(swatch.left());
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn changing_current_theme_preserves_query_selection_and_scroll(cx: &mut TestAppContext) {
+        let (host, cx) = open(cx, PickerPresentation::Modal, false);
+        let picker = host.read_with(cx, |host, _| host.popover.clone());
+        picker.update(cx, |picker, cx| {
+            picker.set_items(
+                (0..40)
+                    .map(|index| PickerItem::row(format!("theme-{index}")))
+                    .collect(),
+                cx,
+            );
+            picker.set_query("theme", cx);
+            picker.select_row("theme-15", cx).expect("theme row");
+            picker.scroll.scroll_to(ListOffset {
+                item_ix: 10,
+                offset_in_item: px(5.0),
+            });
+        });
+        cx.run_until_parked();
+        let before = picker.read_with(cx, |picker, _| picker.scroll.logical_scroll_top());
+        picker.update(cx, |picker, cx| {
+            picker.set_current_row("theme-15", cx);
+            picker.set_appearance(
+                Theme::from_scheme(&ColorScheme::parse(
+                    "background = abcdef\nforeground = 123456\n",
+                )),
+                Metrics::new(1.0),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        picker.read_with(cx, |picker, _| {
+            assert_eq!(picker.query(), "theme");
+            assert_eq!(picker.state.selected_row_id(), Some("theme-15"));
+            let after = picker.scroll.logical_scroll_top();
+            assert_eq!(after.item_ix, before.item_ix);
+            assert_eq!(after.offset_in_item, before.offset_in_item);
+            assert!(matches!(&picker.state.items()[15], PickerItem::Row(row) if row.current));
+        });
+        assert_input_focused(&picker, cx);
     }
 
     #[gpui::test]

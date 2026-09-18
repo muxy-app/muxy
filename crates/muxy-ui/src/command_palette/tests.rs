@@ -138,6 +138,46 @@ fn nested_lists_restore_queries_and_selection_and_build_when_opened(cx: &mut Tes
 }
 
 #[gpui::test]
+fn direct_theme_page_has_color_previews_and_escape_dismisses(cx: &mut TestAppContext) {
+    let colors = vec![gpui::rgb(0x12_34_56).into(), gpui::rgb(0xab_cd_ef).into()];
+    let preview = colors.clone();
+    let mut commands = Registry::default();
+    commands.register(Command::list("themes", "Change Theme…", move |_| {
+        let mut themes = Registry::default();
+        themes.register(
+            Command::new("fixture", "Fixture", 7)
+                .current(true)
+                .keep_open()
+                .swatches(preview.clone()),
+        );
+        themes
+    }));
+    let (host, cx) = open(commands, cx);
+    let palette = host.read_with(cx, |host, _| host.palette.clone());
+    palette.update(cx, |palette, cx| palette.open_root_page("themes", cx));
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("picker-back").is_none());
+    palette.read_with(cx, |palette, _| {
+        let [PickerItem::Row(row)] = &palette.page.registry.items("")[..] else {
+            panic!("theme row");
+        };
+        assert_eq!(row.swatches, colors);
+        assert!(row.current);
+    });
+    cx.simulate_keystrokes("enter escape");
+    cx.run_until_parked();
+    host.read_with(cx, |host, _| {
+        assert!(matches!(
+            host.events.as_slice(),
+            [
+                CommandPaletteEvent::Applied(7),
+                CommandPaletteEvent::Dismissed
+            ]
+        ));
+    });
+}
+
+#[gpui::test]
 fn filtering_empty_and_disabled_results_are_safe_and_compact(cx: &mut TestAppContext) {
     let mut commands = Registry::default();
     for index in 0..20 {

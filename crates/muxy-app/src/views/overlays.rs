@@ -1,17 +1,17 @@
 use gpui::{
-    AnyElement, AppContext, Bounds, Context, Entity, FontWeight, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Pixels, Point, Styled, Window, div, point, px, size,
+    AnyElement, Bounds, Context, Entity, FontWeight, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Pixels, Point, Styled, Window, div, point, px, size,
 };
 use muxy_ui::components::SymbolGlyph;
 
-use super::{
-    menu::{self, Item, Menu},
-    theme_picker::{ThemeEvent, ThemePicker},
-};
+use super::menu::{self, Item, Menu};
 use crate::model::AppModel;
 
 pub(crate) enum Overlay {
-    Commands(Entity<muxy_ui::command_palette::CommandPalette<super::command_palette::Handler>>),
+    Commands {
+        palette: Entity<muxy_ui::command_palette::CommandPalette<super::command_palette::Handler>>,
+        dark: bool,
+    },
     Git(super::git::GitPicker),
     GitForm(super::git::Form),
     Sessions(super::session_picker::SessionPicker),
@@ -19,11 +19,6 @@ pub(crate) enum Overlay {
     ProjectEditor(super::project_editor::Editor),
     ProjectColors(super::project_editor::Colors),
     Projects(Entity<super::project_picker::ProjectPicker>),
-    Themes {
-        dark: bool,
-        picker: Entity<ThemePicker>,
-        anchor: Option<Bounds<Pixels>>,
-    },
     Notifications {
         anchor: Option<Bounds<Pixels>>,
     },
@@ -51,47 +46,6 @@ impl AppModel {
         cx.notify();
     }
 
-    pub(crate) fn open_theme_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if matches!(self.overlay, Some(Overlay::Themes { .. })) {
-            self.dismiss_overlay(cx);
-            return;
-        }
-        let dark = self.dark;
-        self.reload_themes(cx);
-        let active = self.themes.active_name(&self.appearance, dark);
-        let picker = cx.new(|cx| {
-            ThemePicker::new(
-                self.themes.entries.clone(),
-                active,
-                self.theme.clone(),
-                self.metrics,
-                cx,
-            )
-        });
-        self.overlay_subscription =
-            Some(
-                cx.subscribe(&picker, move |model, _, event, cx| match event {
-                    ThemeEvent::Selected(name) => {
-                        if dark {
-                            model.appearance.dark_theme.clone_from(name);
-                        } else {
-                            model.appearance.light_theme.clone_from(name);
-                        }
-                        model.refresh_theme(cx);
-                        model.save_appearance(cx);
-                    }
-                    ThemeEvent::Dismiss => model.dismiss_overlay(cx),
-                }),
-            );
-        self.overlay = Some(Overlay::Themes {
-            dark,
-            picker,
-            anchor: self.theme_anchor,
-        });
-        self.overlay_focus.focus(window);
-        cx.notify();
-    }
-
     pub(crate) fn toggle_notifications(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if matches!(self.overlay, Some(Overlay::Notifications { .. })) {
             self.dismiss_overlay(cx);
@@ -109,7 +63,6 @@ impl AppModel {
 pub(crate) use muxy_ui::popover::clamp_to_viewport as clamp;
 
 pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel>) -> AnyElement {
-    let viewport = window.viewport_size();
     let content = match &model.overlay {
         None => return div().into_any_element(),
         Some(Overlay::GitForm(form)) => div()
@@ -150,22 +103,7 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         }
         Some(Overlay::Sessions(picker)) => picker.picker.clone().into_any_element(),
         Some(Overlay::Projects(picker)) => picker.clone().into_any_element(),
-        Some(Overlay::Commands(palette)) => palette.clone().into_any_element(),
-        Some(Overlay::Themes { picker, anchor, .. }) => {
-            let origin = anchor.map_or(point(px(8.0), viewport.height - px(12.0)), |anchor| {
-                anchor.origin
-            });
-            let left = clamp(origin, size(px(340.0), px(0.0)), viewport).x;
-            let bottom = (viewport.height - origin.y + px(4.0))
-                .max(px(8.0))
-                .min(viewport.height - px(8.0));
-            div()
-                .absolute()
-                .left(left)
-                .bottom(bottom)
-                .child(picker.clone())
-                .into_any_element()
-        }
+        Some(Overlay::Commands { palette, .. }) => palette.clone().into_any_element(),
         Some(Overlay::Notifications { anchor }) => notifications(*anchor, model, window, cx),
     };
     div()

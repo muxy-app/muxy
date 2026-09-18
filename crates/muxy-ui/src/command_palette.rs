@@ -2,8 +2,8 @@ use std::fmt;
 use std::rc::Rc;
 
 use gpui::{
-    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render,
-    SharedString, Subscription, Window,
+    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, IntoElement,
+    Render, SharedString, Subscription, Window,
 };
 
 use crate::picker::{
@@ -26,6 +26,9 @@ pub struct Command<A> {
     shortcut: Option<SharedString>,
     keywords: String,
     disabled: bool,
+    swatches: Vec<Hsla>,
+    current: bool,
+    keep_open: bool,
     target: Target<A>,
 }
 
@@ -47,6 +50,9 @@ impl<A> Command<A> {
             shortcut: None,
             keywords: String::new(),
             disabled: false,
+            swatches: Vec::new(),
+            current: false,
+            keep_open: false,
             target: Target::Action(action),
         }
     }
@@ -62,6 +68,9 @@ impl<A> Command<A> {
             shortcut: None,
             keywords: String::new(),
             disabled: false,
+            swatches: Vec::new(),
+            current: false,
+            keep_open: false,
             target: Target::List(Rc::new(provider)),
         }
     }
@@ -84,6 +93,24 @@ impl<A> Command<A> {
         self
     }
 
+    #[must_use]
+    pub fn swatches(mut self, colors: Vec<Hsla>) -> Self {
+        self.swatches = colors;
+        self
+    }
+
+    #[must_use]
+    pub fn current(mut self, current: bool) -> Self {
+        self.current = current;
+        self
+    }
+
+    #[must_use]
+    pub fn keep_open(mut self) -> Self {
+        self.keep_open = true;
+        self
+    }
+
     fn matches(&self, query: &str) -> bool {
         let searchable = format!("{} {}", self.title, self.keywords).to_lowercase();
         query
@@ -95,6 +122,8 @@ impl<A> Command<A> {
         let mut row = PickerRow::new(self.id.clone(), self.title.clone());
         row.selection_style = PickerSelectionStyle::Highlight;
         row.disabled = self.disabled;
+        row.swatches.clone_from(&self.swatches);
+        row.current = self.current;
         row.trailing = match self.target {
             Target::Action(_) => self.shortcut.clone(),
             Target::List(_) => Some("›".into()),
@@ -148,6 +177,7 @@ impl<A> Registry<A> {
 }
 
 struct Page<A> {
+    id: Option<SharedString>,
     registry: Registry<A>,
     title: SharedString,
     query: String,
@@ -157,6 +187,7 @@ struct Page<A> {
 #[derive(Clone, Debug)]
 pub enum CommandPaletteEvent<A> {
     Selected(A),
+    Applied(A),
     Dismissed,
 }
 
@@ -180,7 +211,7 @@ impl<A: Clone + 'static> EventEmitter<CommandPaletteEvent<A>> for CommandPalette
 
 impl<A: Clone + 'static> Focusable for CommandPalette<A> {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.picker.focus_handle(cx)
+        self.picker.read(cx).input().focus_handle(cx)
     }
 }
 
@@ -216,6 +247,7 @@ impl<A: Clone + 'static> CommandPalette<A> {
         let mut palette = Self {
             picker,
             page: Page {
+                id: None,
                 registry: commands,
                 title: "Search commands…".into(),
                 query: String::new(),
@@ -231,6 +263,52 @@ impl<A: Clone + 'static> CommandPalette<A> {
     pub fn set_appearance(&self, theme: Theme, metrics: Metrics, cx: &mut Context<Self>) {
         self.picker
             .update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
+    }
+
+    pub fn set_current(&mut self, id: &str, cx: &mut Context<Self>) {
+        for command in &mut self.page.registry.commands {
+            command.current = command.id == id;
+        }
+        self.picker
+            .update(cx, |picker, cx| picker.set_current_row(id, cx));
+    }
+
+    pub fn is_page(&self, id: &str) -> bool {
+        self.page.id.as_ref().is_some_and(|page| page == id)
+    }
+
+    pub fn current_id(&self) -> Option<&str> {
+        self.page
+            .registry
+            .commands
+            .iter()
+            .find(|command| command.current)
+            .map(|command| command.id.as_ref())
+    }
+
+    pub fn open_root_page(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(command) = self
+            .page
+            .registry
+            .commands
+            .iter()
+            .find(|command| command.id == id && !command.disabled)
+            .cloned()
+        else {
+            return;
+        };
+        let Target::List(provider) = command.target else {
+            return;
+        };
+        self.page = Page {
+            id: Some(command.id),
+            registry: provider(cx),
+            title: command.title,
+            query: String::new(),
+            selected: None,
+        };
+        self.parents.clear();
+        self.show_page(cx);
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
@@ -262,10 +340,15 @@ impl<A: Clone + 'static> CommandPalette<A> {
             return;
         };
         match command.target {
+            Target::Action(action) if command.keep_open => {
+                self.page.selected = Some(command.id);
+                cx.emit(CommandPaletteEvent::Applied(action));
+            }
             Target::Action(action) => cx.emit(CommandPaletteEvent::Selected(action)),
             Target::List(provider) => {
-                self.page.selected = Some(command.id);
+                self.page.selected = Some(command.id.clone());
                 let page = Page {
+                    id: Some(command.id),
                     registry: provider(cx),
                     title: command.title,
                     query: String::new(),

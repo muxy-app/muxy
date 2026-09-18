@@ -37,12 +37,6 @@ pub(crate) fn register_commands(
         "Open Settings",
         super::workspace::OpenSettings,
     ));
-    registry.register(action(
-        model,
-        ShortcutId::ToggleThemePicker,
-        "Change Theme…",
-        super::workspace::ToggleThemePicker,
-    ));
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

@@ -83,9 +83,7 @@ fn font_dropdown_filters_saves_and_cancels_without_expanding_the_settings_rows(
 }
 
 #[gpui::test]
-fn settings_theme_dropdowns_use_their_own_anchor_and_update_only_the_selected_mode(
-    cx: &mut TestAppContext,
-) {
+fn settings_theme_palettes_are_centered_and_update_only_the_selected_mode(cx: &mut TestAppContext) {
     let state = AppState::bootstrap().expect("state");
     let (boot, _requests) = stub_boot(state);
     let themes = boot.state_path.with_file_name("themes");
@@ -105,23 +103,22 @@ fn settings_theme_dropdowns_use_their_own_anchor_and_update_only_the_selected_mo
     ] {
         let before = view.read_with(cx, |model, _| model.appearance.clone());
         click_preference(cx, selector);
-        let trigger = cx.debug_bounds(selector).expect("theme trigger");
-        let dropdown = cx
-            .debug_bounds("settings-dropdown")
-            .expect("theme dropdown");
-        assert!(dropdown.top() >= trigger.bottom());
+        let palette = cx.debug_bounds("command-palette").expect("theme palette");
+        assert_eq!(palette.center().x, px(600.0));
+        assert_eq!(palette.top(), px(48.0));
+        assert!(palette.size.width > px(400.0));
+        assert!(cx.debug_bounds("picker-back").is_none());
+        assert!(cx.debug_bounds("settings-dropdown").is_none());
         view.read_with(cx, |model, cx| {
             let Some(Overlay::Themes { source, .. }) = &settings_root(model, cx).overlay else {
                 panic!("settings theme picker")
             };
             assert_eq!(source.kind, crate::views::settings::PickerKind::Theme(dark));
-            assert_eq!(source.anchor.get(), Some(trigger));
-            assert_ne!(source.anchor.get(), model.theme_anchor);
         });
         cx.simulate_keystrokes("p i c k e r space f i x t u r e enter");
         cx.run_until_parked();
         view.read_with(cx, |model, cx| {
-            assert!(settings_root(model, cx).overlay.is_none());
+            assert!(settings_root(model, cx).overlay.is_some());
             assert_eq!(
                 if dark {
                     &model.appearance.dark_theme
@@ -136,7 +133,90 @@ fn settings_theme_dropdowns_use_their_own_anchor_and_update_only_the_selected_mo
                 assert_eq!(model.appearance.dark_theme, before.dark_theme);
             }
         });
+        assert!(cx.debug_bounds("picker-title-Picker Fixture").is_some());
+        cx.simulate_keystrokes("cmd-a m u x y enter");
+        cx.run_until_parked();
+        view.read_with(cx, |model, cx| {
+            assert!(settings_root(model, cx).overlay.is_some());
+            assert_eq!(model.themes.active_name(&model.appearance, dark), "Muxy");
+        });
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        view.read_with(cx, |model, cx| {
+            assert!(settings_root(model, cx).overlay.is_none());
+        });
     }
+}
+
+#[gpui::test]
+fn theme_palettes_sync_current_theme_between_windows_and_when_reentering_a_page(
+    cx: &mut TestAppContext,
+) {
+    let (boot, _requests) = stub_boot(AppState::bootstrap().expect("state"));
+    cx.update(|cx| crate::views::workspace::bind_keys(&boot.settings.keymap, cx));
+    let (view, cx) = settings_window(boot, cx);
+    click_preference(cx, "settings-category-Appearance");
+    let (workspace, dark) = view.read_with(cx, |model, _| (model.window, model.dark));
+    click_preference(
+        cx,
+        if dark {
+            "settings-picker-dark-theme"
+        } else {
+            "settings-picker-light-theme"
+        },
+    );
+    let settings_palette = view.read_with(cx, |model, cx| {
+        let Some(Overlay::Themes { picker, .. }) = &settings_root(model, cx).overlay else {
+            panic!("settings theme palette")
+        };
+        picker.clone()
+    });
+    {
+        let main = VisualTestContext::from_window(workspace, cx).into_mut();
+        main.simulate_keystrokes("cmd-shift-p");
+        main.simulate_input("change theme");
+        main.simulate_keystrokes("enter");
+        main.simulate_input("Dracula");
+        main.simulate_keystrokes("enter");
+        main.run_until_parked();
+    }
+    cx.run_until_parked();
+    settings_palette.read_with(cx, |palette, _| {
+        assert_eq!(palette.current_id(), Some("Dracula"));
+    });
+    cx.simulate_input("Gruvbox Dark");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    view.read_with(cx, |model, cx| {
+        let Some(crate::views::overlays::Overlay::Commands { palette, .. }) = &model.overlay else {
+            panic!("workspace theme palette")
+        };
+        assert_eq!(palette.read(cx).current_id(), Some("Gruvbox Dark"));
+    });
+    {
+        let main = VisualTestContext::from_window(workspace, cx).into_mut();
+        main.simulate_keystrokes("escape");
+        main.run_until_parked();
+    }
+    cx.simulate_keystrokes("cmd-a");
+    cx.simulate_input("Atom One Dark");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    {
+        let main = VisualTestContext::from_window(workspace, cx).into_mut();
+        main.simulate_keystrokes("enter");
+        main.run_until_parked();
+    }
+    view.read_with(cx, |model, cx| {
+        let Some(crate::views::overlays::Overlay::Commands { palette, .. }) = &model.overlay else {
+            panic!("workspace theme palette")
+        };
+        assert_eq!(palette.read(cx).current_id(), Some("Atom One Dark"));
+        assert_eq!(
+            settings_palette.read(cx).current_id(),
+            Some("Atom One Dark")
+        );
+    });
 }
 
 #[gpui::test]

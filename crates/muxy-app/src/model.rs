@@ -94,7 +94,6 @@ pub(crate) struct AppModel {
     pub(crate) tab_sidebar_selection: Option<(ProjectId, Option<TabId>)>,
     #[cfg(target_os = "macos")]
     pub(crate) window_drag: Option<muxy_ui::window_drag::WindowDrag>,
-    pub(crate) theme_anchor: Option<gpui::Bounds<gpui::Pixels>>,
     pub(crate) notification_anchor: Option<gpui::Bounds<gpui::Pixels>>,
     pub(crate) overlay_subscription: Option<Subscription>,
     pub(crate) picker_search: crate::picker::search::SearchService,
@@ -159,15 +158,13 @@ impl AppModel {
         }
         self.refresh_quick_terminal(cx);
         self.sync_preferences(cx);
-        if let Some(Overlay::Commands(palette)) = &self.overlay {
+        if let Some(Overlay::Commands { palette, dark }) = &self.overlay {
+            let active = self.themes.active_name(&self.appearance, *dark);
             palette.update(cx, |palette, cx| {
                 palette.set_appearance(self.theme.clone(), self.metrics, cx);
-            });
-        }
-        if let Some(Overlay::Themes { picker, dark, .. }) = &self.overlay {
-            let name = self.themes.active_name(&self.appearance, *dark);
-            picker.update(cx, |picker, cx| {
-                picker.set_appearance(name, self.theme.clone(), cx);
+                if palette.is_page(crate::views::theme_picker::PAGE_ID) {
+                    palette.set_current(&active, cx);
+                }
             });
         }
         cx.notify();
@@ -382,7 +379,6 @@ impl AppModel {
             tab_drag: crate::views::tab_strip::TabDragState::default(),
             #[cfg(target_os = "macos")]
             window_drag: muxy_ui::window_drag::WindowDrag::new(&window.window_title()),
-            theme_anchor: None,
             notification_anchor: None,
             overlay_subscription: None,
             picker_search: crate::picker::search::SearchService::default(),
@@ -3965,10 +3961,7 @@ mod tests {
         cx.simulate_input("Walkthrough");
         cx.simulate_keystrokes("enter");
         cx.run_until_parked();
-        assert!(view.read_with(cx, |model, _| matches!(
-            model.overlay,
-            Some(Overlay::Themes { .. })
-        )));
+        assert!(view.read_with(cx, |model, _| model.overlay.is_some()));
         assert_eq!(
             view.read_with(cx, |model, _| model.palette.background),
             0x12_34_56

@@ -192,12 +192,13 @@ impl AppModel {
                 self.preference_result(&id, Some(&error.to_string()), cx);
             }
         } else {
+            let theme_change = matches!(change, Change::Theme(..));
             let result = self.apply_preference(change, cx);
-            self.preference_result(
-                &id,
-                result.err().map(|error| error.to_string()).as_deref(),
-                cx,
-            );
+            let error = result.err().map(|error| error.to_string());
+            self.preference_result(&id, error.as_deref(), cx);
+            if theme_change && let Some(error) = error {
+                self.fail(format!("Could not save theme: {error}"), cx);
+            }
         }
         self.sync_preferences(cx);
         cx.notify();

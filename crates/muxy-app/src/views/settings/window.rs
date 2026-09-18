@@ -4,18 +4,21 @@ use gpui::{
     WeakEntity, Window, div,
 };
 
+use muxy_ui::command_palette::{CommandPalette, CommandPaletteEvent};
+
 use super::{Change, PickerRequest, SettingsEvent, SettingsView, pickers};
 use crate::model::AppModel;
 use crate::views::{
+    command_palette::Handler,
     font_picker::{FontEvent, FontPicker},
-    theme_picker::{ThemeEvent, ThemePicker},
+    theme_picker,
     titlebar::BeginWindowMove,
     workspace,
 };
 
 pub(crate) enum SettingsOverlay {
     Themes {
-        picker: Entity<ThemePicker>,
+        picker: Entity<CommandPalette<Handler>>,
         source: PickerRequest,
     },
     Fonts {
@@ -103,12 +106,15 @@ impl SettingsWindow {
             if let Some(overlay) = &root.overlay {
                 match overlay {
                     SettingsOverlay::Themes { picker, source } => {
-                        let name = if source.kind == super::PickerKind::Theme(true) {
+                        let active = if source.kind == super::PickerKind::Theme(true) {
                             view.snapshot.settings.appearance.dark_theme.clone()
                         } else {
                             view.snapshot.settings.appearance.light_theme.clone()
                         };
-                        picker.update(cx, |picker, cx| picker.set_appearance(name, theme, cx));
+                        picker.update(cx, |picker, cx| {
+                            picker.set_appearance(theme, metrics, cx);
+                            picker.set_current(&active, cx);
+                        });
                     }
                     SettingsOverlay::Fonts { picker, .. } => {
                         picker.update(cx, |picker, cx| picker.set_appearance(theme, metrics, cx));
@@ -194,27 +200,48 @@ impl SettingsWindow {
                 });
             }
             super::PickerKind::Theme(dark) => {
-                let Ok((entries, active)) = self.model.update(cx, |model, cx| {
-                    model.reload_themes(cx);
-                    (
-                        model.themes.entries.clone(),
-                        model.themes.active_name(&model.appearance, dark),
-                    )
-                }) else {
+                let Ok(registry) = self
+                    .model
+                    .update(cx, |model, cx| model.command_registry(dark, cx))
+                else {
                     return;
                 };
-                let picker = cx.new(|cx| ThemePicker::new(entries, active, theme, metrics, cx));
-                self.overlay_subscription =
-                    Some(
-                        cx.subscribe_in(&picker, window, move |root, _, event, window, cx| {
-                            if let ThemeEvent::Selected(name) = event {
-                                let _ = root.model.update(cx, |model, cx| {
-                                    model.change_preference(Change::Theme(dark, name.clone()), cx);
-                                });
-                            }
+                let picker = cx.new(|cx| CommandPalette::new(registry, theme, metrics, cx));
+                picker.update(cx, |picker, cx| {
+                    picker.open_root_page(theme_picker::PAGE_ID, cx);
+                });
+                self.overlay_subscription = Some(cx.subscribe_in(
+                    &picker,
+                    window,
+                    move |root, picker, event, window, cx| {
+                        let keep_open = matches!(event, CommandPaletteEvent::Applied(_));
+                        if !keep_open {
                             root.dismiss_overlay(window, cx);
-                        }),
-                    );
+                        }
+                        if let CommandPaletteEvent::Selected(handler)
+                        | CommandPaletteEvent::Applied(handler) = event
+                            && let Some(model) = root.model.upgrade()
+                        {
+                            let workspace = model.read(cx).window;
+                            let handler = handler.clone();
+                            let picker = picker.clone();
+                            cx.defer(move |cx| {
+                                let _ = workspace.update(cx, |_, window, cx| {
+                                    model.update(cx, |model, cx| {
+                                        handler(model, window, cx);
+                                        if keep_open {
+                                            let active =
+                                                model.themes.active_name(&model.appearance, dark);
+                                            picker.update(cx, |picker, cx| {
+                                                picker.set_current(&active, cx);
+                                            });
+                                        }
+                                    });
+                                });
+                            });
+                        }
+                    },
+                ));
                 self.overlay = Some(SettingsOverlay::Themes {
                     picker,
                     source: request,
@@ -283,7 +310,9 @@ impl SettingsWindow {
         };
         let picker = match overlay {
             SettingsOverlay::Themes { picker, .. } => picker.clone().into_any_element(),
-            SettingsOverlay::Fonts { picker, .. } => picker.clone().into_any_element(),
+            SettingsOverlay::Fonts { picker, source } => {
+                pickers::dropdown(picker.clone().into_any_element(), source.clone(), cx)
+            }
         };
         div()
             .absolute()
@@ -311,7 +340,7 @@ impl SettingsWindow {
                         }),
                     ),
             )
-            .child(pickers::dropdown(picker, overlay.source().clone(), cx))
+            .child(picker)
             .into_any_element()
     }
 }

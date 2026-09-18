@@ -184,26 +184,17 @@ pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
                 let _ = view.update(cx, |model, _| model.notification_anchor = Some(*bounds));
             }
         });
-    let view = cx.weak_entity();
-    let themes = div()
-        .flex()
-        .flex_none()
-        .child(
-            IconButton::new(
-                "theme-picker",
-                Icon::Palette,
-                m.scaled(13.0),
-                m.control_medium(),
-                theme.fg_muted,
-                theme.fg,
-            )
-            .on_click(cx.listener(|model, _, window, cx| model.open_theme_picker(window, cx))),
+    let themes = div().flex().flex_none().child(
+        IconButton::new(
+            "theme-picker",
+            Icon::Palette,
+            m.scaled(13.0),
+            m.control_medium(),
+            theme.fg_muted,
+            theme.fg,
         )
-        .on_children_prepainted(move |bounds, _, cx| {
-            if let Some(bounds) = bounds.first() {
-                let _ = view.update(cx, |model, _| model.theme_anchor = Some(*bounds));
-            }
-        });
+        .on_click(cx.listener(|model, _, window, cx| model.open_theme_picker(window, cx))),
+    );
     let footer = div()
         .flex()
         .flex_none()

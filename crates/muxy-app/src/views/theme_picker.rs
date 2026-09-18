@@ -1,114 +1,41 @@
-use gpui::{
-    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, Render,
-    Subscription,
-};
-use muxy_ui::picker::{Picker, PickerConfig, PickerEvent, PickerItem, PickerRow, PickerStatus};
-use muxy_ui::theme::{Metrics, Theme};
+use std::rc::Rc;
 
-use crate::theme::Entry;
+use gpui::Context;
+use muxy_ui::command_palette::{Command, Registry};
 
-pub(crate) enum ThemeEvent {
-    Selected(String),
-    Dismiss,
-}
+use super::command_palette::Handler;
+use super::settings::Change;
+use crate::model::AppModel;
 
-pub(crate) struct ThemePicker {
-    entries: Vec<Entry>,
-    active: String,
-    picker: Entity<Picker>,
-    metrics: Metrics,
-    _subscription: Subscription,
-}
+pub(crate) const PAGE_ID: &str = "change_theme";
 
-impl EventEmitter<ThemeEvent> for ThemePicker {}
-
-impl Focusable for ThemePicker {
-    fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.picker.read(cx).input().focus_handle(cx)
-    }
-}
-
-impl ThemePicker {
-    pub(crate) fn new(
-        entries: Vec<Entry>,
-        active: String,
-        theme: Theme,
-        metrics: Metrics,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let picker = cx.new(|cx| {
-            Picker::new(
-                PickerConfig::popover("theme-browser", "Search themes…"),
-                theme,
-                metrics,
-                cx,
-            )
-        });
-        let subscription = cx.subscribe(&picker, |browser: &mut Self, _, event, cx| match event {
-            PickerEvent::QueryChanged { query, .. } => browser.sync_picker(query, cx),
-            PickerEvent::Confirmed(selection) | PickerEvent::SecondaryConfirmed(selection) => {
-                if let Some(entry) = selection
-                    .id
-                    .strip_prefix("theme-")
-                    .and_then(|index| index.parse::<usize>().ok())
-                    .and_then(|index| browser.entries.get(index))
-                {
-                    cx.emit(ThemeEvent::Selected(entry.name.clone()));
-                }
-            }
-            PickerEvent::Dismissed => cx.emit(ThemeEvent::Dismiss),
-            _ => {}
-        });
-        let browser = Self {
-            entries,
-            active,
-            picker,
-            metrics,
-            _subscription: subscription,
+pub(crate) fn command(model: &AppModel, dark: bool, cx: &Context<AppModel>) -> Command<Handler> {
+    let mut entries = model.themes.entries.clone();
+    entries.sort_by_cached_key(|entry| (entry.name.to_lowercase(), entry.name.clone()));
+    let model = cx.weak_entity();
+    Command::list(PAGE_ID, "Change Theme…", move |cx| {
+        let mut themes = Registry::default();
+        let Some(model) = model.upgrade() else {
+            return themes;
         };
-        browser.sync_picker("", cx);
-        browser
-    }
-
-    pub(crate) fn set_appearance(&mut self, active: String, theme: Theme, cx: &mut Context<Self>) {
-        self.active = active;
-        self.picker.update(cx, |picker, cx| {
-            picker.set_appearance(theme, self.metrics, cx);
-        });
-        let query = self.picker.read(cx).query().to_owned();
-        self.sync_picker(&query, cx);
-    }
-
-    fn sync_picker(&self, query: &str, cx: &mut Context<Self>) {
-        let query = query.trim().to_lowercase();
-        let items: Vec<_> = self
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| entry.name.to_lowercase().contains(&query))
-            .map(|(index, entry)| {
-                let mut row = PickerRow::new(format!("theme-{index}"), entry.name.clone());
-                row.current = entry.name == self.active;
-                row.swatches = (0..16)
-                    .filter_map(|slot| entry.scheme.palette_color(slot).map(Into::into))
-                    .collect();
-                PickerItem::Row(row)
-            })
-            .collect();
-        let status = if items.is_empty() {
-            PickerStatus::Empty("No themes found".into())
-        } else {
-            PickerStatus::Ready
-        };
-        self.picker.update(cx, |picker, cx| {
-            picker.set_items(items, cx);
-            picker.set_status(status, cx);
-        });
-    }
-}
-
-impl Render for ThemePicker {
-    fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {
-        self.picker.clone()
-    }
+        let model = model.read(cx);
+        let active = model.themes.active_name(&model.appearance, dark);
+        for entry in &entries {
+            let name = entry.name.clone();
+            let handler: Handler = Rc::new(move |model, _, cx| {
+                model.change_preference(Change::Theme(dark, name.clone()), cx);
+            });
+            themes.register(
+                Command::new(entry.name.clone(), entry.name.clone(), handler)
+                    .current(entry.name == active)
+                    .keep_open()
+                    .swatches(
+                        (0..16)
+                            .filter_map(|slot| entry.scheme.palette_color(slot).map(Into::into))
+                            .collect(),
+                    ),
+            );
+        }
+        themes
+    })
 }
