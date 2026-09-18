@@ -17,8 +17,8 @@ struct EmptyProjectPlaceholder: View {
     var body: some View {
         VStack(spacing: UIMetrics.spacing7) {
             Spacer()
-            Image(systemName: "macwindow.badge.plus")
-                .font(.system(size: UIMetrics.fontMega))
+            Image(systemName: "macwindow.badge.plus").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMega, height: UIMetrics.fontMega)
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text(L10n.resource("No tabs in \(project.localizedDisplayName)"))
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))

@@ -106,8 +106,8 @@ private struct WorktreeBranchPicker: View {
                         .foregroundStyle(MuxyTheme.fg)
                 }
                 Spacer(minLength: UIMetrics.spacing3)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
+                Image(systemName: "chevron.down").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontMicro, height: UIMetrics.fontMicro)
                     .foregroundStyle(MuxyTheme.fgDim)
             }
             .font(.system(size: UIMetrics.fontFootnote))
@@ -136,8 +136,8 @@ private struct WorktreeBranchPicker: View {
                             .truncationMode(.middle)
                         Spacer(minLength: UIMetrics.spacing3)
                         if option.reference == selection {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                            Image(systemName: "checkmark").resizable().scaledToFit()
+                                .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                                 .foregroundStyle(MuxyTheme.accent)
                         }
                     }
@@ -350,8 +350,8 @@ struct CreateWorktreeSheet: View {
     private var setupCommandsSection: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing4) {
             HStack(spacing: UIMetrics.spacing3) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: UIMetrics.fontCaption))
+                Image(systemName: "exclamationmark.triangle.fill").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
                 Text(L10n.resource("Setup commands"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
@@ -390,8 +390,8 @@ struct CreateWorktreeSheet: View {
     private var setupCommandsGuideSection: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing4) {
             HStack(spacing: UIMetrics.spacing3) {
-                Image(systemName: "info.circle")
-                    .font(.system(size: UIMetrics.fontCaption))
+                Image(systemName: "info.circle").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .foregroundStyle(MuxyTheme.fgDim)
                 Text(L10n.resource("Optional setup commands"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))

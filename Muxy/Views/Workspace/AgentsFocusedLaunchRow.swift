@@ -124,8 +124,8 @@ private struct AgentsFocusedLaunchButton: View {
     private var iconView: some View {
         switch icon {
         case let .symbol(name):
-            Image(systemName: name)
-                .font(.system(size: UIMetrics.iconLG, weight: .regular))
+            Image(systemName: name).resizable().scaledToFit()
+                .frame(width: UIMetrics.iconLG, height: UIMetrics.iconLG)
                 .foregroundStyle(foreground)
         case let .provider(name):
             ProviderIconView(

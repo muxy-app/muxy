@@ -104,8 +104,8 @@ struct FocusedComposerView: View {
             .accessibilityLabel(expandLabel)
             .help(expandLabel)
             Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                Image(systemName: "xmark").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                     .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
             }
             .buttonStyle(.plain)
@@ -187,8 +187,8 @@ struct FocusedComposerView: View {
                     .truncationMode(.tail)
                 Spacer(minLength: UIMetrics.spacing2)
                 Button(action: voice.dismissError) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
+                    Image(systemName: "xmark").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontMicro, height: UIMetrics.fontMicro)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(MuxyTheme.fgDim)
@@ -296,8 +296,8 @@ struct FocusedComposerView: View {
                     Button(L10n.string("Reset Composer Size"), action: resetSize)
                 }
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                Image(systemName: "ellipsis").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                     .frame(width: UIMetrics.controlLarge, height: UIMetrics.controlLarge)
                     .contentShape(Rectangle())
             }
@@ -321,8 +321,8 @@ struct FocusedComposerView: View {
             Button {
                 requestSubmission(appendReturn: true)
             } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: UIMetrics.fontBody, weight: .bold))
+                Image(systemName: "arrow.up").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                     .foregroundStyle(MuxyTheme.accentForeground)
                     .frame(width: UIMetrics.controlLarge, height: UIMetrics.controlLarge)
                     .background(MuxyTheme.accent, in: RoundedRectangle(cornerRadius: UIMetrics.radiusXL))
@@ -549,14 +549,14 @@ private struct ComposerAttachmentChip: View {
 
     var body: some View {
         HStack(spacing: UIMetrics.spacing2) {
-            Image(systemName: "doc")
-                .font(.system(size: UIMetrics.fontXS))
+            Image(systemName: "doc").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
             Text(url.lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Button(action: onRemove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
+                Image(systemName: "xmark").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontMicro, height: UIMetrics.fontMicro)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(L10n.string("Remove \(url.lastPathComponent)"))
@@ -578,8 +578,8 @@ private struct ComposerIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            Image(systemName: symbol).resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(isActive ? Color.white : MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.controlLarge, height: UIMetrics.controlLarge)
                 .background(isActive ? activeColor : .clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusXL))

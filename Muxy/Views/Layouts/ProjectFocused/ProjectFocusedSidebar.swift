@@ -101,8 +101,8 @@ struct ProjectSearchField: View {
 
     private var searchField: some View {
         HStack(spacing: UIMetrics.spacing2) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: UIMetrics.fontFootnote))
+            Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .accessibilityHidden(true)
 
@@ -112,8 +112,8 @@ struct ProjectSearchField: View {
                 Button {
                     clear()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: UIMetrics.fontFootnote))
+                    Image(systemName: "xmark.circle.fill").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                         .contentShape(Rectangle())
@@ -859,8 +859,8 @@ private struct AddProjectButton: View {
             ZStack {
                 RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                     .fill(MuxyTheme.hover)
-                Image(systemName: "plus")
-                    .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
+                Image(systemName: "plus").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontEmphasis, height: UIMetrics.fontEmphasis)
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
             }
             .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
@@ -872,8 +872,8 @@ private struct AddProjectButton: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                         .fill(MuxyTheme.surface)
-                    Image(systemName: "plus")
-                        .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
+                    Image(systemName: "plus").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontEmphasis, height: UIMetrics.fontEmphasis)
                         .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 }
                 .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)

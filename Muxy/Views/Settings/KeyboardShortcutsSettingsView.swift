@@ -268,8 +268,8 @@ private struct ShortcutRow: View {
         HStack(spacing: 6) {
             if hovered {
                 Button(action: onUnassign) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10))
+                    Image(systemName: "xmark").resizable().scaledToFit()
+                        .frame(width: 10, height: 10)
                         .foregroundStyle(SettingsStyle.mutedForeground)
                 }
                 .buttonStyle(.plain)
@@ -277,8 +277,8 @@ private struct ShortcutRow: View {
                 .accessibilityLabel(L10n.string("Unassign Shortcut"))
 
                 Button(action: onReset) {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 10))
+                    Image(systemName: "arrow.counterclockwise").resizable().scaledToFit()
+                        .frame(width: 10, height: 10)
                         .foregroundStyle(SettingsStyle.mutedForeground)
                 }
                 .buttonStyle(.plain)

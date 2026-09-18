@@ -108,8 +108,8 @@ struct ProjectStatusBar: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: remote ? "network" : "folder")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                Image(systemName: remote ? "network" : "folder").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 Text(truncated)
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .lineLimit(1)
@@ -177,8 +177,8 @@ struct ProjectStatusBar: View {
         Button {
             extensionOutputVisible.toggle()
         } label: {
-            Image(systemName: "ladybug")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+            Image(systemName: "ladybug").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
                 .foregroundStyle(extensionOutputVisible ? MuxyTheme.accent : MuxyTheme.fgMuted)
         }
         .buttonStyle(.plain)
@@ -189,8 +189,8 @@ struct ProjectStatusBar: View {
     private var voiceRecordingButton: some View {
         Button(action: handleToggleVoiceRecording) {
             HStack(spacing: 4) {
-                Image(systemName: "mic")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                Image(systemName: "mic").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 if legacyVoiceShortcut.isAssigned {
                     Text(legacyVoiceShortcut.displayString)
                         .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .rounded))

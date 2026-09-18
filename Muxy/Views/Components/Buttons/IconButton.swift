@@ -16,8 +16,8 @@ struct IconButton: View {
             accessibilityLabel: accessibilityLabel,
             action: action
         ) {
-            Image(systemName: symbol)
-                .font(.system(size: UIMetrics.scaled(size), weight: .semibold))
+            Image(systemName: symbol).resizable().scaledToFit()
+                .frame(width: UIMetrics.scaled(size), height: UIMetrics.scaled(size))
                 .overlay(alignment: .topTrailing) {
                     if showsBadge {
                         IconButtonBadge()

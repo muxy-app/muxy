@@ -66,8 +66,8 @@ struct OpenProjectControl: View {
                 size: UIMetrics.iconMD
             )
         } else {
-            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            Image(systemName: "chevron.left.forwardslash.chevron.right").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         }
     }
@@ -77,8 +77,8 @@ struct OpenProjectControl: View {
             guard projectPath != nil else { return }
             showingMenu.toggle()
         } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
+            Image(systemName: "chevron.down").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontMicro, height: UIMetrics.fontMicro)
                 .foregroundStyle(menuForeground)
                 .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlSmall)
                 .contentShape(Rectangle())

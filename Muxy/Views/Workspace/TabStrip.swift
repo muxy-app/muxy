@@ -784,23 +784,23 @@ private struct TabCell: View {
                 .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                 .transition(.opacity)
         } else if tab.isPinned {
-            Image(systemName: "pin.fill")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+            Image(systemName: "pin.fill").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
         } else if tab.isOffline, !active {
-            Image(systemName: "moon.zzz")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            Image(systemName: "moon.zzz").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 .help(L10n.string("Idle — terminal freed to save memory. Reopens when selected."))
         } else if let customIconSymbol = tab.customIconSymbol {
-            Image(systemName: customIconSymbol)
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            Image(systemName: customIconSymbol).resizable().scaledToFit()
+                .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
         } else {
             switch tab.kind {
             case .terminal:
                 if let agentIconName = tab.detectedAgentIconName {
                     ProviderIconView(iconName: agentIconName, size: UIMetrics.iconMD)
                 } else {
-                    Image(systemName: "terminal")
-                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                    Image(systemName: "terminal").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 }
             case .extensionWebView:
                 extensionIconView
@@ -811,8 +811,8 @@ private struct TabCell: View {
                         .interpolation(.high)
                         .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 } else {
-                    Image(systemName: "globe")
-                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                    Image(systemName: "globe").resizable().scaledToFit()
+                        .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
                 }
             }
         }
@@ -826,8 +826,8 @@ private struct TabCell: View {
         {
             ExtensionIconView(icon: icon, muxyExtension: muxyExtension, size: 12)
         } else {
-            Image(systemName: "puzzlepiece.extension")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            Image(systemName: "puzzlepiece.extension").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
         }
     }
 }

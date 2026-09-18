@@ -179,8 +179,8 @@ struct TabFocusedProjectRow: View {
             Spacer(minLength: UIMetrics.spacing2)
             trailingControls
             if !isWorktreeRow, project.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+                Image(systemName: "pin.fill").resizable().scaledToFit()
+                    .frame(width: UIMetrics.fontXS, height: UIMetrics.fontXS)
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
                     .help(L10n.string("Pinned"))
@@ -489,8 +489,8 @@ struct TabFocusedProjectRow: View {
     }
 
     private var rowIcon: some View {
-        Image(systemName: isExpanded ? "folder.fill" : "folder")
-            .font(.system(size: UIMetrics.fontHeadline, weight: .regular))
+        Image(systemName: isExpanded ? "folder.fill" : "folder").resizable().scaledToFit()
+            .frame(width: UIMetrics.fontHeadline, height: UIMetrics.fontHeadline)
             .foregroundStyle(projectTitleColor)
             .frame(width: TabFocusedSidebarMetrics.folderIconSize, height: TabFocusedSidebarMetrics.folderIconSize)
             .accessibilityHidden(true)
@@ -502,8 +502,8 @@ struct TabFocusedProjectRow: View {
             TerminalActivityIndicator(activity: rowActivity)
                 .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
         } else {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            Image(systemName: "arrow.triangle.branch").resizable().scaledToFit()
+                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(width: TabFocusedSidebarMetrics.controlSlot, height: TabFocusedSidebarMetrics.controlSlot)
                 .help(L10n.string("Worktree"))

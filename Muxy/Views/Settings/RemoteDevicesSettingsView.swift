@@ -78,8 +78,8 @@ struct RemoteDevicesSettingsView: View {
             editorMode = .create
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .semibold))
+                Image(systemName: "plus").resizable().scaledToFit()
+                    .frame(width: 11, height: 11)
                 Text(L10n.resource("Add Remote Device"))
                     .font(.system(size: SettingsMetrics.labelFontSize, weight: .medium))
             }
@@ -167,8 +167,8 @@ private struct RemoteDeviceRow: View {
             Button {
                 onDelete()
             } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: SettingsMetrics.footnoteFontSize))
+                Image(systemName: "trash").resizable().scaledToFit()
+                    .frame(width: SettingsMetrics.footnoteFontSize, height: SettingsMetrics.footnoteFontSize)
                     .foregroundStyle(SettingsStyle.destructive)
             }
             .buttonStyle(.plain)

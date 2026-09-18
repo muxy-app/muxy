@@ -5,8 +5,8 @@ struct TabCloseButton: View {
     @State private var hovered = false
 
     var body: some View {
-        Image(systemName: "xmark")
-            .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+        Image(systemName: "xmark").resizable().scaledToFit()
+            .frame(width: UIMetrics.fontCaption, height: UIMetrics.fontCaption)
             .foregroundStyle(hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
             .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
             .background {

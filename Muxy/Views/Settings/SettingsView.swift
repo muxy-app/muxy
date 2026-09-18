@@ -183,8 +183,8 @@ private struct SettingsHeader: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 13, weight: .medium))
+                Image(systemName: "slider.horizontal.3").resizable().scaledToFit()
+                    .frame(width: 13, height: 13)
                     .foregroundStyle(SettingsStyle.mutedForeground)
 
                 Text(L10n.resource("Settings"))
@@ -199,8 +199,8 @@ private struct SettingsHeader: View {
                 .frame(width: 1, height: 56)
 
             HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
+                Image(systemName: "magnifyingglass").resizable().scaledToFit()
+                    .frame(width: 12, height: 12)
                     .foregroundStyle(SettingsStyle.mutedForeground)
                 TextField(L10n.string("Search settings"), text: $searchText)
                     .textFieldStyle(.plain)
@@ -210,8 +210,8 @@ private struct SettingsHeader: View {
                     Button {
                         searchText = ""
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
+                        Image(systemName: "xmark.circle.fill").resizable().scaledToFit()
+                            .frame(width: 12, height: 12)
                             .foregroundStyle(SettingsStyle.mutedForeground)
                     }
                     .buttonStyle(.plain)
@@ -231,8 +231,8 @@ private struct SettingsHeader: View {
             Button {
                 NSApp.keyWindow?.close()
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
+                Image(systemName: "xmark").resizable().scaledToFit()
+                    .frame(width: 12, height: 12)
                     .foregroundStyle(SettingsStyle.mutedForeground)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
@@ -301,8 +301,8 @@ private struct SettingsSidebar: View {
             selectedRoute = route
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .font(.system(size: 12, weight: .medium))
+                Image(systemName: symbol).resizable().scaledToFit()
+                    .frame(width: 12, height: 12)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)

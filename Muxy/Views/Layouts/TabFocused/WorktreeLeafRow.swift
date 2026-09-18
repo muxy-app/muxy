@@ -37,8 +37,8 @@ struct WorktreeLeafRow: View {
     }
 
     private var leafIcon: some View {
-        Image(systemName: "arrow.triangle.branch")
-            .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+        Image(systemName: "arrow.triangle.branch").resizable().scaledToFit()
+            .frame(width: UIMetrics.fontBody, height: UIMetrics.fontBody)
             .foregroundStyle(isExpanded ? MuxyTheme.fg : MuxyTheme.fgMuted)
     }
 
