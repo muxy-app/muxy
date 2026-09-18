@@ -97,6 +97,71 @@ fn agent_replacing_the_session_shell_is_detected() -> TestResult {
 }
 
 #[test]
+fn xal_development_activity_and_notifications_work_without_a_screen_attachment() -> TestResult {
+    let fixture = Fixture::new()?;
+    let connection = fixture.connect()?;
+    connection.client.identify(ClientKind::Desktop)?;
+    let session = fixture.create(&connection.client)?;
+    let handle = fixture.registry.handle(session.id).ok_or("session")?;
+    handle.send(muxy_server::SessionCommand::Input(
+        b"stty -echo; /bin/bash -c 'exec -a xal-dev /bin/cat'\n".to_vec(),
+    ))?;
+    let snapshot = wait_state(&connection.client, session.id, AgentState::Idle)?;
+    let agent = snapshot
+        .agents
+        .iter()
+        .find(|agent| agent.session == session.id)
+        .ok_or("Xal activity")?;
+    assert_eq!(agent.provider, muxy_protocol::AgentProvider::Xal);
+    assert!(snapshot.events.is_empty());
+    let report = |status: &str, expected| -> TestResult<muxy_protocol::ActivitySnapshot> {
+        handle.send(muxy_server::SessionCommand::Input(
+            format!("\x1b[2J\x1b[H{status}\n").into_bytes(),
+        ))?;
+        wait_state(&connection.client, session.id, expected)
+    };
+    let working = report("⠋ Working · Esc interrupt", AgentState::Working)?;
+    assert!(working.events.is_empty());
+    for (index, status) in [
+        "? Input needed · answer above",
+        "! Approval needed · choose above",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let blocked = report(status, AgentState::Blocked)?;
+        assert_eq!(blocked.events.len(), index + 1);
+        let event = &blocked.events[0];
+        assert_eq!(event.session, session.id);
+        assert_eq!(event.provider, muxy_protocol::AgentProvider::Xal);
+        assert_eq!(event.kind, muxy_protocol::ActivityKind::Attention);
+        assert!(!event.read);
+        assert_eq!(
+            connection.client.claim_activity(vec![event.id])?,
+            vec![event.id]
+        );
+        assert!(connection.client.claim_activity(vec![event.id])?.is_empty());
+        connection.client.acknowledge_activity(vec![event.id])?;
+        let acknowledged = connection.client.activity()?;
+        assert!(acknowledged.events[0].read);
+        assert_eq!(acknowledged.agents[0].state, AgentState::Blocked);
+        let resumed = report("⠙ Working · Esc interrupt", AgentState::Working)?;
+        assert_eq!(resumed.events.len(), blocked.events.len());
+    }
+    let finished = report("✓ Finished in 4s", AgentState::Idle)?;
+    assert_eq!(finished.events.len(), 3);
+    let event = &finished.events[0];
+    assert_eq!(event.kind, muxy_protocol::ActivityKind::Completed);
+    assert_eq!(event.provider, muxy_protocol::AgentProvider::Xal);
+    assert_eq!(
+        connection.client.claim_activity(vec![event.id])?,
+        vec![event.id]
+    );
+    connection.client.end_session(session.id)?;
+    Ok(())
+}
+
+#[test]
 fn codex_finishes_while_its_hidden_terminal_keeps_animating() -> TestResult {
     let fixture = Fixture::new()?;
     let first = fixture.connect()?;

@@ -195,6 +195,33 @@ fn process_identity_uses_executable_positions_not_prompt_text() {
 }
 
 #[test]
+fn xal_release_and_development_executables_share_provider_identity() {
+    for executable in ["xal", "xal-dev"] {
+        assert_eq!(identify(executable, &[]), Some(AgentProvider::Xal));
+        assert_eq!(
+            identify("cat", &[format!("/usr/local/bin/{executable}")]),
+            Some(AgentProvider::Xal)
+        );
+        assert_eq!(
+            identify(
+                "bun",
+                &["bun".into(), format!("/usr/local/bin/{executable}")]
+            ),
+            Some(AgentProvider::Xal)
+        );
+    }
+    assert_eq!(identify("xal-dev-server", &[]), None);
+    assert_eq!(
+        identify("node", &["node".into(), "app.js".into(), "xal-dev".into()]),
+        None
+    );
+    assert_eq!(
+        identify("bash", &["bash".into(), "-c".into(), "echo xal-dev".into()]),
+        None
+    );
+}
+
+#[test]
 fn redraws_unmatched_screens_and_exits_do_not_invent_completion() {
     let mut detector = Detector::default();
     let now = Instant::now();

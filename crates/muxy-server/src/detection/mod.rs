@@ -321,7 +321,7 @@ fn alias(value: &str) -> Option<AgentProvider> {
         "pi" => AgentProvider::Pi,
         "grok" | "grok-build" => AgentProvider::Grok,
         "kiro" | "kiro-cli" => AgentProvider::Kiro,
-        "xal" => AgentProvider::Xal,
+        "xal" | "xal-dev" => AgentProvider::Xal,
         "agy" | "antigravity" | "antigravity-cli" => AgentProvider::Antigravity,
         _ => return None,
     })
