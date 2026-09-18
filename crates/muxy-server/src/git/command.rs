@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -105,19 +105,50 @@ pub(super) fn capture(command: Command) -> Result<Vec<u8>> {
     capture_with(command, Duration::from_secs(20), None, false).map(|output| output.0)
 }
 
+pub(super) fn ignored(path: &Path, input: Vec<u8>) -> Result<Vec<u8>> {
+    capture_process(
+        git_command(
+            path,
+            &["--no-literal-pathspecs", "check-ignore", "-z", "--stdin"],
+        ),
+        Duration::from_secs(20),
+        None,
+        true,
+        Some(input),
+    )
+    .map(|output| output.0)
+}
+
 pub(super) fn capture_with(
-    mut command: Command,
+    command: Command,
     timeout: Duration,
     truncate_stdout: Option<usize>,
     allow_difference: bool,
 ) -> Result<(Vec<u8>, bool)> {
+    capture_process(command, timeout, truncate_stdout, allow_difference, None)
+}
+
+fn capture_process(
+    mut command: Command,
+    timeout: Duration,
+    truncate_stdout: Option<usize>,
+    allow_difference: bool,
+    input: Option<Vec<u8>>,
+) -> Result<(Vec<u8>, bool)> {
     command
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
     let mut child = command.spawn().map_err(error)?;
     let id = child.id();
+    let input_task = input
+        .zip(child.stdin.take())
+        .map(|(bytes, mut pipe)| std::thread::spawn(move || pipe.write_all(&bytes)));
     let (send, receive) = mpsc::sync_channel(16);
     for (stream, pipe) in [
         (
@@ -139,25 +170,7 @@ pub(super) fn capture_with(
             ) as Box<dyn Read + Send>,
         ),
     ] {
-        let send = send.clone();
-        std::thread::spawn(move || {
-            let mut pipe = pipe;
-            let mut buffer = [0; 8192];
-            loop {
-                match pipe.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if send.send((stream, Ok(buffer[..n].to_vec()))).is_err() {
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        let _ = send.send((stream, Err(e)));
-                        break;
-                    }
-                }
-            }
-        });
+        forward_output(stream, pipe, send.clone());
     }
     drop(send);
     let deadline = Instant::now() + timeout;
@@ -206,6 +219,15 @@ pub(super) fn capture_with(
         terminate_group(id);
     }
     let _ = child.wait();
+    if let Some(task) = input_task {
+        let written = task
+            .join()
+            .map_err(|_| error("Git input worker failed"))?
+            .map_err(error);
+        if result.is_ok() {
+            written?;
+        }
+    }
     result
 }
 
@@ -216,4 +238,28 @@ fn terminate_group(id: u32) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
+}
+
+fn forward_output(
+    stream: usize,
+    mut pipe: Box<dyn Read + Send>,
+    send: mpsc::SyncSender<(usize, std::io::Result<Vec<u8>>)>,
+) {
+    std::thread::spawn(move || {
+        let mut buffer = [0; 8192];
+        loop {
+            match pipe.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if send.send((stream, Ok(buffer[..n].to_vec()))).is_err() {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    let _ = send.send((stream, Err(error)));
+                    break;
+                }
+            }
+        }
+    });
 }

@@ -1908,6 +1908,7 @@ impl AppModel {
             ClientEvent::Progress { session, progress } => {
                 self.receive_progress(session, progress, cx);
             }
+            ClientEvent::FilesChanged { .. } => (),
             ClientEvent::GitChanged { project } => self.git_invalidated(project, cx),
             ClientEvent::SessionsChanged { revision } => {
                 self.existing_sessions.revision = self.existing_sessions.revision.max(revision);

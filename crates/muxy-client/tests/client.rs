@@ -181,6 +181,7 @@ impl Connection {
                 | ClientEvent::SessionMetadata { .. }
                 | ClientEvent::ActivityChanged { .. }
                 | ClientEvent::Progress { .. }
+                | ClientEvent::FilesChanged { .. }
                 | ClientEvent::GitChanged { .. }
                 | ClientEvent::CatalogChanged { .. } => {}
                 other => return Err(format!("expected frame, got {other:?}").into()),
@@ -223,6 +224,7 @@ impl Connection {
                     | ClientEvent::SessionMetadata { .. }
                     | ClientEvent::ActivityChanged { .. }
                     | ClientEvent::Progress { .. }
+                    | ClientEvent::FilesChanged { .. }
                     | ClientEvent::GitChanged { .. }
                     | ClientEvent::CatalogChanged { .. },
                 ) => {}
@@ -245,6 +247,7 @@ impl Connection {
                 | ClientEvent::SessionMetadata { .. }
                 | ClientEvent::ActivityChanged { .. }
                 | ClientEvent::Progress { .. }
+                | ClientEvent::FilesChanged { .. }
                 | ClientEvent::GitChanged { .. }
                 | ClientEvent::CatalogChanged { .. } => {}
                 other => return Err(format!("expected session ended, got {other:?}").into()),
@@ -293,6 +296,7 @@ fn metadata_crosses_the_connection_and_is_included_in_the_next_attachment() -> T
             | ClientEvent::SessionMetadata { .. }
             | ClientEvent::ActivityChanged { .. }
             | ClientEvent::Progress { .. }
+            | ClientEvent::FilesChanged { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. } => {}
             other => return Err(format!("unexpected event: {other:?}").into()),
@@ -465,6 +469,7 @@ fn server_exit_disconnects_the_client() -> TestResult {
             | ClientEvent::SessionMetadata { .. }
             | ClientEvent::ActivityChanged { .. }
             | ClientEvent::Progress { .. }
+            | ClientEvent::FilesChanged { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. } => {}
             other @ ClientEvent::SessionEnded { .. } => {
@@ -773,6 +778,7 @@ fn wait_input_modes(
             | ClientEvent::SessionMetadata { .. }
             | ClientEvent::ActivityChanged { .. }
             | ClientEvent::Progress { .. }
+            | ClientEvent::FilesChanged { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. } => {}
             ClientEvent::Frame { channel, frame } => connection.client.ack(channel, frame.seq)?,

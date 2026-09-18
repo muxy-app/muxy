@@ -23,6 +23,7 @@ pub use shell::ShellIntegration;
 mod catalog;
 pub use catalog::LegacyImport;
 
+mod files;
 mod git;
 
 mod activity;

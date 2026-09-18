@@ -74,6 +74,7 @@ pub enum RequestBody {
     ReadActivity,
     AcknowledgeActivity(Vec<u64>),
     ClaimActivity(Vec<u64>),
+    Files(crate::FilesRequest),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -122,6 +123,7 @@ pub enum ReplyBody {
     Activity(crate::ActivitySnapshot),
     ActivityAcknowledged,
     ActivityClaimed(Vec<u64>),
+    Files(crate::FilesReply),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

@@ -359,6 +359,15 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
                 ..
             } => ("CreationCancelled", ChannelKind::Control),
 
+            Message::FilesChanged { .. } => ("FilesChanged", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::Files(_),
+                ..
+            } => ("FilesRequest", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Files(_),
+                ..
+            } => ("FilesReply", ChannelKind::Control),
             Message::GitChanged { .. } => ("GitChanged", ChannelKind::Control),
             Message::SessionsChanged { .. } => ("SessionsChanged", ChannelKind::Control),
             Message::CatalogChanged { .. } => ("CatalogChanged", ChannelKind::Control),
@@ -504,6 +513,9 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
             "Activity",
             "ActivityAcknowledged",
             "ActivityClaimed",
+            "FilesChanged",
+            "FilesRequest",
+            "FilesReply",
             "GitChanged",
             "GitRequest",
             "GitReply",

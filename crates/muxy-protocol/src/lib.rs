@@ -65,3 +65,9 @@ pub use activity::{
     ACTIVITY_HISTORY_LIMIT, ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity,
     AgentProvider, AgentState,
 };
+
+mod files;
+pub use files::{
+    FileChanges, FileContent, FileEntry, FileInfo, FilesAction, FilesReply, FilesRequest,
+    MAX_FILE_BYTES, MAX_FILE_CHANGES, MAX_FILE_ENTRIES, MAX_FILE_PATH_BYTES,
+};

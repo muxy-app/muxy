@@ -62,6 +62,10 @@ pub enum Message {
     Metadata(MetadataEvent),
     Mouse(MouseEvent),
     CellSize(crate::CellSize),
+    FilesChanged {
+        project: crate::ProjectId,
+        changes: crate::FileChanges,
+    },
     GitChanged {
         project: crate::ProjectId,
     },
@@ -70,7 +74,8 @@ pub enum Message {
 impl Message {
     pub fn channel_kind(&self) -> ChannelKind {
         match self {
-            Self::SessionMetadata { .. }
+            Self::FilesChanged { .. }
+            | Self::SessionMetadata { .. }
             | Self::ActivityChanged { .. }
             | Self::Progress { .. }
             | Self::GitChanged { .. }

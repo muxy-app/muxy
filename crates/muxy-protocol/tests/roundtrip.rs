@@ -123,7 +123,7 @@ fn kind_numbers_and_both_reserved_flags_are_checked() -> Result<(), WireError> {
                 Err(WireError::FlagsSet(value)) if value == kind
             ));
             assert!(matches!(decode(header, &[]), Err(WireError::FlagsSet(_))));
-        } else if kind == 0 || kind > MessageKind::SessionMetadata as u8 {
+        } else if kind == 0 || kind > MessageKind::FilesChanged as u8 {
             assert!(matches!(
                 Header::from_bytes(header.to_bytes()),
                 Err(WireError::UnknownKind(value)) if value == kind

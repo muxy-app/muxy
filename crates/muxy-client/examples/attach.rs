@@ -105,6 +105,7 @@ fn attach(client: &Client, session: SessionId) -> Result {
             | ClientEvent::ActivityChanged { .. }
             | ClientEvent::SessionsChanged { .. }
             | ClientEvent::Progress { .. }
+            | ClientEvent::FilesChanged { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. }
             | ClientEvent::Frame { .. }
@@ -145,6 +146,7 @@ fn end(client: &Client, session: SessionId) -> Result {
             | ClientEvent::ActivityChanged { .. }
             | ClientEvent::SessionsChanged { .. }
             | ClientEvent::Progress { .. }
+            | ClientEvent::FilesChanged { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. }
             | ClientEvent::Frame { .. }

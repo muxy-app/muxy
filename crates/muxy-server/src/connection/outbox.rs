@@ -216,7 +216,7 @@ impl Outbox {
         state.colors = Some(colors);
     }
 
-    pub(super) fn push_control(&self, message: Message) {
+    pub(crate) fn push_control(&self, message: Message) {
         let Some(message) = self.compatible(message) else {
             return;
         };
@@ -254,6 +254,11 @@ impl Outbox {
             if let Message::Progress { session, .. } = &message
                 && let Some(pending) = state.control.iter_mut().find(|pending| matches!(pending, Message::Progress { session: id, .. } if id == session)) {
                 *pending = message;
+                return;
+            }
+            if let Message::FilesChanged { project, changes } = &message
+                && let Some(Message::FilesChanged { changes: pending, .. }) = state.control.iter_mut().find(|pending| matches!(pending, Message::FilesChanged { project: id, .. } if id == project)) {
+                pending.merge(changes);
                 return;
             }
             if let Message::GitChanged { project } = &message
@@ -632,6 +637,35 @@ mod tests {
         assert_eq!(
             outbox.next(),
             Some((CONTROL, Message::ActivityChanged { revision: 1000 }))
+        );
+    }
+
+    #[test]
+    fn file_changes_coalesce_and_rescan_for_slow_consumers() {
+        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let project = muxy_protocol::ProjectId::new();
+        for index in 0..1000 {
+            outbox.push_control(Message::FilesChanged {
+                project,
+                changes: muxy_protocol::FileChanges {
+                    paths: vec![muxy_protocol::ServerPath(index.to_string().into_bytes())],
+                    rescan: false,
+                },
+            });
+        }
+        assert_eq!(outbox.lock().control.len(), 1);
+        assert_eq!(
+            outbox.next(),
+            Some((
+                CONTROL,
+                Message::FilesChanged {
+                    project,
+                    changes: muxy_protocol::FileChanges {
+                        paths: Vec::new(),
+                        rescan: true
+                    }
+                }
+            ))
         );
     }
 

@@ -43,6 +43,8 @@ impl Connection {
                 workers: WorkerPool::new("ordering-test", 1, 32)?,
                 git_workers: WorkerPool::new("git-test", 1, 16)?,
                 git_watch: Arc::new(Mutex::new(None)),
+                files_workers: WorkerPool::new("connection-files", 1, 16)?,
+                files_watch: Arc::new(Mutex::new(crate::files::watch::Subscriptions::default())),
                 search_cache: Arc::new(Mutex::new(SearchCache::default())),
                 version: muxy_protocol::V1,
                 last_channel: Arc::new(AtomicU32::new(0)),
@@ -140,5 +142,43 @@ fn queued_history_precedes_later_detach() -> TestResult {
     assert_eq!(id, RequestId(2));
     assert!(matches!(body, ReplyBody::HistoryPage(_)));
     assert_eq!(connection.reply()?, (RequestId(3), ReplyBody::Detached));
+    Ok(())
+}
+
+#[test]
+fn file_work_does_not_block_ping_or_catalog_requests() -> TestResult {
+    let mut connection = Connection::new()?;
+    let (release, gate) = mpsc::channel();
+    let (started, ready) = mpsc::channel();
+    connection.requests.files_workers.try_spawn(move || {
+        let _ = started.send(());
+        let _ = gate.recv_timeout(Duration::from_secs(5));
+    })?;
+    ready.recv_timeout(Duration::from_secs(2))?;
+    connection.send(
+        1,
+        RequestBody::Files(muxy_protocol::FilesRequest {
+            project: muxy_protocol::ProjectId::new(),
+            action: muxy_protocol::FilesAction::Read(muxy_protocol::ServerPath(b"file".to_vec())),
+        }),
+    )?;
+    connection.send(2, RequestBody::Ping)?;
+    connection.send(
+        3,
+        RequestBody::ReadCatalog {
+            after: None,
+            revision: None,
+        },
+    )?;
+    assert_eq!(connection.reply()?, (RequestId(2), ReplyBody::Pong));
+    assert!(matches!(
+        connection.reply()?,
+        (RequestId(3), ReplyBody::Catalog(_))
+    ));
+    release.send(())?;
+    assert!(matches!(
+        connection.reply()?,
+        (RequestId(1), ReplyBody::Error(_))
+    ));
     Ok(())
 }

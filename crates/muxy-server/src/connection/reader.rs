@@ -40,6 +40,8 @@ pub(super) fn run(
         workers: WorkerPool::new("connection-work", 1, 32)?,
         git_workers: WorkerPool::new("connection-git", 1, 16)?,
         git_watch: Arc::new(Mutex::new(None)),
+        files_workers: WorkerPool::new("connection-files", 1, 16)?,
+        files_watch: Arc::new(Mutex::new(crate::files::watch::Subscriptions::default())),
         search_cache: Arc::new(Mutex::new(SearchCache::default())),
         version,
         last_channel: Arc::new(AtomicU32::new(0)),
@@ -126,6 +128,8 @@ struct Requests {
     outbox: Arc<Outbox>,
     workers: WorkerPool,
     git_workers: WorkerPool,
+    files_workers: WorkerPool,
+    files_watch: Arc<Mutex<crate::files::watch::Subscriptions>>,
     git_watch: Arc<Mutex<Option<crate::git::watch::RepositoryWatch>>>,
     search_cache: Arc<Mutex<SearchCache>>,
     version: Version,
@@ -133,6 +137,10 @@ struct Requests {
 }
 
 impl Requests {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Keep request dispatch exhaustive in one place"
+    )]
     fn route(&self, body: RequestBody, id: RequestId) -> Result<Option<ReplyBody>, ServerError> {
         let version = self.version;
         if message_version(&Message::Request {
@@ -148,6 +156,35 @@ impl Requests {
         let outbox = &self.outbox;
         match body {
             RequestBody::Ping => Ok(Some(ReplyBody::Pong)),
+            RequestBody::Files(request) => {
+                let watch = Arc::clone(&self.files_watch);
+                let registry = Arc::clone(&self.registry);
+                let output = Arc::clone(outbox);
+                self.files_workers
+                    .try_spawn(move || {
+                        if output.is_closed() {
+                            return;
+                        }
+                        let result = if matches!(
+                            request.action,
+                            muxy_protocol::FilesAction::Watch | muxy_protocol::FilesAction::Unwatch
+                        ) {
+                            watch
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .request(&registry, &output, &request)
+                        } else {
+                            registry.files(&request)
+                        };
+                        let body = match result {
+                            Ok(reply) => ReplyBody::Files(reply),
+                            Err(error) => ReplyBody::Error(error.to_reply()),
+                        };
+                        output.push_control(Message::Reply { id, body });
+                    })
+                    .map_err(|error| ServerError::new(ErrorCode::BadRequest, error.to_string()))?;
+                Ok(None)
+            }
             RequestBody::Git(request) => {
                 let watch = Arc::clone(&self.git_watch);
                 let registry = Arc::clone(&self.registry);
@@ -283,6 +320,7 @@ fn ordered_request(
         | RequestBody::MutateProject(_)
         | RequestBody::ListProjectSessions { .. } => project_request(body, registry, outbox)?,
         RequestBody::Git(request) => ReplyBody::Git(registry.git(&request)?),
+        RequestBody::Files(request) => ReplyBody::Files(registry.files(&request)?),
         RequestBody::ListSessions => ReplyBody::Sessions(registry.list()),
         RequestBody::CreateSession {
             project,

@@ -85,6 +85,7 @@ impl Message {
                     Ok(())
                 }
             }
+            Self::FilesChanged { changes, .. } => changes.validate(),
             Self::SessionMetadata { metadata, .. } => validate_path(&metadata.directory),
             Self::ActivityChanged { .. }
             | Self::GitChanged { .. }
@@ -132,6 +133,7 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
             }
         }
         RequestBody::Git(request) => request.validate(),
+        RequestBody::Files(request) => request.validate(),
         RequestBody::SyncSessionReferences { sessions, .. } => {
             if sessions.len() > 16_384 {
                 Err(ErrorCode::BadRequest)
@@ -205,6 +207,7 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
                 Err(ErrorCode::BadRequest)
             }
         }
+        ReplyBody::Files(reply) => reply.validate(),
         ReplyBody::Catalog(page) => page.validate(),
         ReplyBody::ProjectSessions(page) => page.validate(),
         ReplyBody::ServerSettings(settings) => settings.validate(),

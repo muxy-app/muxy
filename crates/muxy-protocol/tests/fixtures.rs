@@ -139,6 +139,15 @@ fn project_fixture_name(message: &Message) -> Option<&'static str> {
 
 fn legacy_fixture_name(message: &Message) -> &'static str {
     match message {
+        Message::FilesChanged { .. } => "files_changed",
+        Message::Request {
+            body: RequestBody::Files(_),
+            ..
+        } => "files_request",
+        Message::Reply {
+            body: ReplyBody::Files(_),
+            ..
+        } => "files_reply",
         Message::Request {
             body: RequestBody::StopServerIfIdle,
             ..
@@ -254,6 +263,7 @@ fn development_messages_share_one_version_and_reject_unknown_schemas() -> Result
 fn kind_name(kind: MessageKind) -> &'static str {
     match kind {
         MessageKind::GitChanged => "git_changed",
+        MessageKind::FilesChanged => "files_changed",
         MessageKind::Progress => "session_progress",
         MessageKind::SessionsChanged => "sessions_changed",
         MessageKind::CatalogChanged => "catalog_changed",

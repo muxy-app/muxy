@@ -155,6 +155,7 @@ impl Delivery {
                 ClientEvent::SessionMetadata { .. }
                 | ClientEvent::ActivityChanged { .. }
                 | ClientEvent::Progress { .. }
+                | ClientEvent::FilesChanged { .. }
                 | ClientEvent::GitChanged { .. }
                 | ClientEvent::SessionsChanged { .. }
                 | ClientEvent::CatalogChanged { .. }

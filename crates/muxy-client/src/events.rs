@@ -24,6 +24,10 @@ pub enum ClientEvent {
         session: SessionId,
         progress: muxy_protocol::SessionProgress,
     },
+    FilesChanged {
+        project: muxy_protocol::ProjectId,
+        changes: muxy_protocol::FileChanges,
+    },
     GitChanged {
         project: muxy_protocol::ProjectId,
     },
@@ -90,6 +94,9 @@ fn next_event(
             }
             (CONTROL, Message::Progress { session, progress }) => {
                 return Some(ClientEvent::Progress { session, progress });
+            }
+            (CONTROL, Message::FilesChanged { project, changes }) => {
+                return Some(ClientEvent::FilesChanged { project, changes });
             }
             (CONTROL, Message::GitChanged { project }) => {
                 return Some(ClientEvent::GitChanged { project });

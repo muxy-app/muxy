@@ -316,3 +316,23 @@ fn mutate_files(repository: &Path, action: &GitAction, paths: &[ServerPath]) -> 
     }
     Ok(())
 }
+
+pub(crate) fn ignored_names(
+    directory: &Path,
+    entries: &[muxy_protocol::FileEntry],
+) -> std::collections::HashSet<Vec<u8>> {
+    if entries.is_empty() {
+        return std::collections::HashSet::new();
+    }
+    let mut input = Vec::new();
+    for entry in entries {
+        input.extend_from_slice(&entry.name.0);
+        input.push(0);
+    }
+    command::ignored(directory, input)
+        .unwrap_or_default()
+        .split(|byte| *byte == 0)
+        .filter(|name| !name.is_empty())
+        .map(<[u8]>::to_vec)
+        .collect()
+}

@@ -26,6 +26,19 @@ impl Client {
         }
     }
 
+    pub fn files(
+        &self,
+        request: muxy_protocol::FilesRequest,
+    ) -> Result<muxy_protocol::FilesReply, ClientError> {
+        match self.request_with_timeout(
+            RequestBody::Files(request),
+            std::time::Duration::from_secs(300),
+        )? {
+            ReplyBody::Files(reply) => Ok(reply),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
     pub fn git(
         &self,
         request: muxy_protocol::GitRequest,

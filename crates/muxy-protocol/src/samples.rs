@@ -94,6 +94,7 @@ impl Message {
             _ => None,
         });
         samples.extend(git_samples());
+        samples.extend(files_samples());
         samples.extend(snapshot.into_iter().flat_map(history_samples));
         samples.extend(input_samples());
         samples.extend(search_samples(session, channel));
@@ -527,6 +528,34 @@ fn activity_samples(session: SessionId) -> Vec<Message> {
         Message::Reply {
             id: RequestId(3),
             body: ReplyBody::ActivityClaimed(vec![1]),
+        },
+    ]
+}
+
+fn files_samples() -> Vec<Message> {
+    vec![
+        Message::Request {
+            id: RequestId(1),
+            body: RequestBody::Files(crate::FilesRequest {
+                project: crate::ProjectId::from_u128(1),
+                action: crate::FilesAction::List(ServerPath(Vec::new())),
+            }),
+        },
+        Message::Reply {
+            id: RequestId(1),
+            body: ReplyBody::Files(crate::FilesReply::Entries(vec![crate::FileEntry {
+                name: ServerPath(b"file".to_vec()),
+                path: ServerPath(b"file".to_vec()),
+                is_directory: false,
+                is_ignored: false,
+            }])),
+        },
+        Message::FilesChanged {
+            project: crate::ProjectId::from_u128(1),
+            changes: crate::FileChanges {
+                paths: vec![ServerPath(b"file".to_vec())],
+                rescan: false,
+            },
         },
     ]
 }
