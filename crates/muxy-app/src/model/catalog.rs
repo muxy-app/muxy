@@ -90,6 +90,7 @@ impl AppModel {
         if self.catalog.dirty > page.revision {
             self.refresh_catalog(cx);
         }
+        self.resume_activity_navigation(cx);
         cx.notify();
     }
 }

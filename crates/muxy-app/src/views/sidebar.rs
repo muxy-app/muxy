@@ -172,13 +172,21 @@ pub(super) fn footer(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement
                 theme.fg,
             )
             .tooltip(
-                "Notifications, no unread notifications",
+                format!("Notifications, {} unread", model.unread_activity_count()),
                 theme.raised(),
                 theme.fg,
                 theme.border,
             )
             .on_click(cx.listener(|model, _, window, cx| model.toggle_notifications(window, cx))),
         )
+        .when(model.unread_activity_count() > 0, |row| {
+            row.child(
+                div()
+                    .text_size(m.font_caption())
+                    .text_color(theme.accent)
+                    .child(model.unread_activity_count().to_string()),
+            )
+        })
         .on_children_prepainted(move |bounds, _, cx| {
             if let Some(bounds) = bounds.first() {
                 let _ = view.update(cx, |model, _| model.notification_anchor = Some(*bounds));
@@ -461,6 +469,10 @@ fn project_list(model: &AppModel, cx: &mut Context<AppModel>) -> AnyElement {
         .into_any_element()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Declarative project row and interaction layout"
+)]
 fn project_row(
     project: &Project,
     index: usize,
@@ -475,6 +487,33 @@ fn project_row(
     let active = model.state.current_project().id == id;
     let group = SharedString::from(format!("project-{id}"));
     let tile = project_tile(project, model, group.clone());
+    let includes_project = |candidate| {
+        candidate == id
+            || model
+                .state
+                .project(candidate)
+                .is_some_and(|p| p.parent_id == Some(id))
+    };
+    let sessions: std::collections::HashSet<_> = model
+        .activity
+        .snapshot
+        .agents
+        .iter()
+        .filter(|a| includes_project(a.project))
+        .map(|a| a.session)
+        .chain(
+            model
+                .activity
+                .snapshot
+                .events
+                .iter()
+                .filter(|e| includes_project(e.project))
+                .map(|e| e.session),
+        )
+        .collect();
+    let activity = muxy_app_core::activity::indicator(&model.activity.snapshot, |session| {
+        sessions.contains(&session)
+    });
     let drag = DraggedProject {
         id,
         last_target: Cell::new(None),
@@ -545,6 +584,27 @@ fn project_row(
                     .child(project.name.clone()),
             )
         })
+        .when(
+            matches!(
+                activity,
+                muxy_app_core::activity::ActivityIndicator::Working
+                    | muxy_app_core::activity::ActivityIndicator::Blocked
+                    | muxy_app_core::activity::ActivityIndicator::Completed
+            ),
+            |row| {
+                row.child(
+                    div()
+                        .flex_none()
+                        .when(!wide, |badge| badge.absolute().right_0().top_0())
+                        .child(super::tab_activity::activity_glyph(
+                            format!("project-agent-{id}"),
+                            activity,
+                            m.scaled(12.0),
+                            model,
+                        )),
+                )
+            },
+        )
         .when(!wide && active, |row| {
             row.child(
                 div()

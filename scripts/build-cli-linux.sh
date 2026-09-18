@@ -43,7 +43,8 @@ for BINARY in muxy muxy-server; do
     cat "$STAGING/artifacts/$BINARY-audit.txt"
     python3 scripts/beta_release.py check-build "$VERSION" "$STAGING/cli/$BINARY"
 done
-cp LICENSE "$STAGING/cli/LICENSE"
+cat LICENSE crates/muxy-server/src/detection/THIRD_PARTY.md \
+    crates/muxy-server/src/detection/LICENSE-herdr > "$STAGING/cli/LICENSE"
 tar -czf "$STAGING/artifacts/muxy-${VERSION}-linux-${ARCH}.tar.gz" -C "$STAGING/cli" muxy muxy-server LICENSE
 tar -czf "$STAGING/artifacts/muxy-${VERSION}-linux-${ARCH}-symbols.tar.gz" -C "$STAGING/symbols" .
 mv "$STAGING/artifacts" "$OUTPUT"

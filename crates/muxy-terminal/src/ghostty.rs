@@ -380,6 +380,31 @@ impl Terminal {
         self.screen_with_prompts().map(|(rows, _)| rows)
     }
 
+    /// A bounded live-screen tail for server-side activity detection, independent of viewport history.
+    pub fn detection_text(&mut self) -> Result<String, TerminalError> {
+        let query = |error| TerminalError::wrap(TerminalStep::Render, error);
+        let snapshot = self.render.update(&self.engine).map_err(query)?;
+        let start = snapshot.rows().map_err(query)?.saturating_sub(80);
+        let mut iteration = self.rows.update(&snapshot).map_err(query)?;
+        let mut text = String::new();
+        let mut index = 0;
+        while let Some(row) = iteration.next() {
+            if index >= start {
+                let runs = row_runs(&mut self.cells, row, &mut self.text).map_err(query)?;
+                for run in runs {
+                    text.push_str(&run.text);
+                }
+                text.push('\n');
+                while text.len() > 128 * 1024 {
+                    let end = text.find('\n').map_or(text.len(), |index| index + 1);
+                    text.drain(..end);
+                }
+            }
+            index += 1;
+        }
+        Ok(text)
+    }
+
     pub fn screen_prompts(&mut self) -> Result<Vec<u16>, TerminalError> {
         let query = |error| TerminalError::wrap(TerminalStep::Render, error);
         let snapshot = self.render.update(&self.engine).map_err(query)?;

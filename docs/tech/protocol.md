@@ -53,7 +53,8 @@ share a supported contract. Any other traffic before hello is fatal.
 | Open-pane references, conditional close, and their replies | client, server | control |
 | List, create, and end session, and their replies | client, server | control |
 | Project catalog pages, field mutations, deletion, and their replies | client, server | control |
-| Catalog and session-list revision invalidations | server | control |
+| Catalog, session-list, and watched activity revision invalidations | server | control |
+| Read activity, acknowledge events, claim desktop delivery, and their replies | client, server | control |
 | Identify client and its reply | client, server | control |
 | Read saved terminal content, discard session and saved content, and their replies | client, server | control |
 | History page and search, and their replies | client, server | control |
@@ -200,3 +201,14 @@ Matching identifiers permit an app update while the older server continues;
 otherwise installation waits for an atomic idle stop or explicit destructive
 confirmation. Scheduling stays in the app. Pre-metadata beta updaters retain
 their existing restart behavior for the transition release.
+
+## AI activity
+
+Session title updates follow open-pane references independently of screen attachments.
+
+Reading activity subscribes to coalesced revision invalidations. Snapshots include
+all detected sessions and the latest 200 durable events, independently of terminal
+attachments. Acknowledgements name observed event IDs, are idempotent, and confirm
+durable shared read state. Delivery claims are limited to the elected desktop
+client and prevent duplicate alerts within a server lifetime. Clients establish a
+fresh notification baseline on reconnect.

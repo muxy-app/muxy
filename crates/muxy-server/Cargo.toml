@@ -13,6 +13,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+regex = "1"
 notify = "8"
 muxy-terminal = { path = "../muxy-terminal" }
 getrandom = "0.3"

@@ -49,6 +49,73 @@ impl PIDInfo for VnodePathInfo {
     }
 }
 
+pub(super) fn agent_provider(group: u32) -> Option<muxy_protocol::AgentProvider> {
+    let mut pids = processes::pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group }).ok()?;
+    pids.sort_unstable();
+    pids.into_iter().take(128).find_map(|pid| {
+        let pid = i32::try_from(pid).ok()?;
+        let name = proc_pid::name(pid).ok()?;
+        crate::detection::identify(&name, &process_arguments(pid))
+    })
+}
+
+#[allow(
+    unsafe_code,
+    reason = "Darwin exposes process arguments only through sysctl"
+)]
+fn process_arguments(pid: i32) -> Vec<String> {
+    unsafe extern "C" {
+        fn sysctl(
+            name: *mut std::ffi::c_int,
+            namelen: u32,
+            oldp: *mut std::ffi::c_void,
+            oldlenp: *mut usize,
+            newp: *mut std::ffi::c_void,
+            newlen: usize,
+        ) -> std::ffi::c_int;
+    }
+    let mut mib = [1, 49, pid]; // CTL_KERN, KERN_PROCARGS2
+    let mut bytes = vec![0u8; 64 * 1024];
+    let mut length = bytes.len();
+    // SAFETY: all pointers reference initialized, writable buffers of the supplied lengths.
+    if unsafe {
+        sysctl(
+            mib.as_mut_ptr(),
+            3,
+            bytes.as_mut_ptr().cast(),
+            &raw mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+    {
+        return Vec::new();
+    }
+    bytes.truncate(length);
+    let Some(count) = bytes
+        .get(..4)
+        .and_then(|b| <[u8; 4]>::try_from(b).ok())
+        .map(i32::from_ne_bytes)
+    else {
+        return Vec::new();
+    };
+    let Some(rest) = bytes.get(4..) else {
+        return Vec::new();
+    };
+    let Some(executable_end) = rest.iter().position(|b| *b == 0) else {
+        return Vec::new();
+    };
+    let args = &rest[executable_end..];
+    let Some(start) = args.iter().position(|b| *b != 0) else {
+        return Vec::new();
+    };
+    args[start..]
+        .split(|b| *b == 0)
+        .take(usize::try_from(count).unwrap_or(0).min(64))
+        .map(|b| String::from_utf8_lossy(b).into_owned())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

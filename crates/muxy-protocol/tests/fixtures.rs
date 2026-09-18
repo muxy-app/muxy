@@ -44,6 +44,30 @@ fn fixture_path(message: &Message) -> PathBuf {
 fn project_fixture_name(message: &Message) -> Option<&'static str> {
     Some(match message {
         Message::Request {
+            body: RequestBody::ReadActivity,
+            ..
+        } => "read_activity",
+        Message::Request {
+            body: RequestBody::AcknowledgeActivity(_),
+            ..
+        } => "acknowledge_activity",
+        Message::Request {
+            body: RequestBody::ClaimActivity(_),
+            ..
+        } => "claim_activity",
+        Message::Reply {
+            body: ReplyBody::Activity(_),
+            ..
+        } => "activity_snapshot",
+        Message::Reply {
+            body: ReplyBody::ActivityAcknowledged,
+            ..
+        } => "activity_acknowledged",
+        Message::Reply {
+            body: ReplyBody::ActivityClaimed(_),
+            ..
+        } => "activity_claimed",
+        Message::Request {
             body: RequestBody::Git(_),
             ..
         } => "git_request",
@@ -246,6 +270,8 @@ fn kind_name(kind: MessageKind) -> &'static str {
         MessageKind::Frame => "frame",
         MessageKind::Metadata => "metadata",
         MessageKind::Mouse => "mouse",
+        MessageKind::ActivityChanged => "activity_changed",
+        MessageKind::SessionMetadata => "session_metadata",
         MessageKind::CellSize => "cell_size",
     }
 }

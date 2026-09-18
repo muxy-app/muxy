@@ -3,9 +3,9 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "linux")]
-use linux::{foreground_member, process_directory};
+use linux::{agent_provider, foreground_member, process_directory};
 #[cfg(target_os = "macos")]
-use macos::{foreground_member, process_directory};
+use macos::{agent_provider, foreground_member, process_directory};
 
 use muxy_protocol::{ForegroundProcess, MetadataEvent, ServerPath};
 use muxy_terminal::TerminalEvent;
@@ -15,6 +15,9 @@ pub(super) struct Metadata {
     pub(super) title: String,
     pub(super) directory: ServerPath,
     pub(super) process: Option<ForegroundProcess>,
+    pub(super) agent: Option<muxy_protocol::AgentProvider>,
+    next_agent: std::time::Instant,
+    agent_group: Option<u32>,
     observed_directory: Option<ServerPath>,
 }
 
@@ -24,6 +27,9 @@ impl Metadata {
             title: String::new(),
             directory,
             process: None,
+            agent: None,
+            next_agent: std::time::Instant::now(),
+            agent_group: None,
             observed_directory: None,
         }
     }
@@ -31,8 +37,25 @@ impl Metadata {
     pub(super) fn update(&mut self, pty: &Pty, terminal: Vec<TerminalEvent>) -> Vec<MetadataEvent> {
         let mut events = Vec::new();
         let previous_directory = self.directory.clone();
-        if let Some(group) = pty.foreground_pid() {
-            let member = foreground_member(group);
+        let group = pty.foreground_pid();
+        let member = group.and_then(foreground_member);
+        if self.next_agent <= std::time::Instant::now() || self.agent_group != group {
+            self.next_agent = std::time::Instant::now() + std::time::Duration::from_millis(500);
+            self.agent_group = group;
+            let session_shell = group == Some(pty.child_pid())
+                && member.as_ref().is_some_and(|(_, name)| {
+                    matches!(
+                        name.trim_start_matches('-'),
+                        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh"
+                    )
+                });
+            self.agent = if session_shell {
+                None
+            } else {
+                group.and_then(agent_provider)
+            };
+        }
+        if let Some(group) = group {
             let process = ForegroundProcess {
                 name: member
                     .as_ref()

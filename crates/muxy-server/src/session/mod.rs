@@ -63,12 +63,15 @@ pub enum AttachmentEvent {
     Ended(ExitReason),
 }
 
+pub(super) type SharedMetadata = std::sync::Arc<std::sync::Mutex<muxy_protocol::SessionMetadata>>;
+
 pub(super) type SharedProgress = std::sync::Arc<std::sync::Mutex<muxy_protocol::SessionProgress>>;
 
 #[derive(Clone, Debug)]
 pub struct SessionHandle {
     info: SessionInfo,
     progress: SharedProgress,
+    metadata: SharedMetadata,
     commands: Sender<OwnerEvent>,
 }
 
@@ -77,12 +80,21 @@ impl SessionHandle {
         info: SessionInfo,
         commands: Sender<OwnerEvent>,
         progress: SharedProgress,
+        metadata: SharedMetadata,
     ) -> Self {
         Self {
             info,
             progress,
+            metadata,
             commands,
         }
+    }
+
+    pub(crate) fn metadata(&self) -> muxy_protocol::SessionMetadata {
+        self.metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     pub(crate) fn progress(&self) -> muxy_protocol::SessionProgress {

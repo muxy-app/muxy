@@ -18,6 +18,7 @@ fn wait_progress(
             } if received == session && progress == expected => return Ok(()),
             ClientEvent::Frame { channel, frame } => connection.client.ack(channel, frame.seq)?,
             ClientEvent::Progress { .. }
+            | ClientEvent::SessionMetadata { .. }
             | ClientEvent::Metadata { .. }
             | ClientEvent::SessionsChanged { .. }
             | ClientEvent::CatalogChanged { .. } => {}

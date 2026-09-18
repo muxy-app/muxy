@@ -36,6 +36,20 @@ impl Delivery {
             *previous = event;
             return Ok(Vec::new());
         }
+        if let ClientEvent::ActivityChanged { revision } = &event
+            && let Some(ClientEvent::ActivityChanged { revision: pending }) = self
+                .deferred
+                .iter_mut()
+                .find(|event| matches!(event, ClientEvent::ActivityChanged { .. }))
+        {
+            *pending = (*pending).max(*revision);
+            return Ok(Vec::new());
+        }
+        if let ClientEvent::SessionMetadata { session, .. } = &event
+            && let Some(previous) = self.deferred.iter_mut().find(|previous| matches!(previous, ClientEvent::SessionMetadata { session: id, .. } if id == session)) {
+            *previous = event;
+            return Ok(Vec::new());
+        }
         if let ClientEvent::Progress { session, .. } = &event
             && let Some(previous) = self.deferred.iter_mut().find(|previous| matches!(previous, ClientEvent::Progress { session: id, .. } if id == session)) {
             *previous = event;
@@ -138,7 +152,9 @@ impl Delivery {
                 ClientEvent::Frame { channel, .. } | ClientEvent::Metadata { channel, .. } => {
                     channel.0 <= self.installed_through
                 }
-                ClientEvent::Progress { .. }
+                ClientEvent::SessionMetadata { .. }
+                | ClientEvent::ActivityChanged { .. }
+                | ClientEvent::Progress { .. }
                 | ClientEvent::GitChanged { .. }
                 | ClientEvent::SessionsChanged { .. }
                 | ClientEvent::CatalogChanged { .. }

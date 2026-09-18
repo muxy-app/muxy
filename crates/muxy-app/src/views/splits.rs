@@ -8,7 +8,7 @@ use gpui::{
 };
 use muxy_app_core::{Axis, Branch, Layout, TabId};
 
-use crate::model::{AppModel, PaneView};
+use crate::model::AppModel;
 
 #[derive(Clone, Default)]
 pub(crate) struct SplitResizeState(Rc<RefCell<Option<SplitResize>>>);
@@ -47,7 +47,7 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
         .iter()
         .find(|tab| Some(tab.id) == model.active_tab())?;
     if let Some(zoomed) = tab.zoomed {
-        let pane = model.grids.get(&zoomed)?;
+        model.grids.get(&zoomed)?;
         return Some(
             div()
                 .debug_selector(|| "zoomed-pane-frame".into())
@@ -68,7 +68,7 @@ pub(crate) fn render(model: &AppModel, cx: &mut Context<AppModel>) -> Option<Any
                         .border_color(model.theme.border)
                         .shadow_md()
                         .overflow_hidden()
-                        .child(pane.element()),
+                        .child(pane_element(zoomed, model)),
                 )
                 .into_any_element(),
         );
@@ -141,10 +141,7 @@ fn node(layout: &Layout, tab: TabId, path: Vec<Branch>, model: &AppModel) -> Any
             second,
         } => (axis, ratio, first, second),
         Layout::Leaf(id) => {
-            return model
-                .grids
-                .get(id)
-                .map_or_else(|| div().size_full().into_any_element(), PaneView::element);
+            return pane_element(*id, model);
         }
     };
     let mut first_path = path.clone();
@@ -222,6 +219,13 @@ fn weighted(content: AnyElement, ratio: f32) -> gpui::Div {
         .child(content);
     view.style().flex_grow = Some(ratio);
     view
+}
+
+fn pane_element(id: muxy_app_core::PaneId, model: &AppModel) -> AnyElement {
+    let Some(pane) = model.grids.get(&id) else {
+        return div().size_full().into_any_element();
+    };
+    pane.element()
 }
 
 #[cfg(test)]

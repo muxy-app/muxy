@@ -36,6 +36,7 @@ pub enum ServerEvent {
 
 #[derive(Debug)]
 pub struct Registry {
+    pub(crate) activity: Arc<crate::activity::Activity>,
     pub(crate) catalog: Arc<crate::catalog::Catalog>,
     pub(crate) git: crate::git::Git,
     pub(crate) operations: Mutex<()>,
@@ -54,6 +55,7 @@ pub struct Registry {
 impl Registry {
     pub fn new(settings: ServerSettings, events: Sender<ServerEvent>) -> Self {
         Self {
+            activity: Arc::default(),
             catalog: Arc::new(crate::catalog::Catalog::memory()),
             operations: Mutex::new(()),
             git: crate::git::Git::default(),
@@ -87,6 +89,7 @@ impl Registry {
         let archive = Archive::open(directory, settings.history_budget_bytes)?;
         let catalog = Arc::new(crate::catalog::Catalog::open(directory, &archive, legacy)?);
         let registry = Self {
+            activity: Arc::new(crate::activity::Activity::open(directory)?),
             catalog,
             archive,
             ..Self::new(settings, events)
@@ -96,10 +99,16 @@ impl Registry {
         Ok(registry)
     }
 
-    pub(crate) fn progress(
+    pub(crate) fn session_observations(
         &self,
         outbox: &crate::connection::Outbox,
-    ) -> BTreeMap<SessionId, muxy_protocol::SessionProgress> {
+    ) -> BTreeMap<
+        SessionId,
+        (
+            muxy_protocol::SessionProgress,
+            muxy_protocol::SessionMetadata,
+        ),
+    > {
         let sessions = outbox.referenced_sessions();
         let handles: Vec<_> = {
             let state = lock(&self.sessions);
@@ -110,7 +119,7 @@ impl Registry {
         };
         handles
             .into_iter()
-            .map(|handle| (handle.id(), handle.progress()))
+            .map(|handle| (handle.id(), (handle.progress(), handle.metadata())))
             .collect()
     }
 
@@ -361,6 +370,7 @@ impl Registry {
                 budget,
                 self.archive.clone(),
                 colors,
+                Arc::clone(&self.activity),
                 move |reason| {
                     let status = if saved.contains(id) {
                         muxy_protocol::SessionStatus::Ended
@@ -472,6 +482,29 @@ impl Registry {
         self.operations
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn claim_activity(
+        &self,
+        requester: &crate::connection::Outbox,
+        ids: &[u64],
+    ) -> Vec<u64> {
+        let connections = self
+            .connections
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let owner = connections
+            .iter()
+            .filter_map(Weak::upgrade)
+            .find(|connection| {
+                !connection.is_closed()
+                    && connection.client().kind == muxy_protocol::ClientKind::Desktop
+            });
+        if owner.is_some_and(|owner| owner.client().id == requester.client().id) {
+            self.activity.claim(ids)
+        } else {
+            Vec::new()
+        }
     }
 
     pub(crate) fn register_connection(&self, outbox: &Arc<crate::connection::Outbox>) {

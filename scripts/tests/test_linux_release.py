@@ -38,7 +38,7 @@ class LinuxReleaseTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         for relative in ('scripts/build-cli-linux.sh', 'scripts/beta_release.py', 'scripts/beta_compatibility.py',
-                         'scripts/audit-linux.py', 'scripts/zig/zig', 'crates/muxy-protocol/src/build.rs', 'LICENSE'):
+                         'scripts/audit-linux.py', 'scripts/zig/zig', 'crates/muxy-protocol/src/build.rs', 'LICENSE', 'crates/muxy-server/src/detection/THIRD_PARTY.md', 'crates/muxy-server/src/detection/LICENSE-herdr'):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, path)
@@ -74,6 +74,7 @@ class LinuxReleaseTests(unittest.TestCase):
                 output = self.root / f'target/beta/{VERSION}/linux-{arch}'
                 with tarfile.open(output / f'muxy-{VERSION}-linux-{arch}.tar.gz') as archive:
                     self.assertEqual(archive.getnames(), ['muxy', 'muxy-server', 'LICENSE'])
+                    self.assertIn(b'Apache License', archive.extractfile('LICENSE').read())
                     for name, data in self.pair.items():
                         self.assertEqual(archive.extractfile(name).read(), data)
                         self.assertEqual(archive.getmember(name).mode, 0o755)

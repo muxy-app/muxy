@@ -28,7 +28,7 @@ pub use session::{
     AttachSnapshot, ClientKind, ExitReason, ForegroundProcess, HistoryCursor, HistoryPage,
     InputModes, LinkRow, LinkSpan, MetadataEvent, Modifiers, MouseAction, MouseButton, MouseEvent,
     ProgressState, SavedScreen, ScrollDirection, SearchMatch, SearchPage, SearchSource,
-    SessionClient, SessionInfo, SessionProgress, TerminalProgress,
+    SessionClient, SessionInfo, SessionMetadata, SessionProgress, TerminalProgress,
 };
 pub use validate::{
     MAX_COLS, MAX_INPUT, MAX_LINK_SPANS, MAX_LINK_URI, MAX_ROWS, validate_input, validate_path,
@@ -56,4 +56,10 @@ mod git;
 pub use git::{
     GitAction, GitBranch, GitFile, GitReply, GitRequest, GitSummary, GitWorktree, WorktreeAction,
     WorktreeIntent, WorktreeRemoval,
+};
+
+mod activity;
+pub use activity::{
+    ACTIVITY_HISTORY_LIMIT, ActivityEvent, ActivityKind, ActivitySnapshot, AgentActivity,
+    AgentProvider, AgentState,
 };

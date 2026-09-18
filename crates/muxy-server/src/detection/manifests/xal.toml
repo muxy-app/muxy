@@ -1,0 +1,37 @@
+# Based on Xal's TUI status-bar.ts; terminal evidence only, no plugin reports.
+id = "xal"
+version = "2026.09.18.1"
+
+[[rules]]
+id = "attention"
+state = "blocked"
+priority = 300
+region = "bottom_non_empty_lines(12)"
+visible_blocker = true
+any = [
+  { contains = ["Approval needed", "choose above"] },
+  { contains = ["Input needed", "answer above"] },
+]
+
+[[rules]]
+id = "working"
+state = "working"
+priority = 200
+region = "bottom_non_empty_lines(6)"
+visible_working = true
+line_regex = ['[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] (Working|Compacting context|Running hooks|Evaluating goal)( · Esc interrupt)?']
+
+[[rules]]
+id = "unsuccessful"
+state = "unknown"
+priority = 150
+region = "bottom_non_empty_lines(6)"
+regex = ['(Failed|Interrupted) after ']
+
+[[rules]]
+id = "finished"
+state = "idle"
+priority = 100
+region = "bottom_non_empty_lines(6)"
+visible_idle = true
+contains = ["✓ Finished in"]

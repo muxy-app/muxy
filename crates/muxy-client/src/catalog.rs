@@ -5,6 +5,27 @@ use muxy_protocol::{
 };
 
 impl Client {
+    pub fn activity(&self) -> Result<muxy_protocol::ActivitySnapshot, ClientError> {
+        match self.request(RequestBody::ReadActivity)? {
+            ReplyBody::Activity(snapshot) => Ok(snapshot),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
+    pub fn acknowledge_activity(&self, events: Vec<u64>) -> Result<(), ClientError> {
+        match self.request(RequestBody::AcknowledgeActivity(events))? {
+            ReplyBody::ActivityAcknowledged => Ok(()),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
+    pub fn claim_activity(&self, events: Vec<u64>) -> Result<Vec<u64>, ClientError> {
+        match self.request(RequestBody::ClaimActivity(events))? {
+            ReplyBody::ActivityClaimed(events) => Ok(events),
+            body => Err(ClientError::UnexpectedReply(Box::new(body))),
+        }
+    }
+
     pub fn git(
         &self,
         request: muxy_protocol::GitRequest,

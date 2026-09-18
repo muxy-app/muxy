@@ -110,6 +110,10 @@ pub(crate) struct AppModel {
     retained: HashSet<PaneId>,
     loaded: HashSet<PaneId>,
     snapshots: HashMap<PaneId, RunGrid>,
+    pub(crate) activity: activity::ActivityView,
+    pub(crate) window_active: bool,
+    #[cfg(target_os = "macos")]
+    notifications: Option<muxy_ui::notifications::Notifications>,
     pub(crate) progress: HashMap<SessionId, muxy_protocol::SessionProgress>,
     pub(crate) completions: HashSet<PaneId>,
     discarding: HashSet<SessionId>,
@@ -286,6 +290,8 @@ impl AppModel {
     }
 
     fn activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.window_active = window.is_window_active();
+        self.acknowledge_focused_activity(cx);
         if window.is_window_active() {
             if self.path.with_file_name("ghostty.conf").exists() {
                 self.reload_configuration(cx);
@@ -395,6 +401,10 @@ impl AppModel {
             retained: HashSet::new(),
             loaded: HashSet::new(),
             snapshots: HashMap::new(),
+            activity: activity::ActivityView::default(),
+            window_active: window.is_window_active(),
+            #[cfg(target_os = "macos")]
+            notifications: Self::start_notifications(cx),
             progress: HashMap::new(),
             completions: HashSet::new(),
             discarding: HashSet::new(),
@@ -1075,7 +1085,7 @@ impl AppModel {
             .any(|pane| pane.id == id && matches!(pane.content, PaneContent::Terminal { .. }))
     }
 
-    fn pane_session(&self, id: PaneId) -> Option<SessionId> {
+    pub(crate) fn pane_session(&self, id: PaneId) -> Option<SessionId> {
         self.state
             .projects()
             .iter()
@@ -1535,6 +1545,9 @@ impl AppModel {
     fn receive_connected(&mut self, sessions: &[SessionInfo], cx: &mut Context<Self>) {
         self.git.reset_context();
         self.connection = ConnectionState::Ready;
+        let navigation = self.activity.navigation.take();
+        self.activity = activity::ActivityView::default();
+        self.activity.navigation = navigation;
         self.references = None;
         self.existing_sessions = crate::views::session_picker::ExistingSessions::default();
         self.sync_preferences(cx);
@@ -1542,6 +1555,7 @@ impl AppModel {
         if !self.send(Work::Colors(self.palette.terminal_colors()), cx) {
             return;
         }
+        self.refresh_activity(cx);
         self.sync_references(cx);
         self.catalog.pending = false;
         self.catalog.replaying = false;
@@ -1554,11 +1568,21 @@ impl AppModel {
         cx.notify();
     }
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "Exhaustive routing of client worker results"
+    )]
     fn receive(&mut self, (generation, update): (u64, Update), cx: &mut Context<Self>) {
         if generation != self.generation {
             return;
         }
         match update {
+            Update::Activity(result) => self.receive_activity(result, cx),
+            Update::ActivityClaimed(result) => self.deliver_activity(result),
+            Update::ActivityAcknowledged { ids, result } => {
+                self.activity_acknowledged(&ids, result, cx);
+            }
+            Update::ActivitySession(result) => self.open_activity_session(result, cx),
             Update::Git { request, result } => self.receive_git(&request, result, cx),
             Update::ProjectSessions { project, result } => {
                 self.receive_session_page(project, result, cx);
@@ -1817,7 +1841,14 @@ impl AppModel {
             return;
         }
         let previous = self.progress.insert(session, progress).unwrap_or_default();
-        if progress.completed > previous.completed {
+        if progress.completed > previous.completed
+            && !self
+                .activity
+                .snapshot
+                .agents
+                .iter()
+                .any(|agent| agent.session == session)
+        {
             let active = self.active_pane();
             for pane in self
                 .state
@@ -1836,8 +1867,44 @@ impl AppModel {
         cx.notify();
     }
 
+    fn receive_session_metadata(
+        &mut self,
+        session: SessionId,
+        metadata: &muxy_protocol::SessionMetadata,
+        cx: &mut Context<Self>,
+    ) {
+        let title = muxy_app_core::title::derive(
+            &metadata.title,
+            metadata.process.as_ref(),
+            &metadata.directory,
+        );
+        let panes: Vec<_> = self
+            .state
+            .projects()
+            .iter()
+            .flat_map(|project| &project.tabs)
+            .flat_map(|tab| &tab.panes)
+            .filter(|pane| {
+                matches!(pane.content,
+                PaneContent::Terminal { session: Some(id) } if id == session)
+            })
+            .map(|pane| pane.id)
+            .collect();
+        for pane in panes {
+            let _ = self.state.set_pane_title(pane, title.clone());
+        }
+        cx.notify();
+    }
+
     fn receive_event(&mut self, event: ClientEvent, cx: &mut Context<Self>) {
         match event {
+            ClientEvent::SessionMetadata { session, metadata } => {
+                self.receive_session_metadata(session, &metadata, cx);
+            }
+            ClientEvent::ActivityChanged { revision } => {
+                self.activity.dirty = self.activity.dirty.max(revision);
+                self.refresh_activity(cx);
+            }
             ClientEvent::Progress { session, progress } => {
                 self.receive_progress(session, progress, cx);
             }
@@ -1966,6 +2033,9 @@ impl AppModel {
             progress.progress = None;
         }
         self.completions.clear();
+        self.activity.snapshot.agents.clear();
+        self.activity.loaded = false;
+        self.activity.pending = false;
         self.references = None;
         self.existing_sessions = crate::views::session_picker::ExistingSessions::default();
         self.update_session_picker(cx);
@@ -2024,6 +2094,7 @@ impl Drop for AppModel {
 #[cfg(test)]
 mod tests {
     use muxy_protocol::ExitReason;
+    mod activity;
     mod clipboard;
     mod colors;
     mod command_palette;
@@ -4226,3 +4297,5 @@ mod tests {
         Ok(())
     }
 }
+
+mod activity;

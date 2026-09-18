@@ -54,7 +54,9 @@ struct State {
     changes: Arc<AtomicU64>,
     references: References,
     progress: HashMap<SessionId, SessionProgress>,
+    session_metadata: HashMap<SessionId, muxy_protocol::SessionMetadata>,
     catalog_watched: bool,
+    activity_watched: bool,
     colors: Option<TerminalColors>,
     control: VecDeque<Message>,
     pending: HashMap<ChannelId, ScreenFrame>,
@@ -108,9 +110,12 @@ impl Outbox {
         state
             .open_sessions
             .retain(|session| references.sessions.contains(session));
-        state.control.retain(|message| !matches!(message, Message::Progress { session, .. } if !references.sessions.contains(session)));
+        state.control.retain(|message| !matches!(message, Message::Progress { session, .. } | Message::SessionMetadata { session, .. } if !references.sessions.contains(session)));
         state
             .progress
+            .retain(|session, _| references.sessions.contains(session));
+        state
+            .session_metadata
             .retain(|session, _| references.sessions.contains(session));
         state.references = references;
         state.refresh_positions();
@@ -122,6 +127,17 @@ impl Outbox {
             state.created.insert(session);
             state.refresh_positions();
         }
+    }
+
+    pub(super) fn watch_activity(&self) {
+        self.lock().activity_watched = true;
+    }
+    pub(super) fn activity_watched(&self) -> bool {
+        self.lock().activity_watched
+    }
+
+    pub(crate) fn client(&self) -> muxy_protocol::SessionClient {
+        self.lock().client
     }
 
     pub(super) fn identify(&self, kind: muxy_protocol::ClientKind) -> muxy_protocol::SessionClient {
@@ -206,6 +222,27 @@ impl Outbox {
         };
         let mut state = self.lock();
         if !state.closed {
+            if let Message::ActivityChanged { revision } = &message
+                && let Some(Message::ActivityChanged { revision: pending }) = state
+                    .control
+                    .iter_mut()
+                    .find(|message| matches!(message, Message::ActivityChanged { .. }))
+            {
+                *pending = (*pending).max(*revision);
+                return;
+            }
+            if let Message::SessionMetadata { session, metadata } = &message {
+                if !state.references.sessions.contains(session)
+                    || state.session_metadata.get(session) == Some(metadata)
+                {
+                    return;
+                }
+                state.session_metadata.insert(*session, metadata.clone());
+                if let Some(pending) = state.control.iter_mut().find(|pending| matches!(pending, Message::SessionMetadata { session: id, .. } if id == session)) {
+                    *pending = message;
+                    return;
+                }
+            }
             if let Message::Progress { session, progress } = &message {
                 if !state.references.sessions.contains(session)
                     || *progress == state.progress.get(session).copied().unwrap_or_default()
@@ -377,10 +414,11 @@ impl Outbox {
         }
         state.created.remove(&session);
         state.control.retain(
-            |message| !matches!(message, Message::Progress { session: id, .. } if *id == session),
+            |message| !matches!(message, Message::Progress { session: id, .. } | Message::SessionMetadata { session: id, .. } if *id == session),
         );
         state.references.sessions.remove(&session);
         state.progress.remove(&session);
+        state.session_metadata.remove(&session);
         state.open_sessions.remove(&session);
         let channels: Vec<_> = state
             .attachments
@@ -481,7 +519,7 @@ impl Outbox {
         }
     }
 
-    pub(super) fn is_closed(&self) -> bool {
+    pub(crate) fn is_closed(&self) -> bool {
         self.lock().closed
     }
 
@@ -583,6 +621,19 @@ mod tests {
     use muxy_protocol::{Cursor, Modes, Row};
 
     use super::*;
+
+    #[test]
+    fn slow_activity_consumers_keep_one_latest_invalidation_without_frame_credit() {
+        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        for revision in 1..=1000 {
+            outbox.push_control(Message::ActivityChanged { revision });
+        }
+        assert_eq!(outbox.lock().control.len(), 1);
+        assert_eq!(
+            outbox.next(),
+            Some((CONTROL, Message::ActivityChanged { revision: 1000 }))
+        );
+    }
 
     fn frame(seq: u64, index: u16) -> ScreenFrame {
         ScreenFrame {
@@ -698,6 +749,35 @@ mod tests {
     }
 
     #[test]
+    fn title_updates_coalesce_and_resubscribe_without_screen_credit() {
+        let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
+        let session = SessionId::from(std::num::NonZeroU64::MIN);
+        let message = |title: String| Message::SessionMetadata {
+            session,
+            metadata: muxy_protocol::SessionMetadata {
+                title,
+                directory: muxy_protocol::ServerPath(b"/tmp".to_vec()),
+                process: None,
+            },
+        };
+        outbox.lock().references.sessions.insert(session);
+        for i in 0..1000 {
+            outbox.push_control(message(i.to_string()));
+        }
+        assert_eq!(outbox.lock().control.len(), 1);
+        assert_eq!(outbox.next(), Some((CONTROL, message("999".into()))));
+        outbox.push_control(message("999".into()));
+        assert!(outbox.lock().control.is_empty());
+        outbox.push_control(message("pending".into()));
+        outbox.set_references(References::default(), Some(&[]), false);
+        outbox.push_control(message("ignored".into()));
+        assert!(outbox.lock().control.is_empty());
+        outbox.lock().references.sessions.insert(session);
+        outbox.push_control(message("pending".into()));
+        assert_eq!(outbox.next(), Some((CONTROL, message("pending".into()))));
+    }
+
+    #[test]
     fn progress_coalesces_completions_and_releases_pending_updates_on_unsubscribe() {
         let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
         let session = SessionId::from(std::num::NonZeroU64::MIN);
@@ -762,7 +842,9 @@ mod tests {
             .filter(|message| message.channel_kind() == muxy_protocol::ChannelKind::Control)
         {
             let outbox = Outbox::new(muxy_protocol::V1, Arc::default());
-            if let Message::Progress { session, .. } = &message {
+            if let Message::Progress { session, .. } | Message::SessionMetadata { session, .. } =
+                &message
+            {
                 outbox.lock().references.sessions.insert(*session);
             }
             outbox.push_control(message.clone());

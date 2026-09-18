@@ -85,7 +85,9 @@ impl Message {
                     Ok(())
                 }
             }
-            Self::GitChanged { .. }
+            Self::SessionMetadata { metadata, .. } => validate_path(&metadata.directory),
+            Self::ActivityChanged { .. }
+            | Self::GitChanged { .. }
             | Self::SessionsChanged { .. }
             | Self::CatalogChanged { .. }
             | Self::ServerRestarting
@@ -122,6 +124,13 @@ fn validate_mouse(event: &MouseEvent) -> Result<(), ErrorCode> {
 
 fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
     match body {
+        RequestBody::AcknowledgeActivity(ids) | RequestBody::ClaimActivity(ids) => {
+            if ids.len() <= crate::ACTIVITY_HISTORY_LIMIT {
+                Ok(())
+            } else {
+                Err(ErrorCode::BadRequest)
+            }
+        }
         RequestBody::Git(request) => request.validate(),
         RequestBody::SyncSessionReferences { sessions, .. } => {
             if sessions.len() > 16_384 {
@@ -159,7 +168,8 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
             validate_page_size(*max_rows)
         }
         RequestBody::SavedHistoryPage { max_rows, .. } => validate_page_size(*max_rows),
-        RequestBody::IdentifyClient(_)
+        RequestBody::ReadActivity
+        | RequestBody::IdentifyClient(_)
         | RequestBody::ReadCatalog { .. }
         | RequestBody::ListProjectSessions { .. }
         | RequestBody::CloseSession { .. }
@@ -179,6 +189,22 @@ fn validate_request(body: &RequestBody) -> Result<(), ErrorCode> {
 
 fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
     match body {
+        ReplyBody::ActivityClaimed(ids) => {
+            if ids.len() <= crate::ACTIVITY_HISTORY_LIMIT {
+                Ok(())
+            } else {
+                Err(ErrorCode::BadRequest)
+            }
+        }
+        ReplyBody::Activity(snapshot) => {
+            if snapshot.events.len() <= crate::ACTIVITY_HISTORY_LIMIT
+                && snapshot.agents.len() <= 16_384
+            {
+                Ok(())
+            } else {
+                Err(ErrorCode::BadRequest)
+            }
+        }
         ReplyBody::Catalog(page) => page.validate(),
         ReplyBody::ProjectSessions(page) => page.validate(),
         ReplyBody::ServerSettings(settings) => settings.validate(),
@@ -238,7 +264,8 @@ fn validate_reply(body: &ReplyBody) -> Result<(), ErrorCode> {
             )
         }
         ReplyBody::SavedScreen(screen) => validate_saved_screen(screen),
-        ReplyBody::Git(_)
+        ReplyBody::ActivityAcknowledged
+        | ReplyBody::Git(_)
         | ReplyBody::ProjectMutated { .. }
         | ReplyBody::SessionReferencesSynced
         | ReplyBody::ClientIdentified(_)

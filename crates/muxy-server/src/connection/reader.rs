@@ -225,6 +225,19 @@ fn ordered_request(
     last_channel: &AtomicU32,
 ) -> Result<Option<ReplyBody>, ServerError> {
     Ok(Some(match body {
+        RequestBody::ReadActivity => {
+            outbox.watch_activity();
+            ReplyBody::Activity(registry.activity.snapshot())
+        }
+        RequestBody::AcknowledgeActivity(ids) => {
+            registry.activity.acknowledge(&ids).map_err(|error| {
+                ServerError::new(ErrorCode::PersistenceFailed, error.to_string())
+            })?;
+            ReplyBody::ActivityAcknowledged
+        }
+        RequestBody::ClaimActivity(ids) => {
+            ReplyBody::ActivityClaimed(registry.claim_activity(outbox, &ids))
+        }
         RequestBody::IdentifyClient(kind) => ReplyBody::ClientIdentified(outbox.identify(kind)),
         RequestBody::ReadServerSettings => {
             ReplyBody::ServerSettings(registry.settings().document())

@@ -102,6 +102,7 @@ impl Message {
         samples.extend(project_samples());
         samples.extend(close_samples());
         terminal_metadata_samples(&mut samples);
+        samples.extend(activity_samples(session));
         samples
     }
 }
@@ -295,6 +296,14 @@ fn sample_cursor() -> Cursor {
 }
 
 fn terminal_metadata_samples(samples: &mut Vec<Message>) {
+    samples.push(Message::SessionMetadata {
+        session: NonZeroU64::MIN.into(),
+        metadata: crate::SessionMetadata {
+            title: "Finished task".into(),
+            directory: ServerPath(b"/tmp".to_vec()),
+            process: None,
+        },
+    });
     samples.push(Message::Progress {
         session: SessionId::from(NonZeroU64::MIN),
         progress: crate::SessionProgress {
@@ -471,6 +480,53 @@ fn git_samples() -> Vec<Message> {
                 added: None,
                 removed: None,
             }])),
+        },
+    ]
+}
+
+fn activity_samples(session: SessionId) -> Vec<Message> {
+    vec![
+        Message::ActivityChanged { revision: 42 },
+        Message::Request {
+            id: RequestId(1),
+            body: RequestBody::ReadActivity,
+        },
+        Message::Request {
+            id: RequestId(2),
+            body: RequestBody::AcknowledgeActivity(vec![1]),
+        },
+        Message::Request {
+            id: RequestId(3),
+            body: RequestBody::ClaimActivity(vec![1]),
+        },
+        Message::Reply {
+            id: RequestId(1),
+            body: ReplyBody::Activity(crate::ActivitySnapshot {
+                revision: 42,
+                agents: vec![crate::AgentActivity {
+                    session,
+                    project: crate::ProjectId::from_u128(1),
+                    provider: crate::AgentProvider::Claude,
+                    state: crate::AgentState::Blocked,
+                }],
+                events: vec![crate::ActivityEvent {
+                    id: 1,
+                    session,
+                    project: crate::ProjectId::from_u128(1),
+                    provider: crate::AgentProvider::Claude,
+                    kind: crate::ActivityKind::Attention,
+                    read: false,
+                    timestamp: 123,
+                }],
+            }),
+        },
+        Message::Reply {
+            id: RequestId(2),
+            body: ReplyBody::ActivityAcknowledged,
+        },
+        Message::Reply {
+            id: RequestId(3),
+            body: ReplyBody::ActivityClaimed(vec![1]),
         },
     ]
 }

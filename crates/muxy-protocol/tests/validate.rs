@@ -293,6 +293,32 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
     for message in Message::samples() {
         let (name, channel) = match &message {
             Message::Request {
+                body: RequestBody::ReadActivity,
+                ..
+            } => ("ReadActivity", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::AcknowledgeActivity(_),
+                ..
+            } => ("AcknowledgeActivity", ChannelKind::Control),
+            Message::Request {
+                body: RequestBody::ClaimActivity(_),
+                ..
+            } => ("ClaimActivity", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::Activity(_),
+                ..
+            } => ("Activity", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ActivityAcknowledged,
+                ..
+            } => ("ActivityAcknowledged", ChannelKind::Control),
+            Message::Reply {
+                body: ReplyBody::ActivityClaimed(_),
+                ..
+            } => ("ActivityClaimed", ChannelKind::Control),
+            Message::SessionMetadata { .. } => ("SessionMetadata", ChannelKind::Control),
+            Message::ActivityChanged { .. } => ("ActivityChanged", ChannelKind::Control),
+            Message::Request {
                 body: RequestBody::IdentifyClient(_),
                 ..
             } => ("IdentifyClient", ChannelKind::Control),
@@ -470,6 +496,14 @@ fn samples_cover_every_message_variant_once_and_use_the_right_channel() {
     assert_eq!(
         seen,
         BTreeSet::from([
+            "SessionMetadata",
+            "ActivityChanged",
+            "ReadActivity",
+            "AcknowledgeActivity",
+            "ClaimActivity",
+            "Activity",
+            "ActivityAcknowledged",
+            "ActivityClaimed",
             "GitChanged",
             "GitRequest",
             "GitReply",

@@ -66,3 +66,14 @@ all clients, unlike detaching one pane.
 
 Git provides worktree listing, creation from a branch and directory, and
 removal. File operations and further server capabilities may be defined later.
+
+## AI activity
+
+The server detects supported foreground AI agents from their processes and live
+terminal screens, without provider hooks or plugins. Detection continues without
+attached clients. Screen recognition is best effort; unfamiliar interfaces may
+not expose every state.
+
+Agent status and the latest 200 attention/completion events belong to the server.
+History and read acknowledgements survive restart and are shared across clients.
+Reading an event does not change a blocked agent's live status.

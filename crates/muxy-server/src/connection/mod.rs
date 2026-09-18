@@ -54,8 +54,20 @@ pub fn serve(
         .spawn(move || {
             let mut revision = 0;
             let mut sessions_revision = 0;
+            let mut activity_revision = None;
             while !output.is_closed() {
-                for (session, progress) in catalog.progress(&output) {
+                let current = catalog.activity.revision();
+                if activity_revision != Some(current) && output.activity_watched() {
+                    output.push_control(muxy_protocol::Message::ActivityChanged {
+                        revision: current,
+                    });
+                    activity_revision = Some(current);
+                }
+                for (session, (progress, metadata)) in catalog.session_observations(&output) {
+                    output.push_control(muxy_protocol::Message::SessionMetadata {
+                        session,
+                        metadata,
+                    });
                     output.push_control(muxy_protocol::Message::Progress { session, progress });
                 }
                 let current = catalog.catalog_revision();

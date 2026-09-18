@@ -51,7 +51,7 @@ class BuildReleaseTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         for relative in (
             "scripts/build-release.sh", "scripts/beta_release.py", "scripts/beta_compatibility.py", "scripts/zig/zig",
-            "crates/muxy-protocol/src/build.rs", "LICENSE",
+            "crates/muxy-protocol/src/build.rs", "LICENSE", "crates/muxy-server/src/detection/THIRD_PARTY.md", "crates/muxy-server/src/detection/LICENSE-herdr",
             "packaging/macos/AppIcon.png", "packaging/macos/AppIconBeta.png",
         ):
             destination = self.root / relative
@@ -138,6 +138,7 @@ class BuildReleaseTests(unittest.TestCase):
         output = self.root / "target/beta" / VERSION / "arm64"
         with zipfile.ZipFile(output / f"muxy-{VERSION}-macos-arm64.zip") as archive:
             self.assertEqual(set(archive.namelist()), {"muxy", "muxy-server", "LICENSE"})
+            self.assertIn(b"Apache License", archive.read("LICENSE"))
             for name in ("muxy", "muxy-server"):
                 self.assertEqual(archive.read(name), (output / "Muxy Beta.app/Contents/MacOS" / name).read_bytes())
         self.assertNotEqual(self.build().returncode, 0)

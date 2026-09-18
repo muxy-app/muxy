@@ -24,3 +24,6 @@ mod catalog;
 pub use catalog::LegacyImport;
 
 mod git;
+
+mod activity;
+mod detection;

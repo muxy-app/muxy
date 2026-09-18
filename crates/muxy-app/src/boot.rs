@@ -53,6 +53,13 @@ impl Boot {
 
 #[derive(Debug)]
 pub(crate) enum Work {
+    ReadActivity,
+    OpenActivitySession {
+        project: muxy_protocol::ProjectId,
+        session: SessionId,
+    },
+    AcknowledgeActivity(Vec<u64>),
+    ClaimActivity(Vec<u64>),
     Git(muxy_protocol::GitRequest),
     ProjectSessions {
         project: muxy_protocol::ProjectId,
@@ -123,6 +130,13 @@ pub(crate) enum Work {
 
 #[derive(Debug)]
 pub(crate) enum Update {
+    ActivitySession(Result<Option<muxy_protocol::ProjectSession>, ClientError>),
+    Activity(Result<muxy_protocol::ActivitySnapshot, ClientError>),
+    ActivityAcknowledged {
+        ids: Vec<u64>,
+        result: Result<(), ClientError>,
+    },
+    ActivityClaimed(Result<Vec<u64>, ClientError>),
     Git {
         request: muxy_protocol::GitRequest,
         result: Result<muxy_protocol::GitReply, ClientError>,
@@ -343,6 +357,13 @@ fn schedule(
 
 fn rejected(work: Work, error: ClientError) -> Update {
     match work {
+        Work::OpenActivitySession { .. } => Update::ActivitySession(Err(error)),
+        Work::ReadActivity => Update::Activity(Err(error)),
+        Work::AcknowledgeActivity(ids) => Update::ActivityAcknowledged {
+            ids,
+            result: Err(error),
+        },
+        Work::ClaimActivity(_) => Update::ActivityClaimed(Err(error)),
         Work::Git(request) => Update::Git {
             request,
             result: Err(error),
@@ -410,6 +431,25 @@ fn rejected(work: Work, error: ClientError) -> Update {
 )]
 fn perform(work: Work, client: &Client) -> Option<Update> {
     let result = match work {
+        Work::OpenActivitySession { project, session } => {
+            return Some(Update::ActivitySession(
+                client.available_project_sessions(project).map(|page| {
+                    page.sessions
+                        .into_iter()
+                        .find(|entry| entry.info.id == session)
+                }),
+            ));
+        }
+        Work::ReadActivity => return Some(Update::Activity(client.activity())),
+        Work::AcknowledgeActivity(ids) => {
+            return Some(Update::ActivityAcknowledged {
+                result: client.acknowledge_activity(ids.clone()),
+                ids,
+            });
+        }
+        Work::ClaimActivity(ids) => {
+            return Some(Update::ActivityClaimed(client.claim_activity(ids)));
+        }
         Work::Git(request) => {
             let result = client.git(request.clone());
             return Some(Update::Git { request, result });

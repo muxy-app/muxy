@@ -76,6 +76,8 @@ fn exited_content_is_read_without_attachment_and_discard_is_idempotent() -> Test
             ClientEvent::Frame { channel, frame } => client.ack(channel, frame.seq)?,
             ClientEvent::Metadata { .. }
             | ClientEvent::SessionsChanged { .. }
+            | ClientEvent::SessionMetadata { .. }
+            | ClientEvent::ActivityChanged { .. }
             | ClientEvent::Progress { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. } => {}
@@ -149,6 +151,8 @@ fn saved_history_pages_remain_readable_after_the_server_reopens_its_archive() ->
                     ClientEvent::Frame { channel, frame } => client.ack(channel, frame.seq)?,
                     ClientEvent::Metadata { .. }
                     | ClientEvent::SessionsChanged { .. }
+                    | ClientEvent::SessionMetadata { .. }
+                    | ClientEvent::ActivityChanged { .. }
                     | ClientEvent::Progress { .. }
                     | ClientEvent::GitChanged { .. }
                     | ClientEvent::CatalogChanged { .. } => {}

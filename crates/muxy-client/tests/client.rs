@@ -178,6 +178,8 @@ impl Connection {
                 } if received == channel => return Ok(frame),
                 ClientEvent::Metadata { .. }
                 | ClientEvent::SessionsChanged { .. }
+                | ClientEvent::SessionMetadata { .. }
+                | ClientEvent::ActivityChanged { .. }
                 | ClientEvent::Progress { .. }
                 | ClientEvent::GitChanged { .. }
                 | ClientEvent::CatalogChanged { .. } => {}
@@ -218,6 +220,8 @@ impl Connection {
                 Ok(
                     ClientEvent::Metadata { .. }
                     | ClientEvent::SessionsChanged { .. }
+                    | ClientEvent::SessionMetadata { .. }
+                    | ClientEvent::ActivityChanged { .. }
                     | ClientEvent::Progress { .. }
                     | ClientEvent::GitChanged { .. }
                     | ClientEvent::CatalogChanged { .. },
@@ -238,6 +242,8 @@ impl Connection {
                 ClientEvent::Frame { .. }
                 | ClientEvent::Metadata { .. }
                 | ClientEvent::SessionsChanged { .. }
+                | ClientEvent::SessionMetadata { .. }
+                | ClientEvent::ActivityChanged { .. }
                 | ClientEvent::Progress { .. }
                 | ClientEvent::GitChanged { .. }
                 | ClientEvent::CatalogChanged { .. } => {}
@@ -284,6 +290,8 @@ fn metadata_crosses_the_connection_and_is_included_in_the_next_attachment() -> T
             }
             ClientEvent::Frame { .. }
             | ClientEvent::SessionsChanged { .. }
+            | ClientEvent::SessionMetadata { .. }
+            | ClientEvent::ActivityChanged { .. }
             | ClientEvent::Progress { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. } => {}
@@ -454,6 +462,8 @@ fn server_exit_disconnects_the_client() -> TestResult {
             ClientEvent::Frame { .. }
             | ClientEvent::Metadata { .. }
             | ClientEvent::SessionsChanged { .. }
+            | ClientEvent::SessionMetadata { .. }
+            | ClientEvent::ActivityChanged { .. }
             | ClientEvent::Progress { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. } => {}
@@ -760,6 +770,8 @@ fn wait_input_modes(
             } if channel == expected => return Ok(modes),
             ClientEvent::Metadata { .. }
             | ClientEvent::SessionsChanged { .. }
+            | ClientEvent::SessionMetadata { .. }
+            | ClientEvent::ActivityChanged { .. }
             | ClientEvent::Progress { .. }
             | ClientEvent::GitChanged { .. }
             | ClientEvent::CatalogChanged { .. } => {}
@@ -873,3 +885,8 @@ fn two_clients_observe_project_metadata_deletion_and_explicit_session_membership
     assert!(fixture.directory.is_dir());
     Ok(())
 }
+
+#[path = "client/activity.rs"]
+mod activity;
+#[path = "client/titles.rs"]
+mod titles;

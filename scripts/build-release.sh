@@ -85,7 +85,8 @@ done
 python3 "$ROOT/scripts/beta_release.py" plist "$VERSION" "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
-cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
+cat "$ROOT/LICENSE" "$ROOT/crates/muxy-server/src/detection/THIRD_PARTY.md" \
+    "$ROOT/crates/muxy-server/src/detection/LICENSE-herdr" > "$APP/Contents/Resources/LICENSE"
 
 ICON_SOURCE="$ROOT/packaging/macos/AppIconBeta.png"
 ICONSET="$STAGING/AppIcon.iconset"
@@ -117,7 +118,7 @@ done
 
 # Copy the sealed executables without stripping or signing them again.
 mkdir "$STAGING/cli"
-cp "$APP/Contents/MacOS/muxy" "$APP/Contents/MacOS/muxy-server" "$ROOT/LICENSE" "$STAGING/cli/"
+cp "$APP/Contents/MacOS/muxy" "$APP/Contents/MacOS/muxy-server" "$APP/Contents/Resources/LICENSE" "$STAGING/cli/"
 CLI_ARCHIVE="$STAGING/artifacts/muxy-${VERSION}-macos-${ARCH}.zip"
 (cd "$STAGING/cli" && zip -X "$CLI_ARCHIVE" muxy muxy-server LICENSE)
 

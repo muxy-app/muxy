@@ -30,3 +30,10 @@ pub mod window_drag;
 
 #[allow(unsafe_code)]
 pub mod quick_terminal;
+
+#[cfg(target_os = "macos")]
+#[allow(
+    unsafe_code,
+    reason = "Native notification delegate and Objective-C initialization"
+)]
+pub mod notifications;

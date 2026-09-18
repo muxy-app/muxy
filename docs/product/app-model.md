@@ -110,3 +110,15 @@ An incompatible beta update may wait for all sessions to end. This schedules
 installation and app restart while the app runs; users can cancel it. Updating
 immediately requires confirmation that all terminal processes on the device
 will end and their terminal panes will close.
+
+## AI indicators and notifications
+
+Desktop tabs and projects show server-reported AI activity, including
+hidden tabs and detached sessions. Blocked agents take priority over working
+agents and unread completions. The notification list opens the corresponding
+terminal when it is still running.
+
+Viewing a session in the active desktop or marking an event read acknowledges it
+for every client. Desktop notifications announce new background attention and
+completion events; reconnecting restores history without replaying old alerts.
+The TUI shares the protocol but its AI presentation is deferred.

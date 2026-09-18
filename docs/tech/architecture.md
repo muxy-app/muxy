@@ -159,3 +159,15 @@ content, and resumes after interruption without touching project directories.
   ending its sessions.
 - Resize is a request to the session owner; the terminal reflows and the
   next tick emits the full visible screen.
+
+## AI activity
+
+Session owners classify supported agent processes against bounded live-screen,
+title, and terminal-progress evidence. Bundled detection rules are compiled once;
+clients never inspect terminal output for agent state.
+
+The server coalesces activity invalidations independently of screen attachments.
+Clients fetch current status and bounded history and acknowledge event IDs. A
+background writer persists history without blocking terminal owners. One connected
+desktop client claims new events for native delivery; other clients receive the
+same status and read state.

@@ -45,6 +45,36 @@ fn parse_stat(stat: &[u8]) -> Option<(u32, String)> {
     Some((group, name))
 }
 
+pub(super) fn agent_provider(group: u32) -> Option<muxy_protocol::AgentProvider> {
+    use std::io::Read;
+    let mut pids: Vec<u32> = fs::read_dir("/proc")
+        .ok()?
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().to_str()?.parse().ok())
+        .collect();
+    pids.sort_unstable();
+    pids.into_iter()
+        .filter_map(|pid| {
+            let stat = fs::read(format!("/proc/{pid}/stat")).ok()?;
+            let (pgrp, name) = parse_stat(&stat)?;
+            (pgrp == group).then_some((pid, name))
+        })
+        .take(128)
+        .find_map(|(pid, name)| {
+            let mut bytes = Vec::new();
+            let _ = fs::File::open(format!("/proc/{pid}/cmdline"))
+                .ok()?
+                .take(64 * 1024)
+                .read_to_end(&mut bytes);
+            let args = bytes
+                .split(|b| *b == 0)
+                .take(64)
+                .map(|b| String::from_utf8_lossy(b).into_owned())
+                .collect::<Vec<_>>();
+            crate::detection::identify(&name, &args)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

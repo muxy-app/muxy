@@ -1,0 +1,1 @@
+Detection manifests and region extraction are adapted from [herdr](https://github.com/herdrdev/herdr), commit `7df919d00e5bf8f6ed43a1781e81340cc0bbce8d`, copyright its contributors, licensed under Apache-2.0. See LICENSE-herdr. Muxy uses its own server integration, matcher, and state transitions; no provider integrations or remote updates are included.

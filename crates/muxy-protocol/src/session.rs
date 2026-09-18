@@ -125,6 +125,13 @@ pub struct SessionProgress {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct SessionMetadata {
+    pub title: String,
+    pub directory: ServerPath,
+    pub process: Option<ForegroundProcess>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum MetadataEvent {
     Title(String),
     Directory(ServerPath),

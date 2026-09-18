@@ -3,8 +3,11 @@ use gpui::{
     Animation, AnimationExt as _, AnyElement, Bounds, Hsla, IntoElement, ParentElement,
     PathBuilder, Pixels, SharedString, Styled, canvas, div, percentage, point, px, svg,
 };
-use muxy_app_core::Tab;
-use muxy_protocol::{ProgressState, TerminalProgress};
+use muxy_app_core::{
+    Tab,
+    activity::{ActivityIndicator, indicator},
+};
+use muxy_protocol::{AgentProvider, ProgressState, TerminalProgress};
 
 use crate::model::AppModel;
 use gpui::InteractiveElement;
@@ -17,14 +20,65 @@ pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElem
             session: Some(session),
         } = pane.content
         {
-            progress = progress.or(model
-                .progress
-                .get(&session)
-                .and_then(|state| state.progress));
+            let agent = model
+                .activity
+                .snapshot
+                .agents
+                .iter()
+                .find(|agent| agent.session == session);
+            progress = progress.or(muxy_app_core::activity::effective_progress(
+                agent.map(|agent| agent.state),
+                model
+                    .progress
+                    .get(&session)
+                    .and_then(|state| state.progress),
+            ));
             completion |= model.completions.contains(&pane.id);
         }
     }
+    let sessions: Vec<_> = tab
+        .panes
+        .iter()
+        .filter_map(|pane| match pane.content {
+            muxy_app_core::PaneContent::Terminal { session } => session,
+            muxy_app_core::PaneContent::Settings => None,
+        })
+        .collect();
+    let activity = indicator(&model.activity.snapshot, |session| {
+        sessions.contains(&session)
+    });
+    completion |= activity == ActivityIndicator::Completed;
+    let provider = tab
+        .displayed_pane(model.state.window().active_pane)
+        .and_then(|pane| model.pane_session(pane.id))
+        .and_then(|session| {
+            model
+                .activity
+                .snapshot
+                .agents
+                .iter()
+                .find(|agent| agent.session == session)
+        })
+        .map(|agent| agent.provider);
     let id = tab.id;
+    let fallback = if !tab.pinned
+        && let Some(provider) = provider
+    {
+        div()
+            .debug_selector(move || format!("tab-provider-{id}-{provider:?}"))
+            .flex()
+            .child(provider_icon(provider, size, model))
+            .into_any_element()
+    } else {
+        fallback
+    };
+    let dot = if activity == ActivityIndicator::Blocked {
+        Some(model.theme.warning)
+    } else if completion {
+        Some(model.theme.accent)
+    } else {
+        None
+    };
     div()
         .relative()
         .flex()
@@ -40,16 +94,16 @@ pub(super) fn glyph(tab: &Tab, model: &AppModel, size: Pixels, fallback: AnyElem
                 .into_any_element(),
             None => fallback,
         })
-        .when(completion, |glyph| {
+        .when_some(dot, |glyph, color| {
             glyph.child(
                 div()
                     .debug_selector(move || format!("tab-completion-{id}"))
                     .absolute()
-                    .top(px(-2.0))
-                    .right(px(-2.0))
+                    .top(model.metrics.scaled(-3.0))
+                    .right(model.metrics.scaled(-3.0))
                     .size(model.metrics.scaled(6.0))
                     .rounded_full()
-                    .bg(model.theme.accent),
+                    .bg(color),
             )
         })
         .into_any_element()
@@ -131,4 +185,62 @@ fn ring_path(
         }
     }
     builder.build().ok()
+}
+
+pub(super) fn activity_glyph(
+    id: String,
+    activity: ActivityIndicator,
+    size: Pixels,
+    model: &AppModel,
+) -> AnyElement {
+    if activity == ActivityIndicator::Working {
+        return svg()
+            .path("icons/progress-indeterminate.svg")
+            .size(size)
+            .text_color(model.theme.accent)
+            .with_animation(
+                SharedString::from(id),
+                Animation::new(std::time::Duration::from_secs(1)).repeat(),
+                |svg, delta| {
+                    svg.with_transformation(gpui::Transformation::rotate(percentage(delta)))
+                },
+            )
+            .into_any_element();
+    }
+    let color = match activity {
+        ActivityIndicator::Blocked => model.theme.warning,
+        ActivityIndicator::Completed => model.theme.accent,
+        _ => return div().into_any_element(),
+    };
+    div()
+        .size(model.metrics.scaled(8.0))
+        .rounded_full()
+        .bg(color)
+        .into_any_element()
+}
+
+fn provider_icon(provider: AgentProvider, size: Pixels, model: &AppModel) -> AnyElement {
+    let name = match provider {
+        AgentProvider::Claude => "claude",
+        AgentProvider::Codex => "codex",
+        AgentProvider::OpenCode => "opencode",
+        AgentProvider::Cursor => "cursor",
+        AgentProvider::Copilot => "copilot",
+        AgentProvider::Droid => "factory",
+        AgentProvider::Pi => "pi",
+        AgentProvider::Grok => "grok",
+        AgentProvider::Kiro => "kiro",
+        AgentProvider::Xal => "xal",
+        AgentProvider::Antigravity => "antigravity",
+    };
+    let path = SharedString::from(format!("icons/provider-{name}.svg"));
+    if provider == AgentProvider::Claude {
+        gpui::img(path).size(size).into_any_element()
+    } else {
+        svg()
+            .path(path)
+            .size(size)
+            .text_color(model.theme.fg)
+            .into_any_element()
+    }
 }

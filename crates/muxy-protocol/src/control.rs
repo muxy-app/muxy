@@ -71,6 +71,9 @@ pub enum RequestBody {
     },
     IdentifyClient(crate::ClientKind),
     Git(crate::GitRequest),
+    ReadActivity,
+    AcknowledgeActivity(Vec<u64>),
+    ClaimActivity(Vec<u64>),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -116,6 +119,9 @@ pub enum ReplyBody {
     SessionClosed,
     ClientIdentified(crate::SessionClient),
     Git(crate::GitReply),
+    Activity(crate::ActivitySnapshot),
+    ActivityAcknowledged,
+    ActivityClaimed(Vec<u64>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

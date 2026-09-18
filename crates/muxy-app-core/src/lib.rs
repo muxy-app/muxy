@@ -29,3 +29,5 @@ pub use window::{WindowBounds, WindowState};
 mod catalog;
 
 pub mod settings;
+
+pub mod activity;

@@ -1,8 +1,9 @@
+use gpui::StatefulInteractiveElement;
+use gpui::prelude::FluentBuilder;
 use gpui::{
     AnyElement, Bounds, Context, Entity, FontWeight, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Pixels, Point, Styled, Window, div, point, px, size,
 };
-use muxy_ui::components::SymbolGlyph;
 
 use super::menu::{self, Item, Menu};
 use crate::model::AppModel;
@@ -137,6 +138,10 @@ pub(crate) fn layer(model: &AppModel, window: &Window, cx: &mut Context<AppModel
         .into_any_element()
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "Declarative notification popover layout"
+)]
 fn notifications(
     anchor: Option<Bounds<Pixels>>,
     model: &AppModel,
@@ -180,21 +185,76 @@ fn notifications(
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Notifications"),
         )
+        .when(model.unread_activity_count() > 0, |panel| {
+            panel.child(
+                div()
+                    .id("activity-mark-all-read")
+                    .px(m.spacing5())
+                    .py(m.spacing2())
+                    .cursor_pointer()
+                    .text_size(m.font_caption())
+                    .text_color(theme.accent)
+                    .child("Mark all read")
+                    .on_click(cx.listener(|model, _, _, cx| {
+                        let ids = model
+                            .activity
+                            .snapshot
+                            .events
+                            .iter()
+                            .filter(|event| !event.read)
+                            .map(|event| event.id)
+                            .collect();
+                        model.acknowledge_activity(ids, cx);
+                    })),
+            )
+        })
         .child(
             div()
+                .id("activity-history")
                 .flex_1()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(m.spacing4())
-                .child(SymbolGlyph::new("bell.slash", m.icon_xl(), theme.fg_dim))
-                .child(
+                .min_h(px(0.0))
+                .overflow_y_scroll()
+                .when(model.activity.snapshot.events.is_empty(), |list| {
+                    list.child(
+                        div()
+                            .p(m.spacing5())
+                            .text_color(theme.fg_muted)
+                            .child("No notifications"),
+                    )
+                })
+                .children(model.activity.snapshot.events.iter().map(|event| {
+                    let id = event.id;
+                    let project = model.state.project(event.project).map_or_else(
+                        || "Removed project".to_owned(),
+                        |project| project.name.clone(),
+                    );
                     div()
+                        .id(gpui::SharedString::from(format!("activity-{id}")))
+                        .flex()
+                        .flex_col()
+                        .gap(m.spacing1())
+                        .px(m.spacing5())
+                        .py(m.spacing3())
+                        .cursor_pointer()
+                        .hover(|style| style.bg(theme.hover))
                         .text_size(m.font_body())
-                        .text_color(theme.fg_muted)
-                        .child("No notifications"),
-                ),
+                        .text_color(if event.read { theme.fg_muted } else { theme.fg })
+                        .child(format!(
+                            "{} · {}",
+                            event.provider.name(),
+                            event.kind.description()
+                        ))
+                        .child(
+                            div()
+                                .text_size(m.font_caption())
+                                .text_color(theme.fg_muted)
+                                .child(project),
+                        )
+                        .on_click(cx.listener(move |model, _, window, cx| {
+                            model.navigate_activity(id, cx);
+                            model.focus_active(window, cx);
+                        }))
+                })),
         )
         .into_any_element()
 }

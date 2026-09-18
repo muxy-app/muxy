@@ -236,7 +236,10 @@ fn background_work_alone_keeps_shell_foreground_metadata() -> TestResult {
             |event| matches!(event, MetadataEvent::Directory(path) if path.0.ends_with(b"/tmp")),
         )?;
         let (_, _, process) = fixture.attach(2)?;
-        assert!(process.is_some_and(|process| process.is_shell), "{shell}");
+        assert!(
+            process.as_ref().is_some_and(|process| process.is_shell),
+            "{shell}: {process:?}"
+        );
     }
     Ok(())
 }

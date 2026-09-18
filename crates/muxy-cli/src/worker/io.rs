@@ -163,6 +163,7 @@ pub(super) fn reader(client: Client, shared: Arc<Mutex<Shared>>) -> Result<JoinH
                 let mut state = lock(&shared);
                 let mut ack = None;
                 match event {
+                    ClientEvent::SessionMetadata { .. } | ClientEvent::ActivityChanged { .. } => {}
                     ClientEvent::Frame { channel, mut frame } => {
                         frame.graphics = None;
                         if let Some(view) = state

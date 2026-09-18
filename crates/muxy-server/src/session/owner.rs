@@ -21,7 +21,7 @@ use crate::session::{AttachmentEvent, AttachmentId, SessionCommand, SessionHandl
 const TICK: Duration = Duration::from_millis(16);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(1);
 const CHECKPOINT: Duration = Duration::from_secs(1);
-const METADATA_POLL: Duration = Duration::from_secs(1);
+const METADATA_POLL: Duration = Duration::from_millis(100);
 
 type Fault = Box<dyn Error + Send + Sync>;
 
@@ -61,6 +61,13 @@ struct Owner {
     terminal: Terminal,
     metadata: Metadata,
     progress: super::SharedProgress,
+    shared_metadata: super::SharedMetadata,
+    activity: std::sync::Arc<crate::activity::Activity>,
+    detector: crate::detection::Detector,
+    detection_dirty: bool,
+    next_detection: Instant,
+    detection_screen: String,
+    detection_progress: String,
     size: Size,
     events: Receiver<OwnerEvent>,
     input: Sender<Vec<u8>>,
@@ -84,6 +91,10 @@ struct Owner {
     next_metadata: Instant,
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Session startup receives owned terminal resources and shared server services"
+)]
 pub(crate) fn start(
     info: SessionInfo,
     mut pty: Pty,
@@ -91,8 +102,10 @@ pub(crate) fn start(
     history_budget_bytes: usize,
     archive: Archive,
     colors: Option<TerminalColors>,
+    activity: std::sync::Arc<crate::activity::Activity>,
     on_exit: impl FnOnce(ExitReason) + Send + 'static,
 ) -> Result<SessionHandle, ServerError> {
+    crate::detection::prepare();
     let id = info.id.get();
     let (sender, receiver) = mpsc::channel();
     let (pty_sender, pty_receiver) = mpsc::channel();
@@ -114,6 +127,13 @@ pub(crate) fn start(
 
     let progress = super::SharedProgress::default();
     let session_progress = progress.clone();
+    let shared_metadata =
+        std::sync::Arc::new(std::sync::Mutex::new(muxy_protocol::SessionMetadata {
+            title: String::new(),
+            directory: info.directory.clone(),
+            process: None,
+        }));
+    let owner_metadata = shared_metadata.clone();
     let session = info.clone();
     let failed = sender.clone();
     thread::Builder::new()
@@ -147,6 +167,13 @@ pub(crate) fn start(
             let owner = Owner {
                 metadata: Metadata::new(session.directory.clone()),
                 progress: session_progress,
+                shared_metadata: owner_metadata,
+                activity,
+                detector: crate::detection::Detector::default(),
+                detection_dirty: true,
+                next_detection: Instant::now(),
+                detection_screen: String::new(),
+                detection_progress: String::new(),
                 info: session,
                 pty,
                 terminal,
@@ -179,7 +206,7 @@ pub(crate) fn start(
     ready
         .recv()
         .map_err(|_| ServerError::spawn_failed("session thread stopped before it was ready"))??;
-    Ok(SessionHandle::new(info, sender, progress))
+    Ok(SessionHandle::new(info, sender, progress, shared_metadata))
 }
 
 fn set_colors(
@@ -214,6 +241,7 @@ impl Owner {
         });
         self.drain_output();
         self.update_metadata();
+        self.activity.remove(self.info.id);
         self.checkpoint(Some(reason));
         for attachment in self.attachments.values() {
             let _ = attachment.sink.send(AttachmentEvent::Ended(reason));
@@ -343,6 +371,7 @@ impl Owner {
     }
 
     fn feed(&mut self, bytes: &[u8]) -> Result<(), Fault> {
+        self.detection_dirty = true;
         self.terminal.feed(bytes);
         if self.terminal.synchronized_output()? {
             self.synchronized_since.get_or_insert_with(Instant::now);
@@ -578,13 +607,44 @@ impl Owner {
         let terminal = self.terminal.take_events();
         for event in &terminal {
             if let muxy_terminal::TerminalEvent::Progress(progress) = event {
+                use muxy_protocol::ProgressState;
+                self.detection_progress = progress.progress.map_or_else(
+                    || "4;0;0".into(),
+                    |p| match p.state {
+                        ProgressState::Running => {
+                            format!("4;1;{}", p.percent.map_or(-1, i16::from))
+                        }
+                        ProgressState::Indeterminate => "4;1;-1".into(),
+                        ProgressState::Error => "4;2".into(),
+                        ProgressState::Paused => "4;4".into(),
+                    },
+                );
                 *self
                     .progress
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = *progress;
             }
         }
-        for event in self.metadata.update(&self.pty, terminal) {
+        let events = self.metadata.update(&self.pty, terminal);
+        if events.iter().any(|event| {
+            matches!(
+                event,
+                MetadataEvent::Title(_)
+                    | MetadataEvent::Directory(_)
+                    | MetadataEvent::ForegroundProcess { .. }
+            )
+        }) {
+            *self
+                .shared_metadata
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                muxy_protocol::SessionMetadata {
+                    title: self.metadata.title.clone(),
+                    directory: self.metadata.directory.clone(),
+                    process: self.metadata.process.clone(),
+                };
+        }
+        for event in events {
             self.attachments.retain(|_, attachment| {
                 attachment
                     .sink
@@ -592,7 +652,50 @@ impl Owner {
                     .is_ok()
             });
         }
-        self.next_metadata = Instant::now() + METADATA_POLL;
+        if self.metadata.agent != self.detector.provider {
+            self.detection_dirty = true;
+            self.detection_progress.clear();
+        }
+        let now = Instant::now();
+        if now >= self.next_detection {
+            self.next_detection = now + METADATA_POLL;
+            if self.metadata.agent.is_some() {
+                if self.detection_dirty && !self.terminal.synchronized_output().unwrap_or(true) {
+                    if let Ok(screen) = self.terminal.detection_text() {
+                        self.detection_screen = screen;
+                    }
+                    self.detection_dirty = false;
+                }
+                let completed = self.detector.update(
+                    self.metadata.agent,
+                    self.detection_screen.clone(),
+                    &self.metadata.title,
+                    &self.detection_progress,
+                    now,
+                );
+                if let Some(provider) = self.detector.provider {
+                    self.activity.update(
+                        muxy_protocol::AgentActivity {
+                            session: self.info.id,
+                            project: self.info.project,
+                            provider,
+                            state: self.detector.state,
+                        },
+                        completed,
+                    );
+                }
+            } else {
+                self.detector = crate::detection::Detector::default();
+                self.detection_screen.clear();
+                self.activity.remove(self.info.id);
+            }
+        }
+        self.next_metadata = Instant::now()
+            + if self.metadata.agent.is_some() {
+                METADATA_POLL
+            } else {
+                Duration::from_secs(1)
+            };
     }
 
     fn broadcast_frame(&mut self, resized: Option<AttachmentId>) -> Result<(), Fault> {
@@ -752,8 +855,21 @@ mod tests {
             },
             pty,
             terminal: Terminal::new(size, 1024)?,
-            metadata: Metadata::new(directory),
+            metadata: Metadata::new(directory.clone()),
             progress: crate::session::SharedProgress::default(),
+            shared_metadata: std::sync::Arc::new(std::sync::Mutex::new(
+                muxy_protocol::SessionMetadata {
+                    title: String::new(),
+                    directory,
+                    process: None,
+                },
+            )),
+            activity: std::sync::Arc::default(),
+            detector: crate::detection::Detector::default(),
+            detection_dirty: true,
+            next_detection: Instant::now(),
+            detection_screen: String::new(),
+            detection_progress: String::new(),
             size,
             events: mpsc::channel().1,
             input: mpsc::channel().0,
